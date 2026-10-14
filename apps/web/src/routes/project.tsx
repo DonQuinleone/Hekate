@@ -10,8 +10,8 @@ import { profileIcon } from "./projects";
 
 const uploadCopy = {
   music: {
-    title: "Add a recording and its score",
-    body: "Upload takes as WAV, FLAC or AIFF and the score as PDF. Bars sync once the score is mapped.",
+    title: "Add a track",
+    body: "Upload a mix as WAV, FLAC or AIFF to start Version 1, and the score as PDF. Bars sync once the score is mapped.",
   },
   video: {
     title: "Add a cut",

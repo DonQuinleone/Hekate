@@ -2,7 +2,7 @@ import { getTableColumns, getTableName } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import { uuidv7 } from "./id.ts";
-import { assets, projects } from "./schema.ts";
+import { files, projects } from "./schema.ts";
 import { inOrg, tenantTables } from "./tenancy.ts";
 
 describe("uuidv7", () => {
@@ -17,14 +17,25 @@ describe("uuidv7", () => {
 describe("tenancy", () => {
   it("covers every tenant-owned table", () => {
     const names = tenantTables.map((t) => getTableName(t)).sort();
-    expect(names).toEqual(["asset_versions", "assets", "comments", "members", "projects"]);
+    expect(names).toEqual([
+      "comments",
+      "files",
+      "folders",
+      "members",
+      "projects",
+      "sessions",
+      "takes",
+      "tracks",
+      "variations",
+      "versions",
+    ]);
     for (const table of tenantTables) {
       expect(getTableColumns(table).organisationId?.notNull).toBe(true);
     }
   });
 
   it("always includes the organisation condition", () => {
-    const query = new PgDialect().sqlToQuery(inOrg(assets, "org-1", undefined));
+    const query = new PgDialect().sqlToQuery(inOrg(files, "org-1", undefined));
     expect(query.sql).toContain('"organisation_id" = $1');
     expect(query.params).toEqual(["org-1"]);
     const scoped = new PgDialect().sqlToQuery(inOrg(projects, "org-1"));

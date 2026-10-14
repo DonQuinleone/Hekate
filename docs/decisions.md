@@ -33,3 +33,7 @@ Dark, understated, one signal colour (`#F0762E`), hairlines over cards, Schibste
 ## 008. Licence
 
 GNU Affero General Public License v3.0 only.
+
+## 009. Domain vocabulary
+
+Projects contain folders and files of any kind. Tracks have versions (edits) and variations (treatments such as dry and wet mixes). Takes are recording-session snippets kept as reference, never versions. There are no movements. Reviews are approvals (logged decisions) or feedback (comments only), run by configurable workflows with guests, groups and per-project roles. Full definitions in `docs/domain.md`; this supersedes the asset and version wording in 004.

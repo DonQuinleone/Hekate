@@ -47,7 +47,5 @@ export function formatAnchor(anchor: Anchor, options: { fps?: number } = {}): st
         return `BARS ${anchor.from.bar}–${anchor.to.bar}`;
       return `BAR ${anchor.from.bar}.${anchor.from.beat}`;
     }
-    case "section":
-      return "SECTION";
   }
 }

@@ -1,7 +1,10 @@
 import { z } from "zod";
 import type { AnchorKind } from "./anchor.ts";
 
-/** A project's profile decides which tools and anchors appear. The data model is shared. */
+/**
+ * A project's profile decides which tools and anchors appear. Any kind of file can live in any
+ * project, and the data model (folders, files, tracks, versions, variations, takes) is shared.
+ */
 export const projectProfile = z.enum(["music", "video", "general"]);
 export type ProjectProfile = z.infer<typeof projectProfile>;
 
@@ -11,28 +14,23 @@ export interface ProfileDefinition {
   label: string;
   anchors: readonly AnchorKind[];
   tools: readonly Tool[];
-  /** What a version is called in this profile. */
-  versionNoun: string;
 }
 
 export const profiles: Record<ProjectProfile, ProfileDefinition> = {
   music: {
     label: "Music",
-    anchors: ["bar", "time", "region", "section"],
+    anchors: ["bar", "time", "region"],
     tools: ["waveform", "score", "bar-ruler", "pages"],
-    versionNoun: "take",
   },
   video: {
     label: "Video",
     anchors: ["time", "region"],
     tools: ["filmstrip", "timecode", "waveform", "draw"],
-    versionNoun: "version",
   },
   general: {
     label: "General",
     anchors: ["time", "region"],
     tools: ["pages", "waveform", "draw"],
-    versionNoun: "version",
   },
 };
 

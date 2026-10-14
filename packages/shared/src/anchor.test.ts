@@ -4,7 +4,7 @@ import { formatAnchor, formatClock, formatTimecode } from "./format.ts";
 import { allowsAnchor } from "./profile.ts";
 
 describe("anchor schema", () => {
-  it("accepts each anchor kind", () => {
+  it("accepts each anchor kind and nothing else", () => {
     expect(anchor.parse({ kind: "time", start: 271.25, end: 271.25 }).kind).toBe("time");
     expect(
       anchor.parse({ kind: "region", page: 7, x: 0.1, y: 0.1, width: 0.2, height: 0.1 }).kind,
@@ -13,7 +13,7 @@ describe("anchor schema", () => {
       kind: "bar",
       from: { bar: 112, beat: 1 },
     });
-    expect(anchor.parse({ kind: "section", sectionId: "mvt-1" }).kind).toBe("section");
+    expect(anchor.safeParse({ kind: "section", sectionId: "mvt-1" }).success).toBe(false);
   });
 
   it("rejects inverted ranges and regions outside the frame", () => {

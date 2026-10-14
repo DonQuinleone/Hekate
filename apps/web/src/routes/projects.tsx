@@ -15,7 +15,7 @@ export const profileIcon: Record<ProjectProfile, IconName> = {
   general: "file",
 };
 const profileHint: Record<ProjectProfile, string> = {
-  music: "Recordings, takes and scores. Comments anchor to bars.",
+  music: "Tracks with versions and variations, scores and takes. Comments anchor to bars.",
   video: "Cuts and versions. Comments anchor to frames and regions.",
   general: "Documents, images and audio. Comments anchor to pages and moments.",
 };

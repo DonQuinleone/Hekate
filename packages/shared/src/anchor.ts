@@ -7,7 +7,8 @@ import { z } from "zod";
  *   `frame` is set for frame-accurate anchors in video.
  * - `region`: a rectangle on a document page or a video frame, in normalised 0 to 1 coordinates.
  * - `bar`: a bar and beat in a score-synced recording, or a range of bars.
- * - `section`: a whole track or movement.
+ *
+ * A comment with no anchor is about the whole file. Vocabulary: docs/domain.md.
  */
 const seconds = z.number().finite().nonnegative();
 const unit = z.number().min(0).max(1);
@@ -55,17 +56,10 @@ export const barAnchor = z
     path: ["to"],
   });
 
-export const sectionAnchor = z.object({
-  kind: z.literal("section"),
-  /** Identifier of the track or movement within the asset. */
-  sectionId: z.string().min(1),
-});
-
-export const anchor = z.union([timeAnchor, regionAnchor, barAnchor, sectionAnchor]);
+export const anchor = z.union([timeAnchor, regionAnchor, barAnchor]);
 
 export type TimeAnchor = z.infer<typeof timeAnchor>;
 export type RegionAnchor = z.infer<typeof regionAnchor>;
 export type BarAnchor = z.infer<typeof barAnchor>;
-export type SectionAnchor = z.infer<typeof sectionAnchor>;
 export type Anchor = z.infer<typeof anchor>;
 export type AnchorKind = Anchor["kind"];
