@@ -29,6 +29,7 @@ const {
   renditionSegments,
   peakLevels,
   loudness,
+  qaFindings,
   spectrograms,
 } = schema;
 
@@ -312,6 +313,11 @@ export function analysisHandler(deps: MediaWorkerDeps): JobHandler<"media-analys
           blobId: seriesBlobId,
         });
         await tx.insert(spectrograms).values(spectrumRows);
+        if (analysis.findings.length > 0) {
+          await tx
+            .insert(qaFindings)
+            .values(analysis.findings.map((f) => ({ organisationId, fileId, ...f })));
+        }
         await tx
           .update(files)
           .set({ analysisStatus: "ready" })

@@ -16,8 +16,12 @@ import { FIXED_TIME, type Seeded, state } from "./fixtures.ts";
 
 const media = join(state, "media");
 
-/** A few seconds of something like music: plucked notes over a bass, the same every time. */
-function recording(path: string, seconds: number, brightness: number) {
+/**
+ * A few seconds of something like music: plucked notes over a bass, the same every time.
+ * `damage` adds what the quality checks look for: a burst driven into clipping, and a
+ * moment of digital silence.
+ */
+function recording(path: string, seconds: number, brightness: number, damage = false) {
   const note = (base: string, steps: string) =>
     `0.25*sin(2*PI*(${base}*pow(2,${steps}/12))*t)*exp(-4*mod(t,0.5))`;
   const left = `${note("220", "mod(floor(t*2),5)*2")}+${note("110", "mod(floor(t/2),4)*3")}*0.8`;
@@ -30,6 +34,12 @@ function recording(path: string, seconds: number, brightness: number) {
     "lavfi",
     "-i",
     `aevalsrc='${left}|${right}':s=44100:d=${seconds}`,
+    ...(damage
+      ? [
+          "-af",
+          "volume=enable='between(t,12,12.5)':volume=8,volume=enable='between(t,31,31.04)':volume=0",
+        ]
+      : []),
     "-c:a",
     "pcm_s16le",
     path,
@@ -105,7 +115,7 @@ setup("seed", async ({ page, browser }) => {
   mkdirSync(media, { recursive: true });
   const file = (name: string) => join(media, name);
   recording(file("Maple Leaf Rag - Mix v1.wav"), 40, 0.6);
-  recording(file("Maple Leaf Rag - Dry v2.wav"), 40, 0.8);
+  recording(file("Maple Leaf Rag - Dry v2.wav"), 40, 0.8, true);
   recording(file("Maple Leaf Rag - Wet v2.wav"), 40, 1);
   writeFileSync(file("Maple Leaf Rag - Score.pdf"), samplePdf(3));
   cut(file("Opening titles - Cut 3.mp4"));

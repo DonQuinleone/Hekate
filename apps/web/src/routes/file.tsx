@@ -7,7 +7,7 @@ import {
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import {
   type BeforeAfter,
   Comments,
@@ -21,6 +21,7 @@ import { mediaSummary } from "~/components/files";
 import { Loudness } from "~/components/loudness";
 import { type Crumb, PageHeader } from "~/components/page-header";
 import { Player } from "~/components/player";
+import { QaSummary, QualityChecks } from "~/components/qa";
 import { ScorePane } from "~/components/score";
 import { FileContext } from "~/components/tracks";
 import { cn } from "~/lib/cn";
@@ -138,17 +139,25 @@ function technicalDetails(info: MediaInfo | null): [string, string][] {
   return rows;
 }
 
+export type FileView = "review" | "qa";
+
 export function FilePage({
   fileId,
   loop = null,
   onLoop = () => {},
+  view = "review",
+  onView = () => {},
 }: {
   fileId: string;
+  /** Review (the player and the comments) or QA (what was measured), kept in the address. */
+  view?: FileView;
+  onView?: (view: FileView) => void;
   /** The passage being looped, kept in the address so it holds across versions and variations. */
   loop?: Loop | null;
   onLoop?: (loop: Loop | null) => void;
 }) {
   const { data: file, error } = useQuery(fileQuery(fileId));
+  const tabsId = useId();
   const [media, setMedia] = useState<HTMLMediaElement | null>(null);
   /** A source comparison should bring in and play first: before, for before and after. */
   const [focus, setFocus] = useState<CompareFocus | null>(null);
@@ -188,8 +197,9 @@ export function FilePage({
       void media.play().catch(() => undefined);
     }
   };
-  /** Compare or the meters: what follows the score on a phone, when there is any. */
-  const extras = comparable || Boolean(file.mediaInfo?.audio && allows("meters"));
+  /** A recording's measurements, checks and details have a view of their own (#41). */
+  const hasQa = Boolean(file.mediaInfo?.audio && allows("meters"));
+  const shown = hasQa ? view : "review";
   const summary = mediaSummary(file.kind, file.mediaInfo, file.streamStatus);
   const details: [string, string][] = [
     ["Type", file.contentType],
@@ -242,12 +252,45 @@ export function FilePage({
       />
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-5 sm:px-6">
         {!guest && <FileContext file={file} />}
+        {hasQa && (
+          <div
+            role="tablist"
+            aria-label="View"
+            className="flex h-11 items-stretch gap-0.5 border-b border-hairline"
+          >
+            {(["review", "qa"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                role="tab"
+                id={`${tabsId}-${v}`}
+                aria-selected={shown === v}
+                aria-controls={`${tabsId}-panel`}
+                onClick={() => onView(v)}
+                className="-mb-px inline-flex cursor-pointer items-center gap-1.5 border-0 border-b border-transparent bg-transparent px-2 text-[13px] font-medium text-ink-3 hover:text-ink-2 aria-selected:border-ink aria-selected:text-ink"
+              >
+                {v === "review" ? "Review" : "QA"}
+              </button>
+            ))}
+          </div>
+        )}
         {/*
-          On a phone the comments follow the player, before the score and the details; on a
-          wide screen they sit beside all of them, which the rows and spans below arrange.
+          Review: on a phone the comments follow the player, before the score and the
+          details; on a wide screen they sit beside all of them, as the rows and spans below
+          arrange. QA: the player, then what was measured. The player keeps its place in
+          both, so switching never stops the music. Spacing sits on the cells, so a cell left
+          empty adds none.
         */}
-        {/* Spacing sits on the cells, so a cell left empty adds none. */}
-        <div className="grid grid-cols-1 items-start gap-x-8 lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[auto_auto_auto_1fr]">
+        <div
+          {...(hasQa
+            ? { role: "tabpanel", id: `${tabsId}-panel`, "aria-labelledby": `${tabsId}-${shown}` }
+            : {})}
+          className={cn(
+            "grid grid-cols-1 items-start gap-x-8",
+            shown === "review" &&
+              "lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[auto_auto_auto_1fr]",
+          )}
+        >
           <div className="flex min-w-0 flex-col gap-6">
             <Playback
               file={file}
@@ -257,48 +300,69 @@ export function FilePage({
               pages={pages}
               canComment={canComment}
             />
+            {shown === "review" && hasQa && (
+              <QaSummary fileId={file.id} onOpen={() => onView("qa")} />
+            )}
           </div>
-          <div className="min-w-0 pt-8 lg:col-start-2 lg:row-span-4 lg:row-start-1 lg:pt-0">
-            <Comments
-              fileId={file.id}
-              projectId={file.projectId}
-              media={media}
-              loop={passage}
-              pages={file.streamStatus === "ready" ? pages : undefined}
-              onBeforeAfter={comparable ? beforeAfter : undefined}
-              onLoop={
-                allows("loops")
-                  ? (next) => {
-                      // One action: the passage is looped and heard from its start.
-                      onLoop(next);
-                      if (media) {
-                        media.currentTime = next.start;
-                        void media.play().catch(() => undefined);
-                      }
-                    }
-                  : undefined
-              }
-            />
-          </div>
-          {file.variation?.scoreFileId && (file.kind === "audio" || file.kind === "video") && (
-            <div className="min-w-0 pt-8 lg:pt-6">
-              <ScorePane scoreFileId={file.variation.scoreFileId} />
+          {shown === "review" ? (
+            <>
+              <div className="min-w-0 pt-8 lg:col-start-2 lg:row-span-4 lg:row-start-1 lg:pt-0">
+                <Comments
+                  fileId={file.id}
+                  projectId={file.projectId}
+                  media={media}
+                  loop={passage}
+                  pages={file.streamStatus === "ready" ? pages : undefined}
+                  onBeforeAfter={comparable ? beforeAfter : undefined}
+                  onLoop={
+                    allows("loops")
+                      ? (next) => {
+                          // One action: the passage is looped and heard from its start.
+                          onLoop(next);
+                          if (media) {
+                            media.currentTime = next.start;
+                            void media.play().catch(() => undefined);
+                          }
+                        }
+                      : undefined
+                  }
+                />
+              </div>
+              {file.variation?.scoreFileId && (file.kind === "audio" || file.kind === "video") && (
+                <div className="min-w-0 pt-8 lg:pt-6">
+                  <ScorePane scoreFileId={file.variation.scoreFileId} />
+                </div>
+              )}
+              {comparable && (
+                <div className="min-w-0 pt-8 lg:pt-6">
+                  <Compare file={file} media={media} focus={focus} />
+                </div>
+              )}
+              {/* A recording's details belong to QA; a document's stay with it. */}
+              {!hasQa && (
+                <dl className="m-0 mt-8 flex flex-col border-t border-hairline lg:mt-6">
+                  {detailRows}
+                </dl>
+              )}
+            </>
+          ) : (
+            <div className="flex min-w-0 flex-col gap-6 pt-8">
+              <QualityChecks
+                fileId={file.id}
+                projectId={file.projectId}
+                media={media}
+                canChoose={!guest && can("edit_workflows")}
+              />
+              {file.mediaInfo?.audio && (
+                <Loudness
+                  fileId={file.id}
+                  media={media}
+                  layout={file.mediaInfo.audio.channelLayout}
+                />
+              )}
+              <dl className="m-0 flex flex-col border-t border-hairline">{detailRows}</dl>
             </div>
           )}
-          <div className={cn("flex min-w-0 flex-col gap-6 lg:pt-6", extras && "pt-8")}>
-            {comparable && <Compare file={file} media={media} focus={focus} />}
-            {file.mediaInfo?.audio && allows("meters") && (
-              <Loudness
-                fileId={file.id}
-                media={media}
-                layout={file.mediaInfo.audio.channelLayout}
-              />
-            )}
-            <dl className="m-0 hidden flex-col border-t border-hairline lg:flex">{detailRows}</dl>
-          </div>
-          <dl className="m-0 mt-8 flex flex-col border-t border-hairline lg:hidden">
-            {detailRows}
-          </dl>
         </div>
       </div>
     </>

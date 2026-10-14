@@ -34,8 +34,12 @@ const loopSearchSchema = z.object({
     .optional()
     .catch(undefined),
 });
-const loopSearch = (search: Record<string, unknown>): { loop?: string } =>
-  loopSearchSchema.parse(search);
+/** A file page's address: the passage looped, and the QA view when it is open. */
+const fileSearchSchema = loopSearchSchema.extend({
+  view: z.enum(["qa"]).optional().catch(undefined),
+});
+const fileSearch = (search: Record<string, unknown>): { loop?: string; view?: "qa" } =>
+  fileSearchSchema.parse(search);
 
 const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   component: Outlet,
@@ -118,17 +122,24 @@ const guestReview = createRoute({
 const guestFile = createRoute({
   getParentRoute: () => guestApp,
   path: "/g/files/$fileId",
-  validateSearch: loopSearch,
+  validateSearch: fileSearch,
   component: function GuestFileRoute() {
     const { fileId } = guestFile.useParams();
-    const { loop } = guestFile.useSearch();
+    const { loop, view } = guestFile.useSearch();
     const navigate = guestFile.useNavigate();
     return (
       <FilePage
         fileId={fileId}
         loop={parseLoop(loop)}
         onLoop={(next) =>
-          void navigate({ search: next ? { loop: formatLoop(next) } : {}, replace: true })
+          void navigate({
+            search: (prev) => ({ ...prev, loop: next ? formatLoop(next) : undefined }),
+            replace: true,
+          })
+        }
+        view={view ?? "review"}
+        onView={(next) =>
+          void navigate({ search: (prev) => ({ ...prev, view: next === "qa" ? "qa" : undefined }) })
         }
       />
     );
@@ -184,17 +195,24 @@ const track = createRoute({
 const file = createRoute({
   getParentRoute: () => app,
   path: "/files/$fileId",
-  validateSearch: loopSearch,
+  validateSearch: fileSearch,
   component: function FileRoute() {
     const { fileId } = file.useParams();
-    const { loop } = file.useSearch();
+    const { loop, view } = file.useSearch();
     const navigate = file.useNavigate();
     return (
       <FilePage
         fileId={fileId}
         loop={parseLoop(loop)}
         onLoop={(next) =>
-          void navigate({ search: next ? { loop: formatLoop(next) } : {}, replace: true })
+          void navigate({
+            search: (prev) => ({ ...prev, loop: next ? formatLoop(next) : undefined }),
+            replace: true,
+          })
+        }
+        view={view ?? "review"}
+        onView={(next) =>
+          void navigate({ search: (prev) => ({ ...prev, view: next === "qa" ? "qa" : undefined }) })
         }
       />
     );

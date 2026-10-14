@@ -3,6 +3,7 @@ import {
   type Anchor,
   type CarryStatus,
   type CreateReviewInput,
+  type DeliveryProfileId,
   decodeLoudness,
   decodePeaks,
   decodeSpectrogram,
@@ -13,6 +14,7 @@ import {
   type MediaInfo,
   type ProjectPermission,
   type ProjectProfile,
+  type QaFinding,
   type ReviewDecision,
   type ReviewerPermissions,
   type ReviewerPermissionsChange,
@@ -599,6 +601,35 @@ export function useCommentMutations(fileId: string) {
         }),
     }),
   };
+}
+
+/** A recording's quality checks (#41), against its project's delivery profile. */
+export interface QaReport {
+  status: StreamStatus;
+  profile: { id: DeliveryProfileId; label: string; chosen: boolean };
+  findings: QaFinding[];
+}
+
+export const qaQuery = (fileId: string) =>
+  queryOptions({
+    queryKey: ["files", fileId, "qa"],
+    queryFn: async () => json<QaReport>(await api.files[":id"].qa.$get({ param: { id: fileId } })),
+    staleTime: 60_000,
+  });
+
+/** Choose what a project's recordings are checked against; every file's report follows. */
+export function useDeliveryProfile(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (deliveryProfile: DeliveryProfileId | null) =>
+      json(
+        await api.projects[":id"].$patch({ param: { id: projectId }, json: { deliveryProfile } }),
+      ),
+    onSuccess: () =>
+      client.invalidateQueries({
+        predicate: (q) => q.queryKey[0] === "files" && q.queryKey[2] === "qa",
+      }),
+  });
 }
 
 /** Another file aligned with this one: where the same music sits there, from this file's times. */

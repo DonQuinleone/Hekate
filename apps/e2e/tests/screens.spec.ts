@@ -64,6 +64,11 @@ const screens: Screen[] = [
     ready: "section[aria-label=Comments] li",
   },
   {
+    name: "file-recording-qa",
+    path: (s) => `/files/${s.dryFileId}?view=qa`,
+    ready: "section[aria-label=Checks] h2",
+  },
+  {
     name: "file-score",
     path: (s) => `/files/${s.scoreFileId}`,
     ready: "section[aria-label=Comments] li",
