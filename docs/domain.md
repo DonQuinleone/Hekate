@@ -15,6 +15,7 @@ The words in this document are used exactly as defined, in code, in the interfac
 | **Variation** | One file within a version that differs in treatment, not in edit: for example the dry mix and the wet mix of Version 4. Every version has at least one variation, and one is primary. |
 | **Take** | A snippet of audio captured in the recording session, usually not a complete run of the music. Takes are reference material for the producer and editor: they show what is available for each passage and what has been stitched into the edit. A take groups its files: one per microphone, plus an optional summed mix. Takes are **not** versions and do not normally appear in review. |
 | **Session** | A recording session, grouping takes (for example "Day 2 · St John's"). |
+| **Coverage** | The page and bar range of the score that a take, or a set of takes, contains. Used to answer "which takes cover bar 72?". |
 | **Comment** | A note on a file, optionally anchored to a place in it. Comments can be threaded and resolved. |
 | **Category** | A configurable label on a comment, such as *Noise*, *Edit*, *Balance*, *Performance*. A category can carry a default handling, for example *Noise* defers the comment to a later stage. Categories are defined per project. |
 | **Deferred** | A comment set aside for a later stage of the workflow (typically noise, handled at the end). It stays open and reappears when that stage starts. |
@@ -70,6 +71,23 @@ Tools for engineers and producers, all working on the protected streams (`docs/s
 - Solo and mute channels for multichannel files and takes
 
 Analysis data (peaks, spectrogram tiles, loudness) is computed by the media worker, so the browser never needs the full-quality audio to draw it.
+
+## Take manager
+
+A tool for producers and editors, mostly used while editing and before material goes to stakeholders. It can also be opened from a review.
+
+**Import and automatic organisation.** At the end of a session or a project, drop in every audio file at once. Hekate proposes an organisation, which the user confirms or corrects before anything is saved:
+
+- Reads Broadcast Wave and iXML metadata (scene, take, tape, track names, timecode, sample rate) and file names, with configurable name patterns
+- Groups files into takes: files sharing a take number and overlapping timecode are one take; one file per microphone, and a file whose channel name or level suggests a mix becomes the take's summed mix
+- Groups takes into sessions by date, tape or folder
+- Assigns takes to tracks by matching their audio against the track's versions, and flags what it could not place
+
+**Coverage.** Each take, or a set of takes, can carry score references: a page and bar range (for example *p. 7, bars 64–88*). References can be entered by hand, adjusted, or proposed automatically by aligning the take's audio against a synced version of the track.
+
+**Questions it answers.** "Any other options for bar 72?" lists every take that covers bar 72, with the take's rating and notes, which take is used in the current version, and one action to audition each at bar 72, looped and level-matched. The same lookup appears on any bar-anchored comment ("Other takes for bar 72").
+
+**Notes and ratings.** Takes can be rated, starred (the producer's circled takes) and annotated, and the edit decision (which take is used for which bars in a version) can be recorded.
 
 ## Quality checks
 
