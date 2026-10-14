@@ -1,5 +1,4 @@
-import { BASE_SAMPLES_PER_PEAK, type PeakLevel, peakLevels } from "@hekate/shared";
-import { run, safeInputArgs } from "./ffmpeg.ts";
+import { BASE_SAMPLES_PER_PEAK, type PeakLevel } from "@hekate/shared";
 
 /** Peaks are 8-bit: a sample of full scale maps to ±127. */
 const quantise = (sample: number) => Math.round(Math.max(-1, Math.min(1, sample)) * 127);
@@ -82,44 +81,4 @@ export class PeakBuilder {
       data,
     };
   }
-}
-
-/**
- * Decode a file's first audio stream, every channel as recorded, and compute its peak
- * levels. The decoded audio streams through and is never written anywhere: an hour of
- * 96 kHz surround would be gigabytes.
- */
-export async function computePeaks(
-  path: string,
-  audio: { channels: number; sampleRate: number },
-  signal: AbortSignal,
-): Promise<PeakLevel[]> {
-  const builder = new PeakBuilder(audio.channels, audio.sampleRate);
-  await run(
-    "ffmpeg",
-    [
-      ...safeInputArgs("ffmpeg"),
-      "-v",
-      "error",
-      "-i",
-      `file:${path}`,
-      "-map",
-      "0:a:0",
-      "-vn",
-      "-f",
-      "f32le",
-      "-acodec",
-      "pcm_f32le",
-      // Keep the source's channels and rate exactly; a peak describes real samples.
-      "-ac",
-      String(audio.channels),
-      "-ar",
-      String(audio.sampleRate),
-      "pipe:1",
-    ],
-    { signal, timeoutMs: 60 * 60_000, onStdout: (chunk) => builder.push(chunk) },
-  );
-  const base = builder.finish();
-  if (base.count === 0) throw new Error("No audio was decoded");
-  return peakLevels(base);
 }

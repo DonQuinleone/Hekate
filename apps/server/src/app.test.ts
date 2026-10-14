@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buffer } from "node:stream/consumers";
 import { createDb, runMigrations, schema, withAuditPurge } from "@hekate/db";
-import { decodePeaks } from "@hekate/shared";
+import { decodeLoudness, decodePeaks, type LoudnessSummary } from "@hekate/shared";
 import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -17,7 +17,7 @@ import { loadConfig } from "./config.ts";
 import { createKeyring } from "./keyring.ts";
 import { memoryMailer } from "./mail.ts";
 import { probe, run } from "./media/ffmpeg.ts";
-import { checksumHandler, peaksHandler, proxyHandler } from "./media/workers.ts";
+import { analysisHandler, checksumHandler, proxyHandler } from "./media/workers.ts";
 import { playbackSecret, signPlayback } from "./playback.ts";
 import { createStorage } from "./storage.ts";
 import { expireUploads } from "./uploads.ts";
@@ -27,6 +27,11 @@ const url = process.env.DATABASE_URL;
 describe("config", () => {
   it("reports every invalid setting", () => {
     expect(() => loadConfig({ PORT: "nope" })).toThrow(/PORT[\s\S]*DATABASE_URL[\s\S]*AUTH_SECRET/);
+  });
+
+  it("refuses a work directory that media tools could not be given safely", () => {
+    expect(() => loadConfig({ WORK_DIR: "/mnt/scratch space" })).toThrow(/WORK_DIR/);
+    expect(() => loadConfig({ WORK_DIR: "relative/work" })).toThrow(/WORK_DIR/);
   });
 });
 
@@ -1880,7 +1885,7 @@ describe.runIf(url)("api", () => {
         it("serves a file's waveform peaks per channel to its organisation", async () => {
           const owner = cookieOf(await setup());
           const { organisationId, fileId } = await playableFile(owner);
-          await peaksHandler({ db, storage, keyring, jobs, workDir: join(storageRoot, "work") })(
+          await analysisHandler({ db, storage, keyring, jobs, workDir: join(storageRoot, "work") })(
             { organisationId, fileId },
             { id: "job", signal: new AbortController().signal, retryCount: 0 },
           );
@@ -1905,6 +1910,60 @@ describe.runIf(url)("api", () => {
             (await get(`/api/files/${other.fileId}/peaks/${levels[0]?.id}`, owner)).status,
           ).toBe(404);
           expect((await get(`/api/files/${fileId}/peaks`)).status).toBe(401);
+
+          // The same analysis measured its loudness, per channel.
+          const measured = await get(`/api/files/${fileId}/loudness`, owner);
+          expect(measured.status).toBe(200);
+          const body = (await measured.json()) as {
+            status: string;
+            summary: LoudnessSummary | null;
+            series: { channels: number; count: number } | null;
+          };
+          expect(body.status).toBe("ready");
+          expect(body.summary?.channels).toHaveLength(2);
+          expect(body.series?.channels).toBe(2);
+          const series = await get(`/api/files/${fileId}/loudness/series`, owner);
+          expect(series.status).toBe(200);
+          expect(series.headers.get("cache-control")).toContain("no-store");
+          expect(decodeLoudness(new Uint8Array(await series.arrayBuffer())).count).toBe(
+            body.series?.count,
+          );
+          // A file not yet analysed has no series, and another organisation's is not there.
+          expect((await get(`/api/files/${other.fileId}/loudness/series`, owner)).status).toBe(404);
+          const [elsewhere] = await db
+            .insert(schema.organisations)
+            .values({ name: "Elsewhere", slug: "elsewhere-loudness" })
+            .returning();
+          const foreignOrg = elsewhere?.id ?? "";
+          const [project] = await db
+            .insert(schema.projects)
+            .values({ organisationId: foreignOrg, name: "Theirs", profile: "music" })
+            .returning();
+          const bytes = await storage.put(foreignOrg, Buffer.from("theirs"));
+          const [foreign] = await db
+            .insert(schema.files)
+            .values({
+              organisationId: foreignOrg,
+              projectId: project?.id ?? "",
+              name: "Theirs.wav",
+              kind: "audio",
+              blobId: bytes.id,
+              contentType: "audio/wav",
+              byteSize: bytes.byteSize,
+            })
+            .returning();
+          await db.insert(schema.loudness).values({
+            organisationId: foreignOrg,
+            fileId: foreign?.id ?? "",
+            summary: body.summary as LoudnessSummary,
+            channels: 2,
+            sampleRate: 48000,
+            samplesPerFrame: 4800,
+            frameCount: 0,
+            blobId: bytes.id,
+          });
+          expect((await get(`/api/files/${foreign?.id}/loudness`, owner)).status).toBe(404);
+          expect((await get(`/api/files/${foreign?.id}/loudness/series`, owner)).status).toBe(404);
         }, 120_000);
 
         it("describes a file and what it can play, to its own organisation only", async () => {

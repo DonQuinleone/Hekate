@@ -3,8 +3,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { analyseAudio } from "./analysis.ts";
 import { run } from "./ffmpeg.ts";
-import { computePeaks, PeakBuilder } from "./peaks.ts";
+import { PeakBuilder } from "./peaks.ts";
 
 const pcm = (samples: number[]) => {
   const buffer = Buffer.alloc(samples.length * 4);
@@ -48,7 +49,7 @@ describe("peak builder", () => {
 
 const hasFfmpeg = spawnSync("ffmpeg", ["-version"]).status === 0;
 
-describe.runIf(hasFfmpeg || process.env.CI)("peaks from a file", () => {
+describe.runIf(hasFfmpeg || process.env.CI)("analysis of a file", () => {
   const root = mkdtempSync(join(tmpdir(), "hekate-peaks-"));
   afterAll(() => rmSync(root, { recursive: true, force: true }));
 
@@ -71,9 +72,10 @@ describe.runIf(hasFfmpeg || process.env.CI)("peaks from a file", () => {
       "pcm_s24le",
       path,
     ]);
-    const levels = await computePeaks(
+    const { levels, loudness } = await analyseAudio(
       path,
       { channels: 6, sampleRate: 48000 },
+      root,
       new AbortController().signal,
     );
     const base = levels[0];
@@ -89,5 +91,60 @@ describe.runIf(hasFfmpeg || process.env.CI)("peaks from a file", () => {
     });
     // ffmpeg's sine source peaks at 1/8 of full scale.
     expect(loudest).toEqual(volumes.map((v) => Math.round(v * 127 * 0.125)));
+
+    // Levels per channel, in the same order: each channel's own peak.
+    const { series, summary } = loudness;
+    expect(series.channels).toBe(6);
+    expect(series.count).toBe(30);
+    summary.channels.forEach((channel, i) => {
+      const expected = 20 * Math.log10((volumes[i] ?? 0) * 0.125);
+      expect(channel.samplePeak).toBeCloseTo(expected, 1);
+      // A sine's RMS is 3 dB below its peak.
+      expect(channel.rms).toBeCloseTo(expected - 3.01, 1);
+      expect(channel.truePeak).toBeCloseTo(expected, 0);
+    });
+    expect(summary.integrated).toBeLessThan(-10);
+    expect(summary.integrated).toBeGreaterThan(-30);
+  });
+
+  /** Ten seconds of 1 kHz at -18 dBFS in both channels, the right one inverted or not. */
+  const stereo = async (name: string, right: string) => {
+    const path = join(root, name);
+    await run("ffmpeg", [
+      "-hide_banner",
+      "-nostdin",
+      "-v",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "sine=frequency=1000:sample_rate=48000:duration=10",
+      "-af",
+      `pan=stereo|FL=c0|FR=${right}`,
+      "-c:a",
+      "pcm_f32le",
+      path,
+    ]);
+    return analyseAudio(
+      path,
+      { channels: 2, sampleRate: 48000 },
+      root,
+      new AbortController().signal,
+    );
+  };
+
+  it("measures loudness to EBU R 128 and phase from the front pair", async () => {
+    const { loudness } = await stereo("in-phase.wav", "c0");
+    // Both channels of a 1 kHz sine at -18.06 dBFS peak: -18.06 LUFS, give or take K-weighting.
+    expect(loudness.summary.integrated).toBeCloseTo(-18.06, 0);
+    expect(loudness.summary.range).toBeLessThan(1);
+    expect(loudness.summary.truePeak).toBeCloseTo(-18.06, 0);
+    // Momentary needs 400 ms of audio; then it is steady.
+    expect(loudness.series.momentary[0]).toBe(-120);
+    expect(loudness.series.momentary[10]).toBeCloseTo(-18.06, 0);
+    expect(loudness.series.phase[10]).toBeCloseTo(1, 3);
+
+    const inverted = await stereo("out-of-phase.wav", "-1*c0");
+    expect(inverted.loudness.series.phase[10]).toBeCloseTo(-1, 3);
   });
 });
