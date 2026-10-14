@@ -39,6 +39,24 @@ export const reviewItemInput = z.union([
 ]);
 export type ReviewItemInput = z.infer<typeof reviewItemInput>;
 
+/** A guest reviewer: someone outside the organisation, reached by email. */
+export const guestInput = z.object({
+  name: z.string().trim().min(1).max(120),
+  email: z
+    .email()
+    .max(254)
+    .transform((e) => e.toLowerCase()),
+  /** How they appear beside their name, for example "Conductor". */
+  label: z.string().trim().max(60).optional(),
+});
+export type GuestInput = z.input<typeof guestInput>;
+
+/** A reviewer: a member's user id, or a guest. */
+export const reviewerInput = z.union([z.string().min(1).max(64), guestInput]);
+export type ReviewerInput = z.infer<typeof reviewerInput>;
+const reviewerKey = (r: ReviewerInput) =>
+  typeof r === "string" ? `member:${r}` : `guest:${r.email}`;
+
 export const createReviewInput = z
   .object({
     kind: z.enum(reviewKinds),
@@ -48,10 +66,13 @@ export const createReviewInput = z
     order: z.enum(reviewOrders).default("parallel"),
     rule: z.enum(approvalRules).optional(),
     items: z.array(reviewItemInput).min(1, "A review needs something to review").max(50),
-    /** Members of the organisation, in order (the order matters in a sequence). */
-    reviewers: z.array(z.string().min(1).max(64)).min(1, "A review needs a reviewer").max(50),
+    /**
+     * In order (the order matters in a sequence): members by user id, and guests by name
+     * and email (an existing guest of the organisation is reused).
+     */
+    reviewers: z.array(reviewerInput).min(1, "A review needs a reviewer").max(50),
   })
-  .refine((r) => new Set(r.reviewers).size === r.reviewers.length, {
+  .refine((r) => new Set(r.reviewers.map(reviewerKey)).size === r.reviewers.length, {
     message: "Each reviewer can be asked once",
     path: ["reviewers"],
   })

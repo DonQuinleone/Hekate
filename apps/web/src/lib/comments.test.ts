@@ -10,6 +10,8 @@ const comment = (id: string, extra: Partial<Comment> = {}): Comment => ({
   body: id,
   authorId: null,
   authorName: null,
+  authorGuest: false,
+  authorLabel: null,
   resolvedAt: null,
   resolvedByName: null,
   editedAt: null,

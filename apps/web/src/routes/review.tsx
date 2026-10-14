@@ -6,6 +6,7 @@ import { Button } from "~/components/ui/button";
 import { StatusPill } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
 import { projectQuery, type ReviewDetail, reviewQuery, useReviewActions } from "~/lib/queries";
+import { useViewer } from "~/lib/viewer";
 
 const dateTime = new Intl.DateTimeFormat("en-GB", {
   day: "numeric",
@@ -115,9 +116,10 @@ function YourTurn({ review }: { review: ReviewDetail }) {
 
 export function ReviewPage({ reviewId }: { reviewId: string }) {
   const { data: review, error } = useQuery(reviewQuery(reviewId));
+  const { guest } = useViewer();
   const { data: project } = useQuery({
     ...projectQuery(review?.projectId ?? ""),
-    enabled: Boolean(review),
+    enabled: Boolean(review) && !guest,
   });
   const { viewed, cancel } = useReviewActions(reviewId);
   // A reviewer opening the review has viewed it: once per visit.
@@ -137,17 +139,25 @@ export function ReviewPage({ reviewId }: { reviewId: string }) {
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-8 sm:px-8">
       <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-[13px]">
-        <Link to="/" className="shrink-0 text-ink-3 no-underline hover:text-ink">
-          Projects
-        </Link>
-        <span className="text-edge">/</span>
-        <Link
-          to="/projects/$projectId"
-          params={{ projectId: review.projectId }}
-          className="truncate text-ink-3 no-underline hover:text-ink"
-        >
-          {project?.name ?? "Project"}
-        </Link>
+        {guest ? (
+          <Link to="/g" className="shrink-0 text-ink-3 no-underline hover:text-ink">
+            Your reviews
+          </Link>
+        ) : (
+          <>
+            <Link to="/" className="shrink-0 text-ink-3 no-underline hover:text-ink">
+              Projects
+            </Link>
+            <span className="text-edge">/</span>
+            <Link
+              to="/projects/$projectId"
+              params={{ projectId: review.projectId }}
+              className="truncate text-ink-3 no-underline hover:text-ink"
+            >
+              {project?.name ?? "Project"}
+            </Link>
+          </>
+        )}
         <span className="text-edge">/</span>
         <span className="truncate font-medium text-ink">{review.title}</span>
       </nav>
@@ -199,7 +209,7 @@ export function ReviewPage({ reviewId }: { reviewId: string }) {
                   </span>
                   {item.fileId ? (
                     <Link
-                      to="/files/$fileId"
+                      to={guest ? "/g/files/$fileId" : "/files/$fileId"}
                       params={{ fileId: item.fileId }}
                       className="shrink-0 text-[13px] text-ink-2 no-underline hover:text-signal"
                     >

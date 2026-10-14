@@ -6,9 +6,10 @@ import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { actorOf, canOnFile, fileAccess } from "../access.ts";
+import { type Actor, canOnFile, fileAccess } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
+import type { PlaySessionVariables, ViewerVariables } from "../guests.ts";
 import type { Keyring } from "../keyring.ts";
 import {
   keyRateLimiter,
@@ -18,7 +19,7 @@ import {
   verifyPlayback,
 } from "../playback.ts";
 import type { Storage } from "../storage.ts";
-import { membershipOf, type SessionVariables, type TenantVariables } from "../tenancy.ts";
+import { membershipOf } from "../tenancy.ts";
 
 const {
   files,
@@ -57,15 +58,15 @@ const fileParam = zValidator("param", z.object({ id: z.uuid() }));
  * A file in a project they cannot see does not exist for them (404).
  */
 const viewFile = (db: Database) =>
-  createMiddleware<{ Variables: TenantVariables }>(async (c, next) => {
+  createMiddleware<{ Variables: ViewerVariables }>(async (c, next) => {
     const id = z.uuid().safeParse(c.req.param("id"));
     if (!id.success) throw new NotFound("File");
-    await canOnFile(db, actorOf(c.var), "view", id.data);
+    await canOnFile(db, c.var.actor, "view", id.data);
     await next();
   });
 
 export const fileRoutes = (deps: PlaybackDeps) =>
-  new Hono<{ Variables: TenantVariables }>()
+  new Hono<{ Variables: ViewerVariables }>()
     .use("/:id", viewFile(deps.db))
     .use("/:id/peaks/*", viewFile(deps.db))
     .use("/:id/peaks", viewFile(deps.db))
@@ -290,7 +291,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
       });
       await deps.audit.record(
         organisationId,
-        await deps.audit.member(c.var.userId),
+        await deps.audit.actor(c.var.actor),
         { action: "stream.session", projectId: file.projectId, fileId: file.id },
         requestInfo(c, deps.trustProxy),
       );
@@ -305,7 +306,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
       );
     });
 
-type PlayVariables = SessionVariables & { playback: PlaybackClaims };
+type PlayVariables = PlaySessionVariables & { playback: PlaybackClaims; actor: Actor };
 
 /**
  * `/api/play/:token/...`: playlists, the initialisation section, segments and the key.
@@ -322,19 +323,31 @@ export const playRoutes = (deps: PlaybackDeps) => {
     if (!claims || claims.sessionId !== c.var.sessionId) {
       throw new HTTPException(403, { message: "This playback link is not valid for you" });
     }
-    const membership = await membershipOf(deps.db, c.var.userId, claims.organisationId);
-    if (!membership) {
-      throw new HTTPException(403, { message: "This playback link is not valid for you" });
+    // Still in the organisation, and still allowed to view the file: a role taken away, or a
+    // guest's review closed, ends playback at once.
+    const who = c.var.who;
+    let actor: Actor;
+    if (who.kind === "guest") {
+      if (who.organisationId !== claims.organisationId) {
+        throw new HTTPException(403, { message: "This playback link is not valid for you" });
+      }
+      actor = who;
+    } else {
+      const membership = await membershipOf(deps.db, who.userId, claims.organisationId);
+      if (!membership) {
+        throw new HTTPException(403, { message: "This playback link is not valid for you" });
+      }
+      actor = {
+        kind: "member",
+        userId: who.userId,
+        organisationId: claims.organisationId,
+        organisationRole: membership.role,
+      };
     }
-    // Still allowed to view the file's project: a role taken away ends playback at once.
-    const actor = {
-      userId: c.var.userId,
-      organisationId: claims.organisationId,
-      organisationRole: membership.role,
-    };
     if (!(await fileAccess(deps.db, actor, claims.fileId))) {
       throw new HTTPException(403, { message: "This playback link is not valid for you" });
     }
+    c.set("actor", actor);
     c.set("playback", claims);
     await next();
   });
@@ -465,7 +478,7 @@ export const playRoutes = (deps: PlaybackDeps) => {
         // Logged before it is sent, like keys: which parts of a file reached whom.
         await deps.audit.record(
           claims.organisationId,
-          await deps.audit.member(c.var.userId),
+          await deps.audit.actor(c.var.actor),
           {
             action: "stream.segment",
             projectId: row.projectId,
@@ -495,7 +508,7 @@ export const playRoutes = (deps: PlaybackDeps) => {
       // Logged before the key leaves: no record, no key.
       await deps.audit.record(
         claims.organisationId,
-        await deps.audit.member(c.var.userId),
+        await deps.audit.actor(c.var.actor),
         {
           action: "stream.key",
           fileId: claims.fileId,

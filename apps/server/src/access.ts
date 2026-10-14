@@ -1,24 +1,107 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import { type OrganisationRole, type ProjectPermission, permissionsFor } from "@hekate/shared";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
 import { NotFound } from "./errors.ts";
 
-const { projects, projectMembers, projectRoles, files } = schema;
+const {
+  projects,
+  projectMembers,
+  projectRoles,
+  files,
+  reviews,
+  reviewItems,
+  reviewReviewers,
+  versions,
+  variations,
+} = schema;
 
-/** Who is asking: the session's user, in the organisation the request is scoped to. */
-export interface Actor {
+/** A signed-in member, in the organisation the request is scoped to. */
+export interface MemberActor {
+  kind?: "member";
   userId: string;
   organisationId: string;
   organisationRole: OrganisationRole;
 }
 
-/** The actor's tenant variables, as every `/api` route has them. */
-export const actorOf = (vars: Actor): Actor => ({
+/**
+ * A guest reviewer, signed in with a magic link (docs/security.md). Guests see no projects:
+ * only the items of the open reviews they are asked to, where they may view, comment and,
+ * in approvals, decide.
+ */
+export interface GuestActor {
+  kind: "guest";
+  guestId: string;
+  organisationId: string;
+}
+
+/** Who is asking. */
+export type Actor = MemberActor | GuestActor;
+
+/** The member behind a member route's tenant variables. */
+export const actorOf = (vars: MemberActor): MemberActor => ({
+  kind: "member",
   userId: vars.userId,
   organisationId: vars.organisationId,
   organisationRole: vars.organisationRole,
 });
+
+/** What a guest may do with what their reviews contain. */
+const guestPermissions = (): Set<ProjectPermission> => new Set(["view", "comment", "decide"]);
+
+/**
+ * The files a guest may open: everything the open reviews they are asked to contain. A
+ * track item gives the variations of its version (a given one, or the latest).
+ */
+export async function guestFileIds(
+  db: Pick<Database, "select">,
+  guest: GuestActor,
+): Promise<Set<string>> {
+  const items = await db
+    .select({
+      fileId: reviewItems.fileId,
+      trackId: reviewItems.trackId,
+      versionId: reviewItems.versionId,
+    })
+    .from(reviewItems)
+    .innerJoin(reviews, eq(reviews.id, reviewItems.reviewId))
+    .innerJoin(
+      reviewReviewers,
+      and(
+        eq(reviewReviewers.reviewId, reviews.id),
+        eq(reviewReviewers.organisationId, guest.organisationId),
+        eq(reviewReviewers.guestId, guest.guestId),
+      ),
+    )
+    .where(inOrg(reviewItems, guest.organisationId, eq(reviews.status, "open")));
+  const ids = new Set<string>();
+  for (const item of items) {
+    if (item.fileId) {
+      ids.add(item.fileId);
+      continue;
+    }
+    if (!item.trackId) continue;
+    const [version] = await db
+      .select({ id: versions.id })
+      .from(versions)
+      .where(
+        inOrg(
+          versions,
+          guest.organisationId,
+          item.versionId ? eq(versions.id, item.versionId) : eq(versions.trackId, item.trackId),
+        ),
+      )
+      .orderBy(desc(versions.number))
+      .limit(1);
+    if (!version) continue;
+    const variants = await db
+      .select({ fileId: variations.fileId })
+      .from(variations)
+      .where(inOrg(variations, guest.organisationId, eq(variations.versionId, version.id)));
+    for (const v of variants) ids.add(v.fileId);
+  }
+  return ids;
+}
 
 /**
  * What the actor may do in a project, or null when they may not see it (or it does not
@@ -29,6 +112,8 @@ export async function projectAccess(
   actor: Actor,
   projectId: string,
 ): Promise<{ projectId: string; permissions: Set<ProjectPermission> } | null> {
+  // Guests see no projects; they reach files only through their reviews.
+  if (actor.kind === "guest") return null;
   const [row] = await db
     .select({ id: projects.id, permissions: projectRoles.permissions })
     .from(projects)
@@ -78,7 +163,37 @@ export async function fileAccess(db: Pick<Database, "select">, actor: Actor, fil
     .select({ projectId: files.projectId })
     .from(files)
     .where(inOrg(files, actor.organisationId, eq(files.id, fileId)));
-  return file ? projectAccess(db, actor, file.projectId) : null;
+  if (!file) return null;
+  if (actor.kind === "guest") {
+    return (await guestFileIds(db, actor)).has(fileId)
+      ? { projectId: file.projectId, permissions: guestPermissions() }
+      : null;
+  }
+  return projectAccess(db, actor, file.projectId);
+}
+
+/**
+ * What the actor may do in a review: a member, what their project role allows; a guest,
+ * view, comment and decide, but only while they are one of its reviewers.
+ */
+export async function reviewAccess(
+  db: Pick<Database, "select">,
+  actor: Actor,
+  review: { id: string; projectId: string },
+) {
+  if (actor.kind !== "guest") return projectAccess(db, actor, review.projectId);
+  const [mine] = await db
+    .select({ id: reviewReviewers.id })
+    .from(reviewReviewers)
+    .where(
+      inOrg(
+        reviewReviewers,
+        actor.organisationId,
+        eq(reviewReviewers.reviewId, review.id),
+        eq(reviewReviewers.guestId, actor.guestId),
+      ),
+    );
+  return mine ? { projectId: review.projectId, permissions: guestPermissions() } : null;
 }
 
 /** As `can`, for a file: 404 for a file the actor cannot see. Returns the file's project. */
@@ -100,7 +215,7 @@ export async function canOnFile(
  * A condition for project lists: the projects the actor may see. Owners and admins see
  * every project in the organisation; members, those where their role allows viewing.
  */
-export function visibleProjects(actor: Actor) {
+export function visibleProjects(actor: MemberActor) {
   if (actor.organisationRole === "owner" || actor.organisationRole === "admin") return undefined;
   return sql`exists (
     select 1 from ${projectMembers}

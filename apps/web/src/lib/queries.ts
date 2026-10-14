@@ -476,6 +476,9 @@ export interface Comment {
   body: string;
   authorId: string | null;
   authorName: string | null;
+  /** Written by a guest reviewer; their label (for example "Conductor") reads beside the name. */
+  authorGuest: boolean;
+  authorLabel: string | null;
   resolvedAt: string | null;
   resolvedByName: string | null;
   editedAt: string | null;
@@ -748,4 +751,48 @@ export function useReviewActions(reviewId: string) {
       onSuccess: settle,
     }),
   };
+}
+
+export interface GuestMe {
+  guest: { id: string; name: string; email: string; label: string | null };
+  organisation: string | null;
+  reviews: (Pick<
+    ReviewSummary,
+    "id" | "kind" | "title" | "status" | "outcome" | "dueAt" | "createdAt"
+  > & {
+    submittedAt: string | null;
+  })[];
+}
+
+/** The signed-in guest reviewer, or null when this browser has no guest session. */
+export const guestMeQuery = queryOptions({
+  queryKey: ["guest", "me"],
+  queryFn: async (): Promise<GuestMe | null> => {
+    const res = await api.guest.me.$get();
+    if (res.status === 401) return null;
+    return json<GuestMe>(res);
+  },
+  staleTime: 60_000,
+});
+
+/** Exchange a magic link for a guest session in this browser. */
+export function useGuestSignIn() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (token: string) =>
+      json<Omit<GuestMe, "guest"> & { guest: { id: string } }>(
+        await api.guest.sessions.$post({ json: { token } }),
+      ),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["guest"] }),
+  });
+}
+
+export function useGuestSignOut() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      await api.guest["sign-out"].$post();
+    },
+    onSuccess: () => client.clear(),
+  });
 }
