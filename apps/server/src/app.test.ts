@@ -2422,6 +2422,65 @@ describe.runIf(url)("api", () => {
           ).toBe(204);
           // Someone without a role in the project cannot reach them.
           expect((await getAs(`/api/projects/${s.projectId}/groups`, stranger)).status).toBe(404);
+
+          // Another organisation's groups do not exist from here, nor can they be asked.
+          const [elsewhere] = await db
+            .insert(schema.organisations)
+            .values({ name: "Elsewhere", slug: "elsewhere-groups" })
+            .returning();
+          const [theirProject] = await db
+            .insert(schema.projects)
+            .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+            .returning();
+          const [theirGroup] = await db
+            .insert(schema.groups)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              projectId: theirProject?.id ?? "",
+              name: "Their soloists",
+            })
+            .returning();
+          const theirs = `/api/projects/${theirProject?.id}/groups`;
+          expect((await getAs(theirs, s.owner)).status).toBe(404);
+          expect(
+            (
+              await makeGroup(s.owner, theirProject?.id ?? "", {
+                name: "Mine",
+                members: [s.ids.composer],
+              })
+            ).status,
+          ).toBe(404);
+          for (const path of [
+            `${theirs}/${theirGroup?.id}`,
+            `/api/projects/${s.projectId}/groups/${theirGroup?.id}`,
+          ]) {
+            expect(
+              (
+                await app.request(path, {
+                  ...json({ name: "Taken", members: [s.ids.composer] }, s.owner),
+                  method: "PUT",
+                })
+              ).status,
+            ).toBe(404);
+            expect(
+              (await app.request(path, { method: "DELETE", headers: { cookie: s.owner } })).status,
+            ).toBe(404);
+          }
+          expect(
+            (
+              await request(s.owner, s.projectId, {
+                kind: "feedback",
+                title: "Mix",
+                items: [{ trackId: s.trackId }],
+                reviewers: [{ groupId: theirGroup?.id }],
+              })
+            ).status,
+          ).toBe(422);
+          const [still] = await db
+            .select()
+            .from(schema.groups)
+            .where(eq(schema.groups.id, theirGroup?.id ?? ""));
+          expect(still?.name).toBe("Their soloists");
         });
 
         it("asks a group as one step of a sequence", async () => {
