@@ -22,7 +22,12 @@ describe("comments", () => {
     const region = { kind: "region" as const, page: 2, x: 0, y: 0, width: 0.5, height: 0.5 };
     expect(anchorProblem(region, { kind: "document" })).toBeNull();
     expect(anchorProblem(region, { kind: "audio" })).toMatch(/page or a frame/);
-    expect(anchorProblem(region, { kind: "video" })).toMatch(/no pages/);
+    expect(anchorProblem(region, { kind: "video" })).toMatch(/Only documents have pages/);
+    const nowhere = { kind: "region" as const, x: 0, y: 0, width: 0.5, height: 0.5 };
+    expect(anchorProblem(nowhere, { kind: "document" })).toMatch(/which page/);
+    expect(anchorProblem(nowhere, { kind: "video" })).toMatch(/which frame/);
+    expect(anchorProblem({ ...nowhere, at: 4 }, { kind: "video" })).toBeNull();
+    expect(anchorProblem(nowhere, { kind: "image" })).toBeNull();
     const bar = { kind: "bar" as const, from: { bar: 72, beat: 1 } };
     expect(anchorProblem(bar, { kind: "audio" })).toBeNull();
     expect(anchorProblem(bar, { kind: "image" })).toMatch(/recording or a score/);

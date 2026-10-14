@@ -241,8 +241,12 @@ export function Comments({
   const capture = () => {
     if (media && at === null) setAt(Math.round(media.currentTime * 1000) / 1000);
   };
-  const anchor: Anchor | null =
-    media && !wholeFile && at !== null ? { kind: "time", start: at, end: at } : null;
+  /** The anchor for a new comment: the captured time, or the playhead as it is now. */
+  const anchorNow = (): Anchor | null => {
+    if (!media || wholeFile) return null;
+    const start = at ?? Math.round(media.currentTime * 1000) / 1000;
+    return { kind: "time", start, end: start };
+  };
 
   const threads = data ? threadsOf(data) : { open: [], resolved: [] };
 
@@ -261,7 +265,7 @@ export function Comments({
           submitLabel="Comment"
           pending={mutations.create.isPending}
           onSubmit={async (body) => {
-            await mutations.create.mutateAsync({ body, anchor });
+            await mutations.create.mutateAsync({ body, anchor: anchorNow() });
             setAt(null);
             setWholeFile(false);
           }}

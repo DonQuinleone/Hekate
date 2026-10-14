@@ -52,7 +52,10 @@ export function anchorProblem(
     case "region":
       if (file.kind === "audio" || file.kind === "other") return "Regions need a page or a frame";
       if (value.at !== undefined && file.kind !== "video") return "Only video has frames in time";
-      if (value.page !== undefined && file.kind === "video") return "Video has no pages";
+      if (value.page !== undefined && file.kind !== "document") return "Only documents have pages";
+      // Say where: a document's page, a video's moment. An image is one picture.
+      if (file.kind === "document" && value.page === undefined) return "Say which page";
+      if (file.kind === "video" && value.at === undefined) return "Say which frame";
       return null;
     case "bar":
       if (file.kind === "image" || file.kind === "other") return "Bars need a recording or a score";
