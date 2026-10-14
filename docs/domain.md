@@ -60,16 +60,43 @@ A track does not need a score. The **waveform is the primary surface** for audio
 Tools for engineers and producers, all working on the protected streams (`docs/security.md`):
 
 - Waveform with zoom down to sample level, markers and loop regions
-- Spectrogram, side by side with or overlaid on the waveform, coloured like iZotope RX by default (the *Cyan to orange* map shared with Argus). Every view setting is configurable and saved per user, with named presets: colour map (Cyan to orange, Inferno, Greyscale, Signal), frequency scale (linear, log, mel, Bark), window (Hann, Hamming, Blackman-Harris, Kaiser), FFT size, overlap, time and frequency resolution balance, amplitude range (floor and ceiling in dB), frequency range, and channel (left, right, mid, side, or each channel)
+- Spectrogram, side by side with or overlaid on the waveform, coloured like iZotope RX by default (the *Cyan to orange* map). Every view setting is configurable and saved per user, with named presets: colour map (Cyan to orange, Inferno, Greyscale, Signal), frequency scale (linear, log, mel, Bark), window (Hann, Hamming, Blackman-Harris, Kaiser), FFT size, overlap, time and frequency resolution balance, amplitude range (floor and ceiling in dB), frequency range, and channel (left, right, mid, side, or each channel)
 - Level metering: peak, RMS, true peak and integrated loudness (LUFS), per channel, with loudness history
 - Phase correlation and stereo field (goniometer)
 - **Loops:** drag a loop region on the waveform, loop a comment's anchor or a bar range in one action, nudge the in and out points, and keep the loop while switching variation or version
 - **Quick comparison:** one key flips between variations (dry and wet mix) or versions at the same musical position, gapless and level-matched; pin up to four sources to number keys; blind mode hides which is which
-- **QA by Argus:** every uploaded audio file is analysed by the Argus engine (dropouts, clicks, clipping, true peak and loudness against a delivery profile, phase, spectral cut-offs, metadata). Findings appear as markers on the waveform and spectrogram, in a QA tab beside the comments, and in an exportable QA report. A finding can be turned into a comment with one action
+- **Built-in QA:** see below
 - Compare versions at the same musical position, using the version alignment below
 - Solo and mute channels for multichannel files and takes
 
 Analysis data (peaks, spectrogram tiles, loudness) is computed by the media worker, so the browser never needs the full-quality audio to draw it.
+
+## Quality checks
+
+QA is built into Hekate for audio and video. The media worker checks every upload against the project's **delivery profile** and records **findings**: a check, a severity (*pass*, *info*, *warn*, *fail*), a plain-English summary, the channel and time range where it applies, and the technical numbers.
+
+Audio checks:
+
+- Integrity and format: container, codec, bit depth, sample rate, channel layout (mono to surround and Atmos beds), duration, truncation, embedded metadata
+- Loudness (integrated LUFS, LRA) and true peak (dBTP) against the profile's targets
+- Clipping, including clipped-then-gained-down peaks below 0 dBFS
+- Dropouts, clicks and discontinuities
+- Silence, digital-zero gaps, DC offset, channel imbalance and dead channels
+- Phase correlation and mono compatibility
+- Spectral bandwidth and brick-wall cut-offs (upsampled or lossy-sourced material)
+
+Video checks:
+
+- Format conformance: codec, profile, resolution, frame rate, scan type, colour space and range, aspect ratio, audio layout
+- Black frames, frozen frames, and dropped or duplicated frames
+- Interlacing and combing artefacts
+- Broadcast-safe luma and chroma levels
+- Letterboxing and pillarboxing against the expected aspect
+- Timecode continuity
+- Photosensitive flashing risk
+- Programme loudness and true peak of the audio, as above
+
+Findings appear as markers on the waveform, spectrogram and timeline, in a QA tab beside the comments, and in an exportable QA report (PDF, CSV, JSON). One action turns a finding into a comment with a category. When a new version arrives, Hekate shows which findings were fixed and which are new. Delivery profiles (streaming, CD, Apple Digital Masters, surround, Atmos, broadcast, custom) are configurable per project.
 
 ## Comments across versions
 

@@ -50,6 +50,6 @@ The waveform is the primary surface for audio; a score is optional. Engineer too
 
 Better Auth underpins sign-in. Members can use OIDC or SAML single sign-on, LDAP, passkeys and hardware security keys (up to five per account by default), or passwords where allowed; guests use magic links scoped to their reviews. Organisations set the policy. Details in `docs/security.md`.
 
-## 013. Argus for audio QA
+## 013. Built-in QA for audio and video
 
-Hekate runs the Argus engine (GPL-3.0, compatible with Hekate's AGPL-3.0) as a separate command-line process in the media worker, rather than reimplementing its analyses. Its JSON report drives QA markers, the QA tab and exported reports, and its *Cyan to orange* colour map is Hekate's default spectrogram palette, so the two tools read identically.
+Quality checks are a native part of Hekate, run by the media worker on every audio and video upload, not an import from another tool. Findings are versioned with the file, drawn on the waveform, spectrogram and timeline, and can become comments. Checks are configured by delivery profiles per project. The default spectrogram palette is the iZotope RX style *Cyan to orange* map. Details in `docs/domain.md`.
