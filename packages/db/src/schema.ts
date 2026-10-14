@@ -631,6 +631,8 @@ export const storageFindings = pgTable(
     blobId: uuid("blob_id"),
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+    /** When a missing object was written to the access log; retried until it is. */
+    reportedAt: timestamp("reported_at", { withTimezone: true }),
     /** When it was removed, or found to have gone away. */
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     resolution: text("resolution"),

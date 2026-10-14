@@ -10,6 +10,7 @@ CREATE TABLE "storage_findings" (
 	"blob_id" uuid,
 	"first_seen_at" timestamp with time zone NOT NULL,
 	"last_seen_at" timestamp with time zone NOT NULL,
+	"reported_at" timestamp with time zone,
 	"resolved_at" timestamp with time zone,
 	"resolution" text
 );

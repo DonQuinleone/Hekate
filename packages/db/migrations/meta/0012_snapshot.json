@@ -1,5 +1,5 @@
 {
-  "id": "765c6eb8-b8e7-43a3-a3dc-091110d47974",
+  "id": "ef01439a-99a1-41a3-8af9-c47d0886ffcc",
   "prevId": "f26664cb-ecdd-464f-91da-1b67967f328e",
   "version": "7",
   "dialect": "postgresql",
@@ -2331,6 +2331,12 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true
+        },
+        "reported_at": {
+          "name": "reported_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "resolved_at": {
           "name": "resolved_at",

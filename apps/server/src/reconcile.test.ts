@@ -142,4 +142,78 @@ describe.runIf(url)("storage reconciliation", () => {
       .where(eq(schema.storageFindings.key, fleeting));
     expect(gone.map((g) => g.resolution)).toEqual(["gone"]);
   });
+
+  it("leaves unfinished uploads alone, and retries a report the access log missed", async () => {
+    const [org] = await db
+      .insert(schema.organisations)
+      .values({ name: "Uploads", slug: `reconcile-uploads-${Date.now()}` })
+      .returning();
+    const organisationId = org?.id ?? "";
+    const [project] = await db
+      .insert(schema.projects)
+      .values({ organisationId, name: "Sessions", profile: "music" })
+      .returning();
+    const upload = (status: "open" | "completing", blobId: string, key: string) => ({
+      organisationId,
+      projectId: project?.id ?? "",
+      name: "Take.wav",
+      contentType: "audio/wav",
+      byteSize: 5,
+      status,
+      blobId,
+      backend: "local",
+      key,
+      backendUploadId: uuidv7(),
+      wrappedKey: "x",
+      keyVersion: 1,
+      noncePrefix: "x",
+      expiresAt: hours(200),
+    });
+    // An open upload's bytes, with no blob yet; and a completing upload's blob, with no file yet.
+    const writing = `org/${organisationId}/${uuidv7()}`;
+    await local.put(writing, Buffer.from("part"));
+    const finishing = await storage.put(organisationId, Buffer.from("done"));
+    await db
+      .insert(schema.uploads)
+      .values([
+        upload("open", uuidv7(), writing),
+        upload("completing", finishing.id, finishing.key),
+      ]);
+    const lost = await storage.put(organisationId, Buffer.from("lost"));
+    await local.delete(lost.key);
+
+    const missingEvents = async () =>
+      (await audit.query(organisationId, { action: "storage.missing", limit: 50 })).events;
+    // The access log is down for the first run: the run fails, and nothing is marked reported.
+    const failing = {
+      ...audit,
+      record: async () => {
+        throw new Error("access log unavailable");
+      },
+    };
+    await expect(
+      reconcileStorage(
+        { db, storage, audit: failing },
+        { now: hours(25), organisations: [organisationId] },
+      ),
+    ).rejects.toThrow("access log unavailable");
+    expect(await missingEvents()).toHaveLength(0);
+
+    for (const at of [50, 75]) {
+      const [report] = await reconcileStorage(
+        { db, storage, audit },
+        { now: hours(at), organisations: [organisationId] },
+      );
+      expect(report).toMatchObject({
+        orphanObjects: 0,
+        unreferencedBlobs: 0,
+        missingObjects: 1,
+        removed: 0,
+      });
+    }
+    // Reported by the first run that could log it, and only once.
+    expect(await missingEvents()).toHaveLength(1);
+    expect(await local.head(writing)).not.toBeNull();
+    expect(await local.head(finishing.key)).not.toBeNull();
+  });
 });

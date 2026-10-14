@@ -3,8 +3,19 @@ import { and, eq, inArray, isNull, lt, notExists, sql } from "drizzle-orm";
 import { type Audit, systemActor } from "./audit.ts";
 import type { Storage } from "./storage.ts";
 
-const { blobs, files, renditions, renditionSegments, peakLevels, organisations, storageFindings } =
-  schema;
+const {
+  blobs,
+  files,
+  renditions,
+  renditionSegments,
+  peakLevels,
+  organisations,
+  storageFindings,
+  uploads,
+} = schema;
+
+/** Uploads that may still finish: their keys and blobs belong to them, not to the sweep. */
+const activeUpload = inArray(uploads.status, ["open", "completing"]);
 
 /** A finding is acted on only when a run sees it again at least this long after the first. */
 export const RECONCILE_GRACE_MS = 24 * 60 * 60 * 1000;
@@ -63,7 +74,7 @@ export async function reconcileStorage(
     (await db.select({ id: organisations.id }).from(organisations)).map((o) => o.id),
   );
 
-  /** Record a sighting; true when the finding is new. */
+  /** Record a sighting, and return the finding. */
   const sight = async (
     kind: Kind,
     backend: string,
@@ -72,7 +83,7 @@ export async function reconcileStorage(
     blobId: string | null,
   ) => {
     const [existing] = await db
-      .select({ id: storageFindings.id })
+      .select()
       .from(storageFindings)
       .where(
         and(
@@ -87,19 +98,34 @@ export async function reconcileStorage(
         .update(storageFindings)
         .set({ lastSeenAt: now })
         .where(eq(storageFindings.id, existing.id));
-      return false;
+      return existing;
     }
-    await db.insert(storageFindings).values({
-      kind,
-      backend,
-      key,
-      ownerOrganisationId: owner,
-      blobId,
-      firstSeenAt: now,
-      lastSeenAt: now,
-    });
-    return true;
+    const [created] = await db
+      .insert(storageFindings)
+      .values({
+        kind,
+        backend,
+        key,
+        ownerOrganisationId: owner,
+        blobId,
+        firstSeenAt: now,
+        lastSeenAt: now,
+      })
+      .returning();
+    if (!created) throw new Error("Finding insert returned no row");
+    return created;
   };
+
+  /** Keys an organisation's unfinished uploads will write to, in one backend. */
+  const uploadKeys = async (owner: string, backend: string) =>
+    new Set(
+      (
+        await db
+          .select({ key: uploads.key })
+          .from(uploads)
+          .where(inOrg(uploads, owner, eq(uploads.backend, backend), activeUpload))
+      ).map((u) => u.key),
+    );
 
   const scope = options.organisations ? new Set(options.organisations) : null;
   // A targeted run settles only its own organisations' findings.
@@ -133,10 +159,14 @@ export async function reconcileStorage(
             .from(blobs)
             .where(inOrg(blobs, owner, eq(blobs.backend, name), lt(blobs.createdAt, now)))
         : [];
-      const { orphans, missing } = diffKeys(
+      const diff = diffKeys(
         stored.get(owner) ?? [],
         recorded.map((r) => r.key),
       );
+      // An upload stuck mid-completion stays recoverable for days; its object is not an orphan.
+      const pending = living.has(owner) ? await uploadKeys(owner, name) : new Set<string>();
+      const orphans = diff.orphans.filter((key) => !pending.has(key));
+      const missing = diff.missing;
       for (const key of orphans) {
         report.orphanObjects += 1;
         await sight("orphan_object", name, key, owner, null);
@@ -144,17 +174,23 @@ export async function reconcileStorage(
       for (const key of missing) {
         report.missingObjects += 1;
         const blob = recorded.find((r) => r.key === key);
-        if (await sight("missing_object", name, key, owner, blob?.id ?? null)) {
+        const finding = await sight("missing_object", name, key, owner, blob?.id ?? null);
+        // Reported once, and retried by later runs until the access log has it.
+        if (!finding.reportedAt) {
           console.error(`Storage: blob ${blob?.id} in ${name} has no bytes at ${key}`);
           await audit.record(owner, systemActor, {
             action: "storage.missing",
             details: { backend: name, key, blobId: blob?.id },
           });
+          await db
+            .update(storageFindings)
+            .set({ reportedAt: now })
+            .where(eq(storageFindings.id, finding.id));
         }
       }
       if (!living.has(owner)) continue;
 
-      // Blobs nothing uses: no file, rendition, segment or peak level points at them.
+      // Blobs nothing uses: no file, rendition, segment, peak level or live upload points at them.
       const unused = await db
         .select({ id: blobs.id, key: blobs.key })
         .from(blobs)
@@ -164,18 +200,36 @@ export async function reconcileStorage(
             owner,
             eq(blobs.backend, name),
             lt(blobs.createdAt, settled),
-            notExists(db.select({ x: sql`1` }).from(files).where(eq(files.blobId, blobs.id))),
             notExists(
-              db.select({ x: sql`1` }).from(renditions).where(eq(renditions.initBlobId, blobs.id)),
+              db
+                .select({ x: sql`1` })
+                .from(files)
+                .where(inOrg(files, owner, eq(files.blobId, blobs.id))),
+            ),
+            notExists(
+              db
+                .select({ x: sql`1` })
+                .from(renditions)
+                .where(inOrg(renditions, owner, eq(renditions.initBlobId, blobs.id))),
             ),
             notExists(
               db
                 .select({ x: sql`1` })
                 .from(renditionSegments)
-                .where(eq(renditionSegments.blobId, blobs.id)),
+                .where(inOrg(renditionSegments, owner, eq(renditionSegments.blobId, blobs.id))),
             ),
             notExists(
-              db.select({ x: sql`1` }).from(peakLevels).where(eq(peakLevels.blobId, blobs.id)),
+              db
+                .select({ x: sql`1` })
+                .from(peakLevels)
+                .where(inOrg(peakLevels, owner, eq(peakLevels.blobId, blobs.id))),
+            ),
+            // Nor an upload that may still finish and make a file of it.
+            notExists(
+              db
+                .select({ x: sql`1` })
+                .from(uploads)
+                .where(inOrg(uploads, owner, eq(uploads.blobId, blobs.id), activeUpload)),
             ),
           ),
         );
@@ -213,18 +267,26 @@ export async function reconcileStorage(
           ),
         );
       for (const finding of due) {
-        try {
-          if (finding.kind === "orphan_object") await backend.delete(finding.key);
-          else await storage.remove(finding.ownerOrganisationId ?? "", finding.blobId ?? "");
-        } catch (error) {
-          // Storage down, or a blob taken into use since it was found (the database refuses
-          // that removal): leave the finding open. The next run retries it, or sees it gone.
-          console.warn(`Storage: could not remove ${finding.key} from ${name}: ${String(error)}`);
-          continue;
+        const owner = finding.ownerOrganisationId;
+        const alive = owner !== null && living.has(owner);
+        if (finding.kind === "orphan_object" && alive) {
+          // Look again just before deleting: a blob or a resumed upload may have claimed it.
+          const [claimed] = await db
+            .select({ id: blobs.id })
+            .from(blobs)
+            .where(inOrg(blobs, owner, eq(blobs.backend, name), eq(blobs.key, finding.key)));
+          if (claimed || (await uploadKeys(owner, name)).has(finding.key)) {
+            await db
+              .update(storageFindings)
+              .set({ resolvedAt: now, resolution: "claimed" })
+              .where(eq(storageFindings.id, finding.id));
+            continue;
+          }
         }
-        report.removed += 1;
-        if (finding.ownerOrganisationId && living.has(finding.ownerOrganisationId)) {
-          await audit.record(finding.ownerOrganisationId, systemActor, {
+        // Written before the removal, like every other access log entry: a removal that
+        // could not be logged does not happen.
+        if (alive) {
+          await audit.record(owner, systemActor, {
             action: "storage.remove",
             details: {
               backend: name,
@@ -234,6 +296,16 @@ export async function reconcileStorage(
             },
           });
         }
+        try {
+          if (finding.kind === "orphan_object") await backend.delete(finding.key);
+          else await storage.remove(owner ?? "", finding.blobId ?? "");
+        } catch (error) {
+          // Storage down, or a blob taken into use since it was found (the database refuses
+          // that removal): leave the finding open. The next run retries it, or sees it gone.
+          console.warn(`Storage: could not remove ${finding.key} from ${name}: ${String(error)}`);
+          continue;
+        }
+        report.removed += 1;
         await db
           .update(storageFindings)
           .set({ resolvedAt: now, resolution: "removed" })
