@@ -1,4 +1,4 @@
-import { formatChannels, formatDuration, type MediaInfo } from "@hekate/shared";
+import { formatChannels, formatDuration, type MediaInfo, type ReviewerTool } from "@hekate/shared";
 import type Hls from "hls.js";
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
@@ -9,6 +9,7 @@ import { LoopControls, LoopSurface } from "./loop";
 import { Spectrogram, type SpectrogramChannelChoice } from "./spectrogram";
 import { SpectrogramSettings, useSpectrogramView } from "./spectrogram-settings";
 import { Button } from "./ui/button";
+import { Toggle } from "./ui/toggle";
 import { WAVEFORM_HEIGHT, Waveform, type WaveformView } from "./waveform";
 
 const ROLLS_KEY = "hekate.loop.rolls";
@@ -85,35 +86,6 @@ const placementNames: Record<PlayerView["placement"], string> = {
   behind: "Behind",
   instead: "Instead",
 };
-
-/** A labelled on and off switch for the view menu. */
-function Toggle({
-  label,
-  checked,
-  onChange,
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <label className="flex cursor-pointer items-center justify-between gap-6 text-[13px] text-ink-2">
-      {label}
-      <input
-        type="checkbox"
-        role="switch"
-        aria-checked={checked}
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="peer sr-only"
-      />
-      <span
-        aria-hidden="true"
-        className="relative h-[18px] w-8 shrink-0 rounded-full border border-edge bg-ground transition-colors peer-checked:border-signal peer-checked:bg-signal/80 peer-focus-visible:outline peer-focus-visible:outline-1 peer-focus-visible:outline-signal after:absolute after:top-[2px] after:left-[2px] after:size-3 after:rounded-full after:bg-ink-2 after:transition-transform peer-checked:after:translate-x-[14px] peer-checked:after:bg-ground"
-      />
-    </label>
-  );
-}
 
 /** What a reviewer chooses between, in plain words. */
 export function renditionLabel(rendition: Rendition, info: MediaInfo | null): string {
@@ -194,6 +166,7 @@ export function Player({
   markers = [],
   loop = null,
   onLoop = () => {},
+  tools = null,
 }: {
   fileId: string;
   kind: "audio" | "video";
@@ -207,7 +180,11 @@ export function Player({
   /** The passage being looped; kept by the page so it holds across files. */
   loop?: Loop | null;
   onLoop?: (loop: Loop | null) => void;
+  /** The tools a guest's review allows; null for members, who have them all. */
+  tools?: readonly ReviewerTool[] | null;
 }) {
+  const canLoop = !tools || tools.includes("loops");
+  const canSpectrogram = !tools || tools.includes("spectrogram");
   const media = useRef<HTMLVideoElement & HTMLAudioElement>(null);
   // Kept in a ref so a new callback from the parent does not restart playback.
   const announce = useRef(onMedia);
@@ -231,7 +208,7 @@ export function Player({
   const [playerView, setPlayerView] = usePlayerView();
   const channels = info?.audio?.channels ?? 0;
   const view: WaveformView = playerView.split && channels > 1 ? "channels" : "combined";
-  const display: Display = !playerView.spectrogram
+  const display: Display = !(playerView.spectrogram && canSpectrogram)
     ? "waveform"
     : playerView.placement === "behind"
       ? "overlay"
@@ -422,7 +399,7 @@ export function Player({
     } else if (event.key === "ArrowRight") {
       event.preventDefault();
       seekBy(5);
-    } else if (event.key === "i" || event.key === "o") {
+    } else if (canLoop && (event.key === "i" || event.key === "o")) {
       // Loop in and out at the playhead; the other edge stays, or the loop runs to the end.
       const element = media.current;
       if (!element || !(duration > 0)) return;
@@ -515,8 +492,12 @@ export function Player({
               loop={loop}
               active={active}
               onSeek={seek}
-              onLoop={setLoop}
-              label="Waveform: click to move the playhead, drag to loop a passage"
+              onLoop={canLoop ? setLoop : undefined}
+              label={
+                canLoop
+                  ? "Waveform: click to move the playhead, drag to loop a passage"
+                  : "Waveform: click to move the playhead"
+              }
               className="flex flex-col gap-3"
             >
               {element && (display === "waveform" || display === "both") && (
@@ -569,7 +550,7 @@ export function Player({
             </LoopSurface>
           )}
           {/* Video has no waveform to drag on: the loop lane stands in for it. */}
-          {kind === "video" && (
+          {kind === "video" && canLoop && (
             <LoopSurface
               duration={duration}
               loop={loop}
@@ -659,7 +640,7 @@ export function Player({
             >
               <Icon name={muted ? "mute" : "volume"} size={14} />
             </Button>
-            {kind === "audio" && (
+            {kind === "audio" && (channels > 1 || canSpectrogram) && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -727,12 +708,14 @@ export function Player({
                     }}
                   />
                 )}
-                <Toggle
-                  label="Spectrogram"
-                  checked={playerView.spectrogram}
-                  onChange={(spectrogram) => setPlayerView({ ...playerView, spectrogram })}
-                />
-                {playerView.spectrogram && (
+                {canSpectrogram && (
+                  <Toggle
+                    label="Spectrogram"
+                    checked={playerView.spectrogram}
+                    onChange={(spectrogram) => setPlayerView({ ...playerView, spectrogram })}
+                  />
+                )}
+                {canSpectrogram && playerView.spectrogram && (
                   <fieldset className="m-0 flex items-center justify-between gap-4 border-0 p-0">
                     <legend className="sr-only">Spectrogram placement</legend>
                     <span aria-hidden="true" className="text-[13px] text-ink-3">
@@ -751,7 +734,7 @@ export function Player({
                     </span>
                   </fieldset>
                 )}
-                {playerView.spectrogram && (
+                {canSpectrogram && playerView.spectrogram && (
                   <Button
                     variant="ghost"
                     size="sm"

@@ -38,6 +38,11 @@ describe("comment threads", () => {
     expect(resolved.map((t) => t.comment.id)).toEqual(["done"]);
   });
 
+  it("shows a reply on its own when its thread is not shown", () => {
+    const { open } = threadsOf([comment("mine", { parentId: "unseen" })]);
+    expect(open.map((t) => t.comment.id)).toEqual(["mine"]);
+  });
+
   it("keeps threads hidden on this version apart", () => {
     const carry = (visible: boolean) => ({
       id: "k",

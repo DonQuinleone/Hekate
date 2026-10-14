@@ -1,4 +1,10 @@
-import { formatBytes, formatChannels, formatDuration, type MediaInfo } from "@hekate/shared";
+import {
+  formatBytes,
+  formatChannels,
+  formatDuration,
+  type MediaInfo,
+  type ReviewerTool,
+} from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
@@ -65,6 +71,7 @@ function Playback({
       markers={markers}
       loop={loop}
       onLoop={onLoop}
+      tools={file.grant?.tools ?? null}
       onExpired={() => client.resetQueries({ queryKey: playbackQuery(file.id).queryKey })}
     />
   );
@@ -112,6 +119,9 @@ export function FilePage({
   });
   if (error) return <p className="p-8 text-signal">{error.message}</p>;
   if (!file) return <p className="p-8 text-ink-3">Loading</p>;
+  // A guest's review decides which tools they have; members have them all.
+  const allows = (tool: ReviewerTool) => !file.grant || file.grant.tools.includes(tool);
+  const passage = allows("loops") ? loop : null;
   const comparable = !guest && file.kind === "audio" && file.streamStatus === "ready";
   /** Loop the passage and hear it from where it began; one key then flips to this version. */
   const beforeAfter = (target: BeforeAfter) => {
@@ -176,9 +186,9 @@ export function FilePage({
         {!guest && <FileContext file={file} />}
         <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
           <div className="flex min-w-0 flex-col gap-6">
-            <Playback file={file} onMedia={setMedia} loop={loop} onLoop={onLoop} />
+            <Playback file={file} onMedia={setMedia} loop={passage} onLoop={onLoop} />
             {comparable && <Compare file={file} media={media} focus={focus} />}
-            {file.mediaInfo?.audio && (
+            {file.mediaInfo?.audio && allows("meters") && (
               <Loudness
                 fileId={file.id}
                 media={media}
@@ -191,16 +201,20 @@ export function FilePage({
             fileId={file.id}
             projectId={file.projectId}
             media={media}
-            loop={loop}
+            loop={passage}
             onBeforeAfter={comparable ? beforeAfter : undefined}
-            onLoop={(next) => {
-              // One action: the passage is looped and heard from its start.
-              onLoop(next);
-              if (media) {
-                media.currentTime = next.start;
-                void media.play().catch(() => undefined);
-              }
-            }}
+            onLoop={
+              allows("loops")
+                ? (next) => {
+                    // One action: the passage is looped and heard from its start.
+                    onLoop(next);
+                    if (media) {
+                      media.currentTime = next.start;
+                      void media.play().catch(() => undefined);
+                    }
+                  }
+                : undefined
+            }
           />
           <dl className="m-0 flex flex-col border-t border-hairline lg:hidden">{detailRows}</dl>
         </div>

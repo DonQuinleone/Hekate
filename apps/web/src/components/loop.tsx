@@ -49,7 +49,8 @@ export function LoopSurface({
   loop: Loop | null;
   active: boolean;
   onSeek: (seconds: number) => void;
-  onLoop: (loop: Loop) => void;
+  /** Make a loop from a drag; without it, the surface only seeks. */
+  onLoop?: (loop: Loop) => void;
   label: string;
   className?: string;
   children?: ReactNode;
@@ -82,7 +83,7 @@ export function LoopSurface({
         }}
         onPointerMove={(event) => {
           const start = from.current;
-          if (!start || Math.abs(event.clientX - start.x) < DRAG_THRESHOLD) return;
+          if (!onLoop || !start || Math.abs(event.clientX - start.x) < DRAG_THRESHOLD) return;
           setDraft(loopFrom(start.time, timeAt(event), duration));
         }}
         onPointerUp={(event) => {
@@ -90,11 +91,11 @@ export function LoopSurface({
           from.current = null;
           if (!start) return;
           const made =
-            Math.abs(event.clientX - start.x) >= DRAG_THRESHOLD
+            onLoop && Math.abs(event.clientX - start.x) >= DRAG_THRESHOLD
               ? loopFrom(start.time, timeAt(event), duration)
               : null;
           setDraft(null);
-          if (made) onLoop(made);
+          if (made) onLoop?.(made);
           else onSeek(Math.max(0, Math.min(duration, timeAt(event))));
         }}
         onPointerCancel={() => {

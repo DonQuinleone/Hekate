@@ -5,6 +5,7 @@ import { Lockup } from "~/components/brand";
 import { reviewState } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
 import { StatusPill } from "~/components/ui/status";
+import { accessNote } from "~/lib/permissions";
 import { guestMeQuery, useGuestSignIn, useGuestSignOut } from "~/lib/queries";
 
 const day = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long" });
@@ -124,17 +125,23 @@ export function GuestHomePage() {
             className="grid min-h-12 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-hairline py-2.5"
           >
             <span className="flex min-w-0 flex-col">
-              <Link
-                to="/g/reviews/$reviewId"
-                params={{ reviewId: review.id }}
-                className="truncate text-sm font-medium text-ink no-underline hover:text-signal"
-              >
-                {review.title}
-              </Link>
+              {review.accessOpen ? (
+                <Link
+                  to="/g/reviews/$reviewId"
+                  params={{ reviewId: review.id }}
+                  className="truncate text-sm font-medium text-ink no-underline hover:text-signal"
+                >
+                  {review.title}
+                </Link>
+              ) : (
+                // Outside their access window it cannot be opened, so it is not a link.
+                <span className="truncate text-sm font-medium text-ink-3">{review.title}</span>
+              )}
               <span className="text-xs text-ink-3">
                 {review.kind === "approval" ? "Approval" : "Feedback"}
                 {review.dueAt ? ` · due ${day.format(new Date(review.dueAt))}` : ""}
                 {review.submittedAt ? " · you have responded" : ""}
+                {accessNote(review) ? ` · ${accessNote(review)}` : ""}
               </span>
             </span>
             <StatusPill state={reviewState(review)} />

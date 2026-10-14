@@ -3,10 +3,13 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { GuestFields } from "~/components/guest-fields";
 import { type Crumb, PageHeader } from "~/components/page-header";
+import { ReviewerPermissionsEditor } from "~/components/reviewer-permissions";
 import { reviewState } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
+import { ActionMenu } from "~/components/ui/menu";
 import { StatusPill } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
+import { permissionSummary } from "~/lib/permissions";
 import { projectQuery, type ReviewDetail, reviewQuery, useReviewActions } from "~/lib/queries";
 import { useViewer } from "~/lib/viewer";
 
@@ -24,6 +27,7 @@ const stateCopy: Record<ReviewDetail["reviewers"][number]["state"], string> = {
   viewed: "Viewed",
   in_progress: "In progress",
   submitted: "Responded",
+  observing: "Following along",
 };
 const decisionCopy = { approved: "Approved", changes_requested: "Changes requested" } as const;
 
@@ -116,11 +120,13 @@ function YourTurn({ review }: { review: ReviewDetail }) {
   return null;
 }
 
-/** The reviewers, in order, and for those who may manage them: guests' links and inviting more. */
+/** The reviewers, in order, and for those who may manage them: what each may do, guests' links and inviting more. */
 function Reviewers({ review }: { review: ReviewDetail }) {
-  const { addReviewer, sendLink, revoke } = useReviewActions(review.id);
+  const { addReviewer, sendLink, revoke, permissions } = useReviewActions(review.id);
   const [notice, setNotice] = useState<string | null>(null);
   const [inviting, setInviting] = useState(false);
+  /** The reviewer whose permissions are open for editing. */
+  const [editing, setEditing] = useState<string | null>(null);
   const manage = review.you.canManageReviewers && review.status === "open";
   const error = addReviewer.error ?? sendLink.error ?? revoke.error;
   // Steps numbered from one: a group's members share theirs.
@@ -128,58 +134,88 @@ function Reviewers({ review }: { review: ReviewDetail }) {
   return (
     <>
       <ol className="m-0 flex list-none flex-col border-t border-hairline p-0">
-        {review.reviewers.map((r) => (
-          <li key={r.id} className="flex flex-col gap-1 border-b border-hairline py-2.5">
-            <span className="flex items-center justify-between gap-3">
-              <span className="flex min-w-0 items-center gap-2">
-                {review.order === "sequence" && (
-                  <span className="tabular font-mono text-[11px] text-ink-3">
-                    {steps.indexOf(r.step) + 1}
+        {review.reviewers.map((r) => {
+          const notes = r.permissions ? permissionSummary(r.permissions, review.kind, r.guest) : [];
+          return (
+            <li key={r.id} className="group flex flex-col gap-1 border-b border-hairline py-2.5">
+              <span className="flex items-center justify-between gap-3">
+                <span className="flex min-w-0 items-center gap-2">
+                  {review.order === "sequence" && (
+                    <span className="tabular font-mono text-[11px] text-ink-3">
+                      {steps.indexOf(r.step) + 1}
+                    </span>
+                  )}
+                  <span className="truncate text-[13px] text-ink">{r.name}</span>
+                  {r.guest && (
+                    <span className="shrink-0 text-xs text-ink-3">
+                      {r.label ? `${r.label}, guest` : "guest"}
+                    </span>
+                  )}
+                </span>
+                <span className="flex shrink-0 items-center gap-1">
+                  <span className="text-xs text-ink-3">
+                    {r.decision ? decisionCopy[r.decision] : stateCopy[r.state]}
                   </span>
-                )}
-                <span className="truncate text-[13px] text-ink">{r.name}</span>
-                {r.guest && (
-                  <span className="shrink-0 text-xs text-ink-3">
-                    {r.label ? `${r.label}, guest` : "guest"}
-                  </span>
-                )}
+                  {manage && (
+                    <ActionMenu
+                      label={r.name}
+                      actions={[
+                        ...(r.permissions
+                          ? [{ label: "Permissions…", onSelect: () => setEditing(r.id) }]
+                          : []),
+                        ...(r.guest
+                          ? [
+                              {
+                                label: "Send a new link",
+                                onSelect: () =>
+                                  sendLink.mutate(r.id, {
+                                    onSuccess: () =>
+                                      setNotice(`A new link is on its way to ${r.name}.`),
+                                  }),
+                              },
+                              {
+                                label: "Revoke access",
+                                danger: true,
+                                onSelect: () =>
+                                  revoke.mutate(r.id, {
+                                    onSuccess: () =>
+                                      setNotice(
+                                        `${r.name} is signed out everywhere until sent a new link.`,
+                                      ),
+                                  }),
+                              },
+                            ]
+                          : []),
+                      ]}
+                    />
+                  )}
+                </span>
               </span>
-              <span className="shrink-0 text-xs text-ink-3">
-                {r.decision ? decisionCopy[r.decision] : stateCopy[r.state]}
-              </span>
-            </span>
-            {r.group?.name && <span className="text-xs text-ink-3">{r.group.name}</span>}
-            {manage && r.guest && (
-              <span className="flex gap-3 text-xs">
-                <button
-                  type="button"
-                  disabled={sendLink.isPending}
-                  onClick={() =>
-                    sendLink.mutate(r.id, {
-                      onSuccess: () => setNotice(`A new link is on its way to ${r.name}.`),
-                    })
+              {(r.group?.name || notes.length > 0) && (
+                <span className="text-xs text-ink-3">
+                  {[r.group?.name, ...notes].filter(Boolean).join(" · ")}
+                </span>
+              )}
+              {editing === r.id && r.permissions && (
+                <ReviewerPermissionsEditor
+                  name={r.name}
+                  kind={review.kind}
+                  guest={r.guest}
+                  initial={r.permissions}
+                  pending={permissions.isPending}
+                  error={permissions.error?.message ?? null}
+                  onCancel={() => setEditing(null)}
+                  onSave={(change) =>
+                    permissions.mutate(
+                      { reviewerId: r.id, permissions: change },
+                      { onSuccess: () => setEditing(null) },
+                    )
                   }
-                  className="cursor-pointer border-0 bg-transparent p-0 text-ink-3 hover:text-ink"
-                >
-                  Send a new link
-                </button>
-                <button
-                  type="button"
-                  disabled={revoke.isPending}
-                  onClick={() =>
-                    revoke.mutate(r.id, {
-                      onSuccess: () =>
-                        setNotice(`${r.name} is signed out everywhere until sent a new link.`),
-                    })
-                  }
-                  className="cursor-pointer border-0 bg-transparent p-0 text-ink-3 hover:text-signal"
-                >
-                  Revoke access
-                </button>
-              </span>
-            )}
-          </li>
-        ))}
+                />
+              )}
+            </li>
+          );
+        })}
       </ol>
       {notice && <p className="m-0 text-xs text-ink-2">{notice}</p>}
       {error && <p className="m-0 text-xs text-signal">{error.message}</p>}

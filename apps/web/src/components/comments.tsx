@@ -14,6 +14,7 @@ import { type Loop, MIN_LOOP } from "~/lib/loop";
 import {
   type Comment,
   commentsQuery,
+  fileQuery,
   meQuery,
   useCommentMutations,
   useProjectCan,
@@ -382,8 +383,9 @@ export function Comments({
   const { data, error } = useQuery(commentsQuery(fileId));
   const { guest } = useViewer();
   const can = useProjectCan(guest ? undefined : projectId);
-  // A guest reviewer may comment on the files of their review, never triage.
-  const canComment = guest || can("comment");
+  // A guest reviewer may comment on the files of their review when it allows, never triage.
+  const { data: file } = useQuery(fileQuery(fileId));
+  const canComment = guest ? Boolean(file?.grant?.comment) : can("comment");
   const canTriage = !guest && can("triage");
   const { data: me } = useQuery(meQuery);
   const mutations = useCommentMutations(fileId);

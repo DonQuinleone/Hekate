@@ -8,6 +8,7 @@ import {
   editCommentInput,
   resolveCommentInput,
   updateCarryInput,
+  visibleComments,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, eq, inArray, isNull, or, type SQL, sql } from "drizzle-orm";
@@ -35,6 +36,8 @@ const commentColumns = {
   anchor: comments.anchor,
   body: comments.body,
   authorId: comments.authorId,
+  /** Read here to apply a guest reviewer's comment scope; never sent to clients. */
+  guestAuthorId: comments.guestAuthorId,
   authorName: sql<string | null>`coalesce(${users.name}, ${guests.name})`,
   /** A guest reviewer wrote it; their label, if any, reads beside their name. */
   authorGuest: sql<boolean>`${comments.guestAuthorId} is not null`,
@@ -53,6 +56,14 @@ function selectComments(db: Database, organisationId: string, where: SQL | undef
     .leftJoin(guests, eq(comments.guestAuthorId, guests.id))
     .leftJoin(resolver, eq(comments.resolvedById, resolver.id))
     .where(inOrg(comments, organisationId, where));
+}
+
+/** A comment as it leaves the server: which guest wrote it stays inside. */
+function publicComment<C extends { guestAuthorId: string | null }>({
+  guestAuthorId: _,
+  ...rest
+}: C) {
+  return rest;
 }
 
 async function commentOf(db: Database, organisationId: string, id: string) {
@@ -95,7 +106,7 @@ export const fileCommentRoutes = (db: Database, audit: Audit, trustProxy: boolea
           ),
         );
       const carriedIds = carriedHere.map((k) => k.commentId);
-      const rows = await selectComments(
+      const all = await selectComments(
         db,
         organisationId,
         carriedIds.length > 0
@@ -106,6 +117,16 @@ export const fileCommentRoutes = (db: Database, audit: Audit, trustProxy: boolea
             )
           : eq(comments.fileId, file.id),
       ).orderBy(asc(comments.createdAt), asc(comments.id));
+      // A guest reviewer sees the comments their review lets them (docs/domain.md).
+      const actor = c.var.actor;
+      const rows =
+        actor.kind === "guest" && access.grant
+          ? visibleComments(
+              all.map((r) => ({ ...r, author: r.guestAuthorId })),
+              access.grant.comments,
+              actor.guestId,
+            ).map(({ author: _, ...r }) => r)
+          : all;
 
       // Each thread's history: where it began and every version it was carried to.
       const roots = rows.filter((r) => !r.parentId);
@@ -120,7 +141,7 @@ export const fileCommentRoutes = (db: Database, audit: Audit, trustProxy: boolea
       const here = new Map(carriedHere.map((k) => [k.commentId, k]));
       return c.json({
         comments: rows.map((row) => {
-          if (row.parentId) return { ...row, carry: null, history: null };
+          if (row.parentId) return { ...publicComment(row), carry: null, history: null };
           const carry = here.get(row.id);
           const history = {
             versionNumber: origins.get(row.fileId) ?? null,
@@ -128,10 +149,10 @@ export const fileCommentRoutes = (db: Database, audit: Audit, trustProxy: boolea
               .filter((h) => h.commentId === row.id)
               .map((h) => ({ fileId: h.fileId, versionNumber: h.versionNumber, status: h.status })),
           };
-          if (!carry) return { ...row, carry: null, history };
+          if (!carry) return { ...publicComment(row), carry: null, history };
           // On this version the thread points where it was mapped; where it began stays known.
           return {
-            ...row,
+            ...publicComment(row),
             anchor: carry.anchor,
             carry: {
               id: carry.id,
@@ -148,7 +169,7 @@ export const fileCommentRoutes = (db: Database, audit: Audit, trustProxy: boolea
       const organisationId = c.var.organisationId;
       const input = c.req.valid("json");
       const actor = c.var.actor;
-      await canOnFile(db, actor, "comment", c.req.valid("param").id);
+      const access = await canOnFile(db, actor, "comment", c.req.valid("param").id);
       const [file] = await db
         .select({
           id: files.id,
@@ -166,7 +187,11 @@ export const fileCommentRoutes = (db: Database, audit: Audit, trustProxy: boolea
         // Threads are one level deep: a reply answers a top-level comment on this file, or
         // one carried here from an earlier version and shown here.
         const [parent] = await db
-          .select({ id: comments.id, fileId: comments.fileId })
+          .select({
+            id: comments.id,
+            fileId: comments.fileId,
+            guestAuthorId: comments.guestAuthorId,
+          })
           .from(comments)
           .where(
             inOrg(
@@ -176,8 +201,14 @@ export const fileCommentRoutes = (db: Database, audit: Audit, trustProxy: boolea
               isNull(comments.parentId),
             ),
           );
+        // A guest who sees only their own threads can reply only to those.
+        const seen =
+          actor.kind !== "guest" ||
+          access.grant?.comments === "all" ||
+          parent?.guestAuthorId === actor.guestId;
         const reachable =
           parent &&
+          seen &&
           (parent.fileId === file.id ||
             (
               await db
@@ -236,7 +267,10 @@ export const fileCommentRoutes = (db: Database, audit: Audit, trustProxy: boolea
         }
         return row;
       });
-      return c.json({ comment: await commentOf(db, organisationId, created?.id ?? "") }, 201);
+      return c.json(
+        { comment: publicComment(await commentOf(db, organisationId, created?.id ?? "")) },
+        201,
+      );
     });
 
 /**
@@ -258,7 +292,7 @@ export const commentRoutes = (db: Database) =>
         .update(comments)
         .set({ body: c.req.valid("json").body, editedAt: new Date(), updatedAt: new Date() })
         .where(inOrg(comments, organisationId, eq(comments.id, id)));
-      return c.json({ comment: await commentOf(db, organisationId, id) });
+      return c.json({ comment: publicComment(await commentOf(db, organisationId, id)) });
     })
     .post("/:id/resolve", idParam, zValidator("json", resolveCommentInput), async (c) => {
       const organisationId = c.var.organisationId;
@@ -285,7 +319,7 @@ export const commentRoutes = (db: Database) =>
         return row;
       });
       if (!updated) throw new NotFound("Thread");
-      return c.json({ comment: await commentOf(db, organisationId, id) });
+      return c.json({ comment: publicComment(await commentOf(db, organisationId, id)) });
     });
 
 /**

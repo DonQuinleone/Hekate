@@ -2266,6 +2266,191 @@ describe.runIf(url)("api", () => {
           expect(id).toBeTruthy();
         });
 
+        it("holds each reviewer to what the review grants them", async () => {
+          const s = await invited();
+          const reviewer = s.review.reviewers.find((r) => r.guest);
+          const base = `/api/reviews/${s.review.id}/reviewers/${reviewer?.id}`;
+          const patch = (cookie: string, permissions: Record<string, unknown>, path = base) =>
+            app.request(path, { ...json({ permissions }, cookie), method: "PATCH" });
+          const post = (path: string, body: unknown, cookie: string) =>
+            app.request(path, json(body, cookie));
+          const comments = `/api/files/${s.mix}/comments`;
+          const theirs = (
+            (await (await post(comments, { body: "Owner's note" }, s.owner)).json()) as {
+              comment: { id: string };
+            }
+          ).comment.id;
+          const mine = (
+            (await (await post(comments, { body: "Guest's note" }, s.cookie)).json()) as {
+              comment: { id: string };
+            }
+          ).comment.id;
+          await post(comments, { body: "Owner answers", parentId: mine }, s.owner);
+
+          // Only those who manage reviewers adjust them; the guest cannot.
+          expect((await patch(s.cookie, { decide: false })).status).toBe(403);
+          expect((await patch(s.composer, { decide: false })).status).toBe(403);
+          const adjusted = await patch(s.owner, {
+            decide: false,
+            comments: "own_and_replies",
+            tools: ["loops"],
+          });
+          expect(adjusted.status).toBe(200);
+          const shown = (await adjusted.json()) as {
+            review: { reviewers: { id: string; permissions: Record<string, unknown> | null }[] };
+          };
+          expect(
+            shown.review.reviewers.find((r) => r.id === reviewer?.id)?.permissions,
+          ).toMatchObject({ decide: false, comments: "own_and_replies", tools: ["loops"] });
+
+          // Their own thread and its replies, nothing else; no reply into what they cannot see.
+          const seen = (
+            (await (await getAs(comments, s.cookie)).json()) as { comments: { body: string }[] }
+          ).comments.map((c) => c.body);
+          expect(seen).toEqual(["Guest's note", "Owner answers"]);
+          expect(
+            JSON.stringify(await (await getAs(comments, s.cookie)).json()).includes(
+              "guestAuthorId",
+            ),
+          ).toBe(false);
+          expect(
+            (await post(comments, { body: "Sneaky", parentId: theirs }, s.cookie)).status,
+          ).toBe(422);
+          // The owner still sees everything.
+          expect(
+            ((await (await getAs(comments, s.owner)).json()) as { comments: unknown[] }).comments,
+          ).toHaveLength(3);
+
+          // Tools left out are refused, not only hidden; the file says what they have.
+          expect((await getAs(`/api/files/${s.mix}/loudness`, s.cookie)).status).toBe(403);
+          expect((await getAs(`/api/files/${s.mix}/spectrograms`, s.cookie)).status).toBe(403);
+          expect((await getAs(`/api/files/${s.mix}/loudness`, s.owner)).status).not.toBe(403);
+          const detail = (await (await getAs(`/api/files/${s.mix}`, s.cookie)).json()) as {
+            file: { grant: { tools: string[]; comment: boolean } };
+          };
+          expect(detail.file.grant).toMatchObject({ tools: ["loops"], comment: true });
+
+          // No decision asked of them.
+          const view = (await (await getAs(`/api/reviews/${s.review.id}`, s.cookie)).json()) as {
+            review: { you: { canDecide: boolean; permissions: { decide: boolean } } };
+          };
+          expect(view.review.you).toMatchObject({
+            canDecide: false,
+            permissions: { decide: false },
+          });
+          expect(
+            (
+              await post(
+                `/api/reviews/${s.review.id}/decisions`,
+                { decision: "approved" },
+                s.cookie,
+              )
+            ).status,
+          ).toBe(403);
+
+          // Without comment, writing is refused.
+          await patch(s.owner, { comment: false });
+          expect((await post(comments, { body: "One more" }, s.cookie)).status).toBe(403);
+
+          // An access window must end after it starts; outside it, the review is closed to them.
+          expect(
+            (
+              await patch(s.owner, {
+                startsAt: "2030-01-02T00:00:00Z",
+                expiresAt: "2030-01-01T00:00:00Z",
+              })
+            ).status,
+          ).toBe(422);
+          await patch(s.owner, { startsAt: "2099-01-01T09:00:00Z" });
+          expect((await getAs(`/api/files/${s.mix}`, s.cookie)).status).toBe(404);
+          expect((await getAs(`/api/reviews/${s.review.id}`, s.cookie)).status).toBe(404);
+          const listed = (await (await getAs("/api/guest/me", s.cookie)).json()) as {
+            reviews: { accessOpen: boolean; opensAt: string | null }[];
+          };
+          expect(listed.reviews[0]).toMatchObject({
+            accessOpen: false,
+            opensAt: "2099-01-01T09:00:00Z",
+          });
+          await patch(s.owner, {
+            startsAt: null,
+            expiresAt: new Date(Date.now() - 1000).toISOString(),
+          });
+          expect((await getAs(`/api/files/${s.mix}`, s.cookie)).status).toBe(404);
+          await patch(s.owner, { expiresAt: null });
+          expect((await getAs(`/api/files/${s.mix}`, s.cookie)).status).toBe(200);
+
+          // A member's role is the ceiling, and the review can lower it.
+          const composer = s.review.reviewers.find((r) => r.userId === s.ids.composer);
+          await patch(
+            s.owner,
+            { decide: false },
+            `/api/reviews/${s.review.id}/reviewers/${composer?.id}`,
+          );
+          expect(
+            (
+              await post(
+                `/api/reviews/${s.review.id}/decisions`,
+                { decision: "approved" },
+                s.composer,
+              )
+            ).status,
+          ).toBe(403);
+
+          // Asked for no decision, they follow along: the approval goes on without them.
+          const inTurn = await reviewOf(
+            await request(s.owner, s.projectId, {
+              kind: "approval",
+              order: "sequence",
+              title: "Final mix",
+              items: [{ trackId: s.trackId }],
+              reviewers: [s.ids.composer, s.ids.accompanist],
+            }),
+          );
+          expect(inTurn.reviewers.map((r) => r.state)).toEqual(["invited", "waiting"]);
+          const first = inTurn.reviewers[0]?.id;
+          const moved = await reviewOf(
+            await patch(s.owner, { decide: false }, `/api/reviews/${inTurn.id}/reviewers/${first}`),
+          );
+          expect(moved.reviewers.map((r) => r.state)).toEqual(["observing", "invited"]);
+          const settled = await reviewOf(
+            await post(
+              `/api/reviews/${inTurn.id}/decisions`,
+              { decision: "approved" },
+              s.accompanist,
+            ),
+          );
+          expect(settled).toMatchObject({ status: "completed", outcome: "approved" });
+
+          // A review can set everyone's permissions when it is asked.
+          const restricted = await reviewOf(
+            await request(s.owner, s.projectId, {
+              kind: "feedback",
+              title: "Rough mix",
+              items: [{ trackId: s.trackId }],
+              reviewers: [s.ids.accompanist],
+              permissions: { tools: [], comments: "own" },
+            }),
+          );
+          expect(
+            (restricted.reviewers[0] as unknown as { permissions: Record<string, unknown> })
+              .permissions,
+          ).toMatchObject({ tools: [], comments: "own", comment: true });
+          expect(
+            (
+              await request(s.owner, s.projectId, {
+                kind: "feedback",
+                title: "Bad window",
+                items: [{ trackId: s.trackId }],
+                reviewers: [s.ids.accompanist],
+                permissions: {
+                  startsAt: "2030-01-02T00:00:00Z",
+                  expiresAt: "2030-01-01T00:00:00Z",
+                },
+              })
+            ).status,
+          ).toBe(422);
+        });
+
         it("binds a guest's playback to their browser", async () => {
           const s = await invited();
           await db
