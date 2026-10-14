@@ -21,6 +21,7 @@ import { mediaSummary } from "~/components/files";
 import { Loudness } from "~/components/loudness";
 import { type Crumb, PageHeader } from "~/components/page-header";
 import { Player } from "~/components/player";
+import { ScorePane } from "~/components/score";
 import { FileContext } from "~/components/tracks";
 import type { Loop } from "~/lib/loop";
 import { initialFocus, type PageFocus } from "~/lib/pages";
@@ -248,6 +249,9 @@ export function FilePage({
               pages={pages}
               canComment={canComment}
             />
+            {file.variation?.scoreFileId && (file.kind === "audio" || file.kind === "video") && (
+              <ScorePane scoreFileId={file.variation.scoreFileId} />
+            )}
             {comparable && <Compare file={file} media={media} focus={focus} />}
             {file.mediaInfo?.audio && allows("meters") && (
               <Loudness

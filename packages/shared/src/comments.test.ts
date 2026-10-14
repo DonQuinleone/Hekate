@@ -40,7 +40,15 @@ describe("comments", () => {
     expect(anchorProblem(nowhere, { kind: "image" })).toBeNull();
     const bar = { kind: "bar" as const, from: { bar: 72, beat: 1 } };
     expect(anchorProblem(bar, { kind: "audio" })).toBeNull();
+    expect(anchorProblem(bar, { kind: "audio", profile: "music" })).toBeNull();
+    expect(anchorProblem(bar, { kind: "audio", profile: "video" })).toMatch(/music projects/);
     expect(anchorProblem(bar, { kind: "image" })).toMatch(/recording or a score/);
+    // A bar named while listening keeps the moment, which must be in the recording.
+    expect(anchorProblem({ ...bar, at: 30 }, { kind: "audio", duration: 60 })).toBeNull();
+    expect(anchorProblem({ ...bar, at: 90 }, { kind: "audio", duration: 60 })).toMatch(
+      /past the end/,
+    );
+    expect(anchorProblem({ ...bar, at: 3 }, { kind: "document" })).toMatch(/timeline/);
   });
 
   it("carries a thread to the same treatment, or else the new primary", () => {

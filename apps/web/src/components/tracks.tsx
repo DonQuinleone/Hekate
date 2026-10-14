@@ -1,7 +1,7 @@
 import { variationNameFrom } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useId, useState } from "react";
 import { cn } from "~/lib/cn";
 import {
   type FileDetail,
@@ -294,6 +294,7 @@ export function TrackView({ trackId }: { trackId: string }) {
   const newest = [...track.versions].reverse();
   return (
     <div className="flex flex-col gap-6">
+      <ScoreLink track={track} canEdit={can("organise")} />
       {newest.length > 0 ? (
         <ul
           className="m-0 flex list-none flex-col border-t border-hairline p-0"
@@ -307,6 +308,55 @@ export function TrackView({ trackId }: { trackId: string }) {
         <p className="m-0 text-[13px] text-ink-3">No versions yet. Add the first edit below.</p>
       )}
       {can("upload") && <NewVersion track={track} />}
+    </div>
+  );
+}
+
+/**
+ * The track's score (#12): a PDF in the project, shown beside each of its recordings. Those
+ * who organise choose it; everyone else sees which it is.
+ */
+function ScoreLink({ track, canEdit }: { track: Track; canEdit: boolean }) {
+  const { data: files } = useQuery(projectFilesQuery(track.projectId));
+  const { updateTrack } = useTrackMutations(track.projectId);
+  const id = useId();
+  const scores = (files ?? []).filter((f) => f.kind === "document");
+  const linked = scores.find((f) => f.id === track.scoreFileId);
+  if (!canEdit && !linked) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+      <label htmlFor={id} className="label">
+        Score
+      </label>
+      {canEdit ? (
+        <select
+          id={id}
+          value={track.scoreFileId ?? ""}
+          disabled={updateTrack.isPending}
+          onChange={(e) =>
+            updateTrack.mutate({ id: track.id, scoreFileId: e.target.value || null })
+          }
+          className="h-7 max-w-full cursor-pointer rounded-control border border-hairline bg-transparent px-2 text-[13px] text-ink outline-none hover:border-edge focus:border-ink-3"
+        >
+          <option value="">{scores.length ? "None" : "No PDFs in this project yet"}</option>
+          {scores.map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.name}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <span className="text-[13px] text-ink-2">{linked?.name}</span>
+      )}
+      {linked && (
+        <Link
+          to="/files/$fileId"
+          params={{ fileId: linked.id }}
+          className="text-xs text-ink-3 hover:text-ink"
+        >
+          Open the score
+        </Link>
+      )}
     </div>
   );
 }

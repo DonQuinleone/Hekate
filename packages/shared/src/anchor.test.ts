@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { anchor } from "./anchor.ts";
+import { anchor, parseBars } from "./anchor.ts";
 import { formatAnchor, formatClock, formatTimecode } from "./format.ts";
 import { allowsAnchor } from "./profile.ts";
 
@@ -9,6 +9,9 @@ describe("anchor schema", () => {
     expect(
       anchor.parse({ kind: "region", page: 7, x: 0.1, y: 0.1, width: 0.2, height: 0.1 }).kind,
     ).toBe("region");
+    // An upbeat is bar 0.
+    expect(anchor.safeParse({ kind: "bar", from: { bar: 0 } }).success).toBe(true);
+    expect(anchor.safeParse({ kind: "bar", from: { bar: -1 } }).success).toBe(false);
     expect(anchor.parse({ kind: "bar", from: { bar: 112 } })).toEqual({
       kind: "bar",
       from: { bar: 112, beat: 1 },
@@ -35,7 +38,8 @@ describe("formatting", () => {
   });
 
   it("writes anchors the way the brand system does", () => {
-    expect(formatAnchor({ kind: "bar", from: { bar: 112, beat: 1 } })).toBe("BAR 112.1");
+    expect(formatAnchor({ kind: "bar", from: { bar: 112, beat: 1 } })).toBe("BAR 112");
+    expect(formatAnchor({ kind: "bar", from: { bar: 112, beat: 3 } })).toBe("BAR 112.3");
     expect(formatAnchor({ kind: "bar", from: { bar: 118, beat: 1 }, to: { bar: 124 } })).toBe(
       "BARS 118–124",
     );
@@ -70,5 +74,25 @@ describe("organisation roles", () => {
     expect(atLeast("owner", "admin")).toBe(true);
     expect(atLeast("admin", "admin")).toBe(true);
     expect(atLeast("member", "admin")).toBe(false);
+  });
+});
+
+describe("parseBars", () => {
+  it("reads a bar or a range as people type them", () => {
+    expect(parseBars("25")).toEqual({ from: { bar: 25, beat: 1 } });
+    expect(parseBars(" 0 ")).toEqual({ from: { bar: 0, beat: 1 } });
+    expect(parseBars("9-12")).toEqual({ from: { bar: 9, beat: 1 }, to: { bar: 12 } });
+    expect(parseBars("9–12")).toEqual({ from: { bar: 9, beat: 1 }, to: { bar: 12 } });
+    expect(parseBars("bars 9 to 12")).toEqual({ from: { bar: 9, beat: 1 }, to: { bar: 12 } });
+    expect(parseBars("12-12")).toEqual({ from: { bar: 12, beat: 1 } });
+  });
+  it("refuses what is not a bar", () => {
+    for (const text of ["", "x", "12-9", "-3", "2.5", "9-", "1234567"]) {
+      expect(parseBars(text)).toBeNull();
+    }
+  });
+  it("keeps where in the recording a bar was named", () => {
+    expect(anchor.parse({ kind: "bar", from: { bar: 25 }, at: 21.4 })).toMatchObject({ at: 21.4 });
+    expect(anchor.safeParse({ kind: "bar", from: { bar: 25 }, at: -1 }).success).toBe(false);
   });
 });

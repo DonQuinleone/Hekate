@@ -1431,6 +1431,16 @@ describe.runIf(url)("api", () => {
         expect(
           (await send("PATCH", `/api/tracks/${track.id}`, { scoreFileId: stray }, owner)).status,
         ).toBe(422);
+        // A score is a PDF: a recording cannot be one.
+        const mix = await addFile(organisationId, projectId, "Mix.wav");
+        const notScore = await send(
+          "PATCH",
+          `/api/tracks/${track.id}`,
+          { scoreFileId: mix },
+          owner,
+        );
+        expect(notScore.status).toBe(422);
+        expect(await notScore.text()).toMatch(/A score is a PDF/);
 
         const [other] = await db
           .insert(schema.organisations)
@@ -3136,10 +3146,10 @@ describe.runIf(url)("api", () => {
         ).comments;
 
       /** A minute-long recording in a new project of the given organisation. */
-      const recording = async (organisationId: string) => {
+      const recording = async (organisationId: string, profile: "music" | "video" = "music") => {
         const [project] = await db
           .insert(schema.projects)
-          .values({ organisationId, name: "Rags", profile: "music" })
+          .values({ organisationId, name: "Rags", profile })
           .returning();
         const blob = await storage.put(organisationId, Buffer.from("not really audio"));
         const [file] = await db
@@ -3233,6 +3243,60 @@ describe.runIf(url)("api", () => {
           ["Fixed in v4", true],
           ["Lovely balance overall", false],
         ]);
+      });
+
+      it("points at bars in music projects only, from the upbeat on", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const music = await recording(organisationId);
+        const film = await recording(organisationId, "video");
+        const bars = (from: number, to?: number) => ({
+          kind: "bar",
+          from: { bar: from },
+          ...(to === undefined ? {} : { to: { bar: to } }),
+        });
+
+        // An upbeat is bar 0, and a range covers a passage.
+        for (const anchor of [bars(0), bars(9, 12)]) {
+          const res = await send(
+            "POST",
+            `/api/files/${music}/comments`,
+            { body: "x", anchor },
+            owner,
+          );
+          expect(res.status).toBe(201);
+        }
+        expect(
+          (
+            await send(
+              "POST",
+              `/api/files/${music}/comments`,
+              { body: "x", anchor: bars(12, 9) },
+              owner,
+            )
+          ).status,
+        ).toBe(400);
+        // A video project has no bars.
+        const refused = await send(
+          "POST",
+          `/api/files/${film}/comments`,
+          { body: "x", anchor: bars(3) },
+          owner,
+        );
+        expect(refused.status).toBe(422);
+        expect(await refused.text()).toMatch(/music projects/);
+
+        // The file page learns the profile, so it offers bars only where they belong.
+        const profileOf = async (id: string) =>
+          (
+            (await (
+              await app.request(`/api/files/${id}`, { headers: { cookie: owner } })
+            ).json()) as {
+              file: { profile: string };
+            }
+          ).file.profile;
+        expect(await profileOf(music)).toBe("music");
+        expect(await profileOf(film)).toBe("video");
       });
 
       it("lets only the author edit, anyone who triages resolve, and no one reach another organisation", async () => {

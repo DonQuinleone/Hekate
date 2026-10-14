@@ -48,6 +48,21 @@ async function assertProjectFiles(
   }
 }
 
+/** A track's score: a document of the same project, whose pages show beside its recordings. */
+async function assertScore(
+  db: Database,
+  organisationId: string,
+  projectId: string,
+  fileId: string,
+) {
+  const [file] = await db
+    .select({ kind: files.kind })
+    .from(files)
+    .where(inOrg(files, organisationId, eq(files.projectId, projectId), eq(files.id, fileId)));
+  if (!file) throw new HTTPException(422, { message: "Files must come from the same project" });
+  if (file.kind !== "document") throw new HTTPException(422, { message: "A score is a PDF" });
+}
+
 /** A project's tracks, each with its versions (oldest first) and their variations. */
 async function tracksOf(db: Database, organisationId: string, projectId: string) {
   const trackRows = await db
@@ -156,9 +171,7 @@ export const projectTrackRoutes = (db: Database) =>
       const input = c.req.valid("json");
       const { projectId } = await can(db, actorOf(c.var), "organise", c.req.valid("param").id);
       const project = { id: projectId };
-      if (input.scoreFileId) {
-        await assertProjectFiles(db, organisationId, project.id, [input.scoreFileId]);
-      }
+      if (input.scoreFileId) await assertScore(db, organisationId, project.id, input.scoreFileId);
       const created = await db.transaction(async (tx) => {
         // Lock the project so tracks added at the same moment take consecutive positions,
         // and so the folder it goes in cannot be deleted meanwhile.
@@ -199,7 +212,7 @@ export const trackRoutes = (db: Database, jobs: Pick<Jobs, "send">) =>
       const track = await trackOf(db, organisationId, id);
       await canSeeTrack(db, c.var, track.projectId, "organise");
       if (input.scoreFileId) {
-        await assertProjectFiles(db, organisationId, track.projectId, [input.scoreFileId]);
+        await assertScore(db, organisationId, track.projectId, input.scoreFileId);
       }
       await db.transaction(async (tx) => {
         if (input.folderId !== undefined) {
