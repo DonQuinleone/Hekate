@@ -4,6 +4,7 @@ import {
   auditActorTypes,
   type LoudnessSummary,
   type MediaInfo,
+  type ProjectPermission,
   type ProjectProfile,
 } from "@hekate/shared";
 import { sql } from "drizzle-orm";
@@ -187,6 +188,49 @@ export const projects = pgTable(
     ...timestamps,
   },
   (t) => [index("projects_org_idx").on(t.organisationId)],
+);
+
+/**
+ * A project's roles: named sets of permissions from the fixed list in
+ * `packages/shared/src/roles.ts`. Every project starts with the defaults, which can be edited.
+ */
+export const projectRoles = pgTable(
+  "project_roles",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: projectId(),
+    name: text("name").notNull(),
+    permissions: text("permissions").array().notNull().$type<ProjectPermission[]>(),
+    position: integer("position").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("project_roles_name_idx").on(t.organisationId, t.projectId, t.name)],
+);
+
+/**
+ * Who works on a project, each with one role. Organisation owners and admins need no row:
+ * they may do everything in every project. A role in use cannot be deleted.
+ */
+export const projectMembers = pgTable(
+  "project_members",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: projectId(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    roleId: uuid("role_id")
+      .notNull()
+      // Checked at the end of the statement, so deleting a project still cascades to both.
+      .references(() => projectRoles.id, { onDelete: "no action" }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("project_members_user_idx").on(t.organisationId, t.projectId, t.userId),
+    index("project_members_user_lookup_idx").on(t.userId),
+  ],
 );
 
 /** Folders nest; a null parent is the project root. */

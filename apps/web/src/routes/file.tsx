@@ -141,7 +141,7 @@ export function FilePage({ fileId }: { fileId: string }) {
           )}
           <dl className="m-0 hidden flex-col border-t border-hairline lg:flex">{detailRows}</dl>
         </div>
-        <Comments fileId={file.id} media={media} />
+        <Comments fileId={file.id} projectId={file.projectId} media={media} />
         <dl className="m-0 flex flex-col border-t border-hairline lg:hidden">{detailRows}</dl>
       </div>
     </div>

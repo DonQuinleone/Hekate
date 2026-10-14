@@ -14,6 +14,7 @@ import { invitationRoutes } from "./routes/invitations.ts";
 import { meRoutes } from "./routes/me.ts";
 import { organisationRoutes } from "./routes/organisation.ts";
 import { fileRoutes, playRoutes } from "./routes/playback.ts";
+import { projectAccessRoutes } from "./routes/project-access.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { setupRoutes } from "./routes/setup.ts";
 import {
@@ -77,6 +78,7 @@ export function createApi(deps: AppDeps) {
       .use("/projects", ...member)
       .route("/projects", projectRoutes(deps.db))
       .route("/projects", projectTrackRoutes(deps.db))
+      .route("/projects", projectAccessRoutes(deps.db))
       .use("/tracks/*", ...member)
       .route("/tracks", trackRoutes(deps.db))
       .use("/versions/*", ...member)
