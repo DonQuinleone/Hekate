@@ -19,7 +19,7 @@ import {
 import type { Storage } from "../storage.ts";
 import { membershipOf, type SessionVariables, type TenantVariables } from "../tenancy.ts";
 
-const { files, renditions, renditionSegments, users } = schema;
+const { files, renditions, renditionSegments, users, peakLevels } = schema;
 
 export interface PlaybackDeps {
   db: Database;
@@ -55,6 +55,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
           byteSize: files.byteSize,
           mediaInfo: files.mediaInfo,
           streamStatus: files.streamStatus,
+          peaksStatus: files.peaksStatus,
           uploadedBy: users.name,
           createdAt: files.createdAt,
         })
@@ -64,6 +65,56 @@ export const fileRoutes = (deps: PlaybackDeps) =>
       if (!file) throw new NotFound("File");
       return c.json({ file });
     })
+    // Waveform peaks: an 8-bit envelope per channel, from which no audio can be rebuilt, so
+    // members fetch them directly rather than through playback tokens.
+    .get("/:id/peaks", fileParam, async (c) => {
+      const organisationId = c.var.organisationId;
+      const [file] = await deps.db
+        .select({ id: files.id, peaksStatus: files.peaksStatus })
+        .from(files)
+        .where(inOrg(files, organisationId, eq(files.id, c.req.valid("param").id)));
+      if (!file) throw new NotFound("File");
+      const levels = await deps.db
+        .select({
+          id: peakLevels.id,
+          samplesPerPeak: peakLevels.samplesPerPeak,
+          count: peakLevels.peakCount,
+          channels: peakLevels.channels,
+          sampleRate: peakLevels.sampleRate,
+        })
+        .from(peakLevels)
+        .where(inOrg(peakLevels, organisationId, eq(peakLevels.fileId, file.id)))
+        .orderBy(asc(peakLevels.samplesPerPeak));
+      return c.json({ status: file.peaksStatus, levels }, 200, { "cache-control": "no-store" });
+    })
+    .get(
+      "/:id/peaks/:levelId",
+      zValidator("param", z.object({ id: z.uuid(), levelId: z.uuid() })),
+      async (c) => {
+        const { id, levelId } = c.req.valid("param");
+        const organisationId = c.var.organisationId;
+        const [level] = await deps.db
+          .select({ blobId: peakLevels.blobId })
+          .from(peakLevels)
+          .where(
+            inOrg(
+              peakLevels,
+              organisationId,
+              eq(peakLevels.id, levelId),
+              eq(peakLevels.fileId, id),
+            ),
+          );
+        if (!level) throw new NotFound("Peaks");
+        const { blob, stream } = await deps.storage.open(organisationId, level.blobId);
+        return new Response(stream as unknown as ReadableStream, {
+          headers: {
+            ...PRIVATE,
+            "content-type": "application/octet-stream",
+            "content-length": String(blob.byteSize),
+          },
+        });
+      },
+    )
     .post("/:id/playback", fileParam, async (c) => {
       const { id } = c.req.valid("param");
       const organisationId = c.var.organisationId;

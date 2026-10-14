@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buffer } from "node:stream/consumers";
 import { createDb, runMigrations, schema, withAuditPurge } from "@hekate/db";
+import { decodePeaks } from "@hekate/shared";
 import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -16,7 +17,7 @@ import { loadConfig } from "./config.ts";
 import { createKeyring } from "./keyring.ts";
 import { memoryMailer } from "./mail.ts";
 import { probe, run } from "./media/ffmpeg.ts";
-import { checksumHandler, proxyHandler } from "./media/workers.ts";
+import { checksumHandler, peaksHandler, proxyHandler } from "./media/workers.ts";
 import { playbackSecret, signPlayback } from "./playback.ts";
 import { createStorage } from "./storage.ts";
 import { expireUploads } from "./uploads.ts";
@@ -1362,6 +1363,36 @@ describe.runIf(url)("api", () => {
           expect(statuses.slice(30)).toEqual([429, 429]);
           const keys = await audit.query(organisationId, { action: "stream.key", limit: 200 });
           expect(keys.events).toHaveLength(30);
+        }, 120_000);
+
+        it("serves a file's waveform peaks per channel to its organisation", async () => {
+          const owner = cookieOf(await setup());
+          const { organisationId, fileId } = await playableFile(owner);
+          await peaksHandler({ db, storage, keyring, jobs, workDir: join(storageRoot, "work") })(
+            { organisationId, fileId },
+            { id: "job", signal: new AbortController().signal, retryCount: 0 },
+          );
+          const listed = await get(`/api/files/${fileId}/peaks`, owner);
+          expect(listed.status).toBe(200);
+          const { status, levels } = (await listed.json()) as {
+            status: string;
+            levels: { id: string; channels: number; samplesPerPeak: number; count: number }[];
+          };
+          expect(status).toBe("ready");
+          expect(levels.map((l) => [l.samplesPerPeak, l.channels])).toEqual([[256, 2]]);
+
+          const level = await get(`/api/files/${fileId}/peaks/${levels[0]?.id}`, owner);
+          expect(level.status).toBe(200);
+          expect(level.headers.get("cache-control")).toContain("no-store");
+          const decoded = decodePeaks(new Uint8Array(await level.arrayBuffer()));
+          expect(decoded.count).toBe(levels[0]?.count);
+
+          // Not through another file's path, and not to anyone signed out.
+          const other = await playableFile(owner);
+          expect(
+            (await get(`/api/files/${other.fileId}/peaks/${levels[0]?.id}`, owner)).status,
+          ).toBe(404);
+          expect((await get(`/api/files/${fileId}/peaks`)).status).toBe(401);
         }, 120_000);
 
         it("describes a file and what it can play, to its own organisation only", async () => {
