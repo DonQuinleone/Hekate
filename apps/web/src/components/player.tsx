@@ -5,6 +5,7 @@ import { cn } from "~/lib/cn";
 import type { Playback, Rendition } from "~/lib/queries";
 import { Icon } from "./icons";
 import { Button } from "./ui/button";
+import { Waveform, type WaveformView } from "./waveform";
 
 /** What a reviewer chooses between, in plain words. */
 export function renditionLabel(rendition: Rendition, info: MediaInfo | null): string {
@@ -76,11 +77,13 @@ export function audioBuffer(renditions: Rendition[]) {
  * Extensions. Only this session can fetch the playlists, segments and keys.
  */
 export function Player({
+  fileId,
   kind,
   playback,
   info,
   onExpired,
 }: {
+  fileId: string;
   kind: "audio" | "video";
   playback: Playback;
   info: MediaInfo | null;
@@ -101,10 +104,15 @@ export function Player({
   const [ready, setReady] = useState(false);
   /** Safari on iOS plays the stream itself, so its errors come from the element, not hls.js. */
   const native = useRef(false);
+  /** The media element once mounted, for the waveform to follow. */
+  const [element, setElement] = useState<HTMLMediaElement | null>(null);
+  const [view, setView] = useState<WaveformView>("channels");
+  const channels = info?.audio?.channels ?? 0;
 
   useEffect(() => {
     const element = media.current;
     if (!element) return;
+    setElement(element);
     let cancelled = false;
     setFailure(null);
     setChoices([]);
@@ -263,6 +271,15 @@ export function Player({
         </div>
       ) : (
         <div className="flex flex-col gap-3 px-4 py-4">
+          {kind === "audio" && element && (
+            <Waveform
+              fileId={fileId}
+              media={element}
+              duration={duration}
+              layout={info?.audio?.channelLayout}
+              view={view}
+            />
+          )}
           <div className="relative h-4">
             <div className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-hairline" />
             <div
@@ -316,6 +333,17 @@ export function Player({
             >
               <Icon name={muted ? "mute" : "volume"} size={14} />
             </Button>
+            {kind === "audio" && channels > 1 && (
+              <fieldset className="m-0 flex min-w-0 items-center gap-1 border-0 p-0">
+                <legend className="sr-only">Waveform</legend>
+                <ChoiceButton selected={view === "channels"} onSelect={() => setView("channels")}>
+                  Channels
+                </ChoiceButton>
+                <ChoiceButton selected={view === "combined"} onSelect={() => setView("combined")}>
+                  Combined
+                </ChoiceButton>
+              </fieldset>
+            )}
             {choices.length === 1 && choices[0] && (
               <span className="tabular ml-auto text-xs text-ink-3">
                 {renditionLabel(choices[0].rendition, info)}
@@ -325,18 +353,18 @@ export function Player({
               <fieldset className="m-0 ml-auto flex min-w-0 flex-wrap items-center gap-1 border-0 p-0">
                 <legend className="sr-only">Rendition</legend>
                 {kind === "video" && (
-                  <RenditionButton selected={level === -1} onSelect={() => choose(-1)}>
+                  <ChoiceButton selected={level === -1} onSelect={() => choose(-1)}>
                     Auto
-                  </RenditionButton>
+                  </ChoiceButton>
                 )}
                 {choices.map((c) => (
-                  <RenditionButton
+                  <ChoiceButton
                     key={c.rendition.id}
                     selected={level === c.level}
                     onSelect={() => choose(c.level)}
                   >
                     {renditionLabel(c.rendition, info)}
-                  </RenditionButton>
+                  </ChoiceButton>
                 ))}
               </fieldset>
             )}
@@ -347,7 +375,7 @@ export function Player({
   );
 }
 
-function RenditionButton({
+function ChoiceButton({
   selected,
   onSelect,
   children,

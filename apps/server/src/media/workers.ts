@@ -3,7 +3,7 @@ import { createWriteStream } from "node:fs";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { type Database, inOrg, schema, uuidv7 } from "@hekate/db";
-import type { MediaInfo } from "@hekate/shared";
+import { encodePeaks, type MediaInfo } from "@hekate/shared";
 import { wrapKey } from "@hekate/storage";
 import { and, eq, isNull } from "drizzle-orm";
 import { type JobHandler, type Jobs, jobDefinitions } from "../jobs.ts";
@@ -11,10 +11,11 @@ import type { Keyring } from "../keyring.ts";
 import type { Storage } from "../storage.ts";
 import { expireUploads } from "../uploads.ts";
 import { InvalidMediaError, probe } from "./ffmpeg.ts";
+import { computePeaks } from "./peaks.ts";
 import { type PackagedRendition, packageRendition, planRenditions } from "./proxy.ts";
 import { sweepWorkspaces, withWorkspace } from "./workspace.ts";
 
-const { files, blobs, renditions, renditionSegments } = schema;
+const { files, blobs, renditions, renditionSegments, peakLevels } = schema;
 
 export interface MediaWorkerDeps {
   db: Database;
@@ -24,6 +25,20 @@ export interface MediaWorkerDeps {
   jobs: Pick<Jobs, "send">;
   /** Scratch space for decrypted media while a job runs; a tmpfs is ideal. */
   workDir?: string;
+}
+
+/**
+ * Remove blobs a failed job stored but never recorded. Any that cannot be removed now
+ * (storage down) are logged and stay as unreferenced blobs, which reconciliation finds.
+ */
+async function discard(storage: Storage, organisationId: string, blobIds: string[], what: string) {
+  const left: string[] = [];
+  for (const blobId of blobIds) {
+    await storage.remove(organisationId, blobId).catch(() => left.push(blobId));
+  }
+  if (left.length > 0) {
+    console.warn(`Could not remove ${left.length} blobs (${what}): ${left.join(", ")}`);
+  }
 }
 
 /** Decrypt a blob into the job's workspace and return the path. */
@@ -80,10 +95,17 @@ export function probeHandler(deps: MediaWorkerDeps): JobHandler<"media-probe"> {
     const playable = Boolean(info.audio || info.video);
     await deps.db
       .update(files)
-      .set({ mediaInfo: info, ...(playable ? {} : { streamStatus: "failed" as const }) })
+      .set({
+        mediaInfo: info,
+        ...(playable ? {} : { streamStatus: "failed" as const }),
+        ...(info.audio ? { peaksStatus: "pending" as const } : {}),
+      })
       .where(inOrg(files, organisationId, eq(files.id, fileId)));
     if (playable) {
       await deps.jobs.send("media-proxy", { organisationId, fileId }, { singletonKey: fileId });
+    }
+    if (info.audio) {
+      await deps.jobs.send("media-peaks", { organisationId, fileId }, { singletonKey: fileId });
     }
   };
 }
@@ -185,19 +207,71 @@ export function proxyHandler(deps: MediaWorkerDeps): JobHandler<"media-proxy"> {
           .where(inOrg(files, organisationId, eq(files.id, fileId)));
       });
     } catch (error) {
-      // Nothing records these segments; remove them so a retry starts clean. Any that cannot
-      // be removed now (storage down) stay as unreferenced blobs, which reconciliation finds.
-      const left: string[] = [];
-      for (const blobId of stored) {
-        await deps.storage.remove(organisationId, blobId).catch(() => left.push(blobId));
-      }
-      if (left.length > 0) {
-        console.warn(
-          `Could not remove ${left.length} segment blobs of file ${fileId} after a failed proxy: ${left.join(", ")}`,
-        );
-      }
+      // Nothing records these segments; remove them so a retry starts clean.
+      await discard(deps.storage, organisationId, stored, `segments of file ${fileId}`);
       if (job.retryCount >= jobDefinitions["media-proxy"].options.retryLimit) {
         await markFailed(organisationId, fileId);
+      }
+      throw error;
+    }
+  };
+}
+
+/**
+ * Draw-ready waveform peaks: decode the audio once, every channel as recorded, and store
+ * each zoom level as an encrypted blob. Idempotent: a file with peaks is left alone.
+ */
+export function peaksHandler(deps: MediaWorkerDeps): JobHandler<"media-peaks"> {
+  return async ({ organisationId, fileId }, job) => {
+    const [file] = await deps.db
+      .select()
+      .from(files)
+      .where(inOrg(files, organisationId, eq(files.id, fileId)));
+    const audio = file?.mediaInfo?.audio;
+    if (!file || !audio) return;
+    const existing = await deps.db
+      .select({ id: peakLevels.id })
+      .from(peakLevels)
+      .where(inOrg(peakLevels, organisationId, eq(peakLevels.fileId, fileId)))
+      .limit(1);
+    if (existing.length > 0) return;
+
+    const stored: string[] = [];
+    try {
+      const levels = await withWorkspace(deps.workDir, async (dir) => {
+        const input = await materialise(deps.storage, organisationId, file.blobId, dir, job.signal);
+        return computePeaks(input, audio, job.signal);
+      });
+      const rows: (typeof peakLevels.$inferInsert)[] = [];
+      for (const level of levels) {
+        const blob = await deps.storage.put(organisationId, Buffer.from(encodePeaks(level)), {
+          contentType: "application/octet-stream",
+        });
+        stored.push(blob.id);
+        rows.push({
+          organisationId,
+          fileId,
+          samplesPerPeak: level.samplesPerPeak,
+          peakCount: level.count,
+          channels: level.channels,
+          sampleRate: level.sampleRate,
+          blobId: blob.id,
+        });
+      }
+      await deps.db.transaction(async (tx) => {
+        await tx.insert(peakLevels).values(rows);
+        await tx
+          .update(files)
+          .set({ peaksStatus: "ready" })
+          .where(inOrg(files, organisationId, eq(files.id, fileId)));
+      });
+    } catch (error) {
+      await discard(deps.storage, organisationId, stored, `peaks of file ${fileId}`);
+      if (job.retryCount >= jobDefinitions["media-peaks"].options.retryLimit) {
+        await deps.db
+          .update(files)
+          .set({ peaksStatus: "failed" })
+          .where(inOrg(files, organisationId, eq(files.id, fileId)));
       }
       throw error;
     }
@@ -232,6 +306,7 @@ export async function startWorkers(jobs: Jobs, deps: MediaWorkerDeps, concurrenc
   await jobs.work("media-proxy", proxyHandler(deps), {
     concurrency: Math.max(1, Math.floor(concurrency / 2)),
   });
+  await jobs.work("media-peaks", peaksHandler(deps), { concurrency });
   await jobs.work("blob-checksum", checksumHandler(deps), { concurrency });
   await jobs.work("uploads-expire", async () => {
     const aborted = await expireUploads(deps.db, deps.storage);

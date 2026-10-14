@@ -317,6 +317,8 @@ export const files = pgTable(
     byteSize: bigint("byte_size", { mode: "number" }).notNull(),
     /** Playable proxies: "none" for files that are not audio or video. */
     streamStatus: streamStatusEnum("stream_status").notNull().default("none"),
+    /** Waveform peaks: "none" for files without audio. */
+    peaksStatus: streamStatusEnum("peaks_status").notNull().default("none"),
     /** Measured by the media worker; null until the file has been probed. */
     mediaInfo: jsonb("media_info").$type<MediaInfo>(),
     takeId: uuid("take_id").references(() => takes.id, { onDelete: "set null" }),
@@ -568,4 +570,31 @@ export const renditionSegments = pgTable(
     iv: text("iv").notNull(),
   },
   (t) => [primaryKey({ columns: [t.renditionId, t.index] })],
+);
+
+/**
+ * Waveform peaks for a file's audio, one row per zoom level (docs/security.md). Each level
+ * is an encrypted blob in the format of `packages/shared/src/peaks.ts`.
+ */
+export const peakLevels = pgTable(
+  "peak_levels",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => files.id, { onDelete: "cascade" }),
+    /** Source samples per channel that each peak covers. */
+    samplesPerPeak: integer("samples_per_peak").notNull(),
+    peakCount: integer("peak_count").notNull(),
+    channels: integer("channels").notNull(),
+    sampleRate: integer("sample_rate").notNull(),
+    blobId: uuid("blob_id")
+      .notNull()
+      .references(() => blobs.id, { onDelete: "no action" }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("peak_levels_file_level_idx").on(t.organisationId, t.fileId, t.samplesPerPeak),
+  ],
 );

@@ -1,4 +1,4 @@
-import type { FileKind, MediaInfo, ProjectProfile } from "@hekate/shared";
+import { decodePeaks, type FileKind, type MediaInfo, type ProjectProfile } from "@hekate/shared";
 import { queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 
@@ -157,6 +157,8 @@ export interface ProjectFile {
   mediaInfo: MediaInfo | null;
   /** Playable proxies: prepared in the background after the file is measured. */
   streamStatus: StreamStatus;
+  /** Waveform peaks: computed in the background for files with audio. */
+  peaksStatus: StreamStatus;
   uploadedBy: string | null;
   createdAt: string;
 }
@@ -223,4 +225,37 @@ export const playbackQuery = (fileId: string) =>
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: 0,
     retry: false,
+  });
+
+export interface PeakLevelInfo {
+  id: string;
+  samplesPerPeak: number;
+  count: number;
+  channels: number;
+  sampleRate: number;
+}
+
+/** The zoom levels of a file's waveform peaks, once the worker has computed them. */
+export const peaksQuery = (fileId: string) =>
+  queryOptions({
+    queryKey: ["files", fileId, "peaks"],
+    queryFn: async () =>
+      json<{ status: StreamStatus; levels: PeakLevelInfo[] }>(
+        await api.files[":id"].peaks.$get({ param: { id: fileId } }),
+      ),
+    refetchInterval: (query) => (query.state.data?.status === "pending" ? 3000 : false),
+  });
+
+/** One level of peaks, decoded. Levels never change, so they are kept for the visit. */
+export const peakLevelQuery = (fileId: string, levelId: string) =>
+  queryOptions({
+    queryKey: ["files", fileId, "peaks", levelId],
+    queryFn: async () => {
+      const res = await api.files[":id"].peaks[":levelId"].$get({
+        param: { id: fileId, levelId },
+      });
+      if (!res.ok) await json(res);
+      return decodePeaks(new Uint8Array(await res.arrayBuffer()));
+    },
+    staleTime: Number.POSITIVE_INFINITY,
   });

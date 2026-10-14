@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDb, runMigrations, schema } from "@hekate/db";
+import { decodePeaks } from "@hekate/shared";
 import { createBackends, storageConfigFromEnv, unwrapKey } from "@hekate/storage";
 import { asc, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -169,6 +170,32 @@ describe.runIf(url && (hasFfmpeg || process.env.CI))("media jobs", () => {
     );
     const init = Buffer.concat([decipher.update(delivered), decipher.final()]);
     expect(init.subarray(4, 8).toString()).toBe("ftyp");
+
+    // Probing also queues the waveform: peaks per channel, stored encrypted.
+    const peaksDeadline = Date.now() + 60_000;
+    let peaksStatus = "";
+    while (Date.now() < peaksDeadline) {
+      [{ peaksStatus = "" } = {}] = await db
+        .select({ peaksStatus: schema.files.peaksStatus })
+        .from(schema.files)
+        .where(eq(schema.files.id, fileId));
+      if (peaksStatus === "ready" || peaksStatus === "failed") break;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    expect(peaksStatus).toBe("ready");
+    const levels = await db
+      .select()
+      .from(schema.peakLevels)
+      .where(eq(schema.peakLevels.fileId, fileId))
+      .orderBy(asc(schema.peakLevels.samplesPerPeak));
+    // 1.5 s at 48 kHz is short enough for one level.
+    expect(levels.map((l) => [l.samplesPerPeak, l.peakCount, l.channels])).toEqual([
+      [256, Math.ceil((1.5 * 48000) / 256), 2],
+    ]);
+    const peaks = await storage.open(organisationId, levels[0]?.blobId ?? "");
+    const decoded = decodePeaks(new Uint8Array(Buffer.concat(await peaks.stream.toArray())));
+    expect(decoded.channels).toBe(2);
+    expect(Math.max(...decoded.data)).toBeGreaterThan(10);
   });
 
   it("records unreadable media once instead of retrying forever", async () => {
