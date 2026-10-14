@@ -9,6 +9,7 @@ import {
 import { Shell } from "~/components/shell";
 import { meQuery, setupQuery } from "~/lib/queries";
 import { SetupPage, SignInPage } from "~/routes/auth-pages";
+import { FilePage } from "~/routes/file";
 import { InvitePage } from "~/routes/invite";
 import { ProjectPage } from "~/routes/project";
 import { ProjectsPage } from "~/routes/projects";
@@ -78,6 +79,14 @@ const project = createRoute({
     return <ProjectPage projectId={projectId} />;
   },
 });
+const file = createRoute({
+  getParentRoute: () => app,
+  path: "/files/$fileId",
+  component: function FileRoute() {
+    const { fileId } = file.useParams();
+    return <FilePage fileId={fileId} />;
+  },
+});
 const settings = createRoute({
   getParentRoute: () => app,
   path: "/members",
@@ -89,7 +98,7 @@ export const router = createRouter({
     setup,
     signIn,
     invite,
-    app.addChildren([projects, project, settings]),
+    app.addChildren([projects, project, file, settings]),
   ]),
   context: { queryClient },
   defaultPreload: "intent",

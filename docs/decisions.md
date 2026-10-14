@@ -89,3 +89,7 @@ Uploads are Hekate's own small chunked protocol rather than tus: fixed 8 MiB chu
 ## 022. Streaming: HLS AES-128 now, with surround kept intact
 
 Proxies are HLS with fragmented MP4 segments, encrypted by Hekate itself with the HLS `AES-128` method (whole-segment AES-128-CBC) rather than CENC `cbcs`. Every browser player supports `AES-128` through hls.js; `cbcs` needs Encrypted Media Extensions and, in practice, a DRM licence server. Segments are re-encrypted, not re-encoded, so moving to `cbcs` later for commercial DRM costs a packaging job, not a transcode. Audio is delivered as a stereo AAC monitoring rendition, a lossless FLAC rendition that keeps up to eight channels, and Dolby Digital or Dolby Digital Plus passed through untouched (so Atmos in E-AC-3 survives); the player picks what the browser can play. Playback links are signed tokens bound to the viewer's sign-in session. Details in `docs/security.md`.
+
+## 023. The player is hls.js under Hekate's own controls
+
+Vidstack, named in 002, is deprecated and in security-only maintenance; its successor, Video.js 10, had only just reached its first release and brings many packages Hekate does not need. Hekate drives a plain media element with hls.js instead, under its own controls drawn from the design tokens. The player needs little beyond play, seek, volume and a choice of rendition, and the waveform, spectrogram and comparison tools (#34, #44) will drive the same media element directly. hls.js is loaded only when a player opens. This amends 002.

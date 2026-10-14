@@ -71,3 +71,14 @@ export function formatDuration(seconds: number): string {
   const s = total % 60;
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
 }
+
+/**
+ * A channel layout as engineers say it: `mono`, `stereo`, `5.1`, `7.1.4`. Uses ffprobe's
+ * layout name when it has one, without the variant (`5.1(side)` reads as `5.1`).
+ */
+export function formatChannels(channels: number, layout?: string): string {
+  if (layout && !/channels?$/.test(layout)) return layout.replace(/\(.*\)$/, "");
+  if (channels === 1) return "mono";
+  if (channels === 2) return "stereo";
+  return `${channels} ch`;
+}

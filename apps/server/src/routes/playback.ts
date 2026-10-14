@@ -19,7 +19,7 @@ import {
 import type { Storage } from "../storage.ts";
 import { membershipOf, type SessionVariables, type TenantVariables } from "../tenancy.ts";
 
-const { files, renditions, renditionSegments } = schema;
+const { files, renditions, renditionSegments, users } = schema;
 
 export interface PlaybackDeps {
   db: Database;
@@ -37,12 +37,34 @@ const PRIVATE = {
   "cross-origin-resource-policy": "same-origin",
 } as const;
 
-/** `POST /api/files/:id/playback`: start watching or listening. */
+const fileParam = zValidator("param", z.object({ id: z.uuid() }));
+
+/** `/api/files/:id`: one file's details, and `POST /api/files/:id/playback` to start watching or listening. */
 export const fileRoutes = (deps: PlaybackDeps) =>
-  new Hono<{ Variables: TenantVariables }>().post(
-    "/:id/playback",
-    zValidator("param", z.object({ id: z.uuid() })),
-    async (c) => {
+  new Hono<{ Variables: TenantVariables }>()
+    .get("/:id", fileParam, async (c) => {
+      // Metadata only: contents leave Hekate solely through protected delivery.
+      const [file] = await deps.db
+        .select({
+          id: files.id,
+          projectId: files.projectId,
+          folderId: files.folderId,
+          name: files.name,
+          kind: files.kind,
+          contentType: files.contentType,
+          byteSize: files.byteSize,
+          mediaInfo: files.mediaInfo,
+          streamStatus: files.streamStatus,
+          uploadedBy: users.name,
+          createdAt: files.createdAt,
+        })
+        .from(files)
+        .leftJoin(users, eq(files.uploadedBy, users.id))
+        .where(inOrg(files, c.var.organisationId, eq(files.id, c.req.valid("param").id)));
+      if (!file) throw new NotFound("File");
+      return c.json({ file });
+    })
+    .post("/:id/playback", fileParam, async (c) => {
       const { id } = c.req.valid("param");
       const organisationId = c.var.organisationId;
       const [file] = await deps.db
@@ -58,6 +80,18 @@ export const fileRoutes = (deps: PlaybackDeps) =>
               : "This file cannot be played",
         });
       }
+      const available = await deps.db
+        .select({
+          id: renditions.id,
+          name: renditions.name,
+          codecs: renditions.codecs,
+          bandwidth: renditions.bandwidth,
+          width: renditions.width,
+          height: renditions.height,
+        })
+        .from(renditions)
+        .where(inOrg(renditions, organisationId, eq(renditions.fileId, file.id)))
+        .orderBy(asc(renditions.bandwidth));
       const expiresAt = Math.floor(Date.now() / 1000) + PLAYBACK_LIFETIME_SECONDS;
       const token = signPlayback(deps.secret, {
         sessionId: c.var.sessionId,
@@ -72,11 +106,15 @@ export const fileRoutes = (deps: PlaybackDeps) =>
         requestInfo(c, deps.trustProxy),
       );
       return c.json(
-        { url: `/api/play/${token}/master.m3u8`, expiresAt: new Date(expiresAt * 1000) },
+        {
+          url: `/api/play/${token}/master.m3u8`,
+          expiresAt: new Date(expiresAt * 1000),
+          // So the player can name what it offers; the playlists carry the same ids.
+          renditions: available,
+        },
         201,
       );
-    },
-  );
+    });
 
 type PlayVariables = SessionVariables & { playback: PlaybackClaims };
 

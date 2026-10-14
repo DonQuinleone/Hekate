@@ -19,6 +19,10 @@ const paths = {
   image:
     "M2.5 3.5 H13.5 V12.5 H2.5 Z M2.5 10.5 L6 7 L9 10 L10.5 8.5 L13.5 11.5 M10.5 5.5 a1 1 0 1 0 0.01 0",
   close: "M4 4 L12 12 M12 4 L4 12",
+  play: "M5 3.5 L12.5 8 L5 12.5 Z",
+  pause: "M5.5 3.5 V12.5 M10.5 3.5 V12.5",
+  volume: "M2.5 6 H5 L8.5 3 V13 L5 10 H2.5 Z M11 5.5 a3.5 3.5 0 0 1 0 5",
+  mute: "M2.5 6 H5 L8.5 3 V13 L5 10 H2.5 Z M11 6 L14 10 M14 6 L11 10",
 } as const;
 
 export type IconName = keyof typeof paths;
