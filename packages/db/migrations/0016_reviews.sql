@@ -81,12 +81,20 @@ CREATE UNIQUE INDEX "review_reviewers_user_idx" ON "review_reviewers" USING btre
 CREATE INDEX "reviews_project_idx" ON "reviews" USING btree ("organisation_id","project_id","created_at");--> statement-breakpoint
 -- Approval decisions are append-only (docs/domain.md): a later decision supersedes an
 -- earlier one but never erases it. Rows leave only with their review or organisation.
+-- A delete is refused while the review still exists, so the cascade from a deleted review
+-- (or organisation) goes through but a decision cannot be removed on its own.
 CREATE FUNCTION "review_decisions_append_only"() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-	RAISE EXCEPTION 'Review decisions are append-only: rows cannot be changed'
+	IF TG_OP = 'DELETE' AND (
+		NOT EXISTS (SELECT 1 FROM "reviews" WHERE "id" = OLD."review_id")
+		OR NOT EXISTS (SELECT 1 FROM "organisations" WHERE "id" = OLD."organisation_id")
+	) THEN
+		RETURN OLD;
+	END IF;
+	RAISE EXCEPTION 'Review decisions are append-only: rows cannot be changed or removed'
 		USING ERRCODE = 'insufficient_privilege';
 END;
 $$;--> statement-breakpoint
-CREATE TRIGGER "review_decisions_no_update" BEFORE UPDATE ON "review_decisions"
+CREATE TRIGGER "review_decisions_no_update" BEFORE UPDATE OR DELETE ON "review_decisions"
 	FOR EACH ROW EXECUTE FUNCTION "review_decisions_append_only"();

@@ -112,6 +112,9 @@ async function lockReview(tx: Tx, actor: Actor, reviewId: string) {
   return review;
 }
 
+const cannotDecide =
+  "Every reviewer of an approval must have a role in this project that can decide";
+
 /** The items as a reviewer opens them: for a track, the version under review and its primary file. */
 async function itemsOf(db: Database, organisationId: string, reviewId: string) {
   const rows = await db
@@ -125,8 +128,14 @@ async function itemsOf(db: Database, organisationId: string, reviewId: string) {
       fileKind: files.kind,
     })
     .from(reviewItems)
-    .leftJoin(tracks, eq(tracks.id, reviewItems.trackId))
-    .leftJoin(files, eq(files.id, reviewItems.fileId))
+    .leftJoin(
+      tracks,
+      and(eq(tracks.id, reviewItems.trackId), eq(tracks.organisationId, organisationId)),
+    )
+    .leftJoin(
+      files,
+      and(eq(files.id, reviewItems.fileId), eq(files.organisationId, organisationId)),
+    )
     .where(inOrg(reviewItems, organisationId, eq(reviewItems.reviewId, reviewId)))
     .orderBy(asc(reviewItems.position));
   return Promise.all(
@@ -330,7 +339,8 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
       const { projectId } = await can(deps.db, actor, "request_reviews", c.req.valid("param").id);
       const input = c.req.valid("json");
 
-      // Reviewers are members who can see the project: their role sets the ceiling.
+      // Reviewers are members who can see the project, and for an approval can decide:
+      // their role sets the ceiling.
       const people = await deps.db
         .select({
           userId: members.userId,
@@ -354,6 +364,9 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
           throw new HTTPException(422, {
             message: "Every reviewer must be a member who can see this project",
           });
+        }
+        if (input.kind === "approval" && !sees.permissions.has("decide")) {
+          throw new HTTPException(422, { message: cannotDecide });
         }
       }
       // Every item must be in this project.
@@ -404,6 +417,7 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
         }
       }
 
+      const who = await deps.audit.member(c.var.userId);
       const review = await deps.db.transaction(async (tx) => {
         const [created] = await tx
           .insert(reviews)
@@ -438,19 +452,20 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
             position,
           })),
         );
+        await deps.audit.record(
+          organisationId,
+          who,
+          {
+            action: "review.create",
+            projectId,
+            reviewId: created.id,
+            details: { kind: created.kind, reviewers: input.reviewers.length },
+          },
+          requestInfo(c, deps.trustProxy),
+          tx,
+        );
         return created;
       });
-      await deps.audit.record(
-        organisationId,
-        await deps.audit.member(c.var.userId),
-        {
-          action: "review.create",
-          projectId,
-          reviewId: review.id,
-          details: { kind: review.kind, reviewers: input.reviewers.length },
-        },
-        requestInfo(c, deps.trustProxy),
-      );
       // Ask whoever can act now: everyone, or the first in a sequence.
       const first = input.order === "sequence" ? input.reviewers.slice(0, 1) : input.reviewers;
       const requester = await nameOf(deps.db, c.var.userId);
@@ -489,6 +504,7 @@ export const reviewRoutes = (deps: ReviewDeps) =>
     .post("/:id/decisions", idParam, zValidator("json", decisionInput), async (c) => {
       const actor = actorOf(c.var);
       const input = c.req.valid("json");
+      const who = await deps.audit.member(actor.userId);
       const { review, next } = await deps.db.transaction(async (tx) => {
         const review = await lockReview(tx, actor, c.req.valid("param").id);
         if (review.kind !== "approval") {
@@ -514,6 +530,18 @@ export const reviewRoutes = (deps: ReviewDeps) =>
           decision: input.decision,
           note: input.note || null,
         });
+        await deps.audit.record(
+          actor.organisationId,
+          who,
+          {
+            action: "review.decision",
+            projectId: review.projectId,
+            reviewId: review.id,
+            details: { decision: input.decision },
+          },
+          requestInfo(c, deps.trustProxy),
+          tx,
+        );
         await tx
           .update(reviewReviewers)
           .set({
@@ -533,17 +561,6 @@ export const reviewRoutes = (deps: ReviewDeps) =>
             : [];
         return { review: settled, next };
       });
-      await deps.audit.record(
-        actor.organisationId,
-        await deps.audit.member(actor.userId),
-        {
-          action: "review.decision",
-          projectId: review.projectId,
-          reviewId: review.id,
-          details: { decision: input.decision },
-        },
-        requestInfo(c, deps.trustProxy),
-      );
       if (next.length > 0) {
         await notify(deps, next, review, `It is your turn to ${ask(review)}.`);
       }
@@ -551,6 +568,7 @@ export const reviewRoutes = (deps: ReviewDeps) =>
     })
     .post("/:id/submit", idParam, async (c) => {
       const actor = actorOf(c.var);
+      const who = await deps.audit.member(actor.userId);
       const { review, next } = await deps.db.transaction(async (tx) => {
         const review = await lockReview(tx, actor, c.req.valid("param").id);
         if (review.kind !== "feedback") {
@@ -580,6 +598,13 @@ export const reviewRoutes = (deps: ReviewDeps) =>
             updatedAt: now,
           })
           .where(inOrg(reviewReviewers, actor.organisationId, eq(reviewReviewers.id, me.id)));
+        await deps.audit.record(
+          actor.organisationId,
+          who,
+          { action: "review.submit", projectId: review.projectId, reviewId: review.id },
+          requestInfo(c, deps.trustProxy),
+          tx,
+        );
         const settled = await settle(tx, review);
         const after = await reviewersOf(tx, actor.organisationId, review.id);
         const next =
@@ -590,12 +615,6 @@ export const reviewRoutes = (deps: ReviewDeps) =>
             : [];
         return { review: settled, next };
       });
-      await deps.audit.record(
-        actor.organisationId,
-        await deps.audit.member(actor.userId),
-        { action: "review.submit", projectId: review.projectId, reviewId: review.id },
-        requestInfo(c, deps.trustProxy),
-      );
       if (next.length > 0) {
         await notify(deps, next, review, `It is your turn to ${ask(review)}.`);
       }
@@ -603,6 +622,7 @@ export const reviewRoutes = (deps: ReviewDeps) =>
     })
     .post("/:id/cancel", idParam, async (c) => {
       const actor = actorOf(c.var);
+      const who = await deps.audit.member(actor.userId);
       const review = await deps.db.transaction(async (tx) => {
         const review = await lockReview(tx, actor, c.req.valid("param").id);
         await can(tx, actor, "request_reviews", review.projectId);
@@ -613,14 +633,15 @@ export const reviewRoutes = (deps: ReviewDeps) =>
           .update(reviews)
           .set({ status: "cancelled", completedAt: new Date(), updatedAt: new Date() })
           .where(inOrg(reviews, actor.organisationId, eq(reviews.id, review.id)));
+        await deps.audit.record(
+          actor.organisationId,
+          who,
+          { action: "review.cancel", projectId: review.projectId, reviewId: review.id },
+          requestInfo(c, deps.trustProxy),
+          tx,
+        );
         return review;
       });
-      await deps.audit.record(
-        actor.organisationId,
-        await deps.audit.member(actor.userId),
-        { action: "review.cancel", projectId: review.projectId, reviewId: review.id },
-        requestInfo(c, deps.trustProxy),
-      );
       return c.json({ review: await reviewView(deps.db, actor, review.id) });
     })
     // Add a reviewer at the end of the order, while the review is open.
@@ -653,6 +674,9 @@ export const reviewRoutes = (deps: ReviewDeps) =>
             throw new HTTPException(422, {
               message: "Every reviewer must be a member who can see this project",
             });
+          }
+          if (review.kind === "approval" && !sees.permissions.has("decide")) {
+            throw new HTTPException(422, { message: cannotDecide });
           }
           const [last] = await tx
             .select({ position: max(reviewReviewers.position) })

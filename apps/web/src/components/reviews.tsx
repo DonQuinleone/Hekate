@@ -7,6 +7,7 @@ import {
   projectFilesQuery,
   projectMembersQuery,
   projectReviewsQuery,
+  projectRolesQuery,
   projectTracksQuery,
   type ReviewSummary,
   useCreateReview,
@@ -67,7 +68,8 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
   const navigate = useNavigate();
   const { data: tracks } = useQuery(projectTracksQuery(projectId));
   const { data: files } = useQuery(projectFilesQuery(projectId));
-  const { data: people } = useQuery(projectMembersQuery(projectId));
+  const { data: members } = useQuery(projectMembersQuery(projectId));
+  const { data: roles } = useQuery(projectRolesQuery(projectId));
   const create = useCreateReview(projectId);
   const [kind, setKind] = useState<ReviewKind>("approval");
   const [title, setTitle] = useState("");
@@ -77,6 +79,12 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
   const [rule, setRule] = useState<"all" | "any">("all");
   const [items, setItems] = useState<string[]>([]);
   const [reviewers, setReviewers] = useState<string[]>([]);
+  // An approval asks for a decision, so only roles that can decide may review one.
+  const deciders = new Set(
+    (roles ?? []).filter((r) => r.permissions.includes("decide")).map((r) => r.id),
+  );
+  const people = (members ?? []).filter((p) => kind === "feedback" || deciders.has(p.roleId));
+  const chosen = reviewers.filter((id) => people.some((p) => p.userId === id));
 
   const toggle = (list: string[], set: (next: string[]) => void, value: string) =>
     set(list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
@@ -94,7 +102,7 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
           const [type, id] = key.split(":") as [string, string];
           return type === "track" ? { trackId: id } : { fileId: id };
         }),
-        reviewers,
+        reviewers: chosen,
       },
       {
         onSuccess: (review) => {
@@ -104,7 +112,7 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
       },
     );
   };
-  const ready = title.trim() && items.length > 0 && reviewers.length > 0;
+  const ready = title.trim() && items.length > 0 && chosen.length > 0;
 
   return (
     <form
@@ -177,8 +185,8 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
 
       <Field label="Reviewers">
         <ul className="m-0 flex list-none flex-col gap-1 p-0">
-          {(people ?? []).map((person) => {
-            const at = reviewers.indexOf(person.userId);
+          {people.map((person) => {
+            const at = chosen.indexOf(person.userId);
             return (
               <li key={person.userId}>
                 <label className="flex cursor-pointer items-center gap-2 text-[13px] text-ink-2">

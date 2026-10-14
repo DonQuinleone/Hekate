@@ -1972,6 +1972,15 @@ describe.runIf(url)("api", () => {
         await expect(
           db.execute(sql`update review_decisions set decision = 'approved'`),
         ).rejects.toThrow();
+        await expect(db.execute(sql`delete from review_decisions`)).rejects.toThrow();
+        // Decisions leave only with their review.
+        await db.delete(schema.reviews).where(eq(schema.reviews.organisationId, s.organisationId));
+        expect(
+          await db
+            .select()
+            .from(schema.reviewDecisionLog)
+            .where(eq(schema.reviewDecisionLog.organisationId, s.organisationId)),
+        ).toEqual([]);
       });
 
       it("settles on one approval under the any rule, and lets a reviewer change their mind", async () => {
@@ -2043,19 +2052,28 @@ describe.runIf(url)("api", () => {
           (await request(s.owner, otherId, { ...base, reviewers: [s.ids.composer] })).status,
         ).toBe(422);
 
-        // An engineer reviewer may give feedback but not record an approval decision.
+        // An engineer may give feedback but cannot record a decision, so cannot review an approval.
+        expect(
+          (
+            await request(s.owner, s.projectId, {
+              ...base,
+              reviewers: [s.ids.engineer, s.ids.composer],
+            })
+          ).status,
+        ).toBe(422);
         const review = await reviewOf(
-          await request(s.owner, s.projectId, {
-            ...base,
-            reviewers: [s.ids.engineer, s.ids.composer],
-          }),
+          await request(s.owner, s.projectId, { ...base, reviewers: [s.ids.composer] }),
         );
         const path = `/api/reviews/${review.id}`;
+        expect(
+          (await app.request(`${path}/reviewers`, json({ userId: s.ids.engineer }, s.owner)))
+            .status,
+        ).toBe(422);
+        // Someone who is not a reviewer cannot decide; someone who cannot see the project cannot see it.
         expect(
           (await app.request(`${path}/decisions`, json({ decision: "approved" }, s.engineer)))
             .status,
         ).toBe(403);
-        // Someone who is not a reviewer cannot decide; someone who cannot see the project cannot see it.
         expect(
           (await app.request(`${path}/decisions`, json({ decision: "approved" }, s.accompanist)))
             .status,
@@ -2069,7 +2087,7 @@ describe.runIf(url)("api", () => {
         const added = await reviewOf(
           await app.request(`${path}/reviewers`, json({ userId: s.ids.accompanist }, s.owner)),
         );
-        expect(added.reviewers).toHaveLength(3);
+        expect(added.reviewers).toHaveLength(2);
         // Cancelling ends it.
         expect((await app.request(`${path}/cancel`, json({}, s.engineer))).status).toBe(403);
         const cancelled = await reviewOf(await app.request(`${path}/cancel`, json({}, s.owner)));
