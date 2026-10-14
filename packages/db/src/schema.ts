@@ -230,6 +230,25 @@ export const takes = pgTable(
  * or neither (cover artwork, a score PDF, a loose document).
  */
 /**
+ * An organisation's key, wrapped by the instance master key. Blob data keys are
+ * wrapped by it. Versions allow rotating an organisation's key later; rotating
+ * the master key only re-wraps these rows, never the stored objects.
+ */
+export const organisationKeys = pgTable(
+  "organisation_keys",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    version: integer("version").notNull(),
+    /** Identifies the master key that wraps this row (a one-way fingerprint, not the key). */
+    masterKeyId: text("master_key_id").notNull(),
+    wrappedKey: text("wrapped_key").notNull(),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("organisation_keys_org_version_unique").on(t.organisationId, t.version)],
+);
+
+/**
  * An object in storage: an uploaded original or a derivative (proxy, peaks, tiles).
  * Its bytes live in exactly one configured backend, so backends can be added or
  * changed without breaking existing objects.
@@ -242,10 +261,14 @@ export const blobs = pgTable(
     /** Name of the storage backend that holds the bytes (STORAGE_BACKENDS). */
     backend: text("backend").notNull(),
     key: text("key").notNull(),
-    /** Size of the bytes as stored. */
+    /** Size of the content before encryption. The stored ciphertext is slightly larger. */
     byteSize: bigint("byte_size", { mode: "number" }).notNull(),
-    /** SHA-256 of the bytes as stored, hex encoded, for integrity checks. */
+    /** SHA-256 of the content before encryption, hex encoded. */
     sha256: text("sha256").notNull(),
+    /** The blob's own data key, wrapped by the organisation key (docs/security.md). */
+    wrappedKey: text("wrapped_key").notNull(),
+    /** Which organisation key version wrapped it. */
+    keyVersion: integer("key_version").notNull(),
     contentType: text("content_type"),
     ...timestamps,
   },
