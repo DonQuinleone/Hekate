@@ -9,6 +9,7 @@ import {
   compareSources,
   gainLabel,
   levelGains,
+  levelMatchable,
   MAX_SOURCES,
   needsResync,
 } from "~/lib/compare";
@@ -30,12 +31,18 @@ function Follower({
   playback,
   master,
   volume,
+  onFail,
 }: {
   playback: Playback;
   master: HTMLMediaElement;
   /** 0 while another source is heard. */
   volume: number;
+  /** The stream could not be loaded, so this source cannot be heard. */
+  onFail: () => void;
 }) {
+  const fail = useRef(onFail);
+  fail.current = onFail;
+
   const element = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
@@ -50,6 +57,9 @@ function Follower({
         return;
       }
       hls = new Hls({ enableWorker: true, ...audioBuffer(playback.renditions) });
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (data.fatal) fail.current();
+      });
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         // The same rendition the master would choose: lossless where the browser can.
         const preferred = preferredRendition(playback.renditions);
@@ -77,12 +87,26 @@ function Follower({
     };
     const play = () => {
       sync();
+      // A rejection before the stream is attached is retried once it can play.
       void audio.play().catch(() => undefined);
     };
     const pause = () => audio.pause();
+    // Pinned while the master plays: start as soon as there is something to play.
+    const ready = () => {
+      if (!master.paused && audio.paused) play();
+    };
+    // The player's mute button acts on the master; whichever source is heard obeys it.
+    const mute = () => {
+      audio.muted = master.muted;
+    };
+    const failed = () => fail.current();
     master.addEventListener("play", play);
     master.addEventListener("pause", pause);
     master.addEventListener("seeked", sync);
+    master.addEventListener("volumechange", mute);
+    audio.addEventListener("canplay", ready);
+    audio.addEventListener("error", failed);
+    mute();
     // Loops and seeks move the master; drift is put right a few times a second.
     const timer = window.setInterval(() => {
       if (!master.paused) sync();
@@ -93,6 +117,9 @@ function Follower({
       master.removeEventListener("play", play);
       master.removeEventListener("pause", pause);
       master.removeEventListener("seeked", sync);
+      master.removeEventListener("volumechange", mute);
+      audio.removeEventListener("canplay", ready);
+      audio.removeEventListener("error", failed);
       window.clearInterval(timer);
       audio.pause();
     };
@@ -111,13 +138,20 @@ function FollowerSource({
   fileId,
   master,
   volume,
+  onFail,
 }: {
   fileId: string;
   master: HTMLMediaElement;
   volume: number;
+  onFail: () => void;
 }) {
-  const { data } = useQuery(playbackQuery(fileId));
-  return data ? <Follower playback={data} master={master} volume={volume} /> : null;
+  const { data, error } = useQuery(playbackQuery(fileId));
+  const fail = useRef(onFail);
+  fail.current = onFail;
+  useEffect(() => {
+    if (error) fail.current();
+  }, [error]);
+  return data ? <Follower playback={data} master={master} volume={volume} onFail={onFail} /> : null;
 }
 
 const chip =
@@ -136,7 +170,10 @@ export function Compare({ file, media }: { file: FileDetail; media: HTMLMediaEle
   });
   const candidates = useMemo(() => (track ? compareSources(track, file.id) : []), [track, file.id]);
   const [pinned, setPinned] = useState<string[]>([]);
-  const [heard, setHeard] = useState(0);
+  /** The source being heard, by file, so pinning or unpinning others never changes it. */
+  const [heard, setHeard] = useState<string | null>(null);
+  /** Sources whose stream could not be loaded. */
+  const [failed, setFailed] = useState<string[]>([]);
   const [blind, setBlind] = useState(false);
   /** Blind: the source behind each key; otherwise key k is source k. */
   const [order, setOrder] = useState<number[]>([]);
@@ -153,9 +190,23 @@ export function Compare({ file, media }: { file: FileDetail; media: HTMLMediaEle
   const loudness = useQueries({
     queries: sources.map((s) => loudnessQuery(s.fileId)),
   });
-  const gains = levelGains(loudness.map((q) => q.data?.summary?.integrated));
+  const levels = loudness.map((q) => q.data?.summary?.integrated);
+  const gains = levelGains(levels);
+  const matched = levelMatchable(levels);
   const comparing = sources.length > 1;
-  const current = Math.min(heard, sources.length - 1);
+  const current = Math.max(
+    0,
+    sources.findIndex((s) => s.fileId === heard),
+  );
+  const hear = (i: number | undefined) => {
+    const s = i === undefined ? undefined : sources[i];
+    if (s && !failed.includes(s.fileId)) setHeard(s.fileId);
+  };
+  // Sources are fixed while blind; should one vanish anyway (no longer ready), the
+  // assignment no longer holds, so reveal rather than mislabel.
+  if (blind && order.length !== sources.length) {
+    setBlind(false);
+  }
 
   // The master is heard only when it is the chosen source; the others follow silently.
   useEffect(() => {
@@ -178,12 +229,12 @@ export function Compare({ file, media }: { file: FileDetail; media: HTMLMediaEle
       const n = Number(event.key);
       if (Number.isInteger(n) && n >= 1 && n <= sources.length) {
         event.preventDefault();
-        setHeard(blind ? (order[n - 1] ?? n - 1) : n - 1);
+        hear(blind ? order[n - 1] : n - 1);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [comparing, sources.length, blind, order]);
+  });
 
   if (!variation || candidates.length === 0) return null;
 
@@ -201,7 +252,6 @@ export function Compare({ file, media }: { file: FileDetail; media: HTMLMediaEle
     setOrder(shuffled);
     // Keep hearing what was heard, now under whichever key it moved to.
     setBlind(true);
-    setHeard(current);
   };
   /** The source behind a key. */
   const at = (key: number) => (blind ? (order[key] ?? key) : key);
@@ -215,11 +265,12 @@ export function Compare({ file, media }: { file: FileDetail; media: HTMLMediaEle
         <h2 className="m-0 text-[15px] font-medium">Compare</h2>
         <span className="text-xs text-ink-3">
           {comparing
-            ? `Keys 1 ${sources.length === 2 ? "and" : "to"} ${sources.length} switch at the same position, level-matched.`
+            ? `Keys 1 ${sources.length === 2 ? "and" : "to"} ${sources.length} switch at the same position${matched ? ", level-matched" : ""}.`
             : "Add up to three more to flip between at the same position."}
         </span>
       </div>
-      <fieldset className="m-0 flex flex-wrap gap-1 border-0 p-0">
+      {/* The sources stay put while listening blind, so each key keeps its source. */}
+      <fieldset disabled={blind} className="m-0 flex flex-wrap gap-1 border-0 p-0">
         <legend className="sr-only">Sources to compare</legend>
         {candidates.map((c) => {
           const on = pinned.includes(c.fileId);
@@ -249,14 +300,16 @@ export function Compare({ file, media }: { file: FileDetail; media: HTMLMediaEle
             {sources.map((_, key) => {
               const i = at(key);
               const s = sources[i];
+              const unavailable = s ? failed.includes(s.fileId) : false;
               return s ? (
                 <li key={s.fileId}>
                   <button
                     type="button"
                     aria-pressed={current === i}
-                    onClick={() => setHeard(i)}
+                    disabled={unavailable}
+                    onClick={() => hear(i)}
                     className={cn(
-                      "flex w-full cursor-pointer items-center gap-3 rounded-control border px-3 py-2 text-left",
+                      "flex w-full cursor-pointer items-center gap-3 rounded-control border px-3 py-2 text-left disabled:cursor-default disabled:opacity-40",
                       current === i
                         ? "border-signal bg-raised text-ink"
                         : "border-hairline bg-transparent text-ink-2 hover:border-edge",
@@ -266,10 +319,15 @@ export function Compare({ file, media }: { file: FileDetail; media: HTMLMediaEle
                     <span className="min-w-0 flex-1 truncate text-[13px]">
                       {blind ? `Source ${blindLetter(key)}` : s.label}
                     </span>
-                    {!blind && (
-                      <span className="tabular shrink-0 font-mono text-[11px] text-ink-3">
-                        {gainLabel(gains[i] ?? 1)}
-                      </span>
+                    {unavailable ? (
+                      <span className="shrink-0 text-[11px] text-signal">Could not load</span>
+                    ) : (
+                      !blind &&
+                      matched && (
+                        <span className="tabular shrink-0 font-mono text-[11px] text-ink-3">
+                          {gainLabel(gains[i] ?? 1)}
+                        </span>
+                      )
                     )}
                   </button>
                 </li>
@@ -287,6 +345,7 @@ export function Compare({ file, media }: { file: FileDetail; media: HTMLMediaEle
               </Button>
             )}
             <span className="text-xs text-ink-3">
+              {matched ? "" : "Not level-matched until every source is measured. "}
               Versions are compared at the same time from the start; alignment by musical position
               follows.
             </span>
@@ -297,6 +356,9 @@ export function Compare({ file, media }: { file: FileDetail; media: HTMLMediaEle
               fileId={s.fileId}
               master={media}
               volume={current === i + 1 ? (gains[i + 1] ?? 1) : 0}
+              onFail={() =>
+                setFailed((list) => (list.includes(s.fileId) ? list : [...list, s.fileId]))
+              }
             />
           ))}
         </>

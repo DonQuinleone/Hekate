@@ -5,6 +5,7 @@ import {
   compareSources,
   gainLabel,
   levelGains,
+  levelMatchable,
   needsResync,
 } from "./compare";
 import type { Track, Variation } from "./queries";
@@ -74,14 +75,20 @@ describe("comparison", () => {
   });
 
   it("turns louder sources down to the quietest", () => {
-    const gains = levelGains([-14, -20, null]);
+    const gains = levelGains([-14, -20, -20]);
     expect(gains[0]).toBeCloseTo(0.5012, 3);
     expect(gains[1]).toBe(1);
     expect(gains[2]).toBe(1);
-    // Nothing to match against: everything plays as it is.
-    expect(levelGains([-14, null])).toEqual([1, 1]);
+    expect(levelMatchable([-14, -20])).toBe(true);
     expect(gainLabel(gains[0] ?? 1)).toBe("−6.0 dB");
     expect(gainLabel(1)).toBe("0 dB");
+  });
+
+  it("matches nothing until every source is measured", () => {
+    expect(levelGains([-14, -20, null])).toEqual([1, 1, 1]);
+    expect(levelMatchable([-14, -20, null])).toBe(false);
+    expect(levelMatchable([-14, Number.NEGATIVE_INFINITY])).toBe(false);
+    expect(levelMatchable([-14])).toBe(false);
   });
 
   it("shuffles which source sits behind each key when blind", () => {

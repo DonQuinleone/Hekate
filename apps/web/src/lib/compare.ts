@@ -49,18 +49,24 @@ export function compareSources(track: Track, fileId: string): CompareSource[] {
   return [...siblings, ...others];
 }
 
+const measuredLevel = (l: number | null | undefined): l is number =>
+  typeof l === "number" && Number.isFinite(l);
+
+/** Whether every source has an integrated loudness, so they can be matched at all. */
+export const levelMatchable = (loudness: (number | null | undefined)[]) =>
+  loudness.length > 1 && loudness.every(measuredLevel);
+
 /**
  * Gains that bring every source to the quietest one's integrated loudness, so a louder
- * mix never sounds better for being louder. A source not yet measured plays as it is.
+ * mix never sounds better for being louder. Until every source is measured, all play as
+ * they are: turning some down and not others would bias the comparison.
  * Gains only ever turn down: a media element cannot play above full volume.
  */
 export function levelGains(loudness: (number | null | undefined)[]): number[] {
-  const measured = loudness.filter((l): l is number => typeof l === "number" && Number.isFinite(l));
-  if (measured.length < 2) return loudness.map(() => 1);
+  if (!levelMatchable(loudness)) return loudness.map(() => 1);
+  const measured = loudness.filter(measuredLevel);
   const quietest = Math.min(...measured);
-  return loudness.map((l) =>
-    typeof l === "number" && Number.isFinite(l) ? Math.min(1, 10 ** ((quietest - l) / 20)) : 1,
-  );
+  return measured.map((l) => Math.min(1, 10 ** ((quietest - l) / 20)));
 }
 
 /** How far a gain turns a source down, for showing beside it: "−2.4 dB". */
