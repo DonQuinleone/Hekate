@@ -16,6 +16,9 @@ The words in this document are used exactly as defined, in code, in the interfac
 | **Take** | A snippet of audio captured in the recording session, usually not a complete run of the music. Takes are reference material for the producer and editor: they show what is available for each passage and what has been stitched into the edit. A take groups its files: one per microphone, plus an optional summed mix. Takes are **not** versions and do not normally appear in review. |
 | **Session** | A recording session, grouping takes (for example "Day 2 · St John's"). |
 | **Comment** | A note on a file, optionally anchored to a place in it. Comments can be threaded and resolved. |
+| **Category** | A configurable label on a comment, such as *Noise*, *Edit*, *Balance*, *Performance*. A category can carry a default handling, for example *Noise* defers the comment to a later stage. Categories are defined per project. |
+| **Deferred** | A comment set aside for a later stage of the workflow (typically noise, handled at the end). It stays open and reappears when that stage starts. |
+| **Carry-over** | Linking a comment raised on one version to the version where it was addressed, with the anchor mapped across, so the reviewer can hear or see a before and after. |
 | **Anchor** | Where a comment points: a time range or frame (`time`), a rectangle on a page or frame (`region`), or a bar and beat or range of bars (`bar`). A comment without an anchor is about the whole file. |
 | **Review** | One request, made by someone with the authority, for one or more people to look at one or more items (tracks, versions, files). A review is either an approval or feedback. |
 | **Approval** | A review that ends in a formal, logged decision from each reviewer: **Approved** or **Changes requested**. |
@@ -49,6 +52,41 @@ Organisation
 - A file can be a variation of exactly one version, part of exactly one take, or neither (a loose file in a folder such as cover artwork or a score PDF).
 - A track can link a score file, used for bar anchors and the score view.
 - Video and general projects use the same tracks, versions and variations model. Only the interface labels change by profile (to be confirmed: see open questions).
+
+## Listening and viewing
+
+A track does not need a score. The **waveform is the primary surface** for audio; the score view is an extra pane when a score is linked and synced. Video uses the frame with a filmstrip and waveform.
+
+Tools for engineers and producers, all working on the protected streams (`docs/security.md`):
+
+- Waveform with zoom down to sample level, markers and loop regions
+- Spectrogram (linear, log and mel scales, adjustable FFT size and range), side by side with or overlaid on the waveform
+- Level metering: peak, RMS, true peak and integrated loudness (LUFS), per channel, with loudness history
+- Phase correlation and stereo field (goniometer)
+- Switch variations (dry and wet mix) at the same playhead without a gap; level-matched A/B
+- Compare versions at the same musical position, using the version alignment below
+- Solo and mute channels for multichannel files and takes
+
+Analysis data (peaks, spectrogram tiles, loudness) is computed by the media worker, so the browser never needs the full-quality audio to draw it.
+
+## Comments across versions
+
+Comments are raised on one version and often addressed in a later one. Each comment thread keeps its origin and can be **carried over**:
+
+- When a new version arrives, open comments from the previous version are listed against it, with their anchors mapped to the new version.
+- Mapping uses the score's bar positions when the track is synced; otherwise an automatic alignment between the two versions' audio (computed by the media worker), which the editor can correct.
+- Whoever resolves a comment picks the version that addresses it. The thread then offers **before and after**: play the anchored passage from the original version, then the same passage in the resolving version, level-matched.
+- A comment can be carried through several versions; its history shows each one.
+
+## Categories and deferral
+
+Comments can be given a category with one action, such as marking a comment as **Noise**. Categories are configurable per project, each with a default handling:
+
+- **Normal:** stays in the current round.
+- **Deferred to a stage:** leaves the current round's to-do list, stays open, and returns when the named workflow stage starts (for example *Noise reduction* at the end of the process).
+- **Information only:** recorded, no action expected.
+
+Triage (producer or whoever holds the permission) can change a comment's category, defer or undefer it, and assign it.
 
 ## Reviews
 
