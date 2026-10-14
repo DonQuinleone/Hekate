@@ -1,4 +1,5 @@
 import { type Database, inOrg, schema } from "@hekate/db";
+import type { ReviewerTool } from "@hekate/shared";
 import { unwrapKey } from "@hekate/storage";
 import { zValidator } from "@hono/zod-validator";
 import { asc, eq } from "drizzle-orm";
@@ -65,15 +66,30 @@ const viewFile = (db: Database) =>
     await next();
   });
 
+/**
+ * As `viewFile`, for an engineer's tool: a guest whose review leaves the tool out is
+ * refused it here, not only hidden in the interface.
+ */
+const toolFile = (db: Database, tool: ReviewerTool) =>
+  createMiddleware<{ Variables: ViewerVariables }>(async (c, next) => {
+    const id = z.uuid().safeParse(c.req.param("id"));
+    if (!id.success) throw new NotFound("File");
+    const access = await canOnFile(db, c.var.actor, "view", id.data);
+    if (access.grant && !access.grant.tools.includes(tool)) {
+      throw new HTTPException(403, { message: "This review does not include that tool" });
+    }
+    await next();
+  });
+
 export const fileRoutes = (deps: PlaybackDeps) =>
   new Hono<{ Variables: ViewerVariables }>()
     .use("/:id", viewFile(deps.db))
     .use("/:id/peaks/*", viewFile(deps.db))
     .use("/:id/peaks", viewFile(deps.db))
-    .use("/:id/loudness/*", viewFile(deps.db))
-    .use("/:id/loudness", viewFile(deps.db))
-    .use("/:id/spectrograms/*", viewFile(deps.db))
-    .use("/:id/spectrograms", viewFile(deps.db))
+    .use("/:id/loudness/*", toolFile(deps.db, "meters"))
+    .use("/:id/loudness", toolFile(deps.db, "meters"))
+    .use("/:id/spectrograms/*", toolFile(deps.db, "spectrogram"))
+    .use("/:id/spectrograms", toolFile(deps.db, "spectrogram"))
     .use("/:id/playback", viewFile(deps.db))
     .get("/:id", fileParam, async (c) => {
       // Metadata only: contents leave Hekate solely through protected delivery.
@@ -111,7 +127,11 @@ export const fileRoutes = (deps: PlaybackDeps) =>
         .innerJoin(versions, eq(versions.id, variations.versionId))
         .innerJoin(tracks, eq(tracks.id, versions.trackId))
         .where(inOrg(variations, c.var.organisationId, eq(variations.fileId, file.id)));
-      return c.json({ file: { ...file, variation: variation ?? null } });
+      // A guest's review decides which tools and actions they have; members have their role.
+      const access = await fileAccess(deps.db, c.var.actor, file.id);
+      return c.json({
+        file: { ...file, variation: variation ?? null, grant: access?.grant ?? null },
+      });
     })
     // Waveform peaks: an 8-bit envelope per channel, from which no audio can be rebuilt, so
     // members fetch them directly rather than through playback tokens.

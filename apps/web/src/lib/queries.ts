@@ -13,6 +13,8 @@ import {
   type ProjectPermission,
   type ProjectProfile,
   type ReviewDecision,
+  type ReviewerPermissions,
+  type ReviewerPermissionsChange,
   type ReviewerState,
   type ReviewKind,
   type UpdateCarryInput,
@@ -332,6 +334,8 @@ export interface FileDetail extends ProjectFile {
     trackId: string;
     trackName: string;
   } | null;
+  /** For a guest, what their reviews let them do with this file; null for members. */
+  grant: Pick<ReviewerPermissions, "comment" | "comments" | "tools"> | null;
 }
 
 export const fileQuery = (fileId: string) =>
@@ -732,6 +736,8 @@ export interface ReviewDetail {
     decision: ReviewDecision | null;
     decidedAt: string | null;
     submittedAt: string | null;
+    /** For those who manage reviewers, and for the reviewer themselves; otherwise null. */
+    permissions: ReviewerPermissions | null;
   }[];
   decisions: {
     id: string;
@@ -749,6 +755,8 @@ export interface ReviewDetail {
     canManage: boolean;
     canManageReviewers: boolean;
     guest: boolean;
+    /** What you may do here, when you are a reviewer of it. */
+    permissions: ReviewerPermissions | null;
   };
 }
 
@@ -830,6 +838,17 @@ export function useReviewActions(reviewId: string) {
         if (!res.ok) await json(res);
       },
     }),
+    /** Change what one reviewer may do in this review. */
+    permissions: useMutation({
+      mutationFn: async (input: { reviewerId: string; permissions: ReviewerPermissionsChange }) =>
+        call(
+          await api.reviews[":id"].reviewers[":reviewerId"].$patch({
+            param: { id: reviewId, reviewerId: input.reviewerId },
+            json: { permissions: input.permissions },
+          }),
+        ),
+      onSuccess: settle,
+    }),
     /** End a guest's links and signed-in browsers. */
     revoke: useMutation({
       mutationFn: async (reviewerId: string) => {
@@ -850,6 +869,10 @@ export interface GuestMe {
     "id" | "kind" | "title" | "status" | "outcome" | "dueAt" | "createdAt"
   > & {
     submittedAt: string | null;
+    /** Their access window on it, and whether it is open now. */
+    opensAt: string | null;
+    closesAt: string | null;
+    accessOpen: boolean;
   })[];
 }
 

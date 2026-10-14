@@ -32,7 +32,14 @@ export function threadsOf(comments: Comment[]): {
 } {
   const threads = new Map<string, Thread>();
   for (const c of comments) if (!c.parentId) threads.set(c.id, { comment: c, replies: [] });
-  for (const c of comments) if (c.parentId) threads.get(c.parentId)?.replies.push(c);
+  for (const c of comments) {
+    if (!c.parentId) continue;
+    const thread = threads.get(c.parentId);
+    // A reply whose thread is not shown to this reader (their review shows them only their
+    // own) still shows, on its own.
+    if (thread) thread.replies.push(c);
+    else threads.set(c.id, { comment: c, replies: [] });
+  }
   const ordered = [...threads.values()].sort((a, b) => {
     const [ga, pa] = position(a.comment.anchor);
     const [gb, pb] = position(b.comment.anchor);
