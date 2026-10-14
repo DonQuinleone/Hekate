@@ -571,8 +571,9 @@ export function Comments({
               await mutations.create.mutateAsync({ body, anchor: anchorNow() });
               setAt(null);
               setWholeFile(false);
-              if (pages && pageAim === "region") {
-                pages.onFocus({ draft: null });
+              // Each document comment starts again from the page shown.
+              if (pages) {
+                if (pageAim === "region") pages.onFocus({ draft: null });
                 setPageTarget("page");
               }
             }}

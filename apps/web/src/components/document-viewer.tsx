@@ -69,8 +69,8 @@ export function DocumentViewer({
   const here = markers.filter((m) => m.page === undefined || m.page === page);
   const go = (to: number) => {
     const next = clampPage(to, count);
-    // A region drawn on one page is not carried to another.
-    if (next !== page) onFocus({ page: next, draft: null });
+    // A region drawn, or a thread picked, on one page is let go on another.
+    if (next !== page) onFocus({ page: next, draft: null, selected: null });
   };
 
   // The thumbnail of the page shown stays in view.

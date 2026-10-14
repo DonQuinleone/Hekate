@@ -38,8 +38,8 @@ export function formatAnchor(anchor: Anchor, options: { fps?: number } = {}): st
       // A picture is one page: a region on it needs no place.
       if (anchor.page === undefined && anchor.at === undefined) return "REGION";
       const where = anchor.page !== undefined ? `P. ${anchor.page}` : time(anchor.at ?? 0);
-      // The whole of a page is simply the page.
-      return whole ? where : `${where} · REGION`;
+      // The whole of a page is simply the page; a whole video frame stays a region.
+      return whole && anchor.page !== undefined ? where : `${where} · REGION`;
     }
     case "bar": {
       if (anchor.to && anchor.to.bar !== anchor.from.bar)
