@@ -52,6 +52,8 @@ export const organisations = pgTable("organisations", {
   id: id(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
+  /** Storage backend for new objects; null uses the instance default (STORAGE_DEFAULT). */
+  storageBackend: text("storage_backend"),
   ...timestamps,
 });
 
@@ -227,6 +229,32 @@ export const takes = pgTable(
  * One uploaded, immutable object. A file may be a variation of a version, part of a take,
  * or neither (cover artwork, a score PDF, a loose document).
  */
+/**
+ * An object in storage: an uploaded original or a derivative (proxy, peaks, tiles).
+ * Its bytes live in exactly one configured backend, so backends can be added or
+ * changed without breaking existing objects.
+ */
+export const blobs = pgTable(
+  "blobs",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    /** Name of the storage backend that holds the bytes (STORAGE_BACKENDS). */
+    backend: text("backend").notNull(),
+    key: text("key").notNull(),
+    /** Size of the bytes as stored. */
+    byteSize: bigint("byte_size", { mode: "number" }).notNull(),
+    /** SHA-256 of the bytes as stored, hex encoded, for integrity checks. */
+    sha256: text("sha256").notNull(),
+    contentType: text("content_type"),
+    ...timestamps,
+  },
+  (t) => [
+    index("blobs_org_idx").on(t.organisationId),
+    uniqueIndex("blobs_backend_key_unique").on(t.backend, t.key),
+  ],
+);
+
 export const files = pgTable(
   "files",
   {
@@ -236,10 +264,10 @@ export const files = pgTable(
     folderId: uuid("folder_id").references(() => folders.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     kind: fileKindEnum("kind").notNull(),
-    /** Location of the encrypted object in storage. Storage only ever holds ciphertext. */
-    storageKey: text("storage_key").notNull(),
-    /** The file's data key, wrapped by the organisation key (docs/security.md). */
-    wrappedKey: text("wrapped_key").notNull(),
+    /** The stored bytes. Deleting a blob that a file still uses is refused (checked at the end of the statement, so organisation deletes still cascade). */
+    blobId: uuid("blob_id")
+      .notNull()
+      .references(() => blobs.id, { onDelete: "no action" }),
     contentType: text("content_type").notNull(),
     byteSize: bigint("byte_size", { mode: "number" }).notNull(),
     mediaInfo: jsonb("media_info").$type<{
@@ -262,6 +290,7 @@ export const files = pgTable(
     index("files_org_idx").on(t.organisationId),
     index("files_project_folder_idx").on(t.projectId, t.folderId),
     index("files_take_idx").on(t.takeId),
+    index("files_blob_idx").on(t.blobId),
   ],
 );
 

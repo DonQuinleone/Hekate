@@ -1,4 +1,9 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { buffer } from "node:stream/consumers";
 import { createDb, runMigrations, schema } from "@hekate/db";
+import { createBackends, storageConfigFromEnv } from "@hekate/storage";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.ts";
@@ -6,6 +11,7 @@ import { createAuth } from "./auth.ts";
 import { createClient } from "./client.ts";
 import { loadConfig } from "./config.ts";
 import { memoryMailer } from "./mail.ts";
+import { createStorage } from "./storage.ts";
 
 const url = process.env.DATABASE_URL;
 
@@ -24,7 +30,24 @@ describe.runIf(url)("api", () => {
     testing: true,
   });
   const mailer = memoryMailer();
-  const app = createApp({ db, auth, mailer, publicUrl: "http://localhost:3000", log: false });
+  const storageRoot = mkdtempSync(join(tmpdir(), "hekate-api-storage-"));
+  const backends = createBackends(
+    storageConfigFromEnv({
+      STORAGE_BACKENDS: "local,spare",
+      STORAGE_LOCAL_PATH: join(storageRoot, "local"),
+      STORAGE_SPARE_DRIVER: "local",
+      STORAGE_SPARE_PATH: join(storageRoot, "spare"),
+    }),
+  );
+  const storage = createStorage(db, backends);
+  const app = createApp({
+    db,
+    auth,
+    mailer,
+    storage,
+    publicUrl: "http://localhost:3000",
+    log: false,
+  });
   const owner = {
     name: "Producer",
     email: "producer@example.test",
@@ -56,6 +79,7 @@ describe.runIf(url)("api", () => {
   afterAll(async () => {
     await db.execute(sql`truncate ${schema.organisations}, ${schema.users} cascade`);
     await close();
+    rmSync(storageRoot, { recursive: true, force: true });
   });
 
   it("reports health without signing in", async () => {
@@ -353,6 +377,163 @@ describe.runIf(url)("api", () => {
         json({}, cookieOf(joined)),
       );
       expect(signedIn.status).toBe(201);
+    });
+
+    describe("storage", () => {
+      const joinAs = async (owner: string, email: string, role: string) => {
+        const { body } = await invite(owner, email, role);
+        const res = await app.request(
+          `/api/invitations/${tokenFrom(body.link)}/accept`,
+          json({ name: "Colleague", password: "correct horse battery" }),
+        );
+        expect(res.status).toBe(201);
+        return cookieOf(res);
+      };
+      const organisationOf = async (cookie: string) => {
+        const me = (await (await app.request("/api/me", { headers: { cookie } })).json()) as {
+          activeOrganisationId: string;
+        };
+        return me.activeOrganisationId;
+      };
+      const sha256 = (data: Buffer) =>
+        import("node:crypto").then(({ createHash }) =>
+          createHash("sha256").update(data).digest("hex"),
+        );
+
+      it("stores, reads and removes blobs within an organisation", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const data = Buffer.from("a mix of the slow movement, take 4");
+        const blob = await storage.put(organisationId, data, { contentType: "audio/wav" });
+        expect(blob).toMatchObject({
+          organisationId,
+          backend: "local",
+          key: `org/${organisationId}/${blob.id}`,
+          byteSize: data.length,
+          sha256: await sha256(data),
+          contentType: "audio/wav",
+        });
+        const { stream } = await storage.open(organisationId, blob.id, { start: 2, end: 4 });
+        expect((await buffer(stream)).toString()).toBe("mix");
+
+        await storage.remove(organisationId, blob.id);
+        await expect(storage.open(organisationId, blob.id)).rejects.toThrow(/not found/);
+        expect(await backends.get("local").head(blob.key)).toBeNull();
+      });
+
+      it("never opens or removes another organisation's blob", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-storage" })
+          .returning();
+        const foreign = await storage.put(other?.id ?? "", Buffer.from("not yours"));
+        await expect(storage.open(organisationId, foreign.id)).rejects.toThrow(/not found/);
+        await expect(storage.remove(organisationId, foreign.id)).rejects.toThrow(/not found/);
+        expect(await backends.get("local").head(foreign.key)).toEqual({ size: 9 });
+      });
+
+      it("keeps a blob that a file still uses", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const blob = await storage.put(organisationId, Buffer.from("score.pdf"));
+        const [project] = await db
+          .insert(schema.projects)
+          .values({ organisationId, name: "Rags", profile: "music" })
+          .returning();
+        await db.insert(schema.files).values({
+          organisationId,
+          projectId: project?.id ?? "",
+          name: "score.pdf",
+          kind: "document",
+          blobId: blob.id,
+          contentType: "application/pdf",
+          byteSize: 9,
+        });
+        await expect(storage.remove(organisationId, blob.id)).rejects.toThrow();
+        expect(await backends.get("local").head(blob.key)).toEqual({ size: 9 });
+      });
+
+      it("lets owners choose the backend for new objects", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const before = await storage.put(organisationId, Buffer.from("first"));
+
+        const current = await app.request("/api/organisation/storage", {
+          headers: { cookie: owner },
+        });
+        expect(await current.json()).toEqual({
+          backend: null,
+          defaultBackend: "local",
+          available: ["local", "spare"],
+        });
+        const put = (backend: string | null, cookie: string) =>
+          app.request("/api/organisation/storage", { ...json({ backend }, cookie), method: "PUT" });
+
+        expect((await put("tape", owner)).status).toBe(400);
+        expect((await put("Not Valid", owner)).status).toBe(400);
+        expect((await put("spare", owner)).status).toBe(200);
+        const after = await storage.put(organisationId, Buffer.from("second"));
+        expect(after.backend).toBe("spare");
+        // Existing objects stay readable where they are.
+        expect(
+          (await buffer((await storage.open(organisationId, before.id)).stream)).toString(),
+        ).toBe("first");
+
+        const admin = await joinAs(owner, "engineer@example.test", "admin");
+        expect(
+          (await app.request("/api/organisation/storage", { headers: { cookie: admin } })).status,
+        ).toBe(200);
+        expect((await put(null, admin)).status).toBe(403);
+        const member = await joinAs(owner, "player@example.test", "member");
+        expect(
+          (await app.request("/api/organisation/storage", { headers: { cookie: member } })).status,
+        ).toBe(403);
+
+        expect((await put(null, owner)).status).toBe(200);
+        expect((await storage.put(organisationId, Buffer.from("third"))).backend).toBe("local");
+      });
+
+      it("keeps the blob record when removing its bytes fails, so removal can be retried", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const local = backends.get("local");
+        let failDeletes = true;
+        const flaky = createStorage(db, {
+          ...backends,
+          get: (name: string) =>
+            name === "local"
+              ? {
+                  ...local,
+                  delete: async (key: string) => {
+                    if (failDeletes) throw new Error("storage unavailable");
+                    await local.delete(key);
+                  },
+                }
+              : backends.get(name),
+        });
+        const blob = await flaky.put(organisationId, Buffer.from("retry me"));
+        await expect(flaky.remove(organisationId, blob.id)).rejects.toThrow("storage unavailable");
+        expect((await flaky.open(organisationId, blob.id)).blob.id).toBe(blob.id);
+
+        failDeletes = false;
+        await flaky.remove(organisationId, blob.id);
+        await expect(flaky.open(organisationId, blob.id)).rejects.toThrow(/not found/);
+        expect(await local.head(blob.key)).toBeNull();
+      });
+
+      it("refuses to write when the chosen backend is no longer configured", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        await db
+          .update(schema.organisations)
+          .set({ storageBackend: "retired" })
+          .where(sql`id = ${organisationId}`);
+        await expect(storage.put(organisationId, Buffer.from("x"))).rejects.toThrow(
+          /not configured/,
+        );
+      });
     });
   });
 });

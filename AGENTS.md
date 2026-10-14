@@ -25,7 +25,7 @@ The vocabulary is fixed and defined in `docs/domain.md`. Read it before naming a
 
 ## Stack (decided; do not substitute without discussion)
 
-TypeScript end to end. React, Vite, TanStack Router and Query, shadcn/ui on Tailwind (heavily restyled, never stock). Hono API with shared types. PostgreSQL with Drizzle. pg-boss for jobs. A built-in ffmpeg worker. Vidstack, wavesurfer.js and pdf.js for media. Better Auth. Local storage with optional S3. Deployed as one app image plus PostgreSQL and Caddy via Docker Compose. Not Next.js.
+TypeScript end to end. React, Vite, TanStack Router and Query, shadcn/ui on Tailwind (heavily restyled, never stock). Hono API with shared types. PostgreSQL with Drizzle. pg-boss for jobs. A built-in ffmpeg worker. Vidstack, wavesurfer.js and pdf.js for media. Better Auth. Multiple storage backends (local disk, S3-compatible). Deployed as one app image plus PostgreSQL and Caddy via Docker Compose. Not Next.js.
 
 ## Repository
 
@@ -37,6 +37,7 @@ pnpm workspace.
 | `apps/web` | React single-page app. |
 | `packages/shared` | Domain types and zod schemas shared by server and web. No runtime dependencies beyond zod. |
 | `packages/db` | Drizzle schema, migrations and client. Server-only. |
+| `packages/storage` | Storage backends (local disk, S3) behind one interface, with a shared conformance suite. Server-only. |
 | `brand/` | Mark, wordmark and icons. SVG is the source of truth. |
 | `docs/` | Decisions (`docs/decisions.md`) and the brand system (`docs/brand.md`). |
 | `deploy/` | Compose files and Caddy configuration. |
