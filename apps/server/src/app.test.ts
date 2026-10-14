@@ -1286,7 +1286,7 @@ describe.runIf(url)("api", () => {
         ]);
       });
 
-      it("numbers simultaneous versions in turn", async () => {
+      it("numbers and orders what is added at the same moment", async () => {
         const owner = cookieOf(await setup());
         const organisationId = await organisationOf(owner);
         const projectId = await newProject(organisationId);
@@ -1309,6 +1309,52 @@ describe.runIf(url)("api", () => {
           await app.request(`/api/tracks/${track.id}`, { headers: { cookie: owner } }),
         );
         expect(final.versions.map((v) => v.number)).toEqual([1, 2, 3, 4]);
+
+        // Variations added at once, each asking to be primary: distinct positions, one primary.
+        const more = await Promise.all(
+          ["e.wav", "f.wav", "g.wav"].map((n) => addFile(organisationId, projectId, n)),
+        );
+        const version = final.versions[0]?.id ?? "";
+        const added = await Promise.all(
+          more.map((fileId, i) =>
+            app.request(
+              `/api/versions/${version}/variations`,
+              json({ fileId, name: `Mix ${i}`, primary: true }, owner),
+            ),
+          ),
+        );
+        expect(added.map((r) => r.status)).toEqual([201, 201, 201]);
+        // And primaries switched at once still leave exactly one.
+        const afterAdding = await trackFrom(
+          await app.request(`/api/tracks/${track.id}`, { headers: { cookie: owner } }),
+        );
+        const variations = afterAdding.versions[0]?.variations ?? [];
+        const switched = await Promise.all(
+          variations.map((v) => app.request(`/api/variations/${v.id}/primary`, json({}, owner))),
+        );
+        expect(switched.every((r) => r.status === 200)).toBe(true);
+        const settled = (
+          await trackFrom(
+            await app.request(`/api/tracks/${track.id}`, { headers: { cookie: owner } }),
+          )
+        ).versions[0]?.variations;
+        expect(settled?.map((v) => (v as unknown as { position: number }).position)).toEqual([
+          0, 1, 2, 3,
+        ]);
+        expect(settled?.filter((v) => v.isPrimary)).toHaveLength(1);
+
+        // Tracks added at once take consecutive positions.
+        await Promise.all(
+          ["One", "Two", "Three"].map((name) =>
+            app.request(`/api/projects/${projectId}/tracks`, json({ name }, owner)),
+          ),
+        );
+        const listed = (
+          (await (
+            await app.request(`/api/projects/${projectId}/tracks`, { headers: { cookie: owner } })
+          ).json()) as { tracks: TrackView[] }
+        ).tracks;
+        expect(listed.map((t) => t.position)).toEqual([0, 1, 2, 3]);
       });
 
       it("keeps tracks to their own project and organisation", async () => {

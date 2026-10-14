@@ -49,7 +49,7 @@ async function tracksOf(db: Database, organisationId: string, projectId: string)
     .select()
     .from(tracks)
     .where(inOrg(tracks, organisationId, eq(tracks.projectId, projectId)))
-    .orderBy(asc(tracks.position), asc(tracks.createdAt));
+    .orderBy(asc(tracks.position), asc(tracks.createdAt), asc(tracks.id));
   if (trackRows.length === 0) return [];
   const versionRows = await db
     .select()
@@ -92,7 +92,7 @@ async function tracksOf(db: Database, organisationId: string, projectId: string)
               ),
             ),
           )
-          .orderBy(asc(variations.position));
+          .orderBy(asc(variations.position), asc(variations.id));
   return trackRows.map((track) => ({
     ...track,
     versions: versionRows
@@ -144,20 +144,29 @@ export const projectTrackRoutes = (db: Database) =>
       if (input.scoreFileId) {
         await assertProjectFiles(db, organisationId, project.id, [input.scoreFileId]);
       }
-      const [last] = await db
-        .select({ position: max(tracks.position) })
-        .from(tracks)
-        .where(inOrg(tracks, organisationId, eq(tracks.projectId, project.id)));
-      const [created] = await db
-        .insert(tracks)
-        .values({
-          organisationId,
-          projectId: project.id,
-          name: input.name,
-          scoreFileId: input.scoreFileId ?? null,
-          position: (last?.position ?? -1) + 1,
-        })
-        .returning({ id: tracks.id });
+      const created = await db.transaction(async (tx) => {
+        // Lock the project so tracks added at the same moment take consecutive positions.
+        await tx
+          .select({ id: projects.id })
+          .from(projects)
+          .where(inOrg(projects, organisationId, eq(projects.id, project.id)))
+          .for("update");
+        const [last] = await tx
+          .select({ position: max(tracks.position) })
+          .from(tracks)
+          .where(inOrg(tracks, organisationId, eq(tracks.projectId, project.id)));
+        const [row] = await tx
+          .insert(tracks)
+          .values({
+            organisationId,
+            projectId: project.id,
+            name: input.name,
+            scoreFileId: input.scoreFileId ?? null,
+            position: (last?.position ?? -1) + 1,
+          })
+          .returning({ id: tracks.id });
+        return row;
+      });
       return c.json({ track: await oneTrack(db, organisationId, created?.id ?? "") }, 201);
     });
 
@@ -257,6 +266,13 @@ export const versionRoutes = (db: Database) =>
       await assertProjectFiles(db, organisationId, version.projectId, [input.fileId]);
       try {
         await db.transaction(async (tx) => {
+          // Lock the version: concurrent additions then take consecutive positions, and a
+          // new primary never races another for the one-primary index.
+          await tx
+            .select({ id: versions.id })
+            .from(versions)
+            .where(inOrg(versions, organisationId, eq(versions.id, version.id)))
+            .for("update");
           const [last] = await tx
             .select({ position: max(variations.position) })
             .from(variations)
@@ -300,6 +316,12 @@ export const variationRoutes = (db: Database) =>
       .where(inOrg(variations, organisationId, eq(variations.id, id)));
     if (!variation) throw new NotFound("Variation");
     await db.transaction(async (tx) => {
+      // One switch at a time per version, so two never lock its variations in opposite orders.
+      await tx
+        .select({ id: versions.id })
+        .from(versions)
+        .where(inOrg(versions, organisationId, eq(versions.id, variation.versionId)))
+        .for("update");
       // Clear the old primary first: the partial unique index allows one at a time.
       await tx
         .update(variations)
