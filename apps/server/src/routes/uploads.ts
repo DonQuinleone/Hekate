@@ -8,6 +8,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
+import { type Actor, actorOf, can } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { Jobs } from "../jobs.ts";
@@ -15,7 +16,7 @@ import type { Storage } from "../storage.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { sessionOf, staleClaim, UPLOAD_LIFETIME_MS, type UploadRow } from "../uploads.ts";
 
-const { uploads, uploadParts, projects, folders, files, accessEvents } = schema;
+const { uploads, uploadParts, folders, files, accessEvents } = schema;
 type FileRow = typeof files.$inferSelect;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
@@ -75,13 +76,24 @@ export const uploadRoutes = (
   audit: Audit,
   trustProxy: boolean,
 ) => {
-  /** The caller's own open-or-finished upload, or 404. */
-  const own = async (organisationId: string, userId: string, id: string) => {
+  /**
+   * The caller's own open-or-finished upload, or 404, while they may still upload to its
+   * project: a role taken away mid-upload stops the upload.
+   */
+  const own = async (actor: Actor, id: string) => {
     const [row] = await db
       .select()
       .from(uploads)
-      .where(inOrg(uploads, organisationId, eq(uploads.id, id), eq(uploads.createdBy, userId)));
+      .where(
+        inOrg(
+          uploads,
+          actor.organisationId,
+          eq(uploads.id, id),
+          eq(uploads.createdBy, actor.userId),
+        ),
+      );
     if (!row) throw new NotFound("Upload");
+    await can(db, actor, "upload", row.projectId);
     return row;
   };
   const assertOpen = (row: UploadRow) => {
@@ -95,11 +107,8 @@ export const uploadRoutes = (
     .post("/", zValidator("json", createUploadInput), async (c) => {
       const input = c.req.valid("json");
       const organisationId = c.var.organisationId;
-      const [project] = await db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(inOrg(projects, organisationId, eq(projects.id, input.projectId)));
-      if (!project) throw new NotFound("Project");
+      const { projectId } = await can(db, actorOf(c.var), "upload", input.projectId);
+      const project = { id: projectId };
       if (input.folderId) {
         const [folder] = await db
           .select({ id: folders.id })
@@ -145,7 +154,7 @@ export const uploadRoutes = (
     })
 
     .get("/:id", idParam, async (c) => {
-      const row = await own(c.var.organisationId, c.var.userId, c.req.valid("param").id);
+      const row = await own(actorOf(c.var), c.req.valid("param").id);
       const chunks = await received(db, row.organisationId, row.id);
       return c.json({
         upload: view(
@@ -166,7 +175,7 @@ export const uploadRoutes = (
       }),
       async (c) => {
         const { id, index } = c.req.valid("param");
-        const row = await own(c.var.organisationId, c.var.userId, id);
+        const row = await own(actorOf(c.var), id);
         assertOpen(row);
         let expected: number;
         try {
@@ -201,7 +210,7 @@ export const uploadRoutes = (
     .post("/:id/complete", idParam, async (c) => {
       const organisationId = c.var.organisationId;
       const { id } = c.req.valid("param");
-      const row = await own(organisationId, c.var.userId, id);
+      const row = await own(actorOf(c.var), id);
       const fileOf = async () =>
         (
           await db
@@ -359,7 +368,7 @@ export const uploadRoutes = (
 
     .delete("/:id", idParam, async (c) => {
       const organisationId = c.var.organisationId;
-      const row = await own(organisationId, c.var.userId, c.req.valid("param").id);
+      const row = await own(actorOf(c.var), c.req.valid("param").id);
       if (row.status !== "open") {
         throw new HTTPException(409, { message: `This upload is ${row.status}` });
       }

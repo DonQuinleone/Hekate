@@ -3,10 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { FileList, Uploader } from "~/components/files";
 import { Icon } from "~/components/icons";
+import { ProjectAccess } from "~/components/project-access";
 import { TrackList } from "~/components/tracks";
 import { StatusPill } from "~/components/ui/status";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
-import { projectQuery } from "~/lib/queries";
+import { projectQuery, useProjectCan } from "~/lib/queries";
 import { profileIcon } from "./projects";
 
 const uploadCopy = {
@@ -26,6 +27,7 @@ const uploadCopy = {
 
 export function ProjectPage({ projectId }: { projectId: string }) {
   const { data: project, error } = useQuery(projectQuery(projectId));
+  const can = useProjectCan(projectId);
   if (error) return <p className="p-8 text-signal">{error.message}</p>;
   if (!project) return <p className="p-8 text-ink-3">Loading</p>;
   const profile = profiles[project.profile];
@@ -54,10 +56,11 @@ export function ProjectPage({ projectId }: { projectId: string }) {
           <TabsTrigger value="media">Media</TabsTrigger>
           <TabsTrigger value="comments">Comments</TabsTrigger>
           <TabsTrigger value="activity">Activity</TabsTrigger>
+          <TabsTrigger value="roles">Roles</TabsTrigger>
         </TabsList>
         <TabsContent value="media" className="flex flex-col gap-6 pt-6">
           {project.profile === "music" && <TrackList projectId={project.id} />}
-          <Uploader projectId={project.id} title={copy.title} body={copy.body} />
+          {can("upload") && <Uploader projectId={project.id} title={copy.title} body={copy.body} />}
           <FileList projectId={project.id} />
           <p className="label m-0">Anchors in this profile · {profile.anchors.join(" · ")}</p>
         </TabsContent>
@@ -66,6 +69,9 @@ export function ProjectPage({ projectId }: { projectId: string }) {
         </TabsContent>
         <TabsContent value="activity" className="pt-6 text-ink-3">
           No activity yet.
+        </TabsContent>
+        <TabsContent value="roles" className="pt-6">
+          <ProjectAccess projectId={project.id} />
         </TabsContent>
       </Tabs>
     </div>

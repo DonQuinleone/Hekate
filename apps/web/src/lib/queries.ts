@@ -6,9 +6,10 @@ import {
   type FileKind,
   type LoudnessSummary,
   type MediaInfo,
+  type ProjectPermission,
   type ProjectProfile,
 } from "@hekate/shared";
-import { queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
+import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 
 async function json<T>(res: Response): Promise<T> {
@@ -72,6 +73,124 @@ export interface Project {
   name: string;
   profile: ProjectProfile;
   createdAt: string;
+  /** What the signed-in member may do here. Only on a single project; the server checks again. */
+  permissions?: ProjectPermission[];
+}
+
+/** Whether the signed-in member may do something in a project, once it has loaded. */
+export function useProjectCan(projectId: string | undefined) {
+  const { data } = useQuery({ ...projectQuery(projectId ?? ""), enabled: Boolean(projectId) });
+  return (permission: ProjectPermission) => Boolean(data?.permissions?.includes(permission));
+}
+
+export interface ProjectRole {
+  id: string;
+  name: string;
+  permissions: ProjectPermission[];
+  members: number;
+}
+
+export interface ProjectMember {
+  userId: string;
+  name: string;
+  email: string;
+  roleId: string;
+}
+
+export const projectRolesQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "roles"],
+    queryFn: async () =>
+      (
+        await json<{ roles: ProjectRole[] }>(
+          await api.projects[":id"].roles.$get({ param: { id: projectId } }),
+        )
+      ).roles,
+  });
+
+export const projectMembersQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "members"],
+    queryFn: async () =>
+      (
+        await json<{ members: ProjectMember[] }>(
+          await api.projects[":id"].members.$get({ param: { id: projectId } }),
+        )
+      ).members,
+  });
+
+export function useProjectAccessMutations(projectId: string) {
+  const client = useQueryClient();
+  // Roles and membership change what the project page offers, so refresh it all.
+  const refresh = () => client.invalidateQueries({ queryKey: ["projects", projectId] });
+  const ok = async (res: Response) => {
+    if (!res.ok) await json(res);
+  };
+  return {
+    createRole: useMutation({
+      mutationFn: async (input: { name: string; permissions: ProjectPermission[] }) =>
+        json<{ role: ProjectRole }>(
+          await api.projects[":id"].roles.$post({ param: { id: projectId }, json: input }),
+        ),
+      onSuccess: refresh,
+    }),
+    updateRole: useMutation({
+      // Each change sends the role's whole permission set, so changes run one at a time, in
+      // the order they were made: a slow earlier request can never overwrite a later one.
+      scope: { id: `project-roles-${projectId}` },
+      mutationFn: async (input: { id: string; name: string; permissions: ProjectPermission[] }) =>
+        json<{ role: ProjectRole }>(
+          await api.projects[":id"].roles[":roleId"].$patch({
+            param: { id: projectId, roleId: input.id },
+            json: { name: input.name, permissions: input.permissions },
+          }),
+        ),
+      // Show the change at once; the server's answer, or a refusal, replaces it.
+      onMutate: async (input) => {
+        const key = projectRolesQuery(projectId).queryKey;
+        await client.cancelQueries({ queryKey: key });
+        const before = client.getQueryData(key);
+        client.setQueryData(key, (roles) =>
+          roles?.map((role) =>
+            role.id === input.id
+              ? { ...role, name: input.name, permissions: input.permissions }
+              : role,
+          ),
+        );
+        return { before };
+      },
+      onError: (_error, _input, context) => {
+        client.setQueryData(projectRolesQuery(projectId).queryKey, context?.before);
+      },
+      onSettled: refresh,
+    }),
+    deleteRole: useMutation({
+      mutationFn: async (roleId: string) =>
+        ok(
+          await api.projects[":id"].roles[":roleId"].$delete({ param: { id: projectId, roleId } }),
+        ),
+      onSuccess: refresh,
+    }),
+    assign: useMutation({
+      mutationFn: async (input: { userId: string; roleId: string }) =>
+        ok(
+          await api.projects[":id"].members[":userId"].$put({
+            param: { id: projectId, userId: input.userId },
+            json: { roleId: input.roleId },
+          }),
+        ),
+      onSuccess: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: async (userId: string) =>
+        ok(
+          await api.projects[":id"].members[":userId"].$delete({
+            param: { id: projectId, userId },
+          }),
+        ),
+      onSuccess: refresh,
+    }),
+  };
 }
 
 export function useCreateProject() {

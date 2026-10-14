@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
+import { actorOf, canOnFile, fileAccess } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { Keyring } from "../keyring.ts";
@@ -51,8 +52,28 @@ const PRIVATE = {
 const fileParam = zValidator("param", z.object({ id: z.uuid() }));
 
 /** `/api/files/:id`: one file's details, and `POST /api/files/:id/playback` to start watching or listening. */
+/**
+ * Every `/api/files/:id…` route here reads a file: its project must let the caller view it.
+ * A file in a project they cannot see does not exist for them (404).
+ */
+const viewFile = (db: Database) =>
+  createMiddleware<{ Variables: TenantVariables }>(async (c, next) => {
+    const id = z.uuid().safeParse(c.req.param("id"));
+    if (!id.success) throw new NotFound("File");
+    await canOnFile(db, actorOf(c.var), "view", id.data);
+    await next();
+  });
+
 export const fileRoutes = (deps: PlaybackDeps) =>
   new Hono<{ Variables: TenantVariables }>()
+    .use("/:id", viewFile(deps.db))
+    .use("/:id/peaks/*", viewFile(deps.db))
+    .use("/:id/peaks", viewFile(deps.db))
+    .use("/:id/loudness/*", viewFile(deps.db))
+    .use("/:id/loudness", viewFile(deps.db))
+    .use("/:id/spectrograms/*", viewFile(deps.db))
+    .use("/:id/spectrograms", viewFile(deps.db))
+    .use("/:id/playback", viewFile(deps.db))
     .get("/:id", fileParam, async (c) => {
       // Metadata only: contents leave Hekate solely through protected delivery.
       const [file] = await deps.db
@@ -301,7 +322,17 @@ export const playRoutes = (deps: PlaybackDeps) => {
     if (!claims || claims.sessionId !== c.var.sessionId) {
       throw new HTTPException(403, { message: "This playback link is not valid for you" });
     }
-    if (!(await membershipOf(deps.db, c.var.userId, claims.organisationId))) {
+    const membership = await membershipOf(deps.db, c.var.userId, claims.organisationId);
+    if (!membership) {
+      throw new HTTPException(403, { message: "This playback link is not valid for you" });
+    }
+    // Still allowed to view the file's project: a role taken away ends playback at once.
+    const actor = {
+      userId: c.var.userId,
+      organisationId: claims.organisationId,
+      organisationRole: membership.role,
+    };
+    if (!(await fileAccess(deps.db, actor, claims.fileId))) {
       throw new HTTPException(403, { message: "This playback link is not valid for you" });
     }
     c.set("playback", claims);

@@ -9,10 +9,11 @@ import {
   decodeLoudness,
   decodePeaks,
   decodeSpectrogram,
+  defaultProjectRoles,
   type LoudnessSummary,
 } from "@hekate/shared";
 import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.ts";
 import { createAudit, csvCell } from "./audit.ts";
@@ -109,6 +110,41 @@ describe.runIf(url)("api", () => {
       .map((c) => c.split(";")[0])
       .join("; ");
   const setup = () => app.request("/api/setup", json({ ...owner, organisation: "Studio" }));
+
+  /**
+   * Give someone a role in a project, through the API, as `granter` (who must be allowed to
+   * manage its roles). A project made directly in the database has no roles yet: the named
+   * default is created first.
+   */
+  const grantRole = async (granter: string, projectId: string, holder: string, name: string) => {
+    const me = (await (await app.request("/api/me", { headers: { cookie: holder } })).json()) as {
+      user: { id: string };
+    };
+    const listed = (await (
+      await app.request(`/api/projects/${projectId}/roles`, { headers: { cookie: granter } })
+    ).json()) as { roles: { id: string; name: string }[] };
+    let role = listed.roles.find((r) => r.name === name);
+    if (!role) {
+      const permissions = defaultProjectRoles.find((r) => r.name === name)?.permissions ?? [];
+      const created = await app.request(
+        `/api/projects/${projectId}/roles`,
+        json({ name, permissions }, granter),
+      );
+      role = ((await created.json()) as { role: { id: string; name: string } }).role;
+    }
+    const res = await app.request(`/api/projects/${projectId}/members/${me.user.id}`, {
+      ...json({ roleId: role.id }, granter),
+      method: "PUT",
+    });
+    expect(res.status).toBe(204);
+  };
+  const projectOfFile = async (fileId: string) =>
+    (
+      await db
+        .select({ projectId: schema.files.projectId })
+        .from(schema.files)
+        .where(eq(schema.files.id, fileId))
+    )[0]?.projectId ?? "";
 
   beforeAll(async () => {
     await runMigrations(url ?? "");
@@ -1447,6 +1483,345 @@ describe.runIf(url)("api", () => {
       });
     });
 
+    describe("project roles", () => {
+      const joinAs = async (owner: string, email: string, role = "member") => {
+        const { body } = await invite(owner, email, role);
+        const res = await app.request(
+          `/api/invitations/${tokenFrom(body.link)}/accept`,
+          json({ name: email.split("@")[0], password: "correct horse battery" }),
+        );
+        expect(res.status).toBe(201);
+        return cookieOf(res);
+      };
+      const send = (method: string, path: string, body: unknown, cookie: string) =>
+        app.request(path, { ...json(body, cookie), method });
+      const getAs = (path: string, cookie: string) => app.request(path, { headers: { cookie } });
+      const organisationOf = async (cookie: string) =>
+        ((await (await getAs("/api/me", cookie)).json()) as { activeOrganisationId: string })
+          .activeOrganisationId;
+
+      /** A project made through the API, with an audio file in it, as the owner. */
+      const studio = async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const made = await app.request(
+          "/api/projects",
+          json({ name: "Rags", profile: "music" }, owner),
+        );
+        const { project } = (await made.json()) as { project: { id: string } };
+        const blob = await storage.put(organisationId, Buffer.from("not really audio"));
+        const [file] = await db
+          .insert(schema.files)
+          .values({
+            organisationId,
+            projectId: project.id,
+            name: "Mix v1.wav",
+            kind: "audio",
+            blobId: blob.id,
+            contentType: "audio/wav",
+            byteSize: blob.byteSize,
+            mediaInfo: {
+              duration: 60,
+              audio: { codec: "pcm_s24le", channels: 2, sampleRate: 48000 },
+            },
+          })
+          .returning();
+        return { owner, organisationId, projectId: project.id, fileId: file?.id ?? "" };
+      };
+
+      it("gives every project the default roles, and its creator the Producer's", async () => {
+        const { owner, projectId } = await studio();
+        const roles = (await (await getAs(`/api/projects/${projectId}/roles`, owner)).json()) as {
+          roles: { name: string; permissions: string[]; members: number }[];
+        };
+        expect(roles.roles.map((r) => r.name)).toEqual(defaultProjectRoles.map((r) => r.name));
+        expect(roles.roles.find((r) => r.name === "Reviewer")?.permissions).toEqual([
+          "view",
+          "comment",
+          "decide",
+        ]);
+        expect(roles.roles.find((r) => r.name === "Producer")?.members).toBe(1);
+        const members = (await (
+          await getAs(`/api/projects/${projectId}/members`, owner)
+        ).json()) as {
+          members: { name: string }[];
+        };
+        expect(members.members.map((m) => m.name)).toEqual(["Producer"]);
+      });
+
+      it("hides a project from members without a role, and shows it to admins", async () => {
+        const { owner, projectId, fileId } = await studio();
+        const member = await joinAs(owner, "outsider@example.test");
+        const admin = await joinAs(owner, "admin@example.test", "admin");
+        const listed = async (cookie: string) =>
+          ((await (await getAs("/api/projects", cookie)).json()) as { projects: { id: string }[] })
+            .projects.length;
+        expect(await listed(member)).toBe(0);
+        expect((await getAs(`/api/projects/${projectId}`, member)).status).toBe(404);
+        expect((await getAs(`/api/projects/${projectId}/files`, member)).status).toBe(404);
+        expect((await getAs(`/api/files/${fileId}`, member)).status).toBe(404);
+        expect((await getAs(`/api/files/${fileId}/comments`, member)).status).toBe(404);
+        expect((await getAs(`/api/files/${fileId}/peaks`, member)).status).toBe(404);
+        // Organisation admins need no role.
+        expect(await listed(admin)).toBe(1);
+        const seen = (await (await getAs(`/api/projects/${projectId}`, admin)).json()) as {
+          project: { permissions: string[] };
+        };
+        expect(seen.project.permissions).toContain("manage_roles");
+      });
+
+      it("allows each default role what the matrix says, and refuses the rest", async () => {
+        const { owner, projectId, fileId } = await studio();
+        // A track with a version and a second file, for the track routes.
+        const track = await app.request(
+          `/api/projects/${projectId}/tracks`,
+          json({ name: "Maple Leaf Rag" }, owner),
+        );
+        const trackId = ((await track.json()) as { track: { id: string } }).track.id;
+        const versioned = await app.request(
+          `/api/tracks/${trackId}/versions`,
+          json({ variations: [{ fileId, name: "Dry" }] }, owner),
+        );
+        const version = (
+          (await versioned.json()) as {
+            track: { versions: { id: string; variations: { id: string }[] }[] };
+          }
+        ).track.versions[0];
+        const thread = await app.request(
+          `/api/files/${fileId}/comments`,
+          json({ body: "Pedal noise" }, owner),
+        );
+        const threadId = ((await thread.json()) as { comment: { id: string } }).comment.id;
+
+        /** What each action needs, and how to try it. */
+        const actions: [string, string, (cookie: string) => Response | Promise<Response>][] = [
+          ["view", "see the project", (c) => getAs(`/api/projects/${projectId}`, c)],
+          ["view", "see the tracks", (c) => getAs(`/api/projects/${projectId}/tracks`, c)],
+          ["view", "see the comments", (c) => getAs(`/api/files/${fileId}/comments`, c)],
+          [
+            "comment",
+            "comment",
+            (c) => app.request(`/api/files/${fileId}/comments`, json({ body: "Lovely" }, c)),
+          ],
+          [
+            "triage",
+            "resolve a thread",
+            (c) => app.request(`/api/comments/${threadId}/resolve`, json({ resolved: false }, c)),
+          ],
+          [
+            "upload",
+            "start an upload",
+            (c) =>
+              app.request(
+                "/api/uploads",
+                json({ projectId, name: "Mix v2.wav", size: 10, contentType: "audio/wav" }, c),
+              ),
+          ],
+          [
+            "organise",
+            "add a track",
+            (c) => app.request(`/api/projects/${projectId}/tracks`, json({ name: "Elite" }, c)),
+          ],
+          [
+            "organise",
+            "rename a track",
+            (c) => send("PATCH", `/api/tracks/${trackId}`, { name: "Maple Leaf" }, c),
+          ],
+          [
+            "upload",
+            "add a version",
+            // Refused before the body is looked at; an allowed role meets the file rule (409).
+            (c) =>
+              app.request(
+                `/api/tracks/${trackId}/versions`,
+                json({ variations: [{ fileId, name: "Again" }] }, c),
+              ),
+          ],
+          [
+            "upload",
+            "add a variation",
+            (c) =>
+              app.request(
+                `/api/versions/${version?.id}/variations`,
+                json({ fileId, name: "Wet" }, c),
+              ),
+          ],
+          [
+            "organise",
+            "choose the primary variation",
+            (c) =>
+              app.request(`/api/variations/${version?.variations[0]?.id}/primary`, json({}, c)),
+          ],
+          [
+            "manage_roles",
+            "create a role",
+            (c) =>
+              app.request(
+                `/api/projects/${projectId}/roles`,
+                json({ name: `Role ${Math.random()}`, permissions: ["view"] }, c),
+              ),
+          ],
+        ];
+
+        for (const role of defaultProjectRoles) {
+          const cookie = await joinAs(owner, `${role.name.toLowerCase()}-role@example.test`);
+          await grantRole(owner, projectId, cookie, role.name);
+          for (const [permission, what, attempt] of actions) {
+            const res = await attempt(cookie);
+            const allowed = (role.permissions as string[]).includes(permission);
+            // Allowed means the role check passed: some attempts then meet a rule of their own.
+            if (allowed)
+              expect([200, 201, 204, 409], `${role.name} may ${what}`).toContain(res.status);
+            else expect(res.status, `${role.name} may not ${what}`).toBe(403);
+          }
+        }
+      }, 60_000);
+
+      it("manages roles and members, and keeps them to the project", async () => {
+        const { owner, organisationId, projectId } = await studio();
+        const roles = `/api/projects/${projectId}/roles`;
+        const made = await app.request(
+          roles,
+          json({ name: "Mixer", permissions: ["comment", "view"] }, owner),
+        );
+        expect(made.status).toBe(201);
+        const mixer = ((await made.json()) as { role: { id: string; permissions: string[] } }).role;
+        expect(mixer.permissions).toEqual(["view", "comment"]);
+        expect(
+          (await app.request(roles, json({ name: "Mixer", permissions: [] }, owner))).status,
+        ).toBe(409);
+        expect(
+          (await app.request(roles, json({ name: "Flyer", permissions: ["fly"] }, owner))).status,
+        ).toBe(400);
+        const renamed = await send(
+          "PATCH",
+          `${roles}/${mixer.id}`,
+          { name: "Mix engineer", permissions: ["view", "comment", "upload"] },
+          owner,
+        );
+        expect(renamed.status).toBe(200);
+
+        // Give it to a colleague: it cannot be deleted while they hold it.
+        const colleague = await joinAs(owner, "mixer@example.test");
+        await grantRole(owner, projectId, colleague, "Mix engineer");
+        expect((await send("DELETE", `${roles}/${mixer.id}`, {}, owner)).status).toBe(409);
+        const me = (await (await getAs("/api/me", colleague)).json()) as { user: { id: string } };
+        expect(
+          (await send("DELETE", `/api/projects/${projectId}/members/${me.user.id}`, {}, owner))
+            .status,
+        ).toBe(204);
+        expect((await getAs(`/api/projects/${projectId}`, colleague)).status).toBe(404);
+        expect((await send("DELETE", `${roles}/${mixer.id}`, {}, owner)).status).toBe(204);
+
+        // Another project's role, and someone outside the organisation, are not found here.
+        const other = await app.request(
+          "/api/projects",
+          json({ name: "Elite", profile: "music" }, owner),
+        );
+        const otherId = ((await other.json()) as { project: { id: string } }).project.id;
+        const otherRoles = (await (
+          await getAs(`/api/projects/${otherId}/roles`, owner)
+        ).json()) as {
+          roles: { id: string }[];
+        };
+        const viewer = await joinAs(owner, "viewer@example.test");
+        const viewerId = (
+          (await (await getAs("/api/me", viewer)).json()) as { user: { id: string } }
+        ).user.id;
+        const assign = (userId: string, roleId: string) =>
+          send("PUT", `/api/projects/${projectId}/members/${userId}`, { roleId }, owner);
+        expect((await assign(viewerId, otherRoles.roles[0]?.id ?? "")).status).toBe(404);
+        expect((await assign("not-a-member", otherRoles.roles[0]?.id ?? "")).status).toBe(404);
+
+        // Leaving the organisation takes a member's project roles with them.
+        await grantRole(owner, projectId, viewer, "Viewer");
+        const [membership] = await db
+          .select({ id: schema.members.id })
+          .from(schema.members)
+          .where(eq(schema.members.userId, viewerId));
+        expect(
+          (await send("DELETE", `/api/organisation/members/${membership?.id}`, {}, owner)).status,
+        ).toBe(204);
+        const left = await db
+          .select()
+          .from(schema.projectMembers)
+          .where(eq(schema.projectMembers.userId, viewerId));
+        expect(left).toHaveLength(0);
+
+        // Another organisation's project roles do not exist from here.
+        const [elsewhere] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-roles" })
+          .returning();
+        const [foreign] = await db
+          .insert(schema.projects)
+          .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+          .returning();
+        expect((await getAs(`/api/projects/${foreign?.id}/roles`, owner)).status).toBe(404);
+        expect(
+          (
+            await app.request(
+              `/api/projects/${foreign?.id}/roles`,
+              json({ name: "X", permissions: [] }, owner),
+            )
+          ).status,
+        ).toBe(404);
+        expect(organisationId).not.toBe(elsewhere?.id);
+      });
+
+      it("never leaves a role behind when someone leaves as it is given", async () => {
+        const { owner, projectId } = await studio();
+        const roles = (await (await getAs(`/api/projects/${projectId}/roles`, owner)).json()) as {
+          roles: { id: string; name: string }[];
+        };
+        const viewer = roles.roles.find((r) => r.name === "Viewer")?.id ?? "";
+        for (let round = 0; round < 5; round++) {
+          const cookie = await joinAs(owner, `leaver${round}@example.test`);
+          const userId = (
+            (await (await getAs("/api/me", cookie)).json()) as { user: { id: string } }
+          ).user.id;
+          const [membership] = await db
+            .select({ id: schema.members.id })
+            .from(schema.members)
+            .where(eq(schema.members.userId, userId));
+          // Assigning and removing at the same moment: whichever wins, nothing stale is left.
+          const [assigned, removed] = await Promise.all([
+            send("PUT", `/api/projects/${projectId}/members/${userId}`, { roleId: viewer }, owner),
+            send("DELETE", `/api/organisation/members/${membership?.id}`, {}, owner),
+          ]);
+          expect([204, 404]).toContain(assigned.status);
+          expect(removed.status).toBe(204);
+          const left = await db
+            .select()
+            .from(schema.projectMembers)
+            .where(eq(schema.projectMembers.userId, userId));
+          expect(left).toHaveLength(0);
+        }
+      });
+
+      it("stops an upload whose uploader loses the role mid-way", async () => {
+        const { owner, projectId } = await studio();
+        const engineer = await joinAs(owner, "engineer@example.test");
+        await grantRole(owner, projectId, engineer, "Engineer");
+        const started = await app.request(
+          "/api/uploads",
+          json({ projectId, name: "Mix v2.wav", size: 10, contentType: "audio/wav" }, engineer),
+        );
+        expect(started.status).toBe(201);
+        const { upload } = (await started.json()) as { upload: { id: string } };
+        await grantRole(owner, projectId, engineer, "Reviewer");
+        const chunk = await app.request(`/api/uploads/${upload.id}/chunks/0`, {
+          method: "PUT",
+          headers: { cookie: engineer, origin: "http://localhost:3000" },
+          body: new Uint8Array(10),
+        });
+        expect(chunk.status).toBe(403);
+        expect(
+          (await app.request(`/api/uploads/${upload.id}/complete`, json({}, engineer))).status,
+        ).toBe(403);
+      });
+    });
+
     describe("comments", () => {
       const joinAs = async (owner: string, email: string, role: string) => {
         const { body } = await invite(owner, email, role);
@@ -1567,7 +1942,7 @@ describe.runIf(url)("api", () => {
         ]);
       });
 
-      it("lets only the author edit, any member resolve, and no one reach another organisation", async () => {
+      it("lets only the author edit, anyone who triages resolve, and no one reach another organisation", async () => {
         const owner = cookieOf(await setup());
         const organisationId = await organisationOf(owner);
         const fileId = await recording(organisationId);
@@ -1577,6 +1952,7 @@ describe.runIf(url)("api", () => {
         );
         const { id } = ((await created.json()) as { comment: { id: string } }).comment;
         const colleague = await joinAs(owner, "engineer@example.test", "member");
+        await grantRole(owner, await projectOfFile(fileId), colleague, "Engineer");
 
         expect(
           (await send("PATCH", `/api/comments/${id}`, { body: "Mine now" }, colleague)).status,
@@ -1846,7 +2222,9 @@ describe.runIf(url)("api", () => {
           // Another member of the same organisation cannot use the owner's link.
           const colleague = await joinAs(owner, "engineer@example.test", "member");
           expect((await get(url, colleague)).status).toBe(403);
-          // But can start their own.
+          // Nor start their own without a role in the project; with one, they can.
+          expect((await start(colleague, fileId)).res.status).toBe(404);
+          await grantRole(owner, await projectOfFile(fileId), colleague, "Viewer");
           expect((await start(colleague, fileId)).res.status).toBe(201);
 
           const token = url.split("/")[3] ?? "";
