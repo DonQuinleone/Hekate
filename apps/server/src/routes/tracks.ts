@@ -13,6 +13,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, can } from "../access.ts";
+import { carryThreads } from "../carry.ts";
 import { NotFound } from "../errors.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { folderIn, lockProject } from "./folders.ts";
@@ -235,12 +236,13 @@ export const trackRoutes = (db: Database) =>
             .select({ number: max(versions.number) })
             .from(versions)
             .where(inOrg(versions, organisationId, eq(versions.trackId, id)));
+          const number = (last?.number ?? 0) + 1;
           const [version] = await tx
             .insert(versions)
             .values({
               organisationId,
               trackId: id,
-              number: (last?.number ?? 0) + 1,
+              number,
               notes: input.notes || null,
               createdBy: c.var.userId,
             })
@@ -254,6 +256,17 @@ export const trackRoutes = (db: Database) =>
               isPrimary: v.isPrimary,
               position: v.position,
             })),
+          );
+          // The previous version's open threads come along, to be settled here.
+          const [project] = await tx
+            .select({ shown: projects.carriedCommentsShown })
+            .from(projects)
+            .where(inOrg(projects, organisationId, eq(projects.id, track.projectId)));
+          await carryThreads(
+            tx,
+            organisationId,
+            { id: version?.id ?? "", trackId: id, number },
+            project?.shown ?? true,
           );
         });
       } catch (error) {

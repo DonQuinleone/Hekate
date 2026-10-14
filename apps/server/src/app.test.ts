@@ -3067,6 +3067,218 @@ describe.runIf(url)("api", () => {
         ).toBe(404);
         expect((await app.request(`/api/files/${fileId}/comments`)).status).toBe(401);
       });
+      it("carries open threads to the next version, where triage settles, hides or remaps them", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const [project] = await db
+          .insert(schema.projects)
+          .values({ organisationId, name: "Rags", profile: "music" })
+          .returning();
+        const projectId = project?.id ?? "";
+        const file = async (name: string) => {
+          const blob = await storage.put(organisationId, Buffer.from(name));
+          const [row] = await db
+            .insert(schema.files)
+            .values({
+              organisationId,
+              projectId,
+              name,
+              kind: "audio",
+              blobId: blob.id,
+              contentType: "audio/wav",
+              byteSize: blob.byteSize,
+              mediaInfo: {
+                duration: 60,
+                audio: { codec: "pcm_s24le", channels: 2, sampleRate: 48000 },
+              },
+            })
+            .returning();
+          return row?.id ?? "";
+        };
+        const [dry1, wet1, dry2, wet2, dry3] = (await Promise.all(
+          ["Dry v1.wav", "Wet v1.wav", "Dry v2.wav", "Wet v2.wav", "Dry v3.wav"].map(file),
+        )) as [string, string, string, string, string];
+        const track = (
+          (await (
+            await app.request(`/api/projects/${projectId}/tracks`, json({ name: "Rag" }, owner))
+          ).json()) as { track: { id: string } }
+        ).track;
+        const version = (variations: { fileId: string; name: string }[]) =>
+          app.request(`/api/tracks/${track.id}/versions`, json({ variations }, owner));
+        type Listed = {
+          id: string;
+          fileId: string;
+          parentId: string | null;
+          body: string;
+          anchor: unknown;
+          resolvedAt: string | null;
+          carry: {
+            id: string;
+            status: string;
+            visible: boolean;
+            from: { fileId: string; anchor: unknown };
+          } | null;
+          history: {
+            versionNumber: number | null;
+            hops: { fileId: string; versionNumber: number; status: string }[];
+          } | null;
+        };
+        const listed = async (fileId: string, cookie = owner) =>
+          (
+            (await (
+              await app.request(`/api/files/${fileId}/comments`, { headers: { cookie } })
+            ).json()) as { comments: Listed[] }
+          ).comments;
+        const comment = async (fileId: string, body: string, start: number, cookie = owner) =>
+          (
+            (await (
+              await app.request(
+                `/api/files/${fileId}/comments`,
+                json({ body, anchor: { kind: "time", start, end: start + 2 } }, cookie),
+              )
+            ).json()) as { comment: { id: string } }
+          ).comment.id;
+
+        expect(
+          (
+            await version([
+              { fileId: dry1, name: "Dry" },
+              { fileId: wet1, name: "Wet" },
+            ])
+          ).status,
+        ).toBe(201);
+        const tail = await comment(wet1, "Reverb tail cut short", 40);
+        const noise = await comment(dry1, "Chair creak", 12);
+        const settled = await comment(dry1, "Already fine", 5);
+        await app.request(`/api/comments/${settled}/resolve`, json({ resolved: true }, owner));
+
+        // Version 2: the open threads come along, the wet one to the wet mix.
+        expect(
+          (
+            await version([
+              { fileId: dry2, name: "Dry" },
+              { fileId: wet2, name: "Wet" },
+            ])
+          ).status,
+        ).toBe(201);
+        const onDry2 = await listed(dry2);
+        expect(onDry2.map((c) => c.body)).toEqual(["Chair creak"]);
+        const creak = onDry2[0];
+        expect(creak).toMatchObject({
+          id: noise,
+          fileId: dry1,
+          anchor: { kind: "time", start: 12, end: 14 },
+          carry: { status: "open", visible: true, from: { fileId: dry1 } },
+          history: { versionNumber: 1, hops: [{ fileId: dry2, versionNumber: 2, status: "open" }] },
+        });
+        expect((await listed(wet2)).map((c) => c.body)).toEqual(["Reverb tail cut short"]);
+        // Where it began, the thread knows where it went.
+        expect((await listed(dry1)).find((c) => c.id === noise)?.history?.hops).toHaveLength(1);
+
+        // A reply from version 2 joins the thread where it began.
+        const reply = await app.request(
+          `/api/files/${dry2}/comments`,
+          json({ body: "Still there", parentId: noise }, owner),
+        );
+        expect(reply.status).toBe(201);
+        expect((await listed(dry1)).map((c) => c.body)).toContain("Still there");
+        expect((await listed(dry2)).map((c) => c.body)).toEqual(["Chair creak", "Still there"]);
+
+        // Triage: someone who only comments cannot; an engineer can, and remaps it.
+        const reviewer = await joinAs(owner, "reviewer@example.test", "member");
+        await grantRole(owner, projectId, reviewer, "Reviewer");
+        const engineer = await joinAs(owner, "engineer@example.test", "member");
+        await grantRole(owner, projectId, engineer, "Engineer");
+        const carryId = creak?.carry?.id ?? "";
+        expect(
+          (await send("PATCH", `/api/comment-carries/${carryId}`, { status: "fixed" }, reviewer))
+            .status,
+        ).toBe(403);
+        expect(
+          (
+            await send(
+              "PATCH",
+              `/api/comment-carries/${carryId}`,
+              { anchor: { kind: "time", start: 70, end: 71 } },
+              engineer,
+            )
+          ).status,
+        ).toBe(422);
+        expect(
+          (
+            await send(
+              "PATCH",
+              `/api/comment-carries/${carryId}`,
+              { status: "not_fixed", anchor: { kind: "time", start: 13, end: 15 } },
+              engineer,
+            )
+          ).status,
+        ).toBe(204);
+        expect((await listed(dry2))[0]).toMatchObject({
+          anchor: { kind: "time", start: 13, end: 15 },
+          carry: { status: "not_fixed", from: { anchor: { kind: "time", start: 12, end: 14 } } },
+          resolvedAt: null,
+        });
+
+        // Hidden on version 2: gone for the reviewer, still there for triage.
+        const wetCarry = (await listed(wet2))[0]?.carry?.id ?? "";
+        expect(
+          (await send("PATCH", `/api/comment-carries/${wetCarry}`, { visible: false }, engineer))
+            .status,
+        ).toBe(204);
+        expect(await listed(wet2, reviewer)).toEqual([]);
+        expect((await listed(wet2, engineer)).map((c) => c.carry?.visible)).toEqual([false]);
+        expect(
+          (
+            await app.request(
+              `/api/files/${wet2}/comments`,
+              json({ body: "Hidden?", parentId: tail }, reviewer),
+            )
+          ).status,
+        ).toBe(422);
+
+        // Version 3 has only a dry mix: both still-open threads land on it, hidden or not.
+        await send("PATCH", `/api/projects/${projectId}`, { carriedCommentsShown: false }, owner);
+        expect((await version([{ fileId: dry3, name: "Dry" }])).status).toBe(201);
+        const onDry3 = await listed(dry3);
+        expect(onDry3.filter((c) => !c.parentId).map((c) => [c.body, c.carry?.visible])).toEqual([
+          ["Reverb tail cut short", false],
+          ["Chair creak", false],
+        ]);
+        // Mapped from where version 2 had it.
+        expect(onDry3.find((c) => c.id === noise)?.anchor).toEqual({
+          kind: "time",
+          start: 13,
+          end: 15,
+        });
+
+        // Fixed in version 3 settles the thread everywhere.
+        const v3Carry = onDry3.find((c) => c.id === noise)?.carry?.id ?? "";
+        expect(
+          (await send("PATCH", `/api/comment-carries/${v3Carry}`, { status: "fixed" }, engineer))
+            .status,
+        ).toBe(204);
+        const origin = (await listed(dry1)).find((c) => c.id === noise);
+        expect(origin?.resolvedAt).not.toBeNull();
+        expect(origin?.history?.hops.map((h) => [h.versionNumber, h.status])).toEqual([
+          [2, "not_fixed"],
+          [3, "fixed"],
+        ]);
+
+        // Another organisation's carried thread does not exist from here.
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-carries" })
+          .returning();
+        const [foreign] = await db
+          .insert(schema.commentCarries)
+          .values({ organisationId: other?.id ?? "", commentId: noise, fileId: wet1 })
+          .returning();
+        expect(
+          (await send("PATCH", `/api/comment-carries/${foreign?.id}`, { visible: false }, owner))
+            .status,
+        ).toBe(404);
+      });
     });
 
     describe.runIf(spawnSync("ffmpeg", ["-version"]).status === 0 || process.env.CI)(
