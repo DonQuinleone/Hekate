@@ -1,10 +1,13 @@
 import { type Database, schema } from "@hekate/db";
+import { atLeast } from "@hekate/shared";
 import { and, asc, eq } from "drizzle-orm";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import type { Auth } from "./auth.ts";
 
-export type OrganisationRole = (typeof schema.organisationRoleEnum.enumValues)[number];
+export type { OrganisationRole } from "@hekate/shared";
+
+import type { OrganisationRole } from "@hekate/shared";
 
 export interface SessionVariables {
   userId: string;
@@ -65,3 +68,12 @@ export async function membershipOf(db: Database, userId: string, organisationId:
     );
   return row;
 }
+
+/** Requires an organisation role of at least `required`. Responds 403 otherwise. */
+export const requireRole = (required: OrganisationRole) =>
+  createMiddleware<{ Variables: TenantVariables }>(async (c, next) => {
+    if (!atLeast(c.var.organisationRole, required)) {
+      throw new HTTPException(403, { message: "You do not have permission to do that" });
+    }
+    await next();
+  });
