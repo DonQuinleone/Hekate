@@ -23,6 +23,29 @@ export const healthQuery = queryOptions({
   refetchInterval: 30_000,
 });
 
+export interface Me {
+  user: { id: string; name: string; email: string };
+  organisations: { id: string; name: string; role: "owner" | "admin" | "member" }[];
+  activeOrganisationId: string;
+}
+
+/** The signed-in member, or null when signed out. */
+export const meQuery = queryOptions({
+  queryKey: ["me"],
+  queryFn: async (): Promise<Me | null> => {
+    const res = await api.me.$get();
+    if (res.status === 401) return null;
+    return json<Me>(res);
+  },
+  staleTime: 60_000,
+});
+
+export const setupQuery = queryOptions({
+  queryKey: ["setup"],
+  queryFn: async () => (await json<{ needed: boolean }>(await api.setup.$get())).needed,
+  staleTime: Number.POSITIVE_INFINITY,
+});
+
 export const projectsQuery = queryOptions({
   queryKey: ["projects"],
   queryFn: async () => (await json<{ projects: Project[] }>(await api.projects.$get())).projects,

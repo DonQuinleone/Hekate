@@ -4,6 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { Mark } from "~/components/brand";
 import { Icon, type IconName } from "~/components/icons";
+import { OrganisationName } from "~/components/organisation-name";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { cn } from "~/lib/cn";
@@ -121,7 +122,7 @@ export function ProjectsPage() {
     <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-8 sm:px-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <span className="label">Studio</span>
+          <OrganisationName />
           <h1 className="m-0 text-[28px] font-medium tracking-[-0.02em]">Projects</h1>
         </div>
         {!creating && data && data.length > 0 && (

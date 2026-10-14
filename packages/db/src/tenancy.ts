@@ -5,7 +5,13 @@ import * as schema from "./schema.ts";
 type TenantTable = PgTable & { organisationId: PgColumn };
 
 /** Tables that are not owned by a single organisation. Everything else must be scoped. */
-export const globalTables = new Set<PgTable>([schema.organisations, schema.users]);
+export const globalTables = new Set<PgTable>([
+  schema.organisations,
+  schema.users,
+  schema.authSessions,
+  schema.authAccounts,
+  schema.authVerifications,
+]);
 
 export const tenantTables: TenantTable[] = (Object.values(schema) as unknown[]).filter(
   (value): value is TenantTable =>

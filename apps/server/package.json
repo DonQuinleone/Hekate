@@ -18,8 +18,10 @@
     "@hekate/shared": "workspace:*",
     "@hono/node-server": "^2.1.5",
     "@hono/zod-validator": "^0.9.1",
+    "better-auth": "^1.7.7",
     "drizzle-orm": "^0.45.4",
     "hono": "^4.13.13",
+    "kysely": "0.29.6",
     "zod": "^4.6.7"
   },
   "devDependencies": {

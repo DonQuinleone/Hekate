@@ -11,6 +11,8 @@ services:
     environment:
       DATABASE_URL: postgres://hekate:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/hekate
       MIGRATE_ON_START: "true"
+      PUBLIC_URL: https://${HEKATE_DOMAIN:-localhost}
+      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET to at least 32 random characters}
     volumes:
       - media:/data
     depends_on:
