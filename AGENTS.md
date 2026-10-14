@@ -62,7 +62,8 @@ pnpm db:migrate
 - **Tenancy:** never write a query against a tenant-owned table without an `organisation_id` condition.
 - **Identifiers:** UUIDv7 primary keys, generated in the application.
 - **Time:** store timestamps as `timestamptz`; media positions as seconds (double) plus an optional frame number.
-- **Tests:** Vitest. Put domain logic in pure functions and test them.
+- **Runtime:** the server runs its TypeScript sources directly with Node's type stripping (no build step). Use `.ts` extensions in relative imports and only erasable syntax: no `enum`, `namespace` or parameter properties.
+- **Tests:** Vitest. API tests run against a real PostgreSQL when `DATABASE_URL` is set (CI provides one). Put domain logic in pure functions and test them.
 - **Privacy:** do not record personal names, email addresses or other personal details of contributors in files, commits or docs. The maintainer is known only as DonQuinleone.
 
 ## Design system
