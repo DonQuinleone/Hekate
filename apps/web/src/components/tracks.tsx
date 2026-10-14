@@ -70,7 +70,9 @@ export function TrackList({ projectId }: { projectId: string }) {
       {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
       {tracks && tracks.length === 0 && (
         <p className="m-0 text-[13px] text-ink-3">
-          Add a track for each piece, then add its versions from the uploaded files.
+          {can("organise")
+            ? "Add a track for each piece, then add its versions from the uploaded files."
+            : "No tracks yet."}
         </p>
       )}
       {tracks && tracks.length > 0 && (

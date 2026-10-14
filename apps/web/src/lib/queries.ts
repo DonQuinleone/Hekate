@@ -142,7 +142,24 @@ export function useProjectAccessMutations(projectId: string) {
             json: { name: input.name, permissions: input.permissions },
           }),
         ),
-      onSuccess: refresh,
+      // Show the change at once; the server's answer, or a refusal, replaces it.
+      onMutate: async (input) => {
+        const key = projectRolesQuery(projectId).queryKey;
+        await client.cancelQueries({ queryKey: key });
+        const before = client.getQueryData(key);
+        client.setQueryData(key, (roles) =>
+          roles?.map((role) =>
+            role.id === input.id
+              ? { ...role, name: input.name, permissions: input.permissions }
+              : role,
+          ),
+        );
+        return { before };
+      },
+      onError: (_error, _input, context) => {
+        client.setQueryData(projectRolesQuery(projectId).queryKey, context?.before);
+      },
+      onSettled: refresh,
     }),
     deleteRole: useMutation({
       mutationFn: async (roleId: string) =>

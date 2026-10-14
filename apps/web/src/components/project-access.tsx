@@ -212,7 +212,7 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
                           checked={on}
                           aria-label={`${role.name}: ${permissionNames[permission]}`}
                           onChange={() => toggle(role, permission)}
-                          className="h-3.5 w-3.5 cursor-pointer accent-[var(--hk-signal)]"
+                          className="h-3.5 w-3.5 cursor-pointer accent-[var(--hk-ink)]"
                         />
                       ) : (
                         <>
