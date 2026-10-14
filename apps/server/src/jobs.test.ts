@@ -322,7 +322,7 @@ describe.runIf(url && (hasFfmpeg || process.env.CI))("media jobs", () => {
       .from(schema.files)
       .where(eq(schema.files.id, fake));
     expect(failed?.status).toBe("failed");
-  });
+  }, 30_000); // drawing and encoding six images takes seconds on a busy runner
 
   it("records unreadable media once instead of retrying forever", async () => {
     const fileId = await addFile(Buffer.from("not really audio at all"), "audio", "broken.wav");
