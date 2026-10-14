@@ -50,7 +50,7 @@ deploy/       Docker Compose and Caddy configuration
 
 ## Development
 
-Requirements: Node.js 22, pnpm 10, and Docker for PostgreSQL.
+Requirements: Node.js 26, pnpm 12, and Docker for PostgreSQL.
 
 ```sh
 pnpm install
