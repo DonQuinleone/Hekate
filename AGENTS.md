@@ -35,6 +35,7 @@ pnpm workspace.
 | --- | --- |
 | `apps/server` | Hono API. Also serves the built web app and runs job workers in production. |
 | `apps/web` | React single-page app. |
+| `apps/e2e` | The visual suite: Playwright captures of every screen, with layout and accessibility checks, compared in Argos. |
 | `packages/shared` | Domain types and zod schemas shared by server and web. No runtime dependencies beyond zod. |
 | `packages/db` | Drizzle schema, migrations and client. Server-only. |
 | `packages/storage` | Storage backends (local disk, S3) behind one interface, with a shared conformance suite. Server-only. |
@@ -51,6 +52,7 @@ pnpm check        # lint + typecheck + test, run before every commit
 pnpm build
 pnpm db:generate  # create a migration after changing the schema
 pnpm db:migrate
+pnpm --filter @hekate/e2e e2e   # the visual suite: needs E2E_DATABASE_URL (an empty database) and a built web app
 ```
 
 ## Toolchain and supply chain
@@ -73,6 +75,7 @@ pnpm db:migrate
 - **Identifiers:** UUIDv7 primary keys, generated in the application.
 - **Time:** store timestamps as `timestamptz`; media positions as seconds (double) plus an optional frame number.
 - **Runtime:** the server runs its TypeScript sources directly with Node's type stripping (no build step). Use `.ts` extensions in relative imports and only erasable syntax: no `enum`, `namespace` or parameter properties.
+- **Screens:** the visual suite (`apps/e2e`) fails on text running into text, lines through text, text cut off without an ellipsis, crowded small targets, a page wider than the window, and axe's WCAG 2.2 AA findings. A new screen gets an entry in `tests/screens.spec.ts`. Something that overlaps on purpose carries `data-e2e-overlap`.
 - **Tests:** Vitest. API tests run against a real PostgreSQL when `DATABASE_URL` is set (CI provides one). Put domain logic in pure functions and test them.
 - **Privacy:** do not record personal names, email addresses or other personal details of contributors in files, commits or docs. The maintainer is known only as DonQuinleone.
 
