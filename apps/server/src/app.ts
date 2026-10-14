@@ -11,12 +11,14 @@ import { meRoutes } from "./routes/me.ts";
 import { organisationRoutes } from "./routes/organisation.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { setupRoutes } from "./routes/setup.ts";
+import type { Storage } from "./storage.ts";
 import { requireOrganisation, requireSession } from "./tenancy.ts";
 
 export interface AppDeps {
   db: Database;
   auth: Auth;
   mailer: Mailer;
+  storage: Storage;
   publicUrl: string;
   log?: boolean;
 }
@@ -31,7 +33,7 @@ export function createApi(deps: AppDeps) {
     .route("/me", meRoutes(deps.db))
     .route("/invitations", invitationRoutes(deps.db, deps.auth))
     .use("/organisation/*", ...member)
-    .route("/organisation", organisationRoutes(deps.db, deps.mailer, deps.publicUrl))
+    .route("/organisation", organisationRoutes(deps.db, deps.mailer, deps.publicUrl, deps.storage))
     .use("/projects/*", ...member)
     .use("/projects", ...member)
     .route("/projects", projectRoutes(deps.db));

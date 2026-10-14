@@ -1,5 +1,5 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { atLeast, inviteInput, organisationRole } from "@hekate/shared";
+import { atLeast, inviteInput, organisationRole, organisationStorageInput } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, count, desc, eq, gt, isNull } from "drizzle-orm";
 import { Hono } from "hono";
@@ -8,6 +8,7 @@ import { z } from "zod";
 import { NotFound } from "../errors.ts";
 import { INVITATION_LIFETIME_MS, newInvitationToken } from "../invitation-token.ts";
 import type { Mailer } from "../mail.ts";
+import type { Storage } from "../storage.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";
 
 const { members, users, invitations, organisations } = schema;
@@ -21,7 +22,12 @@ async function ownerCount(db: Database, organisationId: string) {
   return row?.n ?? 0;
 }
 
-export const organisationRoutes = (db: Database, mailer: Mailer, publicUrl: string) =>
+export const organisationRoutes = (
+  db: Database,
+  mailer: Mailer,
+  publicUrl: string,
+  storage: Storage,
+) =>
   new Hono<{ Variables: TenantVariables }>()
     .get("/members", async (c) => {
       const rows = await db
@@ -191,4 +197,35 @@ export const organisationRoutes = (db: Database, mailer: Mailer, publicUrl: stri
         .returning({ id: invitations.id });
       if (!row) throw new NotFound("Invitation");
       return c.body(null, 204);
-    });
+    })
+    .get("/storage", requireRole("admin"), async (c) => {
+      const [organisation] = await db
+        .select({ backend: organisations.storageBackend })
+        .from(organisations)
+        .where(eq(organisations.id, c.var.organisationId));
+      return c.json({
+        /** The organisation's choice; null follows the instance default. */
+        backend: organisation?.backend ?? null,
+        defaultBackend: storage.backends.defaultBackend,
+        available: storage.backends.names(),
+      });
+    })
+    .put(
+      "/storage",
+      requireRole("owner"),
+      zValidator("json", organisationStorageInput),
+      async (c) => {
+        const { backend } = c.req.valid("json");
+        if (backend !== null && !storage.backends.has(backend)) {
+          throw new HTTPException(400, {
+            message: `Storage backend "${backend}" is not configured`,
+          });
+        }
+        // Existing objects stay where they are; only new objects use the new backend.
+        await db
+          .update(organisations)
+          .set({ storageBackend: backend })
+          .where(eq(organisations.id, c.var.organisationId));
+        return c.json({ backend });
+      },
+    );

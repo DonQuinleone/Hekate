@@ -21,3 +21,11 @@ export const acceptInvitationInput = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   password: z.string().min(12).max(256).optional(),
 });
+
+/** Choose the storage backend for an organisation's new objects; null uses the instance default. */
+export const organisationStorageInput = z.object({
+  backend: z
+    .string()
+    .regex(/^[a-z][a-z0-9-]{0,31}$/)
+    .nullable(),
+});
