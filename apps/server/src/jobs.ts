@@ -13,6 +13,11 @@ export const jobDefinitions = {
     data: z.object({ organisationId: z.uuid(), fileId: z.uuid() }),
     options: { retryLimit: 4, retryDelay: 15, retryBackoff: true, expireInSeconds: 10 * 60 },
   },
+  /** Package and encrypt a measured file's HLS renditions for protected streaming. */
+  "media-proxy": {
+    data: z.object({ organisationId: z.uuid(), fileId: z.uuid() }),
+    options: { retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 4 * 60 * 60 },
+  },
   /** Compute a blob's SHA-256 after an upload, whose chunks arrived in any order. */
   "blob-checksum": {
     data: z.object({ organisationId: z.uuid(), blobId: z.uuid() }),

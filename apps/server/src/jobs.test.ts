@@ -1,10 +1,11 @@
 import { spawnSync } from "node:child_process";
+import { createDecipheriv } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDb, runMigrations, schema } from "@hekate/db";
-import { createBackends, storageConfigFromEnv } from "@hekate/storage";
-import { eq, sql } from "drizzle-orm";
+import { createBackends, storageConfigFromEnv, unwrapKey } from "@hekate/storage";
+import { asc, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createJobs, type JobName } from "./jobs.ts";
 import { createKeyring } from "./keyring.ts";
@@ -21,11 +22,8 @@ describe.runIf(url && (hasFfmpeg || process.env.CI))("media jobs", () => {
   const backends = createBackends(
     storageConfigFromEnv({ STORAGE_LOCAL_PATH: join(root, "storage") }),
   );
-  const storage = createStorage(
-    db,
-    backends,
-    createKeyring(db, { current: Buffer.alloc(32, 3), previous: [] }),
-  );
+  const keyring = createKeyring(db, { current: Buffer.alloc(32, 3), previous: [] });
+  const storage = createStorage(db, backends, keyring);
   // A schema of its own, so tests never touch a development queue.
   const jobs = createJobs({ connectionString: url ?? "", schema: "pgboss_test" });
   let organisationId = "";
@@ -80,7 +78,7 @@ describe.runIf(url && (hasFfmpeg || process.env.CI))("media jobs", () => {
       .returning();
     projectId = project?.id ?? "";
     await jobs.start();
-    await startWorkers(jobs, { db, storage, workDir: join(root, "work") }, 2);
+    await startWorkers(jobs, { db, storage, keyring, jobs, workDir: join(root, "work") }, 2);
   });
 
   afterAll(async () => {
@@ -122,6 +120,55 @@ describe.runIf(url && (hasFfmpeg || process.env.CI))("media jobs", () => {
       audio: { codec: "pcm_s24le", channels: 2, sampleRate: 48000, bitDepth: 24 },
     });
     expect(info?.duration).toBeCloseTo(1.5, 1);
+
+    // Probing queues the proxies: encrypted HLS, ready to stream.
+    const deadline = Date.now() + 60_000;
+    let status = "";
+    while (Date.now() < deadline) {
+      [{ status = "" } = {}] = await db
+        .select({ status: schema.files.streamStatus })
+        .from(schema.files)
+        .where(eq(schema.files.id, fileId));
+      if (status === "ready" || status === "failed") break;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    expect(status).toBe("ready");
+    const all = await db
+      .select()
+      .from(schema.renditions)
+      .where(eq(schema.renditions.fileId, fileId))
+      .orderBy(asc(schema.renditions.bandwidth));
+    expect(all.map((r) => [r.name, r.codecs])).toEqual([
+      ["aac-256", "mp4a.40.2"],
+      ["flac", "fLaC"],
+    ]);
+    // Lossless keeps the source: 48 kHz, 2 channels, 24-bit.
+    expect(all[1]?.bandwidth).toBe(48_000 * 2 * 24);
+    const rendition = all[0];
+    expect(rendition?.targetDuration).toBe(2);
+    const segments = await db
+      .select()
+      .from(schema.renditionSegments)
+      .where(eq(schema.renditionSegments.renditionId, rendition?.id ?? ""));
+    expect(segments.length).toBeGreaterThanOrEqual(1);
+    expect(new Set(segments.map((x) => x.iv)).size).toBe(segments.length);
+
+    // Two layers: at rest, then AES-128 for delivery. Peeling both gives an MP4 init section.
+    const { stream } = await storage.open(organisationId, rendition?.initBlobId ?? "");
+    const delivered = Buffer.concat(await stream.toArray());
+    expect(delivered.includes(Buffer.from("ftyp"))).toBe(false);
+    const contentKey = unwrapKey(
+      await keyring.version(organisationId, rendition?.keyVersion ?? 0),
+      rendition?.wrappedKey ?? "",
+      `rendition:${rendition?.id}`,
+    );
+    const decipher = createDecipheriv(
+      "aes-128-cbc",
+      contentKey,
+      Buffer.from(rendition?.initIv ?? "", "hex"),
+    );
+    const init = Buffer.concat([decipher.update(delivered), decipher.final()]);
+    expect(init.subarray(4, 8).toString()).toBe("ftyp");
   });
 
   it("records unreadable media once instead of retrying forever", async () => {
@@ -130,6 +177,11 @@ describe.runIf(url && (hasFfmpeg || process.env.CI))("media jobs", () => {
       await settle("media-probe", await jobs.send("media-probe", { organisationId, fileId })),
     ).toBe("completed");
     expect(await mediaInfoOf(fileId)).toEqual({});
+    const [row] = await db
+      .select({ status: schema.files.streamStatus })
+      .from(schema.files)
+      .where(eq(schema.files.id, fileId));
+    expect(row?.status).toBe("failed");
   });
 
   it("never touches a file through another organisation's job", async () => {

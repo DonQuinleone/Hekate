@@ -31,10 +31,10 @@ Members sign in with what their organisation already uses; guests never need an 
 
 ### Audio and video
 
-- The media worker produces segmented proxies (HLS with fragmented MP4 segments) for every audio and video file.
-- Segments are encrypted with a per-file content key: AES-128 in the HLS sense, or CENC `cbcs`, so the same segments can later serve a commercial DRM if needed.
-- Segment URLs are signed, expire within minutes, and are bound to the viewer's session.
-- The key endpoint returns the content key only to an authenticated member or guest whose role or review grants access to that file. Keys are never cached, are rate-limited per session, and every issue is logged.
+- The media worker produces segmented proxies (HLS with fragmented MP4 segments) for every audio and video file, once the file has been measured. Audio gets a stereo AAC rendition for quick listening, a lossless FLAC rendition at the source's rate, bit depth and channels (up to eight, so 5.1 and 7.1 arrive intact) and, for Dolby Digital and Dolby Digital Plus sources (including E-AC-3 carrying Atmos), the original stream passed through untouched. Video gets an H.264 ladder of up to two rungs at or below the source size.
+- ffmpeg packages the renditions in the job's private workspace. Hekate then encrypts each segment and the initialisation section with AES-128-CBC (the HLS `AES-128` method) under a random content key per rendition, with a fresh random IV for every segment, and stores the ciphertext as ordinary encrypted blobs. The content key is stored wrapped by the organisation key, like a data key. Plaintext segments are deleted from the workspace as they are sealed.
+- Playback starts with `POST /api/files/:id/playback`, which needs membership of the file's organisation and returns a playlist URL carrying a signed token. The token names one file, is bound to the viewer's sign-in session and expires after four hours. Every playlist, segment and key request needs both the token and that session's cookie, and current membership; a copied URL is useless on its own, and signing out ends it.
+- The key endpoint returns the content key only on a valid token and session. Keys are never cached, are limited to 30 requests a minute per session, and every issue is logged (`stream.key`) before the key leaves; starting playback is logged too (`stream.session`). All playback responses are `no-store` and same-origin.
 - The player (Vidstack, with hls.js for audio as well as video) decrypts through Media Source Extensions. The network panel shows only encrypted fragments.
 - Waveforms are drawn from precomputed peaks, so the waveform never needs the audio itself.
 
@@ -102,5 +102,5 @@ An append-only access log records who accessed what, when, through which review,
 
 ## Settled questions
 
-- Commercial DRM is not needed yet; encrypted HLS with `cbcs` leaves room for it.
+- Commercial DRM is not needed yet; segments can be repackaged as CENC `cbcs` without re-encoding if it ever is (decision 022).
 - Downloads are a per-reviewer permission (none, proxy, original), always watermarked and logged.
