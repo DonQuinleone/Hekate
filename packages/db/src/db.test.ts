@@ -24,6 +24,7 @@ describe("tenancy", () => {
       "folders",
       "invitations",
       "members",
+      "organisation_keys",
       "projects",
       "sessions",
       "takes",

@@ -1,6 +1,12 @@
 name: Release Please
 
+# Run by hand (Actions, Release Please, Run workflow) when it is time to cut a release:
+# it opens or updates the release PR from the Conventional Commits since the last
+# release. When that PR is merged, the push below runs it again to tag the release
+# and publish the notes. Other pushes do nothing, so no release PR sits open between
+# releases.
 on:
+  workflow_dispatch:
   push:
     branches: [master]
 
@@ -10,6 +16,9 @@ permissions:
 
 jobs:
   release-please:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.head_commit.message, 'chore(master): release')
     runs-on: ubuntu-latest
     steps:
       # A token other than GITHUB_TOKEN lets the release PR trigger CI, which master's ruleset requires.

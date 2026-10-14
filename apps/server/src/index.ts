@@ -4,12 +4,20 @@ import { serve } from "@hono/node-server";
 import { createApp } from "./app.ts";
 import { createAuth } from "./auth.ts";
 import { loadConfig } from "./config.ts";
+import { createKeyring, UnknownMasterKeyError } from "./keyring.ts";
 import { createMailer } from "./mail.ts";
 import { serveWeb } from "./static.ts";
 import { createStorage } from "./storage.ts";
 import { version } from "./version.ts";
 
-const config = loadConfig();
+const config = (() => {
+  try {
+    return loadConfig();
+  } catch (error) {
+    console.error((error as Error).message);
+    process.exit(1);
+  }
+})();
 if (config.MIGRATE_ON_START) await runMigrations(config.DATABASE_URL);
 
 // Refuse to start with storage that is misconfigured, unreachable or read-only.
@@ -34,7 +42,25 @@ const auth = createAuth({
 });
 
 const mailer = createMailer({ smtpUrl: config.SMTP_URL, from: config.MAIL_FROM });
-const storage = createStorage(db, backends);
+const keyring = createKeyring(db, {
+  current: config.MASTER_KEY,
+  previous: config.MASTER_KEYS_PREVIOUS,
+});
+// Every organisation key must open with a configured master key; keys wrapped by a
+// previous master key are re-wrapped with the current one (docs/security.md).
+try {
+  const { rewrapped } = await keyring.reconcile();
+  if (rewrapped > 0) {
+    console.log(
+      `Re-wrapped ${rewrapped} organisation key(s) with the current master key. MASTER_KEYS_PREVIOUS can now be removed.`,
+    );
+  }
+} catch (error) {
+  if (!(error instanceof UnknownMasterKeyError)) throw error;
+  console.error(error.message);
+  process.exit(1);
+}
+const storage = createStorage(db, backends, keyring);
 const app = createApp({ db, auth, mailer, storage, publicUrl: config.PUBLIC_URL });
 if (config.WEB_DIST) serveWeb(app, config.WEB_DIST);
 

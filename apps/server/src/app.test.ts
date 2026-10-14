@@ -3,13 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buffer } from "node:stream/consumers";
 import { createDb, runMigrations, schema } from "@hekate/db";
-import { createBackends, storageConfigFromEnv } from "@hekate/storage";
+import { createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.ts";
 import { createAuth } from "./auth.ts";
 import { createClient } from "./client.ts";
 import { loadConfig } from "./config.ts";
+import { createKeyring } from "./keyring.ts";
 import { memoryMailer } from "./mail.ts";
 import { createStorage } from "./storage.ts";
 
@@ -39,7 +40,9 @@ describe.runIf(url)("api", () => {
       STORAGE_SPARE_PATH: join(storageRoot, "spare"),
     }),
   );
-  const storage = createStorage(db, backends);
+  const masterKey = Buffer.alloc(32, 7);
+  const keyring = createKeyring(db, { current: masterKey, previous: [] });
+  const storage = createStorage(db, backends, keyring);
   const app = createApp({
     db,
     auth,
@@ -431,7 +434,7 @@ describe.runIf(url)("api", () => {
         const foreign = await storage.put(other?.id ?? "", Buffer.from("not yours"));
         await expect(storage.open(organisationId, foreign.id)).rejects.toThrow(/not found/);
         await expect(storage.remove(organisationId, foreign.id)).rejects.toThrow(/not found/);
-        expect(await backends.get("local").head(foreign.key)).toEqual({ size: 9 });
+        expect(await backends.get("local").head(foreign.key)).toEqual({ size: encryptedSize(9) });
       });
 
       it("keeps a blob that a file still uses", async () => {
@@ -452,7 +455,7 @@ describe.runIf(url)("api", () => {
           byteSize: 9,
         });
         await expect(storage.remove(organisationId, blob.id)).rejects.toThrow();
-        expect(await backends.get("local").head(blob.key)).toEqual({ size: 9 });
+        expect(await backends.get("local").head(blob.key)).toEqual({ size: encryptedSize(9) });
       });
 
       it("lets owners choose the backend for new objects", async () => {
@@ -500,19 +503,23 @@ describe.runIf(url)("api", () => {
         const organisationId = await organisationOf(owner);
         const local = backends.get("local");
         let failDeletes = true;
-        const flaky = createStorage(db, {
-          ...backends,
-          get: (name: string) =>
-            name === "local"
-              ? {
-                  ...local,
-                  delete: async (key: string) => {
-                    if (failDeletes) throw new Error("storage unavailable");
-                    await local.delete(key);
-                  },
-                }
-              : backends.get(name),
-        });
+        const flaky = createStorage(
+          db,
+          {
+            ...backends,
+            get: (name: string) =>
+              name === "local"
+                ? {
+                    ...local,
+                    delete: async (key: string) => {
+                      if (failDeletes) throw new Error("storage unavailable");
+                      await local.delete(key);
+                    },
+                  }
+                : backends.get(name),
+          },
+          keyring,
+        );
         const blob = await flaky.put(organisationId, Buffer.from("retry me"));
         await expect(flaky.remove(organisationId, blob.id)).rejects.toThrow("storage unavailable");
         expect((await flaky.open(organisationId, blob.id)).blob.id).toBe(blob.id);
@@ -521,6 +528,99 @@ describe.runIf(url)("api", () => {
         await flaky.remove(organisationId, blob.id);
         await expect(flaky.open(organisationId, blob.id)).rejects.toThrow(/not found/);
         expect(await local.head(blob.key)).toBeNull();
+      });
+
+      it("stores only ciphertext, and reads plaintext ranges back", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const secret = Buffer.from("the unreleased master, bar 72, take 3 ".repeat(5000));
+        const blob = await storage.put(organisationId, secret, { contentType: "audio/wav" });
+        expect(blob.byteSize).toBe(secret.length);
+
+        const stored = await buffer(await backends.get("local").get(blob.key));
+        expect(stored.length).toBeGreaterThan(secret.length);
+        expect(stored.includes(Buffer.from("unreleased master"))).toBe(false);
+        expect(blob.wrappedKey).not.toContain(stored.subarray(0, 32).toString("base64"));
+
+        const whole = await buffer((await storage.open(organisationId, blob.id)).stream);
+        expect(whole.equals(secret)).toBe(true);
+        const start = 100_000;
+        const part = await buffer(
+          (await storage.open(organisationId, blob.id, { start, end: start + 37 })).stream,
+        );
+        expect(part.toString()).toBe(secret.subarray(start, start + 38).toString());
+      });
+
+      it("refuses ciphertext moved from another blob", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const a = await storage.put(organisationId, Buffer.from("version one"));
+        const b = await storage.put(organisationId, Buffer.from("version two"));
+        // Replace a's stored bytes with b's, as someone with access to storage might.
+        const local = backends.get("local");
+        await local.put(a.key, await buffer(await local.get(b.key)));
+        await expect(buffer((await storage.open(organisationId, a.id)).stream)).rejects.toThrow(
+          /failed authentication/,
+        );
+      });
+
+      it("keeps every file readable across a master key rotation", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const before = await storage.put(organisationId, Buffer.from("recorded before rotation"));
+
+        const newMaster = Buffer.alloc(32, 9);
+        // Without the old key the new instance must refuse to start rather than fail on reads.
+        await expect(
+          createKeyring(db, { current: newMaster, previous: [] }).reconcile(),
+        ).rejects.toThrow(/MASTER_KEYS_PREVIOUS/);
+
+        const rotated = createKeyring(db, { current: newMaster, previous: [masterKey] });
+        expect(await rotated.reconcile()).toEqual({ rewrapped: 1 });
+        expect(await rotated.reconcile()).toEqual({ rewrapped: 0 });
+
+        // The old master key is no longer needed: files and blob rows are untouched.
+        const afterRotation = createStorage(
+          db,
+          backends,
+          createKeyring(db, { current: newMaster, previous: [] }),
+        );
+        const read = await buffer((await afterRotation.open(organisationId, before.id)).stream);
+        expect(read.toString()).toBe("recorded before rotation");
+        const [row] = await db.select().from(schema.blobs).where(sql`id = ${before.id}`);
+        expect(row?.wrappedKey).toBe(before.wrappedKey);
+      });
+
+      it("refuses to start with a corrupted organisation key", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        await storage.put(organisationId, Buffer.from("x"));
+        const [row] = await db.select().from(schema.organisationKeys);
+        const bytes = Buffer.from(row?.wrappedKey ?? "", "base64");
+        bytes[20] = (bytes[20] ?? 0) ^ 1;
+        await db
+          .update(schema.organisationKeys)
+          .set({ wrappedKey: bytes.toString("base64") })
+          .where(sql`id = ${row?.id}`);
+        await expect(
+          createKeyring(db, { current: masterKey, previous: [] }).reconcile(),
+        ).rejects.toThrow(/corrupt/);
+      });
+
+      it("gives each organisation its own key", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-keys" })
+          .returning();
+        const ours = await keyring.current(organisationId);
+        const theirs = await keyring.current(other?.id ?? "");
+        expect(ours.key.equals(theirs.key)).toBe(false);
+        // Created once, then reused.
+        expect((await keyring.current(organisationId)).key.equals(ours.key)).toBe(true);
+        const rows = await db.select().from(schema.organisationKeys);
+        expect(rows).toHaveLength(2);
       });
 
       it("refuses to write when the chosen backend is no longer configured", async () => {

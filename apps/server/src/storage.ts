@@ -1,9 +1,25 @@
 import { createHash } from "node:crypto";
 import { Readable, Transform } from "node:stream";
+import { buffer } from "node:stream/consumers";
 import { type Database, inOrg, schema, uuidv7 } from "@hekate/db";
-import { type Backends, type ByteRange, objectKey, StorageConfigError } from "@hekate/storage";
+import {
+  type Backends,
+  type ByteRange,
+  decryptor,
+  encryptedSize,
+  encryptor,
+  generateKey,
+  HEADER_SIZE,
+  objectKey,
+  planRead,
+  StorageConfigError,
+  StorageError,
+  unwrapKey,
+  wrapKey,
+} from "@hekate/storage";
 import { eq } from "drizzle-orm";
 import { NotFound } from "./errors.ts";
+import type { Keyring } from "./keyring.ts";
 
 const { blobs, organisations } = schema;
 
@@ -11,7 +27,8 @@ export type Blob = typeof blobs.$inferSelect;
 
 /**
  * Hekate's view of storage: every object is a blob row in an organisation plus
- * bytes in one configured backend. Callers never see backend keys or URLs.
+ * encrypted bytes in one configured backend. Callers see plaintext streams only;
+ * backends see ciphertext only (docs/security.md). Nobody sees keys or URLs.
  */
 export interface Storage {
   readonly backends: Backends;
@@ -33,7 +50,11 @@ export interface Storage {
   remove(organisationId: string, blobId: string): Promise<void>;
 }
 
-export function createStorage(db: Database, backends: Backends): Storage {
+/** Binds a blob's ciphertext and data key to that blob, so neither can be moved to another. */
+const blobAad = (blobId: string) => Buffer.from(`blob:${blobId}`);
+const dataKeyContext = (blobId: string) => `blob:${blobId}`;
+
+export function createStorage(db: Database, backends: Backends, keyring: Keyring): Storage {
   const blobIn = async (organisationId: string, blobId: string) => {
     const [blob] = await db
       .select()
@@ -68,22 +89,41 @@ export function createStorage(db: Database, backends: Backends): Storage {
       const id = uuidv7();
       const key = objectKey(organisationId, id);
 
+      const organisationKey = await keyring.current(organisationId);
+      const dataKey = generateKey();
+      const wrappedKey = wrapKey(organisationKey.key, dataKey, dataKeyContext(id));
+
+      // Plaintext is hashed and counted on its way into the cipher; only ciphertext leaves.
       const hash = createHash("sha256");
+      let plainSize = 0;
       const hashing = new Transform({
         transform(chunk: Buffer, _encoding, callback) {
           hash.update(chunk);
+          plainSize += chunk.length;
           callback(null, chunk);
         },
       });
+      const encrypt = encryptor(dataKey, blobAad(id));
       const source = body instanceof Uint8Array ? Readable.from([body]) : body;
       source.on("error", (error) => hashing.destroy(error));
-      source.pipe(hashing);
+      hashing.on("error", (error) => encrypt.destroy(error));
+      source.pipe(hashing).pipe(encrypt);
 
-      const { size } = await backend.put(
-        key,
-        hashing,
-        options?.contentType ? { contentType: options.contentType } : {},
-      );
+      try {
+        const { size } = await backend.put(
+          key,
+          encrypt,
+          options?.contentType ? { contentType: options.contentType } : {},
+        );
+        if (size !== encryptedSize(plainSize)) {
+          await backend.delete(key).catch(() => undefined);
+          throw new StorageError(
+            `Stored ${size} bytes for "${key}", expected ${encryptedSize(plainSize)}`,
+          );
+        }
+      } finally {
+        dataKey.fill(0);
+      }
       try {
         const [blob] = await db
           .insert(blobs)
@@ -92,8 +132,10 @@ export function createStorage(db: Database, backends: Backends): Storage {
             organisationId,
             backend: name,
             key,
-            byteSize: size,
+            byteSize: plainSize,
             sha256: hash.digest("hex"),
+            wrappedKey,
+            keyVersion: organisationKey.version,
             contentType: options?.contentType ?? null,
           })
           .returning();
@@ -114,8 +156,26 @@ export function createStorage(db: Database, backends: Backends): Storage {
 
     async open(organisationId, blobId, range) {
       const blob = await blobIn(organisationId, blobId);
-      const stream = await backends.get(blob.backend).get(blob.key, range);
-      return { blob, stream };
+      const plan = planRead(blob.byteSize, range);
+      const backend = backends.get(blob.backend);
+      const organisationKey = await keyring.version(organisationId, blob.keyVersion);
+      const dataKey = unwrapKey(organisationKey, blob.wrappedKey, dataKeyContext(blob.id));
+      // A read from the middle needs the header's nonce prefix: one small extra request.
+      const header =
+        plan.cipher.start === 0
+          ? undefined
+          : await buffer(await backend.get(blob.key, { start: 0, end: HEADER_SIZE - 1 }));
+      const ciphertext = await backend.get(blob.key, plan.cipher);
+      const decrypt = decryptor({
+        key: dataKey,
+        aad: blobAad(blob.id),
+        plainSize: blob.byteSize,
+        plan,
+        ...(header ? { header } : {}),
+      });
+      ciphertext.on("error", (error) => decrypt.destroy(error));
+      decrypt.on("close", () => dataKey.fill(0));
+      return { blob, stream: ciphertext.pipe(decrypt) };
     },
 
     async remove(organisationId, blobId) {
