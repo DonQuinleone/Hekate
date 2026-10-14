@@ -39,6 +39,8 @@ describe("tenancy", () => {
       "members",
       "organisation_keys",
       "peak_levels",
+      "project_members",
+      "project_roles",
       "projects",
       "rendition_segments",
       "renditions",

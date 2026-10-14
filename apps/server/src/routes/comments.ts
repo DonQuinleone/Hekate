@@ -11,6 +11,7 @@ import { alias } from "drizzle-orm/pg-core";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
+import { actorOf, canOnFile } from "../access.ts";
 import { NotFound } from "../errors.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
@@ -54,6 +55,7 @@ export const fileCommentRoutes = (db: Database) =>
   new Hono<{ Variables: TenantVariables }>()
     .get("/:id/comments", idParam, async (c) => {
       const organisationId = c.var.organisationId;
+      await canOnFile(db, actorOf(c.var), "view", c.req.valid("param").id);
       const [file] = await db
         .select({ id: files.id })
         .from(files)
@@ -68,6 +70,7 @@ export const fileCommentRoutes = (db: Database) =>
     .post("/:id/comments", idParam, zValidator("json", createCommentInput), async (c) => {
       const organisationId = c.var.organisationId;
       const input = c.req.valid("json");
+      await canOnFile(db, actorOf(c.var), "comment", c.req.valid("param").id);
       const [file] = await db
         .select({ id: files.id, kind: files.kind, mediaInfo: files.mediaInfo })
         .from(files)
@@ -113,13 +116,18 @@ export const fileCommentRoutes = (db: Database) =>
       return c.json({ comment: await commentOf(db, organisationId, created?.id ?? "") }, 201);
     });
 
-/** `/api/comments/:id`: editing your own words, and resolving or reopening a thread. */
+/**
+ * `/api/comments/:id`: editing your own words, and resolving or reopening a thread (triage).
+ * A comment on a file whose project the caller cannot see does not exist for them.
+ */
 export const commentRoutes = (db: Database) =>
   new Hono<{ Variables: TenantVariables }>()
     .patch("/:id", idParam, zValidator("json", editCommentInput), async (c) => {
       const organisationId = c.var.organisationId;
       const { id } = c.req.valid("param");
       const existing = await commentOf(db, organisationId, id);
+      // Still able to comment here: editing is writing.
+      await canOnFile(db, actorOf(c.var), "comment", existing.fileId);
       if (existing.authorId !== c.var.userId) {
         throw new HTTPException(403, { message: "Only the author can edit a comment" });
       }
@@ -133,6 +141,9 @@ export const commentRoutes = (db: Database) =>
       const organisationId = c.var.organisationId;
       const { id } = c.req.valid("param");
       const { resolved } = c.req.valid("json");
+      // Resolving and reopening is triage: the project role must allow it.
+      const thread = await commentOf(db, organisationId, id);
+      await canOnFile(db, actorOf(c.var), "triage", thread.fileId);
       // Threads resolve as a whole, through their first comment.
       const [updated] = await db
         .update(comments)

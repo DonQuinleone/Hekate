@@ -93,3 +93,7 @@ Proxies are HLS with fragmented MP4 segments, encrypted by Hekate itself with th
 ## 023. The player is hls.js under Hekate's own controls
 
 Vidstack, named in 002, is deprecated and in security-only maintenance; its successor, Video.js 10, had only just reached its first release and brings many packages Hekate does not need. Hekate drives a plain media element with hls.js instead, under its own controls drawn from the design tokens. The player needs little beyond play, seek, volume and a choice of rendition, and the waveform, spectrogram and comparison tools (#34, #44) will drive the same media element directly. hls.js is loaded only when a player opens. This amends 002.
+
+## 024. Projects are visible only to those with a role in them
+
+A project's roles are rows in its own `project_roles` table, each a set of permissions from the fixed list in `packages/shared/src/roles.ts`. Every new project is given the defaults from `docs/domain.md`, and its creator is its first Producer. An organisation member who holds no role in a project, or whose role lacks *view*, does not see the project at all: it is missing from their list and its routes answer 404, as they do for another organisation's project. Organisation owners and admins need no role and may do everything. Every project route asks one server-side check (`can` in `apps/server/src/access.ts`); the web app hides what a role cannot do but never decides it. Playback links are checked against the project on every request, so taking a role away ends playback at once. Any member may still start a project.

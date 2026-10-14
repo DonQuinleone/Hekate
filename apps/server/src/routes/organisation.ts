@@ -105,7 +105,19 @@ export const organisationRoutes = (
       if (member.role === "owner" && (await ownerCount(db, c.var.organisationId)) <= 1) {
         throw new HTTPException(409, { message: "An organisation needs at least one owner" });
       }
-      await db.delete(members).where(eq(members.id, id));
+      // Their roles in the organisation's projects go with them.
+      await db.transaction(async (tx) => {
+        await tx
+          .delete(schema.projectMembers)
+          .where(
+            inOrg(
+              schema.projectMembers,
+              c.var.organisationId,
+              eq(schema.projectMembers.userId, member.userId),
+            ),
+          );
+        await tx.delete(members).where(inOrg(members, c.var.organisationId, eq(members.id, id)));
+      });
       return c.body(null, 204);
     })
     .get("/invitations", requireRole("admin"), async (c) => {

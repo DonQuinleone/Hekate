@@ -9,6 +9,7 @@ import {
   projectTracksQuery,
   type Track,
   trackQuery,
+  useProjectCan,
   useTrackMutations,
   type Version,
 } from "~/lib/queries";
@@ -59,11 +60,12 @@ function NewTrack({ projectId }: { projectId: string }) {
 /** The tracks of a music project, each with its latest version. */
 export function TrackList({ projectId }: { projectId: string }) {
   const { data: tracks, error } = useQuery(projectTracksQuery(projectId));
+  const can = useProjectCan(projectId);
   return (
     <section aria-label="Tracks" className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="m-0 text-[15px] font-medium">Tracks</h2>
-        <NewTrack projectId={projectId} />
+        {can("organise") && <NewTrack projectId={projectId} />}
       </div>
       {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
       {tracks && tracks.length === 0 && (
@@ -232,6 +234,7 @@ function NewVersion({ track }: { track: Track }) {
 
 function VersionRow({ version, projectId }: { version: Version; projectId: string }) {
   const { makePrimary } = useTrackMutations(projectId);
+  const can = useProjectCan(projectId);
   return (
     <li className="grid grid-cols-1 gap-3 border-b border-hairline py-4 sm:grid-cols-[120px_minmax(0,1fr)]">
       <div className="flex flex-col gap-0.5">
@@ -262,13 +265,15 @@ function VersionRow({ version, projectId }: { version: Version; projectId: strin
               {v.isPrimary ? (
                 <span className="label text-[10px]">Primary</span>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => makePrimary.mutate(v.id)}
-                  className="cursor-pointer border-0 bg-transparent p-0 text-[11px] text-ink-3 hover:text-ink"
-                >
-                  Make primary
-                </button>
+                can("organise") && (
+                  <button
+                    type="button"
+                    onClick={() => makePrimary.mutate(v.id)}
+                    className="cursor-pointer border-0 bg-transparent p-0 text-[11px] text-ink-3 hover:text-ink"
+                  >
+                    Make primary
+                  </button>
+                )
               )}
             </li>
           ))}
@@ -281,6 +286,7 @@ function VersionRow({ version, projectId }: { version: Version; projectId: strin
 /** One track: its versions, newest first, and adding the next. */
 export function TrackView({ trackId }: { trackId: string }) {
   const { data: track, error } = useQuery(trackQuery(trackId));
+  const can = useProjectCan(track?.projectId);
   if (error) return <p className="m-0 text-signal">{error.message}</p>;
   if (!track) return <p className="m-0 text-ink-3">Loading</p>;
   const newest = [...track.versions].reverse();
@@ -298,7 +304,7 @@ export function TrackView({ trackId }: { trackId: string }) {
       ) : (
         <p className="m-0 text-[13px] text-ink-3">No versions yet. Add the first edit below.</p>
       )}
-      <NewVersion track={track} />
+      {can("upload") && <NewVersion track={track} />}
     </div>
   );
 }

@@ -1,13 +1,18 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { projectProfile } from "@hekate/shared";
+import {
+  creatorRole,
+  defaultProjectRoles,
+  projectPermissions,
+  projectProfile,
+} from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { asc, desc, eq, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
-import { NotFound } from "../errors.ts";
+import { actorOf, can, visibleProjects } from "../access.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
-const { projects, files, users } = schema;
+const { projects, files, users, projectRoles, projectMembers } = schema;
 
 export const createProjectInput = z.object({
   name: z.string().trim().min(1).max(120),
@@ -20,35 +25,66 @@ export const projectRoutes = (db: Database) =>
       const rows = await db
         .select()
         .from(projects)
-        .where(inOrg(projects, c.var.organisationId, isNull(projects.archivedAt)))
+        .where(
+          inOrg(
+            projects,
+            c.var.organisationId,
+            isNull(projects.archivedAt),
+            visibleProjects(actorOf(c.var)),
+          ),
+        )
         .orderBy(desc(projects.createdAt));
       return c.json({ projects: rows });
     })
+    // Any member may start a project. It comes with the default roles, and its creator is
+    // its first Producer.
     .post("/", zValidator("json", createProjectInput), async (c) => {
       const input = c.req.valid("json");
-      const [project] = await db
-        .insert(projects)
-        .values({ ...input, organisationId: c.var.organisationId })
-        .returning();
-      return c.json({ project }, 201);
+      const organisationId = c.var.organisationId;
+      const project = await db.transaction(async (tx) => {
+        const [created] = await tx
+          .insert(projects)
+          .values({ ...input, organisationId })
+          .returning();
+        if (!created) throw new Error("Project insert returned no row");
+        const roles = await tx
+          .insert(projectRoles)
+          .values(
+            defaultProjectRoles.map((role, position) => ({
+              organisationId,
+              projectId: created.id,
+              name: role.name,
+              permissions: role.permissions,
+              position,
+            })),
+          )
+          .returning({ id: projectRoles.id, name: projectRoles.name });
+        const producer = roles.find((r) => r.name === creatorRole);
+        if (!producer) throw new Error("The default roles have no creator role");
+        await tx.insert(projectMembers).values({
+          organisationId,
+          projectId: created.id,
+          userId: c.var.userId,
+          roleId: producer.id,
+        });
+        return created;
+      });
+      // The creator is its Producer, who may do everything.
+      return c.json({ project: { ...project, permissions: [...projectPermissions] } }, 201);
     })
     .get("/:id", zValidator("param", z.object({ id: z.uuid() })), async (c) => {
-      const { id } = c.req.valid("param");
+      const access = await can(db, actorOf(c.var), "view", c.req.valid("param").id);
       const [project] = await db
         .select()
         .from(projects)
-        .where(inOrg(projects, c.var.organisationId, eq(projects.id, id)));
-      if (!project) throw new NotFound("Project");
-      return c.json({ project });
+        .where(inOrg(projects, c.var.organisationId, eq(projects.id, access.projectId)));
+      // What the caller may do here, so the interface offers only that (the server still checks).
+      return c.json({ project: { ...project, permissions: [...access.permissions] } });
     })
     .get("/:id/files", zValidator("param", z.object({ id: z.uuid() })), async (c) => {
-      const { id } = c.req.valid("param");
       const organisationId = c.var.organisationId;
-      const [project] = await db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(inOrg(projects, organisationId, eq(projects.id, id)));
-      if (!project) throw new NotFound("Project");
+      const access = await can(db, actorOf(c.var), "view", c.req.valid("param").id);
+      const project = { id: access.projectId };
       // Metadata only: file contents leave Hekate solely through protected delivery.
       const rows = await db
         .select({

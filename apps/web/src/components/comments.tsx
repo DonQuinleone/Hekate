@@ -3,7 +3,13 @@ import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, type KeyboardEvent, useState } from "react";
 import { cn } from "~/lib/cn";
 import { ago, type Thread, threadsOf } from "~/lib/comments";
-import { type Comment, commentsQuery, meQuery, useCommentMutations } from "~/lib/queries";
+import {
+  type Comment,
+  commentsQuery,
+  meQuery,
+  useCommentMutations,
+  useProjectCan,
+} from "~/lib/queries";
 import { Button } from "./ui/button";
 
 /** Lowercase time labels read better inline than the upper-case anchor labels on markers. */
@@ -128,11 +134,15 @@ function ThreadView({
   me,
   onSeek,
   mutations,
+  canComment,
+  canTriage,
 }: {
   thread: Thread;
   me: string | undefined;
   onSeek: (seconds: number) => void;
   mutations: ReturnType<typeof useCommentMutations>;
+  canComment: boolean;
+  canTriage: boolean;
 }) {
   const [replying, setReplying] = useState(false);
   const { comment, replies } = thread;
@@ -167,22 +177,28 @@ function ThreadView({
             Resolved{comment.resolvedByName ? ` by ${comment.resolvedByName}` : ""}
           </span>
         )}
-        <button
-          type="button"
-          onClick={() =>
-            mutations.resolve.mutate({ id: comment.id, resolved: !comment.resolvedAt })
-          }
-          className="ml-auto cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
-        >
-          {comment.resolvedAt ? "Reopen" : "Resolve"}
-        </button>
+        {canTriage && (
+          <button
+            type="button"
+            onClick={() =>
+              mutations.resolve.mutate({ id: comment.id, resolved: !comment.resolvedAt })
+            }
+            className="ml-auto cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+          >
+            {comment.resolvedAt ? "Reopen" : "Resolve"}
+          </button>
+        )}
       </div>
-      <CommentBody comment={comment} own={comment.authorId === me} onEdit={edit} />
+      <CommentBody comment={comment} own={canComment && comment.authorId === me} onEdit={edit} />
       {replies.length > 0 && (
         <ul className="m-0 flex list-none flex-col gap-3 border-l border-hairline p-0 pl-3">
           {replies.map((reply) => (
             <li key={reply.id}>
-              <CommentBody comment={reply} own={reply.authorId === me} onEdit={edit} />
+              <CommentBody
+                comment={reply}
+                own={canComment && reply.authorId === me}
+                onEdit={edit}
+              />
             </li>
           ))}
         </ul>
@@ -199,7 +215,8 @@ function ThreadView({
           onCancel={() => setReplying(false)}
         />
       ) : (
-        !comment.resolvedAt && (
+        !comment.resolvedAt &&
+        canComment && (
           <button
             type="button"
             onClick={() => setReplying(true)}
@@ -219,13 +236,19 @@ function ThreadView({
  */
 export function Comments({
   fileId,
+  projectId,
   media,
 }: {
   fileId: string;
+  /** The file's project, whose role decides who may comment and resolve. */
+  projectId: string;
   /** The player's media element, when the file plays. */
   media: HTMLMediaElement | null;
 }) {
   const { data, error } = useQuery(commentsQuery(fileId));
+  const can = useProjectCan(projectId);
+  const canComment = can("comment");
+  const canTriage = can("triage");
   const { data: me } = useQuery(meQuery);
   const mutations = useCommentMutations(fileId);
   /** The playhead when writing began; null for a whole-file comment. */
@@ -259,52 +282,54 @@ export function Comments({
           {threads.resolved.length > 0 && ` · ${threads.resolved.length} resolved`}
         </span>
       </div>
-      <div onFocusCapture={capture}>
-        <Composer
-          placeholder={media ? "Comment at the playhead" : "Comment on this file"}
-          submitLabel="Comment"
-          pending={mutations.create.isPending}
-          onSubmit={async (body) => {
-            await mutations.create.mutateAsync({ body, anchor: anchorNow() });
-            setAt(null);
-            setWholeFile(false);
-          }}
-        >
-          {media && (
-            <span className="flex items-center gap-1">
-              <button
-                type="button"
-                aria-pressed={!wholeFile}
-                onClick={() => {
-                  setWholeFile(false);
-                  setAt(Math.round(media.currentTime * 1000) / 1000);
-                }}
-                className={cn(
-                  "tabular h-6 cursor-pointer rounded-chip border px-2 font-mono text-[11px]",
-                  !wholeFile
-                    ? "border-edge bg-raised text-ink"
-                    : "border-transparent bg-transparent text-ink-3",
-                )}
-              >
-                {at === null ? "At playhead" : anchorLabel({ kind: "time", start: at, end: at })}
-              </button>
-              <button
-                type="button"
-                aria-pressed={wholeFile}
-                onClick={() => setWholeFile(true)}
-                className={cn(
-                  "h-6 cursor-pointer rounded-chip border px-2 text-[11px]",
-                  wholeFile
-                    ? "border-edge bg-raised text-ink"
-                    : "border-transparent bg-transparent text-ink-3",
-                )}
-              >
-                Whole file
-              </button>
-            </span>
-          )}
-        </Composer>
-      </div>
+      {canComment && (
+        <div onFocusCapture={capture}>
+          <Composer
+            placeholder={media ? "Comment at the playhead" : "Comment on this file"}
+            submitLabel="Comment"
+            pending={mutations.create.isPending}
+            onSubmit={async (body) => {
+              await mutations.create.mutateAsync({ body, anchor: anchorNow() });
+              setAt(null);
+              setWholeFile(false);
+            }}
+          >
+            {media && (
+              <span className="flex items-center gap-1">
+                <button
+                  type="button"
+                  aria-pressed={!wholeFile}
+                  onClick={() => {
+                    setWholeFile(false);
+                    setAt(Math.round(media.currentTime * 1000) / 1000);
+                  }}
+                  className={cn(
+                    "tabular h-6 cursor-pointer rounded-chip border px-2 font-mono text-[11px]",
+                    !wholeFile
+                      ? "border-edge bg-raised text-ink"
+                      : "border-transparent bg-transparent text-ink-3",
+                  )}
+                >
+                  {at === null ? "At playhead" : anchorLabel({ kind: "time", start: at, end: at })}
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={wholeFile}
+                  onClick={() => setWholeFile(true)}
+                  className={cn(
+                    "h-6 cursor-pointer rounded-chip border px-2 text-[11px]",
+                    wholeFile
+                      ? "border-edge bg-raised text-ink"
+                      : "border-transparent bg-transparent text-ink-3",
+                  )}
+                >
+                  Whole file
+                </button>
+              </span>
+            )}
+          </Composer>
+        </div>
+      )}
       {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
       {data && threads.open.length === 0 && threads.resolved.length === 0 && (
         <p className="m-0 text-[13px] text-ink-3">No comments yet.</p>
@@ -317,6 +342,8 @@ export function Comments({
             me={me?.user.id}
             onSeek={seek}
             mutations={mutations}
+            canComment={canComment}
+            canTriage={canTriage}
           />
         ))}
       </ul>
@@ -339,6 +366,8 @@ export function Comments({
                   me={me?.user.id}
                   onSeek={seek}
                   mutations={mutations}
+                  canComment={canComment}
+                  canTriage={canTriage}
                 />
               ))}
             </ul>

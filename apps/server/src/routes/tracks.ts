@@ -3,6 +3,7 @@ import {
   addVariationInput,
   createTrackInput,
   createVersionInput,
+  type ProjectPermission,
   updateTrackInput,
   withPrimary,
 } from "@hekate/shared";
@@ -11,6 +12,7 @@ import { and, asc, eq, inArray, max, ne } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
+import { actorOf, can } from "../access.ts";
 import { NotFound } from "../errors.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
@@ -104,6 +106,24 @@ async function tracksOf(db: Database, organisationId: string, projectId: string)
   }));
 }
 
+/**
+ * The project check for anything under a track. A track in a project the caller cannot see
+ * is not found, like the project itself.
+ */
+async function canSeeTrack(
+  db: Database,
+  vars: TenantVariables,
+  projectId: string,
+  permission: ProjectPermission,
+) {
+  try {
+    return await can(db, actorOf(vars), permission, projectId);
+  } catch (error) {
+    if (error instanceof NotFound) throw new NotFound("Track");
+    throw error;
+  }
+}
+
 async function trackOf(db: Database, organisationId: string, id: string) {
   const [track] = await db
     .select()
@@ -125,22 +145,14 @@ async function oneTrack(db: Database, organisationId: string, id: string) {
 export const projectTrackRoutes = (db: Database) =>
   new Hono<{ Variables: TenantVariables }>()
     .get("/:id/tracks", idParam, async (c) => {
-      const organisationId = c.var.organisationId;
-      const [project] = await db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(inOrg(projects, organisationId, eq(projects.id, c.req.valid("param").id)));
-      if (!project) throw new NotFound("Project");
-      return c.json({ tracks: await tracksOf(db, organisationId, project.id) });
+      const { projectId } = await can(db, actorOf(c.var), "view", c.req.valid("param").id);
+      return c.json({ tracks: await tracksOf(db, c.var.organisationId, projectId) });
     })
     .post("/:id/tracks", idParam, zValidator("json", createTrackInput), async (c) => {
       const organisationId = c.var.organisationId;
       const input = c.req.valid("json");
-      const [project] = await db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(inOrg(projects, organisationId, eq(projects.id, c.req.valid("param").id)));
-      if (!project) throw new NotFound("Project");
+      const { projectId } = await can(db, actorOf(c.var), "organise", c.req.valid("param").id);
+      const project = { id: projectId };
       if (input.scoreFileId) {
         await assertProjectFiles(db, organisationId, project.id, [input.scoreFileId]);
       }
@@ -173,14 +185,17 @@ export const projectTrackRoutes = (db: Database) =>
 /** `/api/tracks/:id`: one track; renaming, linking its score, reordering; new versions. */
 export const trackRoutes = (db: Database) =>
   new Hono<{ Variables: TenantVariables }>()
-    .get("/:id", idParam, async (c) =>
-      c.json({ track: await oneTrack(db, c.var.organisationId, c.req.valid("param").id) }),
-    )
+    .get("/:id", idParam, async (c) => {
+      const track = await trackOf(db, c.var.organisationId, c.req.valid("param").id);
+      await canSeeTrack(db, c.var, track.projectId, "view");
+      return c.json({ track: await oneTrack(db, c.var.organisationId, track.id) });
+    })
     .patch("/:id", idParam, zValidator("json", updateTrackInput), async (c) => {
       const organisationId = c.var.organisationId;
       const { id } = c.req.valid("param");
       const input = c.req.valid("json");
       const track = await trackOf(db, organisationId, id);
+      await canSeeTrack(db, c.var, track.projectId, "organise");
       if (input.scoreFileId) {
         await assertProjectFiles(db, organisationId, track.projectId, [input.scoreFileId]);
       }
@@ -195,6 +210,7 @@ export const trackRoutes = (db: Database) =>
       const { id } = c.req.valid("param");
       const input = c.req.valid("json");
       const track = await trackOf(db, organisationId, id);
+      await canSeeTrack(db, c.var, track.projectId, "upload");
       await assertProjectFiles(
         db,
         organisationId,
@@ -263,6 +279,7 @@ export const versionRoutes = (db: Database) =>
       const organisationId = c.var.organisationId;
       const input = c.req.valid("json");
       const version = await versionOf(db, organisationId, c.req.valid("param").id);
+      await canSeeTrack(db, c.var, version.projectId, "upload");
       await assertProjectFiles(db, organisationId, version.projectId, [input.fileId]);
       try {
         await db.transaction(async (tx) => {
@@ -310,11 +327,17 @@ export const variationRoutes = (db: Database) =>
     const organisationId = c.var.organisationId;
     const { id } = c.req.valid("param");
     const [variation] = await db
-      .select({ versionId: variations.versionId, trackId: versions.trackId })
+      .select({
+        versionId: variations.versionId,
+        trackId: versions.trackId,
+        projectId: tracks.projectId,
+      })
       .from(variations)
       .innerJoin(versions, eq(versions.id, variations.versionId))
+      .innerJoin(tracks, eq(tracks.id, versions.trackId))
       .where(inOrg(variations, organisationId, eq(variations.id, id)));
     if (!variation) throw new NotFound("Variation");
+    await canSeeTrack(db, c.var, variation.projectId, "organise");
     await db.transaction(async (tx) => {
       // One switch at a time per version, so two never lock its variations in opposite orders.
       await tx
