@@ -4,9 +4,9 @@ import { Link } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import { Comments, useCommentMarkers } from "~/components/comments";
 import { Compare } from "~/components/compare";
-import { kindIcon, mediaSummary } from "~/components/files";
-import { Icon } from "~/components/icons";
+import { mediaSummary } from "~/components/files";
 import { Loudness } from "~/components/loudness";
+import { type Crumb, PageHeader } from "~/components/page-header";
 import { Player } from "~/components/player";
 import { FileContext } from "~/components/tracks";
 import type { Loop } from "~/lib/loop";
@@ -127,67 +127,73 @@ export function FilePage({
       <dd className="tabular m-0 truncate text-[13px] text-ink-2">{value}</dd>
     </div>
   ));
-  return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 sm:px-8">
-      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-[13px]">
-        {guest ? (
-          <Link to="/g" className="shrink-0 text-ink-3 no-underline hover:text-ink">
-            Your reviews
-          </Link>
-        ) : (
-          <>
-            <Link to="/" className="shrink-0 text-ink-3 no-underline hover:text-ink">
-              Projects
-            </Link>
-            <span className="text-edge">/</span>
-            <Link
-              to="/projects/$projectId"
-              params={{ projectId: file.projectId }}
-              className="truncate text-ink-3 no-underline hover:text-ink"
-            >
+  const crumbs: Crumb[] = guest
+    ? [{ key: "reviews", link: <Link to="/g">Your reviews</Link> }]
+    : [
+        { key: "projects", link: <Link to="/">Projects</Link> },
+        {
+          key: "project",
+          link: (
+            <Link to="/projects/$projectId" params={{ projectId: file.projectId }}>
               {project?.name ?? "Project"}
             </Link>
-          </>
-        )}
-        <span className="text-edge">/</span>
-        <span className="truncate font-medium text-ink">{file.name}</span>
-      </nav>
-      <div className="flex flex-col gap-2">
-        <span className="inline-flex h-[22px] w-fit items-center gap-1.5 rounded-chip border border-hairline px-2 label text-ink-2">
-          <Icon name={kindIcon[file.kind]} size={12} />
-          {file.kind}
-        </span>
-        <h1 className="m-0 break-words text-[28px] font-medium tracking-[-0.02em]">{file.name}</h1>
-        {summary && <p className="tabular m-0 text-[13px] text-ink-2">{summary}</p>}
-      </div>
-      {!guest && <FileContext file={file} />}
-      <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="flex min-w-0 flex-col gap-6">
-          <Playback file={file} onMedia={setMedia} loop={loop} onLoop={onLoop} />
-          {!guest && file.kind === "audio" && file.streamStatus === "ready" && (
-            <Compare file={file} media={media} />
-          )}
-          {file.mediaInfo?.audio && (
-            <Loudness fileId={file.id} media={media} layout={file.mediaInfo.audio.channelLayout} />
-          )}
-          <dl className="m-0 hidden flex-col border-t border-hairline lg:flex">{detailRows}</dl>
+          ),
+        },
+        ...(file.variation
+          ? [
+              {
+                key: "track",
+                link: (
+                  <Link to="/tracks/$trackId" params={{ trackId: file.variation.trackId }}>
+                    {file.variation.trackName}
+                  </Link>
+                ),
+              },
+            ]
+          : []),
+      ];
+  return (
+    <>
+      <PageHeader
+        crumbs={crumbs}
+        title={file.name}
+        // Media formats show in the player; other files say what they are here.
+        meta={summary ? undefined : file.contentType}
+      />
+      <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-5 sm:px-6">
+        {!guest && <FileContext file={file} />}
+        <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="flex min-w-0 flex-col gap-6">
+            <Playback file={file} onMedia={setMedia} loop={loop} onLoop={onLoop} />
+            {!guest && file.kind === "audio" && file.streamStatus === "ready" && (
+              <Compare file={file} media={media} />
+            )}
+            {file.mediaInfo?.audio && (
+              <Loudness
+                fileId={file.id}
+                media={media}
+                layout={file.mediaInfo.audio.channelLayout}
+              />
+            )}
+            <dl className="m-0 hidden flex-col border-t border-hairline lg:flex">{detailRows}</dl>
+          </div>
+          <Comments
+            fileId={file.id}
+            projectId={file.projectId}
+            media={media}
+            loop={loop}
+            onLoop={(next) => {
+              // One action: the passage is looped and heard from its start.
+              onLoop(next);
+              if (media) {
+                media.currentTime = next.start;
+                void media.play().catch(() => undefined);
+              }
+            }}
+          />
+          <dl className="m-0 flex flex-col border-t border-hairline lg:hidden">{detailRows}</dl>
         </div>
-        <Comments
-          fileId={file.id}
-          projectId={file.projectId}
-          media={media}
-          loop={loop}
-          onLoop={(next) => {
-            // One action: the passage is looped and heard from its start.
-            onLoop(next);
-            if (media) {
-              media.currentTime = next.start;
-              void media.play().catch(() => undefined);
-            }
-          }}
-        />
-        <dl className="m-0 flex flex-col border-t border-hairline lg:hidden">{detailRows}</dl>
       </div>
-    </div>
+    </>
   );
 }

@@ -52,7 +52,7 @@ function foldersOf(db: Database | Tx, organisationId: string, projectId: string)
  * Serialise changes to one project's folders: two moves at once could otherwise each pass
  * the cycle check and together make a loop.
  */
-async function lockProject(tx: Tx, organisationId: string, projectId: string) {
+export async function lockProject(tx: Tx, organisationId: string, projectId: string) {
   await tx
     .select({ id: projects.id })
     .from(projects)
@@ -61,7 +61,12 @@ async function lockProject(tx: Tx, organisationId: string, projectId: string) {
 }
 
 /** A folder of this project, or 422: ids from elsewhere are not places to put things. */
-async function folderIn(db: Database | Tx, organisationId: string, projectId: string, id: string) {
+export async function folderIn(
+  db: Database | Tx,
+  organisationId: string,
+  projectId: string,
+  id: string,
+) {
   const [folder] = await db
     .select({ id: folders.id })
     .from(folders)

@@ -16,6 +16,7 @@ import { SetupPage, SignInPage } from "~/routes/auth-pages";
 import { FilePage } from "~/routes/file";
 import { GuestHomePage, GuestLinkPage, GuestShell, GuestSignedOutPage } from "~/routes/guest";
 import { InvitePage } from "~/routes/invite";
+import { MyReviewsPage } from "~/routes/my-reviews";
 import { ProjectPage } from "~/routes/project";
 import { ProjectsPage } from "~/routes/projects";
 import { ReviewPage } from "~/routes/review";
@@ -207,6 +208,11 @@ const review = createRoute({
     return <ReviewPage reviewId={reviewId} />;
   },
 });
+const myReviews = createRoute({
+  getParentRoute: () => app,
+  path: "/reviews",
+  component: MyReviewsPage,
+});
 const settings = createRoute({
   getParentRoute: () => app,
   path: "/members",
@@ -221,7 +227,7 @@ export const router = createRouter({
     guestLink,
     guestSignedOut,
     guestApp.addChildren([guestHome, guestReview, guestFile]),
-    app.addChildren([projects, project, track, file, review, settings]),
+    app.addChildren([projects, project, track, file, myReviews, review, settings]),
   ]),
   context: { queryClient },
   defaultPreload: "intent",

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Icon } from "~/components/icons";
-import { OrganisationName } from "~/components/organisation-name";
+import { PageHeader } from "~/components/page-header";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import {
@@ -128,79 +128,78 @@ export function SettingsPage() {
   const { setRole, remove, revoke } = useOrganisationMutations();
   const error = setRole.error ?? remove.error ?? revoke.error;
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-8 sm:px-8">
-      <div className="flex flex-col gap-1">
-        <OrganisationName />
-        <h1 className="m-0 text-[28px] font-medium tracking-[-0.02em]">Members</h1>
-      </div>
-      {isAdmin && <Invite myRole={myRole} />}
-      {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
-      <ul className="m-0 flex list-none flex-col p-0">
-        <li className="label grid grid-cols-[1fr_auto] gap-4 border-b border-hairline px-2 pb-2 sm:grid-cols-[1fr_1fr_140px_80px]">
-          <span>Name</span>
-          <span className="hidden sm:block">Email</span>
-          <span>Role</span>
-          <span className="hidden sm:block" />
-        </li>
-        {members?.map((m) => {
-          const isSelf = m.userId === me?.user.id;
-          const canEdit = isAdmin && (myRole === "owner" || m.role !== "owner");
-          return (
-            <li
-              key={m.id}
-              className="grid min-h-12 grid-cols-[1fr_auto] items-center gap-4 border-b border-hairline px-2 py-2 sm:grid-cols-[1fr_1fr_140px_80px]"
-            >
-              <span className="flex min-w-0 flex-col">
-                <span className="truncate text-sm font-medium">
-                  {m.name}
-                  {isSelf && <span className="ml-2 text-xs font-normal text-ink-3">you</span>}
-                </span>
-                <span className="truncate text-xs text-ink-3 sm:hidden">{m.email}</span>
-              </span>
-              <span className="hidden truncate text-[13px] text-ink-2 sm:block">{m.email}</span>
-              <Select
-                label={`Role for ${m.name}`}
-                value={m.role}
-                disabled={!canEdit}
-                onChange={(role) => setRole.mutate({ id: m.id, role: role as Member["role"] })}
-                options={roles
-                  .filter((r) => r !== "owner" || myRole === "owner" || m.role === "owner")
-                  .map((r) => ({ value: r, label: roleLabel[r] }))}
-              />
-              <span className="hidden justify-end sm:flex">
-                {(canEdit || isSelf) && (
-                  <Button variant="ghost" size="sm" onClick={() => remove.mutate(m.id)}>
-                    {isSelf ? "Leave" : "Remove"}
-                  </Button>
-                )}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-      {isAdmin && invitations && invitations.length > 0 && (
-        <section className="flex flex-col gap-2">
-          <h2 className="label m-0 px-2">Pending invitations</h2>
-          <ul className="m-0 flex list-none flex-col p-0">
-            {invitations.map((i) => (
+    <>
+      <PageHeader title="Members" />
+      <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6 sm:px-6">
+        {isAdmin && <Invite myRole={myRole} />}
+        {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
+        <ul className="m-0 flex list-none flex-col p-0">
+          <li className="label grid grid-cols-[1fr_auto] gap-4 border-b border-hairline px-2 pb-2 sm:grid-cols-[1fr_1fr_140px_80px]">
+            <span>Name</span>
+            <span className="hidden sm:block">Email</span>
+            <span>Role</span>
+            <span className="hidden sm:block" />
+          </li>
+          {members?.map((m) => {
+            const isSelf = m.userId === me?.user.id;
+            const canEdit = isAdmin && (myRole === "owner" || m.role !== "owner");
+            return (
               <li
-                key={i.id}
-                className="flex min-h-11 items-center gap-4 border-b border-hairline px-2"
+                key={m.id}
+                className="grid min-h-12 grid-cols-[1fr_auto] items-center gap-4 border-b border-hairline px-2 py-2 sm:grid-cols-[1fr_1fr_140px_80px]"
               >
-                <Icon name="mail" className="text-ink-3" />
-                <span className="min-w-0 flex-1 truncate text-[13px]">{i.email}</span>
-                <span className="text-xs text-ink-3">{roleLabel[i.role]}</span>
-                <span className="tabular text-xs text-ink-3">
-                  until {dateFormat.format(new Date(i.expiresAt))}
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate text-sm font-medium">
+                    {m.name}
+                    {isSelf && <span className="ml-2 text-xs font-normal text-ink-3">you</span>}
+                  </span>
+                  <span className="truncate text-xs text-ink-3 sm:hidden">{m.email}</span>
                 </span>
-                <Button variant="ghost" size="sm" onClick={() => revoke.mutate(i.id)}>
-                  Revoke
-                </Button>
+                <span className="hidden truncate text-[13px] text-ink-2 sm:block">{m.email}</span>
+                <Select
+                  label={`Role for ${m.name}`}
+                  value={m.role}
+                  disabled={!canEdit}
+                  onChange={(role) => setRole.mutate({ id: m.id, role: role as Member["role"] })}
+                  options={roles
+                    .filter((r) => r !== "owner" || myRole === "owner" || m.role === "owner")
+                    .map((r) => ({ value: r, label: roleLabel[r] }))}
+                />
+                <span className="hidden justify-end sm:flex">
+                  {(canEdit || isSelf) && (
+                    <Button variant="ghost" size="sm" onClick={() => remove.mutate(m.id)}>
+                      {isSelf ? "Leave" : "Remove"}
+                    </Button>
+                  )}
+                </span>
               </li>
-            ))}
-          </ul>
-        </section>
-      )}
-    </div>
+            );
+          })}
+        </ul>
+        {isAdmin && invitations && invitations.length > 0 && (
+          <section className="flex flex-col gap-2">
+            <h2 className="label m-0 px-2">Pending invitations</h2>
+            <ul className="m-0 flex list-none flex-col p-0">
+              {invitations.map((i) => (
+                <li
+                  key={i.id}
+                  className="flex min-h-11 items-center gap-4 border-b border-hairline px-2"
+                >
+                  <Icon name="mail" className="text-ink-3" />
+                  <span className="min-w-0 flex-1 truncate text-[13px]">{i.email}</span>
+                  <span className="text-xs text-ink-3">{roleLabel[i.role]}</span>
+                  <span className="tabular text-xs text-ink-3">
+                    until {dateFormat.format(new Date(i.expiresAt))}
+                  </span>
+                  <Button variant="ghost" size="sm" onClick={() => revoke.mutate(i.id)}>
+                    Revoke
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </div>
+    </>
   );
 }
