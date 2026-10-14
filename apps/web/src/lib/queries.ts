@@ -5,6 +5,7 @@ import {
   decodePeaks,
   decodeSpectrogram,
   type FileKind,
+  type GuestInput,
   type LoudnessSummary,
   type MediaInfo,
   type ProjectPermission,
@@ -664,8 +665,14 @@ export interface ReviewDetail {
   )[];
   reviewers: {
     id: string;
-    userId: string;
+    /** Null for a guest. */
+    userId: string | null;
     name: string;
+    guest: boolean;
+    /** A guest's role on the production, such as "Conductor". */
+    label: string | null;
+    /** Shown to members only; guests never see other reviewers' addresses. */
+    email: string | null;
     state: ReviewerState;
     decision: ReviewDecision | null;
     decidedAt: string | null;
@@ -685,6 +692,8 @@ export interface ReviewDetail {
     canDecide: boolean;
     canSubmit: boolean;
     canManage: boolean;
+    canManageReviewers: boolean;
+    guest: boolean;
   };
 }
 
@@ -749,6 +758,29 @@ export function useReviewActions(reviewId: string) {
       mutationFn: async () =>
         call(await api.reviews[":id"].cancel.$post({ param: { id: reviewId } })),
       onSuccess: settle,
+    }),
+    addReviewer: useMutation({
+      mutationFn: async (input: { userId: string } | GuestInput) =>
+        call(await api.reviews[":id"].reviewers.$post({ param: { id: reviewId }, json: input })),
+      onSuccess: settle,
+    }),
+    /** Send a guest a fresh magic link; the last one stops working. */
+    sendLink: useMutation({
+      mutationFn: async (reviewerId: string) => {
+        const res = await api.reviews[":id"].reviewers[":reviewerId"].link.$post({
+          param: { id: reviewId, reviewerId },
+        });
+        if (!res.ok) await json(res);
+      },
+    }),
+    /** End a guest's links and signed-in browsers. */
+    revoke: useMutation({
+      mutationFn: async (reviewerId: string) => {
+        const res = await api.reviews[":id"].reviewers[":reviewerId"].revoke.$post({
+          param: { id: reviewId, reviewerId },
+        });
+        if (!res.ok) await json(res);
+      },
     }),
   };
 }

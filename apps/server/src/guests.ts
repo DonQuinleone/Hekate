@@ -94,8 +94,15 @@ export async function useGuestLink(db: Database, token: string, now = new Date()
   });
 }
 
-/** Revoke every unused link and every session a guest has: they must be sent a new link. */
-export async function revokeGuest(db: Database, organisationId: string, guestId: string) {
+/**
+ * Revoke every unused link and every session a guest has: they must be sent a new link.
+ * Pass the caller's transaction to commit this with whatever else it records.
+ */
+export async function revokeGuest(
+  db: Pick<Database, "transaction">,
+  organisationId: string,
+  guestId: string,
+) {
   const now = new Date();
   await db.transaction(async (tx) => {
     await tx

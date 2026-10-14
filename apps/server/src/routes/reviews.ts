@@ -822,27 +822,28 @@ export const reviewRoutes = (deps: ReviewDeps) =>
     .post("/:id/reviewers/:reviewerId/revoke", reviewerParam, async (c) => {
       const actor = memberOnly(c.var.actor);
       const { id, reviewerId } = c.req.valid("param");
-      const { review, guestId } = await deps.db.transaction(async (tx) => {
+      const who = await deps.audit.member(actor.userId);
+      await deps.db.transaction(async (tx) => {
         const { review } = await lockReview(tx, actor, id);
         await can(tx, actor, "manage_reviewers", review.projectId);
         const { rows } = await reviewersOf(tx, actor.organisationId, review.id);
         const guest = rows.find((r) => r.id === reviewerId);
         if (!guest) throw new NotFound("Reviewer");
         if (!guest.guestId) throw new HTTPException(409, { message: "Only guests have links" });
-        return { review, guestId: guest.guestId };
+        await revokeGuest(tx, actor.organisationId, guest.guestId);
+        await deps.audit.record(
+          actor.organisationId,
+          who,
+          {
+            action: "guest.revoke",
+            projectId: review.projectId,
+            reviewId: review.id,
+            details: { guestId: guest.guestId },
+          },
+          requestInfo(c, deps.trustProxy),
+          tx,
+        );
       });
-      await revokeGuest(deps.db, actor.organisationId, guestId);
-      await deps.audit.record(
-        actor.organisationId,
-        await deps.audit.member(actor.userId),
-        {
-          action: "guest.revoke",
-          projectId: review.projectId,
-          reviewId: review.id,
-          details: { guestId },
-        },
-        requestInfo(c, deps.trustProxy),
-      );
       return c.body(null, 204);
     })
     // Remove a reviewer who has not yet submitted; the review may then be complete.
