@@ -1,5 +1,10 @@
 packages:
   - apps/*
   - packages/*
-onlyBuiltDependencies:
-  - esbuild
+
+# Supply chain: only these packages may run install scripts.
+allowBuilds:
+  esbuild: true
+
+# Supply chain: never install a version published less than a day ago (pnpm's default, stated here).
+minimumReleaseAge: 1440

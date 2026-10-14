@@ -16,7 +16,7 @@
   "dependencies": {
     "@hekate/db": "workspace:*",
     "@hekate/shared": "workspace:*",
-    "@hono/node-server": "^2.1.5",
+    "@hono/node-server": "2.1.4",
     "@hono/zod-validator": "^0.9.1",
     "better-auth": "^1.7.7",
     "drizzle-orm": "^0.45.4",
