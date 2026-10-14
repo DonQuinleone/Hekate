@@ -6,6 +6,7 @@ import {
   parseBarLabels,
   parseForm,
   pointsFromTaps,
+  repeatsAt,
   rulerBars,
 } from "@hekate/shared";
 import { useEffect, useId, useRef, useState } from "react";
@@ -41,30 +42,47 @@ export function BarRuler({
   if (duration <= 0) return null;
   const share = (t: number) => `${Math.min(100, (t / duration) * 100)}%`;
   const numbered = new Set(rulerBars(map, duration, width));
+  const repeats = new Set(repeatsAt(map));
+  // Every barline gets a small tick along the bottom only while they stay apart.
+  const minor = width / Math.max(1, map.points.length) >= 5;
   return (
-    <nav ref={ruler} className="relative h-5" aria-label="Bars">
-      {map.points.map(([t, bar], i) => (
-        <div
-          // Barlines repeat their numbers in a repeat: the index keeps them apart.
-          // biome-ignore lint/suspicious/noArrayIndexKey: barlines are in heard order and never reorder.
-          key={i}
-          className="absolute top-0"
-          style={{ left: share(t) }}
-        >
-          <div aria-hidden className={cn("w-px bg-edge", numbered.has(i) ? "h-5" : "h-1.5")} />
-          {numbered.has(i) && (
-            // A 28 px target around the small number, so it can be hit on a phone.
-            <button
-              type="button"
-              onClick={() => onSeek(t)}
-              aria-label={`Play from bar ${bar}`}
-              className="tabular absolute -top-1 -left-2.5 flex h-7 min-w-7 cursor-pointer items-start justify-start rounded-chip border-0 bg-transparent px-3 pt-3 font-mono text-[10px] leading-3 text-ink-3 outline-none hover:text-ink focus-visible:ring-1 focus-visible:ring-signal"
-            >
-              {bar}
-            </button>
-          )}
-        </div>
-      ))}
+    <nav ref={ruler} className="relative h-6 border-t border-hairline" aria-label="Bars">
+      {map.points.map(([t, bar], i) => {
+        const isNumbered = numbered.has(i);
+        if (!isNumbered && !repeats.has(i) && !minor) return null;
+        return (
+          <div
+            // Barlines repeat their numbers in a repeat: the index keeps them apart.
+            // biome-ignore lint/suspicious/noArrayIndexKey: barlines are in heard order and never reorder.
+            key={i}
+            className="absolute inset-y-0"
+            style={{ left: share(t) }}
+          >
+            {repeats.has(i) ? (
+              // Where the music goes back: a double line, as a repeat is printed.
+              <div aria-hidden className="absolute inset-y-0 -left-px flex gap-[2px]">
+                <span className="w-px bg-ink-3/70" />
+                <span className="w-px bg-ink-3/70" />
+              </div>
+            ) : isNumbered ? (
+              <div aria-hidden className="absolute top-0 h-3 w-px bg-ink-3/70" />
+            ) : (
+              <div aria-hidden className="absolute bottom-0 h-1 w-px bg-edge" />
+            )}
+            {isNumbered && (
+              // The number sits beside its own barline, in a 28 px target for a finger.
+              <button
+                type="button"
+                onClick={() => onSeek(t)}
+                aria-label={`Play from bar ${bar}`}
+                className="tabular absolute -top-1 -left-1 flex h-7 min-w-7 cursor-pointer items-start rounded-chip border-0 bg-transparent pt-1 pr-1 pl-[9px] font-mono text-[10px] leading-3 text-ink-3 outline-none hover:text-ink focus-visible:ring-1 focus-visible:ring-signal"
+              >
+                {bar}
+              </button>
+            )}
+          </div>
+        );
+      })}
     </nav>
   );
 }

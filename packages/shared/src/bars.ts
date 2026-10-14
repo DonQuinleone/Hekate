@@ -149,17 +149,36 @@ export function parseBarLabels(text: string): BarMap["points"] | null {
   return unique.length > 0 ? unique : null;
 }
 
+/** Barlines where the music goes back: a repeat, or a da capo. */
+export const repeatsAt = (map: BarMap) =>
+  map.points.flatMap(([, bar], i) => (i > 0 && bar <= (map.points[i - 1]?.[1] ?? 0) ? [i] : []));
+
 /**
- * Which barlines to number on a ruler `width` pixels wide over `duration` seconds, so
- * that numbers stay at least `gap` pixels apart: every bar, or every 2nd, 4th, 8th...
+ * Which barlines to number on a ruler `width` pixels wide over `duration` seconds. The
+ * first barline and every repeat are numbered, then every bar, or every 2nd, 4th, 8th...
+ * as space allows; whatever is chosen is kept at least `gap` pixels from the number before,
+ * measured where each barline really falls.
  */
-export function rulerBars(map: BarMap, duration: number, width: number, gap = 28): number[] {
+export function rulerBars(map: BarMap, duration: number, width: number, gap = 32): number[] {
   if (duration <= 0 || width <= 0 || map.points.length === 0) return [];
-  const typical = duration / Math.max(1, map.points.length);
-  const pixels = (typical / duration) * width;
+  const x = (i: number) => ((map.points[i]?.[0] ?? 0) / duration) * width;
+  const typical = width / Math.max(1, map.points.length);
   let every = 1;
-  while (pixels * every < gap && every < 1024) every *= 2;
-  return map.points.flatMap(([, bar], i) => (bar % every === 0 || i === 0 ? [i] : []));
+  while (typical * every < gap && every < 1024) every *= 2;
+  const repeats = new Set(repeatsAt(map));
+  const kept: number[] = [];
+  for (let i = 0; i < map.points.length; i++) {
+    const bar = map.points[i]?.[1] ?? 0;
+    if (!(i === 0 || repeats.has(i) || bar % every === 0)) continue;
+    const last = kept.at(-1);
+    if (last !== undefined && x(i) - x(last) < gap) {
+      // A repeat says more than the round number just before it: it takes the place.
+      if (repeats.has(i) && !repeats.has(last) && last !== 0) kept[kept.length - 1] = i;
+      continue;
+    }
+    kept.push(i);
+  }
+  return kept;
 }
 
 /** Taps closer together than this are one tap, bounced. */

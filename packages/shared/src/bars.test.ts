@@ -8,6 +8,7 @@ import {
   parseBarLabels,
   parseForm,
   pointsFromTaps,
+  repeatsAt,
   rulerBars,
   timeOfBar,
 } from "./bars.ts";
@@ -117,7 +118,28 @@ describe("bar maps", () => {
     // 200 bars across 400 px: 2 px a bar, so every 16th bar is numbered.
     const shown = rulerBars(long, 400, 400);
     expect(shown[0]).toBe(0);
-    expect(shown.slice(1).every((i) => (long.points[i]?.[1] ?? 1) % 16 === 0)).toBe(true);
+    expect(
+      shown
+        .slice(1)
+        .every(
+          (i) => (long.points[i]?.[1] ?? 1) % 32 === 0 || (long.points[i]?.[1] ?? 1) % 16 === 0,
+        ),
+    ).toBe(true);
+    // Never two numbers closer than the gap.
+    for (const [k, i] of shown.entries()) {
+      if (k > 0) expect(i - (shown[k - 1] ?? 0)).toBeGreaterThanOrEqual(16);
+    }
     expect(rulerBars(long, 400, 20_000)).toHaveLength(200);
+  });
+
+  it("numbers where the music goes back, and marks it", () => {
+    // 1-8, then 1-8 again, then 9-16: a bar a second, 24 s over 480 px (20 px a bar).
+    const bars = [1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+    const form: BarMap = { beatsPerBar: 2, points: bars.map((b, i) => [i, b] as [number, number]) };
+    expect(repeatsAt(form)).toEqual([8]);
+    const shown = rulerBars(form, 24, 480).map((i) => form.points[i]?.[1]);
+    // Every 2nd bar, 40 px apart, kept 32 px from the number before: bar 2 is too close to
+    // bar 1, and the repeat back to bar 1 takes the place of the bar 8 just before it.
+    expect(shown).toEqual([1, 4, 6, 1, 4, 6, 8, 10, 12, 14, 16]);
   });
 });
