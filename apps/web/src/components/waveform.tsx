@@ -1,6 +1,6 @@
 import { channelNames, combineChannels, levelFor, type PeakLevel } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type WaveSurfer from "wavesurfer.js";
 import { cn } from "~/lib/cn";
 import { peakLevelQuery, peaksQuery } from "~/lib/queries";
@@ -67,7 +67,11 @@ export function Waveform({
     enabled: Boolean(chosen),
   });
 
-  const shown = level && view === "combined" ? combineChannels(level) : level;
+  // Kept stable across renders, so playback updates do not rebuild the waveform.
+  const shown = useMemo(
+    () => (level && view === "combined" ? combineChannels(level) : level),
+    [level, view],
+  );
   const names = level ? channelNames(level.channels, layout) : [];
 
   useEffect(() => {
@@ -103,7 +107,8 @@ export function Waveform({
     };
   }, [shown, media, duration]);
 
-  if (index?.status === "failed") return null;
+  // Nothing to wait for: no peaks are coming for this file.
+  if (index && index.status !== "pending" && index.status !== "ready") return null;
   const rows = shown?.channels ?? 1;
   return (
     <div className="relative">

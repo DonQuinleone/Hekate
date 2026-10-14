@@ -83,25 +83,31 @@ export function formatChannels(channels: number, layout?: string): string {
   return `${channels} ch`;
 }
 
-/** Short names for ffmpeg's channel order in common layouts. */
+/**
+ * Short names for each channel, in FFmpeg's order for its named layouts. FFmpeg tells side
+ * and back surrounds apart: plain `5.1` carries back channels (Lb, Rb) and `5.1(side)` side
+ * channels (Ls, Rs), and the immersive layouts build on the back variant.
+ */
 const layoutChannels: Record<string, string[]> = {
   mono: ["M"],
   stereo: ["L", "R"],
   "2.1": ["L", "R", "LFE"],
   "3.0": ["L", "R", "C"],
   quad: ["L", "R", "Lb", "Rb"],
-  "5.0": ["L", "R", "C", "Ls", "Rs"],
-  "5.1": ["L", "R", "C", "LFE", "Ls", "Rs"],
+  "quad(side)": ["L", "R", "Ls", "Rs"],
+  "5.0": ["L", "R", "C", "Lb", "Rb"],
+  "5.0(side)": ["L", "R", "C", "Ls", "Rs"],
+  "5.1": ["L", "R", "C", "LFE", "Lb", "Rb"],
+  "5.1(side)": ["L", "R", "C", "LFE", "Ls", "Rs"],
   "7.1": ["L", "R", "C", "LFE", "Lb", "Rb", "Ls", "Rs"],
-  "5.1.2": ["L", "R", "C", "LFE", "Ls", "Rs", "Ltm", "Rtm"],
-  "5.1.4": ["L", "R", "C", "LFE", "Ls", "Rs", "Ltf", "Rtf", "Ltb", "Rtb"],
-  "7.1.2": ["L", "R", "C", "LFE", "Lb", "Rb", "Ls", "Rs", "Ltm", "Rtm"],
+  "5.1.2": ["L", "R", "C", "LFE", "Lb", "Rb", "Ltf", "Rtf"],
+  "5.1.4": ["L", "R", "C", "LFE", "Lb", "Rb", "Ltf", "Rtf", "Ltb", "Rtb"],
+  "7.1.2": ["L", "R", "C", "LFE", "Lb", "Rb", "Ls", "Rs", "Ltf", "Rtf"],
   "7.1.4": ["L", "R", "C", "LFE", "Lb", "Rb", "Ls", "Rs", "Ltf", "Rtf", "Ltb", "Rtb"],
 };
 
-/** A label for each channel, in stream order: `L`, `R`, `C`, `LFE`, or `1`, `2`… when unknown. */
 export function channelNames(channels: number, layout?: string): string[] {
-  const named = layout ? layoutChannels[layout.replace(/\(.*\)$/, "")] : undefined;
+  const named = layout ? layoutChannels[layout] : undefined;
   if (named && named.length === channels) return named;
   if (!layout || /channels?$/.test(layout)) {
     if (channels === 1) return ["M"];

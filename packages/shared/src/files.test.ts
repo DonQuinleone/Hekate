@@ -57,6 +57,9 @@ describe("formatting for lists", () => {
   it("labels each channel of a layout in stream order", () => {
     expect(channelNames(2, "stereo")).toEqual(["L", "R"]);
     expect(channelNames(6, "5.1(side)")).toEqual(["L", "R", "C", "LFE", "Ls", "Rs"]);
+    // Plain 5.1 in FFmpeg has back surrounds, not side ones.
+    expect(channelNames(6, "5.1")).toEqual(["L", "R", "C", "LFE", "Lb", "Rb"]);
+    expect(channelNames(8, "5.1.2")).toEqual(["L", "R", "C", "LFE", "Lb", "Rb", "Ltf", "Rtf"]);
     expect(channelNames(12, "7.1.4")).toHaveLength(12);
     expect(channelNames(2)).toEqual(["L", "R"]);
     expect(channelNames(4, "4 channels")).toEqual(["1", "2", "3", "4"]);
