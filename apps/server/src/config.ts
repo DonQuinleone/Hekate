@@ -15,6 +15,10 @@ const schema = z.object({
   PUBLIC_URL: z.string().url().default("http://localhost:3000"),
   /** Secret for signing sessions and tokens; at least 32 characters. */
   AUTH_SECRET: z.string().min(32),
+  /** SMTP connection URL, for example smtp://user:pass@host:587. Without it, emails are written to the log. */
+  SMTP_URL: z.string().url().optional(),
+  /** Sender address for email. */
+  MAIL_FROM: z.string().default("Hekate <hekate@localhost>"),
   /** Extra origins allowed to call the API with credentials (comma separated), for example the Vite dev server. */
   TRUSTED_ORIGINS: z
     .string()

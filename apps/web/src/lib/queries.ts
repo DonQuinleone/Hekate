@@ -73,3 +73,76 @@ export function useCreateProject() {
     onSuccess: () => client.invalidateQueries({ queryKey: ["projects"] }),
   });
 }
+
+export interface Member {
+  id: string;
+  userId: string;
+  name: string;
+  email: string;
+  role: "owner" | "admin" | "member";
+  joinedAt: string;
+}
+export interface PendingInvitation {
+  id: string;
+  email: string;
+  role: "owner" | "admin" | "member";
+  expiresAt: string;
+}
+
+export const membersQuery = queryOptions({
+  queryKey: ["organisation", "members"],
+  queryFn: async () =>
+    (await json<{ members: Member[] }>(await api.organisation.members.$get())).members,
+});
+
+export const invitationsQuery = queryOptions({
+  queryKey: ["organisation", "invitations"],
+  queryFn: async () =>
+    (await json<{ invitations: PendingInvitation[] }>(await api.organisation.invitations.$get()))
+      .invitations,
+});
+
+export function useOrganisationMutations() {
+  const client = useQueryClient();
+  const refresh = () => client.invalidateQueries({ queryKey: ["organisation"] });
+  return {
+    invite: useMutation({
+      mutationFn: async (input: { email: string; role: Member["role"] }) =>
+        json<{ link: string }>(await api.organisation.invitations.$post({ json: input })),
+      onSuccess: refresh,
+    }),
+    revoke: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api.organisation.invitations[":id"].$delete({ param: { id } });
+        if (!res.ok) await json(res);
+      },
+      onSuccess: refresh,
+    }),
+    setRole: useMutation({
+      mutationFn: async (input: { id: string; role: Member["role"] }) =>
+        json(
+          await api.organisation.members[":id"].$patch({
+            param: { id: input.id },
+            json: { role: input.role },
+          }),
+        ),
+      onSuccess: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api.organisation.members[":id"].$delete({ param: { id } });
+        if (!res.ok) await json(res);
+      },
+      onSuccess: refresh,
+    }),
+  };
+}
+
+export function useSwitchOrganisation() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (organisationId: string) =>
+      json(await api.me.organisation.$put({ json: { organisationId } })),
+    onSuccess: () => client.invalidateQueries(),
+  });
+}

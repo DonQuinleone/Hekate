@@ -4,8 +4,11 @@ import { HTTPException } from "hono/http-exception";
 import { logger } from "hono/logger";
 import type { Auth } from "./auth.ts";
 import { onError } from "./errors.ts";
+import type { Mailer } from "./mail.ts";
 import { health } from "./routes/health.ts";
+import { invitationRoutes } from "./routes/invitations.ts";
 import { meRoutes } from "./routes/me.ts";
+import { organisationRoutes } from "./routes/organisation.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { setupRoutes } from "./routes/setup.ts";
 import { requireOrganisation, requireSession } from "./tenancy.ts";
@@ -13,6 +16,8 @@ import { requireOrganisation, requireSession } from "./tenancy.ts";
 export interface AppDeps {
   db: Database;
   auth: Auth;
+  mailer: Mailer;
+  publicUrl: string;
   log?: boolean;
 }
 
@@ -24,6 +29,9 @@ export function createApi(deps: AppDeps) {
     .use("/me/*", ...member)
     .use("/me", ...member)
     .route("/me", meRoutes(deps.db))
+    .route("/invitations", invitationRoutes(deps.db, deps.auth))
+    .use("/organisation/*", ...member)
+    .route("/organisation", organisationRoutes(deps.db, deps.mailer, deps.publicUrl))
     .use("/projects/*", ...member)
     .use("/projects", ...member)
     .route("/projects", projectRoutes(deps.db));

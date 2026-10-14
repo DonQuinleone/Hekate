@@ -9,6 +9,7 @@ import {
 import { Shell } from "~/components/shell";
 import { meQuery, setupQuery } from "~/lib/queries";
 import { SetupPage, SignInPage } from "~/routes/auth-pages";
+import { InvitePage } from "~/routes/invite";
 import { ProjectPage } from "~/routes/project";
 import { ProjectsPage } from "~/routes/projects";
 import { SettingsPage } from "~/routes/settings";
@@ -33,11 +34,22 @@ const setup = createRoute({
 const signIn = createRoute({
   getParentRoute: () => root,
   path: "/sign-in",
-  beforeLoad: async ({ context }) => {
+  validateSearch: (search: Record<string, unknown>): { redirect?: string } =>
+    typeof search.redirect === "string" ? { redirect: search.redirect } : {},
+  beforeLoad: async ({ context, search }) => {
     if (await context.queryClient.ensureQueryData(setupQuery)) throw redirect({ to: "/setup" });
-    if (await context.queryClient.fetchQuery(meQuery)) throw redirect({ to: "/" });
+    if (!search.redirect && (await context.queryClient.fetchQuery(meQuery)))
+      throw redirect({ to: "/" });
   },
   component: SignInPage,
+});
+const invite = createRoute({
+  getParentRoute: () => root,
+  path: "/invite/$token",
+  component: function InviteRoute() {
+    const { token } = invite.useParams();
+    return <InvitePage token={token} />;
+  },
 });
 
 /** Everything else needs a signed-in member. */
@@ -47,7 +59,7 @@ const app = createRoute({
   beforeLoad: async ({ context }) => {
     if (await context.queryClient.ensureQueryData(setupQuery)) throw redirect({ to: "/setup" });
     const me = await context.queryClient.ensureQueryData(meQuery);
-    if (!me) throw redirect({ to: "/sign-in" });
+    if (!me) throw redirect({ to: "/sign-in", search: {} });
     return { me };
   },
   component: () => (
@@ -68,12 +80,17 @@ const project = createRoute({
 });
 const settings = createRoute({
   getParentRoute: () => app,
-  path: "/settings",
+  path: "/members",
   component: SettingsPage,
 });
 
 export const router = createRouter({
-  routeTree: root.addChildren([setup, signIn, app.addChildren([projects, project, settings])]),
+  routeTree: root.addChildren([
+    setup,
+    signIn,
+    invite,
+    app.addChildren([projects, project, settings]),
+  ]),
   context: { queryClient },
   defaultPreload: "intent",
 });

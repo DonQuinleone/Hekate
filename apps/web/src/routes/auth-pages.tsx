@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { Mark, Wordmark } from "~/components/brand";
 import { Button } from "~/components/ui/button";
@@ -7,7 +7,15 @@ import { Input } from "~/components/ui/input";
 import { api } from "~/lib/api";
 import { authClient } from "~/lib/auth";
 
-function Frame({ title, intro, children }: { title: string; intro: string; children: ReactNode }) {
+export function Frame({
+  title,
+  intro,
+  children,
+}: {
+  title: string;
+  intro: string;
+  children: ReactNode;
+}) {
   return (
     <div className="flex min-h-full items-center justify-center px-4 py-12">
       <div className="flex w-full max-w-[380px] flex-col gap-8">
@@ -25,7 +33,7 @@ function Frame({ title, intro, children }: { title: string; intro: string; child
   );
 }
 
-function Field({
+export function Field({
   id,
   label,
   ...props
@@ -40,7 +48,7 @@ function Field({
   );
 }
 
-function ErrorLine({ message }: { message: string | null }) {
+export function ErrorLine({ message }: { message: string | null }) {
   if (!message) return null;
   return (
     <p role="alert" className="m-0 flex items-center gap-2 text-[13px] text-ink">
@@ -52,6 +60,7 @@ function ErrorLine({ message }: { message: string | null }) {
 
 export function SignInPage() {
   const navigate = useNavigate();
+  const { redirect } = useSearch({ from: "/sign-in" });
   const client = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -74,7 +83,9 @@ export function SignInPage() {
       return;
     }
     await client.invalidateQueries({ queryKey: ["me"] });
-    await navigate({ to: "/" });
+    // Only same-site paths, never an absolute URL.
+    if (redirect?.startsWith("/") && !redirect.startsWith("//")) window.location.assign(redirect);
+    else await navigate({ to: "/" });
   };
   return (
     <Frame title="Sign in" intro="Review for sound and picture.">
