@@ -45,13 +45,21 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
       return w > slack && h > slack;
     };
 
-    // A page no wider than its window.
+    // A page no wider than its window, and no wider than the app's own scrolling area.
     const root = document.scrollingElement ?? document.documentElement;
     if (root.scrollWidth > window.innerWidth + 1) {
       problems.push({
         check: "overflow",
         what: `The page is ${root.scrollWidth}px wide in a ${window.innerWidth}px window`,
       });
+    }
+    for (const main of document.querySelectorAll("main")) {
+      if (main.scrollWidth > main.clientWidth + 1) {
+        problems.push({
+          check: "overflow",
+          what: `The main area is ${main.scrollWidth}px wide in ${main.clientWidth}px`,
+        });
+      }
     }
 
     // Every run of visible text, as the boxes its lines take up.

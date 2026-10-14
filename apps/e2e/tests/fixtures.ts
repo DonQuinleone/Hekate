@@ -15,6 +15,10 @@ export interface Seeded {
   scoreFileId: string;
   cutFileId: string;
   reviewId: string;
+  /** An invitation's page, waiting to be accepted. */
+  invitationPath: string;
+  /** A guest link already used, which no longer signs anyone in. */
+  usedGuestPath: string;
 }
 
 export const seeded = (): Seeded =>

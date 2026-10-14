@@ -1,9 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { argosScreenshot } from "@argos-ci/playwright";
 import { expect, type Page, test as setup } from "@playwright/test";
 import postgres from "postgres";
 import { samplePdf } from "../../server/src/media/sample-pdf.ts";
+import { checkScreen } from "./checks.ts";
 import { FIXED_TIME, type Seeded, state } from "./fixtures.ts";
 
 /**
@@ -98,7 +100,7 @@ async function settled(page: Page, projectId: string): Promise<SeededFile[]> {
   throw new Error("The media worker did not finish in time");
 }
 
-setup("seed", async ({ page }) => {
+setup("seed", async ({ page, browser }) => {
   setup.setTimeout(300_000);
   mkdirSync(media, { recursive: true });
   const file = (name: string) => join(media, name);
@@ -108,8 +110,20 @@ setup("seed", async ({ page }) => {
   writeFileSync(file("Maple Leaf Rag - Score.pdf"), samplePdf(3));
   cut(file("Opening titles - Cut 3.mp4"));
 
-  // The first person sets up the organisation.
+  // The first person sets up the organisation; the form is only there once, so it is
+  // captured here, at both widths.
+  await page.clock.setFixedTime(FIXED_TIME);
   await page.goto("/setup");
+  await expect(page.locator("#organisation")).toBeVisible();
+  for (const [name, viewport] of [
+    ["setup", { width: 1440, height: 900 }],
+    ["setup-phone", { width: 390, height: 844 }],
+  ] as const) {
+    await page.setViewportSize(viewport);
+    await checkScreen(page);
+    await argosScreenshot(page, name);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.fill("#organisation", "Endless Hall Records");
   await page.fill("#name", "Alex Rivera");
   await page.fill("#email", "producer@example.test");
@@ -226,6 +240,33 @@ setup("seed", async ({ page }) => {
     },
   );
 
+  // An invitation waiting to be accepted.
+  const { link: invitation } = await api<{ link: string }>(
+    page,
+    "POST",
+    "/api/organisation/invitations",
+    {
+      email: "tomas@example.test",
+      role: "member",
+    },
+  );
+
+  // The guest signs in from the link they were sent, which the log holds without a mail server.
+  let guestLink: string | undefined;
+  for (let tries = 0; tries < 30 && !guestLink; tries++) {
+    guestLink = readFileSync(join(state, "server.log"), "utf8")
+      .match(/\/guest\/[A-Za-z0-9_-]{16,}/g)
+      ?.at(-1);
+    if (!guestLink) await page.waitForTimeout(500);
+  }
+  if (!guestLink) throw new Error("No guest link in the server log");
+  const guest = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+  const guestPage = await guest.newPage();
+  await guestPage.goto(guestLink);
+  await guestPage.waitForURL(/\/g\/reviews\//);
+  await guest.storageState({ path: join(state, "guest.json") });
+  await guest.close();
+
   // The same moment for every run, so dates and "ago" read the same in every capture.
   const sql = postgres(process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL ?? "", {
     onnotice: () => undefined,
@@ -259,6 +300,8 @@ setup("seed", async ({ page }) => {
     scoreFileId: score,
     cutFileId: cutFile.id,
     reviewId: review.id,
+    invitationPath: new URL(invitation).pathname,
+    usedGuestPath: guestLink,
   };
   writeFileSync(join(state, "seeded.json"), JSON.stringify(seeded, null, 2));
   await page.context().storageState({ path: join(state, "owner.json") });

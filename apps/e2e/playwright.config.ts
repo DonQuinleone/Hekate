@@ -67,7 +67,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "node src/index.ts",
+    // The log is kept: without a mail server, the links guests are sent are written there.
+    command: `node src/index.ts 2>&1 | tee "${join(state, "server.log")}"`,
     cwd: join(import.meta.dirname, "../server"),
     url: `http://localhost:${PORT}/api/health`,
     reuseExistingServer: Boolean(process.env.E2E_REUSE),

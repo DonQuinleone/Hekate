@@ -51,3 +51,13 @@ test("finds crowded small targets, a page wider than the window and axe's findin
   expect(problems.map((x) => x.check)).toContain("overflow");
   expect((await accessibilityProblems(p)).join("\n")).toContain("image-alt");
 });
+
+test("finds the main area scrolling sideways inside a window that does not", async ({
+  page: p,
+}) => {
+  await p.setContent(`<!doctype html><html lang="en"><head><title>Check</title></head>
+    <body style="margin:0;height:100vh;display:flex"><main style="flex:1;min-width:0;overflow:auto">
+    <div style="width:4000px;height:10px"></div></main></body></html>`);
+  const problems = await layoutProblems(p);
+  expect(problems).toEqual([expect.objectContaining({ check: "overflow" })]);
+});

@@ -1,7 +1,8 @@
+import { join } from "node:path";
 import { argosScreenshot } from "@argos-ci/playwright";
 import { expect, type Page, test } from "@playwright/test";
 import { checkScreen } from "./checks.ts";
-import { FIXED_TIME, type Seeded, seeded } from "./fixtures.ts";
+import { FIXED_TIME, type Seeded, seeded, state } from "./fixtures.ts";
 
 /**
  * Every screen, as the seeded studio sees it: checked for layout and accessibility, then
@@ -13,12 +14,38 @@ interface Screen {
   path: (s: Seeded) => string;
   /** What has to be on the screen before it is ready to capture. */
   ready: string;
-  /** Leave the session out: the screen someone signed out sees. */
-  signedOut?: boolean;
+  /** Whose screen it is: the owner's, someone signed out, or a guest reviewer's. */
+  as?: "owner" | "signed-out" | "guest";
 }
 
 const screens: Screen[] = [
-  { name: "sign-in", path: () => "/sign-in", ready: "form", signedOut: true },
+  { name: "sign-in", path: () => "/sign-in", ready: "form", as: "signed-out" },
+  {
+    name: "invitation",
+    path: (s) => s.invitationPath,
+    ready: "text=Join Endless Hall Records",
+    as: "signed-out",
+  },
+  { name: "guest-signed-out", path: () => "/guest", ready: "h1", as: "signed-out" },
+  {
+    name: "guest-link-used",
+    path: (s) => s.usedGuestPath,
+    ready: "text=This link no longer works",
+    as: "signed-out",
+  },
+  { name: "guest-reviews", path: () => "/g", ready: "text=Album masters", as: "guest" },
+  {
+    name: "guest-review",
+    path: (s) => `/g/reviews/${s.reviewId}`,
+    ready: "h1:has-text('Album masters')",
+    as: "guest",
+  },
+  {
+    name: "guest-file",
+    path: (s) => `/g/files/${s.dryFileId}`,
+    ready: "section[aria-label=Comments]",
+    as: "guest",
+  },
   { name: "projects", path: () => "/", ready: "main a:has-text('Joplin Rags')" },
   {
     name: "project-music",
@@ -93,7 +120,12 @@ function capture(screen: Screen) {
 
 test.describe("signed out", () => {
   test.use({ storageState: { cookies: [], origins: [] } });
-  for (const screen of screens.filter((s) => s.signedOut)) capture(screen);
+  for (const screen of screens.filter((s) => s.as === "signed-out")) capture(screen);
 });
 
-for (const screen of screens.filter((s) => !s.signedOut)) capture(screen);
+test.describe("guest", () => {
+  test.use({ storageState: join(state, "guest.json") });
+  for (const screen of screens.filter((s) => s.as === "guest")) capture(screen);
+});
+
+for (const screen of screens.filter((s) => !s.as || s.as === "owner")) capture(screen);
