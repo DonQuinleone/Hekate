@@ -9,6 +9,7 @@ import { createJobs } from "./jobs.ts";
 import { createKeyring, UnknownMasterKeyError } from "./keyring.ts";
 import { createMailer } from "./mail.ts";
 import { startWorkers } from "./media/workers.ts";
+import { playbackSecret } from "./playback.ts";
 import { serveWeb } from "./static.ts";
 import { createStorage } from "./storage.ts";
 import { version } from "./version.ts";
@@ -70,7 +71,7 @@ await jobs.start();
 if (config.WORKER) {
   await startWorkers(
     jobs,
-    { db, storage, ...(config.WORK_DIR ? { workDir: config.WORK_DIR } : {}) },
+    { db, storage, keyring, jobs, ...(config.WORK_DIR ? { workDir: config.WORK_DIR } : {}) },
     config.WORKER_CONCURRENCY,
   );
 }
@@ -83,6 +84,8 @@ const app = createApp({
   storage,
   audit,
   jobs,
+  keyring,
+  playbackSecret: playbackSecret(config.AUTH_SECRET),
   publicUrl: config.PUBLIC_URL,
   trustProxy: config.TRUST_PROXY,
 });

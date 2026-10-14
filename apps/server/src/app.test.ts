@@ -1,4 +1,6 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { createDecipheriv } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buffer } from "node:stream/consumers";
@@ -13,7 +15,9 @@ import { createClient } from "./client.ts";
 import { loadConfig } from "./config.ts";
 import { createKeyring } from "./keyring.ts";
 import { memoryMailer } from "./mail.ts";
-import { checksumHandler } from "./media/workers.ts";
+import { probe, run } from "./media/ffmpeg.ts";
+import { checksumHandler, proxyHandler } from "./media/workers.ts";
+import { playbackSecret, signPlayback } from "./playback.ts";
 import { createStorage } from "./storage.ts";
 import { expireUploads } from "./uploads.ts";
 
@@ -67,6 +71,8 @@ describe.runIf(url)("api", () => {
     storage,
     audit,
     jobs,
+    keyring,
+    playbackSecret: playbackSecret("test-secret-test-secret-test-secret-0"),
     trustProxy: true,
     publicUrl: "http://localhost:3000",
     log: false,
@@ -803,6 +809,8 @@ describe.runIf(url)("api", () => {
           storage,
           audit,
           jobs,
+          keyring,
+          playbackSecret: playbackSecret("test-secret-test-secret-test-secret-0"),
           publicUrl: "http://localhost:3000",
           log: false,
         });
@@ -934,7 +942,7 @@ describe.runIf(url)("api", () => {
 
         // The checksum job fills in the hash by reading the file back through decryption.
         const controller = new AbortController();
-        await checksumHandler({ db, storage })(
+        await checksumHandler({ db, storage, keyring, jobs })(
           { organisationId, blobId: file.blobId },
           { id: "job", signal: controller.signal, retryCount: 0 },
         );
@@ -1112,5 +1120,250 @@ describe.runIf(url)("api", () => {
         expect(((await done.json()) as { file: { kind: string } }).file.kind).toBe("document");
       });
     });
+
+    describe.runIf(spawnSync("ffmpeg", ["-version"]).status === 0 || process.env.CI)(
+      "streaming",
+      () => {
+        const secret = playbackSecret("test-secret-test-secret-test-secret-0");
+        const joinAs = async (owner: string, email: string, role: string) => {
+          const { body } = await invite(owner, email, role);
+          const res = await app.request(
+            `/api/invitations/${tokenFrom(body.link)}/accept`,
+            json({ name: "Colleague", password: "correct horse battery" }),
+          );
+          return cookieOf(res);
+        };
+        const get = (path: string, cookie?: string) =>
+          app.request(path, { headers: cookie ? { cookie } : {} });
+
+        /** A playable file: stored, measured and packaged by the real proxy job. */
+        const playableFile = async (owner: string, kind: "audio" | "video" = "audio") => {
+          const organisationId = (
+            (await (await get("/api/me", owner)).json()) as { activeOrganisationId: string }
+          ).activeOrganisationId;
+          const res = await app.request(
+            "/api/projects",
+            json({ name: "Rags", profile: "music" }, owner),
+          );
+          const projectId = ((await res.json()) as { project: { id: string } }).project.id;
+          const wav = join(storageRoot, `source-${Date.now()}.${kind === "audio" ? "wav" : "mov"}`);
+          await run(
+            "ffmpeg",
+            kind === "audio"
+              ? [
+                  "-hide_banner",
+                  "-nostdin",
+                  "-v",
+                  "error",
+                  "-f",
+                  "lavfi",
+                  "-i",
+                  "sine=frequency=440:sample_rate=48000:duration=8",
+                  "-ac",
+                  "2",
+                  "-c:a",
+                  "pcm_s24le",
+                  wav,
+                ]
+              : [
+                  "-hide_banner",
+                  "-nostdin",
+                  "-v",
+                  "error",
+                  "-f",
+                  "lavfi",
+                  "-i",
+                  "testsrc2=size=1920x1080:rate=25:duration=5",
+                  "-f",
+                  "lavfi",
+                  "-i",
+                  "sine=duration=5",
+                  "-c:v",
+                  "libx264",
+                  "-preset",
+                  "ultrafast",
+                  "-pix_fmt",
+                  "yuv420p",
+                  "-c:a",
+                  "pcm_s16le",
+                  "-shortest",
+                  wav,
+                ],
+          );
+          const blob = await storage.put(organisationId, readFileSync(wav));
+          const [file] = await db
+            .insert(schema.files)
+            .values({
+              organisationId,
+              projectId,
+              name: kind === "audio" ? "Tone.wav" : "Bars.mov",
+              kind,
+              blobId: blob.id,
+              contentType: kind === "audio" ? "audio/wav" : "video/quicktime",
+              byteSize: blob.byteSize,
+              mediaInfo: await probe(wav),
+              streamStatus: "pending",
+            })
+            .returning();
+          await proxyHandler({ db, storage, keyring, jobs, workDir: join(storageRoot, "work") })(
+            { organisationId, fileId: file?.id ?? "" },
+            { id: "job", signal: new AbortController().signal, retryCount: 0 },
+          );
+          return { organisationId, projectId, fileId: file?.id ?? "" };
+        };
+        const start = async (cookie: string, fileId: string) => {
+          const res = await app.request(`/api/files/${fileId}/playback`, json({}, cookie));
+          return {
+            res,
+            url: res.status === 201 ? ((await res.json()) as { url: string }).url : "",
+          };
+        };
+
+        it("plays as encrypted HLS that decrypts to the recording, logging the session and key", async () => {
+          const owner = cookieOf(await setup());
+          const { organisationId, fileId } = await playableFile(owner);
+          const { res, url } = await start(owner, fileId);
+          expect(res.status).toBe(201);
+          expect(url).toMatch(/^\/api\/play\/[\w-]+\.[\w-]+\/master\.m3u8$/);
+
+          const master = await get(url, owner);
+          expect(master.status).toBe(200);
+          expect(master.headers.get("cache-control")).toContain("no-store");
+          expect(master.headers.get("content-type")).toBe("application/vnd.apple.mpegurl");
+          const masterText = await master.text();
+          expect(masterText).toContain('CODECS="mp4a.40.2"');
+          const variant = masterText.split("\n").find((l) => l.startsWith("r/")) ?? "";
+          const base = url.replace(/master\.m3u8$/, "");
+          const media = await (await get(base + variant, owner)).text();
+          expect(media).toContain("#EXT-X-ENDLIST");
+          expect(media).toContain('#EXT-X-MAP:URI="init.mp4"');
+
+          const keyRes = await get(`${base + variant.replace(/index\.m3u8$/, "")}key`, owner);
+          expect(keyRes.status).toBe(200);
+          const key = Buffer.from(await keyRes.arrayBuffer());
+          expect(key.length).toBe(16);
+
+          // Walk the playlist as a player would: each key tag's IV applies to what follows.
+          const dir = base + variant.replace(/index\.m3u8$/, "");
+          let iv = "";
+          const parts: Buffer[] = [];
+          for (const line of media.split("\n")) {
+            const match = line.match(/IV=0x([0-9a-f]{32})/);
+            if (match?.[1]) iv = match[1];
+            const uri = line.startsWith("#EXT-X-MAP")
+              ? "init.mp4"
+              : line.startsWith("seg/")
+                ? line
+                : null;
+            if (!uri) continue;
+            const body = Buffer.from(await (await get(dir + uri, owner)).arrayBuffer());
+            expect(body.includes(Buffer.from("ftyp"))).toBe(false);
+            const decipher = createDecipheriv("aes-128-cbc", key, Buffer.from(iv, "hex"));
+            parts.push(Buffer.concat([decipher.update(body), decipher.final()]));
+          }
+          const assembled = join(storageRoot, "assembled.mp4");
+          writeFileSync(assembled, Buffer.concat(parts));
+          const info = await probe(assembled);
+          expect(info.audio).toMatchObject({ codec: "aac", channels: 2, sampleRate: 48000 });
+          expect(info.duration).toBeCloseTo(8, 0);
+
+          // The session, the key and every segment served, each attributable.
+          const logged = await audit.query(organisationId, { fileId, limit: 50 });
+          const actions = logged.events.map((e) => e.action);
+          const served = media.split("\n").filter((l) => l.startsWith("seg/")).length;
+          expect(actions.filter((a) => a === "stream.segment")).toHaveLength(served);
+          expect(new Set(actions)).toEqual(
+            new Set(["stream.key", "stream.session", "stream.segment"]),
+          );
+          expect(logged.events.every((e) => e.projectId)).toBe(true);
+        }, 120_000);
+
+        it("plays video as an encrypted ladder that decrypts to H.264 and AAC", async () => {
+          const owner = cookieOf(await setup());
+          const { fileId } = await playableFile(owner, "video");
+          const { url } = await start(owner, fileId);
+          const master = await (await get(url, owner)).text();
+          expect(master).toContain("RESOLUTION=1920x1080");
+          expect(master).toContain("RESOLUTION=1280x720");
+          const lines = master.split("\n");
+          const variant =
+            lines[lines.findIndex((l) => l.includes("RESOLUTION=1280x720")) + 1] ?? "";
+          const dir = url.replace(/master\.m3u8$/, "") + variant.replace(/index\.m3u8$/, "");
+          const media = await (await get(`${dir}index.m3u8`, owner)).text();
+          const key = Buffer.from(await (await get(`${dir}key`, owner)).arrayBuffer());
+          let iv = "";
+          const parts: Buffer[] = [];
+          for (const line of media.split("\n")) {
+            const match = line.match(/IV=0x([0-9a-f]{32})/);
+            if (match?.[1]) iv = match[1];
+            const uri = line.startsWith("#EXT-X-MAP")
+              ? "init.mp4"
+              : line.startsWith("seg/")
+                ? line
+                : null;
+            if (!uri) continue;
+            const body = Buffer.from(await (await get(dir + uri, owner)).arrayBuffer());
+            const decipher = createDecipheriv("aes-128-cbc", key, Buffer.from(iv, "hex"));
+            parts.push(Buffer.concat([decipher.update(body), decipher.final()]));
+          }
+          const assembled = join(storageRoot, "assembled-video.mp4");
+          writeFileSync(assembled, Buffer.concat(parts));
+          const info = await probe(assembled);
+          expect(info.video).toMatchObject({ codec: "h264", width: 1280, height: 720 });
+          expect(info.audio).toMatchObject({ codec: "aac" });
+          expect(info.duration).toBeCloseTo(5, 0);
+        }, 180_000);
+
+        it("refuses copied, forged, expired and stale links", async () => {
+          const owner = cookieOf(await setup());
+          const { organisationId, fileId } = await playableFile(owner);
+          const { url } = await start(owner, fileId);
+          expect((await get(url)).status).toBe(401);
+
+          // Another member of the same organisation cannot use the owner's link.
+          const colleague = await joinAs(owner, "engineer@example.test", "member");
+          expect((await get(url, colleague)).status).toBe(403);
+          // But can start their own.
+          expect((await start(colleague, fileId)).res.status).toBe(201);
+
+          const token = url.split("/")[3] ?? "";
+          const [payload, signature] = token.split(".");
+          const forged = `${payload}.${(signature ?? "").replace(/^./, (c) => (c === "A" ? "B" : "A"))}`;
+          expect((await get(`/api/play/${forged}/master.m3u8`, owner)).status).toBe(403);
+          const sessionId = (await db.select().from(schema.authSessions))[0]?.id ?? "";
+          const expired = signPlayback(secret, {
+            sessionId,
+            organisationId,
+            fileId,
+            expiresAt: Math.floor(Date.now() / 1000) - 1,
+          });
+          expect((await get(`/api/play/${expired}/master.m3u8`, owner)).status).toBe(403);
+
+          // Removing someone from the organisation ends their playback at once.
+          const { url: colleagueUrl } = await start(colleague, fileId);
+          await db.execute(sql`delete from ${schema.members} where role = 'member'`);
+          expect((await get(colleagueUrl, colleague)).status).toBe(403);
+        }, 120_000);
+
+        it("will not play what is not ready, nor hand out keys in bulk", async () => {
+          const owner = cookieOf(await setup());
+          const { fileId, organisationId } = await playableFile(owner);
+          await db.update(schema.files).set({ streamStatus: "pending" }).where(sql`id = ${fileId}`);
+          expect((await start(owner, fileId)).res.status).toBe(409);
+          await db.update(schema.files).set({ streamStatus: "ready" }).where(sql`id = ${fileId}`);
+
+          const { url } = await start(owner, fileId);
+          const master = await (await get(url, owner)).text();
+          const variant = master.split("\n").find((l) => l.startsWith("r/")) ?? "";
+          const keyUrl = url.replace(/master\.m3u8$/, "") + variant.replace(/index\.m3u8$/, "key");
+          const statuses: number[] = [];
+          for (let i = 0; i < 32; i++) statuses.push((await get(keyUrl, owner)).status);
+          expect(statuses.slice(0, 30).every((s) => s === 200)).toBe(true);
+          expect(statuses.slice(30)).toEqual([429, 429]);
+          const keys = await audit.query(organisationId, { action: "stream.key", limit: 200 });
+          expect(keys.events).toHaveLength(30);
+        }, 120_000);
+      },
+    );
   });
 });

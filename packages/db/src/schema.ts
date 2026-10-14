@@ -12,6 +12,7 @@ import {
   boolean,
   check,
   date,
+  doublePrecision,
   index,
   inet,
   integer,
@@ -61,6 +62,8 @@ export const uploadStatusEnum = pgEnum("upload_status", [
   "aborted",
 ]);
 export const auditActorEnum = pgEnum("audit_actor", auditActorTypes);
+/** Whether a file can be played: proxies are made by the media worker after upload. */
+export const streamStatusEnum = pgEnum("stream_status", ["none", "pending", "ready", "failed"]);
 
 // Organisations and people
 
@@ -312,6 +315,8 @@ export const files = pgTable(
       .references(() => blobs.id, { onDelete: "no action" }),
     contentType: text("content_type").notNull(),
     byteSize: bigint("byte_size", { mode: "number" }).notNull(),
+    /** Playable proxies: "none" for files that are not audio or video. */
+    streamStatus: streamStatusEnum("stream_status").notNull().default("none"),
     /** Measured by the media worker; null until the file has been probed. */
     mediaInfo: jsonb("media_info").$type<MediaInfo>(),
     takeId: uuid("take_id").references(() => takes.id, { onDelete: "set null" }),
@@ -506,4 +511,61 @@ export const uploadParts = pgTable(
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.uploadId, t.chunk] })],
+);
+
+// Protected streaming
+
+/**
+ * A playable proxy of a file: HLS with fragmented MP4 segments, each encrypted with
+ * AES-128 under this rendition's content key (docs/security.md). Segments and the
+ * initialisation section are blobs, so they are also encrypted at rest.
+ */
+export const renditions = pgTable(
+  "renditions",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => files.id, { onDelete: "cascade" }),
+    /** For example "aac-256" or "720p". */
+    name: text("name").notNull(),
+    /** RFC 6381 codecs for the playlist, for example "mp4a.40.2" or "avc1.64001f,mp4a.40.2". */
+    codecs: text("codecs").notNull(),
+    /** Peak bits per second, for the playlist. */
+    bandwidth: integer("bandwidth").notNull(),
+    width: integer("width"),
+    height: integer("height"),
+    /** Longest segment, in whole seconds, for EXT-X-TARGETDURATION. */
+    targetDuration: integer("target_duration").notNull(),
+    initBlobId: uuid("init_blob_id")
+      .notNull()
+      .references(() => blobs.id, { onDelete: "no action" }),
+    /** The initialisation section's AES-128 IV, hex. */
+    initIv: text("init_iv").notNull(),
+    /** The AES-128 content key, wrapped by the organisation key and bound to this rendition. */
+    wrappedKey: text("wrapped_key").notNull(),
+    keyVersion: integer("key_version").notNull(),
+    ...timestamps,
+  },
+  (t) => [index("renditions_file_idx").on(t.organisationId, t.fileId)],
+);
+
+export const renditionSegments = pgTable(
+  "rendition_segments",
+  {
+    organisationId: organisationId(),
+    renditionId: uuid("rendition_id")
+      .notNull()
+      .references(() => renditions.id, { onDelete: "cascade" }),
+    index: integer("index").notNull(),
+    /** Seconds. */
+    duration: doublePrecision("duration").notNull(),
+    blobId: uuid("blob_id")
+      .notNull()
+      .references(() => blobs.id, { onDelete: "no action" }),
+    /** AES-128 IV, hex; random per segment. */
+    iv: text("iv").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.renditionId, t.index] })],
 );

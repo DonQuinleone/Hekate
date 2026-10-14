@@ -21,9 +21,14 @@ export function generateKey(): Buffer {
   return randomBytes(KEY_SIZE);
 }
 
+/** Keys that can be wrapped: 32-byte AES-256 keys, and 16-byte AES-128 HLS content keys. */
+const WRAPPABLE = new Set([16, KEY_SIZE]);
+
 export function wrapKey(kek: Uint8Array, key: Uint8Array, context: string): string {
-  if (kek.length !== KEY_SIZE || key.length !== KEY_SIZE) {
-    throw new StorageError(`Keys are ${KEY_SIZE} bytes`);
+  if (kek.length !== KEY_SIZE || !WRAPPABLE.has(key.length)) {
+    throw new StorageError(
+      `Wrapping keys are ${KEY_SIZE} bytes; wrapped keys are 16 or ${KEY_SIZE}`,
+    );
   }
   const nonce = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", kek, nonce);
@@ -36,14 +41,15 @@ export function wrapKey(kek: Uint8Array, key: Uint8Array, context: string): stri
 
 export function unwrapKey(kek: Uint8Array, wrapped: string, context: string): Buffer {
   const bytes = Buffer.from(wrapped, "base64");
-  if (bytes.length !== 1 + 12 + KEY_SIZE + 16 || bytes[0] !== VERSION) {
+  const keyLength = bytes.length - (1 + 12 + 16);
+  if (!WRAPPABLE.has(keyLength) || bytes[0] !== VERSION) {
     throw new KeyUnwrapError("Malformed wrapped key");
   }
   const decipher = createDecipheriv("aes-256-gcm", kek, bytes.subarray(1, 13));
   decipher.setAAD(Buffer.from(context));
   decipher.setAuthTag(bytes.subarray(bytes.length - 16));
   try {
-    return Buffer.concat([decipher.update(bytes.subarray(13, 13 + KEY_SIZE)), decipher.final()]);
+    return Buffer.concat([decipher.update(bytes.subarray(13, 13 + keyLength)), decipher.final()]);
   } catch {
     throw new KeyUnwrapError(`Cannot unwrap the key for ${context}: wrong key or altered record`);
   }

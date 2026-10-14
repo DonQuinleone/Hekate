@@ -6,11 +6,13 @@ import type { Audit } from "./audit.ts";
 import type { Auth } from "./auth.ts";
 import { onError } from "./errors.ts";
 import type { Jobs } from "./jobs.ts";
+import type { Keyring } from "./keyring.ts";
 import type { Mailer } from "./mail.ts";
 import { health } from "./routes/health.ts";
 import { invitationRoutes } from "./routes/invitations.ts";
 import { meRoutes } from "./routes/me.ts";
 import { organisationRoutes } from "./routes/organisation.ts";
+import { fileRoutes, playRoutes } from "./routes/playback.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { setupRoutes } from "./routes/setup.ts";
 import { uploadRoutes } from "./routes/uploads.ts";
@@ -23,6 +25,9 @@ export interface AppDeps {
   mailer: Mailer;
   storage: Storage;
   audit: Audit;
+  keyring: Keyring;
+  /** Signs playback tokens; derived from AUTH_SECRET (playbackSecret). */
+  playbackSecret: Buffer;
   /** Only queueing is needed here; workers run separately. */
   jobs: Pick<Jobs, "send">;
   /** Read the client address from X-Forwarded-For (behind Caddy). */
@@ -33,34 +38,49 @@ export interface AppDeps {
 
 export function createApi(deps: AppDeps) {
   const member = [requireSession(deps.auth), requireOrganisation(deps.db)] as const;
-  return new Hono()
-    .route("/health", health(deps.db))
-    .route("/setup", setupRoutes(deps.db, deps.auth))
-    .use("/me/*", ...member)
-    .use("/me", ...member)
-    .route("/me", meRoutes(deps.db))
-    .route("/invitations", invitationRoutes(deps.db, deps.auth))
-    .use("/organisation/*", ...member)
-    .route(
-      "/organisation",
-      organisationRoutes(
-        deps.db,
-        deps.mailer,
-        deps.publicUrl,
-        deps.storage,
-        deps.audit,
-        deps.trustProxy ?? false,
-      ),
-    )
-    .use("/projects/*", ...member)
-    .use("/projects", ...member)
-    .route("/projects", projectRoutes(deps.db))
-    .use("/uploads/*", ...member)
-    .use("/uploads", ...member)
-    .route(
-      "/uploads",
-      uploadRoutes(deps.db, deps.storage, deps.jobs, deps.audit, deps.trustProxy ?? false),
-    );
+  const playback = {
+    db: deps.db,
+    storage: deps.storage,
+    keyring: deps.keyring,
+    audit: deps.audit,
+    secret: deps.playbackSecret,
+    trustProxy: deps.trustProxy ?? false,
+  };
+  return (
+    new Hono()
+      .route("/health", health(deps.db))
+      .route("/setup", setupRoutes(deps.db, deps.auth))
+      .use("/me/*", ...member)
+      .use("/me", ...member)
+      .route("/me", meRoutes(deps.db))
+      .route("/invitations", invitationRoutes(deps.db, deps.auth))
+      .use("/organisation/*", ...member)
+      .route(
+        "/organisation",
+        organisationRoutes(
+          deps.db,
+          deps.mailer,
+          deps.publicUrl,
+          deps.storage,
+          deps.audit,
+          deps.trustProxy ?? false,
+        ),
+      )
+      .use("/projects/*", ...member)
+      .use("/projects", ...member)
+      .route("/projects", projectRoutes(deps.db))
+      .use("/uploads/*", ...member)
+      .use("/uploads", ...member)
+      .route(
+        "/uploads",
+        uploadRoutes(deps.db, deps.storage, deps.jobs, deps.audit, deps.trustProxy ?? false),
+      )
+      .use("/files/*", ...member)
+      .route("/files", fileRoutes(playback))
+      // The organisation comes from the token, which the route checks against membership.
+      .use("/play/*", requireSession(deps.auth))
+      .route("/play", playRoutes(playback))
+  );
 }
 
 export type Api = ReturnType<typeof createApi>;

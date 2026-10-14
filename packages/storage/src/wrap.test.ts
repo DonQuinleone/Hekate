@@ -22,6 +22,14 @@ describe("key wrapping", () => {
     expect(() => unwrapKey(kek, "bm90IGEga2V5", "blob:1")).toThrow(/Malformed/);
   });
 
+  it("wraps 16-byte content keys too", () => {
+    const content = randomBytes(16);
+    expect(
+      unwrapKey(kek, wrapKey(kek, content, "rendition:1"), "rendition:1").equals(content),
+    ).toBe(true);
+    expect(() => wrapKey(kek, randomBytes(24), "x")).toThrow();
+  });
+
   it("never wraps the same way twice", () => {
     expect(wrapKey(kek, key, "x")).not.toBe(wrapKey(kek, key, "x"));
   });
