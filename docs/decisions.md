@@ -37,3 +37,7 @@ GNU Affero General Public License v3.0 only.
 ## 009. Domain vocabulary
 
 Projects contain folders and files of any kind. Tracks have versions (edits) and variations (treatments such as dry and wet mixes). Takes are recording-session snippets kept as reference, never versions. There are no movements. Reviews are approvals (logged decisions) or feedback (comments only), run by configurable workflows with guests, groups and per-project roles. Full definitions in `docs/domain.md`; this supersedes the asset and version wording in 004.
+
+## 010. Media security from day one
+
+Reviewers receive encrypted, segmented streams and server-rendered tiles, never original files or plain URLs. Keys and segment URLs are short-lived and bound to the viewer's session. Files are encrypted at rest with per-file keys. Visible watermarks come first; forensic watermarking (A/B segment marking for streams, per-recipient marks on downloads) follows. Every access is logged. This is not DRM, and the design leaves room for commercial DRM on the same segments. Details in `docs/security.md`.

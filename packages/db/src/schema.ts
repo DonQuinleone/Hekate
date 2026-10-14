@@ -163,7 +163,10 @@ export const files = pgTable(
     folderId: uuid("folder_id").references(() => folders.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     kind: fileKindEnum("kind").notNull(),
+    /** Location of the encrypted object in storage. Storage only ever holds ciphertext. */
     storageKey: text("storage_key").notNull(),
+    /** The file's data key, wrapped by the organisation key (docs/security.md). */
+    wrappedKey: text("wrapped_key").notNull(),
     contentType: text("content_type").notNull(),
     byteSize: bigint("byte_size", { mode: "number" }).notNull(),
     mediaInfo: jsonb("media_info").$type<{

@@ -22,6 +22,7 @@ CREATE TABLE "files" (
 	"name" text NOT NULL,
 	"kind" "file_kind" NOT NULL,
 	"storage_key" text NOT NULL,
+	"wrapped_key" text NOT NULL,
 	"content_type" text NOT NULL,
 	"byte_size" bigint NOT NULL,
 	"media_info" jsonb,

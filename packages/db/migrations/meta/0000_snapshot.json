@@ -1,5 +1,5 @@
 {
-  "id": "336da8ea-2060-420c-86ad-ea9495828c05",
+  "id": "a96534e3-8211-4b63-bf50-1568f01c9d5e",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -206,6 +206,12 @@
         },
         "storage_key": {
           "name": "storage_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "wrapped_key": {
+          "name": "wrapped_key",
           "type": "text",
           "primaryKey": false,
           "notNull": true

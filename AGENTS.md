@@ -66,6 +66,15 @@ pnpm db:migrate
 - **Tests:** Vitest. API tests run against a real PostgreSQL when `DATABASE_URL` is set (CI provides one). Put domain logic in pure functions and test them.
 - **Privacy:** do not record personal names, email addresses or other personal details of contributors in files, commits or docs. The maintainer is known only as DonQuinleone.
 
+## Media security
+
+Unreleased material is the product's cargo. Read `docs/security.md` before touching storage, delivery or players.
+
+- Never add a route that returns a stored file, or a URL that works outside the viewer's session. Media goes through the protected delivery path (encrypted segments, signed short-lived URLs, a session-bound key endpoint).
+- Originals reach a browser only through the download permission, watermarked per recipient, and logged.
+- Files are encrypted at rest with per-file keys; storage holds ciphertext only.
+- Log every key issue, page render and download in the access log.
+
 ## Design system
 
 See `docs/brand.md` for the full system. In short: dark, modern, understated. Near-black ground, one signal colour used sparingly, hairlines over cards and shadows, type doing the work, no ornament. The mark is two stems and a point. Use the CSS tokens in `apps/web/src/styles/tokens.css`; do not hard-code colours.
