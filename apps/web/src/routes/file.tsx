@@ -1,7 +1,8 @@
 import { formatBytes, formatChannels, formatDuration, type MediaInfo } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
+import { Comments, useCommentMarkers } from "~/components/comments";
 import { kindIcon, mediaSummary } from "~/components/files";
 import { Icon } from "~/components/icons";
 import { Player } from "~/components/player";
@@ -23,8 +24,15 @@ function Notice({ children }: { children: ReactNode }) {
   );
 }
 
-function Playback({ file }: { file: FileDetail }) {
+function Playback({
+  file,
+  onMedia,
+}: {
+  file: FileDetail;
+  onMedia: (element: HTMLMediaElement | null) => void;
+}) {
   const client = useQueryClient();
+  const markers = useCommentMarkers(file.id);
   const ready = file.streamStatus === "ready";
   const { data, error } = useQuery({ ...playbackQuery(file.id), enabled: ready });
   if (file.kind !== "audio" && file.kind !== "video") {
@@ -44,6 +52,8 @@ function Playback({ file }: { file: FileDetail }) {
       kind={file.kind}
       playback={data}
       info={file.mediaInfo}
+      onMedia={onMedia}
+      markers={markers}
       onExpired={() => client.resetQueries({ queryKey: playbackQuery(file.id).queryKey })}
     />
   );
@@ -71,6 +81,7 @@ function technicalDetails(info: MediaInfo | null): [string, string][] {
 
 export function FilePage({ fileId }: { fileId: string }) {
   const { data: file, error } = useQuery(fileQuery(fileId));
+  const [media, setMedia] = useState<HTMLMediaElement | null>(null);
   const { data: project } = useQuery({
     ...projectQuery(file?.projectId ?? ""),
     enabled: Boolean(file),
@@ -85,8 +96,17 @@ export function FilePage({ fileId }: { fileId: string }) {
     ["Added", dateFormat.format(new Date(file.createdAt))],
     ...(file.uploadedBy ? [["Added by", file.uploadedBy] as [string, string]] : []),
   ];
+  const detailRows = details.map(([term, value]) => (
+    <div
+      key={term}
+      className="grid grid-cols-[minmax(0,140px)_1fr] gap-x-6 border-b border-hairline py-2.5"
+    >
+      <dt className="label">{term}</dt>
+      <dd className="tabular m-0 truncate text-[13px] text-ink-2">{value}</dd>
+    </div>
+  ));
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-8 sm:px-8">
+    <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 sm:px-8">
       <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-[13px]">
         <Link to="/" className="shrink-0 text-ink-3 no-underline hover:text-ink">
           Projects
@@ -110,18 +130,14 @@ export function FilePage({ fileId }: { fileId: string }) {
         <h1 className="m-0 break-words text-[28px] font-medium tracking-[-0.02em]">{file.name}</h1>
         {summary && <p className="tabular m-0 text-[13px] text-ink-2">{summary}</p>}
       </div>
-      <Playback file={file} />
-      <dl className="m-0 flex flex-col border-t border-hairline">
-        {details.map(([term, value]) => (
-          <div
-            key={term}
-            className="grid grid-cols-[minmax(0,140px)_1fr] gap-x-6 border-b border-hairline py-2.5"
-          >
-            <dt className="label">{term}</dt>
-            <dd className="tabular m-0 truncate text-[13px] text-ink-2">{value}</dd>
-          </div>
-        ))}
-      </dl>
+      <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="flex min-w-0 flex-col gap-6">
+          <Playback file={file} onMedia={setMedia} />
+          <dl className="m-0 hidden flex-col border-t border-hairline lg:flex">{detailRows}</dl>
+        </div>
+        <Comments fileId={file.id} media={media} />
+        <dl className="m-0 flex flex-col border-t border-hairline lg:hidden">{detailRows}</dl>
+      </div>
     </div>
   );
 }
