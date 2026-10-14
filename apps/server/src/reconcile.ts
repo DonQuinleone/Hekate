@@ -10,6 +10,7 @@ const {
   renditionSegments,
   peakLevels,
   loudness,
+  spectrograms,
   organisations,
   storageFindings,
   uploads,
@@ -191,8 +192,8 @@ export async function reconcileStorage(
       }
       if (!living.has(owner)) continue;
 
-      // Blobs nothing uses: no file, rendition, segment, peak level, loudness series or live
-      // upload points at them.
+      // Blobs nothing uses: no file, rendition, segment, peak level, loudness series,
+      // spectrogram or live upload points at them.
       const unused = await db
         .select({ id: blobs.id, key: blobs.key })
         .from(blobs)
@@ -231,6 +232,12 @@ export async function reconcileStorage(
                 .select({ x: sql`1` })
                 .from(loudness)
                 .where(inOrg(loudness, owner, eq(loudness.blobId, blobs.id))),
+            ),
+            notExists(
+              db
+                .select({ x: sql`1` })
+                .from(spectrograms)
+                .where(inOrg(spectrograms, owner, eq(spectrograms.blobId, blobs.id))),
             ),
             // Nor an upload that may still finish and make a file of it.
             notExists(

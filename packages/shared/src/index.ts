@@ -8,4 +8,5 @@ export * from "./media.ts";
 export * from "./organisation.ts";
 export * from "./peaks.ts";
 export * from "./profile.ts";
+export * from "./spectrogram.ts";
 export * from "./tracks.ts";

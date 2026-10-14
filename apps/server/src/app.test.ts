@@ -5,7 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buffer } from "node:stream/consumers";
 import { createDb, runMigrations, schema, withAuditPurge } from "@hekate/db";
-import { decodeLoudness, decodePeaks, type LoudnessSummary } from "@hekate/shared";
+import {
+  decodeLoudness,
+  decodePeaks,
+  decodeSpectrogram,
+  type LoudnessSummary,
+} from "@hekate/shared";
 import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -1964,6 +1969,46 @@ describe.runIf(url)("api", () => {
           });
           expect((await get(`/api/files/${foreign?.id}/loudness`, owner)).status).toBe(404);
           expect((await get(`/api/files/${foreign?.id}/loudness/series`, owner)).status).toBe(404);
+
+          // And a spectrogram per channel, plus the mid and side of the pair.
+          const listedSpectra = await get(`/api/files/${fileId}/spectrograms`, owner);
+          expect(listedSpectra.status).toBe(200);
+          const { spectrograms } = (await listedSpectra.json()) as {
+            spectrograms: { id: string; channel: string; columns: number; bands: number }[];
+          };
+          expect(spectrograms.map((s) => s.channel).sort()).toEqual(["0", "1", "mid", "side"]);
+          const first = spectrograms[0];
+          const spectrum = await get(`/api/files/${fileId}/spectrograms/${first?.id}`, owner);
+          expect(spectrum.status).toBe(200);
+          expect(spectrum.headers.get("cache-control")).toContain("no-store");
+          const decodedSpectrum = decodeSpectrogram(new Uint8Array(await spectrum.arrayBuffer()));
+          expect([decodedSpectrum.columns, decodedSpectrum.bands]).toEqual([
+            first?.columns,
+            first?.bands,
+          ]);
+          // Not through another file's path, nor from another organisation's file.
+          expect(
+            (await get(`/api/files/${other.fileId}/spectrograms/${first?.id}`, owner)).status,
+          ).toBe(404);
+          const [foreignSpectrum] = await db
+            .insert(schema.spectrograms)
+            .values({
+              organisationId: foreignOrg,
+              fileId: foreign?.id ?? "",
+              channel: "0",
+              fftSize: 2048,
+              sampleRate: 48000,
+              samplesPerColumn: 512,
+              columnCount: 0,
+              bandCount: 1024,
+              blobId: bytes.id,
+            })
+            .returning();
+          expect((await get(`/api/files/${foreign?.id}/spectrograms`, owner)).status).toBe(404);
+          expect(
+            (await get(`/api/files/${foreign?.id}/spectrograms/${foreignSpectrum?.id}`, owner))
+              .status,
+          ).toBe(404);
         }, 120_000);
 
         it("describes a file and what it can play, to its own organisation only", async () => {
