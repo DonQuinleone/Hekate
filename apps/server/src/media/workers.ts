@@ -3,13 +3,15 @@ import { createWriteStream } from "node:fs";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { type Database, inOrg, schema, uuidv7 } from "@hekate/db";
-import { encodeLoudness, encodePeaks, type MediaInfo } from "@hekate/shared";
+import { encodeLoudness, encodePeaks, type MediaInfo, usableAlignment } from "@hekate/shared";
 import { wrapKey } from "@hekate/storage";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt } from "drizzle-orm";
+import { remapCarries } from "../carry.ts";
 import { type JobHandler, type Jobs, jobDefinitions } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
 import type { Storage } from "../storage.ts";
 import { expireUploads } from "../uploads.ts";
+import { alignInThread } from "./align.ts";
 import { analyseAudio } from "./analysis.ts";
 import { InvalidMediaError, probe } from "./ffmpeg.ts";
 import { type PackagedRendition, packageRendition, planRenditions } from "./proxy.ts";
@@ -17,7 +19,16 @@ import { spectrogramsInThread } from "./spectrogram.ts";
 import { together } from "./together.ts";
 import { sweepWorkspaces, withWorkspace } from "./workspace.ts";
 
-const { files, blobs, renditions, renditionSegments, peakLevels, loudness, spectrograms } = schema;
+const {
+  alignments,
+  files,
+  blobs,
+  renditions,
+  renditionSegments,
+  peakLevels,
+  loudness,
+  spectrograms,
+} = schema;
 
 export interface MediaWorkerDeps {
   db: Database;
@@ -50,8 +61,9 @@ async function materialise(
   blobId: string,
   dir: string,
   signal: AbortSignal,
+  name = "input",
 ) {
-  const path = join(dir, "input");
+  const path = join(dir, name);
   const { stream } = await storage.open(organisationId, blobId);
   await pipeline(stream, createWriteStream(path, { mode: 0o600 }), { signal });
   return path;
@@ -316,6 +328,103 @@ export function analysisHandler(deps: MediaWorkerDeps): JobHandler<"media-analys
   };
 }
 
+/**
+ * Align two files by their audio, then move the threads carried from one to the other to
+ * where the same music is. A poor match is recorded with its quality and used by nobody.
+ */
+export function alignHandler(deps: MediaWorkerDeps): JobHandler<"media-align"> {
+  return async ({ organisationId, alignmentId }, job) => {
+    const [pair] = await deps.db
+      .select({
+        id: alignments.id,
+        fromFileId: alignments.fromFileId,
+        toFileId: alignments.toFileId,
+        status: alignments.status,
+      })
+      .from(alignments)
+      .where(inOrg(alignments, organisationId, eq(alignments.id, alignmentId)));
+    if (!pair || pair.status === "ready") return;
+    const both = await deps.db
+      .select({ id: files.id, kind: files.kind, blobId: files.blobId })
+      .from(files)
+      .where(inOrg(files, organisationId, inArray(files.id, [pair.fromFileId, pair.toFileId])));
+    const from = both.find((f) => f.id === pair.fromFileId);
+    const to = both.find((f) => f.id === pair.toFileId);
+    const playable = (f?: { kind: string }) => f?.kind === "audio" || f?.kind === "video";
+    const fail = () =>
+      deps.db
+        .update(alignments)
+        .set({ status: "failed", updatedAt: new Date() })
+        .where(inOrg(alignments, organisationId, eq(alignments.id, pair.id)));
+    if (!from || !to || !playable(from) || !playable(to)) {
+      await fail();
+      return;
+    }
+    try {
+      const result = await withWorkspace(deps.workDir, async (dir) => {
+        const a = await materialise(
+          deps.storage,
+          organisationId,
+          from.blobId,
+          dir,
+          job.signal,
+          "a",
+        );
+        const b = await materialise(deps.storage, organisationId, to.blobId, dir, job.signal, "b");
+        // Off the main thread, so the API keeps answering while the music is matched.
+        return alignInThread(a, b, job.signal);
+      });
+      await deps.db.transaction(async (tx) => {
+        await tx
+          .update(alignments)
+          .set({
+            status: "ready",
+            points: result.points,
+            quality: result.quality,
+            updatedAt: new Date(),
+          })
+          .where(inOrg(alignments, organisationId, eq(alignments.id, pair.id)));
+        if (usableAlignment(result.quality)) {
+          await remapCarries(tx, organisationId, pair, result.points);
+        }
+      });
+    } catch (error) {
+      if (job.retryCount >= jobDefinitions["media-align"].options.retryLimit) await fail();
+      throw error;
+    }
+  };
+}
+
+/**
+ * Queue every alignment left pending for more than a few minutes. Housekeeping across
+ * organisations, like expiring uploads: each job it queues names its own organisation.
+ * The queue drops a duplicate of one already queued or running.
+ */
+export async function requeueAlignments(
+  db: Database,
+  jobs: Pick<Jobs, "send">,
+  now = new Date(),
+): Promise<number> {
+  const waiting = await db
+    .select({ id: alignments.id, organisationId: alignments.organisationId })
+    .from(alignments)
+    .where(
+      and(
+        eq(alignments.status, "pending"),
+        lt(alignments.updatedAt, new Date(now.getTime() - 5 * 60_000)),
+      ),
+    )
+    .limit(500);
+  for (const a of waiting) {
+    await jobs.send(
+      "media-align",
+      { organisationId: a.organisationId, alignmentId: a.id },
+      { singletonKey: a.id },
+    );
+  }
+  return waiting.length;
+}
+
 /** Hash a blob's content by reading it back through decryption, which also proves it is intact. */
 export function checksumHandler(deps: MediaWorkerDeps): JobHandler<"blob-checksum"> {
   return async ({ organisationId, blobId }, job) => {
@@ -346,6 +455,13 @@ export async function startWorkers(jobs: Jobs, deps: MediaWorkerDeps, concurrenc
   });
   await jobs.work("media-analysis", analysisHandler(deps), { concurrency });
   await jobs.work("blob-checksum", checksumHandler(deps), { concurrency });
+  await jobs.work("media-align", alignHandler(deps), {
+    concurrency: Math.max(1, Math.floor(concurrency / 2)),
+  });
+  await jobs.work("alignments-sweep", async () => {
+    const queued = await requeueAlignments(deps.db, deps.jobs);
+    if (queued > 0) console.log(`Queued ${queued} alignment(s) that were waiting`);
+  });
   await jobs.work("uploads-expire", async () => {
     const aborted = await expireUploads(deps.db, deps.storage);
     if (aborted > 0) console.log(`Discarded ${aborted} expired upload(s)`);

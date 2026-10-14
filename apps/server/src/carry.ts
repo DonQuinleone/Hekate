@@ -1,8 +1,8 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { type Anchor, carryTarget } from "@hekate/shared";
+import { type AlignmentPoints, type Anchor, carryTarget, mapTime } from "@hekate/shared";
 import { and, desc, eq, inArray, isNull, lt } from "drizzle-orm";
 
-const { comments, commentCarries, tracks, variations, versions } = schema;
+const { alignments, comments, commentCarries, tracks, variations, versions } = schema;
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
@@ -25,15 +25,16 @@ export async function lockTrackOfFile(tx: Tx, organisationId: string, fileId: st
  * Carry the previous version's unresolved threads to a new version (docs/domain.md,
  * Comments across versions). A thread raised there, or carried there and still open or
  * not fixed, moves to the new version's variation of the same name, or else its primary.
- * Anchors keep their place until alignment between versions (#33) maps them; the editor
- * can correct each one. Runs inside the transaction that creates the version.
+ * Anchors keep their place until alignment between the versions (#33) maps them; the
+ * editor can correct each one. Runs inside the transaction that creates the version, and
+ * returns the alignments to compute: each earlier variation against its counterpart.
  */
 export async function carryThreads(
   tx: Tx,
   organisationId: string,
   version: { id: string; trackId: string; number: number },
   shown: boolean,
-) {
+): Promise<string[]> {
   const [previous] = await tx
     .select({ id: versions.id })
     .from(versions)
@@ -47,7 +48,7 @@ export async function carryThreads(
     )
     .orderBy(desc(versions.number))
     .limit(1);
-  if (!previous) return;
+  if (!previous) return [];
 
   const [before, after] = await Promise.all(
     [previous.id, version.id].map((versionId) =>
@@ -61,7 +62,7 @@ export async function carryThreads(
         .where(inOrg(variations, organisationId, eq(variations.versionId, versionId))),
     ),
   );
-  if (!before?.length || !after?.length) return;
+  if (!before?.length || !after?.length) return [];
   const nameOf = new Map(before.map((v) => [v.fileId, v.name]));
   const fileIds = [...nameOf.keys()];
 
@@ -115,6 +116,89 @@ export async function carryThreads(
     });
   }
   if (rows.length > 0) await tx.insert(commentCarries).values(rows).onConflictDoNothing();
+
+  // Each earlier variation is aligned with the one its threads move to.
+  const pairs = before.flatMap((v) => {
+    const target = carryTarget(v.name, after);
+    return target ? [{ organisationId, fromFileId: v.fileId, toFileId: target.fileId }] : [];
+  });
+  if (pairs.length === 0) return [];
+  const queued = await tx
+    .insert(alignments)
+    .values(pairs)
+    .onConflictDoNothing()
+    .returning({ id: alignments.id });
+  return queued.map((a) => a.id);
+}
+
+/**
+ * Once two files are aligned, move the threads carried from one to the other to where the
+ * same music is, unless someone has already placed them by hand. Only time anchors move.
+ */
+export async function remapCarries(
+  tx: Tx,
+  organisationId: string,
+  pair: { fromFileId: string; toFileId: string },
+  points: AlignmentPoints,
+) {
+  const here = await tx
+    .select({ id: commentCarries.id, commentId: commentCarries.commentId })
+    .from(commentCarries)
+    .where(
+      inOrg(
+        commentCarries,
+        organisationId,
+        eq(commentCarries.fileId, pair.toFileId),
+        eq(commentCarries.anchorPlaced, false),
+      ),
+    );
+  if (here.length === 0) return 0;
+  const ids = here.map((c) => c.commentId);
+  // Where each thread pointed on the earlier file: where it was raised, or carried to.
+  const raised = await tx
+    .select({ commentId: comments.id, anchor: comments.anchor })
+    .from(comments)
+    .where(
+      inOrg(
+        comments,
+        organisationId,
+        inArray(comments.id, ids),
+        eq(comments.fileId, pair.fromFileId),
+      ),
+    );
+  const carried = await tx
+    .select({ commentId: commentCarries.commentId, anchor: commentCarries.anchor })
+    .from(commentCarries)
+    .where(
+      inOrg(
+        commentCarries,
+        organisationId,
+        inArray(commentCarries.commentId, ids),
+        eq(commentCarries.fileId, pair.fromFileId),
+      ),
+    );
+  const earlier = new Map([...raised, ...carried].map((r) => [r.commentId, r.anchor]));
+  let moved = 0;
+  for (const carry of here) {
+    const anchor = earlier.get(carry.commentId);
+    if (anchor?.kind !== "time") continue;
+    const start = Math.round(mapTime(points, anchor.start) * 1000) / 1000;
+    const end = Math.max(start, Math.round(mapTime(points, anchor.end) * 1000) / 1000);
+    await tx
+      .update(commentCarries)
+      .set({ anchor: { kind: "time", start, end }, updatedAt: new Date() })
+      // Placed by hand since it was read: the hand wins.
+      .where(
+        inOrg(
+          commentCarries,
+          organisationId,
+          eq(commentCarries.id, carry.id),
+          eq(commentCarries.anchorPlaced, false),
+        ),
+      );
+    moved++;
+  }
+  return moved;
 }
 
 /** Every version a set of threads was carried to, for each thread's history. */

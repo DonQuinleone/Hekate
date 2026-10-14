@@ -11,9 +11,10 @@ import {
   decodeSpectrogram,
   defaultProjectRoles,
   type LoudnessSummary,
+  mapTime,
 } from "@hekate/shared";
 import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.ts";
 import { createAudit, csvCell } from "./audit.ts";
@@ -23,7 +24,12 @@ import { loadConfig } from "./config.ts";
 import { createKeyring } from "./keyring.ts";
 import { memoryMailer } from "./mail.ts";
 import { probe, run } from "./media/ffmpeg.ts";
-import { analysisHandler, checksumHandler, proxyHandler } from "./media/workers.ts";
+import {
+  analysisHandler,
+  checksumHandler,
+  proxyHandler,
+  requeueAlignments,
+} from "./media/workers.ts";
 import { playbackSecret, signPlayback } from "./playback.ts";
 import { createStorage } from "./storage.ts";
 import { expireUploads } from "./uploads.ts";
@@ -3357,6 +3363,60 @@ describe.runIf(url)("api", () => {
           history: { versionNumber: 1, hops: [{ fileId: dry2, versionNumber: 2, status: "open" }] },
         });
         expect((await listed(wet2)).map((c) => c.body)).toEqual(["Reverb tail cut short"]);
+        // Each earlier variation is queued for alignment with its counterpart.
+        const pairs = await db
+          .select({
+            id: schema.alignments.id,
+            from: schema.alignments.fromFileId,
+            to: schema.alignments.toFileId,
+          })
+          .from(schema.alignments)
+          .where(eq(schema.alignments.toFileId, dry2));
+        expect(pairs.map((p) => p.from)).toEqual([dry1]);
+        expect(
+          sent.some(
+            (j) =>
+              j.name === "media-align" &&
+              (j.data as { alignmentId: string }).alignmentId === pairs[0]?.id,
+          ),
+        ).toBe(true);
+        // Once aligned, each side reads it from its own time; a poor match is not offered.
+        await db
+          .update(schema.alignments)
+          .set({
+            status: "ready",
+            quality: 0.9,
+            points: [
+              [0, 0],
+              [60, 62],
+            ],
+          })
+          .where(eq(schema.alignments.id, pairs[0]?.id ?? ""));
+        const alignedFrom = async (fileId: string) =>
+          (
+            (await (
+              await app.request(`/api/files/${fileId}/alignments`, { headers: { cookie: owner } })
+            ).json()) as { alignments: { fileId: string; points: [number, number][] }[] }
+          ).alignments;
+        // Each version's other mixes come along: they share their version's times.
+        const fromDry1 = await alignedFrom(dry1);
+        expect(fromDry1.map((r) => r.fileId).sort()).toEqual([dry2, wet2].sort());
+        expect(fromDry1.find((r) => r.fileId === dry2)?.points).toEqual([
+          [0, 0],
+          [60, 62],
+        ]);
+        const fromDry2 = await alignedFrom(dry2);
+        expect(fromDry2.map((r) => r.fileId).sort()).toEqual([dry1, wet1].sort());
+        expect(fromDry2.find((r) => r.fileId === dry1)?.points).toEqual([
+          [0, 0],
+          [62, 60],
+        ]);
+        await db
+          .update(schema.alignments)
+          .set({ quality: 0.2 })
+          .where(eq(schema.alignments.id, pairs[0]?.id ?? ""));
+        expect(await alignedFrom(dry2)).toEqual([]);
+
         // Where it began, the thread knows where it went.
         expect((await listed(dry1)).find((c) => c.id === noise)?.history?.hops).toHaveLength(1);
 
@@ -3399,6 +3459,15 @@ describe.runIf(url)("api", () => {
             )
           ).status,
         ).toBe(204);
+        // Placed by hand, alignment will leave it alone.
+        expect(
+          (
+            await db
+              .select({ placed: schema.commentCarries.anchorPlaced })
+              .from(schema.commentCarries)
+              .where(eq(schema.commentCarries.id, carryId))
+          )[0]?.placed,
+        ).toBe(true);
         expect((await listed(dry2))[0]).toMatchObject({
           anchor: { kind: "time", start: 13, end: 15 },
           carry: { status: "not_fixed", from: { anchor: { kind: "time", start: 12, end: 14 } } },
@@ -3430,6 +3499,51 @@ describe.runIf(url)("api", () => {
           ["Reverb tail cut short", false],
           ["Chair creak", false],
         ]);
+        // Version 3 reaches version 1 through version 2, and each version's other mixes
+        // through the one it was aligned on.
+        await db
+          .update(schema.alignments)
+          .set({ quality: 0.9 })
+          .where(eq(schema.alignments.id, pairs[0]?.id ?? ""));
+        await db
+          .update(schema.alignments)
+          .set({
+            status: "ready",
+            quality: 0.8,
+            points: [
+              [0, 0],
+              [62, 60],
+            ],
+          })
+          .where(and(eq(schema.alignments.fromFileId, dry2), eq(schema.alignments.toFileId, dry3)));
+        const fromDry3 = await alignedFrom(dry3);
+        expect(fromDry3.map((r) => r.fileId).sort()).toEqual([dry1, dry2, wet1, wet2].sort());
+        const toDry1 = fromDry3.find((r) => r.fileId === dry1);
+        // 30 s of version 3 is 31 s of version 2, which is 30 s of version 1.
+        expect(mapTime(toDry1?.points ?? [], 30)).toBeCloseTo(30, 1);
+        expect(mapTime(fromDry3.find((r) => r.fileId === dry2)?.points ?? [], 30)).toBeCloseTo(
+          31,
+          1,
+        );
+
+        // An alignment the queue never took is picked up by the sweep once it has waited.
+        const swept: unknown[] = [];
+        await requeueAlignments(
+          db,
+          {
+            send: async (_name, data) => {
+              swept.push(data);
+              return "job";
+            },
+          },
+          new Date(Date.now() + 10 * 60_000),
+        );
+        const [waiting] = await db
+          .select({ id: schema.alignments.id })
+          .from(schema.alignments)
+          .where(and(eq(schema.alignments.fromFileId, wet2), eq(schema.alignments.toFileId, dry3)));
+        expect(swept).toContainEqual({ organisationId, alignmentId: waiting?.id });
+
         // Mapped from where version 2 had it.
         expect(onDry3.find((c) => c.id === noise)?.anchor).toEqual({
           kind: "time",

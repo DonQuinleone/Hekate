@@ -98,7 +98,7 @@ export function createApi(deps: AppDeps) {
       .use("/folders/*", ...member)
       .route("/folders", folderRoutes(deps.db))
       .use("/tracks/*", ...member)
-      .route("/tracks", trackRoutes(deps.db))
+      .route("/tracks", trackRoutes(deps.db, deps.jobs))
       .use("/versions/*", ...member)
       .route("/versions", versionRoutes(deps.db))
       .use("/variations/*", ...member)

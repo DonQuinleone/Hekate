@@ -23,6 +23,11 @@ export const jobDefinitions = {
     data: z.object({ organisationId: z.uuid(), fileId: z.uuid() }),
     options: { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 2 * 60 * 60 },
   },
+  /** Work out where the same music sits in two files, usually successive versions (#33). */
+  "media-align": {
+    data: z.object({ organisationId: z.uuid(), alignmentId: z.uuid() }),
+    options: { retryLimit: 2, retryDelay: 60, retryBackoff: true, expireInSeconds: 60 * 60 },
+  },
   /** Compute a blob's SHA-256 after an upload, whose chunks arrived in any order. */
   "blob-checksum": {
     data: z.object({ organisationId: z.uuid(), blobId: z.uuid() }),
@@ -33,6 +38,15 @@ export const jobDefinitions = {
     data: z.object({}),
     options: { retryLimit: 2, expireInSeconds: 30 * 60 },
     schedule: "17 * * * *",
+  },
+  /**
+   * Queue alignments still pending a while after their version was made: the queue was
+   * down, or the process stopped, between creating the version and queueing its work.
+   */
+  "alignments-sweep": {
+    data: z.object({}),
+    options: { retryLimit: 1, expireInSeconds: 10 * 60 },
+    schedule: "*/15 * * * *",
   },
   /** Compare storage with the database: remove what nothing uses, report what is missing. Daily. */
   "storage-reconcile": {

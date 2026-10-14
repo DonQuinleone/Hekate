@@ -1,4 +1,5 @@
 import {
+  type AlignmentPoints,
   type Anchor,
   approvalRules,
   auditActions,
@@ -515,6 +516,8 @@ export const commentCarries = pgTable(
       .references(() => files.id, { onDelete: "cascade" }),
     /** The anchor mapped onto this file; null is the whole file. */
     anchor: jsonb("anchor").$type<Anchor>(),
+    /** Set once someone has placed the anchor by hand: alignment no longer moves it. */
+    anchorPlaced: boolean("anchor_placed").notNull().default(false),
     visible: boolean("visible").notNull().default(true),
     status: carryStatusEnum("status").notNull().default("open"),
     statusById: text("status_by_id").references(() => users.id, { onDelete: "set null" }),
@@ -524,6 +527,35 @@ export const commentCarries = pgTable(
     index("comment_carries_org_idx").on(t.organisationId),
     index("comment_carries_file_idx").on(t.fileId),
     uniqueIndex("comment_carries_thread_file_idx").on(t.commentId, t.fileId),
+  ],
+);
+
+/**
+ * Where the same music sits in two files, usually a variation and its counterpart in the
+ * next version (#33): pairs of times, one in each, computed from the audio. One row per
+ * ordered pair; read the other way round by swapping each pair.
+ */
+export const alignments = pgTable(
+  "alignments",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    fromFileId: uuid("from_file_id")
+      .notNull()
+      .references(() => files.id, { onDelete: "cascade" }),
+    toFileId: uuid("to_file_id")
+      .notNull()
+      .references(() => files.id, { onDelete: "cascade" }),
+    status: streamStatusEnum("status").notNull().default("pending"),
+    points: jsonb("points").$type<AlignmentPoints>(),
+    /** How alike the matched music is, from 0 to 1: a poor match is not used. */
+    quality: doublePrecision("quality"),
+    ...timestamps,
+  },
+  (t) => [
+    index("alignments_org_idx").on(t.organisationId),
+    uniqueIndex("alignments_pair_idx").on(t.fromFileId, t.toFileId),
+    index("alignments_to_idx").on(t.toFileId),
   ],
 );
 
