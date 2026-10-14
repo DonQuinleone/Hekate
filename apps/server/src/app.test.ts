@@ -3252,6 +3252,16 @@ describe.runIf(url)("api", () => {
           end: 15,
         });
 
+        // Version 2's status is history now: it is settled on version 3, where it went.
+        expect(
+          (await send("PATCH", `/api/comment-carries/${carryId}`, { status: "fixed" }, engineer))
+            .status,
+        ).toBe(409);
+        expect(
+          (await send("PATCH", `/api/comment-carries/${carryId}`, { visible: true }, engineer))
+            .status,
+        ).toBe(204);
+
         // Fixed in version 3 settles the thread everywhere.
         const v3Carry = onDry3.find((c) => c.id === noise)?.carry?.id ?? "";
         expect(

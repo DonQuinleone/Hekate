@@ -292,6 +292,10 @@ export function Compare({
   if (!variation || candidates.length === 0) return null;
 
   const toggle = (fileId: string) => {
+    // Unpinned, a source loses any offset a comment gave it; pinned again, it lines up as usual.
+    if (pinned.includes(fileId)) {
+      setShifts(({ [fileId]: _, ...rest }) => rest);
+    }
     setPinned((list) =>
       list.includes(fileId)
         ? list.filter((id) => id !== fileId)

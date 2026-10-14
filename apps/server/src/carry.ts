@@ -2,9 +2,24 @@ import { type Database, inOrg, schema } from "@hekate/db";
 import { type Anchor, carryTarget } from "@hekate/shared";
 import { and, desc, eq, inArray, isNull, lt } from "drizzle-orm";
 
-const { comments, commentCarries, variations, versions } = schema;
+const { comments, commentCarries, tracks, variations, versions } = schema;
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
+/**
+ * Lock the track a file belongs to, if it is a variation. Creating a version holds the
+ * same lock while it carries threads, so settling or reopening a thread never interleaves
+ * with deciding which threads move on.
+ */
+export async function lockTrackOfFile(tx: Tx, organisationId: string, fileId: string) {
+  await tx
+    .select({ id: tracks.id })
+    .from(tracks)
+    .innerJoin(versions, eq(versions.trackId, tracks.id))
+    .innerJoin(variations, eq(variations.versionId, versions.id))
+    .where(inOrg(tracks, organisationId, eq(variations.fileId, fileId)))
+    .for("update", { of: tracks });
+}
 
 /**
  * Carry the previous version's unresolved threads to a new version (docs/domain.md,
@@ -104,7 +119,7 @@ export async function carryThreads(
 
 /** Every version a set of threads was carried to, for each thread's history. */
 export async function hopsOf(
-  db: Pick<Database, "select">,
+  db: Pick<Database, "select"> | Tx,
   organisationId: string,
   commentIds: string[],
 ) {

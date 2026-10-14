@@ -17,7 +17,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, canOnFile } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
-import { hopsOf, versionNumbersOf } from "../carry.ts";
+import { hopsOf, lockTrackOfFile, versionNumbersOf } from "../carry.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
 import type { TenantVariables } from "../tenancy.ts";
@@ -268,15 +268,22 @@ export const commentRoutes = (db: Database) =>
       const thread = await commentOf(db, organisationId, id);
       await canOnFile(db, actorOf(c.var), "triage", thread.fileId);
       // Threads resolve as a whole, through their first comment.
-      const [updated] = await db
-        .update(comments)
-        .set(
-          resolved
-            ? { resolvedAt: new Date(), resolvedById: c.var.userId, updatedAt: new Date() }
-            : { resolvedAt: null, resolvedById: null, updatedAt: new Date() },
-        )
-        .where(and(inOrg(comments, organisationId, eq(comments.id, id)), isNull(comments.parentId)))
-        .returning({ id: comments.id });
+      const updated = await db.transaction(async (tx) => {
+        // Not while a new version is deciding which threads to carry.
+        await lockTrackOfFile(tx, organisationId, thread.fileId);
+        const [row] = await tx
+          .update(comments)
+          .set(
+            resolved
+              ? { resolvedAt: new Date(), resolvedById: c.var.userId, updatedAt: new Date() }
+              : { resolvedAt: null, resolvedById: null, updatedAt: new Date() },
+          )
+          .where(
+            and(inOrg(comments, organisationId, eq(comments.id, id)), isNull(comments.parentId)),
+          )
+          .returning({ id: comments.id });
+        return row;
+      });
       if (!updated) throw new NotFound("Thread");
       return c.json({ comment: await commentOf(db, organisationId, id) });
     });
@@ -318,6 +325,18 @@ export const carryRoutes = (db: Database) =>
       const now = new Date();
       const status: CarryStatus | undefined = input.status;
       await db.transaction(async (tx) => {
+        // Not while a new version is deciding which threads to carry.
+        await lockTrackOfFile(tx, organisationId, carry.fileId);
+        if (status !== undefined) {
+          // A thread's status is its latest version's; an earlier one is history.
+          const hops = await hopsOf(tx, organisationId, [carry.commentId]);
+          const here = hops.find((h) => h.id === carry.id)?.versionNumber ?? 0;
+          if (hops.some((h) => h.versionNumber > here)) {
+            throw new HTTPException(409, {
+              message: "A later version carries this thread; settle it there",
+            });
+          }
+        }
         await tx
           .update(commentCarries)
           .set({
