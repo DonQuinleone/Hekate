@@ -87,3 +87,35 @@ Unreleased material is the product's cargo. Read `docs/security.md` before touch
 ## Design system
 
 See `docs/brand.md` for the full system. In short: dark, modern, understated. Near-black ground, one signal colour used sparingly, hairlines over cards and shadows, type doing the work, no ornament. The mark is two stems and a point. Use the CSS tokens in `apps/web/src/styles/tokens.css`; do not hard-code colours.
+
+## Review guidelines
+
+For anyone reviewing a pull request, human or agent. Review against this file and `docs/`; they are the source of truth. Report what is wrong and why, with the file and line, and suggest a fix. Do not restate the diff or praise it.
+
+### Blocking: flag these as high priority
+
+- **Tenancy.** Any read, update or delete on a tenant-owned table without an `organisation_id` condition (use `inOrg`). A new tenant table without `organisation_id`, or one added to `globalTables` without a clear reason. An organisation id taken from the request body or path instead of the session (`c.var.organisationId`).
+- **Authorisation.** A route under `/api` that skips `requireSession` and `requireOrganisation` without being deliberately public. Role checks missing on actions that change members, invitations, settings or content, or checks done in the web app only. Members able to act on another organisation's ids.
+- **Media security** (`docs/security.md`). A route or URL that returns a stored file or original media; presigned or public storage URLs reaching a browser; plaintext written to storage once encryption at rest exists; keys or segment URLs that are long-lived or not bound to the session; key issues, page renders or downloads not written to the access log.
+- **Secrets and personal data.** Credentials, tokens or keys in code, tests, fixtures, logs or error messages. Real names, email addresses or other personal details of contributors anywhere in the repository. Tokens stored in the database without hashing where a hash would do.
+- **Input validation.** A request body, query or parameter used without a zod schema. Shared shapes defined twice instead of in `packages/shared`.
+- **Data safety.** A migration that drops or rewrites data without saying so in the pull request; schema changes without a generated migration; a migration edited after it has merged.
+- **Supply chain.** New dependencies that are unmaintained, duplicate an existing one, or need install scripts (only `allowBuilds` packages may run them). Actions not pinned to a commit SHA. Anything that weakens `minimumReleaseAge`, Trivy or the CI checks. Build tools or package managers added to the runtime image.
+- **Correctness.** Races in check-then-act code (claims, invitations, approvals) that should be atomic or transactional; unhandled promise rejections; streams not closed or errors swallowed.
+
+### Important: flag these too
+
+- **Vocabulary.** Names that contradict `docs/domain.md`: project, folder, file, track, version, variation, take, session, comment, anchor, review, workflow. There are no movements; takes are never versions.
+- **Tests.** New behaviour without a test, especially tenancy and permission rules (prove another organisation and a lesser role are refused). Domain logic that belongs in a pure, tested function.
+- **Runtime.** Non-erasable TypeScript in server code (`enum`, `namespace`, parameter properties) or relative imports without `.ts`; `any` without a comment.
+- **Design system.** Hard-coded colours instead of tokens; stock shadcn styling; copy or UI that makes Hekate read as a classical-music-only tool.
+- **Pull request hygiene.** Visual changes without screenshots; titles that are not Conventional Commits.
+
+### Style: mention once, never block
+
+- British English (colour, organisation, licence as a noun, behaviour) in code, comments, docs and UI copy.
+- No em-dashes anywhere; use commas, colons, semicolons or parentheses.
+
+### Not worth a comment
+
+Formatting and import order (Biome enforces them), personal preference between equivalent approaches, and speculative problems with no realistic path from a caller or input. Do not ask for features outside the pull request's issue.
