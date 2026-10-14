@@ -1,0 +1,5 @@
+# Made by every run: the seeded app's state, its storage, and Playwright's reports.
+.state/
+test-results/
+playwright-report/
+screenshots/
