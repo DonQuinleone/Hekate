@@ -5,6 +5,7 @@ import { logger } from "hono/logger";
 import type { Audit } from "./audit.ts";
 import type { Auth } from "./auth.ts";
 import { onError } from "./errors.ts";
+import type { Jobs } from "./jobs.ts";
 import type { Mailer } from "./mail.ts";
 import { health } from "./routes/health.ts";
 import { invitationRoutes } from "./routes/invitations.ts";
@@ -12,6 +13,7 @@ import { meRoutes } from "./routes/me.ts";
 import { organisationRoutes } from "./routes/organisation.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { setupRoutes } from "./routes/setup.ts";
+import { uploadRoutes } from "./routes/uploads.ts";
 import type { Storage } from "./storage.ts";
 import { requireOrganisation, requireSession } from "./tenancy.ts";
 
@@ -21,6 +23,8 @@ export interface AppDeps {
   mailer: Mailer;
   storage: Storage;
   audit: Audit;
+  /** Only queueing is needed here; workers run separately. */
+  jobs: Pick<Jobs, "send">;
   /** Read the client address from X-Forwarded-For (behind Caddy). */
   trustProxy?: boolean;
   publicUrl: string;
@@ -50,7 +54,13 @@ export function createApi(deps: AppDeps) {
     )
     .use("/projects/*", ...member)
     .use("/projects", ...member)
-    .route("/projects", projectRoutes(deps.db));
+    .route("/projects", projectRoutes(deps.db))
+    .use("/uploads/*", ...member)
+    .use("/uploads", ...member)
+    .route(
+      "/uploads",
+      uploadRoutes(deps.db, deps.storage, deps.jobs, deps.audit, deps.trustProxy ?? false),
+    );
 }
 
 export type Api = ReturnType<typeof createApi>;

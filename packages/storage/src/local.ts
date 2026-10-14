@@ -1,12 +1,35 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, open, readdir, rename, rm, rmdir, stat } from "node:fs/promises";
+import {
+  mkdir,
+  open,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  rmdir,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { ObjectNotFoundError, RangeNotSatisfiableError, StorageConfigError } from "./errors.ts";
+import {
+  ObjectNotFoundError,
+  RangeNotSatisfiableError,
+  StorageConfigError,
+  StorageError,
+} from "./errors.ts";
 import { assertValidKey, assertValidPrefix, assertValidRange } from "./keys.ts";
-import type { Body, ByteRange, ListedObject, ObjectInfo, StorageBackend } from "./types.ts";
+import {
+  type Body,
+  type ByteRange,
+  type ListedObject,
+  MAX_PARTS,
+  MIN_PART_SIZE,
+  type ObjectInfo,
+  type StorageBackend,
+} from "./types.ts";
 
 export interface LocalBackendOptions {
   name: string;
@@ -16,6 +39,9 @@ export interface LocalBackendOptions {
 
 /** Writes in progress live here, inside the root so the final rename is atomic. Keys cannot start with a dot. */
 const TEMP_DIR = ".tmp";
+/** Unfinished multipart uploads, one directory each. */
+const UPLOADS_DIR = ".uploads";
+const UPLOAD_ID = /^[0-9a-f-]{36}$/;
 
 const isMissing = (error: unknown) =>
   error instanceof Error &&
@@ -27,6 +53,16 @@ export function localBackend(options: LocalBackendOptions): StorageBackend {
   if (!options.root) throw new StorageConfigError(`Storage backend "${options.name}" needs a path`);
   const root = resolve(options.root);
   const tempDir = join(root, TEMP_DIR);
+  const uploadsDir = join(root, UPLOADS_DIR);
+  const uploadDir = (uploadId: string) => {
+    if (!UPLOAD_ID.test(uploadId)) throw new StorageError(`Unknown upload "${uploadId}"`);
+    return join(uploadsDir, uploadId);
+  };
+  const assertPartNumber = (n: number) => {
+    if (!Number.isInteger(n) || n < 1 || n > MAX_PARTS) {
+      throw new StorageError(`Part numbers run from 1 to ${MAX_PARTS}`);
+    }
+  };
 
   const pathOf = (key: string) => {
     assertValidKey(key);
@@ -163,6 +199,74 @@ export function localBackend(options: LocalBackendOptions): StorageBackend {
         const info = await stat(path).catch(() => null);
         if (info) yield { key, size: info.size };
       }
+    },
+
+    async createMultipart(key) {
+      pathOf(key);
+      const uploadId = randomUUID();
+      await mkdir(uploadDir(uploadId), { recursive: true });
+      // Remember which key the upload is for, so completion cannot be pointed elsewhere.
+      await writeFile(join(uploadDir(uploadId), "key"), key);
+      return uploadId;
+    },
+
+    async putPart(key, uploadId, partNumber, body) {
+      assertPartNumber(partNumber);
+      const dir = uploadDir(uploadId);
+      const owner = await readFile(join(dir, "key"), "utf8").catch(() => null);
+      if (owner !== key) throw new StorageError(`Unknown upload "${uploadId}" for "${key}"`);
+      const tag = createHash("sha256").update(body).digest("hex").slice(0, 32);
+      const temp = join(dir, `${partNumber}.${randomUUID()}.part`);
+      await writeFile(temp, body, { flush: true });
+      await writeFile(`${temp}.tag`, tag);
+      // Rename the tag first, then the bytes: a reader that sees new bytes also sees the new tag.
+      await rename(`${temp}.tag`, join(dir, `${partNumber}.tag`));
+      await rename(temp, join(dir, String(partNumber)));
+      return tag;
+    },
+
+    async completeMultipart(key, uploadId, parts) {
+      const path = pathOf(key);
+      const dir = uploadDir(uploadId);
+      const owner = await readFile(join(dir, "key"), "utf8").catch(() => null);
+      if (owner !== key) throw new StorageError(`Unknown upload "${uploadId}" for "${key}"`);
+      if (parts.length === 0) throw new StorageError("A multipart upload needs at least one part");
+      const sorted = [...parts].sort((a, b) => a.partNumber - b.partNumber);
+      for (const [i, part] of sorted.entries()) {
+        assertPartNumber(part.partNumber);
+        if (i > 0 && part.partNumber === sorted[i - 1]?.partNumber) {
+          throw new StorageError(`Part ${part.partNumber} is listed twice`);
+        }
+        const tag = await readFile(join(dir, `${part.partNumber}.tag`), "utf8").catch(() => null);
+        if (tag !== part.tag)
+          throw new StorageError(`Part ${part.partNumber} is missing or has changed`);
+        const size = (await stat(join(dir, String(part.partNumber)))).size;
+        if (i < sorted.length - 1 && size < MIN_PART_SIZE) {
+          throw new StorageError(`Part ${part.partNumber} is smaller than ${MIN_PART_SIZE} bytes`);
+        }
+      }
+      await mkdir(tempDir, { recursive: true });
+      await mkdir(dirname(path), { recursive: true });
+      const temp = join(tempDir, randomUUID());
+      try {
+        const out = createWriteStream(temp, { flags: "wx", flush: true });
+        async function* concatenated() {
+          for (const part of sorted) yield* createReadStream(join(dir, String(part.partNumber)));
+        }
+        await pipeline(Readable.from(concatenated()), out);
+        await fsync(temp);
+        await rename(temp, path);
+        await fsync(dirname(path));
+      } catch (error) {
+        await rm(temp, { force: true });
+        throw error;
+      }
+      await rm(dir, { recursive: true, force: true });
+      return { size: (await stat(path)).size };
+    },
+
+    async abortMultipart(_key, uploadId) {
+      await rm(uploadDir(uploadId), { recursive: true, force: true });
     },
 
     async check() {

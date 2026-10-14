@@ -3,11 +3,17 @@ import { Readable } from "node:stream";
 import { buffer } from "node:stream/consumers";
 import { describe, expect, it } from "vitest";
 import {
+  CHUNK_SEGMENTS,
+  CHUNK_SIZE,
+  chunkCount,
+  chunkLength,
   DecryptionError,
   decryptor,
+  encryptChunk,
   encryptedSize,
   encryptor,
   HEADER_SIZE,
+  newNoncePrefix,
   planRead,
   SEGMENT_SIZE,
   TAG_SIZE,
@@ -170,5 +176,73 @@ describe("segmented encryption", () => {
 
   it("refuses keys of the wrong length", () => {
     expect(() => encryptor(randomBytes(16), aad)).toThrow(/32 bytes/);
+  });
+});
+
+describe("chunked encryption for uploads", () => {
+  const encryptInChunks = (
+    plain: Buffer,
+    prefix: Buffer,
+    order: "forward" | "reverse" = "forward",
+  ) => {
+    const count = chunkCount(plain.length);
+    const indexes = [...Array(count).keys()];
+    if (order === "reverse") indexes.reverse();
+    const sealed = new Map<number, Buffer>();
+    for (const index of indexes) {
+      sealed.set(
+        index,
+        encryptChunk({
+          key,
+          aad,
+          prefix,
+          plainSize: plain.length,
+          index,
+          plain: plain.subarray(
+            index * CHUNK_SIZE,
+            index * CHUNK_SIZE + chunkLength(plain.length, index),
+          ),
+        }),
+      );
+    }
+    return Buffer.concat(indexes.sort((a, b) => a - b).map((i) => sealed.get(i) as Buffer));
+  };
+
+  it.each([0, 1, CHUNK_SIZE - 1, CHUNK_SIZE, CHUNK_SIZE + 1, 2 * CHUNK_SIZE + 70_000])(
+    "matches the stream format for %i bytes, in any order",
+    async (size) => {
+      const plain = randomBytes(size);
+      const stored = encryptInChunks(plain, newNoncePrefix(), "reverse");
+      expect(stored.length).toBe(encryptedSize(size));
+      expect((await read(stored, size)).equals(plain)).toBe(true);
+      if (size > SEGMENT_SIZE) {
+        const range = { start: SEGMENT_SIZE - 3, end: size - 2 };
+        expect(
+          (await read(stored, size, range)).equals(plain.subarray(range.start, range.end + 1)),
+        ).toBe(true);
+      }
+    },
+  );
+
+  it("refuses chunks of the wrong length or position", () => {
+    const prefix = newNoncePrefix();
+    const size = CHUNK_SIZE + 10;
+    expect(() =>
+      encryptChunk({ key, aad, prefix, plainSize: size, index: 0, plain: Buffer.alloc(10) }),
+    ).toThrow(/must be/);
+    expect(() =>
+      encryptChunk({ key, aad, prefix, plainSize: size, index: 2, plain: Buffer.alloc(10) }),
+    ).toThrow(/outside/);
+  });
+
+  it("uses the last-segment flag only at the very end", async () => {
+    // A chunk boundary is not the end: dropping the final chunk must not decrypt as a shorter object.
+    const plain = randomBytes(CHUNK_SIZE + 5);
+    const stored = encryptInChunks(plain, newNoncePrefix());
+    const firstChunkOnly = stored.subarray(
+      0,
+      HEADER_SIZE + CHUNK_SEGMENTS * (SEGMENT_SIZE + TAG_SIZE),
+    );
+    await expect(read(firstChunkOnly, CHUNK_SIZE)).rejects.toBeInstanceOf(DecryptionError);
   });
 });

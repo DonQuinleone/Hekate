@@ -56,20 +56,104 @@ export function encryptedSize(plainSize: number): number {
   return HEADER_SIZE + plainSize + segmentCount(plainSize) * TAG_SIZE;
 }
 
+function sealSegment(
+  key: Uint8Array,
+  aad: Uint8Array,
+  prefix: Buffer,
+  index: number,
+  last: boolean,
+  plain: Buffer,
+) {
+  if (index >= MAX_SEGMENTS) throw new StorageError("Object too large to encrypt");
+  const cipher = createCipheriv("aes-256-gcm", key, nonce(prefix, index, last));
+  cipher.setAAD(aad);
+  return Buffer.concat([cipher.update(plain), cipher.final(), cipher.getAuthTag()]);
+}
+
+const headerFor = (prefix: Buffer) => Buffer.concat([MAGIC, Buffer.from([VERSION]), prefix]);
+
+/** A fresh random nonce prefix for one object. */
+export function newNoncePrefix(): Buffer {
+  return randomBytes(PREFIX_SIZE);
+}
+
+/**
+ * Uploads arrive in chunks of 128 segments (8 MiB of plaintext). Each chunk is
+ * encrypted on its own, in any order, and the encrypted chunks joined in order
+ * are exactly what `encryptor` would have produced for the whole object.
+ */
+export const CHUNK_SEGMENTS = 128;
+export const CHUNK_SIZE = CHUNK_SEGMENTS * SEGMENT_SIZE;
+
+/** How many upload chunks an object of this size has. An empty object has one, empty, chunk. */
+export function chunkCount(plainSize: number): number {
+  return Math.max(1, Math.ceil(plainSize / CHUNK_SIZE));
+}
+
+/** The plaintext length chunk `index` must have. */
+export function chunkLength(plainSize: number, index: number): number {
+  const count = chunkCount(plainSize);
+  if (!Number.isInteger(index) || index < 0 || index >= count) {
+    throw new StorageError(`Chunk ${index} is outside an object of ${plainSize} bytes`);
+  }
+  return index < count - 1 ? CHUNK_SIZE : plainSize - index * CHUNK_SIZE;
+}
+
+/** Encrypt one upload chunk. Chunk 0 also carries the object's header. */
+export function encryptChunk(options: {
+  key: Uint8Array;
+  aad: Uint8Array;
+  prefix: Uint8Array;
+  /** Plaintext size of the whole object. */
+  plainSize: number;
+  index: number;
+  plain: Uint8Array;
+}): Buffer {
+  assertKey(options.key);
+  const prefix = Buffer.from(options.prefix);
+  if (prefix.length !== PREFIX_SIZE)
+    throw new StorageError(`Nonce prefixes are ${PREFIX_SIZE} bytes`);
+  const expected = chunkLength(options.plainSize, options.index);
+  const plain = Buffer.from(
+    options.plain.buffer,
+    options.plain.byteOffset,
+    options.plain.byteLength,
+  );
+  if (plain.length !== expected) {
+    throw new StorageError(`Chunk ${options.index} must be ${expected} bytes, not ${plain.length}`);
+  }
+  const lastSegment = segmentCount(options.plainSize) - 1;
+  const first = options.index * CHUNK_SEGMENTS;
+  const out: Buffer[] = options.index === 0 ? [headerFor(prefix)] : [];
+  // An empty object is one empty segment.
+  const segments = Math.max(1, Math.ceil(plain.length / SEGMENT_SIZE));
+  for (let s = 0; s < segments; s++) {
+    const i = first + s;
+    out.push(
+      sealSegment(
+        options.key,
+        options.aad,
+        prefix,
+        i,
+        i === lastSegment,
+        plain.subarray(s * SEGMENT_SIZE, (s + 1) * SEGMENT_SIZE),
+      ),
+    );
+  }
+  return Buffer.concat(out);
+}
+
 /** A transform that encrypts a plaintext stream into the stored format. */
 export function encryptor(key: Uint8Array, aad: Uint8Array): Transform {
   assertKey(key);
-  const prefix = randomBytes(PREFIX_SIZE);
-  const header = Buffer.concat([MAGIC, Buffer.from([VERSION]), prefix]);
+  const prefix = newNoncePrefix();
+  const header = headerFor(prefix);
   let index = 0;
   let pending: Buffer[] = [];
   let pendingSize = 0;
 
   const seal = (plain: Buffer, last: boolean) => {
-    if (index >= MAX_SEGMENTS) throw new StorageError("Object too large to encrypt");
-    const cipher = createCipheriv("aes-256-gcm", key, nonce(prefix, index, last));
-    cipher.setAAD(aad);
-    const sealed = Buffer.concat([cipher.update(plain), cipher.final(), cipher.getAuthTag()]);
+    const sealed = sealSegment(key, aad, prefix, index, last, plain);
     index += 1;
     return sealed;
   };

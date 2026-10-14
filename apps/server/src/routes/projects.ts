@@ -1,13 +1,13 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import { projectProfile } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { desc, eq, isNull } from "drizzle-orm";
+import { asc, desc, eq, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { NotFound } from "../errors.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
-const { projects } = schema;
+const { projects, files, users } = schema;
 
 export const createProjectInput = z.object({
   name: z.string().trim().min(1).max(120),
@@ -40,4 +40,31 @@ export const projectRoutes = (db: Database) =>
         .where(inOrg(projects, c.var.organisationId, eq(projects.id, id)));
       if (!project) throw new NotFound("Project");
       return c.json({ project });
+    })
+    .get("/:id/files", zValidator("param", z.object({ id: z.uuid() })), async (c) => {
+      const { id } = c.req.valid("param");
+      const organisationId = c.var.organisationId;
+      const [project] = await db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(inOrg(projects, organisationId, eq(projects.id, id)));
+      if (!project) throw new NotFound("Project");
+      // Metadata only: file contents leave Hekate solely through protected delivery.
+      const rows = await db
+        .select({
+          id: files.id,
+          folderId: files.folderId,
+          name: files.name,
+          kind: files.kind,
+          contentType: files.contentType,
+          byteSize: files.byteSize,
+          mediaInfo: files.mediaInfo,
+          uploadedBy: users.name,
+          createdAt: files.createdAt,
+        })
+        .from(files)
+        .leftJoin(users, eq(files.uploadedBy, users.id))
+        .where(inOrg(files, organisationId, eq(files.projectId, project.id)))
+        .orderBy(asc(files.name), desc(files.createdAt));
+      return c.json({ files: rows });
     });

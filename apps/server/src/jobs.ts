@@ -13,7 +13,18 @@ export const jobDefinitions = {
     data: z.object({ organisationId: z.uuid(), fileId: z.uuid() }),
     options: { retryLimit: 4, retryDelay: 15, retryBackoff: true, expireInSeconds: 10 * 60 },
   },
-} satisfies Record<string, { data: z.ZodType; options: QueueOptions }>;
+  /** Compute a blob's SHA-256 after an upload, whose chunks arrived in any order. */
+  "blob-checksum": {
+    data: z.object({ organisationId: z.uuid(), blobId: z.uuid() }),
+    options: { retryLimit: 4, retryDelay: 30, retryBackoff: true, expireInSeconds: 60 * 60 },
+  },
+  /** Abort uploads that were never completed, so their parts stop taking space. Hourly. */
+  "uploads-expire": {
+    data: z.object({}),
+    options: { retryLimit: 2, expireInSeconds: 30 * 60 },
+    schedule: "17 * * * *",
+  },
+} satisfies Record<string, { data: z.ZodType; options: QueueOptions; schedule?: string }>;
 
 export type JobName = keyof typeof jobDefinitions;
 export type JobData<N extends JobName> = z.infer<(typeof jobDefinitions)[N]["data"]>;
@@ -64,6 +75,7 @@ export function createJobs(options: { connectionString: string; schema?: string 
         const existing = await boss.getQueue(name);
         if (existing) await boss.updateQueue(name, definition.options);
         else await boss.createQueue(name, definition.options);
+        if ("schedule" in definition) await boss.schedule(name, definition.schedule, {});
       }
     },
 

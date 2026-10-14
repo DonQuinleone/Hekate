@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { Readable, Transform } from "node:stream";
 import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
+  CreateMultipartUploadCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
@@ -8,11 +11,24 @@ import {
   ListObjectsV2Command,
   S3Client,
   S3ServiceException,
+  UploadPartCommand,
 } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
-import { ObjectNotFoundError, RangeNotSatisfiableError, StorageConfigError } from "./errors.ts";
+import {
+  ObjectNotFoundError,
+  RangeNotSatisfiableError,
+  StorageConfigError,
+  StorageError,
+} from "./errors.ts";
 import { assertValidKey, assertValidPrefix, assertValidRange } from "./keys.ts";
-import type { Body, ByteRange, ListedObject, ObjectInfo, StorageBackend } from "./types.ts";
+import {
+  type Body,
+  type ByteRange,
+  type ListedObject,
+  MAX_PARTS,
+  type ObjectInfo,
+  type StorageBackend,
+} from "./types.ts";
 
 export interface S3BackendOptions {
   name: string;
@@ -158,6 +174,83 @@ export function s3Backend(options: S3BackendOptions): StorageBackend {
         }
         token = page.IsTruncated ? page.NextContinuationToken : undefined;
       } while (token);
+    },
+
+    async createMultipart(key, multipartOptions) {
+      const result = await client.send(
+        new CreateMultipartUploadCommand({
+          Bucket: bucket,
+          Key: fullKey(key),
+          ...(multipartOptions?.contentType ? { ContentType: multipartOptions.contentType } : {}),
+        }),
+      );
+      if (!result.UploadId) throw new StorageError("The bucket did not start a multipart upload");
+      return result.UploadId;
+    },
+
+    async putPart(key, uploadId, partNumber, body) {
+      if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > MAX_PARTS) {
+        throw new StorageError(`Part numbers run from 1 to ${MAX_PARTS}`);
+      }
+      const result = await client.send(
+        new UploadPartCommand({
+          Bucket: bucket,
+          Key: fullKey(key),
+          UploadId: uploadId,
+          PartNumber: partNumber,
+          Body: body,
+          ContentLength: body.length,
+        }),
+      );
+      if (!result.ETag) throw new StorageError(`The bucket did not acknowledge part ${partNumber}`);
+      return result.ETag;
+    },
+
+    async completeMultipart(key, uploadId, parts) {
+      const Key = fullKey(key);
+      try {
+        await client.send(
+          new CompleteMultipartUploadCommand({
+            Bucket: bucket,
+            Key,
+            UploadId: uploadId,
+            MultipartUpload: {
+              Parts: [...parts]
+                .sort((a, b) => a.partNumber - b.partNumber)
+                .map((p) => ({ PartNumber: p.partNumber, ETag: p.tag })),
+            },
+          }),
+        );
+      } catch (error) {
+        if (error instanceof S3ServiceException && error.$metadata.httpStatusCode === 400) {
+          throw new StorageError(
+            `The bucket refused to complete the upload: ${error.name} ${error.message}`,
+          );
+        }
+        throw error;
+      }
+      const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key }));
+      return { size: head.ContentLength ?? 0 };
+    },
+
+    async abortMultipart(key, uploadId) {
+      try {
+        await client.send(
+          new AbortMultipartUploadCommand({
+            Bucket: bucket,
+            Key: fullKey(key),
+            UploadId: uploadId,
+          }),
+        );
+      } catch (error) {
+        // Already aborted or completed: nothing left to discard.
+        if (
+          isNotFound(error) ||
+          (error instanceof S3ServiceException && error.name === "NoSuchUpload")
+        )
+          return;
+        throw error;
+      }
     },
 
     async check() {
