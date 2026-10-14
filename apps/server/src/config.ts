@@ -11,8 +11,20 @@ const schema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
-  /** Name of the organisation created on first start of a self-hosted install. */
-  DEFAULT_ORGANISATION: z.string().min(1).default("Studio"),
+  /** Public URL Hekate is served from, used for auth callbacks and trusted origins. */
+  PUBLIC_URL: z.string().url().default("http://localhost:3000"),
+  /** Secret for signing sessions and tokens; at least 32 characters. */
+  AUTH_SECRET: z.string().min(32),
+  /** Extra origins allowed to call the API with credentials (comma separated), for example the Vite dev server. */
+  TRUSTED_ORIGINS: z
+    .string()
+    .default("")
+    .transform((v) =>
+      v
+        .split(",")
+        .map((o) => o.trim())
+        .filter(Boolean),
+    ),
 });
 
 export type Config = z.infer<typeof schema>;

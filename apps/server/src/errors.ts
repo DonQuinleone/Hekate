@@ -12,10 +12,18 @@ export class NotFound extends HTTPException {
   }
 }
 
+const codes: Record<number, string> = {
+  400: "bad_request",
+  401: "unauthenticated",
+  403: "forbidden",
+  404: "not_found",
+  409: "conflict",
+  429: "rate_limited",
+};
+
 export function onError(err: Error, c: Context) {
   if (err instanceof HTTPException) {
-    const code =
-      err.status === 404 ? "not_found" : err.status === 400 ? "bad_request" : "http_error";
+    const code = codes[err.status] ?? "http_error";
     return c.json<ApiError>({ error: { code, message: err.message } }, err.status);
   }
   console.error(err);
