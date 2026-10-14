@@ -42,6 +42,7 @@ jobs:
       - run: pnpm build
       # Dependencies, secrets and misconfiguration in the repository. Fails on fixable high and critical findings.
       - name: Trivy (repository)
+        id: trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
@@ -51,7 +52,7 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
       - name: Trivy SARIF (repository)
-        if: always()
+        if: ${{ !cancelled() && steps.trivy.outcome != 'skipped' }}
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
@@ -61,7 +62,7 @@ jobs:
           output: trivy-repo.sarif
           skip-setup-trivy: true
       - name: Upload to code scanning
-        if: always()
+        if: ${{ !cancelled() && steps.trivy.outcome != 'skipped' }}
         continue-on-error: true
         uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
@@ -84,6 +85,7 @@ jobs:
           tags: hekate:ci
       # Operating system and package vulnerabilities in the app image.
       - name: Trivy (image)
+        id: trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: hekate:ci
@@ -92,7 +94,7 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
       - name: Trivy SARIF (image)
-        if: always()
+        if: ${{ !cancelled() && steps.trivy.outcome != 'skipped' }}
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: hekate:ci
@@ -101,7 +103,7 @@ jobs:
           output: trivy-image.sarif
           skip-setup-trivy: true
       - name: Upload to code scanning
-        if: always()
+        if: ${{ !cancelled() && steps.trivy.outcome != 'skipped' }}
         continue-on-error: true
         uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
