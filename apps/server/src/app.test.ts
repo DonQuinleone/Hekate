@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buffer } from "node:stream/consumers";
 import { createDb, runMigrations, schema, withAuditPurge } from "@hekate/db";
-import { createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
+import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.ts";
@@ -13,7 +13,9 @@ import { createClient } from "./client.ts";
 import { loadConfig } from "./config.ts";
 import { createKeyring } from "./keyring.ts";
 import { memoryMailer } from "./mail.ts";
+import { checksumHandler } from "./media/workers.ts";
 import { createStorage } from "./storage.ts";
+import { expireUploads } from "./uploads.ts";
 
 const url = process.env.DATABASE_URL;
 
@@ -45,12 +47,20 @@ describe.runIf(url)("api", () => {
   const keyring = createKeyring(db, { current: masterKey, previous: [] });
   const storage = createStorage(db, backends, keyring);
   const audit = createAudit(db);
+  const sent: { name: string; data: unknown }[] = [];
+  const jobs = {
+    send: async (name: string, data: unknown) => {
+      sent.push({ name, data });
+      return `job-${sent.length}`;
+    },
+  };
   const app = createApp({
     db,
     auth,
     mailer,
     storage,
     audit,
+    jobs,
     trustProxy: true,
     publicUrl: "http://localhost:3000",
     log: false,
@@ -786,6 +796,7 @@ describe.runIf(url)("api", () => {
           mailer,
           storage,
           audit,
+          jobs,
           publicUrl: "http://localhost:3000",
           log: false,
         });
@@ -803,6 +814,238 @@ describe.runIf(url)("api", () => {
         expect(csvCell("@cmd")).toBe(`"'@cmd"`);
         expect(csvCell("plain")).toBe('"plain"');
         expect(csvCell(null)).toBe('""');
+      });
+    });
+
+    describe("uploads", () => {
+      const joinAs = async (owner: string, email: string, role: string) => {
+        const { body } = await invite(owner, email, role);
+        const res = await app.request(
+          `/api/invitations/${tokenFrom(body.link)}/accept`,
+          json({ name: "Colleague", password: "correct horse battery" }),
+        );
+        return cookieOf(res);
+      };
+      const newProject = async (cookie: string) => {
+        const res = await app.request(
+          "/api/projects",
+          json({ name: "Rags", profile: "music" }, cookie),
+        );
+        return ((await res.json()) as { project: { id: string } }).project.id;
+      };
+      type UploadView = {
+        id: string;
+        chunkSize: number;
+        chunkCount: number;
+        receivedChunks: number[];
+        status: string;
+      };
+      const create = async (cookie: string, body: Record<string, unknown>) => {
+        const res = await app.request("/api/uploads", json(body, cookie));
+        return {
+          res,
+          upload:
+            res.status === 201 ? ((await res.json()) as { upload: UploadView }).upload : undefined,
+        };
+      };
+      const putChunk = (
+        cookie: string,
+        id: string,
+        index: number,
+        bytes: Uint8Array,
+        digest?: string,
+      ) =>
+        app.request(`/api/uploads/${id}/chunks/${index}`, {
+          method: "PUT",
+          headers: {
+            cookie,
+            origin: "http://localhost:3000",
+            "content-type": "application/octet-stream",
+            ...(digest ? { "content-digest": `sha-256=:${digest}:` } : {}),
+          },
+          body: bytes,
+        });
+      const complete = (cookie: string, id: string) =>
+        app.request(`/api/uploads/${id}/complete`, json({}, cookie));
+      const sha = (bytes: Uint8Array) =>
+        import("node:crypto").then(({ createHash }) =>
+          createHash("sha256").update(bytes).digest("base64"),
+        );
+
+      it("uploads in chunks, out of order, and becomes an encrypted file", async () => {
+        sent.length = 0;
+        const owner = cookieOf(await setup());
+        const projectId = await newProject(owner);
+        const content = Buffer.alloc(CHUNK_SIZE + 4321);
+        for (let i = 0; i < content.length; i += 4096) content.write("unreleased mix bar 72 ", i);
+        const { upload } = await create(owner, {
+          projectId,
+          name: "C:\\Sessions\\Take 4.wav",
+          size: content.length,
+          contentType: "audio/wav",
+        });
+        expect(upload).toMatchObject({
+          chunkSize: CHUNK_SIZE,
+          chunkCount: 2,
+          receivedChunks: [],
+          status: "open",
+        });
+        const id = upload?.id ?? "";
+        const second = content.subarray(CHUNK_SIZE);
+        const first = content.subarray(0, CHUNK_SIZE);
+        expect((await putChunk(owner, id, 1, second, await sha(second))).status).toBe(204);
+        // A chunk sent twice (a retry) simply replaces the first copy.
+        expect((await putChunk(owner, id, 0, first)).status).toBe(204);
+        expect((await putChunk(owner, id, 0, first, await sha(first))).status).toBe(204);
+        const status = (await (
+          await app.request(`/api/uploads/${id}`, { headers: { cookie: owner } })
+        ).json()) as {
+          upload: UploadView;
+        };
+        expect(status.upload.receivedChunks).toEqual([0, 1]);
+
+        const done = await complete(owner, id);
+        expect(done.status).toBe(201);
+        const { file } = (await done.json()) as {
+          file: { id: string; name: string; kind: string; blobId: string; byteSize: number };
+        };
+        expect(file).toMatchObject({ name: "Take 4.wav", kind: "audio", byteSize: content.length });
+
+        const [blob] = await db.select().from(schema.blobs).where(sql`id = ${file.blobId}`);
+        expect(blob?.sha256).toBeNull();
+        const stored = await buffer(
+          await backends.get(blob?.backend ?? "local").get(blob?.key ?? ""),
+        );
+        expect(stored.length).toBe(encryptedSize(content.length));
+        expect(stored.includes(Buffer.from("unreleased mix"))).toBe(false);
+        const organisationId = blob?.organisationId ?? "";
+        const read = await buffer((await storage.open(organisationId, file.blobId)).stream);
+        expect(read.equals(content)).toBe(true);
+
+        expect(sent.map((j) => j.name).sort()).toEqual(["blob-checksum", "media-probe"]);
+        const events = await audit.query(organisationId, { action: "file.upload", limit: 5 });
+        expect(events.events[0]).toMatchObject({ fileId: file.id, projectId });
+
+        // The checksum job fills in the hash by reading the file back through decryption.
+        const controller = new AbortController();
+        await checksumHandler({ db, storage })(
+          { organisationId, blobId: file.blobId },
+          { id: "job", signal: controller.signal, retryCount: 0 },
+        );
+        const [hashed] = await db.select().from(schema.blobs).where(sql`id = ${file.blobId}`);
+        expect(hashed?.sha256).toBe(
+          (await import("node:crypto")).createHash("sha256").update(content).digest("hex"),
+        );
+
+        // Completing again (a retry after a lost response) returns the same file.
+        const again = await complete(owner, id);
+        expect(again.status).toBe(200);
+        expect(((await again.json()) as { file: { id: string } }).file.id).toBe(file.id);
+
+        const listed = (await (
+          await app.request(`/api/projects/${projectId}/files`, { headers: { cookie: owner } })
+        ).json()) as {
+          files: { id: string; name: string; uploadedBy: string }[];
+        };
+        expect(listed.files).toEqual([
+          expect.objectContaining({ id: file.id, name: "Take 4.wav", uploadedBy: "Producer" }),
+        ]);
+      }, 60_000);
+
+      it("checks every chunk and refuses to complete with chunks missing", async () => {
+        const owner = cookieOf(await setup());
+        const projectId = await newProject(owner);
+        const { upload } = await create(owner, {
+          projectId,
+          name: "score.pdf",
+          size: CHUNK_SIZE + 10,
+        });
+        const id = upload?.id ?? "";
+        expect((await putChunk(owner, id, 1, Buffer.alloc(9))).status).toBe(400);
+        expect((await putChunk(owner, id, 2, Buffer.alloc(10))).status).toBe(400);
+        expect(
+          (await putChunk(owner, id, 1, Buffer.alloc(10), await sha(Buffer.alloc(10, 1)))).status,
+        ).toBe(400);
+        expect((await putChunk(owner, id, 1, Buffer.alloc(10))).status).toBe(204);
+        const incomplete = await complete(owner, id);
+        expect(incomplete.status).toBe(409);
+        expect(
+          ((await incomplete.json()) as { error: { message: string } }).error.message,
+        ).toContain("0");
+        // The failed completion left it open to carry on.
+        expect((await putChunk(owner, id, 0, Buffer.alloc(CHUNK_SIZE))).status).toBe(204);
+        expect((await complete(owner, id)).status).toBe(201);
+      }, 60_000);
+
+      it("keeps uploads to their organisation, project and owner", async () => {
+        const owner = cookieOf(await setup());
+        const projectId = await newProject(owner);
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-up" })
+          .returning();
+        const [foreign] = await db
+          .insert(schema.projects)
+          .values({ organisationId: other?.id ?? "", name: "Not yours", profile: "video" })
+          .returning();
+        expect(
+          (await create(owner, { projectId: foreign?.id, name: "x.wav", size: 1 })).res.status,
+        ).toBe(404);
+        const [otherFolder] = await db
+          .insert(schema.folders)
+          .values({ organisationId: other?.id ?? "", projectId: foreign?.id ?? "", name: "Stems" })
+          .returning();
+        expect(
+          (await create(owner, { projectId, folderId: otherFolder?.id, name: "x.wav", size: 1 }))
+            .res.status,
+        ).toBe(404);
+        expect(
+          (await create(owner, { projectId, name: "huge.wav", size: 10_001 * CHUNK_SIZE })).res
+            .status,
+        ).toBe(400);
+
+        const { upload } = await create(owner, { projectId, name: "mine.wav", size: 3 });
+        const colleague = await joinAs(owner, "engineer@example.test", "admin");
+        expect((await putChunk(colleague, upload?.id ?? "", 0, Buffer.from("abc"))).status).toBe(
+          404,
+        );
+        expect((await complete(colleague, upload?.id ?? "")).status).toBe(404);
+      });
+
+      it("discards cancelled and expired uploads", async () => {
+        const owner = cookieOf(await setup());
+        const projectId = await newProject(owner);
+        const cancelled =
+          (await create(owner, { projectId, name: "a.wav", size: 3 })).upload?.id ?? "";
+        await putChunk(owner, cancelled, 0, Buffer.from("abc"));
+        const del = await app.request(`/api/uploads/${cancelled}`, {
+          method: "DELETE",
+          headers: { cookie: owner, origin: "http://localhost:3000" },
+        });
+        expect(del.status).toBe(204);
+        expect((await putChunk(owner, cancelled, 0, Buffer.from("abc"))).status).toBe(409);
+
+        const stale = (await create(owner, { projectId, name: "b.wav", size: 3 })).upload?.id ?? "";
+        await db
+          .update(schema.uploads)
+          .set({ expiresAt: new Date(Date.now() - 1000) })
+          .where(sql`id = ${stale}`);
+        expect((await putChunk(owner, stale, 0, Buffer.from("abc"))).status).toBe(409);
+        expect(await expireUploads(db, storage)).toBe(1);
+        const [row] = await db.select().from(schema.uploads).where(sql`id = ${stale}`);
+        expect(row?.status).toBe("aborted");
+        expect(await expireUploads(db, storage)).toBe(0);
+      });
+
+      it("uploads an empty file", async () => {
+        const owner = cookieOf(await setup());
+        const projectId = await newProject(owner);
+        const { upload } = await create(owner, { projectId, name: "empty.txt", size: 0 });
+        expect(upload?.chunkCount).toBe(1);
+        expect((await putChunk(owner, upload?.id ?? "", 0, new Uint8Array())).status).toBe(204);
+        const done = await complete(owner, upload?.id ?? "");
+        expect(done.status).toBe(201);
+        expect(((await done.json()) as { file: { kind: string } }).file.kind).toBe("document");
       });
     });
   });

@@ -1,4 +1,4 @@
-import type { ProjectProfile } from "@hekate/shared";
+import type { FileKind, MediaInfo, ProjectProfile } from "@hekate/shared";
 import { queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 
@@ -146,3 +146,31 @@ export function useSwitchOrganisation() {
     onSuccess: () => client.invalidateQueries(),
   });
 }
+
+export interface ProjectFile {
+  id: string;
+  folderId: string | null;
+  name: string;
+  kind: FileKind;
+  contentType: string;
+  byteSize: number;
+  mediaInfo: MediaInfo | null;
+  uploadedBy: string | null;
+  createdAt: string;
+}
+
+/** Audio and video are measured by a background job; until then their media info is null. */
+const measuring = (files: ProjectFile[]) =>
+  files.some((f) => (f.kind === "audio" || f.kind === "video") && f.mediaInfo === null);
+
+export const projectFilesQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "files"],
+    queryFn: async () =>
+      (
+        await json<{ files: ProjectFile[] }>(
+          await api.projects[":id"].files.$get({ param: { id: projectId } }),
+        )
+      ).files,
+    refetchInterval: (query) => (query.state.data && measuring(query.state.data) ? 3000 : false),
+  });

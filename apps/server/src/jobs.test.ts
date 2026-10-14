@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createJobs, type JobName } from "./jobs.ts";
 import { createKeyring } from "./keyring.ts";
 import { run } from "./media/ffmpeg.ts";
-import { startMediaWorkers } from "./media/workers.ts";
+import { startWorkers } from "./media/workers.ts";
 import { createStorage } from "./storage.ts";
 
 const url = process.env.DATABASE_URL;
@@ -80,7 +80,7 @@ describe.runIf(url && (hasFfmpeg || process.env.CI))("media jobs", () => {
       .returning();
     projectId = project?.id ?? "";
     await jobs.start();
-    await startMediaWorkers(jobs, { db, storage, workDir: join(root, "work") }, 2);
+    await startWorkers(jobs, { db, storage, workDir: join(root, "work") }, 2);
   });
 
   afterAll(async () => {

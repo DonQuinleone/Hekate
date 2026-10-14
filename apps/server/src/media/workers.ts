@@ -1,14 +1,16 @@
+import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { type Database, inOrg, schema } from "@hekate/db";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { JobHandler, Jobs } from "../jobs.ts";
 import type { Storage } from "../storage.ts";
+import { expireUploads } from "../uploads.ts";
 import { InvalidMediaError, probe } from "./ffmpeg.ts";
 import { sweepWorkspaces, withWorkspace } from "./workspace.ts";
 
-const { files } = schema;
+const { files, blobs } = schema;
 
 export interface MediaWorkerDeps {
   db: Database;
@@ -63,10 +65,34 @@ export function probeHandler(deps: MediaWorkerDeps): JobHandler<"media-probe"> {
   };
 }
 
-/** Start every media worker in this process. */
-export async function startMediaWorkers(jobs: Jobs, deps: MediaWorkerDeps, concurrency: number) {
+/** Hash a blob's content by reading it back through decryption, which also proves it is intact. */
+export function checksumHandler(deps: MediaWorkerDeps): JobHandler<"blob-checksum"> {
+  return async ({ organisationId, blobId }, job) => {
+    const hash = createHash("sha256");
+    const { stream } = await deps.storage.open(organisationId, blobId);
+    for await (const chunk of stream) {
+      if (job.signal.aborted) {
+        stream.destroy();
+        throw new Error("Checksum cancelled");
+      }
+      hash.update(chunk as Buffer);
+    }
+    await deps.db
+      .update(blobs)
+      .set({ sha256: hash.digest("hex") })
+      .where(and(inOrg(blobs, organisationId, eq(blobs.id, blobId)), isNull(blobs.sha256)));
+  };
+}
+
+/** Start every background worker in this process. */
+export async function startWorkers(jobs: Jobs, deps: MediaWorkerDeps, concurrency: number) {
   // Plaintext left behind by a process that crashed mid-job is removed before any new work.
   const swept = await sweepWorkspaces(deps.workDir);
   if (swept > 0) console.log(`Removed ${swept} workspace(s) left by a stopped worker`);
   await jobs.work("media-probe", probeHandler(deps), { concurrency });
+  await jobs.work("blob-checksum", checksumHandler(deps), { concurrency });
+  await jobs.work("uploads-expire", async () => {
+    const aborted = await expireUploads(deps.db, deps.storage);
+    if (aborted > 0) console.log(`Discarded ${aborted} expired upload(s)`);
+  });
 }

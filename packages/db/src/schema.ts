@@ -18,6 +18,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -53,6 +54,12 @@ export const profileEnum = pgEnum("project_profile", ["music", "video", "general
 export const organisationRoleEnum = pgEnum("organisation_role", ["owner", "admin", "member"]);
 export const fileKindEnum = pgEnum("file_kind", ["audio", "video", "document", "image", "other"]);
 export const auditActionEnum = pgEnum("audit_action", auditActions);
+export const uploadStatusEnum = pgEnum("upload_status", [
+  "open",
+  "completing",
+  "completed",
+  "aborted",
+]);
 export const auditActorEnum = pgEnum("audit_actor", auditActorTypes);
 
 // Organisations and people
@@ -272,8 +279,11 @@ export const blobs = pgTable(
     key: text("key").notNull(),
     /** Size of the content before encryption. The stored ciphertext is slightly larger. */
     byteSize: bigint("byte_size", { mode: "number" }).notNull(),
-    /** SHA-256 of the content before encryption, hex encoded. */
-    sha256: text("sha256").notNull(),
+    /**
+     * SHA-256 of the content before encryption, hex encoded. Null until known: uploads
+     * arrive in chunks, in any order, so the checksum job computes it afterwards.
+     */
+    sha256: text("sha256"),
     /** The blob's own data key, wrapped by the organisation key (docs/security.md). */
     wrappedKey: text("wrapped_key").notNull(),
     /** Which organisation key version wrapped it. */
@@ -441,4 +451,59 @@ export const accessEvents = pgTable(
     index("access_events_review_idx").on(t.organisationId, t.reviewId, t.id),
     index("access_events_project_idx").on(t.organisationId, t.projectId, t.id),
   ],
+);
+
+// Uploads
+
+/**
+ * A resumable upload in progress. Chunks are encrypted as they arrive and stored as
+ * parts of a multipart upload in the chosen backend, so plaintext never waits on
+ * the server. Completing it creates the blob and the file.
+ */
+export const uploads = pgTable(
+  "uploads",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: projectId(),
+    folderId: uuid("folder_id").references(() => folders.id, { onDelete: "set null" }),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    contentType: text("content_type").notNull(),
+    /** Plaintext size the client declared; every chunk is checked against it. */
+    byteSize: bigint("byte_size", { mode: "number" }).notNull(),
+    status: uploadStatusEnum("status").notNull().default("open"),
+    /** The blob this upload becomes. Its id is fixed now: it is bound into the encryption. */
+    blobId: uuid("blob_id").notNull(),
+    backend: text("backend").notNull(),
+    key: text("key").notNull(),
+    /** The backend's own multipart upload id. */
+    backendUploadId: text("backend_upload_id").notNull(),
+    wrappedKey: text("wrapped_key").notNull(),
+    keyVersion: integer("key_version").notNull(),
+    /** The object's nonce prefix, base64. Not secret, but fixed for every chunk. */
+    noncePrefix: text("nonce_prefix").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    index("uploads_org_idx").on(t.organisationId),
+    index("uploads_open_expiry_idx").on(t.status, t.expiresAt),
+  ],
+);
+
+/** One received chunk of an upload, stored as part number chunk + 1 in the backend. */
+export const uploadParts = pgTable(
+  "upload_parts",
+  {
+    organisationId: organisationId(),
+    uploadId: uuid("upload_id")
+      .notNull()
+      .references(() => uploads.id, { onDelete: "cascade" }),
+    chunk: integer("chunk").notNull(),
+    /** The backend's tag for the stored part, needed to complete the upload. */
+    tag: text("tag").notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.uploadId, t.chunk] })],
 );

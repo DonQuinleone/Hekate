@@ -1,8 +1,8 @@
 import { profiles } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { FileList, Uploader } from "~/components/files";
 import { Icon } from "~/components/icons";
-import { Button } from "~/components/ui/button";
 import { StatusPill } from "~/components/ui/status";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { projectQuery } from "~/lib/queries";
@@ -10,16 +10,16 @@ import { profileIcon } from "./projects";
 
 const uploadCopy = {
   music: {
-    title: "Add a track",
-    body: "Upload a mix as WAV, FLAC or AIFF to start Version 1, and the score as PDF. Bars sync once the score is mapped.",
+    title: "Add recordings and scores",
+    body: "Drop mixes as WAV, FLAC or AIFF and scores as PDF. Large sessions resume if the connection drops.",
   },
   video: {
-    title: "Add a cut",
-    body: "Upload a ProRes, H.264 or HEVC file. Each upload of the same cut becomes a new version.",
+    title: "Add cuts",
+    body: "Drop ProRes, H.264 or HEVC files. Large files resume if the connection drops.",
   },
   general: {
     title: "Add files",
-    body: "Documents, images, audio or video. Every file keeps its versions.",
+    body: "Documents, images, audio or video. Large files resume if the connection drops.",
   },
 } as const;
 
@@ -54,19 +54,10 @@ export function ProjectPage({ projectId }: { projectId: string }) {
           <TabsTrigger value="comments">Comments</TabsTrigger>
           <TabsTrigger value="activity">Activity</TabsTrigger>
         </TabsList>
-        <TabsContent value="media" className="pt-6">
-          <div className="flex flex-col items-start gap-4 rounded-panel border border-dashed border-edge p-8">
-            <Icon name="upload" size={20} className="text-ink-2" />
-            <div className="flex flex-col gap-1">
-              <p className="m-0 text-[15px] font-medium">{copy.title}</p>
-              <p className="m-0 max-w-md text-[13px] leading-normal text-ink-3">{copy.body}</p>
-            </div>
-            <Button disabled title="Uploads arrive with issue 10">
-              <Icon name="upload" size={14} />
-              Upload
-            </Button>
-            <p className="label m-0">Anchors in this profile · {profile.anchors.join(" · ")}</p>
-          </div>
+        <TabsContent value="media" className="flex flex-col gap-6 pt-6">
+          <Uploader projectId={project.id} title={copy.title} body={copy.body} />
+          <FileList projectId={project.id} />
+          <p className="label m-0">Anchors in this profile · {profile.anchors.join(" · ")}</p>
         </TabsContent>
         <TabsContent value="comments" className="pt-6 text-ink-3">
           No comments yet.

@@ -8,7 +8,7 @@ import { loadConfig } from "./config.ts";
 import { createJobs } from "./jobs.ts";
 import { createKeyring, UnknownMasterKeyError } from "./keyring.ts";
 import { createMailer } from "./mail.ts";
-import { startMediaWorkers } from "./media/workers.ts";
+import { startWorkers } from "./media/workers.ts";
 import { serveWeb } from "./static.ts";
 import { createStorage } from "./storage.ts";
 import { version } from "./version.ts";
@@ -68,7 +68,7 @@ const storage = createStorage(db, backends, keyring);
 const jobs = createJobs({ connectionString: config.DATABASE_URL });
 await jobs.start();
 if (config.WORKER) {
-  await startMediaWorkers(
+  await startWorkers(
     jobs,
     { db, storage, ...(config.WORK_DIR ? { workDir: config.WORK_DIR } : {}) },
     config.WORKER_CONCURRENCY,
@@ -82,6 +82,7 @@ const app = createApp({
   mailer,
   storage,
   audit,
+  jobs,
   publicUrl: config.PUBLIC_URL,
   trustProxy: config.TRUST_PROXY,
 });

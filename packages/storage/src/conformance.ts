@@ -2,8 +2,13 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 import { buffer } from "node:stream/consumers";
 import { afterAll, describe, expect, it } from "vitest";
-import { InvalidKeyError, ObjectNotFoundError, RangeNotSatisfiableError } from "./errors.ts";
-import type { StorageBackend } from "./types.ts";
+import {
+  InvalidKeyError,
+  ObjectNotFoundError,
+  RangeNotSatisfiableError,
+  StorageError,
+} from "./errors.ts";
+import { MIN_PART_SIZE, type StorageBackend } from "./types.ts";
 
 /**
  * The behaviour every storage backend must share. Each driver's test file runs
@@ -131,6 +136,73 @@ export function storageConformance(label: string, make: () => StorageBackend) {
         );
         await expect(backend.get(bad), bad).rejects.toBeInstanceOf(InvalidKeyError);
       }
+    });
+
+    describe("multipart", () => {
+      const big = () => randomBytes(MIN_PART_SIZE);
+
+      it("joins parts sent out of order and re-sent", async () => {
+        const one = big();
+        const two = big();
+        const three = Buffer.from("the last part may be small");
+        const id = await backend.createMultipart(key("multi"), { contentType: "audio/wav" });
+        const t3 = await backend.putPart(key("multi"), id, 3, three);
+        await backend.putPart(key("multi"), id, 1, randomBytes(MIN_PART_SIZE)); // replaced below
+        const t1 = await backend.putPart(key("multi"), id, 1, one);
+        const t2 = await backend.putPart(key("multi"), id, 2, two);
+        expect(await backend.head(key("multi"))).toBeNull();
+        const info = await backend.completeMultipart(key("multi"), id, [
+          { partNumber: 2, tag: t2 },
+          { partNumber: 3, tag: t3 },
+          { partNumber: 1, tag: t1 },
+        ]);
+        const expected = Buffer.concat([one, two, three]);
+        expect(info.size).toBe(expected.length);
+        expect((await read(await backend.get(key("multi")))).equals(expected)).toBe(true);
+        const tail = await read(await backend.get(key("multi"), { start: expected.length - 5 }));
+        expect(tail.toString()).toBe("small");
+      }, 60_000);
+
+      it("refuses a small part before the last, and a stale tag", async () => {
+        const id = await backend.createMultipart(key("small"));
+        const t1 = await backend.putPart(key("small"), id, 1, Buffer.from("too small"));
+        const t2 = await backend.putPart(key("small"), id, 2, Buffer.from("last"));
+        await expect(
+          backend.completeMultipart(key("small"), id, [
+            { partNumber: 1, tag: t1 },
+            { partNumber: 2, tag: t2 },
+          ]),
+        ).rejects.toThrow();
+        await backend.abortMultipart(key("small"), id);
+
+        const again = await backend.createMultipart(key("stale"));
+        const stale = await backend.putPart(key("stale"), again, 1, Buffer.from("first"));
+        await backend.putPart(key("stale"), again, 1, Buffer.from("second"));
+        await expect(
+          backend.completeMultipart(key("stale"), again, [{ partNumber: 1, tag: stale }]),
+        ).rejects.toThrow();
+        await backend.abortMultipart(key("stale"), again);
+      });
+
+      it("discards an aborted upload, and aborting twice succeeds", async () => {
+        const id = await backend.createMultipart(key("aborted"));
+        await backend.putPart(key("aborted"), id, 1, Buffer.from("x"));
+        await backend.abortMultipart(key("aborted"), id);
+        await expect(backend.abortMultipart(key("aborted"), id)).resolves.toBeUndefined();
+        expect(await backend.head(key("aborted"))).toBeNull();
+        await expect(backend.putPart(key("aborted"), id, 1, Buffer.from("x"))).rejects.toThrow();
+      });
+
+      it("refuses part numbers out of range", async () => {
+        const id = await backend.createMultipart(key("range-parts"));
+        await expect(
+          backend.putPart(key("range-parts"), id, 0, Buffer.from("x")),
+        ).rejects.toBeInstanceOf(StorageError);
+        await expect(
+          backend.putPart(key("range-parts"), id, 10_001, Buffer.from("x")),
+        ).rejects.toBeInstanceOf(StorageError);
+        await backend.abortMultipart(key("range-parts"), id);
+      });
     });
 
     it("fails a write when the source stream fails, leaving nothing behind", async () => {

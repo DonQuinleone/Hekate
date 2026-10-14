@@ -72,6 +72,15 @@ Envelope encryption: every stored object (an original or a derivative) has its o
 - **Rotation:** move the current key to `MASTER_KEYS_PREVIOUS`, set a new `MASTER_KEY` and restart. Hekate re-wraps every organisation key with the new key at start-up; the old key can then be removed. Stored objects are never rewritten.
 - **Key management services** (AWS KMS, Vault and so on) can replace the configured master key later behind the same interface.
 
+## Uploads
+
+Uploads are resumable and never sit on the server as plaintext.
+
+- The browser creates an upload, then sends 8 MiB chunks in any order, three at a time, each with a SHA-256 `Content-Digest`; damaged or failed chunks are re-sent. Choosing the same file again after a dropped connection resumes from the chunks already received.
+- Each chunk is encrypted the moment it arrives (128 segments of the format above, under the upload's own data key and nonce prefix) and stored as one part of a multipart upload in the chosen backend. The encrypted chunks join into exactly the object a single stream would have produced.
+- Completing an upload creates the blob and the file, records a `file.upload` event, and queues the checksum and probe jobs. The checksum job reads the file back through decryption, which also proves it is intact.
+- An upload belongs to the member who started it. Unfinished uploads expire after seven days; an hourly job discards their stored parts.
+
 ## Media processing
 
 The media worker runs ffmpeg and ffprobe on uploads, which are untrusted input.
