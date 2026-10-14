@@ -34,6 +34,12 @@ export const jobDefinitions = {
     options: { retryLimit: 2, expireInSeconds: 30 * 60 },
     schedule: "17 * * * *",
   },
+  /** Compare storage with the database: remove what nothing uses, report what is missing. Daily. */
+  "storage-reconcile": {
+    data: z.object({}),
+    options: { retryLimit: 1, expireInSeconds: 2 * 60 * 60 },
+    schedule: "41 3 * * *",
+  },
 } satisfies Record<string, { data: z.ZodType; options: QueueOptions; schedule?: string }>;
 
 export type JobName = keyof typeof jobDefinitions;

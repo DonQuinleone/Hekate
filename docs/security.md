@@ -72,6 +72,14 @@ Envelope encryption: every stored object (an original or a derivative) has its o
 - **Rotation:** move the current key to `MASTER_KEYS_PREVIOUS`, set a new `MASTER_KEY` and restart. Hekate re-wraps every organisation key with the new key at start-up; the old key can then be removed. Stored objects are never rewritten.
 - **Key management services** (AWS KMS, Vault and so on) can replace the configured master key later behind the same interface.
 
+## Storage reconciliation
+
+A daily job compares every storage backend with the database, one organisation at a time.
+
+- **Orphaned bytes** (objects no blob row accounts for, including those of a deleted organisation) and **unused blobs** (no file, rendition, segment or peak level points at them) are recorded on first sight and removed only when a run at least a day later still finds them. Uploads and jobs in flight are therefore never touched. Each removal is written to the organisation's access log (`storage.remove`).
+- **Missing bytes** (a blob row whose object is gone) mean data loss. They are reported (logged, and `storage.missing` in the access log once) and never changed: a person decides.
+- `STORAGE_RECONCILE=report` keeps the findings and removes nothing.
+
 ## Uploads
 
 Uploads are resumable and never sit on the server as plaintext.
