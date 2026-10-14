@@ -1,4 +1,4 @@
-import type { Anchor, ProjectProfile } from "@hekate/shared";
+import type { Anchor, MediaInfo, ProjectProfile } from "@hekate/shared";
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
@@ -293,14 +293,8 @@ export const files = pgTable(
       .references(() => blobs.id, { onDelete: "no action" }),
     contentType: text("content_type").notNull(),
     byteSize: bigint("byte_size", { mode: "number" }).notNull(),
-    mediaInfo: jsonb("media_info").$type<{
-      duration?: number;
-      fps?: number;
-      width?: number;
-      height?: number;
-      channels?: number;
-      sampleRate?: number;
-    }>(),
+    /** Measured by the media worker; null until the file has been probed. */
+    mediaInfo: jsonb("media_info").$type<MediaInfo>(),
     takeId: uuid("take_id").references(() => takes.id, { onDelete: "set null" }),
     /** Within a take: the microphone or channel name, for example "Main pair L". */
     takeChannel: text("take_channel"),

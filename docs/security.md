@@ -72,6 +72,15 @@ Envelope encryption: every stored object (an original or a derivative) has its o
 - **Rotation:** move the current key to `MASTER_KEYS_PREVIOUS`, set a new `MASTER_KEY` and restart. Hekate re-wraps every organisation key with the new key at start-up; the old key can then be removed. Stored objects are never rewritten.
 - **Key management services** (AWS KMS, Vault and so on) can replace the configured master key later behind the same interface.
 
+## Media processing
+
+The media worker runs ffmpeg and ffprobe on uploads, which are untrusted input.
+
+- **No playlists, no network.** Every call allows only the `file` protocol and an allow-list of real media demuxers, so a crafted upload cannot be an HLS playlist, concat list or image sequence that reads other files or reaches the network. Arguments are passed as a list, never through a shell, and file names are prefixed with `file:`.
+- **Bounded.** Each run has a time limit, honours cancellation, and caps how much output it keeps.
+- **Scratch space.** Media tools need seekable local files, so a job decrypts its input into a private directory (mode 0700) that is removed when the job ends, whether it succeeds or fails. Plaintext exists there only while a job runs. Set `WORK_DIR` to a tmpfs to keep it off disk entirely.
+- **Tenancy.** Job data carries only an organisation id and record ids; workers load everything else themselves, scoped to that organisation.
+
 ## Audit
 
 An append-only access log records who accessed what, when, through which review, from which IP address and user agent, and whether it was a stream, a page, a key or a download. Owners can filter it per file, per person and per review.
