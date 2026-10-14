@@ -1,0 +1,265 @@
+import { execFileSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { expect, type Page, test as setup } from "@playwright/test";
+import postgres from "postgres";
+import { samplePdf } from "../../server/src/media/sample-pdf.ts";
+import { FIXED_TIME, type Seeded, state } from "./fixtures.ts";
+
+/**
+ * Seeds one organisation as a studio would have it: a music project with a track in two
+ * versions (a dry and a wet mix in the second), its score, comments of every kind and a
+ * review; a video project with a cut. Everything is made here, so every run sees the same.
+ */
+
+const media = join(state, "media");
+
+/** A few seconds of something like music: plucked notes over a bass, the same every time. */
+function recording(path: string, seconds: number, brightness: number) {
+  const note = (base: string, steps: string) =>
+    `0.25*sin(2*PI*(${base}*pow(2,${steps}/12))*t)*exp(-4*mod(t,0.5))`;
+  const left = `${note("220", "mod(floor(t*2),5)*2")}+${note("110", "mod(floor(t/2),4)*3")}*0.8`;
+  const right = `${note("330", "mod(floor(t*2),4)*2")}*${brightness}+${note("110", "mod(floor(t/2),4)*3")}*0.8`;
+  execFileSync("ffmpeg", [
+    "-v",
+    "error",
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    `aevalsrc='${left}|${right}':s=44100:d=${seconds}`,
+    "-c:a",
+    "pcm_s16le",
+    path,
+  ]);
+}
+
+function cut(path: string) {
+  execFileSync("ffmpeg", [
+    "-v",
+    "error",
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    "testsrc2=size=1280x720:rate=25:duration=12",
+    "-f",
+    "lavfi",
+    "-i",
+    "sine=frequency=330:sample_rate=48000:duration=12",
+    "-c:v",
+    "libx264",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-shortest",
+    path,
+  ]);
+}
+
+async function api<T>(page: Page, method: string, path: string, body?: unknown): Promise<T> {
+  const response = await page.request.fetch(path, {
+    method,
+    data: body === undefined ? undefined : body,
+  });
+  expect(response.ok(), `${method} ${path}: ${await response.text()}`).toBe(true);
+  return (await response.json()) as T;
+}
+
+interface SeededFile {
+  id: string;
+  name: string;
+  kind: string;
+  streamStatus: string;
+  analysisStatus: string;
+}
+
+async function upload(page: Page, projectId: string, paths: string[]) {
+  await page.goto(`/projects/${projectId}`);
+  await page.setInputFiles("input[type=file]", paths);
+  await expect(page.locator("ul[aria-label='Uploads in progress']")).toBeHidden({
+    timeout: 120_000,
+  });
+}
+
+/** Every file measured, drawn and analysed, as far as it will go. */
+async function settled(page: Page, projectId: string): Promise<SeededFile[]> {
+  const done = (s: string) => s === "ready" || s === "failed" || s === "none";
+  for (let tries = 0; tries < 120; tries++) {
+    const { files } = await api<{ files: SeededFile[] }>(
+      page,
+      "GET",
+      `/api/projects/${projectId}/files`,
+    );
+    if (files.every((f) => done(f.streamStatus) && done(f.analysisStatus))) return files;
+    await page.waitForTimeout(1000);
+  }
+  throw new Error("The media worker did not finish in time");
+}
+
+setup("seed", async ({ page }) => {
+  setup.setTimeout(300_000);
+  mkdirSync(media, { recursive: true });
+  const file = (name: string) => join(media, name);
+  recording(file("Maple Leaf Rag - Mix v1.wav"), 40, 0.6);
+  recording(file("Maple Leaf Rag - Dry v2.wav"), 40, 0.8);
+  recording(file("Maple Leaf Rag - Wet v2.wav"), 40, 1);
+  writeFileSync(file("Maple Leaf Rag - Score.pdf"), samplePdf(3));
+  cut(file("Opening titles - Cut 3.mp4"));
+
+  // The first person sets up the organisation.
+  await page.goto("/setup");
+  await page.fill("#organisation", "Endless Hall Records");
+  await page.fill("#name", "Alex Rivera");
+  await page.fill("#email", "producer@example.test");
+  await page.fill("#password", "correct horse battery");
+  await page.fill("#confirm", "correct horse battery");
+  await page.click("button[type=submit]");
+  await expect(page.getByText("No projects yet")).toBeVisible();
+  const { user } = await api<{ user: { id: string } }>(page, "GET", "/api/me");
+
+  const { project: music } = await api<{ project: { id: string } }>(page, "POST", "/api/projects", {
+    name: "Joplin Rags",
+    profile: "music",
+  });
+  const { project: video } = await api<{ project: { id: string } }>(page, "POST", "/api/projects", {
+    name: "Opening titles",
+    profile: "video",
+  });
+
+  await upload(page, music.id, [
+    file("Maple Leaf Rag - Mix v1.wav"),
+    file("Maple Leaf Rag - Dry v2.wav"),
+    file("Maple Leaf Rag - Wet v2.wav"),
+    file("Maple Leaf Rag - Score.pdf"),
+  ]);
+  await upload(page, video.id, [file("Opening titles - Cut 3.mp4")]);
+  const musicFiles = await settled(page, music.id);
+  const [cutFile] = await settled(page, video.id);
+  const named = (part: string) => {
+    const found = musicFiles.find((f) => f.name.includes(part));
+    if (!found) throw new Error(`No file named like ${part}`);
+    return found.id;
+  };
+  const score = named("Score");
+  const dry = named("Dry v2");
+  if (!cutFile) throw new Error("The cut did not upload");
+
+  // A track in two versions, and one not yet started.
+  const { track } = await api<{ track: { id: string } }>(
+    page,
+    "POST",
+    `/api/projects/${music.id}/tracks`,
+    { name: "Maple Leaf Rag", scoreFileId: score },
+  );
+  await api(page, "POST", `/api/tracks/${track.id}/versions`, {
+    notes: "First edit from the Tuesday sessions.",
+    variations: [{ fileId: named("Mix v1"), name: "Mix" }],
+  });
+  await api(page, "POST", `/api/tracks/${track.id}/versions`, {
+    notes: "Bars 12 to 16 replaced with take 7.",
+    variations: [
+      { fileId: dry, name: "Dry" },
+      { fileId: named("Wet v2"), name: "Wet" },
+    ],
+  });
+  await api(page, "POST", `/api/projects/${music.id}/tracks`, { name: "The Entertainer" });
+
+  // Comments of every kind.
+  type Created = { comment: { id: string } };
+  const comment = (fileId: string, body: string, anchor?: unknown, parentId?: string) =>
+    api<Created>(page, "POST", `/api/files/${fileId}/comments`, { body, anchor, parentId });
+  await comment(dry, "Pedal noise on the left, just before the downbeat.", {
+    kind: "time",
+    start: 6.2,
+    end: 6.2,
+  });
+  const drop = await comment(dry, "The bass drops out here for half a bar. Intentional?", {
+    kind: "time",
+    start: 21.4,
+    end: 23,
+  });
+  await comment(dry, "Yes, it is in the score. Leaving it.", undefined, drop.comment.id);
+  const lift = await comment(dry, "Lovely lift into the trio.", {
+    kind: "time",
+    start: 33,
+    end: 33,
+  });
+  await api(page, "POST", `/api/comments/${lift.comment.id}/resolve`, { resolved: true });
+  await comment(dry, "Overall balance is great; the reverb tail could be a touch shorter.");
+  await comment(score, "This dynamic is printed as mp in the parts.", {
+    kind: "region",
+    page: 1,
+    x: 0.1,
+    y: 0.12,
+    width: 0.5,
+    height: 0.08,
+  });
+  await comment(cutFile.id, "The title card holds a beat too long.", {
+    kind: "time",
+    start: 4,
+    end: 6,
+  });
+  await comment(cutFile.id, "Logo sits too close to the edge here.", {
+    kind: "region",
+    at: 8,
+    x: 0.7,
+    y: 0.75,
+    width: 0.25,
+    height: 0.2,
+  });
+
+  // An approval review, with a guest.
+  const { review } = await api<{ review: { id: string } }>(
+    page,
+    "POST",
+    `/api/projects/${music.id}/reviews`,
+    {
+      kind: "approval",
+      title: "Album masters",
+      message: "Final masters for the album. Listen on headphones and on speakers, please.",
+      dueAt: "2026-10-30T17:00:00Z",
+      order: "parallel",
+      items: [{ trackId: track.id }, { fileId: score }],
+      reviewers: [user.id, { name: "Mira Solberg", email: "mira@example.test" }],
+    },
+  );
+
+  // The same moment for every run, so dates and "ago" read the same in every capture.
+  const sql = postgres(process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL ?? "", {
+    onnotice: () => undefined,
+  });
+  try {
+    const columns = await sql<{ table_name: string; column_name: string }[]>`
+      select table_name, column_name from information_schema.columns
+      where table_schema = 'public' and data_type like 'timestamp%'
+        and column_name in ('created_at', 'updated_at', 'decided_at', 'viewed_at', 'submitted_at', 'resolved_at')`;
+    for (const { table_name: table, column_name: column } of columns) {
+      // One minute apart, in the order they happened: an hour or so before the fixed time.
+      await sql.unsafe(
+        `with ordered as (
+           select ctid, row_number() over (order by "${column}", ctid) as n
+           from "${table}" where "${column}" is not null
+         )
+         update "${table}" t set "${column}" = $1::timestamptz - interval '2 hours' + ordered.n * interval '1 minute'
+         from ordered where t.ctid = ordered.ctid`,
+        [FIXED_TIME],
+      );
+    }
+  } finally {
+    await sql.end();
+  }
+
+  const seeded: Seeded = {
+    musicProjectId: music.id,
+    videoProjectId: video.id,
+    trackId: track.id,
+    dryFileId: dry,
+    scoreFileId: score,
+    cutFileId: cutFile.id,
+    reviewId: review.id,
+  };
+  writeFileSync(join(state, "seeded.json"), JSON.stringify(seeded, null, 2));
+  await page.context().storageState({ path: join(state, "owner.json") });
+});
