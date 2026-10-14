@@ -82,3 +82,30 @@ export function formatChannels(channels: number, layout?: string): string {
   if (channels === 2) return "stereo";
   return `${channels} ch`;
 }
+
+/** Short names for ffmpeg's channel order in common layouts. */
+const layoutChannels: Record<string, string[]> = {
+  mono: ["M"],
+  stereo: ["L", "R"],
+  "2.1": ["L", "R", "LFE"],
+  "3.0": ["L", "R", "C"],
+  quad: ["L", "R", "Lb", "Rb"],
+  "5.0": ["L", "R", "C", "Ls", "Rs"],
+  "5.1": ["L", "R", "C", "LFE", "Ls", "Rs"],
+  "7.1": ["L", "R", "C", "LFE", "Lb", "Rb", "Ls", "Rs"],
+  "5.1.2": ["L", "R", "C", "LFE", "Ls", "Rs", "Ltm", "Rtm"],
+  "5.1.4": ["L", "R", "C", "LFE", "Ls", "Rs", "Ltf", "Rtf", "Ltb", "Rtb"],
+  "7.1.2": ["L", "R", "C", "LFE", "Lb", "Rb", "Ls", "Rs", "Ltm", "Rtm"],
+  "7.1.4": ["L", "R", "C", "LFE", "Lb", "Rb", "Ls", "Rs", "Ltf", "Rtf", "Ltb", "Rtb"],
+};
+
+/** A label for each channel, in stream order: `L`, `R`, `C`, `LFE`, or `1`, `2`… when unknown. */
+export function channelNames(channels: number, layout?: string): string[] {
+  const named = layout ? layoutChannels[layout.replace(/\(.*\)$/, "")] : undefined;
+  if (named && named.length === channels) return named;
+  if (!layout || /channels?$/.test(layout)) {
+    if (channels === 1) return ["M"];
+    if (channels === 2) return ["L", "R"];
+  }
+  return Array.from({ length: channels }, (_, i) => String(i + 1));
+}
