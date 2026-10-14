@@ -65,3 +65,7 @@ export const createUploadInput = z.object({
   contentType: z.string().max(200).optional(),
 });
 export type CreateUploadInput = z.input<typeof createUploadInput>;
+
+/** A PDF, by its type or its name: the documents whose pages are drawn, scores among them. */
+export const isPdf = (name: string, contentType: string) =>
+  contentType === "application/pdf" || name.toLowerCase().endsWith(".pdf");

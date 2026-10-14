@@ -137,6 +137,14 @@ export function carryTarget<T extends { name: string; isPrimary: boolean }>(
  * before-and-after comparison offsets the earlier version by. Zero unless both are times.
  */
 export function anchorShift(from: Anchor | null, to: Anchor | null): number {
-  if (from?.kind !== "time" || to?.kind !== "time") return 0;
-  return from.start - to.start;
+  const a = anchorTime(from);
+  const b = anchorTime(to);
+  return a === null || b === null ? 0 : a - b;
+}
+
+/** Where in a recording an anchor plays from: a time's start, or the moment a bar was named. */
+export function anchorTime(anchor: Anchor | null): number | null {
+  if (anchor?.kind === "time") return anchor.start;
+  if (anchor?.kind === "bar" && anchor.at !== undefined) return anchor.at;
+  return null;
 }

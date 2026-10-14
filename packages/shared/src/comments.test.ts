@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   anchorProblem,
   anchorShift,
+  anchorTime,
   carrySettles,
   carryStatusLabel,
   carryTarget,
@@ -83,5 +84,19 @@ describe("comments", () => {
     expect(anchorShift(at(12), at(10.5))).toBe(1.5);
     expect(anchorShift(at(12), null)).toBe(0);
     expect(anchorShift(null, at(3))).toBe(0);
+  });
+});
+
+describe("anchorTime", () => {
+  it("is where a time starts, or where a bar was named", () => {
+    expect(anchorTime({ kind: "time", start: 4, end: 6 })).toBe(4);
+    expect(anchorTime({ kind: "bar", from: { bar: 9, beat: 1 }, at: 12 })).toBe(12);
+    expect(anchorTime({ kind: "bar", from: { bar: 9, beat: 1 } })).toBeNull();
+    expect(
+      anchorShift(
+        { kind: "bar", from: { bar: 9, beat: 1 }, at: 12 },
+        { kind: "time", start: 10, end: 10 },
+      ),
+    ).toBe(2);
   });
 });

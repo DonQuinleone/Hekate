@@ -1,4 +1,4 @@
-import { variationNameFrom } from "@hekate/shared";
+import { isPdf, variationNameFrom } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
@@ -320,7 +320,7 @@ function ScoreLink({ track, canEdit }: { track: Track; canEdit: boolean }) {
   const { data: files } = useQuery(projectFilesQuery(track.projectId));
   const { updateTrack } = useTrackMutations(track.projectId);
   const id = useId();
-  const scores = (files ?? []).filter((f) => f.kind === "document");
+  const scores = (files ?? []).filter((f) => isPdf(f.name, f.contentType));
   const linked = scores.find((f) => f.id === track.scoreFileId);
   if (!canEdit && !linked) return null;
   return (

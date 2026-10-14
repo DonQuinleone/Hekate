@@ -3,6 +3,7 @@ import {
   addVariationInput,
   createTrackInput,
   createVersionInput,
+  isPdf,
   type ProjectPermission,
   updateTrackInput,
   withPrimary,
@@ -56,11 +57,14 @@ async function assertScore(
   fileId: string,
 ) {
   const [file] = await db
-    .select({ kind: files.kind })
+    .select({ name: files.name, contentType: files.contentType })
     .from(files)
     .where(inOrg(files, organisationId, eq(files.projectId, projectId), eq(files.id, fileId)));
   if (!file) throw new HTTPException(422, { message: "Files must come from the same project" });
-  if (file.kind !== "document") throw new HTTPException(422, { message: "A score is a PDF" });
+  // Only a PDF's pages are drawn, so only a PDF can show beside the recordings.
+  if (!isPdf(file.name, file.contentType)) {
+    throw new HTTPException(422, { message: "A score is a PDF" });
+  }
 }
 
 /** A project's tracks, each with its versions (oldest first) and their variations. */

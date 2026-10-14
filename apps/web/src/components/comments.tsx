@@ -2,6 +2,7 @@ import {
   type Anchor,
   allowsAnchor,
   anchorShift,
+  anchorTime,
   type CarryStatus,
   carryStatuses,
   carryStatusLabel,
@@ -517,6 +518,8 @@ export function Comments({
     file !== undefined &&
     allowsAnchor(file.profile, "bar") &&
     (file.kind === "audio" || file.kind === "video" || file.kind === "document");
+  /** Bars typed are the comment's target: one target at a time, so the others step aside. */
+  const barsOn = offersBars && bars.trim() !== "";
 
   const seek = (seconds: number) => {
     if (!media) return;
@@ -529,11 +532,10 @@ export function Comments({
   /** The anchor for a new comment: the captured time, or the playhead as it is now. */
   const anchorNow = (): Anchor | null => {
     // Bars typed: the comment points at them, and plays from the moment they were named.
-    if (offersBars && bars.trim()) {
+    if (barsOn) {
       const named = parseBars(bars);
       if (!named) throw new Error("Write a bar, such as 25, or bars, such as 9-12");
-      const moment =
-        media && !wholeFile ? (at ?? Math.round(media.currentTime * 1000) / 1000) : undefined;
+      const moment = media ? (at ?? Math.round(media.currentTime * 1000) / 1000) : undefined;
       return { kind: "bar", ...named, ...(moment === undefined ? {} : { at: moment }) };
     }
     if (pages) {
@@ -608,16 +610,35 @@ export function Comments({
             {pages && (pages.paged || draft) && (
               <span className="flex items-center gap-1">
                 {draft && (
-                  <Target pressed={pageAim === "region"} onClick={() => setPageTarget("region")}>
+                  <Target
+                    pressed={!barsOn && pageAim === "region"}
+                    onClick={() => {
+                      setBars("");
+                      setPageTarget("region");
+                    }}
+                  >
                     Region
                   </Target>
                 )}
                 {pages.paged && (
-                  <Target pressed={pageAim === "page"} onClick={() => setPageTarget("page")} mono>
+                  <Target
+                    pressed={!barsOn && pageAim === "page"}
+                    onClick={() => {
+                      setBars("");
+                      setPageTarget("page");
+                    }}
+                    mono
+                  >
                     P. {pages.focus.page}
                   </Target>
                 )}
-                <Target pressed={pageAim === "whole"} onClick={() => setPageTarget("whole")}>
+                <Target
+                  pressed={!barsOn && pageAim === "whole"}
+                  onClick={() => {
+                    setBars("");
+                    setPageTarget("whole");
+                  }}
+                >
                   Whole file
                 </Target>
               </span>
@@ -644,15 +665,16 @@ export function Comments({
               <span className="flex items-center gap-1">
                 <button
                   type="button"
-                  aria-pressed={!wholeFile && !(loop && onPassage)}
+                  aria-pressed={!barsOn && !wholeFile && !(loop && onPassage)}
                   onClick={() => {
+                    setBars("");
                     setWholeFile(false);
                     setOnPassage(false);
                     setAt(Math.round(media.currentTime * 1000) / 1000);
                   }}
                   className={cn(
                     "tabular h-6 cursor-pointer rounded-chip border px-2 font-mono text-[11px]",
-                    !wholeFile && !(loop && onPassage)
+                    !barsOn && !wholeFile && !(loop && onPassage)
                       ? "border-edge bg-raised text-ink"
                       : "border-transparent bg-transparent text-ink-3",
                   )}
@@ -662,14 +684,15 @@ export function Comments({
                 {loop && (
                   <button
                     type="button"
-                    aria-pressed={!wholeFile && onPassage}
+                    aria-pressed={!barsOn && !wholeFile && onPassage}
                     onClick={() => {
+                      setBars("");
                       setWholeFile(false);
                       setOnPassage(true);
                     }}
                     className={cn(
                       "tabular h-6 cursor-pointer rounded-chip border px-2 font-mono text-[11px]",
-                      !wholeFile && onPassage
+                      !barsOn && !wholeFile && onPassage
                         ? "border-edge bg-raised text-ink"
                         : "border-transparent bg-transparent text-ink-3",
                     )}
@@ -679,11 +702,14 @@ export function Comments({
                 )}
                 <button
                   type="button"
-                  aria-pressed={wholeFile}
-                  onClick={() => setWholeFile(true)}
+                  aria-pressed={!barsOn && wholeFile}
+                  onClick={() => {
+                    setBars("");
+                    setWholeFile(true);
+                  }}
                   className={cn(
                     "h-6 cursor-pointer rounded-chip border px-2 text-[11px]",
-                    wholeFile
+                    !barsOn && wholeFile
                       ? "border-edge bg-raised text-ink"
                       : "border-transparent bg-transparent text-ink-3",
                   )}
@@ -771,9 +797,13 @@ export function useCommentMarkers(fileId: string): number[] {
       data
         .filter(
           (c) =>
-            !c.parentId && !c.resolvedAt && c.carry?.visible !== false && c.anchor?.kind === "time",
+            !c.parentId &&
+            !c.resolvedAt &&
+            c.carry?.visible !== false &&
+            anchorTime(c.anchor ?? null) !== null,
         )
-        .map((c) => (c.anchor?.kind === "time" ? c.anchor.start : 0)),
+        // A bar comment marks the moment it was named at.
+        .map((c) => anchorTime(c.anchor ?? null) ?? 0),
     ),
   ];
 }
