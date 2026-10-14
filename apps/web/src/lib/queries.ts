@@ -889,3 +889,76 @@ export function useGroupMutations(projectId: string) {
     }),
   };
 }
+
+export interface Folder {
+  id: string;
+  parentId: string | null;
+  name: string;
+}
+
+/** A project's folders, every level. */
+export const projectFoldersQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "folders"],
+    queryFn: async () =>
+      (
+        await json<{ folders: Folder[] }>(
+          await api.projects[":id"].folders.$get({ param: { id: projectId } }),
+        )
+      ).folders,
+  });
+
+/** Making, renaming, moving and deleting folders and files. */
+export function useOrganise(projectId: string) {
+  const client = useQueryClient();
+  const refresh = () =>
+    Promise.all([
+      client.invalidateQueries({ queryKey: ["projects", projectId, "folders"] }),
+      client.invalidateQueries({ queryKey: ["projects", projectId, "files"] }),
+    ]);
+  return {
+    createFolder: useMutation({
+      mutationFn: async (input: { name: string; parentId: string | null }) =>
+        (
+          await json<{ folder: Folder }>(
+            await api.projects[":id"].folders.$post({ param: { id: projectId }, json: input }),
+          )
+        ).folder,
+      onSuccess: refresh,
+    }),
+    updateFolder: useMutation({
+      mutationFn: async ({
+        id,
+        ...input
+      }: {
+        id: string;
+        name?: string;
+        parentId?: string | null;
+      }) => json(await api.folders[":id"].$patch({ param: { id }, json: input })),
+      onSuccess: refresh,
+    }),
+    deleteFolder: useMutation({
+      mutationFn: async (id: string) =>
+        json<{ moved: number }>(await api.folders[":id"].$delete({ param: { id } })),
+      onSuccess: refresh,
+    }),
+    updateFile: useMutation({
+      mutationFn: async ({
+        id,
+        ...input
+      }: {
+        id: string;
+        name?: string;
+        folderId?: string | null;
+      }) => json(await api.files[":id"].$patch({ param: { id }, json: input })),
+      onSuccess: refresh,
+    }),
+    deleteFile: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api.files[":id"].$delete({ param: { id } });
+        if (!res.ok) await json(res);
+      },
+      onSuccess: refresh,
+    }),
+  };
+}
