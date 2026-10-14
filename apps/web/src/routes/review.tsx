@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { GuestFields } from "~/components/guest-fields";
+import { type Crumb, PageHeader } from "~/components/page-header";
 import { reviewState } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
 import { StatusPill } from "~/components/ui/status";
@@ -226,132 +227,123 @@ export function ReviewPage({ reviewId }: { reviewId: string }) {
   if (!review) return <p className="p-8 text-ink-3">Loading</p>;
   const responded = review.reviewers.filter((r) => r.state === "submitted").length;
 
-  return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-8 sm:px-8">
-      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-[13px]">
-        {guest ? (
-          <Link to="/g" className="shrink-0 text-ink-3 no-underline hover:text-ink">
-            Your reviews
-          </Link>
-        ) : (
-          <>
-            <Link to="/" className="shrink-0 text-ink-3 no-underline hover:text-ink">
-              Projects
-            </Link>
-            <span className="text-edge">/</span>
-            <Link
-              to="/projects/$projectId"
-              params={{ projectId: review.projectId }}
-              className="truncate text-ink-3 no-underline hover:text-ink"
-            >
+  const crumbs: Crumb[] = guest
+    ? [{ key: "reviews", link: <Link to="/g">Your reviews</Link> }]
+    : [
+        { key: "projects", link: <Link to="/">Projects</Link> },
+        {
+          key: "project",
+          link: (
+            <Link to="/projects/$projectId" params={{ projectId: review.projectId }}>
               {project?.name ?? "Project"}
             </Link>
-          </>
-        )}
-        <span className="text-edge">/</span>
-        <span className="truncate font-medium text-ink">{review.title}</span>
-      </nav>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex min-w-0 flex-col gap-2">
-          <span className="label">
-            {review.kind === "approval"
-              ? `Approval · ${review.rule === "any" ? "anyone approves" : "everyone approves"}`
-              : "Feedback"}
-            {review.order === "sequence" ? " · in turn" : ""}
-          </span>
-          <h1 className="m-0 break-words text-[28px] font-medium tracking-[-0.02em]">
-            {review.title}
-          </h1>
-          <p className="tabular m-0 text-[13px] text-ink-2">
-            Requested by {review.createdByName ?? "a former member"} on{" "}
-            {day.format(new Date(review.createdAt))}
-            {review.dueAt ? ` · due ${day.format(new Date(review.dueAt))}` : ""}
-            {` · ${responded} of ${review.reviewers.length} responded`}
-          </p>
-        </div>
-        <StatusPill state={reviewState(review)} />
-      </div>
-      {review.message && (
-        <p className="m-0 max-w-prose whitespace-pre-wrap text-[14px] leading-relaxed text-ink-2">
-          {review.message}
+          ),
+        },
+      ];
+  return (
+    <>
+      <PageHeader
+        crumbs={crumbs}
+        title={review.title}
+        actions={<StatusPill state={reviewState(review)} />}
+      />
+      <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-5 sm:px-6">
+        <p className="tabular m-0 text-[13px] text-ink-2">
+          {review.kind === "approval"
+            ? `Approval, ${review.rule === "any" ? "anyone approves" : "everyone approves"}`
+            : "Feedback"}
+          {review.order === "sequence" ? ", in turn" : ""}
+          {` · requested by ${review.createdByName ?? "a former member"} on ${day.format(new Date(review.createdAt))}`}
+          {review.dueAt ? ` · due ${day.format(new Date(review.dueAt))}` : ""}
+          {` · ${responded} of ${review.reviewers.length} responded`}
         </p>
-      )}
+        {review.message && (
+          <p className="m-0 max-w-prose whitespace-pre-wrap text-[14px] leading-relaxed text-ink-2">
+            {review.message}
+          </p>
+        )}
 
-      <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="flex min-w-0 flex-col gap-6">
-          <section aria-label="Items" className="flex flex-col gap-2">
-            <h2 className="m-0 text-[15px] font-medium">Items</h2>
-            <ul className="m-0 flex list-none flex-col border-t border-hairline p-0">
-              {review.items.map((item) => (
-                <li
-                  key={item.id}
-                  className="flex min-h-12 items-center justify-between gap-3 border-b border-hairline py-2"
-                >
-                  <span className="flex min-w-0 flex-col">
-                    <span className="truncate text-sm text-ink">{item.name}</span>
-                    <span className="text-xs text-ink-3">
-                      {item.kind === "track"
-                        ? item.version
-                          ? `Version ${item.version.number}${item.follows === "latest" ? ", the latest" : ""}`
-                          : "No versions yet"
-                        : "File"}
+        <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="flex min-w-0 flex-col gap-6">
+            <section aria-label="Items" className="flex flex-col gap-2">
+              <h2 className="m-0 text-[15px] font-medium">Items</h2>
+              <ul className="m-0 flex list-none flex-col border-t border-hairline p-0">
+                {review.items.map((item) => (
+                  <li
+                    key={item.id}
+                    className="flex min-h-12 items-center justify-between gap-3 border-b border-hairline py-2"
+                  >
+                    <span className="flex min-w-0 flex-col">
+                      <span className="truncate text-sm text-ink">{item.name}</span>
+                      <span className="text-xs text-ink-3">
+                        {item.kind === "track"
+                          ? item.version
+                            ? `Version ${item.version.number}${item.follows === "latest" ? ", the latest" : ""}`
+                            : "No versions yet"
+                          : "File"}
+                      </span>
                     </span>
-                  </span>
-                  {item.fileId ? (
-                    <Link
-                      to={guest ? "/g/files/$fileId" : "/files/$fileId"}
-                      params={{ fileId: item.fileId }}
-                      className="shrink-0 text-[13px] text-ink-2 no-underline hover:text-signal"
-                    >
-                      Open
-                    </Link>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </section>
-          <YourTurn review={review} />
-          {review.decisions.length > 0 && (
-            <section aria-label="Decisions" className="flex flex-col gap-2">
-              <h2 className="m-0 text-[15px] font-medium">Decisions</h2>
-              <ol className="m-0 flex list-none flex-col p-0">
-                {review.decisions.map((d) => (
-                  <li key={d.id} className="flex flex-col gap-0.5 border-b border-hairline py-2.5">
-                    <span className="flex items-baseline gap-2 text-[13px]">
-                      <span className="font-medium text-ink">{d.reviewerName ?? "A reviewer"}</span>
-                      <span
-                        className={cn(
-                          d.decision === "changes_requested" ? "text-signal" : "text-ink-2",
-                        )}
+                    {item.fileId ? (
+                      <Link
+                        to={guest ? "/g/files/$fileId" : "/files/$fileId"}
+                        params={{ fileId: item.fileId }}
+                        className="shrink-0 text-[13px] text-ink-2 no-underline hover:text-signal"
                       >
-                        {decisionCopy[d.decision]}
-                      </span>
-                      <span className="tabular ml-auto text-xs text-ink-3">
-                        {dateTime.format(new Date(d.createdAt))}
-                      </span>
-                    </span>
-                    {d.note && <span className="text-[13px] text-ink-2">{d.note}</span>}
+                        Open
+                      </Link>
+                    ) : null}
                   </li>
                 ))}
-              </ol>
+              </ul>
             </section>
-          )}
+            <YourTurn review={review} />
+            {review.decisions.length > 0 && (
+              <section aria-label="Decisions" className="flex flex-col gap-2">
+                <h2 className="m-0 text-[15px] font-medium">Decisions</h2>
+                <ol className="m-0 flex list-none flex-col p-0">
+                  {review.decisions.map((d) => (
+                    <li
+                      key={d.id}
+                      className="flex flex-col gap-0.5 border-b border-hairline py-2.5"
+                    >
+                      <span className="flex items-baseline gap-2 text-[13px]">
+                        <span className="font-medium text-ink">
+                          {d.reviewerName ?? "A reviewer"}
+                        </span>
+                        <span
+                          className={cn(
+                            d.decision === "changes_requested" ? "text-signal" : "text-ink-2",
+                          )}
+                        >
+                          {decisionCopy[d.decision]}
+                        </span>
+                        <span className="tabular ml-auto text-xs text-ink-3">
+                          {dateTime.format(new Date(d.createdAt))}
+                        </span>
+                      </span>
+                      {d.note && <span className="text-[13px] text-ink-2">{d.note}</span>}
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
+          </div>
+          <aside className="flex flex-col gap-3">
+            <h2 className="m-0 text-[15px] font-medium">Reviewers</h2>
+            <Reviewers review={review} />
+            {review.you.canManage && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={cancel.isPending}
+                onClick={() => cancel.mutate()}
+              >
+                Cancel review
+              </Button>
+            )}
+          </aside>
         </div>
-        <aside className="flex flex-col gap-3">
-          <h2 className="m-0 text-[15px] font-medium">Reviewers</h2>
-          <Reviewers review={review} />
-          {review.you.canManage && (
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={cancel.isPending}
-              onClick={() => cancel.mutate()}
-            >
-              Cancel review
-            </Button>
-          )}
-        </aside>
       </div>
-    </div>
+    </>
   );
 }

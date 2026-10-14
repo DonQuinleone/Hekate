@@ -36,12 +36,84 @@ function useRolls(): [Rolls, (rolls: Rolls) => void] {
 
 /** How the audio is drawn above the transport. */
 type Display = "waveform" | "spectrogram" | "both" | "overlay";
-const displayNames: Record<Display, string> = {
-  waveform: "Waveform",
-  spectrogram: "Spectrogram",
-  both: "Both",
-  overlay: "Overlay",
+
+/**
+ * What the player shows beyond the plain waveform, all off by default: one waveform with
+ * the channels combined. Remembered per browser.
+ */
+interface PlayerView {
+  /** Each channel in its own lane, rather than combined. */
+  split: boolean;
+  spectrogram: boolean;
+  /** Where the spectrogram goes: under the waveform, behind it, or instead of it. */
+  placement: "below" | "behind" | "instead";
+}
+const defaultPlayerView: PlayerView = { split: false, spectrogram: false, placement: "below" };
+const VIEW_KEY = "hekate.player.view";
+
+function usePlayerView(): [PlayerView, (next: PlayerView) => void] {
+  const [view, setView] = useState<PlayerView>(() => {
+    try {
+      const saved = JSON.parse(
+        localStorage.getItem(VIEW_KEY) ?? "null",
+      ) as Partial<PlayerView> | null;
+      return {
+        split: saved?.split === true,
+        spectrogram: saved?.spectrogram === true,
+        placement:
+          saved?.placement === "behind" || saved?.placement === "instead"
+            ? saved.placement
+            : "below",
+      };
+    } catch {
+      return defaultPlayerView;
+    }
+  });
+  const save = useCallback((next: PlayerView) => {
+    setView(next);
+    try {
+      localStorage.setItem(VIEW_KEY, JSON.stringify(next));
+    } catch {
+      // Not remembered; the choice still holds for this visit.
+    }
+  }, []);
+  return [view, save];
+}
+
+const placementNames: Record<PlayerView["placement"], string> = {
+  below: "Below",
+  behind: "Behind",
+  instead: "Instead",
 };
+
+/** A labelled on and off switch for the view menu. */
+function Toggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-6 text-[13px] text-ink-2">
+      {label}
+      <input
+        type="checkbox"
+        role="switch"
+        aria-checked={checked}
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="peer sr-only"
+      />
+      <span
+        aria-hidden="true"
+        className="relative h-[18px] w-8 shrink-0 rounded-full border border-edge bg-ground transition-colors peer-checked:border-signal peer-checked:bg-signal/80 peer-focus-visible:outline peer-focus-visible:outline-1 peer-focus-visible:outline-signal after:absolute after:top-[2px] after:left-[2px] after:size-3 after:rounded-full after:bg-ink-2 after:transition-transform peer-checked:after:translate-x-[14px] peer-checked:after:bg-ground"
+      />
+    </label>
+  );
+}
 
 /** What a reviewer chooses between, in plain words. */
 export function renditionLabel(rendition: Rendition, info: MediaInfo | null): string {
@@ -156,14 +228,23 @@ export function Player({
   const native = useRef(false);
   /** The media element once mounted, for the waveform to follow. */
   const [element, setElement] = useState<HTMLMediaElement | null>(null);
-  const [view, setView] = useState<WaveformView>("channels");
+  const [playerView, setPlayerView] = usePlayerView();
   const channels = info?.audio?.channels ?? 0;
-  const [display, setDisplay] = useState<Display>("waveform");
+  const view: WaveformView = playerView.split && channels > 1 ? "channels" : "combined";
+  const display: Display = !playerView.spectrogram
+    ? "waveform"
+    : playerView.placement === "behind"
+      ? "overlay"
+      : playerView.placement === "instead"
+        ? "spectrogram"
+        : "both";
   const [spectrum, setSpectrum] = useSpectrogramView();
   const [spectrumChannel, setSpectrumChannel] = useState<SpectrogramChannelChoice>(
-    channels > 1 ? "each" : "0",
+    channels > 1 ? (playerView.split ? "each" : "all") : "0",
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** The spectrogram's own settings, a level below the view menu. */
+  const [tuning, setTuning] = useState(false);
   /** A loop can be kept but switched off, to hear on past it. */
   const [looping, setLooping] = useState(true);
   const [rolls, setRolls] = useRolls();
@@ -579,35 +660,17 @@ export function Player({
               <Icon name={muted ? "mute" : "volume"} size={14} />
             </Button>
             {kind === "audio" && (
-              <fieldset className="m-0 flex min-w-0 flex-wrap items-center gap-1 border-0 p-0">
-                <legend className="sr-only">Display</legend>
-                {(Object.keys(displayNames) as Display[]).map((d) => (
-                  <ChoiceButton key={d} selected={display === d} onSelect={() => setDisplay(d)}>
-                    {displayNames[d]}
-                  </ChoiceButton>
-                ))}
-                {display !== "waveform" && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-expanded={settingsOpen}
-                    onClick={() => setSettingsOpen((open) => !open)}
-                  >
-                    Settings
-                  </Button>
-                )}
-              </fieldset>
-            )}
-            {kind === "audio" && channels > 1 && display !== "spectrogram" && (
-              <fieldset className="m-0 flex min-w-0 items-center gap-1 border-0 p-0">
-                <legend className="sr-only">Waveform</legend>
-                <ChoiceButton selected={view === "channels"} onSelect={() => setView("channels")}>
-                  Channels
-                </ChoiceButton>
-                <ChoiceButton selected={view === "combined"} onSelect={() => setView("combined")}>
-                  Combined
-                </ChoiceButton>
-              </fieldset>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-expanded={settingsOpen}
+                aria-controls="player-view"
+                onClick={() => setSettingsOpen((open) => !open)}
+                className={cn(settingsOpen && "bg-raised text-ink")}
+              >
+                <Icon name="settings" size={14} />
+                View
+              </Button>
             )}
             {choices.length === 1 && choices[0] && (
               <span className="tabular ml-auto text-xs text-ink-3">
@@ -646,7 +709,63 @@ export function Player({
               onRolls={setRolls}
             />
           )}
-          {kind === "audio" && display !== "waveform" && settingsOpen && (
+          {kind === "audio" && settingsOpen && (
+            <section
+              id="player-view"
+              aria-label="View"
+              className="flex flex-col gap-3 border-t border-hairline pt-3"
+            >
+              <div className="flex max-w-80 flex-col gap-2.5">
+                {channels > 1 && (
+                  <Toggle
+                    label="Split channels"
+                    checked={playerView.split}
+                    onChange={(split) => {
+                      setPlayerView({ ...playerView, split });
+                      // The spectrogram follows: a lane per channel, or all of them together.
+                      setSpectrumChannel(split ? "each" : "all");
+                    }}
+                  />
+                )}
+                <Toggle
+                  label="Spectrogram"
+                  checked={playerView.spectrogram}
+                  onChange={(spectrogram) => setPlayerView({ ...playerView, spectrogram })}
+                />
+                {playerView.spectrogram && (
+                  <fieldset className="m-0 flex items-center justify-between gap-4 border-0 p-0">
+                    <legend className="sr-only">Spectrogram placement</legend>
+                    <span aria-hidden="true" className="text-[13px] text-ink-3">
+                      Placement
+                    </span>
+                    <span className="flex gap-1">
+                      {(Object.keys(placementNames) as PlayerView["placement"][]).map((p) => (
+                        <ChoiceButton
+                          key={p}
+                          selected={playerView.placement === p}
+                          onSelect={() => setPlayerView({ ...playerView, placement: p })}
+                        >
+                          {placementNames[p]}
+                        </ChoiceButton>
+                      ))}
+                    </span>
+                  </fieldset>
+                )}
+                {playerView.spectrogram && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-expanded={tuning}
+                    onClick={() => setTuning((t) => !t)}
+                    className="self-start px-0 text-ink-3 hover:text-ink"
+                  >
+                    {tuning ? "Hide spectrogram settings" : "Adjust spectrogram…"}
+                  </Button>
+                )}
+              </div>
+            </section>
+          )}
+          {kind === "audio" && display !== "waveform" && settingsOpen && tuning && (
             <SpectrogramSettings
               view={spectrum}
               onView={setSpectrum}

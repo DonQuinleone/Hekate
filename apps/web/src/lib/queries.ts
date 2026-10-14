@@ -556,6 +556,8 @@ export interface Track {
   projectId: string;
   name: string;
   scoreFileId: string | null;
+  /** The folder it sits in, like any folder; null is the top of the project. */
+  folderId: string | null;
   position: number;
   createdAt: string;
   versions: Version[];
@@ -589,10 +591,26 @@ export function useTrackMutations(projectId: string) {
   };
   return {
     createTrack: useMutation({
-      mutationFn: async (input: { name: string }) =>
+      mutationFn: async (input: { name: string; folderId?: string | null }) =>
         (
           await json<{ track: Track }>(
             await api.projects[":id"].tracks.$post({ param: { id: projectId }, json: input }),
+          )
+        ).track,
+      onSuccess: refresh,
+    }),
+    updateTrack: useMutation({
+      mutationFn: async ({
+        id,
+        ...input
+      }: {
+        id: string;
+        name?: string;
+        folderId?: string | null;
+      }) =>
+        (
+          await json<{ track: Track }>(
+            await api.tracks[":id"].$patch({ param: { id }, json: input }),
           )
         ).track,
       onSuccess: refresh,
@@ -962,3 +980,25 @@ export function useOrganise(projectId: string) {
     }),
   };
 }
+
+export interface MyReview {
+  id: string;
+  projectId: string;
+  projectName: string;
+  kind: ReviewKind;
+  title: string;
+  status: ReviewSummary["status"];
+  outcome: ReviewSummary["outcome"];
+  dueAt: string | null;
+  createdAt: string;
+  submittedAt: string | null;
+  /** It is this member's turn to approve or give feedback. */
+  yourTurn: boolean;
+}
+
+/** The reviews the signed-in member takes part in, open first: the sidebar's inbox. */
+export const myReviewsQuery = queryOptions({
+  queryKey: ["reviews", "mine"],
+  queryFn: async () => (await json<{ reviews: MyReview[] }>(await api.reviews.$get())).reviews,
+  refetchInterval: 60_000,
+});
