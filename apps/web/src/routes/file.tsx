@@ -9,6 +9,7 @@ import { Loudness } from "~/components/loudness";
 import { Player } from "~/components/player";
 import { FileContext } from "~/components/tracks";
 import { type FileDetail, fileQuery, playbackQuery, projectQuery } from "~/lib/queries";
+import { useViewer } from "~/lib/viewer";
 
 const dateFormat = new Intl.DateTimeFormat("en-GB", {
   day: "numeric",
@@ -84,9 +85,11 @@ function technicalDetails(info: MediaInfo | null): [string, string][] {
 export function FilePage({ fileId }: { fileId: string }) {
   const { data: file, error } = useQuery(fileQuery(fileId));
   const [media, setMedia] = useState<HTMLMediaElement | null>(null);
+  const { guest } = useViewer();
+  // Guests see the files of their reviews, never the project around them.
   const { data: project } = useQuery({
     ...projectQuery(file?.projectId ?? ""),
-    enabled: Boolean(file),
+    enabled: Boolean(file) && !guest,
   });
   if (error) return <p className="p-8 text-signal">{error.message}</p>;
   if (!file) return <p className="p-8 text-ink-3">Loading</p>;
@@ -110,17 +113,25 @@ export function FilePage({ fileId }: { fileId: string }) {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 sm:px-8">
       <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-[13px]">
-        <Link to="/" className="shrink-0 text-ink-3 no-underline hover:text-ink">
-          Projects
-        </Link>
-        <span className="text-edge">/</span>
-        <Link
-          to="/projects/$projectId"
-          params={{ projectId: file.projectId }}
-          className="truncate text-ink-3 no-underline hover:text-ink"
-        >
-          {project?.name ?? "Project"}
-        </Link>
+        {guest ? (
+          <Link to="/g" className="shrink-0 text-ink-3 no-underline hover:text-ink">
+            Your reviews
+          </Link>
+        ) : (
+          <>
+            <Link to="/" className="shrink-0 text-ink-3 no-underline hover:text-ink">
+              Projects
+            </Link>
+            <span className="text-edge">/</span>
+            <Link
+              to="/projects/$projectId"
+              params={{ projectId: file.projectId }}
+              className="truncate text-ink-3 no-underline hover:text-ink"
+            >
+              {project?.name ?? "Project"}
+            </Link>
+          </>
+        )}
         <span className="text-edge">/</span>
         <span className="truncate font-medium text-ink">{file.name}</span>
       </nav>
@@ -132,7 +143,7 @@ export function FilePage({ fileId }: { fileId: string }) {
         <h1 className="m-0 break-words text-[28px] font-medium tracking-[-0.02em]">{file.name}</h1>
         {summary && <p className="tabular m-0 text-[13px] text-ink-2">{summary}</p>}
       </div>
-      <FileContext file={file} />
+      {!guest && <FileContext file={file} />}
       <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="flex min-w-0 flex-col gap-6">
           <Playback file={file} onMedia={setMedia} />

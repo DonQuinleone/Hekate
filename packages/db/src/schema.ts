@@ -469,6 +469,10 @@ export const comments = pgTable(
       .references(() => files.id, { onDelete: "cascade" }),
     parentId: uuid("parent_id").references((): AnyPgColumn => comments.id, { onDelete: "cascade" }),
     authorId: text("author_id").references(() => users.id, { onDelete: "set null" }),
+    /** Set instead of `authorId` when a guest wrote it. */
+    guestAuthorId: uuid("guest_author_id").references((): AnyPgColumn => guests.id, {
+      onDelete: "set null",
+    }),
     anchor: jsonb("anchor").$type<Anchor>(),
     body: text("body").notNull(),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
@@ -711,6 +715,64 @@ export const spectrograms = pgTable(
   (t) => [uniqueIndex("spectrograms_file_channel_idx").on(t.organisationId, t.fileId, t.channel)],
 );
 
+// Guests (docs/security.md, Authentication)
+
+/**
+ * Reviewers from outside the organisation, without an account: a conductor, a soloist, a
+ * composer. Stored per organisation by email and reused across reviews.
+ */
+export const guests = pgTable(
+  "guests",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    name: text("name").notNull(),
+    /** Lower-cased. */
+    email: text("email").notNull(),
+    /** How they appear beside their name, for example "Conductor". */
+    label: text("label"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("guests_email_idx").on(t.organisationId, t.email)],
+);
+
+/** Magic links: single-use and short-lived. Only a hash of the token is stored. */
+export const guestLinks = pgTable(
+  "guest_links",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    guestId: uuid("guest_id")
+      .notNull()
+      .references(() => guests.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("guest_links_token_idx").on(t.tokenHash)],
+);
+
+/** A guest's signed-in browser, from a used magic link. Only a hash of the cookie is stored. */
+export const guestSessions = pgTable(
+  "guest_sessions",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    guestId: uuid("guest_id")
+      .notNull()
+      .references(() => guests.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("guest_sessions_token_idx").on(t.tokenHash)],
+);
+
 // Reviews (docs/domain.md)
 
 /** A request to reviewers about one or more items, for approval or for feedback. */
@@ -771,16 +833,21 @@ export const reviewReviewers = pgTable(
     reviewId: uuid("review_id")
       .notNull()
       .references(() => reviews.id, { onDelete: "cascade" }),
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    /** A member, or a guest: exactly one. */
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    guestId: uuid("guest_id").references(() => guests.id, { onDelete: "cascade" }),
     position: integer("position").notNull(),
     viewedAt: timestamp("viewed_at", { withTimezone: true }),
     startedAt: timestamp("started_at", { withTimezone: true }),
     submittedAt: timestamp("submitted_at", { withTimezone: true }),
     ...timestamps,
   },
-  (t) => [uniqueIndex("review_reviewers_user_idx").on(t.organisationId, t.reviewId, t.userId)],
+  (t) => [
+    uniqueIndex("review_reviewers_user_idx").on(t.organisationId, t.reviewId, t.userId),
+    uniqueIndex("review_reviewers_guest_idx").on(t.organisationId, t.reviewId, t.guestId),
+    index("review_reviewers_guest_lookup_idx").on(t.guestId),
+    check("review_reviewers_one_person", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
+  ],
 );
 
 /**

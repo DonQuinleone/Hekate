@@ -10,6 +10,7 @@ import {
   useCommentMutations,
   useProjectCan,
 } from "~/lib/queries";
+import { useViewer } from "~/lib/viewer";
 import { Button } from "./ui/button";
 
 /** Lowercase time labels read better inline than the upper-case anchor labels on markers. */
@@ -94,6 +95,11 @@ function CommentBody({
     <div className="flex flex-col gap-1">
       <div className="flex items-baseline gap-2 text-xs">
         <span className="font-medium text-ink">{comment.authorName ?? "Former member"}</span>
+        {comment.authorGuest && (
+          <span className="text-ink-3">
+            {comment.authorLabel ? `${comment.authorLabel}, guest` : "Guest"}
+          </span>
+        )}
         <span className="text-ink-3" title={new Date(comment.createdAt).toLocaleString("en-GB")}>
           {ago(comment.createdAt)}
           {comment.editedAt && " · edited"}
@@ -246,9 +252,11 @@ export function Comments({
   media: HTMLMediaElement | null;
 }) {
   const { data, error } = useQuery(commentsQuery(fileId));
-  const can = useProjectCan(projectId);
-  const canComment = can("comment");
-  const canTriage = can("triage");
+  const { guest } = useViewer();
+  const can = useProjectCan(guest ? undefined : projectId);
+  // A guest reviewer may comment on the files of their review, never triage.
+  const canComment = guest || can("comment");
+  const canTriage = !guest && can("triage");
   const { data: me } = useQuery(meQuery);
   const mutations = useCommentMutations(fileId);
   /** The playhead when writing began; null for a whole-file comment. */

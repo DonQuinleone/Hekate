@@ -30,6 +30,13 @@ export const auditActions = [
   /** A reviewer recorded an approval decision, or submitted feedback. */
   "review.decision",
   "review.submit",
+  /** A guest was sent a magic link, used one, or had their links and sessions revoked. */
+  "guest.link",
+  "guest.sign_in",
+  "guest.revoke",
+  /** A guest opened a review, or commented. */
+  "guest.view",
+  "comment.create",
 ] as const;
 export const auditAction = z.enum(auditActions);
 export type AuditAction = z.infer<typeof auditAction>;

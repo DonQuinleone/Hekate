@@ -6,16 +6,18 @@ import {
   resolveCommentInput,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, canOnFile } from "../access.ts";
+import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
+import type { ViewerVariables } from "../guests.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
-const { comments, files, users } = schema;
+const { comments, files, users, guests } = schema;
 const resolver = alias(users, "resolver");
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
@@ -28,7 +30,10 @@ const commentColumns = {
   anchor: comments.anchor,
   body: comments.body,
   authorId: comments.authorId,
-  authorName: users.name,
+  authorName: sql<string | null>`coalesce(${users.name}, ${guests.name})`,
+  /** A guest reviewer wrote it; their label, if any, reads beside their name. */
+  authorGuest: sql<boolean>`${comments.guestAuthorId} is not null`,
+  authorLabel: guests.label,
   resolvedAt: comments.resolvedAt,
   resolvedByName: resolver.name,
   editedAt: comments.editedAt,
@@ -40,6 +45,7 @@ function selectComments(db: Database, organisationId: string, where: ReturnType<
     .select(commentColumns)
     .from(comments)
     .leftJoin(users, eq(comments.authorId, users.id))
+    .leftJoin(guests, eq(comments.guestAuthorId, guests.id))
     .leftJoin(resolver, eq(comments.resolvedById, resolver.id))
     .where(inOrg(comments, organisationId, where));
 }
@@ -50,12 +56,15 @@ async function commentOf(db: Database, organisationId: string, id: string) {
   return row;
 }
 
-/** `/api/files/:id/comments`: a file's comment threads, and starting or replying to one. */
-export const fileCommentRoutes = (db: Database) =>
-  new Hono<{ Variables: TenantVariables }>()
+/**
+ * `/api/files/:id/comments`: a file's comment threads, and starting or replying to one.
+ * Guest reviewers use these too, on the files of their reviews.
+ */
+export const fileCommentRoutes = (db: Database, audit: Audit, trustProxy: boolean) =>
+  new Hono<{ Variables: ViewerVariables }>()
     .get("/:id/comments", idParam, async (c) => {
       const organisationId = c.var.organisationId;
-      await canOnFile(db, actorOf(c.var), "view", c.req.valid("param").id);
+      await canOnFile(db, c.var.actor, "view", c.req.valid("param").id);
       const [file] = await db
         .select({ id: files.id })
         .from(files)
@@ -70,9 +79,15 @@ export const fileCommentRoutes = (db: Database) =>
     .post("/:id/comments", idParam, zValidator("json", createCommentInput), async (c) => {
       const organisationId = c.var.organisationId;
       const input = c.req.valid("json");
-      await canOnFile(db, actorOf(c.var), "comment", c.req.valid("param").id);
+      const actor = c.var.actor;
+      await canOnFile(db, actor, "comment", c.req.valid("param").id);
       const [file] = await db
-        .select({ id: files.id, kind: files.kind, mediaInfo: files.mediaInfo })
+        .select({
+          id: files.id,
+          kind: files.kind,
+          mediaInfo: files.mediaInfo,
+          projectId: files.projectId,
+        })
         .from(files)
         .where(inOrg(files, organisationId, eq(files.id, c.req.valid("param").id)));
       if (!file) throw new NotFound("File");
@@ -102,17 +117,37 @@ export const fileCommentRoutes = (db: Database) =>
         if (problem) throw new HTTPException(422, { message: problem });
       }
 
-      const [created] = await db
-        .insert(comments)
-        .values({
-          organisationId,
-          fileId: file.id,
-          parentId: input.parentId ?? null,
-          authorId: c.var.userId,
-          anchor: input.anchor ?? null,
-          body: input.body,
-        })
-        .returning({ id: comments.id });
+      // Every guest comment is in the access log (docs/security.md), written with it.
+      const who = actor.kind === "guest" ? await audit.guest(actor.guestId) : null;
+      const created = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(comments)
+          .values({
+            organisationId,
+            fileId: file.id,
+            parentId: input.parentId ?? null,
+            authorId: actor.kind === "guest" ? null : actor.userId,
+            guestAuthorId: actor.kind === "guest" ? actor.guestId : null,
+            anchor: input.anchor ?? null,
+            body: input.body,
+          })
+          .returning({ id: comments.id });
+        if (who) {
+          await audit.record(
+            organisationId,
+            who,
+            {
+              action: "comment.create",
+              projectId: file.projectId,
+              fileId: file.id,
+              details: { commentId: row?.id },
+            },
+            requestInfo(c, trustProxy),
+            tx,
+          );
+        }
+        return row;
+      });
       return c.json({ comment: await commentOf(db, organisationId, created?.id ?? "") }, 201);
     });
 

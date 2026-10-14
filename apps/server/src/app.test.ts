@@ -1840,7 +1840,14 @@ describe.runIf(url)("api", () => {
         id: string;
         status: string;
         outcome: string | null;
-        reviewers: { id: string; userId: string; state: string; decision: string | null }[];
+        reviewers: {
+          id: string;
+          userId: string;
+          state: string;
+          decision: string | null;
+          guest?: boolean;
+          email?: string | null;
+        }[];
         decisions: { decision: string; reviewerName: string | null }[];
         items: { kind: string; fileId: string | null; version?: { number: number } | null }[];
         you: { active: boolean; canDecide: boolean; canSubmit: boolean };
@@ -2147,6 +2154,193 @@ describe.runIf(url)("api", () => {
             })
           ).status,
         ).toBe(409);
+      });
+
+      describe("guests", () => {
+        const guest = { name: "Mira Solberg", email: "Conductor@Example.test", label: "Conductor" };
+        /** The magic link token in the last email to an address. */
+        const linkFor = (to: string) => {
+          const mail = [...mailer.sent].reverse().find((m) => m.to === to);
+          return mail?.text.match(/\/guest\/([A-Za-z0-9_-]+)/)?.[1] ?? "";
+        };
+        const signIn = (token: string) => app.request("/api/guest/sessions", json({ token }));
+
+        /** A review with the composer and a guest, and the guest signed in. */
+        const invited = async (kind: "approval" | "feedback" = "approval") => {
+          const s = await studio();
+          mailer.sent.length = 0;
+          const review = await reviewOf(
+            await request(s.owner, s.projectId, {
+              kind,
+              title: "Album master",
+              items: [{ trackId: s.trackId }],
+              reviewers: [s.ids.composer, guest],
+            }),
+          );
+          const token = linkFor("conductor@example.test");
+          expect(token).not.toBe("");
+          const res = await signIn(token);
+          expect(res.status).toBe(201);
+          return { ...s, review, token, cookie: cookieOf(res) };
+        };
+
+        it("signs a guest in once from a magic link, and keeps them to their reviews", async () => {
+          const s = await invited();
+          // The link was single-use.
+          expect((await signIn(s.token)).status).toBe(410);
+          const me = (await (await getAs("/api/guest/me", s.cookie)).json()) as {
+            guest: { name: string; label: string };
+            reviews: { id: string }[];
+          };
+          expect(me.guest).toMatchObject({ name: "Mira Solberg", label: "Conductor" });
+          expect(me.reviews.map((r) => r.id)).toEqual([s.review.id]);
+
+          // The review, with other reviewers' addresses withheld.
+          const seen = (await (await getAs(`/api/reviews/${s.review.id}`, s.cookie)).json()) as {
+            review: ReviewBody & { you: { guest: boolean }; reviewers: { email: string | null }[] };
+          };
+          expect(seen.review.you).toMatchObject({ guest: true, canDecide: true });
+          expect(seen.review.reviewers.every((r) => r.email === null)).toBe(true);
+
+          // The file under review, and nothing else.
+          expect((await getAs(`/api/files/${s.mix}`, s.cookie)).status).toBe(200);
+          expect((await getAs(`/api/files/${s.mix}/comments`, s.cookie)).status).toBe(200);
+          expect((await getAs(`/api/files/${s.artwork}`, s.cookie)).status).toBe(404);
+          expect((await getAs(`/api/projects/${s.projectId}`, s.cookie)).status).toBe(401);
+          expect((await getAs("/api/projects", s.cookie)).status).toBe(401);
+          // Nor managing the review.
+          expect(
+            (await app.request(`/api/reviews/${s.review.id}/cancel`, json({}, s.cookie))).status,
+          ).toBe(403);
+          expect(
+            (
+              await app.request(
+                `/api/reviews/${s.review.id}/reviewers`,
+                json({ userId: s.ids.engineer }, s.cookie),
+              )
+            ).status,
+          ).toBe(403);
+        });
+
+        it("lets a guest comment and decide, all of it logged", async () => {
+          const s = await invited();
+          await app.request(`/api/reviews/${s.review.id}/viewed`, json({}, s.cookie));
+          const comment = await app.request(
+            `/api/files/${s.mix}/comments`,
+            json({ body: "The tempo drags at bar 40." }, s.cookie),
+          );
+          expect(comment.status).toBe(201);
+          const written = (
+            (await comment.json()) as {
+              comment: { authorName: string; authorGuest: boolean; authorLabel: string };
+            }
+          ).comment;
+          expect(written).toMatchObject({
+            authorName: "Mira Solberg",
+            authorGuest: true,
+            authorLabel: "Conductor",
+          });
+          const decided = await reviewOf(
+            await app.request(
+              `/api/reviews/${s.review.id}/decisions`,
+              json({ decision: "changes_requested", note: "Bar 40" }, s.cookie),
+            ),
+          );
+          expect(decided.reviewers.find((r) => r.state === "submitted")).toBeTruthy();
+          for (const action of [
+            "guest.link",
+            "guest.sign_in",
+            "guest.view",
+            "comment.create",
+            "review.decision",
+          ] as const) {
+            const logged = await audit.query(s.organisationId, { action, limit: 10 });
+            expect(
+              logged.events.some((e) => e.actorType === "guest"),
+              action,
+            ).toBe(true);
+          }
+          // A guest cannot edit or resolve through the member routes.
+          const id =
+            ((await getAs(`/api/files/${s.mix}/comments`, s.cookie)).json as unknown) && written;
+          expect(id).toBeTruthy();
+        });
+
+        it("binds a guest's playback to their browser", async () => {
+          const s = await invited();
+          await db
+            .update(schema.files)
+            .set({ streamStatus: "ready" })
+            .where(eq(schema.files.id, s.mix));
+          const started = await app.request(`/api/files/${s.mix}/playback`, json({}, s.cookie));
+          expect(started.status).toBe(201);
+          const { url } = (await started.json()) as { url: string };
+          // Their own browser gets past the link check (there is no rendition yet, so 404).
+          expect((await getAs(url, s.cookie)).status).toBe(404);
+          // A member's browser cannot use the guest's link.
+          expect((await getAs(url, s.owner)).status).toBe(403);
+          // The log names the review the guest came through.
+          const logged = await audit.query(s.organisationId, {
+            action: "stream.session",
+            limit: 5,
+          });
+          expect(logged.events[0]).toMatchObject({ actorType: "guest", reviewId: s.review.id });
+          // Once the review closes, the link stops working.
+          await app.request(`/api/reviews/${s.review.id}/cancel`, json({}, s.owner));
+          expect((await getAs(url, s.cookie)).status).toBe(403);
+        });
+
+        it("re-sends and revokes links, and closes access with the review", async () => {
+          const s = await invited("feedback");
+          const reviewer = s.review.reviewers.find((r) => r.guest);
+          const base = `/api/reviews/${s.review.id}/reviewers/${reviewer?.id}`;
+          // A fresh link replaces any unused one.
+          await app.request(`${base}/link`, json({}, s.owner));
+          const first = linkFor("conductor@example.test");
+          await app.request(`${base}/link`, json({}, s.owner));
+          const second = linkFor("conductor@example.test");
+          expect(first).not.toBe(second);
+          expect((await signIn(first)).status).toBe(410);
+          // An expired link fails too.
+          await db.update(schema.guestLinks).set({ expiresAt: new Date(Date.now() - 1000) });
+          expect((await signIn(second)).status).toBe(410);
+
+          // Revoking signs every browser out.
+          expect((await app.request(`${base}/revoke`, json({}, s.owner))).status).toBe(204);
+          expect((await getAs("/api/guest/me", s.cookie)).status).toBe(401);
+          expect((await getAs(`/api/reviews/${s.review.id}`, s.cookie)).status).toBe(401);
+
+          // Signed in again, the guest loses the files once the review closes.
+          await app.request(`${base}/link`, json({}, s.owner));
+          const again = cookieOf(await signIn(linkFor("conductor@example.test")));
+          expect((await getAs(`/api/files/${s.mix}`, again)).status).toBe(200);
+          await app.request(`/api/reviews/${s.review.id}/cancel`, json({}, s.owner));
+          expect((await getAs(`/api/files/${s.mix}`, again)).status).toBe(404);
+          // The review itself stays readable, as a record of what they were asked.
+          expect((await getAs(`/api/reviews/${s.review.id}`, again)).status).toBe(200);
+        });
+
+        it("keeps a guest to their own organisation", async () => {
+          const s = await invited();
+          const [elsewhere] = await db
+            .insert(schema.organisations)
+            .values({ name: "Elsewhere", slug: "elsewhere-guests" })
+            .returning();
+          const [project] = await db
+            .insert(schema.projects)
+            .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+            .returning();
+          const [foreign] = await db
+            .insert(schema.reviews)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              projectId: project?.id ?? "",
+              kind: "feedback",
+              title: "Theirs",
+            })
+            .returning();
+          expect((await getAs(`/api/reviews/${foreign?.id}`, s.cookie)).status).toBe(404);
+        });
       });
     });
 

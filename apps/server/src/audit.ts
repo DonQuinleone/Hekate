@@ -5,7 +5,7 @@ import { getConnInfo } from "@hono/node-server/conninfo";
 import { and, desc, eq, gte, lt, lte, type SQL } from "drizzle-orm";
 import type { Context } from "hono";
 
-const { accessEvents, users } = schema;
+const { accessEvents, users, guests } = schema;
 
 export type AccessEvent = typeof accessEvents.$inferSelect;
 
@@ -71,6 +71,12 @@ export interface Audit {
   ): Promise<AccessEvent>;
   /** The actor for a signed-in member, labelled with their current name and email. */
   member(userId: string): Promise<Actor>;
+  /** The actor for a guest reviewer, labelled with their name and email. */
+  guest(guestId: string): Promise<Actor>;
+  /** Whoever a request comes from: a member or a guest. */
+  actor(
+    who: { kind?: "member"; userId: string } | { kind: "guest"; guestId: string },
+  ): Promise<Actor>;
   /** Events newest first, with the cursor for the next page. */
   query(
     organisationId: string,
@@ -108,6 +114,22 @@ export function createAudit(db: Database): Audit {
         .from(users)
         .where(eq(users.id, userId));
       return { type: "member", userId, label: user ? `${user.name} <${user.email}>` : userId };
+    },
+
+    async guest(guestId) {
+      const [guest] = await db
+        .select({ name: guests.name, email: guests.email })
+        .from(guests)
+        .where(eq(guests.id, guestId));
+      return {
+        type: "guest",
+        guestId,
+        label: guest ? `${guest.name} <${guest.email}> (guest)` : guestId,
+      };
+    },
+
+    async actor(who) {
+      return who.kind === "guest" ? this.guest(who.guestId) : this.member(who.userId);
     },
 
     async query(organisationId, f) {
