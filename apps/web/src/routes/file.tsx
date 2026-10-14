@@ -23,6 +23,7 @@ import { type Crumb, PageHeader } from "~/components/page-header";
 import { Player } from "~/components/player";
 import { ScorePane } from "~/components/score";
 import { FileContext } from "~/components/tracks";
+import { cn } from "~/lib/cn";
 import type { Loop } from "~/lib/loop";
 import { initialFocus, type PageFocus } from "~/lib/pages";
 import {
@@ -187,6 +188,8 @@ export function FilePage({
       void media.play().catch(() => undefined);
     }
   };
+  /** Compare or the meters: what follows the score on a phone, when there is any. */
+  const extras = comparable || Boolean(file.mediaInfo?.audio && allows("meters"));
   const summary = mediaSummary(file.kind, file.mediaInfo, file.streamStatus);
   const details: [string, string][] = [
     ["Type", file.contentType],
@@ -243,7 +246,8 @@ export function FilePage({
           On a phone the comments follow the player, before the score and the details; on a
           wide screen they sit beside all of them, which the rows and spans below arrange.
         */}
-        <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[auto_auto_auto_1fr]">
+        {/* Spacing sits on the cells, so a cell left empty adds none. */}
+        <div className="grid grid-cols-1 items-start gap-x-8 lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[auto_auto_auto_1fr]">
           <div className="flex min-w-0 flex-col gap-6">
             <Playback
               file={file}
@@ -254,7 +258,7 @@ export function FilePage({
               canComment={canComment}
             />
           </div>
-          <div className="min-w-0 lg:col-start-2 lg:row-span-4 lg:row-start-1">
+          <div className="min-w-0 pt-8 lg:col-start-2 lg:row-span-4 lg:row-start-1 lg:pt-0">
             <Comments
               fileId={file.id}
               projectId={file.projectId}
@@ -277,11 +281,11 @@ export function FilePage({
             />
           </div>
           {file.variation?.scoreFileId && (file.kind === "audio" || file.kind === "video") && (
-            <div className="min-w-0">
+            <div className="min-w-0 pt-8 lg:pt-6">
               <ScorePane scoreFileId={file.variation.scoreFileId} />
             </div>
           )}
-          <div className="flex min-w-0 flex-col gap-6">
+          <div className={cn("flex min-w-0 flex-col gap-6 lg:pt-6", extras && "pt-8")}>
             {comparable && <Compare file={file} media={media} focus={focus} />}
             {file.mediaInfo?.audio && allows("meters") && (
               <Loudness
@@ -292,7 +296,9 @@ export function FilePage({
             )}
             <dl className="m-0 hidden flex-col border-t border-hairline lg:flex">{detailRows}</dl>
           </div>
-          <dl className="m-0 flex flex-col border-t border-hairline lg:hidden">{detailRows}</dl>
+          <dl className="m-0 mt-8 flex flex-col border-t border-hairline lg:hidden">
+            {detailRows}
+          </dl>
         </div>
       </div>
     </>
