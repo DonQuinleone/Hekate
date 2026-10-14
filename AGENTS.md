@@ -25,7 +25,7 @@ The vocabulary is fixed and defined in `docs/domain.md`. Read it before naming a
 
 ## Stack (decided; do not substitute without discussion)
 
-TypeScript end to end. React, Vite, TanStack Router and Query, shadcn/ui on Tailwind (heavily restyled, never stock). Hono API with shared types. PostgreSQL with Drizzle. pg-boss for jobs. A built-in ffmpeg worker. Vidstack, wavesurfer.js and pdf.js for media. Better Auth. Multiple storage backends (local disk, S3-compatible). Deployed as one app image plus PostgreSQL and Caddy via Docker Compose. Not Next.js.
+TypeScript end to end. React, Vite, TanStack Router and Query, shadcn/ui on Tailwind (heavily restyled, never stock). Hono API with shared types. PostgreSQL with Drizzle. pg-boss for jobs. A built-in ffmpeg worker. hls.js under Hekate's own player controls, wavesurfer.js and pdf.js for media. Better Auth. Multiple storage backends (local disk, S3-compatible). Deployed as one app image plus PostgreSQL and Caddy via Docker Compose. Not Next.js.
 
 ## Repository
 

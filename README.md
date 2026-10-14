@@ -29,7 +29,7 @@ TypeScript end to end.
 | API | Hono, with types shared with the web app |
 | Data | PostgreSQL with Drizzle ORM |
 | Jobs | pg-boss, with a built-in ffmpeg worker for transcodes, waveforms and thumbnails |
-| Media | Vidstack (video), wavesurfer.js (audio), pdf.js (scores and documents) |
+| Media | hls.js with Hekate's own player controls, wavesurfer.js (audio), pdf.js (scores and documents) |
 | Auth | Better Auth |
 | Storage | Multiple configurable backends: local disk and any S3-compatible service |
 | Deploy | One app image, PostgreSQL and Caddy via Docker Compose |
