@@ -2,6 +2,7 @@ import {
   type Anchor,
   decodeLoudness,
   decodePeaks,
+  decodeSpectrogram,
   type FileKind,
   type LoudnessSummary,
   type MediaInfo,
@@ -304,6 +305,42 @@ export const loudnessSeriesQuery = (fileId: string) =>
       const res = await api.files[":id"].loudness.series.$get({ param: { id: fileId } });
       if (!res.ok) await json(res);
       return decodeLoudness(new Uint8Array(await res.arrayBuffer()));
+    },
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+
+export interface SpectrogramInfo {
+  id: string;
+  /** A channel index ("0", "1", …), or "mid" or "side". */
+  channel: string;
+  fftSize: number;
+  sampleRate: number;
+  samplesPerColumn: number;
+  columns: number;
+  bands: number;
+}
+
+/** A file's spectrograms, one per channel plus mid and side, once the worker has made them. */
+export const spectrogramsQuery = (fileId: string) =>
+  queryOptions({
+    queryKey: ["files", fileId, "spectrograms"],
+    queryFn: async () =>
+      json<{ status: StreamStatus; spectrograms: SpectrogramInfo[] }>(
+        await api.files[":id"].spectrograms.$get({ param: { id: fileId } }),
+      ),
+    refetchInterval: (query) => (query.state.data?.status === "pending" ? 3000 : false),
+  });
+
+/** One spectrogram, decoded. They never change, so they are kept for the visit. */
+export const spectrogramQuery = (fileId: string, spectrogramId: string) =>
+  queryOptions({
+    queryKey: ["files", fileId, "spectrograms", spectrogramId],
+    queryFn: async () => {
+      const res = await api.files[":id"].spectrograms[":spectrogramId"].$get({
+        param: { id: fileId, spectrogramId },
+      });
+      if (!res.ok) await json(res);
+      return decodeSpectrogram(new Uint8Array(await res.arrayBuffer()));
     },
     staleTime: Number.POSITIVE_INFINITY,
   });

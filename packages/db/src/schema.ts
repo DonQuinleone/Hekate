@@ -629,6 +629,33 @@ export const loudness = pgTable(
   (t) => [uniqueIndex("loudness_file_idx").on(t.organisationId, t.fileId)],
 );
 
+/**
+ * A file's spectrograms (docs/security.md): one per channel, plus the mid and side of the
+ * front pair, each an encrypted blob in the format of `packages/shared/src/spectrogram.ts`.
+ */
+export const spectrograms = pgTable(
+  "spectrograms",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => files.id, { onDelete: "cascade" }),
+    /** A channel index ("0", "1", …), or "mid" or "side". */
+    channel: text("channel").notNull(),
+    fftSize: integer("fft_size").notNull(),
+    sampleRate: integer("sample_rate").notNull(),
+    samplesPerColumn: integer("samples_per_column").notNull(),
+    columnCount: integer("column_count").notNull(),
+    bandCount: integer("band_count").notNull(),
+    blobId: uuid("blob_id")
+      .notNull()
+      .references(() => blobs.id, { onDelete: "no action" }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("spectrograms_file_channel_idx").on(t.organisationId, t.fileId, t.channel)],
+);
+
 // Storage reconciliation
 
 export const storageFindingKindEnum = pgEnum("storage_finding_kind", [
