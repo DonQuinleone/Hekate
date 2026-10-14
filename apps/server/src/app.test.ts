@@ -495,6 +495,34 @@ describe.runIf(url)("api", () => {
         expect((await storage.put(organisationId, Buffer.from("third"))).backend).toBe("local");
       });
 
+      it("keeps the blob record when removing its bytes fails, so removal can be retried", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const local = backends.get("local");
+        let failDeletes = true;
+        const flaky = createStorage(db, {
+          ...backends,
+          get: (name: string) =>
+            name === "local"
+              ? {
+                  ...local,
+                  delete: async (key: string) => {
+                    if (failDeletes) throw new Error("storage unavailable");
+                    await local.delete(key);
+                  },
+                }
+              : backends.get(name),
+        });
+        const blob = await flaky.put(organisationId, Buffer.from("retry me"));
+        await expect(flaky.remove(organisationId, blob.id)).rejects.toThrow("storage unavailable");
+        expect((await flaky.open(organisationId, blob.id)).blob.id).toBe(blob.id);
+
+        failDeletes = false;
+        await flaky.remove(organisationId, blob.id);
+        await expect(flaky.open(organisationId, blob.id)).rejects.toThrow(/not found/);
+        expect(await local.head(blob.key)).toBeNull();
+      });
+
       it("refuses to write when the chosen backend is no longer configured", async () => {
         const owner = cookieOf(await setup());
         const organisationId = await organisationOf(owner);

@@ -100,8 +100,14 @@ export function createStorage(db: Database, backends: Backends): Storage {
         if (!blob) throw new Error("Blob insert returned no row");
         return blob;
       } catch (error) {
-        // Never leave bytes in storage that no row accounts for.
-        await backend.delete(key).catch(() => undefined);
+        // Never leave bytes in storage that no row accounts for. If even the
+        // clean-up fails, say exactly what is orphaned so it can be reconciled.
+        await backend.delete(key).catch((cleanup: unknown) => {
+          console.error(
+            `Orphaned object "${key}" in storage backend "${name}": the blob record failed and so did removing the bytes`,
+            cleanup,
+          );
+        });
         throw error;
       }
     },
@@ -114,9 +120,13 @@ export function createStorage(db: Database, backends: Backends): Storage {
 
     async remove(organisationId, blobId) {
       const blob = await blobIn(organisationId, blobId);
-      // Row first: a file still using the blob makes this fail, and the bytes stay.
-      await db.delete(blobs).where(inOrg(blobs, organisationId, eq(blobs.id, blob.id)));
-      await backends.get(blob.backend).delete(blob.key);
+      // The row goes first, inside a transaction: a file still using the blob
+      // fails the delete before any bytes are touched, and if removing the
+      // bytes fails the row is restored, so the removal can be retried.
+      await db.transaction(async (tx) => {
+        await tx.delete(blobs).where(inOrg(blobs, organisationId, eq(blobs.id, blob.id)));
+        await backends.get(blob.backend).delete(blob.key);
+      });
     },
   };
 }
