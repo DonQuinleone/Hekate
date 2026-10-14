@@ -759,6 +759,8 @@ export function useReviewActions(reviewId: string) {
   const settle = (review: ReviewDetail) => {
     client.setQueryData(reviewQuery(reviewId).queryKey, review);
     void client.invalidateQueries({ queryKey: ["projects", review.projectId, "reviews"] });
+    // Whose turn it is changes with every response: the inbox and its count follow.
+    void client.invalidateQueries({ queryKey: myReviewsQuery.queryKey });
   };
   const call = async (res: Response) => (await json<{ review: ReviewDetail }>(res)).review;
   return {
@@ -933,6 +935,8 @@ export function useOrganise(projectId: string) {
     Promise.all([
       client.invalidateQueries({ queryKey: ["projects", projectId, "folders"] }),
       client.invalidateQueries({ queryKey: ["projects", projectId, "files"] }),
+      // Deleting a folder moves its tracks up, like its files.
+      client.invalidateQueries({ queryKey: ["projects", projectId, "tracks"] }),
     ]);
   return {
     createFolder: useMutation({

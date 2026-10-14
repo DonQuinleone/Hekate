@@ -1056,7 +1056,12 @@ export async function memberReviews(db: Database, actor: MemberActor) {
       and(eq(projects.id, reviews.projectId), eq(projects.organisationId, actor.organisationId)),
     )
     .where(inOrg(reviewReviewers, actor.organisationId, eq(reviewReviewers.userId, actor.userId)))
-    .orderBy(desc(reviews.createdAt))
+    // Open reviews come before the limit does, so one still waiting is never cut off.
+    .orderBy(
+      desc(sql`${reviews.status} = 'open' and ${reviewReviewers.submittedAt} is null`),
+      desc(sql`${reviews.status} = 'open'`),
+      desc(reviews.createdAt),
+    )
     .limit(100);
   const visible = new Map<string, boolean>();
   const out = [];

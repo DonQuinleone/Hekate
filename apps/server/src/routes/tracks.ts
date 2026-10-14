@@ -17,7 +17,7 @@ import { NotFound } from "../errors.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { folderIn, lockProject } from "./folders.ts";
 
-const { tracks, versions, variations, files, projects } = schema;
+const { tracks, versions, variations, files } = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
