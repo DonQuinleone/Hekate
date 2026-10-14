@@ -8,6 +8,7 @@ import { onError } from "./errors.ts";
 import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
 import type { Mailer } from "./mail.ts";
+import { commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
 import { health } from "./routes/health.ts";
 import { invitationRoutes } from "./routes/invitations.ts";
 import { meRoutes } from "./routes/me.ts";
@@ -77,6 +78,9 @@ export function createApi(deps: AppDeps) {
       )
       .use("/files/*", ...member)
       .route("/files", fileRoutes(playback))
+      .route("/files", fileCommentRoutes(deps.db))
+      .use("/comments/*", ...member)
+      .route("/comments", commentRoutes(deps.db))
       // The organisation comes from the token, which the route checks against membership.
       .use("/play/*", requireSession(deps.auth))
       .route("/play", playRoutes(playback))

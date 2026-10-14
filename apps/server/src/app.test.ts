@@ -1122,6 +1122,203 @@ describe.runIf(url)("api", () => {
       });
     });
 
+    describe("comments", () => {
+      const joinAs = async (owner: string, email: string, role: string) => {
+        const { body } = await invite(owner, email, role);
+        const res = await app.request(
+          `/api/invitations/${tokenFrom(body.link)}/accept`,
+          json({ name: "Colleague", password: "correct horse battery" }),
+        );
+        return cookieOf(res);
+      };
+      const send = (method: string, path: string, body: unknown, cookie?: string) =>
+        app.request(path, { ...json(body, cookie), method });
+      const list = async (fileId: string, cookie: string) =>
+        (
+          (await (
+            await app.request(`/api/files/${fileId}/comments`, { headers: { cookie } })
+          ).json()) as {
+            comments: { id: string; parentId: string | null; body: string; authorName: string }[];
+          }
+        ).comments;
+
+      /** A minute-long recording in a new project of the given organisation. */
+      const recording = async (organisationId: string) => {
+        const [project] = await db
+          .insert(schema.projects)
+          .values({ organisationId, name: "Rags", profile: "music" })
+          .returning();
+        const blob = await storage.put(organisationId, Buffer.from("not really audio"));
+        const [file] = await db
+          .insert(schema.files)
+          .values({
+            organisationId,
+            projectId: project?.id ?? "",
+            name: "Mix v3.wav",
+            kind: "audio",
+            blobId: blob.id,
+            contentType: "audio/wav",
+            byteSize: blob.byteSize,
+            mediaInfo: {
+              duration: 60,
+              audio: { codec: "pcm_s24le", channels: 2, sampleRate: 48000 },
+            },
+          })
+          .returning();
+        return file?.id ?? "";
+      };
+      const organisationOf = async (cookie: string) =>
+        (
+          (await (await app.request("/api/me", { headers: { cookie } })).json()) as {
+            activeOrganisationId: string;
+          }
+        ).activeOrganisationId;
+
+      it("keeps threads on a file, anchored where the file has a timeline", async () => {
+        const owner = cookieOf(await setup());
+        const fileId = await recording(await organisationOf(owner));
+        const path = `/api/files/${fileId}/comments`;
+
+        const started = await app.request(
+          path,
+          json({ body: "Pedal noise here", anchor: { kind: "time", start: 10, end: 12 } }, owner),
+        );
+        expect(started.status).toBe(201);
+        const thread = ((await started.json()) as { comment: { id: string; authorName: string } })
+          .comment;
+        expect(thread.authorName).toBe("Producer");
+
+        // Past the end of the recording, or a page on audio: refused.
+        expect(
+          (
+            await app.request(
+              path,
+              json({ body: "x", anchor: { kind: "time", start: 90, end: 91 } }, owner),
+            )
+          ).status,
+        ).toBe(422);
+        expect(
+          (
+            await app.request(
+              path,
+              json(
+                { body: "x", anchor: { kind: "region", page: 1, x: 0, y: 0, width: 1, height: 1 } },
+                owner,
+              ),
+            )
+          ).status,
+        ).toBe(422);
+
+        const reply = await app.request(
+          path,
+          json({ body: "Fixed in v4", parentId: thread.id }, owner),
+        );
+        expect(reply.status).toBe(201);
+        const replyId = ((await reply.json()) as { comment: { id: string } }).comment.id;
+        // Threads are one level deep, and replies take the thread's anchor.
+        expect(
+          (await app.request(path, json({ body: "x", parentId: replyId }, owner))).status,
+        ).toBe(422);
+        expect(
+          (
+            await app.request(
+              path,
+              json(
+                { body: "x", parentId: thread.id, anchor: { kind: "time", start: 1, end: 1 } },
+                owner,
+              ),
+            )
+          ).status,
+        ).toBe(400);
+        // A whole-file comment needs no anchor.
+        expect(
+          (await app.request(path, json({ body: "Lovely balance overall" }, owner))).status,
+        ).toBe(201);
+
+        expect((await list(fileId, owner)).map((c) => [c.body, c.parentId === thread.id])).toEqual([
+          ["Pedal noise here", false],
+          ["Fixed in v4", true],
+          ["Lovely balance overall", false],
+        ]);
+      });
+
+      it("lets only the author edit, any member resolve, and no one reach another organisation", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const fileId = await recording(organisationId);
+        const created = await app.request(
+          `/api/files/${fileId}/comments`,
+          json({ body: "Pedal noise", anchor: { kind: "time", start: 3, end: 3 } }, owner),
+        );
+        const { id } = ((await created.json()) as { comment: { id: string } }).comment;
+        const colleague = await joinAs(owner, "engineer@example.test", "member");
+
+        expect(
+          (await send("PATCH", `/api/comments/${id}`, { body: "Mine now" }, colleague)).status,
+        ).toBe(403);
+        const edited = await send(
+          "PATCH",
+          `/api/comments/${id}`,
+          { body: "Pedal noise, left" },
+          owner,
+        );
+        expect(
+          ((await edited.json()) as { comment: { body: string; editedAt: string | null } }).comment,
+        ).toMatchObject({
+          body: "Pedal noise, left",
+          editedAt: expect.any(String),
+        });
+
+        const resolved = await app.request(
+          `/api/comments/${id}/resolve`,
+          json({ resolved: true }, colleague),
+        );
+        expect(
+          ((await resolved.json()) as { comment: { resolvedByName: string } }).comment
+            .resolvedByName,
+        ).toBe("Colleague");
+        const reopened = await app.request(
+          `/api/comments/${id}/resolve`,
+          json({ resolved: false }, owner),
+        );
+        expect(
+          ((await reopened.json()) as { comment: { resolvedAt: string | null } }).comment
+            .resolvedAt,
+        ).toBeNull();
+
+        // Another organisation's file and comments do not exist from here.
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-comments" })
+          .returning();
+        const foreignFile = await recording(other?.id ?? "");
+        const [foreign] = await db
+          .insert(schema.comments)
+          .values({ organisationId: other?.id ?? "", fileId: foreignFile, body: "Theirs" })
+          .returning();
+        expect(
+          (await app.request(`/api/files/${foreignFile}/comments`, { headers: { cookie: owner } }))
+            .status,
+        ).toBe(404);
+        expect(
+          (await app.request(`/api/files/${foreignFile}/comments`, json({ body: "x" }, owner)))
+            .status,
+        ).toBe(404);
+        expect(
+          (await send("PATCH", `/api/comments/${foreign?.id}`, { body: "x" }, owner)).status,
+        ).toBe(404);
+        expect(
+          (
+            await app.request(
+              `/api/comments/${foreign?.id}/resolve`,
+              json({ resolved: true }, owner),
+            )
+          ).status,
+        ).toBe(404);
+        expect((await app.request(`/api/files/${fileId}/comments`)).status).toBe(401);
+      });
+    });
+
     describe.runIf(spawnSync("ffmpeg", ["-version"]).status === 0 || process.env.CI)(
       "streaming",
       () => {
