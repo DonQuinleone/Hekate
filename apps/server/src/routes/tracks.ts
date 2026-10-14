@@ -15,6 +15,7 @@ import { z } from "zod";
 import { actorOf, can } from "../access.ts";
 import { NotFound } from "../errors.ts";
 import type { TenantVariables } from "../tenancy.ts";
+import { folderIn, lockProject } from "./folders.ts";
 
 const { tracks, versions, variations, files, projects } = schema;
 
@@ -157,12 +158,10 @@ export const projectTrackRoutes = (db: Database) =>
         await assertProjectFiles(db, organisationId, project.id, [input.scoreFileId]);
       }
       const created = await db.transaction(async (tx) => {
-        // Lock the project so tracks added at the same moment take consecutive positions.
-        await tx
-          .select({ id: projects.id })
-          .from(projects)
-          .where(inOrg(projects, organisationId, eq(projects.id, project.id)))
-          .for("update");
+        // Lock the project so tracks added at the same moment take consecutive positions,
+        // and so the folder it goes in cannot be deleted meanwhile.
+        await lockProject(tx, organisationId, project.id);
+        if (input.folderId) await folderIn(tx, organisationId, project.id, input.folderId);
         const [last] = await tx
           .select({ position: max(tracks.position) })
           .from(tracks)
@@ -174,6 +173,7 @@ export const projectTrackRoutes = (db: Database) =>
             projectId: project.id,
             name: input.name,
             scoreFileId: input.scoreFileId ?? null,
+            folderId: input.folderId ?? null,
             position: (last?.position ?? -1) + 1,
           })
           .returning({ id: tracks.id });
@@ -199,10 +199,16 @@ export const trackRoutes = (db: Database) =>
       if (input.scoreFileId) {
         await assertProjectFiles(db, organisationId, track.projectId, [input.scoreFileId]);
       }
-      await db
-        .update(tracks)
-        .set({ ...input, updatedAt: new Date() })
-        .where(inOrg(tracks, organisationId, eq(tracks.id, id)));
+      await db.transaction(async (tx) => {
+        if (input.folderId !== undefined) {
+          await lockProject(tx, organisationId, track.projectId);
+          if (input.folderId) await folderIn(tx, organisationId, track.projectId, input.folderId);
+        }
+        await tx
+          .update(tracks)
+          .set({ ...input, updatedAt: new Date() })
+          .where(inOrg(tracks, organisationId, eq(tracks.id, id)));
+      });
       return c.json({ track: await oneTrack(db, organisationId, id) });
     })
     .post("/:id/versions", idParam, zValidator("json", createVersionInput), async (c) => {
