@@ -3,6 +3,7 @@ import {
   formatChannels,
   formatDuration,
   type MediaInfo,
+  profiles,
   type ReviewerTool,
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -43,6 +44,9 @@ const dateFormat = new Intl.DateTimeFormat("en-GB", {
   minute: "2-digit",
 });
 
+/** Bars belong to music projects: their profile offers the bar ruler (decision 034). */
+const hasBars = (file: FileDetail) => profiles[file.profile].tools.includes("bar-ruler");
+
 function Notice({ children }: { children: ReactNode }) {
   return (
     <div className="rounded-panel border border-hairline bg-surface px-4 py-6 text-sm text-ink-3">
@@ -73,7 +77,7 @@ function Playback({
   // Only a recording plays: asking for a document's playback would log a session for nothing.
   const plays = file.kind === "audio" || file.kind === "video";
   const { data, error } = useQuery({ ...playbackQuery(file.id), enabled: ready && plays });
-  const { data: bars } = useQuery({ ...barMapQuery(file.id), enabled: plays });
+  const { data: bars } = useQuery({ ...barMapQuery(file.id), enabled: plays && hasBars(file) });
   if (pages) {
     // Seen only as pages the server draws: never the file itself.
     if (file.streamStatus === "ready")
@@ -168,7 +172,7 @@ export function FilePage({
   });
   const { data: barMap } = useQuery({
     ...barMapQuery(fileId),
-    enabled: file?.kind === "audio" || file?.kind === "video",
+    enabled: Boolean(file && hasBars(file) && (file.kind === "audio" || file.kind === "video")),
   });
   if (error) return <p className="p-8 text-signal">{error.message}</p>;
   if (!file) return <p className="p-8 text-ink-3">Loading</p>;
@@ -187,7 +191,10 @@ export function FilePage({
   const comparable = !guest && file.kind === "audio" && file.streamStatus === "ready";
   /** A recording members can sync to its score; guests see its bars in the player only. */
   const syncable =
-    !guest && (file.kind === "audio" || file.kind === "video") && file.streamStatus === "ready";
+    !guest &&
+    hasBars(file) &&
+    (file.kind === "audio" || file.kind === "video") &&
+    file.streamStatus === "ready";
   /** Loop the passage and hear it from where it began; one key then flips to this version. */
   const beforeAfter = (target: BeforeAfter) => {
     setFocus({ fileId: target.fileId, shift: target.shift, nonce: Date.now() });

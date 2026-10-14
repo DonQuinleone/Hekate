@@ -39,7 +39,8 @@ export const regionAnchor = z
   });
 
 const barPosition = z.object({
-  bar: z.number().int().positive(),
+  /** Bar 0 is an upbeat, before the first full bar. */
+  bar: z.number().int().nonnegative(),
   /** 1-based beat within the bar; fractional beats are allowed for off-beat positions. */
   beat: z.number().positive().default(1),
 });
@@ -49,7 +50,7 @@ export const barAnchor = z
     kind: z.literal("bar"),
     from: barPosition,
     /** End of a bar range, inclusive. Omitted for a single bar position. */
-    to: z.object({ bar: z.number().int().positive() }).optional(),
+    to: z.object({ bar: z.number().int().nonnegative() }).optional(),
   })
   .refine((a) => a.to === undefined || a.to.bar >= a.from.bar, {
     message: "a bar range must not end before it starts",

@@ -9,6 +9,9 @@ describe("anchor schema", () => {
     expect(
       anchor.parse({ kind: "region", page: 7, x: 0.1, y: 0.1, width: 0.2, height: 0.1 }).kind,
     ).toBe("region");
+    // An upbeat is bar 0.
+    expect(anchor.safeParse({ kind: "bar", from: { bar: 0 } }).success).toBe(true);
+    expect(anchor.safeParse({ kind: "bar", from: { bar: -1 } }).success).toBe(false);
     expect(anchor.parse({ kind: "bar", from: { bar: 112 } })).toEqual({
       kind: "bar",
       from: { bar: 112, beat: 1 },

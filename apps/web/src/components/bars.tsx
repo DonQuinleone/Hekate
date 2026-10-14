@@ -42,7 +42,7 @@ export function BarRuler({
   const share = (t: number) => `${Math.min(100, (t / duration) * 100)}%`;
   const numbered = new Set(rulerBars(map, duration, width));
   return (
-    <nav ref={ruler} className="relative h-4" aria-label="Bars">
+    <nav ref={ruler} className="relative h-5" aria-label="Bars">
       {map.points.map(([t, bar], i) => (
         <div
           // Barlines repeat their numbers in a repeat: the index keeps them apart.
@@ -51,13 +51,14 @@ export function BarRuler({
           className="absolute top-0"
           style={{ left: share(t) }}
         >
-          <div aria-hidden className={cn("w-px bg-edge", numbered.has(i) ? "h-2.5" : "h-1.5")} />
+          <div aria-hidden className={cn("w-px bg-edge", numbered.has(i) ? "h-5" : "h-1.5")} />
           {numbered.has(i) && (
+            // A 28 px target around the small number, so it can be hit on a phone.
             <button
               type="button"
               onClick={() => onSeek(t)}
               aria-label={`Play from bar ${bar}`}
-              className="tabular absolute top-0 left-1 cursor-pointer border-0 bg-transparent p-0 font-mono text-[10px] leading-3 text-ink-3 hover:text-ink"
+              className="tabular absolute -top-1 -left-2.5 flex h-7 min-w-7 cursor-pointer items-start justify-start rounded-chip border-0 bg-transparent px-3 pt-3 font-mono text-[10px] leading-3 text-ink-3 outline-none hover:text-ink focus-visible:ring-1 focus-visible:ring-signal"
             >
               {bar}
             </button>

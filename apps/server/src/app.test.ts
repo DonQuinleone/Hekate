@@ -3337,6 +3337,49 @@ describe.runIf(url)("api", () => {
 
         expect((await send("DELETE", bars(dry), undefined, owner)).status).toBe(204);
         expect(await read(wet)).toBeNull();
+
+        // An upbeat is bar 0, and a comment can point at it.
+        expect(
+          (
+            await app.request(
+              `/api/files/${dry}/comments`,
+              json({ body: "Upbeat too heavy", anchor: { kind: "bar", from: { bar: 0 } } }, owner),
+            )
+          ).status,
+        ).toBe(201);
+
+        // Bars belong to music projects: a video project's recording has neither map nor bar comments.
+        const [film] = await db
+          .insert(schema.projects)
+          .values({ organisationId, name: "Trailer", profile: "video" })
+          .returning();
+        const cut = await storage.put(organisationId, Buffer.from("not really video"));
+        const [clip] = await db
+          .insert(schema.files)
+          .values({
+            organisationId,
+            projectId: film?.id ?? "",
+            name: "Trailer v1.mov",
+            kind: "video",
+            blobId: cut.id,
+            contentType: "video/quicktime",
+            byteSize: cut.byteSize,
+            mediaInfo: { duration: 60 },
+          })
+          .returning();
+        expect((await send("PUT", bars(clip?.id ?? ""), map, owner)).status).toBe(422);
+        expect(
+          (
+            await app.request(
+              `/api/files/${clip?.id}/comments`,
+              json({ body: "x", anchor: { kind: "bar", from: { bar: 3 } } }, owner),
+            )
+          ).status,
+        ).toBe(422);
+        const detail = (await (
+          await app.request(`/api/files/${clip?.id}`, { headers: { cookie: owner } })
+        ).json()) as { file: { profile: string } };
+        expect(detail.file.profile).toBe("video");
       });
 
       it("lets only the author edit, anyone who triages resolve, and no one reach another organisation", async () => {

@@ -1,5 +1,5 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { type BarMap, type BarMapSource, saveBarMapInput } from "@hekate/shared";
+import { type BarMap, type BarMapSource, profiles, saveBarMapInput } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, desc, eq, ne } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -10,7 +10,7 @@ import { canOnFile } from "../access.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
 
-const { barMaps, files, users, variations } = schema;
+const { barMaps, files, projects, users, variations } = schema;
 const sibling = alias(variations, "sibling");
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
@@ -93,10 +93,17 @@ export const fileBarRoutes = (db: Database) =>
       await canOnFile(db, actor, "organise", id);
       const organisationId = c.var.organisationId;
       const [file] = await db
-        .select({ kind: files.kind, mediaInfo: files.mediaInfo })
+        .select({ kind: files.kind, mediaInfo: files.mediaInfo, profile: projects.profile })
         .from(files)
+        .innerJoin(
+          projects,
+          and(eq(projects.id, files.projectId), eq(projects.organisationId, organisationId)),
+        )
         .where(inOrg(files, organisationId, eq(files.id, id)));
       if (!file) throw new NotFound("File");
+      if (!profiles[file.profile].tools.includes("bar-ruler")) {
+        throw new HTTPException(422, { message: "Bars belong to music projects" });
+      }
       if (file.kind !== "audio" && file.kind !== "video") {
         throw new HTTPException(422, { message: "Only recordings have bars in time" });
       }

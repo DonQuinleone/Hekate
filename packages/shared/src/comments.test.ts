@@ -40,6 +40,8 @@ describe("comments", () => {
     expect(anchorProblem(nowhere, { kind: "image" })).toBeNull();
     const bar = { kind: "bar" as const, from: { bar: 72, beat: 1 } };
     expect(anchorProblem(bar, { kind: "audio" })).toBeNull();
+    expect(anchorProblem(bar, { kind: "audio", profile: "music" })).toBeNull();
+    expect(anchorProblem(bar, { kind: "audio", profile: "video" })).toMatch(/music projects/);
     expect(anchorProblem(bar, { kind: "image" })).toMatch(/recording or a score/);
   });
 

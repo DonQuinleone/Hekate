@@ -330,6 +330,8 @@ export const projectFilesQuery = (projectId: string) =>
 
 export interface FileDetail extends ProjectFile {
   projectId: string;
+  /** The project's profile, which decides the tools offered (bars only for music). */
+  profile: ProjectProfile;
   /** Where the file sits in the music model, when it is a variation of a version. */
   variation: {
     id: string;
