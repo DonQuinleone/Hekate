@@ -57,6 +57,7 @@ Requirements: Node.js 26, pnpm 12, and Docker for PostgreSQL.
 pnpm install
 docker compose -f deploy/compose.dev.yml up -d   # PostgreSQL on localhost:5432
 cp .env.example .env
+echo "MASTER_KEY=$(openssl rand -base64 32)" >> .env   # encryption at rest
 pnpm db:migrate
 pnpm dev                                         # API on :3000, web on :5173
 # Open http://localhost:5173 and complete first-run setup to create the owner account.
@@ -71,7 +72,7 @@ pnpm check      # lint, typecheck and tests across the workspace
 ## Self-hosting
 
 ```sh
-cp .env.example .env    # set HEKATE_DOMAIN, secrets and storage
+cp .env.example .env    # set HEKATE_DOMAIN, secrets, MASTER_KEY and storage
 docker compose -f deploy/compose.yml up -d
 ```
 
@@ -90,6 +91,8 @@ STORAGE_ARCHIVE_FORCE_PATH_STYLE=true
 STORAGE_ARCHIVE_ACCESS_KEY_ID=...
 STORAGE_ARCHIVE_SECRET_ACCESS_KEY_FILE=/run/secrets/s3-secret
 ```
+
+Everything is encrypted before it reaches a backend, with a key per file (see `docs/security.md`). Set `MASTER_KEY` to 32 random bytes (`openssl rand -base64 32`) and keep a copy somewhere safe, apart from the database and storage: without it, nothing stored can be read.
 
 Every backend is checked at start-up; Hekate will not start with storage it cannot reach or write to. Storage never serves files to browsers directly: media always passes through Hekate's protected delivery. See `.env.example` for every setting.
 

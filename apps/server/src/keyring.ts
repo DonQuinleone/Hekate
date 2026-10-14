@@ -1,0 +1,134 @@
+import { type Database, inOrg, schema } from "@hekate/db";
+import { generateKey, keyId, unwrapKey, wrapKey } from "@hekate/storage";
+import { and, desc, eq, ne } from "drizzle-orm";
+
+const { organisationKeys } = schema;
+
+export interface MasterKeys {
+  current: Buffer;
+  /** Earlier master keys, accepted for unwrapping while rotating. */
+  previous: Buffer[];
+}
+
+/**
+ * The envelope key hierarchy (docs/security.md): master key, then one key per
+ * organisation, then one data key per blob. Unwrapped organisation keys are held
+ * in memory only; the database holds them wrapped by the master key.
+ */
+export interface Keyring {
+  /** The organisation's current key, created on first use. */
+  current(organisationId: string): Promise<{ version: number; key: Buffer }>;
+  /** A specific version of the organisation's key, for reading older blobs. */
+  version(organisationId: string, version: number): Promise<Buffer>;
+  /**
+   * Check every organisation key against the configured master keys, and re-wrap
+   * any wrapped by a previous master key with the current one. Run at start-up.
+   */
+  reconcile(): Promise<{ rewrapped: number }>;
+}
+
+export class UnknownMasterKeyError extends Error {
+  override name = "UnknownMasterKeyError";
+}
+
+const context = (organisationId: string, version: number) =>
+  `organisation-key:${organisationId}:${version}`;
+
+export function createKeyring(db: Database, master: MasterKeys): Keyring {
+  const currentId = keyId(master.current);
+  const masterById = new Map<string, Buffer>([[currentId, master.current]]);
+  for (const key of master.previous) masterById.set(keyId(key), key);
+
+  const cache = new Map<string, Buffer>();
+
+  const unwrapRow = (row: typeof organisationKeys.$inferSelect) => {
+    const masterKey = masterById.get(row.masterKeyId);
+    if (!masterKey) {
+      throw new UnknownMasterKeyError(
+        `Organisation ${row.organisationId} key v${row.version} is wrapped by master key ${row.masterKeyId}, which is not configured. Set MASTER_KEY, or list the old key in MASTER_KEYS_PREVIOUS.`,
+      );
+    }
+    return unwrapKey(masterKey, row.wrappedKey, context(row.organisationId, row.version));
+  };
+
+  const remember = (organisationId: string, version: number, key: Buffer) => {
+    cache.set(`${organisationId}:${version}`, key);
+    return key;
+  };
+
+  async function version(organisationId: string, v: number) {
+    const cached = cache.get(`${organisationId}:${v}`);
+    if (cached) return cached;
+    const [row] = await db
+      .select()
+      .from(organisationKeys)
+      .where(inOrg(organisationKeys, organisationId, eq(organisationKeys.version, v)));
+    if (!row) throw new Error(`Organisation ${organisationId} has no key version ${v}`);
+    return remember(organisationId, v, unwrapRow(row));
+  }
+
+  return {
+    version,
+
+    async current(organisationId) {
+      const latest = async () => {
+        const [row] = await db
+          .select()
+          .from(organisationKeys)
+          .where(inOrg(organisationKeys, organisationId))
+          .orderBy(desc(organisationKeys.version))
+          .limit(1);
+        return row;
+      };
+      let row = await latest();
+      if (!row) {
+        const key = generateKey();
+        // Two requests may race to create the first key; the unique index keeps one.
+        await db
+          .insert(organisationKeys)
+          .values({
+            organisationId,
+            version: 1,
+            masterKeyId: currentId,
+            wrappedKey: wrapKey(master.current, key, context(organisationId, 1)),
+          })
+          .onConflictDoNothing();
+        row = await latest();
+        if (!row) throw new Error(`Could not create a key for organisation ${organisationId}`);
+      }
+      const cached = cache.get(`${organisationId}:${row.version}`);
+      return {
+        version: row.version,
+        key: cached ?? remember(organisationId, row.version, unwrapRow(row)),
+      };
+    },
+
+    async reconcile() {
+      // Fails start-up on any key wrapped by an unknown master key: better than failing on first read.
+      // Deliberately instance-wide (no organisation condition): master-key rotation is an
+      // operator task across every tenant, and it runs only at start-up, never for a request.
+      const stale = await db
+        .select()
+        .from(organisationKeys)
+        .where(ne(organisationKeys.masterKeyId, currentId));
+      let rewrapped = 0;
+      for (const row of stale) {
+        const key = unwrapRow(row);
+        await db
+          .update(organisationKeys)
+          .set({
+            masterKeyId: currentId,
+            wrappedKey: wrapKey(master.current, key, context(row.organisationId, row.version)),
+          })
+          .where(
+            and(
+              inOrg(organisationKeys, row.organisationId, eq(organisationKeys.id, row.id)),
+              eq(organisationKeys.masterKeyId, row.masterKeyId),
+            ),
+          );
+        rewrapped += 1;
+      }
+      return { rewrapped };
+    },
+  };
+}

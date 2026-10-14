@@ -1,4 +1,36 @@
+import { readFileSync } from "node:fs";
 import { z } from "zod";
+
+const masterKey = z
+  .string({ error: "required: 32 random bytes, base64 encoded (openssl rand -base64 32)" })
+  .transform((value, ctx) => {
+    const key = Buffer.from(value, "base64");
+    if (key.length !== 32 || key.toString("base64") !== value.trim()) {
+      ctx.addIssue({
+        code: "custom",
+        message: "must be 32 random bytes, base64 encoded (openssl rand -base64 32)",
+      });
+    }
+    return key;
+  });
+
+/** Settings that may instead be read from a file named by `<NAME>_FILE`, for Docker secrets. */
+const fileSettings = [
+  "DATABASE_URL",
+  "AUTH_SECRET",
+  "SMTP_URL",
+  "MASTER_KEY",
+  "MASTER_KEYS_PREVIOUS",
+];
+
+function withFileSettings(env: Record<string, string | undefined>) {
+  const resolved = { ...env };
+  for (const name of fileSettings) {
+    const file = env[`${name}_FILE`];
+    if (!env[name] && file) resolved[name] = readFileSync(file, "utf8").trim();
+  }
+  return resolved;
+}
 
 const schema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
@@ -15,6 +47,29 @@ const schema = z.object({
   PUBLIC_URL: z.string().url().default("http://localhost:3000"),
   /** Secret for signing sessions and tokens; at least 32 characters. */
   AUTH_SECRET: z.string().min(32),
+  /**
+   * Instance master key for encryption at rest: 32 random bytes, base64 encoded
+   * (`openssl rand -base64 32`). It wraps every organisation key. Losing it loses
+   * every stored file, so back it up apart from the database and storage.
+   */
+  MASTER_KEY: masterKey,
+  /** Earlier master keys, comma separated, kept only while rotating (docs/security.md). */
+  MASTER_KEYS_PREVIOUS: z
+    .string()
+    .default("")
+    .transform((v, ctx) =>
+      v
+        .split(",")
+        .map((k) => k.trim())
+        .filter(Boolean)
+        .map((k) => {
+          const key = Buffer.from(k, "base64");
+          if (key.length !== 32) {
+            ctx.addIssue({ code: "custom", message: "each key must be 32 bytes, base64 encoded" });
+          }
+          return key;
+        }),
+    ),
   /** SMTP connection URL, for example smtp://user:pass@host:587. Without it, emails are written to the log. */
   SMTP_URL: z.string().url().optional(),
   /** Sender address for email. */
@@ -34,7 +89,7 @@ const schema = z.object({
 export type Config = z.infer<typeof schema>;
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
-  const result = schema.safeParse(env);
+  const result = schema.safeParse(withFileSettings(env));
   if (!result.success) {
     const problems = result.error.issues
       .map((i) => `  ${i.path.join(".")}: ${i.message}`)

@@ -63,7 +63,14 @@ Invisible marks that survive re-encoding, so a leaked copy can be traced.
 
 ## Encryption at rest
 
-Envelope encryption: each file has a random data key; data keys are wrapped by an organisation key, which is wrapped by an instance master key from configuration or a key management service. Storage (local disk or S3) only ever holds ciphertext. Rotating the master key re-wraps organisation keys without touching files.
+Envelope encryption: every stored object (an original or a derivative) has its own random data key; data keys are wrapped by an organisation key, which is wrapped by an instance master key. Storage backends (local disk or S3) only ever hold ciphertext. Rotating the master key re-wraps organisation keys without touching files.
+
+- **Objects** are encrypted with AES-256-GCM in 64 KiB segments, following the STREAM construction (as in Tink and age). Each nonce is a random 7-byte prefix stored in the object's header, the 32-bit segment index and a final-segment flag, so segments cannot be altered, reordered, dropped or truncated undetected. The blob's id is bound as associated data, so ciphertext cannot be moved between objects. Segments make byte ranges cheap: a seek in a long recording decrypts only the segments it touches.
+- **Data keys** are wrapped with AES-256-GCM by the organisation key, bound to the blob's id, and stored on the blob row.
+- **Organisation keys** are created on first use, versioned for later rotation, wrapped by the master key and bound to the organisation and version. Unwrapped keys exist only in the server's memory.
+- **The master key** comes from `MASTER_KEY` (or `MASTER_KEY_FILE`). Each wrapped organisation key records a one-way fingerprint of the master key that wraps it. At start-up Hekate checks every organisation key against the configured master keys and refuses to start if one cannot be opened, rather than failing on the first read.
+- **Rotation:** move the current key to `MASTER_KEYS_PREVIOUS`, set a new `MASTER_KEY` and restart. Hekate re-wraps every organisation key with the new key at start-up; the old key can then be removed. Stored objects are never rewritten.
+- **Key management services** (AWS KMS, Vault and so on) can replace the configured master key later behind the same interface.
 
 ## Audit
 

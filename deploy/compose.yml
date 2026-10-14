@@ -13,6 +13,7 @@ services:
       MIGRATE_ON_START: "true"
       PUBLIC_URL: https://${HEKATE_DOMAIN:-localhost}
       AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET to at least 32 random characters}
+      MASTER_KEY: ${MASTER_KEY:?set MASTER_KEY (openssl rand -base64 32) and back it up}
     volumes:
       - media:/data
     depends_on:

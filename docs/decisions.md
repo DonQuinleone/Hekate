@@ -69,3 +69,7 @@ All changes reach `master` through pull requests with green CI; `master` is prot
 ## 017. Multiple storage backends
 
 Storage is a set of named, configurable backends (local disk and any S3-compatible service), not a single choice. Every stored object is a blob row that records its backend and key, so backends can be added and defaults changed without migrating existing objects. An instance has a default backend; an organisation owner can choose another for new objects. Backends never issue URLs to browsers: all bytes leave through the server's protected delivery path. Every driver passes one shared conformance suite, and CI runs it against a real S3-compatible server. This refines 003's "local storage by default, optional S3".
+
+## 018. Encryption at rest: segmented envelope encryption
+
+Every stored object is encrypted before any backend sees it: AES-256-GCM in 64 KiB segments (the STREAM construction), with a per-object data key wrapped by a per-organisation key, itself wrapped by the instance master key. Segments keep range reads cheap for audio and video seeking. Master-key rotation re-wraps organisation keys at start-up and never rewrites objects. The master key is mandatory configuration; losing it loses the stored media, so the documentation tells operators to back it up apart from the database and storage. Details in `docs/security.md`.
