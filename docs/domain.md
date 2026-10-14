@@ -15,6 +15,10 @@ The words in this document are used exactly as defined, in code, in the interfac
 | **Variation** | One file within a version that differs in treatment, not in edit: for example the dry mix and the wet mix of Version 4. Every version has at least one variation, and one is primary. |
 | **Take** | A snippet of audio captured in the recording session, usually not a complete run of the music. Takes are reference material for the producer and editor: they show what is available for each passage and what has been stitched into the edit. A take groups its files: one per microphone, plus an optional summed mix. Takes are **not** versions and do not normally appear in review. |
 | **Session** | A recording session, grouping takes (for example "Day 2 · St John's"). |
+| **Deliverable** | The video equivalent of a track: something delivered and reviewed, such as "Trailer 60s" or "Episode 3". A deliverable has versions (cuts), and each version has renditions. |
+| **Rendition** | One file within a video version that differs in format or treatment: 16:9 or 9:16, subtitled or clean, graded or ungraded. One is primary. |
+| **Edit decision** | Which takes a version uses for which bars or time ranges, optionally imported from the editor's edit decision list (EDL). |
+| **Reviewer permissions** | What one reviewer may see and do in one review: versions, comments, tools, downloads, expiry, view limits and which items. |
 | **Work** | An entry in a project's repertoire: title, composer, forces, abbreviation, and its tracks in order. A single-track work is just one track. Used by the schedule, the take log and the score. |
 | **Score mark** | A producer's mark on a score page made during recording: an issue (with the takes it occurred in and the take that fixed it), a T-edit such as `3T4`, a take start or end, a punch-in, a wrong-note cross, a circled dynamic, a sticky note, or freehand ink. |
 | **Edit plot** | The chain of T-edits through a track, from lead-in to final take. Hekate checks that every hand-over matches and every take exists. |
@@ -60,7 +64,8 @@ Organisation
 - Files are the only thing stored. Tracks, versions, variations and takes organise files; they never copy them.
 - A file can be a variation of exactly one version, part of exactly one take, or neither (a loose file in a folder such as cover artwork or a score PDF).
 - A track can link a score file, used for bar anchors and the score view.
-- Video and general projects use the same tracks, versions and variations model. Only the interface labels change by profile (to be confirmed: see open questions).
+- Video projects use **deliverables** instead of tracks: a deliverable has versions (cuts) and each version has **renditions** (16:9, 9:16, subtitled, graded). The structure parallels tracks but is its own concept with its own tools.
+- General projects use folders and files, with simple version chains on files.
 
 ## Listening and viewing
 
@@ -95,7 +100,9 @@ A tool for producers and editors, mostly used while editing and before material 
 
 **Questions it answers.** "Any other options for bar 72?" lists every take that covers bar 72, with the take's rating and notes, which take is used in the current version, and one action to audition each at bar 72, looped and level-matched. The same lookup appears on any bar-anchored comment ("Other takes for bar 72").
 
-**Notes and ratings.** Takes can be rated, starred (the producer's circled takes) and annotated, and the edit decision (which take is used for which bars in a version) can be recorded.
+**Notes and ratings.** Takes can be rated, starred (the producer's circled takes) and annotated.
+
+**Edit decisions.** A version can record which takes it uses for which bars, imported optionally from the editor's edit decision list (EDL). It is never compulsory by default; a project can turn on an upload rule (like branch protection) that requires an edit decision list with every new version.
 
 ## Production
 
@@ -171,6 +178,21 @@ Triage (producer or whoever holds the permission) can change a comment's categor
 
 ## Reviews
 
+### Reviewer permissions
+
+Every reviewer in a review has their own permission set. Defaults are set per organisation and per project, and any reviewer can be adjusted individually:
+
+- **Items:** which tracks, deliverables, versions and files they can open
+- **History:** whether they can see previous versions, or only the one under review
+- **Comments:** see all comments; or only their own and direct replies to them; or none but their own
+- **Tools:** which tools are available (spectrogram, meters, score, compare, loops, QA)
+- **Download:** none, proxy only, or original; always watermarked per recipient and logged
+- **Access window:** start and expiry dates, and a maximum number of views or plays
+- **Actions:** comment, record an approval decision, invite others
+
+The same model applies to members in a review (their project role sets the ceiling) and to guests (the review sets it entirely).
+
+
 A review is created by someone whose role allows it. It names:
 
 - **Items:** one or more tracks (a specific version, or the latest), and/or files.
@@ -222,10 +244,13 @@ Per-project roles carry permissions. Defaults ship with every project and can be
 
 Organisation owners and admins can do everything in every project. Guests have no role: they can see and act only on the items in the reviews they are invited to.
 
-## Open questions
+## Settled questions
 
-1. (Answered) Carry-over: toggle per comment on each new version, with a status.
-2. (Answered) Security keys: five per account is a default the operator can raise, not a maximum.
-3. Do video and general projects use tracks, versions and variations under different names (for example *Cut* for video, *Item* for general), or should video have its own term?
-4. Do takes need anything beyond grouping and playback for now: for example marking which takes were used in which version, or bar ranges per take?
-5. Should guests be able to see each other's comments within a review, or only their own and the team's replies?
+- Carry-over: a per-comment *Show on this version* toggle with a status.
+- Security keys: five per account is a default the operator can raise.
+- Video: deliverables, versions and renditions, a separate concept from tracks.
+- Guest visibility: governed by reviewer permissions, not a fixed rule.
+- Commercial DRM: later; the delivery design leaves room for it.
+- Edit decisions: optional EDL import; an optional project rule can require it on upload.
+- ControlRoom projects: importable later.
+- ControlRoom movements map to tracks within a work.

@@ -56,7 +56,8 @@ pnpm db:migrate
 
 - **Language:** British English everywhere: code comments, docs, UI copy, commit messages (colour, organisation, licence as a noun, behaviour).
 - **Punctuation:** never use em-dashes. Use commas, colons, semicolons or parentheses.
-- **Branches:** the default branch is `master`.
+- **Branches:** the default branch is `master`, which is protected: every change lands through a pull request with green CI. Include screenshots in pull requests for visual work.
+- **Order:** build from the ground up; finish and test each layer before building on it.
 - **Commits:** Conventional Commits (`feat(web): …`, `fix(server): …`, `chore: …`). Small and focused.
 - **Types:** strict TypeScript. No `any` without a comment explaining why. Validate every request body with the shared zod schemas.
 - **Tenancy:** never write a query against a tenant-owned table without an `organisation_id` condition.

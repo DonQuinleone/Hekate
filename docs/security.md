@@ -69,7 +69,7 @@ Envelope encryption: each file has a random data key; data keys are wrapped by a
 
 An append-only access log records who accessed what, when, through which review, from which IP address and user agent, and whether it was a stream, a page, a key or a download. Owners can filter it per file, per person and per review.
 
-## Open questions
+## Settled questions
 
-1. Would any deployment need commercial DRM (Widevine, FairPlay) soon, or is it enough that the design leaves room for it?
-2. Should guests ever be allowed to download, or is download members-only by default?
+- Commercial DRM is not needed yet; encrypted HLS with `cbcs` leaves room for it.
+- Downloads are a per-reviewer permission (none, proxy, original), always watermarked and logged.

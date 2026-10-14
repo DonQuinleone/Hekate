@@ -57,3 +57,11 @@ Quality checks are a native part of Hekate, run by the media worker on every aud
 ## 014. Production tools built in
 
 Scheduling, personnel, venues, repertoire, live take logging, score marking with T-notation and edit plots, stage plans and patch lists are part of Hekate, reimplemented natively from the maintainer's ControlRoom desktop tool. They share the project's data with tracks, takes and reviews. Take logging is local-first so it works without a connection. ControlRoom's movements map to tracks within a work. Details in `docs/domain.md` (Production).
+
+## 015. Video deliverables and reviewer permissions
+
+Video uses deliverables, versions and renditions, a concept separate from tracks. Every reviewer has an individual permission set (items, history, comment visibility, tools, downloads, access window, view limits, actions), with defaults per organisation and project. Edit decisions are optional, imported from an EDL, and a project can require one on upload.
+
+## 016. How work lands
+
+All changes reach `master` through pull requests with green CI; `master` is protected. Work proceeds from the ground up, each layer complete and tested before the next is built on it.
