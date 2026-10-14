@@ -5,7 +5,7 @@ import { Lockup } from "~/components/brand";
 import { Icon, type IconName } from "~/components/icons";
 import { Button } from "~/components/ui/button";
 import { authClient } from "~/lib/auth";
-import { healthQuery, meQuery } from "~/lib/queries";
+import { healthQuery, meQuery, useSwitchOrganisation } from "~/lib/queries";
 
 function NavItem({ to, icon, children }: { to: string; icon: IconName; children: ReactNode }) {
   return (
@@ -81,8 +81,28 @@ function Health() {
 
 function OrganisationLabel() {
   const { data: me } = useQuery(meQuery);
-  const name = me?.organisations.find((o) => o.id === me.activeOrganisationId)?.name ?? "";
-  return <div className="label hidden truncate px-2 pt-2 pb-1 sm:block">{name}</div>;
+  const switchTo = useSwitchOrganisation();
+  if (!me) return null;
+  const name = me.organisations.find((o) => o.id === me.activeOrganisationId)?.name ?? "";
+  if (me.organisations.length < 2) {
+    return <div className="label hidden truncate px-2 pt-2 pb-1 sm:block">{name}</div>;
+  }
+  return (
+    <label className="hidden flex-col gap-1 px-2 pt-2 pb-1 sm:flex">
+      <span className="sr-only">Organisation</span>
+      <select
+        value={me.activeOrganisationId}
+        onChange={(e) => switchTo.mutate(e.target.value)}
+        className="label cursor-pointer appearance-none truncate border-0 bg-transparent p-0 text-ink-2 hover:text-ink"
+      >
+        {me.organisations.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
 }
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -112,8 +132,8 @@ export function Shell({ children }: { children: ReactNode }) {
           <NavItem to="/" icon="folder">
             Projects
           </NavItem>
-          <NavItem to="/settings" icon="settings">
-            Settings
+          <NavItem to="/members" icon="users">
+            Members
           </NavItem>
           <div className="mt-auto hidden border-t border-hairline pt-3 pb-1 sm:block">
             <Health />

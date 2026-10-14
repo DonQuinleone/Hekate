@@ -54,3 +54,13 @@ describe("profiles", () => {
     expect(allowsAnchor("video", "bar")).toBe(false);
   });
 });
+
+import { atLeast } from "./organisation.ts";
+
+describe("organisation roles", () => {
+  it("ranks owner over admin over member", () => {
+    expect(atLeast("owner", "admin")).toBe(true);
+    expect(atLeast("admin", "admin")).toBe(true);
+    expect(atLeast("member", "admin")).toBe(false);
+  });
+});

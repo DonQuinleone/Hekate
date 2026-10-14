@@ -131,6 +131,27 @@ export const members = pgTable(
   (t) => [uniqueIndex("members_org_user_idx").on(t.organisationId, t.userId)],
 );
 
+/**
+ * An invitation to join an organisation. Only a SHA-256 hash of the token is stored; the token
+ * itself exists in the invitation link alone.
+ */
+export const invitations = pgTable(
+  "invitations",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    email: text("email").notNull(),
+    role: organisationRoleEnum("role").notNull().default("member"),
+    tokenHash: text("token_hash").notNull().unique(),
+    invitedBy: text("invited_by").references(() => users.id, { onDelete: "set null" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index("invitations_org_idx").on(t.organisationId)],
+);
+
 // Content
 
 export const projects = pgTable(

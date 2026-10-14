@@ -3,6 +3,7 @@ import { serve } from "@hono/node-server";
 import { createApp } from "./app.ts";
 import { createAuth } from "./auth.ts";
 import { loadConfig } from "./config.ts";
+import { createMailer } from "./mail.ts";
 import { serveWeb } from "./static.ts";
 import { version } from "./version.ts";
 
@@ -17,7 +18,8 @@ const auth = createAuth({
   trustedOrigins: config.TRUSTED_ORIGINS,
 });
 
-const app = createApp({ db, auth });
+const mailer = createMailer({ smtpUrl: config.SMTP_URL, from: config.MAIL_FROM });
+const app = createApp({ db, auth, mailer, publicUrl: config.PUBLIC_URL });
 if (config.WEB_DIST) serveWeb(app, config.WEB_DIST);
 
 const server = serve({ fetch: app.fetch, port: config.PORT }, (info) => {

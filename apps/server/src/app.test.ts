@@ -5,6 +5,7 @@ import { createApp } from "./app.ts";
 import { createAuth } from "./auth.ts";
 import { createClient } from "./client.ts";
 import { loadConfig } from "./config.ts";
+import { memoryMailer } from "./mail.ts";
 
 const url = process.env.DATABASE_URL;
 
@@ -22,7 +23,8 @@ describe.runIf(url)("api", () => {
     baseURL: "http://localhost:3000",
     testing: true,
   });
-  const app = createApp({ db, auth, log: false });
+  const mailer = memoryMailer();
+  const app = createApp({ db, auth, mailer, publicUrl: "http://localhost:3000", log: false });
   const owner = {
     name: "Producer",
     email: "producer@example.test",
@@ -176,5 +178,181 @@ describe.runIf(url)("api", () => {
     const res = await client.projects.$get();
     const body = await res.json();
     expect(body.projects[0]?.name).toBe("Crossing");
+  });
+
+  describe("members and invitations", () => {
+    const tokenFrom = (link: string) => link.split("/invite/")[1] ?? "";
+    const invite = async (cookie: string, email: string, role = "member") => {
+      const res = await app.request("/api/organisation/invitations", json({ email, role }, cookie));
+      return { res, body: (await res.json()) as { link: string; invitation: { id: string } } };
+    };
+
+    it("invites someone new, who joins with a name and password", async () => {
+      mailer.sent.length = 0;
+      const owner = cookieOf(await setup());
+      const { res, body } = await invite(owner, "Conductor@Example.test", "admin");
+      expect(res.status).toBe(201);
+      expect(mailer.sent[0]?.to).toBe("conductor@example.test");
+      expect(mailer.sent[0]?.text).toContain(body.link);
+
+      const token = tokenFrom(body.link);
+      const info = (await (await app.request(`/api/invitations/${token}`)).json()) as Record<
+        string,
+        unknown
+      >;
+      expect(info).toMatchObject({
+        organisation: "Studio",
+        email: "conductor@example.test",
+        role: "admin",
+        status: "valid",
+        hasAccount: false,
+      });
+
+      const accepted = await app.request(
+        `/api/invitations/${token}/accept`,
+        json({ name: "Conductor", password: "a long enough password" }),
+      );
+      expect(accepted.status).toBe(201);
+      const me = (await (
+        await app.request("/api/me", { headers: { cookie: cookieOf(accepted) } })
+      ).json()) as { organisations: { role: string }[] };
+      expect(me.organisations).toEqual([
+        expect.objectContaining({ name: "Studio", role: "admin" }),
+      ]);
+
+      // The link works once.
+      const again = await app.request(
+        `/api/invitations/${token}/accept`,
+        json({ name: "x", password: "a long enough password" }),
+      );
+      expect(again.status).toBe(410);
+    });
+
+    it("stores only a hash of the token", async () => {
+      const owner = cookieOf(await setup());
+      const { body } = await invite(owner, "hash@example.test");
+      const rows = await db.select().from(schema.invitations);
+      expect(rows.some((r) => r.tokenHash === tokenFrom(body.link))).toBe(false);
+    });
+
+    it("refuses revoked and expired invitations", async () => {
+      const owner = cookieOf(await setup());
+      const revoked = await invite(owner, "revoked@example.test");
+      const del = await app.request(`/api/organisation/invitations/${revoked.body.invitation.id}`, {
+        method: "DELETE",
+        headers: { cookie: owner },
+      });
+      expect(del.status).toBe(204);
+      expect(
+        (
+          await app.request(
+            `/api/invitations/${tokenFrom(revoked.body.link)}/accept`,
+            json({ name: "x", password: "a long enough password" }),
+          )
+        ).status,
+      ).toBe(410);
+
+      const expired = await invite(owner, "late@example.test");
+      await db
+        .update(schema.invitations)
+        .set({ expiresAt: new Date(Date.now() - 1000) })
+        .where(sql`email = 'late@example.test'`);
+      const info = (await (
+        await app.request(`/api/invitations/${tokenFrom(expired.body.link)}`)
+      ).json()) as { status: string };
+      expect(info.status).toBe("expired");
+    });
+
+    it("limits invitations and role changes by role", async () => {
+      const owner = cookieOf(await setup());
+      const { body } = await invite(owner, "member@example.test", "member");
+      const joined = await app.request(
+        `/api/invitations/${tokenFrom(body.link)}/accept`,
+        json({ name: "Member", password: "a long enough password" }),
+      );
+      const member = cookieOf(joined);
+      expect((await invite(member, "someone@example.test")).res.status).toBe(403);
+      expect(
+        (await app.request("/api/organisation/invitations", { headers: { cookie: member } }))
+          .status,
+      ).toBe(403);
+      // Members can see who else is in the organisation.
+      const list = (await (
+        await app.request("/api/organisation/members", { headers: { cookie: member } })
+      ).json()) as { members: { email: string; id: string; role: string }[] };
+      expect(list.members.map((m) => m.email).sort()).toEqual([
+        "member@example.test",
+        "producer@example.test",
+      ]);
+
+      const self = list.members.find((m) => m.email === "member@example.test");
+      const promote = await app.request(`/api/organisation/members/${self?.id}`, {
+        ...json({ role: "admin" }, member),
+        method: "PATCH",
+      });
+      expect(promote.status).toBe(403);
+    });
+
+    it("always keeps at least one owner", async () => {
+      const owner = cookieOf(await setup());
+      const list = (await (
+        await app.request("/api/organisation/members", { headers: { cookie: owner } })
+      ).json()) as { members: { id: string }[] };
+      const id = list.members[0]?.id;
+      const demote = await app.request(`/api/organisation/members/${id}`, {
+        ...json({ role: "admin" }, owner),
+        method: "PATCH",
+      });
+      expect(demote.status).toBe(409);
+      const leave = await app.request(`/api/organisation/members/${id}`, {
+        method: "DELETE",
+        headers: { cookie: owner },
+      });
+      expect(leave.status).toBe(409);
+    });
+
+    it("refuses to invite an existing member and asks existing accounts to sign in", async () => {
+      const owner = cookieOf(await setup());
+      expect((await invite(owner, "producer@example.test")).res.status).toBe(409);
+
+      // An account from another organisation must be signed in to accept.
+      const [other] = await db
+        .insert(schema.organisations)
+        .values({ name: "Elsewhere", slug: "elsewhere" })
+        .returning();
+      const { body } = await invite(owner, "guest@example.test");
+      const joined = await app.request(
+        `/api/invitations/${tokenFrom(body.link)}/accept`,
+        json({ name: "Guest", password: "a long enough password" }),
+      );
+      expect(joined.status).toBe(201);
+      await db.insert(schema.members).values({
+        organisationId: other?.id ?? "",
+        userId:
+          (await db.select().from(schema.users).where(sql`email = 'producer@example.test'`))[0]
+            ?.id ?? "",
+        role: "owner",
+      });
+      const elsewhere = await app.request("/api/me/organisation", {
+        ...json({ organisationId: other?.id }, owner),
+        method: "PUT",
+      });
+      expect(elsewhere.status).toBe(200);
+      const second = await invite(owner, "guest@example.test");
+      const info = (await (
+        await app.request(`/api/invitations/${tokenFrom(second.body.link)}`)
+      ).json()) as { hasAccount: boolean };
+      expect(info.hasAccount).toBe(true);
+      const anonymous = await app.request(
+        `/api/invitations/${tokenFrom(second.body.link)}/accept`,
+        json({}),
+      );
+      expect(anonymous.status).toBe(401);
+      const signedIn = await app.request(
+        `/api/invitations/${tokenFrom(second.body.link)}/accept`,
+        json({}, cookieOf(joined)),
+      );
+      expect(signedIn.status).toBe(201);
+    });
   });
 });
