@@ -8,6 +8,7 @@ import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { type Actor, canOnFile, fileAccess, guestFileReviews } from "../access.ts";
+import { alignmentsFrom } from "../alignment-graph.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { PlaySessionVariables, ViewerVariables } from "../guests.ts";
@@ -91,6 +92,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
     .use("/:id/spectrograms/*", toolFile(deps.db, "spectrogram"))
     .use("/:id/spectrograms", toolFile(deps.db, "spectrogram"))
     .use("/:id/playback", viewFile(deps.db))
+    .use("/:id/alignments", viewFile(deps.db))
     .get("/:id", fileParam, async (c) => {
       // Metadata only: contents leave Hekate solely through protected delivery.
       const [file] = await deps.db
@@ -131,6 +133,14 @@ export const fileRoutes = (deps: PlaybackDeps) =>
       const access = await fileAccess(deps.db, c.var.actor, file.id);
       return c.json({
         file: { ...file, variation: variation ?? null, grant: access?.grant ?? null },
+      });
+    })
+    // Where the same music sits in this file and the others it was aligned with, read from
+    // this file's side. Members compare versions; guests see only their review's files.
+    .get("/:id/alignments", fileParam, async (c) => {
+      if (c.var.actor.kind === "guest") return c.json({ alignments: [] });
+      return c.json({
+        alignments: await alignmentsFrom(deps.db, c.var.organisationId, c.req.valid("param").id),
       });
     })
     // Waveform peaks: an 8-bit envelope per channel, from which no audio can be rebuilt, so
