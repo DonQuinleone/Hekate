@@ -86,8 +86,15 @@ const schema = z.object({
     .transform((v) => v === "true"),
   /** Media jobs run at once in this process. ffmpeg is CPU-heavy; about half the cores is a good start. */
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(64).default(2),
-  /** Scratch space for decrypted media while a job runs. A tmpfs keeps it off disk. */
-  WORK_DIR: z.string().optional(),
+  /**
+   * Scratch space for decrypted media while a job runs. A tmpfs keeps it off disk. Media
+   * tools take paths inside it as filter arguments, so it is limited to characters that
+   * never need escaping there.
+   */
+  WORK_DIR: z
+    .string()
+    .regex(/^\/[A-Za-z0-9/_.-]*$/, "must be an absolute path of letters, digits, / _ . and -")
+    .optional(),
   /**
    * What the daily storage reconciliation does with bytes and blobs nothing uses, once a
    * second run a day later still finds them: `remove` them, or only `report` them.
