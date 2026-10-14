@@ -3331,6 +3331,29 @@ describe.runIf(url)("api", () => {
         ).toBe(404);
         // Audio is played, not viewed; and the raw file never has a route.
         expect((await app.request(`/api/files/${audio}/view`, json({}, owner))).status).toBe(409);
+        // Another organisation's document does not exist from here.
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-pages" })
+          .returning();
+        const foreign = await storage.put(other?.id ?? "", Buffer.from("%PDF-1.4 theirs"));
+        const [theirs] = await db
+          .insert(schema.files)
+          .values({
+            organisationId: other?.id ?? "",
+            projectId: await projectOfFile(await recording(other?.id ?? "")),
+            name: "Theirs.pdf",
+            kind: "document",
+            blobId: foreign.id,
+            contentType: "application/pdf",
+            byteSize: foreign.byteSize,
+            streamStatus: "ready",
+            pageCount: 1,
+          })
+          .returning();
+        expect((await app.request(`/api/files/${theirs?.id}/view`, json({}, owner))).status).toBe(
+          404,
+        );
       });
 
       it("carries open threads to the next version, where triage settles, hides or remaps them", async () => {
