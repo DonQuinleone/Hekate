@@ -2457,6 +2457,62 @@ describe.runIf(url)("api", () => {
           ).toBe(422);
         });
 
+        it.runIf(spawnSync("ffmpeg", ["-version"]).status === 0 || process.env.CI)(
+          "burns the guest's name into every page they are shown, and only theirs",
+          async () => {
+            const s = await invited();
+            // The review's file, drawn as one white page.
+            const chunks: Buffer[] = [];
+            await run(
+              "ffmpeg",
+              [
+                ...["-hide_banner", "-nostdin", "-v", "error", "-f", "lavfi"],
+                ...["-i", "color=white:s=400x560", "-frames:v", "1"],
+                ...["-c:v", "libwebp", "-f", "webp", "pipe:1"],
+              ],
+              { onStdout: (chunk) => chunks.push(chunk) },
+            );
+            const white = Buffer.concat(chunks);
+            const view = await storage.put(s.organisationId, white);
+            const thumb = await storage.put(s.organisationId, white);
+            await db
+              .update(schema.files)
+              .set({
+                kind: "document",
+                contentType: "application/pdf",
+                streamStatus: "ready",
+                pageCount: 1,
+              })
+              .where(eq(schema.files.id, s.mix));
+            await db.insert(schema.filePages).values({
+              organisationId: s.organisationId,
+              fileId: s.mix,
+              page: 1,
+              width: 400,
+              height: 560,
+              blobId: view.id,
+              thumbBlobId: thumb.id,
+            });
+            const pagesFor = async (cookie: string) => {
+              const res = await app.request(`/api/files/${s.mix}/view`, json({}, cookie));
+              expect(res.status).toBe(201);
+              return ((await res.json()) as { pages: { url: string; thumbUrl: string }[] })
+                .pages[0];
+            };
+            const theirs = await pagesFor(s.cookie);
+            for (const url of [theirs?.url ?? "", theirs?.thumbUrl ?? ""]) {
+              const served = Buffer.from(await (await getAs(url, s.cookie)).arrayBuffer());
+              expect(served.subarray(8, 12).toString()).toBe("WEBP");
+              // Not the stored page: their mark is on it.
+              expect(served.equals(white)).toBe(false);
+            }
+            // A member sees the page as it was drawn.
+            const ours = await pagesFor(s.owner);
+            const plain = Buffer.from(await (await getAs(ours?.url ?? "", s.owner)).arrayBuffer());
+            expect(plain.equals(white)).toBe(true);
+          },
+        );
+
         it("binds a guest's playback to their browser", async () => {
           const s = await invited();
           await db
@@ -3329,8 +3385,14 @@ describe.runIf(url)("api", () => {
             })
           ).status,
         ).toBe(404);
-        // Audio is played, not viewed; and the raw file never has a route.
+        // Audio is played, not viewed, and a document is viewed, not played (nor logged as
+        // played); the raw file never has a route.
         expect((await app.request(`/api/files/${audio}/view`, json({}, owner))).status).toBe(409);
+        expect((await app.request(`/api/files/${doc?.id}/playback`, json({}, owner))).status).toBe(
+          409,
+        );
+        const sessions = await audit.query(organisationId, { action: "stream.session", limit: 10 });
+        expect(sessions.events.filter((e) => e.fileId === doc?.id)).toHaveLength(0);
         // Another organisation's document does not exist from here.
         const [other] = await db
           .insert(schema.organisations)

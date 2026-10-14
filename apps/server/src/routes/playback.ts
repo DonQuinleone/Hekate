@@ -13,6 +13,7 @@ import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { PlaySessionVariables, ViewerVariables } from "../guests.ts";
 import type { Keyring } from "../keyring.ts";
+import { watermark, watermarkText } from "../media/watermark.ts";
 import {
   keyRateLimiter,
   PLAYBACK_LIFETIME_SECONDS,
@@ -26,6 +27,8 @@ import { membershipOf } from "../tenancy.ts";
 const {
   filePages,
   files,
+  guests,
+  organisations,
   renditions,
   renditionSegments,
   users,
@@ -346,10 +349,19 @@ export const fileRoutes = (deps: PlaybackDeps) =>
       const { id } = c.req.valid("param");
       const organisationId = c.var.organisationId;
       const [file] = await deps.db
-        .select({ id: files.id, projectId: files.projectId, streamStatus: files.streamStatus })
+        .select({
+          id: files.id,
+          kind: files.kind,
+          projectId: files.projectId,
+          streamStatus: files.streamStatus,
+        })
         .from(files)
         .where(inOrg(files, organisationId, eq(files.id, id)));
       if (!file) throw new NotFound("File");
+      // Documents and pictures are viewed as pages, never played (and never logged as played).
+      if (file.kind !== "audio" && file.kind !== "video") {
+        throw new HTTPException(409, { message: "Only recordings play; this file is viewed" });
+      }
       if (file.streamStatus !== "ready") {
         throw new HTTPException(409, {
           message:
@@ -648,11 +660,29 @@ export const playRoutes = (deps: PlaybackDeps) => {
             requestInfo(c, deps.trustProxy),
           );
         }
-        return sendBlob(
-          claims.organisationId,
-          size === "view" ? row.blobId : row.thumbBlobId,
-          "image/webp",
+        const blobId = size === "view" ? row.blobId : row.thumbBlobId;
+        const actor = c.var.actor;
+        if (actor.kind !== "guest") return sendBlob(claims.organisationId, blobId, "image/webp");
+        // A guest's page carries their name, burned in here (docs/security.md).
+        const [who] = await deps.db
+          .select({ name: guests.name, email: guests.email, organisation: organisations.name })
+          .from(guests)
+          .innerJoin(organisations, eq(organisations.id, guests.organisationId))
+          .where(inOrg(guests, claims.organisationId, eq(guests.id, actor.guestId)));
+        if (!who) throw new NotFound("Page");
+        const { stream } = await deps.storage.open(claims.organisationId, blobId);
+        const stored = Buffer.concat(await stream.toArray());
+        const marked = await watermark(
+          stored,
+          watermarkText(who, who.organisation, new Date()),
+          size,
+          c.req.raw.signal,
         );
+        return c.body(new Uint8Array(marked), 200, {
+          ...PRIVATE,
+          "content-type": "image/webp",
+          "content-length": String(marked.length),
+        });
       },
     )
 

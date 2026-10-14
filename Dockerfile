@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# One image: the Hono server, the built web app, ffmpeg and Poppler (PDF pages).
+# One image: the Hono server, the built web app, ffmpeg, Poppler (PDF pages) and a font for watermarks.
 
 FROM node:26-trixie-slim AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
@@ -31,7 +31,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --frozen-l
 FROM node:26-trixie-slim AS runtime
 RUN apt-get update \
   && apt-get upgrade -y --no-install-recommends \
-  && apt-get install -y --no-install-recommends ffmpeg poppler-utils ca-certificates \
+  && apt-get install -y --no-install-recommends ffmpeg poppler-utils fonts-dejavu-core ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
   && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 WORKDIR /app

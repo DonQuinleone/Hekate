@@ -50,7 +50,9 @@ function Playback({
   const client = useQueryClient();
   const markers = useCommentMarkers(file.id);
   const ready = file.streamStatus === "ready";
-  const { data, error } = useQuery({ ...playbackQuery(file.id), enabled: ready });
+  // Only a recording plays: asking for a document's playback would log a session for nothing.
+  const plays = file.kind === "audio" || file.kind === "video";
+  const { data, error } = useQuery({ ...playbackQuery(file.id), enabled: ready && plays });
   if (file.kind === "document" || file.kind === "image") {
     // Seen only as pages the server draws: never the file itself.
     if (file.streamStatus === "ready") return <DocumentViewer fileId={file.id} name={file.name} />;

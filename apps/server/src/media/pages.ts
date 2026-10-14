@@ -103,13 +103,18 @@ export async function pdfPageCount(path: string, signal: AbortSignal): Promise<n
   return pages;
 }
 
-/** Draw a document or picture as pages, in the job's workspace. */
+/**
+ * Draw a document or picture as pages, in the job's workspace. Each page is handed to
+ * `onPage` as soon as it is drawn, so a long document is never held in memory at once.
+ * Returns how many pages were drawn, and how many the document has.
+ */
 export async function renderPages(
   path: string,
   source: PageSource,
   dir: string,
   signal: AbortSignal,
-): Promise<{ pages: RenderedPage[]; total: number }> {
+  onPage: (page: RenderedPage) => Promise<void>,
+): Promise<{ drawn: number; total: number }> {
   let pngs: string[];
   let total = 1;
   if (source === "pdf") {
@@ -161,16 +166,15 @@ export async function renderPages(
     }
     pngs = [png];
   }
-  const pages: RenderedPage[] = [];
+  if (pngs.length === 0) throw new InvalidMediaError("Nothing could be drawn from the file");
   for (const [i, png] of pngs.entries()) {
     const size = pngSize(await readFile(png));
-    pages.push({
+    await onPage({
       page: i + 1,
       ...size,
       view: await webp(png, VIEW_SIZE, signal),
       thumb: await webp(png, THUMB_SIZE, signal),
     });
   }
-  if (pages.length === 0) throw new InvalidMediaError("Nothing could be drawn from the file");
-  return { pages, total };
+  return { drawn: pngs.length, total };
 }
