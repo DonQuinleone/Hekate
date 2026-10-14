@@ -4,6 +4,7 @@ import {
   createReviewInput,
   decisionInput,
   guestInput,
+  type PersonInput,
   type ReviewDecision,
   type ReviewerFacts,
   type ReviewerInput,
@@ -42,13 +43,19 @@ const {
   users,
   members,
   guests,
+  groups,
+  groupMembers,
 } = schema;
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
-/** One more reviewer: a member by user id, or a guest by name and email. */
-const addReviewerInput = z.union([z.object({ userId: z.string().min(1).max(64) }), guestInput]);
+/** One more reviewer: a member by user id, a guest by name and email, or a group. */
+const addReviewerInput = z.union([
+  z.object({ userId: z.string().min(1).max(64) }),
+  z.object({ groupId: z.uuid() }),
+  guestInput,
+]);
 const reviewerParam = zValidator("param", z.object({ id: z.uuid(), reviewerId: z.uuid() }));
 
 export interface ReviewDeps {
@@ -70,15 +77,28 @@ async function reviewersOf(db: Database | Tx, organisationId: string, reviewId: 
       email: sql<string>`coalesce(${users.email}, ${guests.email})`,
       label: guests.label,
       position: reviewReviewers.position,
+      groupId: reviewReviewers.groupId,
+      groupName: groups.name,
       viewedAt: reviewReviewers.viewedAt,
       startedAt: reviewReviewers.startedAt,
       submittedAt: reviewReviewers.submittedAt,
     })
     .from(reviewReviewers)
     .leftJoin(users, eq(users.id, reviewReviewers.userId))
-    .leftJoin(guests, eq(guests.id, reviewReviewers.guestId))
+    .leftJoin(
+      guests,
+      and(eq(guests.id, reviewReviewers.guestId), eq(guests.organisationId, organisationId)),
+    )
+    .leftJoin(
+      groups,
+      and(eq(groups.id, reviewReviewers.groupId), eq(groups.organisationId, organisationId)),
+    )
     .where(inOrg(reviewReviewers, organisationId, eq(reviewReviewers.reviewId, reviewId)))
-    .orderBy(asc(reviewReviewers.position));
+    .orderBy(
+      asc(reviewReviewers.position),
+      asc(reviewReviewers.createdAt),
+      asc(reviewReviewers.id),
+    );
   const decisions = await db
     .select({
       id: reviewDecisionLog.id,
@@ -94,6 +114,7 @@ async function reviewersOf(db: Database | Tx, organisationId: string, reviewId: 
   for (const d of decisions) latest.set(d.reviewerId, d.decision);
   const facts: ReviewerFacts[] = rows.map((r) => ({
     id: r.id,
+    step: r.position,
     submitted: r.submittedAt !== null,
     decision: latest.get(r.id) ?? null,
     viewed: r.viewedAt !== null,
@@ -247,6 +268,9 @@ async function reviewView(db: Database, actor: Actor, reviewId: string) {
       guest: row.guestId !== null,
       name: row.name,
       label: row.label,
+      /** The group they were asked through, if any: its members share one step. */
+      group: row.groupId ? { id: row.groupId, name: row.groupName } : null,
+      step: row.position,
       // Guests see who else is reviewing, but not their addresses.
       email: member ? row.email : null,
       state:
@@ -351,17 +375,28 @@ function newlyActive(before: Set<string>, after: Set<string>) {
   return [...after].filter((id) => !before.has(id));
 }
 
+type Person = { userId: string; guestId?: undefined } | { guestId: string; userId?: undefined };
+
 /**
- * Who a reviewer entry names: a member who can see the project (and, for an approval,
- * decide), or a guest found (or created) by email in the organisation. Guests may always
- * decide: the review sets what they can do.
+ * Who an entry names: a member who can see the project (and, for an approval, decide), a
+ * guest found (or created) by email in the organisation, or a guest already on file.
+ * Guests may always decide: the review sets what they can do. With no kind (a group being
+ * saved), any role that can see the project will do.
  */
-async function resolveReviewer(
+export async function resolvePerson(
   tx: Database | Tx,
   actor: MemberActor,
-  review: { projectId: string; kind: ReviewKind },
-  entry: ReviewerInput,
-): Promise<{ userId: string; guestId?: undefined } | { guestId: string; userId?: undefined }> {
+  review: { projectId: string; kind: ReviewKind | null },
+  entry: PersonInput | { guestId: string },
+): Promise<Person> {
+  if (typeof entry !== "string" && "guestId" in entry) {
+    const [found] = await tx
+      .select({ id: guests.id })
+      .from(guests)
+      .where(inOrg(guests, actor.organisationId, eq(guests.id, entry.guestId)));
+    if (!found) throw new HTTPException(422, { message: "That guest is not known here" });
+    return { guestId: found.id };
+  }
   if (typeof entry !== "string") {
     const [found] = await tx
       .insert(guests)
@@ -401,6 +436,68 @@ async function resolveReviewer(
     throw new HTTPException(422, { message: cannotDecide });
   }
   return { userId: entry };
+}
+
+/**
+ * The reviewer rows for some entries, from the given step on: each entry is a step, and a
+ * group is all of its members, as they are now, at one step. Someone named twice (alone
+ * and in a group, or in two groups) is asked once, at their first step.
+ */
+async function expandReviewers(
+  tx: Tx,
+  actor: MemberActor,
+  review: { projectId: string; kind: ReviewKind },
+  entries: ReviewerInput[],
+  firstStep: number,
+) {
+  const rows: (Person & { position: number; groupId: string | null })[] = [];
+  const seen = new Set<string>();
+  const add = (person: Person, position: number, groupId: string | null) => {
+    const key = person.userId ? `u:${person.userId}` : `g:${person.guestId}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    rows.push({ ...person, position, groupId });
+  };
+  for (const [i, entry] of entries.entries()) {
+    const position = firstStep + i;
+    if (typeof entry === "string" || !("groupId" in entry)) {
+      add(await resolvePerson(tx, actor, review, entry), position, null);
+      continue;
+    }
+    const [group] = await tx
+      .select({ id: groups.id, name: groups.name })
+      .from(groups)
+      .where(
+        inOrg(
+          groups,
+          actor.organisationId,
+          eq(groups.id, entry.groupId),
+          eq(groups.projectId, review.projectId),
+        ),
+      );
+    if (!group) throw new HTTPException(422, { message: "Groups must come from this project" });
+    const people = await tx
+      .select({ userId: groupMembers.userId, guestId: groupMembers.guestId })
+      .from(groupMembers)
+      .where(inOrg(groupMembers, actor.organisationId, eq(groupMembers.groupId, group.id)))
+      .orderBy(asc(groupMembers.position));
+    if (people.length === 0) {
+      throw new HTTPException(422, { message: `${group.name} has no one in it` });
+    }
+    for (const p of people) {
+      const person = await resolvePerson(
+        tx,
+        actor,
+        review,
+        p.userId ? p.userId : { guestId: p.guestId as string },
+      ).catch((error: unknown) => {
+        if (!(error instanceof HTTPException)) throw error;
+        throw new HTTPException(422, { message: `In ${group.name}: ${error.message}` });
+      });
+      add(person, position, group.id);
+    }
+  }
+  return rows;
 }
 
 /** `/api/projects/:id/reviews`: a project's reviews, and requesting one. Members only. */
@@ -534,17 +631,21 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
               : { trackId: item.trackId, versionId: item.versionId ?? null }),
           })),
         );
-        const people = [];
-        for (const entry of input.reviewers) {
-          people.push(await resolveReviewer(tx, actor, { projectId, kind: input.kind }, entry));
-        }
+        const people = await expandReviewers(
+          tx,
+          actor,
+          { projectId, kind: input.kind },
+          input.reviewers,
+          0,
+        );
         await tx.insert(reviewReviewers).values(
-          people.map((person, position) => ({
+          people.map((person) => ({
             organisationId,
             reviewId: created.id,
             userId: person.userId ?? null,
             guestId: person.guestId ?? null,
-            position,
+            groupId: person.groupId,
+            position: person.position,
           })),
         );
         await deps.audit.record(
@@ -554,7 +655,7 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
             action: "review.create",
             projectId,
             reviewId: created.id,
-            details: { kind: created.kind, reviewers: input.reviewers.length },
+            details: { kind: created.kind, reviewers: people.length },
           },
           requestInfo(c, deps.trustProxy),
           tx,
@@ -756,41 +857,58 @@ export const reviewRoutes = (deps: ReviewDeps) =>
       const actor = memberOnly(c.var.actor);
       const body = c.req.valid("json");
       const entry: ReviewerInput = "userId" in body ? body.userId : body;
-      const { review, added, activeNow } = await deps.db.transaction(async (tx) => {
+      const { review, added } = await deps.db.transaction(async (tx) => {
         const { review } = await lockReview(tx, actor, c.req.valid("param").id);
         await can(tx, actor, "manage_reviewers", review.projectId);
         if (review.status !== "open") {
           throw new HTTPException(409, { message: `This review is ${review.status}` });
         }
-        const person = await resolveReviewer(tx, actor, review, entry);
         const [last] = await tx
           .select({ position: max(reviewReviewers.position) })
           .from(reviewReviewers)
           .where(
             inOrg(reviewReviewers, actor.organisationId, eq(reviewReviewers.reviewId, review.id)),
           );
-        const [added] = await tx
+        const people = await expandReviewers(
+          tx,
+          actor,
+          review,
+          [entry],
+          (last?.position ?? -1) + 1,
+        );
+        const inserted = await tx
           .insert(reviewReviewers)
-          .values({
-            organisationId: actor.organisationId,
-            reviewId: review.id,
-            userId: person.userId ?? null,
-            guestId: person.guestId ?? null,
-            position: (last?.position ?? -1) + 1,
-          })
+          .values(
+            people.map((person) => ({
+              organisationId: actor.organisationId,
+              reviewId: review.id,
+              userId: person.userId ?? null,
+              guestId: person.guestId ?? null,
+              groupId: person.groupId,
+              position: person.position,
+            })),
+          )
           .onConflictDoNothing()
           .returning({ id: reviewReviewers.id });
-        if (!added) throw new HTTPException(409, { message: "They are already a reviewer" });
+        if (inserted.length === 0) {
+          throw new HTTPException(409, {
+            message:
+              "groupId" in body
+                ? "Everyone in that group is already a reviewer"
+                : "They are already a reviewer",
+          });
+        }
         const { rows, facts } = await reviewersOf(tx, actor.organisationId, review.id);
+        const active = activeReviewers(review.order, facts);
         return {
           review,
-          added: rows.find((r) => r.id === added.id) as ReviewerRow,
-          activeNow: activeReviewers(review.order, facts).has(added.id),
+          // Those asked now, rather than later in the sequence.
+          added: rows.filter((r) => inserted.some((x) => x.id === r.id) && active.has(r.id)),
         };
       });
-      if (activeNow) {
+      if (added.length > 0) {
         const requester = await nameOf(deps.db, actor.userId);
-        await notify(deps, [added], review, `${requester} asks you to ${ask(review)}.`);
+        await notify(deps, added, review, `${requester} asks you to ${ask(review)}.`);
       }
       return c.json({ review: await reviewView(deps.db, actor, review.id) }, 201);
     })

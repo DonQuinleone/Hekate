@@ -51,11 +51,31 @@ export const guestInput = z.object({
 });
 export type GuestInput = z.input<typeof guestInput>;
 
-/** A reviewer: a member's user id, or a guest. */
-export const reviewerInput = z.union([z.string().min(1).max(64), guestInput]);
+/** A person in a group: a member's user id, or a guest. */
+export const personInput = z.union([z.string().min(1).max(64), guestInput]);
+export type PersonInput = z.infer<typeof personInput>;
+
+/** A reviewer: a member's user id, a guest, or one of the project's groups. */
+export const reviewerInput = z.union([personInput, z.object({ groupId: z.uuid() })]);
 export type ReviewerInput = z.infer<typeof reviewerInput>;
 const reviewerKey = (r: ReviewerInput) =>
-  typeof r === "string" ? `member:${r}` : `guest:${r.email}`;
+  typeof r === "string"
+    ? `member:${r}`
+    : "groupId" in r
+      ? `group:${r.groupId}`
+      : `guest:${r.email}`;
+
+/** A group of reviewers in a project, for example "Soloists". */
+export const groupInput = z
+  .object({
+    name: z.string().trim().min(1).max(80),
+    members: z.array(personInput).min(1, "A group needs someone in it").max(100),
+  })
+  .refine((g) => new Set(g.members.map((m) => reviewerKey(m))).size === g.members.length, {
+    message: "Each person can be in a group once",
+    path: ["members"],
+  });
+export type GroupInput = z.input<typeof groupInput>;
 
 export const createReviewInput = z
   .object({
@@ -67,8 +87,9 @@ export const createReviewInput = z
     rule: z.enum(approvalRules).optional(),
     items: z.array(reviewItemInput).min(1, "A review needs something to review").max(50),
     /**
-     * In order (the order matters in a sequence): members by user id, and guests by name
-     * and email (an existing guest of the organisation is reused).
+     * In order (the order matters in a sequence): members by user id, guests by name and
+     * email (an existing guest of the organisation is reused), and groups, whose members
+     * are asked together as one step.
      */
     reviewers: z.array(reviewerInput).min(1, "A review needs a reviewer").max(50),
   })
@@ -87,6 +108,8 @@ export const decisionInput = z.object({
 /** The facts the rules need about each reviewer, in the review's order. */
 export interface ReviewerFacts {
   id: string;
+  /** Their step in the order: a group's members share one. */
+  step: number;
   /** Viewed or started; the rules only need to know whether they have submitted. */
   submitted: boolean;
   /** Their latest decision, if any: a later one supersedes, but never erases, an earlier. */
@@ -96,13 +119,15 @@ export interface ReviewerFacts {
 }
 
 /**
- * Who may act now. Everyone in a parallel review; in a sequence, the first reviewer who
- * has not yet submitted (each starts when the previous one finishes).
+ * Who may act now. Everyone in a parallel review; in a sequence, everyone at the earliest
+ * step where someone has not yet submitted (each step starts when the previous one
+ * finishes, and a group's members are one step).
  */
 export function activeReviewers(order: ReviewOrder, reviewers: ReviewerFacts[]): Set<string> {
-  if (order === "parallel") return new Set(reviewers.filter((r) => !r.submitted).map((r) => r.id));
-  const next = reviewers.find((r) => !r.submitted);
-  return new Set(next ? [next.id] : []);
+  const waiting = reviewers.filter((r) => !r.submitted);
+  if (order === "parallel") return new Set(waiting.map((r) => r.id));
+  const step = Math.min(...waiting.map((r) => r.step));
+  return new Set(waiting.filter((r) => r.step === step).map((r) => r.id));
 }
 
 /** Each reviewer's state, from the facts and who is active. */

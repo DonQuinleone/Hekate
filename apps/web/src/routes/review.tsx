@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { GuestFields, reviewState } from "~/components/reviews";
+import { GuestFields } from "~/components/guest-fields";
+import { reviewState } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
 import { StatusPill } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
@@ -121,15 +122,19 @@ function Reviewers({ review }: { review: ReviewDetail }) {
   const [inviting, setInviting] = useState(false);
   const manage = review.you.canManageReviewers && review.status === "open";
   const error = addReviewer.error ?? sendLink.error ?? revoke.error;
+  // Steps numbered from one: a group's members share theirs.
+  const steps = [...new Set(review.reviewers.map((r) => r.step))].sort((a, b) => a - b);
   return (
     <>
       <ol className="m-0 flex list-none flex-col border-t border-hairline p-0">
-        {review.reviewers.map((r, i) => (
+        {review.reviewers.map((r) => (
           <li key={r.id} className="flex flex-col gap-1 border-b border-hairline py-2.5">
             <span className="flex items-center justify-between gap-3">
               <span className="flex min-w-0 items-center gap-2">
                 {review.order === "sequence" && (
-                  <span className="tabular font-mono text-[11px] text-ink-3">{i + 1}</span>
+                  <span className="tabular font-mono text-[11px] text-ink-3">
+                    {steps.indexOf(r.step) + 1}
+                  </span>
                 )}
                 <span className="truncate text-[13px] text-ink">{r.name}</span>
                 {r.guest && (
@@ -142,6 +147,7 @@ function Reviewers({ review }: { review: ReviewDetail }) {
                 {r.decision ? decisionCopy[r.decision] : stateCopy[r.state]}
               </span>
             </span>
+            {r.group?.name && <span className="text-xs text-ink-3">{r.group.name}</span>}
             {manage && r.guest && (
               <span className="flex gap-3 text-xs">
                 <button

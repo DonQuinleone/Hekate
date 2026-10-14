@@ -5,6 +5,7 @@ import {
   decodePeaks,
   decodeSpectrogram,
   type FileKind,
+  type GroupInput,
   type GuestInput,
   type LoudnessSummary,
   type MediaInfo,
@@ -673,6 +674,10 @@ export interface ReviewDetail {
     label: string | null;
     /** Shown to members only; guests never see other reviewers' addresses. */
     email: string | null;
+    /** The group they were asked through, if any. */
+    group: { id: string; name: string | null } | null;
+    /** Their step in the order: a group's members share one. */
+    step: number;
     state: ReviewerState;
     decision: ReviewDecision | null;
     decidedAt: string | null;
@@ -760,7 +765,7 @@ export function useReviewActions(reviewId: string) {
       onSuccess: settle,
     }),
     addReviewer: useMutation({
-      mutationFn: async (input: { userId: string } | GuestInput) =>
+      mutationFn: async (input: { userId: string } | { groupId: string } | GuestInput) =>
         call(await api.reviews[":id"].reviewers.$post({ param: { id: reviewId }, json: input })),
       onSuccess: settle,
     }),
@@ -827,4 +832,60 @@ export function useGuestSignOut() {
     },
     onSuccess: () => client.clear(),
   });
+}
+
+export interface ProjectGroup {
+  id: string;
+  name: string;
+  members: {
+    userId: string | null;
+    guestId: string | null;
+    name: string;
+    email: string;
+    label: string | null;
+    guest: boolean;
+  }[];
+}
+
+/** A project's groups of reviewers, for example "Soloists". */
+export const projectGroupsQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "groups"],
+    queryFn: async () =>
+      (
+        await json<{ groups: ProjectGroup[] }>(
+          await api.projects[":id"].groups.$get({ param: { id: projectId } }),
+        )
+      ).groups,
+  });
+
+export function useGroupMutations(projectId: string) {
+  const client = useQueryClient();
+  const refresh = () => client.invalidateQueries({ queryKey: ["projects", projectId, "groups"] });
+  return {
+    create: useMutation({
+      mutationFn: async (input: GroupInput) =>
+        json(await api.projects[":id"].groups.$post({ param: { id: projectId }, json: input })),
+      onSuccess: refresh,
+    }),
+    update: useMutation({
+      mutationFn: async ({ groupId, ...input }: GroupInput & { groupId: string }) =>
+        json(
+          await api.projects[":id"].groups[":groupId"].$put({
+            param: { id: projectId, groupId },
+            json: input,
+          }),
+        ),
+      onSuccess: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: async (groupId: string) => {
+        const res = await api.projects[":id"].groups[":groupId"].$delete({
+          param: { id: projectId, groupId },
+        });
+        if (!res.ok) await json(res);
+      },
+      onSuccess: refresh,
+    }),
+  };
 }

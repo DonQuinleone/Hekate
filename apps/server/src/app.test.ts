@@ -2342,6 +2342,213 @@ describe.runIf(url)("api", () => {
           expect((await getAs(`/api/reviews/${foreign?.id}`, s.cookie)).status).toBe(404);
         });
       });
+
+      describe("groups", () => {
+        interface GroupBody {
+          id: string;
+          name: string;
+          members: { userId: string | null; name: string; guest: boolean; label: string | null }[];
+        }
+        const conductor = {
+          name: "Ines Arlow",
+          email: "conductor@example.test",
+          label: "Conductor",
+        };
+        const makeGroup = (cookie: string, projectId: string, body: Record<string, unknown>) =>
+          app.request(`/api/projects/${projectId}/groups`, json(body, cookie));
+        const groupOf = async (res: Response) => ((await res.json()) as { group: GroupBody }).group;
+
+        it("keeps named sets of members and guests, for those who manage reviewers", async () => {
+          const s = await studio();
+          const made = await makeGroup(s.owner, s.projectId, {
+            name: "Soloists",
+            members: [s.ids.composer, conductor],
+          });
+          expect(made.status).toBe(201);
+          const soloists = await groupOf(made);
+          expect(soloists.members).toMatchObject([
+            { userId: s.ids.composer, guest: false },
+            { userId: null, name: "Ines Arlow", guest: true, label: "Conductor" },
+          ]);
+          // Anyone who can see the project sees its groups; only some may change them.
+          const listed = (await (
+            await getAs(`/api/projects/${s.projectId}/groups`, s.engineer)
+          ).json()) as { groups: GroupBody[] };
+          expect(listed.groups.map((g) => g.name)).toEqual(["Soloists"]);
+          expect(
+            (await makeGroup(s.engineer, s.projectId, { name: "Mine", members: [s.ids.composer] }))
+              .status,
+          ).toBe(403);
+          expect(
+            (await makeGroup(s.owner, s.projectId, { name: "Soloists", members: [s.ids.composer] }))
+              .status,
+          ).toBe(409);
+          // Members must be able to see the project.
+          const stranger = await joinAs(s.owner, "stranger@example.test");
+          expect(
+            (
+              await makeGroup(s.owner, s.projectId, {
+                name: "Strangers",
+                members: [await idOf(stranger)],
+              })
+            ).status,
+          ).toBe(422);
+          // Editing replaces the people; deleting goes.
+          const edited = await groupOf(
+            await app.request(`/api/projects/${s.projectId}/groups/${soloists.id}`, {
+              ...json({ name: "Principals", members: [s.ids.accompanist] }, s.owner),
+              method: "PUT",
+            }),
+          );
+          expect(edited).toMatchObject({
+            name: "Principals",
+            members: [{ userId: s.ids.accompanist }],
+          });
+          expect(
+            (
+              await app.request(`/api/projects/${s.projectId}/groups/${soloists.id}`, {
+                method: "DELETE",
+                headers: { cookie: s.engineer },
+              })
+            ).status,
+          ).toBe(403);
+          expect(
+            (
+              await app.request(`/api/projects/${s.projectId}/groups/${soloists.id}`, {
+                method: "DELETE",
+                headers: { cookie: s.owner },
+              })
+            ).status,
+          ).toBe(204);
+          // Someone without a role in the project cannot reach them.
+          expect((await getAs(`/api/projects/${s.projectId}/groups`, stranger)).status).toBe(404);
+        });
+
+        it("asks a group as one step of a sequence", async () => {
+          const s = await studio();
+          const soloists = await groupOf(
+            await makeGroup(s.owner, s.projectId, {
+              name: "Soloists",
+              members: [s.ids.composer, conductor],
+            }),
+          );
+          mailer.sent.length = 0;
+          const review = await reviewOf(
+            await request(s.owner, s.projectId, {
+              kind: "approval",
+              title: "Album master",
+              order: "sequence",
+              items: [{ trackId: s.trackId }],
+              // The composer, named again, is asked once: with the group.
+              reviewers: [{ groupId: soloists.id }, s.ids.accompanist, s.ids.composer],
+            }),
+          );
+          const reviewers = review.reviewers as (ReviewBody["reviewers"][number] & {
+            group: { name: string } | null;
+            step: number;
+          })[];
+          expect(reviewers.map((r) => [r.group?.name ?? null, r.step, r.state])).toEqual([
+            ["Soloists", 0, "invited"],
+            ["Soloists", 0, "invited"],
+            [null, 1, "waiting"],
+          ]);
+          // Both of the group are asked at once; the accompanist waits.
+          expect(mailer.sent.map((m) => m.to).sort()).toEqual([
+            "composer@example.test",
+            "conductor@example.test",
+          ]);
+          const path = `/api/reviews/${review.id}`;
+          const afterOne = await reviewOf(
+            await app.request(`${path}/decisions`, json({ decision: "approved" }, s.composer)),
+          );
+          expect(afterOne.reviewers.map((r) => r.state)).toEqual([
+            "submitted",
+            "invited",
+            "waiting",
+          ]);
+          // The guest completes the group's step, and the accompanist's turn comes.
+          const token =
+            [...mailer.sent]
+              .reverse()
+              .find((m) => m.to === "conductor@example.test")
+              ?.text.match(/\/guest\/([A-Za-z0-9_-]+)/)?.[1] ?? "";
+          const guest = cookieOf(await app.request("/api/guest/sessions", json({ token })));
+          mailer.sent.length = 0;
+          const afterGroup = await reviewOf(
+            await app.request(`${path}/decisions`, json({ decision: "approved" }, guest)),
+          );
+          expect(afterGroup.reviewers.map((r) => r.state)).toEqual([
+            "submitted",
+            "submitted",
+            "invited",
+          ]);
+          expect(mailer.sent.map((m) => m.to)).toEqual(["accompanist@example.test"]);
+        });
+
+        it("checks a group's people when it is asked, and adds a group as a later step", async () => {
+          const s = await studio();
+          const crew = await groupOf(
+            await makeGroup(s.owner, s.projectId, {
+              name: "Crew",
+              members: [s.ids.engineer, s.ids.accompanist],
+            }),
+          );
+          const base = { title: "Mix", items: [{ trackId: s.trackId }] };
+          // An engineer cannot decide, so the crew cannot review an approval; feedback is fine.
+          const refused = await request(s.owner, s.projectId, {
+            ...base,
+            kind: "approval",
+            reviewers: [{ groupId: crew.id }],
+          });
+          expect(refused.status).toBe(422);
+          expect(
+            ((await refused.json()) as { error: { message: string } }).error.message,
+          ).toContain("In Crew:");
+          const review = await reviewOf(
+            await request(s.owner, s.projectId, {
+              ...base,
+              kind: "feedback",
+              order: "sequence",
+              reviewers: [s.ids.composer],
+            }),
+          );
+          const path = `/api/reviews/${review.id}`;
+          const added = await reviewOf(
+            await app.request(`${path}/reviewers`, json({ groupId: crew.id }, s.owner)),
+          );
+          expect(added.reviewers.map((r) => r.state)).toEqual(["invited", "waiting", "waiting"]);
+          expect(
+            (await app.request(`${path}/reviewers`, json({ groupId: crew.id }, s.owner))).status,
+          ).toBe(409);
+          // A group from another project is refused.
+          const other = await app.request(
+            "/api/projects",
+            json({ name: "Elite", profile: "music" }, s.owner),
+          );
+          const otherId = ((await other.json()) as { project: { id: string } }).project.id;
+          const elsewhere = await groupOf(
+            await makeGroup(s.owner, otherId, { name: "Crew", members: [conductor] }),
+          );
+          expect(
+            (
+              await request(s.owner, s.projectId, {
+                ...base,
+                kind: "feedback",
+                reviewers: [{ groupId: elsewhere.id }],
+              })
+            ).status,
+          ).toBe(422);
+          // Deleting the group leaves the review's reviewers in place.
+          await app.request(`/api/projects/${s.projectId}/groups/${crew.id}`, {
+            method: "DELETE",
+            headers: { cookie: s.owner },
+          });
+          const after = (await (await getAs(path, s.owner)).json()) as {
+            review: { reviewers: { group: unknown }[] };
+          };
+          expect(after.review.reviewers.map((r) => r.group)).toEqual([null, null, null]);
+        });
+      });
     });
 
     describe("comments", () => {

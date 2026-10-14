@@ -2,6 +2,7 @@ import { profiles } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { FileList, Uploader } from "~/components/files";
+import { ReviewerGroups } from "~/components/groups";
 import { Icon } from "~/components/icons";
 import { ProjectAccess } from "~/components/project-access";
 import { ProjectReviews } from "~/components/reviews";
@@ -66,8 +67,9 @@ export function ProjectPage({ projectId }: { projectId: string }) {
           <FileList projectId={project.id} />
           <p className="label m-0">Anchors in this profile · {profile.anchors.join(" · ")}</p>
         </TabsContent>
-        <TabsContent value="reviews" className="pt-6">
+        <TabsContent value="reviews" className="flex flex-col gap-10 pt-6">
           <ProjectReviews projectId={project.id} />
+          <ReviewerGroups projectId={project.id} />
         </TabsContent>
         <TabsContent value="comments" className="pt-6 text-ink-3">
           No comments yet.
