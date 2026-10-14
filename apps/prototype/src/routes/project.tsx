@@ -509,7 +509,7 @@ function Files({ project, folderId }: { project: Project; folderId: string | nul
             </span>
           ))}
         </nav>
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex flex-wrap items-center gap-1">
           <button
             type="button"
             className="flex h-7 items-center gap-1.5 rounded-control px-2 text-xs text-ink-3 hover:bg-raised hover:text-ink"

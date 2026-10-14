@@ -89,6 +89,7 @@ export function Filmstrip({
             file={file}
             time={((i + 0.5) / frames) * file.media.duration}
             className="h-12 flex-1 aspect-auto"
+            thumb
           />
         ))}
       </div>

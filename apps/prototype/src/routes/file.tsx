@@ -709,7 +709,7 @@ export function FilePage({
               <section aria-label="Score" className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
                   <h2 className="m-0 text-[15px] font-medium">Score</h2>
-                  <span className="text-xs text-ink-3">
+                  <span className="hidden text-xs text-ink-3 @3xl/app:inline">
                     {score.name} · for reference; type the bars into your comments
                   </span>
                   {!viewer.isGuest && (
