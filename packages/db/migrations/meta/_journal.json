@@ -36,6 +36,20 @@
       "when": 1791946189813,
       "tag": "0004_encryption",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791947391837,
+      "tag": "0005_access_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791947395805,
+      "tag": "0006_access_log_append_only",
+      "breakpoints": true
     }
   ]
 }

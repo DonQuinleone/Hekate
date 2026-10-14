@@ -2,11 +2,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buffer } from "node:stream/consumers";
-import { createDb, runMigrations, schema } from "@hekate/db";
+import { createDb, runMigrations, schema, withAuditPurge } from "@hekate/db";
 import { createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.ts";
+import { createAudit, csvCell } from "./audit.ts";
 import { createAuth } from "./auth.ts";
 import { createClient } from "./client.ts";
 import { loadConfig } from "./config.ts";
@@ -43,11 +44,14 @@ describe.runIf(url)("api", () => {
   const masterKey = Buffer.alloc(32, 7);
   const keyring = createKeyring(db, { current: masterKey, previous: [] });
   const storage = createStorage(db, backends, keyring);
+  const audit = createAudit(db);
   const app = createApp({
     db,
     auth,
     mailer,
     storage,
+    audit,
+    trustProxy: true,
     publicUrl: "http://localhost:3000",
     log: false,
   });
@@ -77,10 +81,14 @@ describe.runIf(url)("api", () => {
     await runMigrations(url ?? "");
   });
   beforeEach(async () => {
-    await db.execute(sql`truncate ${schema.organisations}, ${schema.users} cascade`);
+    await withAuditPurge(db, (tx) =>
+      tx.execute(sql`truncate ${schema.organisations}, ${schema.users} cascade`),
+    );
   });
   afterAll(async () => {
-    await db.execute(sql`truncate ${schema.organisations}, ${schema.users} cascade`);
+    await withAuditPurge(db, (tx) =>
+      tx.execute(sql`truncate ${schema.organisations}, ${schema.users} cascade`),
+    );
     await close();
     rmSync(storageRoot, { recursive: true, force: true });
   });
@@ -633,6 +641,168 @@ describe.runIf(url)("api", () => {
         await expect(storage.put(organisationId, Buffer.from("x"))).rejects.toThrow(
           /not configured/,
         );
+      });
+    });
+
+    describe("access log", () => {
+      const joinAs = async (owner: string, email: string, role: string) => {
+        const { body } = await invite(owner, email, role);
+        const res = await app.request(
+          `/api/invitations/${tokenFrom(body.link)}/accept`,
+          json({ name: "Colleague", password: "correct horse battery" }),
+        );
+        return cookieOf(res);
+      };
+      const organisationOf = async (cookie: string) =>
+        (
+          (await (await app.request("/api/me", { headers: { cookie } })).json()) as {
+            activeOrganisationId: string;
+          }
+        ).activeOrganisationId;
+      const get = (path: string, cookie: string, headers: Record<string, string> = {}) =>
+        app.request(path, { headers: { cookie, ...headers } });
+
+      it("is append-only, except for an explicit purge", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const event = await audit.record(
+          organisationId,
+          { type: "system", label: "Hekate" },
+          { action: "download" },
+        );
+        await expect(
+          db
+            .update(schema.accessEvents)
+            .set({ actorLabel: "someone else" })
+            .where(sql`id = ${event.id}`),
+        ).rejects.toThrow();
+        await expect(db.delete(schema.accessEvents).where(sql`id = ${event.id}`)).rejects.toThrow();
+        await expect(db.execute(sql`truncate ${schema.accessEvents}`)).rejects.toThrow();
+        await withAuditPurge(db, (tx) =>
+          tx.delete(schema.accessEvents).where(sql`id = ${event.id}`),
+        );
+        expect(await db.select().from(schema.accessEvents)).toHaveLength(0);
+      });
+
+      it("filters and pages newest first, within the organisation", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const me = await audit.member((await db.select().from(schema.users))[0]?.id ?? "");
+        expect(me.label).toBe("Producer <producer@example.test>");
+        const fileA = "01999999-0000-7000-8000-00000000000a";
+        const fileB = "01999999-0000-7000-8000-00000000000b";
+        for (let i = 0; i < 5; i++) {
+          await audit.record(organisationId, me, {
+            action: "stream.key",
+            fileId: i < 3 ? fileA : fileB,
+            details: { i },
+          });
+        }
+        await audit.record(organisationId, me, { action: "download", fileId: fileA });
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-audit" })
+          .returning();
+        await audit.record(
+          other?.id ?? "",
+          { type: "system", label: "Hekate" },
+          { action: "download", fileId: fileA },
+        );
+
+        type Page = {
+          events: { action: string; fileId: string; details: { i: number } | null }[];
+          nextBefore: string | null;
+        };
+        const all = (await (await get("/api/organisation/audit", owner)).json()) as Page;
+        expect(all.events).toHaveLength(6);
+        expect(all.events[0]?.action).toBe("download");
+        expect(all.nextBefore).toBeNull();
+
+        const first = (await (
+          await get("/api/organisation/audit?action=stream.key&limit=2", owner)
+        ).json()) as Page;
+        expect(first.events.map((e) => e.details?.i)).toEqual([4, 3]);
+        const second = (await (
+          await get(
+            `/api/organisation/audit?action=stream.key&limit=2&before=${first.nextBefore}`,
+            owner,
+          )
+        ).json()) as Page;
+        expect(second.events.map((e) => e.details?.i)).toEqual([2, 1]);
+
+        const forFile = (await (
+          await get(`/api/organisation/audit?fileId=${fileA}`, owner)
+        ).json()) as Page;
+        expect(forFile.events).toHaveLength(4);
+        expect((await get("/api/organisation/audit?action=nonsense", owner)).status).toBe(400);
+      });
+
+      it("is for admins and owners only", async () => {
+        const owner = cookieOf(await setup());
+        const admin = await joinAs(owner, "engineer@example.test", "admin");
+        const member = await joinAs(owner, "player@example.test", "member");
+        expect((await get("/api/organisation/audit", admin)).status).toBe(200);
+        expect((await get("/api/organisation/audit", member)).status).toBe(403);
+        expect((await get("/api/organisation/audit.csv", member)).status).toBe(403);
+      });
+
+      it("exports CSV safely, and records the export with the client's address", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        await audit.record(
+          organisationId,
+          { type: "guest", label: '=HYPERLINK("http://evil.test","click")' },
+          { action: "page.render" },
+          { ipAddress: "2001:db8::7", userAgent: 'Mozilla "quoted"' },
+        );
+        const res = await get("/api/organisation/audit.csv", owner, {
+          "x-forwarded-for": "198.51.100.23",
+          "user-agent": "Hekate test",
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers.get("content-type")).toContain("text/csv");
+        expect(res.headers.get("content-disposition")).toMatch(
+          /attachment; filename="hekate-access-log-/,
+        );
+        const lines = (await res.text()).trim().split("\r\n");
+        expect(lines[0]).toBe(
+          "occurred_at,action,actor_type,actor,user_id,guest_id,project_id,file_id,review_id,ip_address,user_agent,details",
+        );
+        // The export itself is the newest row, then the guest's page render.
+        expect(lines[1]).toContain('"audit.export"');
+        expect(lines[1]).toContain('"198.51.100.23"');
+        expect(lines[1]).toContain('"Hekate test"');
+        expect(lines[2]).toContain(`"'=HYPERLINK(""http://evil.test"",""click"")"`);
+        expect(lines[2]).toContain('"2001:db8::7"');
+        expect(lines[2]).toContain('"Mozilla ""quoted"""');
+      });
+
+      it("never trusts a client's claimed address without a proxy", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const direct = createApp({
+          db,
+          auth,
+          mailer,
+          storage,
+          audit,
+          publicUrl: "http://localhost:3000",
+          log: false,
+        });
+        await direct.request("/api/organisation/audit.csv", {
+          headers: { cookie: owner, "x-forwarded-for": "203.0.113.9" },
+        });
+        const { events } = await audit.query(organisationId, { limit: 1 });
+        expect(events[0]?.action).toBe("audit.export");
+        expect(events[0]?.ipAddress).not.toBe("203.0.113.9");
+      });
+
+      it("neutralises spreadsheet formulas in any cell", () => {
+        expect(csvCell("+1")).toBe(`"'+1"`);
+        expect(csvCell("-sum")).toBe(`"'-sum"`);
+        expect(csvCell("@cmd")).toBe(`"'@cmd"`);
+        expect(csvCell("plain")).toBe('"plain"');
+        expect(csvCell(null)).toBe('""');
       });
     });
   });
