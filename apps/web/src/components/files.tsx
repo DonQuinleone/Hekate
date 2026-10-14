@@ -1,8 +1,15 @@
-import { type FileKind, formatBytes, formatDuration, type MediaInfo } from "@hekate/shared";
+import {
+  type FileKind,
+  formatBytes,
+  formatChannels,
+  formatDuration,
+  type MediaInfo,
+} from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { type DragEvent, useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
-import { type ProjectFile, projectFilesQuery } from "~/lib/queries";
+import { type ProjectFile, projectFilesQuery, type StreamStatus } from "~/lib/queries";
 import { cancelUpload, type UploadProgress, uploadFile } from "~/lib/upload";
 import { Icon, type IconName } from "./icons";
 import { Button } from "./ui/button";
@@ -21,12 +28,14 @@ const dateFormat = new Intl.DateTimeFormat("en-GB", {
   year: "numeric",
 });
 
-const channelNames: Record<number, string> = { 1: "mono", 2: "stereo" };
-
 /** The facts a reviewer scans for, in the order they read them. */
-export function mediaSummary(kind: FileKind, info: MediaInfo | null): string | null {
+export function mediaSummary(
+  kind: FileKind,
+  info: MediaInfo | null,
+  streamStatus?: StreamStatus,
+): string | null {
   if (kind !== "audio" && kind !== "video") return null;
-  if (info === null) return "Measuring";
+  if (info === null) return streamStatus === "failed" ? "Could not be measured" : "Measuring";
   const parts: string[] = [];
   if (info.video) {
     parts.push(`${info.video.width} × ${info.video.height}`);
@@ -35,7 +44,7 @@ export function mediaSummary(kind: FileKind, info: MediaInfo | null): string | n
   if (info.audio) {
     parts.push(`${info.audio.sampleRate / 1000} kHz`);
     if (info.audio.bitDepth) parts.push(`${info.audio.bitDepth}-bit`);
-    parts.push(channelNames[info.audio.channels] ?? `${info.audio.channels} ch`);
+    parts.push(formatChannels(info.audio.channels, info.audio.channelLayout));
   }
   if (info.duration !== undefined) parts.push(formatDuration(info.duration));
   return parts.length > 0 ? parts.join(" · ") : "Not readable as media";
@@ -220,11 +229,17 @@ export function Uploader({
 }
 
 function FileRow({ file }: { file: ProjectFile }) {
-  const summary = mediaSummary(file.kind, file.mediaInfo);
+  const summary = mediaSummary(file.kind, file.mediaInfo, file.streamStatus);
   return (
     <li className="grid min-h-12 grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-0.5 border-b border-hairline px-2 py-2 sm:grid-cols-[auto_minmax(0,1fr)_320px_72px_104px]">
       <Icon name={kindIcon[file.kind]} className="row-span-2 text-ink-2 sm:row-span-1" />
-      <span className="truncate text-sm font-medium">{file.name}</span>
+      <Link
+        to="/files/$fileId"
+        params={{ fileId: file.id }}
+        className="truncate text-sm font-medium text-ink no-underline hover:text-signal"
+      >
+        {file.name}
+      </Link>
       <span className="tabular text-right text-xs text-ink-3 sm:order-last">
         {dateFormat.format(new Date(file.createdAt))}
       </span>

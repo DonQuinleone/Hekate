@@ -1363,6 +1363,51 @@ describe.runIf(url)("api", () => {
           const keys = await audit.query(organisationId, { action: "stream.key", limit: 200 });
           expect(keys.events).toHaveLength(30);
         }, 120_000);
+
+        it("describes a file and what it can play, to its own organisation only", async () => {
+          const owner = cookieOf(await setup());
+          const { fileId, projectId } = await playableFile(owner);
+          const res = await get(`/api/files/${fileId}`, owner);
+          expect(res.status).toBe(200);
+          expect(((await res.json()) as { file: unknown }).file).toMatchObject({
+            id: fileId,
+            projectId,
+            kind: "audio",
+            streamStatus: "ready",
+            mediaInfo: { audio: { channels: 2 } },
+          });
+          const started = await app.request(`/api/files/${fileId}/playback`, json({}, owner));
+          const body = (await started.json()) as { renditions: { name: string; codecs: string }[] };
+          expect(body.renditions.map((r) => [r.name, r.codecs])).toEqual([
+            ["aac-256", "mp4a.40.2"],
+            ["flac", "fLaC"],
+          ]);
+
+          const [other] = await db
+            .insert(schema.organisations)
+            .values({ name: "Elsewhere", slug: "elsewhere-playback" })
+            .returning();
+          const [foreignProject] = await db
+            .insert(schema.projects)
+            .values({ organisationId: other?.id ?? "", name: "Theirs", profile: "music" })
+            .returning();
+          const foreignBlob = await storage.put(other?.id ?? "", Buffer.from("theirs"));
+          const [foreign] = await db
+            .insert(schema.files)
+            .values({
+              organisationId: other?.id ?? "",
+              projectId: foreignProject?.id ?? "",
+              name: "Theirs.wav",
+              kind: "audio",
+              blobId: foreignBlob.id,
+              contentType: "audio/wav",
+              byteSize: 1,
+              streamStatus: "ready",
+            })
+            .returning();
+          expect((await get(`/api/files/${foreign?.id}`, owner)).status).toBe(404);
+          expect((await start(owner, foreign?.id ?? "")).res.status).toBe(404);
+        }, 120_000);
       },
     );
   });

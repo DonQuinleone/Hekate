@@ -155,13 +155,20 @@ export interface ProjectFile {
   contentType: string;
   byteSize: number;
   mediaInfo: MediaInfo | null;
+  /** Playable proxies: prepared in the background after the file is measured. */
+  streamStatus: StreamStatus;
   uploadedBy: string | null;
   createdAt: string;
 }
 
-/** Audio and video are measured by a background job; until then their media info is null. */
-const measuring = (files: ProjectFile[]) =>
-  files.some((f) => (f.kind === "audio" || f.kind === "video") && f.mediaInfo === null);
+export type StreamStatus = "none" | "pending" | "ready" | "failed";
+
+/** Still being measured or prepared for playback, so worth asking again shortly. */
+export const settling = (f: ProjectFile) =>
+  f.streamStatus === "pending" ||
+  ((f.kind === "audio" || f.kind === "video") &&
+    f.mediaInfo === null &&
+    f.streamStatus !== "failed");
 
 export const projectFilesQuery = (projectId: string) =>
   queryOptions({
@@ -172,5 +179,48 @@ export const projectFilesQuery = (projectId: string) =>
           await api.projects[":id"].files.$get({ param: { id: projectId } }),
         )
       ).files,
-    refetchInterval: (query) => (query.state.data && measuring(query.state.data) ? 3000 : false),
+    refetchInterval: (query) => (query.state.data?.some(settling) ? 3000 : false),
+  });
+
+export interface FileDetail extends ProjectFile {
+  projectId: string;
+}
+
+export const fileQuery = (fileId: string) =>
+  queryOptions({
+    queryKey: ["files", fileId],
+    queryFn: async () =>
+      (await json<{ file: FileDetail }>(await api.files[":id"].$get({ param: { id: fileId } })))
+        .file,
+    refetchInterval: (query) => (query.state.data && settling(query.state.data) ? 3000 : false),
+  });
+
+export interface Rendition {
+  id: string;
+  name: string;
+  codecs: string;
+  bandwidth: number;
+  width: number | null;
+  height: number | null;
+}
+
+export interface Playback {
+  /** The master playlist, valid only with this sign-in session. */
+  url: string;
+  expiresAt: string;
+  renditions: Rendition[];
+}
+
+/**
+ * A playback link for one viewing. Every start is logged, so the link is fetched once per
+ * visit and never shared between components or kept after the page closes.
+ */
+export const playbackQuery = (fileId: string) =>
+  queryOptions({
+    queryKey: ["files", fileId, "playback"],
+    queryFn: async () =>
+      json<Playback>(await api.files[":id"].playback.$post({ param: { id: fileId } })),
+    staleTime: Number.POSITIVE_INFINITY,
+    gcTime: 0,
+    retry: false,
   });

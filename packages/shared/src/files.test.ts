@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cleanContentType, fileKindOf, fileName } from "./files.ts";
-import { formatBytes, formatDuration } from "./format.ts";
+import { formatBytes, formatChannels, formatDuration } from "./format.ts";
 
 describe("files", () => {
   it("knows a file's kind from its name first, then its type", () => {
@@ -42,5 +42,15 @@ describe("formatting for lists", () => {
     expect(formatDuration(0.4)).toBe("0:00");
     expect(formatDuration(271.2)).toBe("4:31");
     expect(formatDuration(3723)).toBe("1:02:03");
+  });
+
+  it("names channel layouts as engineers say them", () => {
+    expect(formatChannels(1)).toBe("mono");
+    expect(formatChannels(2, "stereo")).toBe("stereo");
+    expect(formatChannels(6, "5.1(side)")).toBe("5.1");
+    expect(formatChannels(8, "7.1")).toBe("7.1");
+    expect(formatChannels(12, "7.1.4")).toBe("7.1.4");
+    expect(formatChannels(6, "6 channels")).toBe("6 ch");
+    expect(formatChannels(4)).toBe("4 ch");
   });
 });
