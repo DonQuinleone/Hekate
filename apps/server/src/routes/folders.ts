@@ -190,16 +190,21 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
       const id = c.req.valid("param").id;
       const { projectId } = await canOnFile(db, actor, "organise", id);
       const input = c.req.valid("json");
-      if (input.folderId) await folderIn(db, actor.organisationId, projectId, input.folderId);
-      const [file] = await db
-        .update(files)
-        .set({
-          ...(input.name !== undefined ? { name: input.name } : {}),
-          ...(input.folderId !== undefined ? { folderId: input.folderId } : {}),
-          updatedAt: new Date(),
-        })
-        .where(inOrg(files, actor.organisationId, eq(files.id, id)))
-        .returning({ id: files.id, name: files.name, folderId: files.folderId });
+      // Under the project lock, so the destination cannot be deleted between check and move.
+      const file = await db.transaction(async (tx) => {
+        await lockProject(tx, actor.organisationId, projectId);
+        if (input.folderId) await folderIn(tx, actor.organisationId, projectId, input.folderId);
+        const [row] = await tx
+          .update(files)
+          .set({
+            ...(input.name !== undefined ? { name: input.name } : {}),
+            ...(input.folderId !== undefined ? { folderId: input.folderId } : {}),
+            updatedAt: new Date(),
+          })
+          .where(inOrg(files, actor.organisationId, eq(files.id, id)))
+          .returning({ id: files.id, name: files.name, folderId: files.folderId });
+        return row;
+      });
       if (!file) throw new NotFound("File");
       return c.json({ file });
     })

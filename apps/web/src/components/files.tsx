@@ -46,6 +46,8 @@ export function mediaSummary(
 interface Pending {
   key: string;
   file: File;
+  /** Where it is going, which stays the same if the browser moves to another folder. */
+  folderId: string | null;
   progress: UploadProgress;
   error?: string;
   controller: AbortController;
@@ -74,17 +76,23 @@ export function Uploader({
   }, []);
 
   const start = useCallback(
-    (files: FileList | File[]) => {
+    (files: FileList | File[], into: string | null = folderId) => {
       for (const file of Array.from(files)) {
         const key = `${file.name}:${file.size}:${file.lastModified}:${Math.random()}`;
         const controller = new AbortController();
         setPending((list) => [
           ...list,
-          { key, file, controller, progress: { sent: 0, total: file.size, phase: "starting" } },
+          {
+            key,
+            file,
+            folderId: into,
+            controller,
+            progress: { sent: 0, total: file.size, phase: "starting" },
+          },
         ]);
         uploadFile(file, {
           projectId,
-          folderId,
+          folderId: into,
           signal: controller.signal,
           onProgress: (progress) => update(key, { progress }),
         })
@@ -104,12 +112,12 @@ export function Uploader({
   const cancel = (p: Pending) => {
     p.controller.abort();
     setPending((list) => list.filter((x) => x.key !== p.key));
-    void cancelUpload(projectId, p.file);
+    void cancelUpload(projectId, p.folderId, p.file);
   };
 
   const retry = (p: Pending) => {
     setPending((list) => list.filter((x) => x.key !== p.key));
-    start([p.file]);
+    start([p.file], p.folderId);
   };
 
   // Warn before closing the page mid-upload; choosing the same files again resumes them.

@@ -158,7 +158,7 @@ export function FileBrowser({
   children?: ReactNode;
 }) {
   const { data: files, error } = useQuery(projectFilesQuery(projectId));
-  const { data: folders } = useQuery(projectFoldersQuery(projectId));
+  const { data: folders, error: foldersError } = useQuery(projectFoldersQuery(projectId));
   const can = useProjectCan(projectId);
   const organise = useOrganise(projectId);
   const [view, setView] = useState<View>(storedView);
@@ -334,7 +334,9 @@ export function FileBrowser({
     );
   };
 
-  if (error) return <p className="m-0 text-signal">{error.message}</p>;
+  // Without its folders the tree would look empty, so either failing is shown, never hidden.
+  const loadError = error ?? foldersError;
+  if (loadError) return <p className="m-0 text-signal">{loadError.message}</p>;
 
   return (
     <section aria-label="Files" className="flex flex-col gap-4">
