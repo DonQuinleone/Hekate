@@ -49,3 +49,7 @@ The waveform is the primary surface for audio; a score is optional. Engineer too
 ## 012. Identity
 
 Better Auth underpins sign-in. Members can use OIDC or SAML single sign-on, LDAP, passkeys and hardware security keys (up to five per account by default), or passwords where allowed; guests use magic links scoped to their reviews. Organisations set the policy. Details in `docs/security.md`.
+
+## 013. Argus for audio QA
+
+Hekate runs the Argus engine (GPL-3.0, compatible with Hekate's AGPL-3.0) as a separate command-line process in the media worker, rather than reimplementing its analyses. Its JSON report drives QA markers, the QA tab and exported reports, and its *Cyan to orange* colour map is Hekate's default spectrogram palette, so the two tools read identically.

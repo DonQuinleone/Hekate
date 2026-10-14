@@ -60,10 +60,12 @@ A track does not need a score. The **waveform is the primary surface** for audio
 Tools for engineers and producers, all working on the protected streams (`docs/security.md`):
 
 - Waveform with zoom down to sample level, markers and loop regions
-- Spectrogram (linear, log and mel scales, adjustable FFT size and range), side by side with or overlaid on the waveform
+- Spectrogram, side by side with or overlaid on the waveform, coloured like iZotope RX by default (the *Cyan to orange* map shared with Argus). Every view setting is configurable and saved per user, with named presets: colour map (Cyan to orange, Inferno, Greyscale, Signal), frequency scale (linear, log, mel, Bark), window (Hann, Hamming, Blackman-Harris, Kaiser), FFT size, overlap, time and frequency resolution balance, amplitude range (floor and ceiling in dB), frequency range, and channel (left, right, mid, side, or each channel)
 - Level metering: peak, RMS, true peak and integrated loudness (LUFS), per channel, with loudness history
 - Phase correlation and stereo field (goniometer)
-- Switch variations (dry and wet mix) at the same playhead without a gap; level-matched A/B
+- **Loops:** drag a loop region on the waveform, loop a comment's anchor or a bar range in one action, nudge the in and out points, and keep the loop while switching variation or version
+- **Quick comparison:** one key flips between variations (dry and wet mix) or versions at the same musical position, gapless and level-matched; pin up to four sources to number keys; blind mode hides which is which
+- **QA by Argus:** every uploaded audio file is analysed by the Argus engine (dropouts, clicks, clipping, true peak and loudness against a delivery profile, phase, spectral cut-offs, metadata). Findings appear as markers on the waveform and spectrogram, in a QA tab beside the comments, and in an exportable QA report. A finding can be turned into a comment with one action
 - Compare versions at the same musical position, using the version alignment below
 - Solo and mute channels for multichannel files and takes
 
@@ -73,7 +75,7 @@ Analysis data (peaks, spectrogram tiles, loudness) is computed by the media work
 
 Comments are raised on one version and often addressed in a later one. Each comment thread keeps its origin and can be **carried over**:
 
-- When a new version arrives, open comments from the previous version are listed against it, with their anchors mapped to the new version.
+- When a new version arrives, open comments from the previous version are offered against it, with their anchors mapped to the new version. Each one has a **Show on this version** toggle (on by default, configurable per project) and a status the editor or producer updates: *Open*, *Fixed in V5*, *Not fixed*, *Won't fix*.
 - Mapping uses the score's bar positions when the track is synced; otherwise an automatic alignment between the two versions' audio (computed by the media worker), which the editor can correct.
 - Whoever resolves a comment picks the version that addresses it. The thread then offers **before and after**: play the anchored passage from the original version, then the same passage in the resolving version, level-matched.
 - A comment can be carried through several versions; its history shows each one.
@@ -143,6 +145,8 @@ Organisation owners and admins can do everything in every project. Guests have n
 
 ## Open questions
 
-1. Do video and general projects use tracks, versions and variations under different names (for example *Cut* for video, *Item* for general), or should video have its own term?
-2. Do takes need anything beyond grouping and playback for now: for example marking which takes were used in which version, or bar ranges per take?
-3. Should guests be able to see each other's comments within a review, or only their own and the team's replies?
+1. (Answered) Carry-over: toggle per comment on each new version, with a status.
+2. (Answered) Security keys: five per account is a default the operator can raise, not a maximum.
+3. Do video and general projects use tracks, versions and variations under different names (for example *Cut* for video, *Item* for general), or should video have its own term?
+4. Do takes need anything beyond grouping and playback for now: for example marking which takes were used in which version, or bar ranges per take?
+5. Should guests be able to see each other's comments within a review, or only their own and the team's replies?
