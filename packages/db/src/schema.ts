@@ -601,3 +601,45 @@ export const peakLevels = pgTable(
     uniqueIndex("peak_levels_file_level_idx").on(t.organisationId, t.fileId, t.samplesPerPeak),
   ],
 );
+
+// Storage reconciliation
+
+export const storageFindingKindEnum = pgEnum("storage_finding_kind", [
+  /** Bytes in a backend that no blob row accounts for. */
+  "orphan_object",
+  /** A blob row that no file, rendition or peak level uses. */
+  "unreferenced_blob",
+  /** A blob row whose bytes are gone: data loss, for a person to look at. */
+  "missing_object",
+]);
+
+/**
+ * What the reconciliation job found in storage (docs/security.md). Instance-wide, not
+ * owned by one organisation: an orphan can outlive the organisation it belonged to, so
+ * the organisation is a plain id here. A finding is acted on only once a later run has
+ * seen it again, a grace period after the first.
+ */
+export const storageFindings = pgTable(
+  "storage_findings",
+  {
+    id: id(),
+    kind: storageFindingKindEnum("kind").notNull(),
+    backend: text("backend").notNull(),
+    key: text("key").notNull(),
+    /** Plain ids, not references: the record outlives what it describes. */
+    ownerOrganisationId: uuid("owner_organisation_id"),
+    blobId: uuid("blob_id"),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+    /** When a missing object was written to the access log; retried until it is. */
+    reportedAt: timestamp("reported_at", { withTimezone: true }),
+    /** When it was removed, or found to have gone away. */
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolution: text("resolution"),
+  },
+  (t) => [
+    uniqueIndex("storage_findings_open_idx")
+      .on(t.kind, t.backend, t.key)
+      .where(sql`${t.resolvedAt} is null`),
+  ],
+);

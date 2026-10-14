@@ -10,6 +10,7 @@ import { createKeyring, UnknownMasterKeyError } from "./keyring.ts";
 import { createMailer } from "./mail.ts";
 import { startWorkers } from "./media/workers.ts";
 import { playbackSecret } from "./playback.ts";
+import { reconcileStorage } from "./reconcile.ts";
 import { serveWeb } from "./static.ts";
 import { createStorage } from "./storage.ts";
 import { version } from "./version.ts";
@@ -66,6 +67,7 @@ try {
 }
 const storage = createStorage(db, backends, keyring);
 
+const audit = createAudit(db);
 const jobs = createJobs({ connectionString: config.DATABASE_URL });
 await jobs.start();
 if (config.WORKER) {
@@ -74,9 +76,20 @@ if (config.WORKER) {
     { db, storage, keyring, jobs, ...(config.WORK_DIR ? { workDir: config.WORK_DIR } : {}) },
     config.WORKER_CONCURRENCY,
   );
+  await jobs.work("storage-reconcile", async () => {
+    const reports = await reconcileStorage(
+      { db, storage, audit },
+      { remove: config.STORAGE_RECONCILE === "remove" },
+    );
+    for (const r of reports) {
+      if (r.orphanObjects + r.unreferencedBlobs + r.missingObjects + r.removed === 0) continue;
+      console.log(
+        `Storage ${r.backend}: ${r.orphanObjects} orphan object(s), ${r.unreferencedBlobs} unused blob(s), ${r.missingObjects} missing, ${r.removed} removed`,
+      );
+    }
+  });
 }
 
-const audit = createAudit(db);
 const app = createApp({
   db,
   auth,
