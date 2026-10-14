@@ -173,7 +173,14 @@ export function FilePage({
           projectId={file.projectId}
           media={media}
           loop={loop}
-          onLoop={onLoop}
+          onLoop={(next) => {
+            // One action: the passage is looped and heard from its start.
+            onLoop(next);
+            if (media) {
+              media.currentTime = next.start;
+              void media.play().catch(() => undefined);
+            }
+          }}
         />
         <dl className="m-0 flex flex-col border-t border-hairline lg:hidden">{detailRows}</dl>
       </div>

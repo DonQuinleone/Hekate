@@ -274,6 +274,21 @@ export function Player({
     }
   };
 
+  // A loop set from outside (a comment's Loop, a new address) is switched on.
+  // By value: the page makes a new loop object on every render.
+  const loopStart = loop?.start;
+  const loopEnd = loop?.end;
+  useEffect(() => {
+    if (loopStart !== undefined && loopEnd !== undefined) setLooping(true);
+  }, [loopStart, loopEnd]);
+
+  // A loop that does not fit this file (an address, or one carried from a longer version)
+  // is cut to it, or dropped if nothing of it is left.
+  useEffect(() => {
+    if (!loop || !(duration > 0) || loop.end <= duration) return;
+    onLoop(loopFrom(loop.start, Math.min(loop.end, duration), duration));
+  }, [loop, duration, onLoop]);
+
   // A page opened with a loop (from its address, or a switch of version) starts at it.
   const placed = useRef(false);
   useEffect(() => {
@@ -305,7 +320,18 @@ export function Player({
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
-    if (event.target instanceof HTMLInputElement && event.key !== " ") return;
+    // Controls inside the player keep their own keys (Space ticks a box, opens a list);
+    // only the player itself and its position slider take the shortcuts.
+    const target = event.target as HTMLElement;
+    const slider = target instanceof HTMLInputElement && target.type === "range";
+    if (
+      !slider &&
+      target !== event.currentTarget &&
+      target.closest("input, select, textarea, button")
+    ) {
+      return;
+    }
+    if (slider && event.key !== " ") return;
     if (event.key === " " || event.key === "k") {
       event.preventDefault();
       toggle();
@@ -341,9 +367,14 @@ export function Player({
     onEnded: () => {
       // A loop that runs to the very end goes round when the media stops.
       const element = media.current;
-      if (element && loop && looping) {
+      // Only a loop that itself runs to the end; one earlier was left behind on purpose.
+      if (element && loop && looping && loop.end + rolls.post >= duration - 0.05) {
         element.currentTime = loopEntry(loop, rolls);
-        void element.play().catch(() => undefined);
+        element.play().catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === "AbortError") return;
+          setPlaying(false);
+          setFailure("failed");
+        });
         return;
       }
       setPlaying(false);
@@ -456,16 +487,23 @@ export function Player({
               )}
             </LoopSurface>
           )}
-          {/* The loop lane: drag here to loop a passage of a video, or of audio too. */}
-          <LoopSurface
-            duration={duration}
-            loop={loop}
-            active={active}
-            onSeek={seek}
-            onLoop={setLoop}
-            label="Loop lane: drag to loop a passage"
-            className="h-3 rounded-full bg-hairline/40"
-          />
+          {/* Video has no waveform to drag on: the loop lane stands in for it. */}
+          {kind === "video" && (
+            <LoopSurface
+              duration={duration}
+              loop={loop}
+              active={active}
+              onSeek={seek}
+              onLoop={setLoop}
+              label="Loop lane: drag to loop a passage"
+              className="h-7"
+            >
+              <div
+                aria-hidden="true"
+                className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-hairline/60"
+              />
+            </LoopSurface>
+          )}
           <div className="relative h-4">
             <div className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-hairline" />
             {loop && duration > 0 && (

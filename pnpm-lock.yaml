@@ -274,6 +274,9 @@ importers:
       wavesurfer.js:
         specifier: 8.0.2
         version: 8.0.2
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
     devDependencies:
       '@hekate/server':
         specifier: workspace:*

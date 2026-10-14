@@ -7,6 +7,7 @@ import {
   redirect,
 } from "@tanstack/react-router";
 import { useCallback } from "react";
+import { z } from "zod";
 import { Shell } from "~/components/shell";
 import { formatLoop, parseLoop } from "~/lib/loop";
 import { guestMeQuery, meQuery, setupQuery } from "~/lib/queries";
@@ -24,8 +25,16 @@ import { TrackPage } from "~/routes/track";
 export const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 10_000 } } });
 
 /** A file page's loop, from its address: kept only when it reads as one. */
+const loopSearchSchema = z.object({
+  loop: z
+    .string()
+    .max(40)
+    .refine((text) => parseLoop(text) !== null)
+    .optional()
+    .catch(undefined),
+});
 const loopSearch = (search: Record<string, unknown>): { loop?: string } =>
-  typeof search.loop === "string" && parseLoop(search.loop) ? { loop: search.loop } : {};
+  loopSearchSchema.parse(search);
 
 const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   component: Outlet,
