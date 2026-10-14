@@ -3258,6 +3258,81 @@ describe.runIf(url)("api", () => {
         ).toBe(404);
         expect((await app.request(`/api/files/${fileId}/comments`)).status).toBe(401);
       });
+      it("shows a document only as pages, each one logged, through links bound to the viewer", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const audio = await recording(organisationId);
+        const projectId = await projectOfFile(audio);
+        const blob = await storage.put(organisationId, Buffer.from("%PDF-1.4 not drawn here"));
+        const [doc] = await db
+          .insert(schema.files)
+          .values({
+            organisationId,
+            projectId,
+            name: "Score.pdf",
+            kind: "document",
+            blobId: blob.id,
+            contentType: "application/pdf",
+            byteSize: blob.byteSize,
+            streamStatus: "ready",
+            pageCount: 2,
+          })
+          .returning();
+        const page = Buffer.from("RIFF0000WEBPVP8 page one");
+        for (const n of [1, 2]) {
+          const view = await storage.put(organisationId, n === 1 ? page : Buffer.from("two"));
+          const thumb = await storage.put(organisationId, Buffer.from(`thumb ${n}`));
+          await db.insert(schema.filePages).values({
+            organisationId,
+            fileId: doc?.id ?? "",
+            page: n,
+            width: 1414,
+            height: 2000,
+            blobId: view.id,
+            thumbBlobId: thumb.id,
+          });
+        }
+        const opened = await app.request(`/api/files/${doc?.id}/view`, json({}, owner));
+        expect(opened.status).toBe(201);
+        const view = (await opened.json()) as {
+          pageCount: number;
+          pages: { page: number; width: number; height: number; url: string; thumbUrl: string }[];
+        };
+        expect(view.pageCount).toBe(2);
+        expect(view.pages.map((p) => [p.page, p.width, p.height])).toEqual([
+          [1, 1414, 2000],
+          [2, 1414, 2000],
+        ]);
+        const first = view.pages[0];
+        const served = await app.request(first?.url ?? "", { headers: { cookie: owner } });
+        expect(served.status).toBe(200);
+        expect(served.headers.get("content-type")).toBe("image/webp");
+        expect(served.headers.get("cache-control")).toBe("no-store, private");
+        expect(Buffer.from(await served.arrayBuffer())).toEqual(page);
+        expect(
+          (await app.request(first?.thumbUrl ?? "", { headers: { cookie: owner } })).status,
+        ).toBe(200);
+        // The page at review size is logged; its thumbnail is not.
+        const logged = await audit.query(organisationId, { action: "page.render", limit: 10 });
+        expect(logged.events).toHaveLength(1);
+        expect(logged.events[0]).toMatchObject({ fileId: doc?.id, details: { page: 1 } });
+
+        // Someone else's browser cannot use the link, and there is no page beyond the last.
+        const colleague = await joinAs(owner, "viewer@example.test", "member");
+        expect(
+          (await app.request(first?.url ?? "", { headers: { cookie: colleague } })).status,
+        ).toBe(403);
+        expect(
+          (
+            await app.request((first?.url ?? "").replace("/pages/1/", "/pages/9/"), {
+              headers: { cookie: owner },
+            })
+          ).status,
+        ).toBe(404);
+        // Audio is played, not viewed; and the raw file never has a route.
+        expect((await app.request(`/api/files/${audio}/view`, json({}, owner))).status).toBe(409);
+      });
+
       it("carries open threads to the next version, where triage settles, hides or remaps them", async () => {
         const owner = cookieOf(await setup());
         const organisationId = await organisationOf(owner);

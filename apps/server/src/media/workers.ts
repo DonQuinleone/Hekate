@@ -14,6 +14,7 @@ import { expireUploads } from "../uploads.ts";
 import { alignInThread } from "./align.ts";
 import { analyseAudio } from "./analysis.ts";
 import { InvalidMediaError, probe } from "./ffmpeg.ts";
+import { pageSourceOf, renderPages } from "./pages.ts";
 import { type PackagedRendition, packageRendition, planRenditions } from "./proxy.ts";
 import { spectrogramsInThread } from "./spectrogram.ts";
 import { together } from "./together.ts";
@@ -21,6 +22,7 @@ import { sweepWorkspaces, withWorkspace } from "./workspace.ts";
 
 const {
   alignments,
+  filePages,
   files,
   blobs,
   renditions,
@@ -329,6 +331,85 @@ export function analysisHandler(deps: MediaWorkerDeps): JobHandler<"media-analys
 }
 
 /**
+ * Draw a document or picture as pages (#29): each at review size and as a thumbnail,
+ * stored encrypted. A file that is not what it claims to be is marked failed at once;
+ * anything else (a tool missing, a timeout) is retried.
+ */
+export function renderHandler(deps: MediaWorkerDeps): JobHandler<"document-render"> {
+  return async ({ organisationId, fileId }, job) => {
+    const [file] = await deps.db
+      .select({
+        id: files.id,
+        name: files.name,
+        contentType: files.contentType,
+        blobId: files.blobId,
+      })
+      .from(files)
+      .where(inOrg(files, organisationId, eq(files.id, fileId)));
+    if (!file) return;
+    const source = pageSourceOf(file.name, file.contentType);
+    const done = (status: "ready" | "failed", pageCount: number | null = null) =>
+      deps.db
+        .update(files)
+        .set({ streamStatus: status, pageCount })
+        .where(inOrg(files, organisationId, eq(files.id, fileId)));
+    if (!source) {
+      await done("failed");
+      return;
+    }
+    // Drawn already: a retry after the pages were recorded has nothing left to do.
+    const [existing] = await deps.db
+      .select({ id: filePages.id })
+      .from(filePages)
+      .where(inOrg(filePages, organisationId, eq(filePages.fileId, fileId)))
+      .limit(1);
+    if (existing) return;
+
+    const stored: string[] = [];
+    try {
+      const drawn = await withWorkspace(deps.workDir, async (dir) => {
+        const path = await materialise(deps.storage, organisationId, file.blobId, dir, job.signal);
+        return renderPages(path, source, dir, job.signal);
+      });
+      const rows: (typeof filePages.$inferInsert)[] = [];
+      for (const page of drawn.pages) {
+        const view = await deps.storage.put(organisationId, page.view);
+        stored.push(view.id);
+        const thumb = await deps.storage.put(organisationId, page.thumb);
+        stored.push(thumb.id);
+        rows.push({
+          organisationId,
+          fileId,
+          page: page.page,
+          width: page.width,
+          height: page.height,
+          blobId: view.id,
+          thumbBlobId: thumb.id,
+        });
+      }
+      await deps.db.transaction(async (tx) => {
+        await tx.insert(filePages).values(rows);
+        await tx
+          .update(files)
+          .set({ streamStatus: "ready", pageCount: drawn.total })
+          .where(inOrg(files, organisationId, eq(files.id, fileId)));
+      });
+    } catch (error) {
+      await discard(deps.storage, organisationId, stored, `pages of file ${fileId}`);
+      if (error instanceof InvalidMediaError) {
+        console.warn(`File ${fileId} could not be drawn: ${error.message}`);
+        await done("failed");
+        return;
+      }
+      if (job.retryCount >= jobDefinitions["document-render"].options.retryLimit) {
+        await done("failed");
+      }
+      throw error;
+    }
+  };
+}
+
+/**
  * Align two files by their audio, then move the threads carried from one to the other to
  * where the same music is. A poor match is recorded with its quality and used by nobody.
  */
@@ -455,6 +536,7 @@ export async function startWorkers(jobs: Jobs, deps: MediaWorkerDeps, concurrenc
   });
   await jobs.work("media-analysis", analysisHandler(deps), { concurrency });
   await jobs.work("blob-checksum", checksumHandler(deps), { concurrency });
+  await jobs.work("document-render", renderHandler(deps), { concurrency });
   await jobs.work("media-align", alignHandler(deps), {
     concurrency: Math.max(1, Math.floor(concurrency / 2)),
   });

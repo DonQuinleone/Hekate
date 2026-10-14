@@ -34,6 +34,7 @@ describe("tenancy", () => {
       "blobs",
       "comment_carries",
       "comments",
+      "file_pages",
       "files",
       "folders",
       "group_members",
