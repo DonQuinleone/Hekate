@@ -136,6 +136,23 @@ export function readView(value: unknown): SpectrogramView {
  * shows the loudest value of the columns and bands it covers, so nothing narrow vanishes
  * when the view is smaller than the data.
  */
+/**
+ * Several channels' spectrograms as one: each cell the loudest of them, as the combined
+ * waveform shows each moment's widest swing across every channel.
+ */
+export function combineSpectrograms(spectrograms: Spectrogram[]): Spectrogram | undefined {
+  const [first] = spectrograms;
+  if (!first) return undefined;
+  const data = new Uint8Array(first.data);
+  for (const other of spectrograms.slice(1)) {
+    if (other.data.length !== data.length) continue;
+    for (let i = 0; i < data.length; i++) {
+      if ((other.data[i] as number) > (data[i] as number)) data[i] = other.data[i] as number;
+    }
+  }
+  return { ...first, data };
+}
+
 export function renderSpectrogram(
   spectrogram: Spectrogram,
   width: number,

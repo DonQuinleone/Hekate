@@ -2,10 +2,17 @@ import { Worker } from "node:worker_threads";
 import { levelToByte, type Spectrogram, type SpectrogramChannel } from "@hekate/shared";
 import { MediaToolError, run, safeInputArgs } from "./ffmpeg.ts";
 
-/** At most this many columns across a file: enough for a sharp overview on any screen. */
+/** About this many columns across a long file: enough for a sharp overview on any screen. */
 export const MAX_COLUMNS = 4096;
-/** At most this many bands: higher rates keep their resolution low down, pooled up high. */
-export const MAX_BANDS = 1024;
+/**
+ * Never shorter columns than this: each pools several overlapping windows, so what is
+ * stored is not a short-time Fourier transform that could be turned back into audio.
+ */
+export const MIN_COLUMN_SECONDS = 0.1;
+/** Bands kept at the FFT's own resolution: 1024 bins of about 23 Hz reach 24 kHz. */
+export const LOW_BANDS = 1024;
+/** At most this many pooled bands above them, at high sample rates. */
+export const HIGH_BANDS = 512;
 
 /** Bands about 23 Hz wide whatever the rate: 2048 points at 48 kHz, 4096 at 96 kHz. */
 export function fftSizeFor(sampleRate: number): number {
@@ -87,8 +94,12 @@ export class SpectrogramBuilder {
   readonly sampleRate: number;
   readonly fftSize: number;
   readonly hop: number;
-  readonly samplesPerColumn: number;
+  /** Grows (doubling) if a file turns out longer than expected; see `coarsen`. */
+  samplesPerColumn: number;
   readonly bands: number;
+  readonly lowBands: number;
+  readonly highFactor: number;
+  private readonly maxColumns: number;
   /** What each output is: the file's channels by index, then mid and side. */
   readonly outputs: SpectrogramChannel[];
   private readonly fft: Fft;
@@ -102,21 +113,31 @@ export class SpectrogramBuilder {
   private readonly im: Float64Array;
   /** The column being built, per output, as linear magnitudes squared. */
   private readonly current: Float64Array[];
-  private readonly columnData: Uint8Array[][];
+  private columnData: Uint8Array[][];
   private frame: Float64Array;
   private channel = 0;
   private carry = Buffer.alloc(0);
   /** Full scale: a 0 dBFS sine through the window, as a squared magnitude. */
   private readonly reference: number;
 
-  constructor(channels: number, sampleRate: number, expectedSamples: number) {
+  constructor(
+    channels: number,
+    sampleRate: number,
+    expectedSamples: number,
+    options: { maxColumns?: number } = {},
+  ) {
     this.channels = channels;
     this.sampleRate = sampleRate;
     this.fftSize = fftSizeFor(sampleRate);
     this.hop = this.fftSize / 4;
-    const hops = Math.max(1, Math.ceil(expectedSamples / this.hop / MAX_COLUMNS));
-    this.samplesPerColumn = hops * this.hop;
-    this.bands = Math.min(MAX_BANDS, this.fftSize / 2);
+    this.maxColumns = options.maxColumns ?? MAX_COLUMNS;
+    const minimum = Math.ceil((MIN_COLUMN_SECONDS * sampleRate) / this.hop);
+    const fit = Math.ceil(expectedSamples / this.hop / this.maxColumns);
+    this.samplesPerColumn = Math.max(1, minimum, fit) * this.hop;
+    const half = this.fftSize / 2;
+    this.lowBands = Math.min(half, LOW_BANDS);
+    this.highFactor = half > this.lowBands ? Math.ceil((half - this.lowBands) / HIGH_BANDS) : 1;
+    this.bands = this.lowBands + Math.ceil((half - this.lowBands) / this.highFactor);
     this.outputs = [
       ...Array.from({ length: channels }, (_, c) => `${c}` as SpectrogramChannel),
       ...(channels >= 2 ? (["mid", "side"] as const) : []),
@@ -202,7 +223,8 @@ export class SpectrogramBuilder {
   private accumulate(first: number, second: number): void {
     const n = this.fftSize;
     const half = n / 2;
-    const perBand = half / this.bands;
+    const low = this.lowBands;
+    const factor = this.highFactor;
     const a = this.current[first] as Float64Array;
     const b = second >= 0 ? (this.current[second] as Float64Array) : null;
     for (let k = 0; k < half; k++) {
@@ -214,7 +236,7 @@ export class SpectrogramBuilder {
       const ar = (xr + yr) / 2;
       const ai = (xi - yi) / 2;
       const powerA = ar * ar + ai * ai;
-      const band = Math.floor(k / perBand);
+      const band = k < low ? k : low + Math.floor((k - low) / factor);
       if (powerA > (a[band] as number)) a[band] = powerA;
       if (b) {
         const br = (xi + yi) / 2;
@@ -235,6 +257,26 @@ export class SpectrogramBuilder {
       (this.columnData[o] as Uint8Array[]).push(column);
       powers.fill(0);
     });
+    // Longer than expected (the duration was missing or wrong): halve the columns rather
+    // than let memory grow with the file.
+    if ((this.columnData[0]?.length ?? 0) >= this.maxColumns * 2) this.coarsen();
+  }
+
+  /** Merge every two columns into one, keeping each band's loudest, and double the span. */
+  private coarsen(): void {
+    this.columnData.forEach((columns, o) => {
+      const merged: Uint8Array[] = [];
+      for (let i = 0; i < columns.length; i += 2) {
+        const a = columns[i] as Uint8Array;
+        const b = columns[i + 1];
+        if (b)
+          for (let band = 0; band < a.length; band++)
+            a[band] = Math.max(a[band] as number, b[band] as number);
+        merged.push(a);
+      }
+      this.columnData[o] = merged;
+    });
+    this.samplesPerColumn *= 2;
   }
 
   /** Every output's spectrogram, including a last, partial column. */
@@ -257,6 +299,8 @@ export class SpectrogramBuilder {
           samplesPerColumn: this.samplesPerColumn,
           columns: columns.length,
           bands: this.bands,
+          lowBands: this.lowBands,
+          highFactor: this.highFactor,
           data,
         },
       };

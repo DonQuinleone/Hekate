@@ -5,9 +5,17 @@
  * sine, quantised to 8 bits between `SPECTROGRAM_FLOOR` and 0 dB. Like peaks, enough to draw
  * at any colour map, scale and range; far too little to rebuild audio.
  *
+ * Columns span at least 100 ms, each the loudest of several overlapping windows: enough
+ * for review, but no longer a short-time Fourier transform that phase retrieval could turn
+ * back into recognisable audio (docs/security.md).
+ *
+ * Bands are the FFT's own bins (about 23 Hz) up to `lowBands`, so the low end keeps its
+ * detail at any rate; above that, at high sample rates, every `highFactor` bins are pooled.
+ *
  * Binary layout, little-endian: the magic `HKSP`, version (u8), three reserved bytes, sample
  * rate (u32), FFT size (u32), samples per column (u32), column count (u32), band count
- * (u32), then for every column, for every band from 0 Hz to half the sample rate, a byte.
+ * (u32), low band count (u32), high factor (u32), then for every column, for every band from
+ * 0 Hz to half the sample rate, a byte.
  */
 
 export interface Spectrogram {
@@ -16,8 +24,11 @@ export interface Spectrogram {
   /** Source samples each column covers. */
   samplesPerColumn: number;
   columns: number;
-  /** Equal-width bands from 0 Hz up to half the sample rate. */
+  /** Bands from 0 Hz up to half the sample rate. */
   bands: number;
+  /** Bands below this are one FFT bin wide; each above it pools `highFactor` bins. */
+  lowBands: number;
+  highFactor: number;
   /** `columns × bands` bytes: [column][band], 0 at the floor and 255 at 0 dB. */
   data: Uint8Array;
 }
@@ -33,7 +44,7 @@ export type SpectrogramChannel = `${number}` | DerivedChannel;
 
 const MAGIC = [0x48, 0x4b, 0x53, 0x50];
 const VERSION = 1;
-const HEADER = 28;
+const HEADER = 36;
 
 export const levelToByte = (db: number) =>
   Number.isFinite(db)
@@ -52,6 +63,8 @@ export function encodeSpectrogram(s: Spectrogram): Uint8Array {
   view.setUint32(16, s.samplesPerColumn, true);
   view.setUint32(20, s.columns, true);
   view.setUint32(24, s.bands, true);
+  view.setUint32(28, s.lowBands, true);
+  view.setUint32(32, s.highFactor, true);
   out.set(s.data, HEADER);
   return out;
 }
@@ -64,7 +77,9 @@ export function decodeSpectrogram(bytes: Uint8Array): Spectrogram {
   if (view.getUint8(4) !== VERSION) throw new Error("Unsupported spectrogram version");
   const columns = view.getUint32(20, true);
   const bands = view.getUint32(24, true);
-  if (bands === 0 || bytes.length !== HEADER + columns * bands) {
+  const lowBands = view.getUint32(28, true);
+  const highFactor = view.getUint32(32, true);
+  if (bands === 0 || highFactor === 0 || bytes.length !== HEADER + columns * bands) {
     throw new Error("Truncated spectrogram file");
   }
   return {
@@ -73,8 +88,27 @@ export function decodeSpectrogram(bytes: Uint8Array): Spectrogram {
     samplesPerColumn: view.getUint32(16, true),
     columns,
     bands,
+    lowBands,
+    highFactor,
     data: bytes.slice(HEADER),
   };
+}
+
+type BandLayout = Pick<Spectrogram, "sampleRate" | "fftSize" | "bands" | "lowBands" | "highFactor">;
+
+/** The band holding an FFT bin (fractional bins give fractional bands, for row edges). */
+export function bandOfBin(layout: Pick<Spectrogram, "lowBands" | "highFactor">, bin: number) {
+  return bin < layout.lowBands
+    ? bin
+    : layout.lowBands + (bin - layout.lowBands) / layout.highFactor;
+}
+
+/** The frequency at the bottom edge of a band. */
+export function bandFrequency(layout: BandLayout, band: number) {
+  const binHz = layout.sampleRate / layout.fftSize;
+  const bin =
+    band < layout.lowBands ? band : layout.lowBands + (band - layout.lowBands) * layout.highFactor;
+  return bin * binHz;
 }
 
 // Frequency scales: where a frequency sits, from 0 (bottom) to 1 (top) of a range.
@@ -123,21 +157,22 @@ export function scaleFrequency(scale: FrequencyScale, position: number, low: num
  * spanning many bands shows the loudest of them, and a band spanning many rows repeats.
  */
 export function rowBands(
-  spectrogram: Pick<Spectrogram, "sampleRate" | "bands">,
+  spectrogram: BandLayout,
   rows: number,
   scale: FrequencyScale,
   low: number,
   high: number,
 ): Int32Array {
-  const bandHz = spectrogram.sampleRate / 2 / spectrogram.bands;
+  const binHz = spectrogram.sampleRate / spectrogram.fftSize;
   const out = new Int32Array(rows * 2);
   const last = spectrogram.bands - 1;
   // A hair of tolerance, so a row edge that lands on a band edge does not take the next band.
   const tolerance = 1e-6;
+  const band = (hz: number) => bandOfBin(spectrogram, hz / binHz);
   for (let row = 0; row < rows; row++) {
     // Row 0 is the top: the highest frequencies. A row covers [bottom, top).
-    const top = scaleFrequency(scale, 1 - row / rows, low, high) / bandHz;
-    const bottom = scaleFrequency(scale, 1 - (row + 1) / rows, low, high) / bandHz;
+    const top = band(scaleFrequency(scale, 1 - row / rows, low, high));
+    const bottom = band(scaleFrequency(scale, 1 - (row + 1) / rows, low, high));
     const first = Math.max(0, Math.min(last, Math.floor(bottom + tolerance)));
     out[row * 2] = first;
     out[row * 2 + 1] = Math.max(first, Math.min(last, Math.ceil(top - tolerance) - 1));

@@ -1,6 +1,13 @@
 import { levelToByte, type Spectrogram } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
-import { colourTable, defaultView, lookupTable, readView, renderSpectrogram } from "./spectrogram";
+import {
+  colourTable,
+  combineSpectrograms,
+  defaultView,
+  lookupTable,
+  readView,
+  renderSpectrogram,
+} from "./spectrogram";
 
 describe("colour tables", () => {
   it("runs from the first stop to the last", () => {
@@ -31,6 +38,8 @@ describe("rendering", () => {
     samplesPerColumn: 4,
     columns: 4,
     bands: 8,
+    lowBands: 8,
+    highFactor: 1,
     data: new Uint8Array(32),
   };
   for (let c = 0; c < 4; c++) spectrogram.data[c * 8 + 6] = levelToByte(0);
@@ -74,5 +83,25 @@ describe("rendering", () => {
     );
     expect(brightness(pixels, 4, 2, 6)).toBe(0);
     expect(brightness(pixels, 4, 0, 1)).toBe(255);
+  });
+});
+
+describe("combining channels", () => {
+  it("keeps the loudest of every cell", () => {
+    const base = {
+      sampleRate: 16_000,
+      fftSize: 16,
+      samplesPerColumn: 4,
+      columns: 1,
+      bands: 3,
+      lowBands: 3,
+      highFactor: 1,
+    };
+    const combined = combineSpectrograms([
+      { ...base, data: Uint8Array.from([10, 200, 0]) },
+      { ...base, data: Uint8Array.from([90, 5, 0]) },
+    ]);
+    expect(Array.from(combined?.data ?? [])).toEqual([90, 200, 0]);
+    expect(combineSpectrograms([])).toBeUndefined();
   });
 });

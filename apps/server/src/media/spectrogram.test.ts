@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { byteToLevel, decodeSpectrogram, type Spectrogram } from "@hekate/shared";
+import { bandFrequency, byteToLevel, decodeSpectrogram, type Spectrogram } from "@hekate/shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { run } from "./ffmpeg.ts";
 import {
@@ -33,7 +33,7 @@ const loudest = (s: Spectrogram, column: number) => {
       best = b;
   }
   return {
-    hz: ((best + 0.5) * s.sampleRate) / 2 / s.bands,
+    hz: (bandFrequency(s, best) + bandFrequency(s, best + 1)) / 2,
     db: byteToLevel(s.data[column * s.bands + best] as number),
   };
 };
@@ -105,6 +105,43 @@ describe("spectrogram builder", () => {
     expect(Math.ceil((48_000 * 3600) / builder.samplesPerColumn)).toBeLessThanOrEqual(4096);
     expect(builder.outputs).toEqual(["0"]);
   });
+
+  it("never makes columns shorter than 100 ms, however short the file", () => {
+    for (const rate of [44_100, 48_000, 96_000, 192_000]) {
+      const builder = new SpectrogramBuilder(2, rate, rate);
+      expect(builder.samplesPerColumn / rate).toBeGreaterThanOrEqual(0.1);
+      // So each column pools several overlapping windows.
+      expect(builder.samplesPerColumn / builder.hop).toBeGreaterThanOrEqual(8);
+    }
+  });
+
+  it("keeps 23 Hz bands up to 24 kHz at high rates, pooling only above", () => {
+    const at48 = new SpectrogramBuilder(1, 48_000, 48_000);
+    expect([at48.bands, at48.lowBands, at48.highFactor]).toEqual([1024, 1024, 1]);
+    const at96 = new SpectrogramBuilder(1, 96_000, 96_000);
+    expect([at96.bands, at96.lowBands, at96.highFactor]).toEqual([1536, 1024, 2]);
+    const at192 = new SpectrogramBuilder(1, 192_000, 192_000);
+    expect([at192.bands, at192.lowBands, at192.highFactor]).toEqual([1536, 1024, 6]);
+  });
+
+  it("stays bounded when the file is far longer than expected", () => {
+    const rate = 48_000;
+    // No duration known, and room for only 8 columns.
+    const builder = new SpectrogramBuilder(1, rate, 0, { maxColumns: 8 });
+    const span = builder.samplesPerColumn;
+    const seconds = 30;
+    // A click in the very last tenth of a second, to show columns stay in time.
+    const bytes = pcm(rate * seconds, 1, (f) => (f > rate * (seconds - 0.1) ? 0.9 : 0));
+    for (let at = 0; at < bytes.length; at += 65_536) builder.push(bytes.subarray(at, at + 65_536));
+    const [only] = builder.finish();
+    const s = only?.spectrogram as Spectrogram;
+    expect(s.columns).toBeLessThanOrEqual(16);
+    expect(s.samplesPerColumn).toBeGreaterThan(span);
+    expect(s.samplesPerColumn * s.columns).toBeGreaterThanOrEqual(rate * seconds);
+    // The click lands in the last column and nowhere earlier.
+    expect(loudest(s, s.columns - 1).db).toBeGreaterThan(-20);
+    expect(loudest(s, 0).db).toBeLessThan(-120);
+  });
 });
 
 const hasFfmpeg = spawnSync("ffmpeg", ["-version"]).status === 0;
@@ -139,7 +176,7 @@ describe.runIf(hasFfmpeg || process.env.CI)("spectrograms from a file", () => {
     expect(out).toHaveLength(8);
     const centre = out[2]?.spectrogram as Spectrogram;
     expect(centre.fftSize).toBe(4096);
-    expect(centre.bands).toBe(1024);
+    expect(centre.bands).toBe(1536);
     const at = loudest(centre, Math.floor(centre.columns / 2));
     expect(Math.abs(at.hz - 3000)).toBeLessThan(50);
     // ffmpeg's sine is at 1/8 of full scale; the centre has half of it.

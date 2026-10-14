@@ -3,10 +3,18 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
 import { spectrogramQuery, spectrogramsQuery } from "~/lib/queries";
-import { colourTable, renderSpectrogram, type SpectrogramView } from "~/lib/spectrogram";
+import {
+  colourTable,
+  combineSpectrograms,
+  renderSpectrogram,
+  type SpectrogramView,
+} from "~/lib/spectrogram";
 
-/** Which spectrogram to show: every channel stacked, one channel by index, or mid or side. */
-export type SpectrogramChannelChoice = "each" | string;
+/**
+ * Which spectrogram to show: every channel stacked ("each"), every channel as one ("all",
+ * under the combined waveform), one channel by index, or the mid or side.
+ */
+export type SpectrogramChannelChoice = "each" | "all" | string;
 
 const token = (name: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -135,7 +143,7 @@ export function Spectrogram({
   const names = channelNames(own.length, layout);
   const shown = useMemo(
     () =>
-      channel === "each"
+      channel === "each" || channel === "all"
         ? own.map((s, i) => ({ info: s, label: own.length > 1 ? names[i] : undefined }))
         : available
             .filter((s) => s.channel === channel)
@@ -153,6 +161,18 @@ export function Spectrogram({
   const results = useQueries({
     queries: shown.map((s) => spectrogramQuery(fileId, s.info.id)),
   });
+  const loaded = results.every((r) => r.data) && shown.length > 0;
+  // Every plane drawn: one per channel, or all of them combined into one.
+  const planes = useMemo(() => {
+    if (!loaded) return [];
+    const data = results.map((r) => r.data as SpectrogramData);
+    if (channel !== "all")
+      return data.map((d, i) => ({ data: d, label: shown[i]?.label, key: shown[i]?.info.id ?? i }));
+    const combined = combineSpectrograms(data);
+    return combined
+      ? [{ data: combined, label: own.length > 1 ? "All" : undefined, key: "all" }]
+      : [];
+  }, [loaded, results, channel, shown, own.length]);
   const marker = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
@@ -174,7 +194,6 @@ export function Spectrogram({
   };
 
   if (index && index.status !== "pending" && index.status !== "ready") return null;
-  const loaded = results.every((r) => r.data) && shown.length > 0;
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: the position slider is the keyboard route to seeking; this is a pointer shortcut.
     <div
@@ -186,22 +205,21 @@ export function Spectrogram({
       style={{ height }}
       onClick={playhead ? seek : undefined}
       role="img"
-      aria-label={`Spectrogram${channel === "each" ? "" : `, ${shown[0]?.label ?? channel}`}`}
+      aria-label={`Spectrogram${channel === "each" || channel === "all" ? "" : `, ${shown[0]?.label ?? channel}`}`}
     >
-      {loaded &&
-        results.map((r, i) => (
-          <div
-            key={shown[i]?.info.id}
-            className={cn("flex min-h-0 flex-1", i > 0 && "border-t border-ground")}
-          >
-            <Plane
-              spectrogram={r.data as SpectrogramData}
-              view={view}
-              label={labels ? shown[i]?.label : undefined}
-              showTicks={i === 0 || shown.length <= 2}
-            />
-          </div>
-        ))}
+      {planes.map((plane, i) => (
+        <div
+          key={plane.key}
+          className={cn("flex min-h-0 flex-1", i > 0 && "border-t border-ground")}
+        >
+          <Plane
+            spectrogram={plane.data}
+            view={view}
+            label={labels ? plane.label : undefined}
+            showTicks={i === 0 || planes.length <= 2}
+          />
+        </div>
+      ))}
       {playhead && loaded && (
         <span
           ref={marker}

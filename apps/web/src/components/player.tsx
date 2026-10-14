@@ -328,8 +328,8 @@ export function Player({
                   media={element}
                   duration={duration}
                   layout={info?.audio?.channelLayout}
-                  // Row for row under the waveform: each channel, or the mid under the combined view.
-                  channel={channels > 1 && view === "combined" ? "mid" : "each"}
+                  // Row for row under the waveform: each channel, or all of them combined.
+                  channel={view === "combined" ? "all" : "each"}
                   view={spectrum}
                   height={WAVEFORM_HEIGHT}
                   playhead={false}

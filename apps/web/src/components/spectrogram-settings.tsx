@@ -111,6 +111,7 @@ export function SpectrogramSettings({
           onChange={(event) => onChannel(event.target.value)}
         >
           {channels > 1 && <option value="each">Each</option>}
+          {channels > 1 && <option value="all">All, combined</option>}
           {names.map((name, i) => (
             <option key={name} value={String(i)}>
               {name}
