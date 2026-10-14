@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { run } from "./ffmpeg.ts";
 import { withWorkspace } from "./workspace.ts";
@@ -65,7 +65,8 @@ export async function watermark(
         `drawtext=${face}:textfile='${mark}':expansion=none:fontsize=h/${scale}:line_spacing=6` +
         `:fontcolor=0x808080@0.3:x=w*${t.x}:y=h*${t.y}`,
     );
-    const chunks: Buffer[] = [];
+    // To a file, so that the WebP says how long it is (see `webp` in pages.ts).
+    const output = join(dir, "marked.webp");
     await run(
       "ffmpeg",
       [
@@ -89,12 +90,11 @@ export async function watermark(
         "libwebp",
         "-quality",
         "82",
-        "-f",
-        "webp",
-        "pipe:1",
+        "-y",
+        `file:${output}`,
       ],
-      { signal, timeoutMs: 60_000, onStdout: (chunk) => chunks.push(chunk) },
+      { signal, timeoutMs: 60_000 },
     );
-    return Buffer.concat(chunks);
+    return readFile(output);
   });
 }

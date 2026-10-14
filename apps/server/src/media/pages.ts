@@ -57,9 +57,13 @@ export function pngSize(png: Buffer): { width: number; height: number } {
   return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
 }
 
-/** A PNG at most `size` on its longest side, as WebP. */
+/**
+ * A PNG at most `size` on its longest side, as WebP. Written to a file, not a pipe: on a
+ * pipe ffmpeg cannot go back to fill in the RIFF size, and browsers refuse larger images
+ * without it.
+ */
 async function webp(png: string, size: number, signal: AbortSignal): Promise<Buffer> {
-  const chunks: Buffer[] = [];
+  const out = `${png}.${size}.webp`;
   await run(
     "ffmpeg",
     [
@@ -78,14 +82,20 @@ async function webp(png: string, size: number, signal: AbortSignal): Promise<Buf
       "libwebp",
       "-quality",
       "82",
-      "-f",
-      "webp",
-      "pipe:1",
+      "-y",
+      `file:${out}`,
     ],
-    { signal, timeoutMs: 60_000, onStdout: (chunk) => chunks.push(chunk) },
+    { signal, timeoutMs: 60_000 },
   );
-  return Buffer.concat(chunks);
+  return readFile(out);
 }
+
+/** Whether a WebP says how long it is, as browsers need; ffmpeg leaves 0 on a pipe. */
+export const webpComplete = (image: Buffer) =>
+  image.length >= 12 &&
+  image.toString("latin1", 0, 4) === "RIFF" &&
+  image.toString("latin1", 8, 12) === "WEBP" &&
+  image.readUInt32LE(4) === image.length - 8;
 
 /** How many pages a PDF has, from Poppler's own count. */
 export async function pdfPageCount(path: string, signal: AbortSignal): Promise<number> {

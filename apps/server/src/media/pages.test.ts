@@ -11,6 +11,7 @@ import {
   renderPages,
   THUMB_SIZE,
   VIEW_SIZE,
+  webpComplete,
 } from "./pages.ts";
 import { samplePdf } from "./sample-pdf.ts";
 
@@ -52,7 +53,9 @@ describe.runIf(hasTools || process.env.CI)("drawing pages", () => {
     expect(pages[0]?.height).toBe(VIEW_SIZE);
     expect(pages[0]?.width).toBeCloseTo((VIEW_SIZE * 595) / 842, -1);
     for (const p of pages) {
-      expect(p.view.subarray(8, 12).toString()).toBe("WEBP");
+      // Complete, as browsers need: the RIFF header says how long the image is.
+      expect(webpComplete(p.view)).toBe(true);
+      expect(webpComplete(p.thumb)).toBe(true);
       expect(p.thumb.length).toBeLessThan(p.view.length);
     }
   });

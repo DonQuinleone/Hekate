@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { createDecipheriv } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { buffer } from "node:stream/consumers";
 import { createDb, runMigrations, schema, withAuditPurge } from "@hekate/db";
 import {
@@ -24,6 +24,7 @@ import { loadConfig } from "./config.ts";
 import { createKeyring } from "./keyring.ts";
 import { memoryMailer } from "./mail.ts";
 import { probe, run } from "./media/ffmpeg.ts";
+import { webpComplete } from "./media/pages.ts";
 import {
   analysisHandler,
   checksumHandler,
@@ -2462,17 +2463,13 @@ describe.runIf(url)("api", () => {
           async () => {
             const s = await invited();
             // The review's file, drawn as one white page.
-            const chunks: Buffer[] = [];
-            await run(
-              "ffmpeg",
-              [
-                ...["-hide_banner", "-nostdin", "-v", "error", "-f", "lavfi"],
-                ...["-i", "color=white:s=400x560", "-frames:v", "1"],
-                ...["-c:v", "libwebp", "-f", "webp", "pipe:1"],
-              ],
-              { onStdout: (chunk) => chunks.push(chunk) },
-            );
-            const white = Buffer.concat(chunks);
+            const drawn = join(mkdtempSync(join(tmpdir(), "hekate-page-")), "white.webp");
+            await run("ffmpeg", [
+              ...["-hide_banner", "-nostdin", "-v", "error", "-f", "lavfi"],
+              ...["-i", "color=white:s=400x560", "-frames:v", "1", "-c:v", "libwebp", drawn],
+            ]);
+            const white = readFileSync(drawn);
+            rmSync(dirname(drawn), { recursive: true, force: true });
             const view = await storage.put(s.organisationId, white);
             const thumb = await storage.put(s.organisationId, white);
             await db
@@ -2502,7 +2499,7 @@ describe.runIf(url)("api", () => {
             const theirs = await pagesFor(s.cookie);
             for (const url of [theirs?.url ?? "", theirs?.thumbUrl ?? ""]) {
               const served = Buffer.from(await (await getAs(url, s.cookie)).arrayBuffer());
-              expect(served.subarray(8, 12).toString()).toBe("WEBP");
+              expect(webpComplete(served)).toBe(true);
               // Not the stored page: their mark is on it.
               expect(served.equals(white)).toBe(false);
             }

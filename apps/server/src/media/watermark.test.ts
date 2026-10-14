@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { run } from "./ffmpeg.ts";
+import { webpComplete } from "./pages.ts";
 import { watermark, watermarkText } from "./watermark.ts";
 
 const hasFfmpeg = spawnSync("ffmpeg", ["-version"]).status === 0;
@@ -54,7 +55,7 @@ describe("watermarks", () => {
       );
       for (const size of ["view", "thumb"] as const) {
         const marked = await watermark(white, text, size);
-        expect(marked.subarray(8, 12).toString()).toBe("WEBP");
+        expect(webpComplete(marked)).toBe(true);
         expect(await ink(marked)).toBeGreaterThan((await ink(white)) + 10_000);
       }
     },

@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createJobs, type JobName, jobDefinitions } from "./jobs.ts";
 import { createKeyring } from "./keyring.ts";
 import { run } from "./media/ffmpeg.ts";
+import { webpComplete } from "./media/pages.ts";
 import { samplePdf } from "./media/sample-pdf.ts";
 import { probeHandler, startWorkers } from "./media/workers.ts";
 import { createStorage } from "./storage.ts";
@@ -308,7 +309,7 @@ describe.runIf(url && (hasFfmpeg || process.env.CI))("media jobs", () => {
     // Stored encrypted: only through storage does a page read as WebP.
     const { stream } = await storage.open(organisationId, pages[0]?.blobId ?? "");
     const view = Buffer.concat(await stream.toArray());
-    expect(view.subarray(8, 12).toString()).toBe("WEBP");
+    expect(webpComplete(view)).toBe(true);
 
     const fake = await addFile(Buffer.from("not a pdf"), "document", "Fake.pdf");
     expect(
