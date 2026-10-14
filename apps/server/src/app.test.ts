@@ -3390,6 +3390,14 @@ describe.runIf(url)("api", () => {
         );
         const sessions = await audit.query(organisationId, { action: "stream.session", limit: 10 });
         expect(sessions.events.filter((e) => e.fileId === doc?.id)).toHaveLength(0);
+        // A comment can point at part of a page the document has, and no other.
+        const region = (page: number) => ({
+          body: "Slur missing over the run",
+          anchor: { kind: "region", page, x: 0.1, y: 0.2, width: 0.3, height: 0.1 },
+        });
+        const commented = `/api/files/${doc?.id}/comments`;
+        expect((await app.request(commented, json(region(2), owner))).status).toBe(201);
+        expect((await app.request(commented, json(region(3), owner))).status).toBe(422);
         // Another organisation's document does not exist from here.
         const [other] = await db
           .insert(schema.organisations)

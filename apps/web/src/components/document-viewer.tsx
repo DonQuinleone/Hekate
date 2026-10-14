@@ -1,26 +1,77 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
-import { clampPage, zoomLabel, zoomStep } from "~/lib/pages";
+import {
+  clampPage,
+  type PageFocus,
+  pointIn,
+  type Rect,
+  regionFromDrag,
+  zoomLabel,
+  zoomStep,
+} from "~/lib/pages";
 import { viewQuery } from "~/lib/queries";
 import { Button } from "./ui/button";
+
+/** An open thread pinned to a region of a page, numbered as in the comments. */
+export interface RegionMarker {
+  id: string;
+  n: number;
+  /** Undefined on a picture, which is one page. */
+  page: number | undefined;
+  rect: Rect;
+}
+
+const place = (r: Rect) => ({
+  left: `${r.x * 100}%`,
+  top: `${r.y * 100}%`,
+  width: `${r.width * 100}%`,
+  height: `${r.height * 100}%`,
+});
 
 /**
  * A document or picture as the server drew it (#29): one page at a time, with thumbnails
  * beside it when there are several. The file itself never reaches the browser; each page
  * comes through a link bound to this session, and asking for a page is logged.
+ *
+ * Whoever may comment draws a rectangle on the page to point a new comment at it; open
+ * threads show where they point, and picking one picks it in the comments too.
  */
-export function DocumentViewer({ fileId, name }: { fileId: string; name: string }) {
+export function DocumentViewer({
+  fileId,
+  name,
+  focus,
+  onFocus,
+  markers = [],
+  canDraw = false,
+}: {
+  fileId: string;
+  name: string;
+  focus: PageFocus;
+  onFocus: (change: Partial<PageFocus>) => void;
+  markers?: RegionMarker[];
+  canDraw?: boolean;
+}) {
   const client = useQueryClient();
   const { data, error } = useQuery(viewQuery(fileId));
-  const [page, setPage] = useState(1);
   /** A multiple of the width that fits: 1 is the whole page across the viewer. */
   const [zoom, setZoom] = useState(1);
+  /** Where a drag began on the page, while one is under way. */
+  const [dragFrom, setDragFrom] = useState<{ x: number; y: number } | null>(null);
+  const [dragRect, setDragRect] = useState<Rect | null>(null);
   const surface = useRef<HTMLElement>(null);
+  const sheet = useRef<HTMLDivElement>(null);
   const rail = useRef<HTMLOListElement>(null);
   const count = data?.pages.length ?? 0;
+  const page = focus.page;
   const current = data?.pages.find((p) => p.page === page);
-  const go = (to: number) => setPage(clampPage(to, count));
+  // A document's regions carry the page they are on; a picture's carry none.
+  const here = markers.filter((m) => m.page === undefined || m.page === page);
+  const go = (to: number) => {
+    const next = clampPage(to, count);
+    // A region drawn on one page is not carried to another.
+    if (next !== page) onFocus({ page: next, draft: null });
+  };
 
   // The thumbnail of the page shown stays in view.
   useEffect(() => {
@@ -32,6 +83,13 @@ export function DocumentViewer({ fileId, name }: { fileId: string; name: string 
   useEffect(() => {
     if (page) surface.current?.scrollTo({ top: 0 });
   }, [page]);
+  // A thread picked in the comments brings its region into view.
+  useEffect(() => {
+    if (!focus.selected) return;
+    sheet.current
+      ?.querySelector(`[data-region="${focus.selected}"]`)
+      ?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+  }, [focus.selected]);
 
   if (error) return <p className="m-0 text-sm text-signal">{error.message}</p>;
   if (!data) return <p className="m-0 text-sm text-ink-3">Loading the pages</p>;
@@ -47,9 +105,33 @@ export function DocumentViewer({ fileId, name }: { fileId: string; name: string 
     else if (event.key === "+" || event.key === "=") setZoom((z) => zoomStep(z, 1));
     else if (event.key === "-") setZoom((z) => zoomStep(z, -1));
     else if (event.key === "0") setZoom(1);
+    else if (event.key === "Escape" && (focus.draft || focus.selected))
+      onFocus({ draft: null, selected: null });
     else return;
     event.preventDefault();
   };
+
+  const at = (event: PointerEvent<HTMLElement>) =>
+    pointIn(event.currentTarget.getBoundingClientRect(), event.clientX, event.clientY);
+  const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    // A finger scrolls and zooms the page; drawing is for a mouse or a pen.
+    if (!canDraw || event.button !== 0 || event.pointerType === "touch") return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDragFrom(at(event));
+    setDragRect(null);
+  };
+  const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (dragFrom) setDragRect(regionFromDrag(dragFrom, at(event)));
+  };
+  const onPointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    if (!dragFrom) return;
+    const rect = regionFromDrag(dragFrom, at(event));
+    setDragFrom(null);
+    setDragRect(null);
+    // A click on the page lets go of the region and the thread; a drag draws a new region.
+    onFocus(rect ? { draft: rect, selected: null } : { draft: null, selected: null });
+  };
+  const drawn = dragRect ?? focus.draft;
 
   return (
     <section
@@ -80,6 +162,11 @@ export function DocumentViewer({ fileId, name }: { fileId: string; name: string 
             >
               ›
             </Button>
+          </span>
+        )}
+        {canDraw && (
+          <span className="hidden text-xs text-ink-3 md:inline">
+            Drag on the page to comment on part of it
           </span>
         )}
         <span className="ml-auto flex items-center gap-1">
@@ -118,39 +205,45 @@ export function DocumentViewer({ fileId, name }: { fileId: string; name: string 
             aria-label="Pages"
             className="m-0 hidden max-h-[75vh] w-28 shrink-0 list-none flex-col gap-3 overflow-y-auto border-r border-hairline p-3 sm:flex"
           >
-            {data.pages.map((p) => (
-              <li key={p.page} data-page={p.page}>
-                <button
-                  type="button"
-                  aria-label={`Page ${p.page}`}
-                  aria-current={p.page === page ? "page" : undefined}
-                  onClick={() => go(p.page)}
-                  className="flex w-full cursor-pointer flex-col items-center gap-1 border-0 bg-transparent p-0"
-                >
-                  <img
-                    src={p.thumbUrl}
-                    alt=""
-                    loading="lazy"
-                    draggable={false}
-                    width={p.width}
-                    height={p.height}
-                    onError={refresh}
-                    className={cn(
-                      "h-auto w-full rounded-[3px] bg-ground outline outline-1",
-                      p.page === page ? "outline-signal" : "outline-hairline",
-                    )}
-                  />
-                  <span
-                    className={cn(
-                      "tabular text-[11px]",
-                      p.page === page ? "text-ink" : "text-ink-3",
-                    )}
+            {data.pages.map((p) => {
+              const threads = markers.filter((m) => m.page === p.page).length;
+              return (
+                <li key={p.page} data-page={p.page}>
+                  <button
+                    type="button"
+                    aria-label={`Page ${p.page}${threads ? `, ${threads} ${threads === 1 ? "thread" : "threads"}` : ""}`}
+                    aria-current={p.page === page ? "page" : undefined}
+                    onClick={() => go(p.page)}
+                    className="flex w-full cursor-pointer flex-col items-center gap-1 border-0 bg-transparent p-0"
                   >
-                    {p.page}
-                  </span>
-                </button>
-              </li>
-            ))}
+                    <img
+                      src={p.thumbUrl}
+                      alt=""
+                      loading="lazy"
+                      draggable={false}
+                      width={p.width}
+                      height={p.height}
+                      onError={refresh}
+                      className={cn(
+                        "h-auto w-full rounded-[3px] bg-ground outline outline-1",
+                        p.page === page ? "outline-signal" : "outline-hairline",
+                      )}
+                    />
+                    <span
+                      className={cn(
+                        "tabular flex items-center gap-1.5 text-[11px]",
+                        p.page === page ? "text-ink" : "text-ink-3",
+                      )}
+                    >
+                      {p.page}
+                      {threads > 0 && (
+                        <span aria-hidden className="size-1.5 rounded-full bg-signal" />
+                      )}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
           </ol>
         )}
         {/* Focusable, so the arrow keys turn pages once the viewer has been clicked. */}
@@ -163,18 +256,68 @@ export function DocumentViewer({ fileId, name }: { fileId: string; name: string 
           className="max-h-[75vh] min-w-0 flex-1 overflow-auto bg-ground p-4 outline-none focus-visible:ring-1 focus-visible:ring-signal"
         >
           {current && (
-            <img
-              key={current.url}
-              src={current.url}
-              alt={`Page ${current.page} of ${name}`}
-              draggable={false}
-              width={current.width}
-              height={current.height}
-              onError={refresh}
-              onContextMenu={(event) => event.preventDefault()}
+            <div
+              ref={sheet}
+              className={cn("relative mx-auto select-none", canDraw && "cursor-crosshair")}
               style={{ width: `${zoom * 100}%` }}
-              className="mx-auto block h-auto max-w-none select-none"
-            />
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={() => {
+                setDragFrom(null);
+                setDragRect(null);
+              }}
+            >
+              <img
+                key={current.url}
+                src={current.url}
+                alt={`Page ${current.page} of ${name}`}
+                draggable={false}
+                width={current.width}
+                height={current.height}
+                onError={refresh}
+                onContextMenu={(event) => event.preventDefault()}
+                className="block h-auto w-full max-w-none"
+              />
+              {here.map((m) => {
+                const picked = m.id === focus.selected;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    data-region={m.id}
+                    aria-label={`Thread ${m.n}`}
+                    aria-pressed={picked}
+                    // A marker is picked, not drawn over.
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={() => onFocus({ selected: picked ? null : m.id, draft: null })}
+                    style={place(m.rect)}
+                    className={cn(
+                      "absolute cursor-pointer rounded-[2px] border p-0",
+                      picked
+                        ? "border-signal bg-signal/15"
+                        : "border-signal/70 bg-signal/5 hover:bg-signal/10",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "tabular absolute -top-px -left-px flex h-4 min-w-4 items-center justify-center rounded-br-[3px] px-1 text-[10px] leading-none font-medium",
+                        picked ? "bg-signal text-ground" : "bg-signal/80 text-ground",
+                      )}
+                    >
+                      {m.n}
+                    </span>
+                  </button>
+                );
+              })}
+              {drawn && (
+                <div
+                  aria-hidden
+                  style={place(drawn)}
+                  className="pointer-events-none absolute rounded-[2px] border border-dashed border-signal bg-signal/10"
+                />
+              )}
+            </div>
           )}
         </section>
       </div>

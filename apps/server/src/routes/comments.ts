@@ -175,6 +175,7 @@ export const fileCommentRoutes = (db: Database, audit: Audit, trustProxy: boolea
           id: files.id,
           kind: files.kind,
           mediaInfo: files.mediaInfo,
+          pageCount: files.pageCount,
           projectId: files.projectId,
         })
         .from(files)
@@ -232,6 +233,7 @@ export const fileCommentRoutes = (db: Database, audit: Audit, trustProxy: boolea
         const problem = anchorProblem(input.anchor, {
           kind: file.kind,
           duration: file.mediaInfo?.duration,
+          pages: file.pageCount,
         });
         if (problem) throw new HTTPException(422, { message: problem });
       }
@@ -348,12 +350,16 @@ export const carryRoutes = (db: Database) =>
       await canOnFile(db, actorOf(c.var), "triage", carry.fileId);
       if (input.anchor) {
         const [file] = await db
-          .select({ kind: files.kind, mediaInfo: files.mediaInfo })
+          .select({ kind: files.kind, mediaInfo: files.mediaInfo, pageCount: files.pageCount })
           .from(files)
           .where(inOrg(files, organisationId, eq(files.id, carry.fileId)));
         const problem =
           file &&
-          anchorProblem(input.anchor, { kind: file.kind, duration: file.mediaInfo?.duration });
+          anchorProblem(input.anchor, {
+            kind: file.kind,
+            duration: file.mediaInfo?.duration,
+            pages: file.pageCount,
+          });
         if (problem) throw new HTTPException(422, { message: problem });
       }
       const now = new Date();

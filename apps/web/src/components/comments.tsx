@@ -7,10 +7,11 @@ import {
   formatAnchor,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
-import { type FormEvent, type KeyboardEvent, useState } from "react";
+import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
 import { ago, historyLabel, passageLoop, type Thread, threadsOf } from "~/lib/comments";
 import { type Loop, MIN_LOOP } from "~/lib/loop";
+import { isWholePage, type PageFocus } from "~/lib/pages";
 import {
   type Comment,
   commentsQuery,
@@ -20,6 +21,7 @@ import {
   useProjectCan,
 } from "~/lib/queries";
 import { useViewer } from "~/lib/viewer";
+import type { RegionMarker } from "./document-viewer";
 import { Button } from "./ui/button";
 import { ActionMenu } from "./ui/menu";
 
@@ -29,6 +31,42 @@ const anchorLabel = (anchor: Anchor) => formatAnchor(anchor).replace(/(^|\s)0(\d
 
 const textButton =
   "cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink disabled:cursor-default disabled:opacity-40";
+
+/** A document's page and regions, shared with the viewer beside the comments. */
+export interface PageComments {
+  focus: PageFocus;
+  onFocus: (change: Partial<PageFocus>) => void;
+  /** Whether the file has numbered pages (a document) or is one picture. */
+  paged: boolean;
+}
+
+/** One way a new comment can point, as a pressed-or-not chip beside the composer. */
+function Target({
+  pressed,
+  onClick,
+  mono = false,
+  children,
+}: {
+  pressed: boolean;
+  onClick: () => void;
+  mono?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      onClick={onClick}
+      className={cn(
+        "h-6 cursor-pointer rounded-chip border px-2 text-[11px]",
+        mono && "tabular font-mono",
+        pressed ? "border-edge bg-raised text-ink" : "border-transparent bg-transparent text-ink-3",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
 
 /** What before and after needs: the earlier file, the passage there and here. */
 export interface BeforeAfter {
@@ -169,6 +207,8 @@ function ThreadView({
   mutations,
   canComment,
   canTriage,
+  marker,
+  pages,
 }: {
   thread: Thread;
   /** The file being looked at, which a carried thread was brought to. */
@@ -184,6 +224,9 @@ function ThreadView({
   mutations: ReturnType<typeof useCommentMutations>;
   canComment: boolean;
   canTriage: boolean;
+  /** The thread's number on the page, when it points at a region of it. */
+  marker?: RegionMarker;
+  pages?: PageComments;
 }) {
   const [replying, setReplying] = useState(false);
   const { comment, replies } = thread;
@@ -196,11 +239,22 @@ function ThreadView({
   const setCarry = (change: { status?: CarryStatus; visible?: boolean; anchor?: Anchor | null }) =>
     carry && mutations.carry.mutate({ id: carry.id, ...change });
   const edit = (id: string, body: string) => mutations.edit.mutateAsync({ id, body });
+  const picked = pages?.focus.selected === comment.id;
+  const row = useRef<HTMLLIElement>(null);
+  // Picked on the page, the thread comes into view here.
+  useEffect(() => {
+    if (picked) row.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [picked]);
+  /** The region drawn on the page, which a carried thread can be moved to. */
+  const draft = pages?.focus.draft;
   return (
     <li
+      ref={row}
+      data-thread={comment.id}
       className={cn(
         "group flex flex-col gap-3 border-b border-hairline py-4",
         comment.resolvedAt && "opacity-70",
+        picked && "-mx-3 rounded-panel border-transparent bg-raised px-3",
       )}
     >
       <div className="flex items-center gap-2">
@@ -212,6 +266,26 @@ function ThreadView({
               className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 font-mono text-[11px] text-ink hover:border-signal"
               aria-label={`Play from ${anchorLabel(anchor)}`}
             >
+              {anchorLabel(anchor)}
+            </button>
+          ) : anchor.kind === "region" && pages ? (
+            <button
+              type="button"
+              onClick={() =>
+                pages.onFocus({
+                  ...(anchor.page !== undefined && { page: anchor.page }),
+                  selected: picked ? null : comment.id,
+                  draft: null,
+                })
+              }
+              aria-pressed={picked}
+              className={cn(
+                "tabular flex h-6 cursor-pointer items-center gap-1.5 rounded-chip border bg-transparent px-2 font-mono text-[11px] text-ink hover:border-signal",
+                picked ? "border-signal" : "border-edge",
+              )}
+              aria-label={`Show ${marker ? `thread ${marker.n}, ` : ""}${anchorLabel(anchor)}`}
+            >
+              {marker && <span className="text-signal">{marker.n}</span>}
               {anchorLabel(anchor)}
             </button>
           ) : (
@@ -249,6 +323,23 @@ function ThreadView({
               <ActionMenu
                 label="this thread"
                 actions={[
+                  ...(draft && pages
+                    ? [
+                        {
+                          label: "Move to the drawn region",
+                          onSelect: () => {
+                            setCarry({
+                              anchor: {
+                                kind: "region",
+                                ...(pages.paged && { page: pages.focus.page }),
+                                ...draft,
+                              },
+                            });
+                            pages.onFocus({ draft: null, selected: comment.id });
+                          },
+                        },
+                      ]
+                    : []),
                   ...(loop
                     ? [
                         {
@@ -367,6 +458,7 @@ export function Comments({
   loop = null,
   onLoop,
   onBeforeAfter,
+  pages,
 }: {
   fileId: string;
   /** The file's project, whose role decides who may comment and resolve. */
@@ -379,6 +471,8 @@ export function Comments({
   onLoop?: (loop: Loop) => void;
   /** Hear a carried thread's passage where it began, then here. */
   onBeforeAfter?: (target: BeforeAfter) => void;
+  /** On a document or picture: the page shown and the region drawn on it. */
+  pages?: PageComments;
 }) {
   const { data, error } = useQuery(commentsQuery(fileId));
   const { guest } = useViewer();
@@ -396,6 +490,15 @@ export function Comments({
   const [onPassage, setOnPassage] = useState(true);
   const [showResolved, setShowResolved] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
+  /** On a page: whether a new comment points at the region drawn, the page, or the file. */
+  const [pageTarget, setPageTarget] = useState<"region" | "page" | "whole">("page");
+  const draft = pages?.focus.draft ?? null;
+  // Drawing a region is saying where the next comment goes.
+  useEffect(() => {
+    if (draft) setPageTarget("region");
+  }, [draft]);
+  /** What a new comment on a page points at, given what has been drawn. */
+  const pageAim = pageTarget === "region" && !draft ? "page" : pageTarget;
 
   const seek = (seconds: number) => {
     if (!media) return;
@@ -407,6 +510,14 @@ export function Comments({
   };
   /** The anchor for a new comment: the captured time, or the playhead as it is now. */
   const anchorNow = (): Anchor | null => {
+    if (pages) {
+      const page = pages.paged ? { page: pages.focus.page } : {};
+      if (pageAim === "region" && draft) return { kind: "region", ...page, ...draft };
+      // A picture is one page: the whole of it is the whole file.
+      if (pageAim === "page" && pages.paged)
+        return { kind: "region", ...page, x: 0, y: 0, width: 1, height: 1 };
+      return null;
+    }
     if (!media || wholeFile) return null;
     if (loop && onPassage) return { kind: "time", start: loop.start, end: loop.end };
     const start = at ?? Math.round(media.currentTime * 1000) / 1000;
@@ -414,6 +525,7 @@ export function Comments({
   };
 
   const threads = data ? threadsOf(data) : { open: [], resolved: [], hidden: [] };
+  const markers = data ? regionMarkers(data) : [];
   const view = (t: Thread) => (
     <ThreadView
       key={t.comment.id}
@@ -427,6 +539,8 @@ export function Comments({
       mutations={mutations}
       canComment={canComment}
       canTriage={canTriage}
+      marker={markers.find((m) => m.id === t.comment.id)}
+      pages={pages}
     />
   );
 
@@ -442,15 +556,44 @@ export function Comments({
       {canComment && (
         <div onFocusCapture={capture}>
           <Composer
-            placeholder={media ? "Comment at the playhead" : "Comment on this file"}
+            placeholder={
+              media
+                ? "Comment at the playhead"
+                : pages && pageAim === "region"
+                  ? "Comment on the region"
+                  : pages?.paged && pageAim === "page"
+                    ? `Comment on page ${pages.focus.page}`
+                    : "Comment on this file"
+            }
             submitLabel="Comment"
             pending={mutations.create.isPending}
             onSubmit={async (body) => {
               await mutations.create.mutateAsync({ body, anchor: anchorNow() });
               setAt(null);
               setWholeFile(false);
+              if (pages && pageAim === "region") {
+                pages.onFocus({ draft: null });
+                setPageTarget("page");
+              }
             }}
           >
+            {pages && (pages.paged || draft) && (
+              <span className="flex items-center gap-1">
+                {draft && (
+                  <Target pressed={pageAim === "region"} onClick={() => setPageTarget("region")}>
+                    Region
+                  </Target>
+                )}
+                {pages.paged && (
+                  <Target pressed={pageAim === "page"} onClick={() => setPageTarget("page")} mono>
+                    P. {pages.focus.page}
+                  </Target>
+                )}
+                <Target pressed={pageAim === "whole"} onClick={() => setPageTarget("whole")}>
+                  Whole file
+                </Target>
+              </span>
+            )}
             {media && (
               <span className="flex items-center gap-1">
                 <button
@@ -546,6 +689,31 @@ export function Comments({
       )}
     </section>
   );
+}
+
+/**
+ * Open threads that point at part of a page, numbered in reading order (page by page,
+ * top to bottom) as the list shows them, for the viewer to mark and the list to label.
+ */
+export function regionMarkers(comments: Comment[]): RegionMarker[] {
+  const markers: RegionMarker[] = [];
+  for (const { comment } of threadsOf(comments).open) {
+    const a = comment.anchor;
+    if (a?.kind !== "region" || isWholePage(a)) continue;
+    markers.push({
+      id: comment.id,
+      n: markers.length + 1,
+      page: a.page,
+      rect: { x: a.x, y: a.y, width: a.width, height: a.height },
+    });
+  }
+  return markers;
+}
+
+/** The region markers of a file's open threads. */
+export function useRegionMarkers(fileId: string): RegionMarker[] {
+  const { data } = useQuery(commentsQuery(fileId));
+  return data ? regionMarkers(data) : [];
 }
 
 /** Where open time-anchored threads start, for markers on the timeline. */
