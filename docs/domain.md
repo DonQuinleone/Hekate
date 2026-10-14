@@ -15,6 +15,14 @@ The words in this document are used exactly as defined, in code, in the interfac
 | **Variation** | One file within a version that differs in treatment, not in edit: for example the dry mix and the wet mix of Version 4. Every version has at least one variation, and one is primary. |
 | **Take** | A snippet of audio captured in the recording session, usually not a complete run of the music. Takes are reference material for the producer and editor: they show what is available for each passage and what has been stitched into the edit. A take groups its files: one per microphone, plus an optional summed mix. Takes are **not** versions and do not normally appear in review. |
 | **Session** | A recording session, grouping takes (for example "Day 2 · St John's"). |
+| **Work** | An entry in a project's repertoire: title, composer, forces, abbreviation, and its tracks in order. A single-track work is just one track. Used by the schedule, the take log and the score. |
+| **Score mark** | A producer's mark on a score page made during recording: an issue (with the takes it occurred in and the take that fixed it), a T-edit such as `3T4`, a take start or end, a punch-in, a wrong-note cross, a circled dynamic, a sticky note, or freehand ink. |
+| **Edit plot** | The chain of T-edits through a track, from lead-in to final take. Hekate checks that every hand-over matches and every take exists. |
+| **Schedule** | The project's timetable: days, repertoire slots, breaks and venue changes, with times that chain automatically. |
+| **Personnel** | Everyone on a production: artists, ensembles (sections, named members, divisi), staff and others, with session-agreement and headphone flags. Personnel can be linked to members and guests. |
+| **Venue** | A place a project records in, with its address. |
+| **Stage plan** | A metre-scaled plan of a venue's stage: performers, ensemble blocks, microphones, instruments, risers, cables and walls, over an optional floor-plan underlay. |
+| **Patch list** | The stage boxes of a project and the input and output channel tables of each, linked to the microphones on the stage plan. |
 | **Coverage** | The page and bar range of the score that a take, or a set of takes, contains. Used to answer "which takes cover bar 72?". |
 | **Comment** | A note on a file, optionally anchored to a place in it. Comments can be threaded and resolved. |
 | **Category** | A configurable label on a comment, such as *Noise*, *Edit*, *Balance*, *Performance*. A category can carry a default handling, for example *Noise* defers the comment to a later stage. Categories are defined per project. |
@@ -88,6 +96,32 @@ A tool for producers and editors, mostly used while editing and before material 
 **Questions it answers.** "Any other options for bar 72?" lists every take that covers bar 72, with the take's rating and notes, which take is used in the current version, and one action to audition each at bar 72, looped and level-matched. The same lookup appears on any bar-anchored comment ("Other takes for bar 72").
 
 **Notes and ratings.** Takes can be rated, starred (the producer's circled takes) and annotated, and the edit decision (which take is used for which bars in a version) can be recorded.
+
+## Production
+
+Hekate runs the recording itself as well as its review, bringing the maintainer's ControlRoom tool into the product natively. Production data lives in the same project as tracks, takes and reviews, so nothing is entered twice.
+
+**Repertoire and venues.** A project's works, each with its tracks in order, composer, forces, an abbreviation for schedules, and a link to the score file with each track's printed page range (so a track opens at its own pages even inside one long PDF; printed page numbers map to PDF pages through an offset). Venues with addresses.
+
+**Personnel.** Artists, ensembles (sections of named members with divisi, or a head-count before names are known, plus seating notes), production staff and others. Each entry records whether the session agreement is signed and whether the person needs headphones. A personnel entry can be linked to a member or a guest, so the conductor on the stage plan is the same person who reviews in an approval.
+
+**Schedule.** A spreadsheet-style planner across days: day headings with date and venue, repertoire slots (any combination of works and tracks), breaks, get-ins and mid-day venue changes. Start times chain from the previous row unless set. Rows are ticked off during the session so everyone can see where things are. A coverage view proves every track has a slot. Exports: a typeset PDF (front page with public session information, per-day tables, an ensemble breakdown page) and an XLSX workbook. The schedule can drive the workflow (for example, a track's first review starts the day after its last slot).
+
+**Take logging.** A keyboard-first log used live in the control room:
+
+- One key starts the next take; numbering runs continuously, per track, or synced to the recorder
+- Rate 1 to 5, count false starts, type notes, record timecode in and out and wall-clock times, mark where on the score the take starts and ends
+- Lifecycle per take: idle, armed, recording, recorded, aborted
+- A large-print take overview and a status-coloured session clock readable across the room; a metronome and a tuning tone (415, 432, 440, 442 Hz) on any output
+- Works offline: the log is written locally first and syncs when the connection returns, because venues often have poor connectivity
+
+Logged takes become the take manager's takes, so import (#45) matches files to log entries and coverage (#46) starts from the logged score positions.
+
+**Score marking.** The score pane gains the producer's pencil, on single keys: issue marks and regions in configurable categories (with the takes the problem occurred in and the take that fixed it), T-edits with lead-ins, chains and overdubs, take start and end marks, punch-ins, wrong-note crosses, circled dynamics, sticky notes and ink. Display filters (invert, sepia, amber, grey) suit a dark control room. Go to bar finds a printed bar number; edit points can be stepped through in reading order; the edit plot check verifies each track's T-edit chain. Score marks feed coverage directly: a mark that says take 7 fixed bar 72 answers "any other options for bar 72?". Exports: annotated score PDF, take log and marks as CSV.
+
+**Stage plans and patching.** Metre-scaled plans on a snapping grid with performers, ensemble blocks sized from the real head-count, microphones, pianos, timpani, risers, walls, cable runs and labels, over an optional floor-plan underlay; multi-select, align and group operations. Microphones link to the patch list so labels follow it. Stage boxes carry input and output tables. Exports: stage plan PDF (A3 or A4, rulers and scale bar) and patch list PDF and XLSX.
+
+**Everything is versioned.** Production data uses the same event history as the rest of a project, so every change can be undone and audited.
 
 ## Quality checks
 
