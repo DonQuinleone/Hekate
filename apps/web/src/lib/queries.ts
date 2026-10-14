@@ -1,4 +1,10 @@
-import { decodePeaks, type FileKind, type MediaInfo, type ProjectProfile } from "@hekate/shared";
+import {
+  type Anchor,
+  decodePeaks,
+  type FileKind,
+  type MediaInfo,
+  type ProjectProfile,
+} from "@hekate/shared";
 import { queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 
@@ -259,3 +265,61 @@ export const peakLevelQuery = (fileId: string, levelId: string) =>
     },
     staleTime: Number.POSITIVE_INFINITY,
   });
+
+export interface Comment {
+  id: string;
+  fileId: string;
+  parentId: string | null;
+  anchor: Anchor | null;
+  body: string;
+  authorId: string | null;
+  authorName: string | null;
+  resolvedAt: string | null;
+  resolvedByName: string | null;
+  editedAt: string | null;
+  createdAt: string;
+}
+
+/** A file's comments, oldest first; kept fresh so colleagues' notes appear while reviewing. */
+export const commentsQuery = (fileId: string) =>
+  queryOptions({
+    queryKey: ["files", fileId, "comments"],
+    queryFn: async () =>
+      (
+        await json<{ comments: Comment[] }>(
+          await api.files[":id"].comments.$get({ param: { id: fileId } }),
+        )
+      ).comments,
+    refetchInterval: 15_000,
+  });
+
+export function useCommentMutations(fileId: string) {
+  const client = useQueryClient();
+  const refresh = () => client.invalidateQueries({ queryKey: ["files", fileId, "comments"] });
+  return {
+    create: useMutation({
+      mutationFn: async (input: { body: string; anchor?: Anchor | null; parentId?: string }) =>
+        json<{ comment: Comment }>(
+          await api.files[":id"].comments.$post({ param: { id: fileId }, json: input }),
+        ),
+      onSuccess: refresh,
+    }),
+    edit: useMutation({
+      mutationFn: async (input: { id: string; body: string }) =>
+        json<{ comment: Comment }>(
+          await api.comments[":id"].$patch({ param: { id: input.id }, json: { body: input.body } }),
+        ),
+      onSuccess: refresh,
+    }),
+    resolve: useMutation({
+      mutationFn: async (input: { id: string; resolved: boolean }) =>
+        json<{ comment: Comment }>(
+          await api.comments[":id"].resolve.$post({
+            param: { id: input.id },
+            json: { resolved: input.resolved },
+          }),
+        ),
+      onSuccess: refresh,
+    }),
+  };
+}

@@ -416,6 +416,9 @@ export const comments = pgTable(
     anchor: jsonb("anchor").$type<Anchor>(),
     body: text("body").notNull(),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedById: text("resolved_by_id").references(() => users.id, { onDelete: "set null" }),
+    /** Set when the author changes the text after posting. */
+    editedAt: timestamp("edited_at", { withTimezone: true }),
     ...timestamps,
   },
   (t) => [index("comments_org_idx").on(t.organisationId), index("comments_file_idx").on(t.fileId)],

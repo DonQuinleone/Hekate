@@ -82,14 +82,23 @@ export function Player({
   playback,
   info,
   onExpired,
+  onMedia,
+  markers = [],
 }: {
   fileId: string;
   kind: "audio" | "video";
   playback: Playback;
   info: MediaInfo | null;
   onExpired: () => void;
+  /** The media element, once mounted, so other panels can read and move the playhead. */
+  onMedia?: (element: HTMLMediaElement | null) => void;
+  /** Positions in seconds to mark on the timeline, such as anchored comments. */
+  markers?: number[];
 }) {
   const media = useRef<HTMLVideoElement & HTMLAudioElement>(null);
+  // Kept in a ref so a new callback from the parent does not restart playback.
+  const announce = useRef(onMedia);
+  announce.current = onMedia;
   const hls = useRef<Hls | null>(null);
   const [choices, setChoices] = useState<Choice[]>([]);
   /** A level index, or -1 for automatic selection. */
@@ -113,6 +122,7 @@ export function Player({
     const element = media.current;
     if (!element) return;
     setElement(element);
+    announce.current?.(element);
     let cancelled = false;
     setFailure(null);
     setChoices([]);
@@ -171,6 +181,7 @@ export function Player({
       });
     return () => {
       cancelled = true;
+      announce.current?.(null);
       hls.current?.destroy();
       hls.current = null;
       element.removeAttribute("src");
@@ -282,6 +293,14 @@ export function Player({
           )}
           <div className="relative h-4">
             <div className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-hairline" />
+            {markers.map((at) => (
+              <div
+                key={at}
+                aria-hidden="true"
+                className="absolute top-0 h-1.5 w-px -translate-x-1/2 bg-signal"
+                style={{ left: `${share(at)}%` }}
+              />
+            ))}
             <div
               className="absolute top-1/2 left-0 h-0.5 -translate-y-1/2 rounded-full bg-edge"
               style={{ width: `${share(buffered)}%` }}
