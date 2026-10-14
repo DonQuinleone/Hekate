@@ -16,7 +16,7 @@ Classical music is a first-class citizen (tracks with versions and variations, b
 - **Approval flows.** Send reviews to members, guests and groups, at once or in order. Approvals are logged decisions; feedback is comments. Workflows, statuses and roles are configurable per project.
 - **Project profiles.** A project picks a profile (Music, Video or General) which decides which tools appear. The model underneath is the same.
 - **Protected by design.** Reviewers get encrypted streams and rendered pages, never the original files. Every access is logged, and watermarks identify who was given a copy.
-- **Yours to run.** One app image, PostgreSQL and Caddy, deployed with Docker Compose. Local storage by default, S3-compatible storage if you want it.
+- **Yours to run.** One app image, PostgreSQL and Caddy, deployed with Docker Compose. Store media on local disk, on any S3-compatible service, or on several at once.
 - **Multi-tenant from day one.** Every record belongs to an organisation, so a hosted offering can follow without a rewrite.
 
 ## Stack
@@ -31,7 +31,7 @@ TypeScript end to end.
 | Jobs | pg-boss, with a built-in ffmpeg worker for transcodes, waveforms and thumbnails |
 | Media | Vidstack (video), wavesurfer.js (audio), pdf.js (scores and documents) |
 | Auth | Better Auth |
-| Storage | Local disk, optional S3 |
+| Storage | Multiple configurable backends: local disk and any S3-compatible service |
 | Deploy | One app image, PostgreSQL and Caddy via Docker Compose |
 
 ## Repository layout
@@ -43,6 +43,7 @@ apps/
 packages/
   shared/     Domain types and validation shared by server and web (anchors, profiles)
   db/         Drizzle schema, migrations and database client
+  storage/    Storage backends (local disk, S3) behind one interface
 brand/        Mark, wordmark and icons (SVG)
 docs/         Decisions, domain vocabulary, media security and the brand system
 deploy/       Docker Compose and Caddy configuration
@@ -73,6 +74,24 @@ pnpm check      # lint, typecheck and tests across the workspace
 cp .env.example .env    # set HEKATE_DOMAIN, secrets and storage
 docker compose -f deploy/compose.yml up -d
 ```
+
+## Storage
+
+Media can live in several named backends at once. Each stored object records which backend holds it, so you can add a backend or change the default without moving or breaking anything already stored. Organisation owners can choose which backend their new uploads use; otherwise `STORAGE_DEFAULT` applies.
+
+```sh
+STORAGE_BACKENDS=local,archive
+STORAGE_DEFAULT=archive
+STORAGE_LOCAL_PATH=/data/storage
+STORAGE_ARCHIVE_DRIVER=s3
+STORAGE_ARCHIVE_BUCKET=hekate-media
+STORAGE_ARCHIVE_ENDPOINT=https://s3.example.com
+STORAGE_ARCHIVE_FORCE_PATH_STYLE=true
+STORAGE_ARCHIVE_ACCESS_KEY_ID=...
+STORAGE_ARCHIVE_SECRET_ACCESS_KEY_FILE=/run/secrets/s3-secret
+```
+
+Every backend is checked at start-up; Hekate will not start with storage it cannot reach or write to. Storage never serves files to browsers directly: media always passes through Hekate's protected delivery. See `.env.example` for every setting.
 
 ## Licence
 
