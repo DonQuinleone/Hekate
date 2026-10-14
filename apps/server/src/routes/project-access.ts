@@ -160,30 +160,39 @@ export const projectAccessRoutes = (db: Database) =>
       const { id, userId } = c.req.valid("param");
       const { projectId } = await can(db, actorOf(c.var), "manage_roles", id);
       const { roleId } = c.req.valid("json");
-      const [member] = await db
-        .select({ id: members.id })
-        .from(members)
-        .where(inOrg(members, organisationId, eq(members.userId, userId)));
-      if (!member) throw new NotFound("Member");
-      const [role] = await db
-        .select({ id: projectRoles.id })
-        .from(projectRoles)
-        .where(
-          inOrg(
-            projectRoles,
-            organisationId,
-            eq(projectRoles.id, roleId),
-            eq(projectRoles.projectId, projectId),
-          ),
-        );
-      if (!role) throw new NotFound("Role");
-      await db
-        .insert(projectMembers)
-        .values({ organisationId, projectId, userId, roleId: role.id })
-        .onConflictDoUpdate({
-          target: [projectMembers.organisationId, projectMembers.projectId, projectMembers.userId],
-          set: { roleId: role.id, updatedAt: new Date() },
-        });
+      await db.transaction(async (tx) => {
+        // Lock their membership: someone leaving the organisation at the same moment either
+        // goes first (and this finds no member) or waits, and then takes this role with them.
+        const [member] = await tx
+          .select({ id: members.id })
+          .from(members)
+          .where(inOrg(members, organisationId, eq(members.userId, userId)))
+          .for("update");
+        if (!member) throw new NotFound("Member");
+        const [role] = await tx
+          .select({ id: projectRoles.id })
+          .from(projectRoles)
+          .where(
+            inOrg(
+              projectRoles,
+              organisationId,
+              eq(projectRoles.id, roleId),
+              eq(projectRoles.projectId, projectId),
+            ),
+          );
+        if (!role) throw new NotFound("Role");
+        await tx
+          .insert(projectMembers)
+          .values({ organisationId, projectId, userId, roleId: role.id })
+          .onConflictDoUpdate({
+            target: [
+              projectMembers.organisationId,
+              projectMembers.projectId,
+              projectMembers.userId,
+            ],
+            set: { roleId: role.id, updatedAt: new Date() },
+          });
+      });
       return c.body(null, 204);
     })
     .delete("/:id/members/:userId", memberParam, async (c) => {

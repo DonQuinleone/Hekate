@@ -135,6 +135,9 @@ export function useProjectAccessMutations(projectId: string) {
       onSuccess: refresh,
     }),
     updateRole: useMutation({
+      // Each change sends the role's whole permission set, so changes run one at a time, in
+      // the order they were made: a slow earlier request can never overwrite a later one.
+      scope: { id: `project-roles-${projectId}` },
       mutationFn: async (input: { id: string; name: string; permissions: ProjectPermission[] }) =>
         json<{ role: ProjectRole }>(
           await api.projects[":id"].roles[":roleId"].$patch({

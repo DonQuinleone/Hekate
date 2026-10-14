@@ -1769,6 +1769,36 @@ describe.runIf(url)("api", () => {
         expect(organisationId).not.toBe(elsewhere?.id);
       });
 
+      it("never leaves a role behind when someone leaves as it is given", async () => {
+        const { owner, projectId } = await studio();
+        const roles = (await (await getAs(`/api/projects/${projectId}/roles`, owner)).json()) as {
+          roles: { id: string; name: string }[];
+        };
+        const viewer = roles.roles.find((r) => r.name === "Viewer")?.id ?? "";
+        for (let round = 0; round < 5; round++) {
+          const cookie = await joinAs(owner, `leaver${round}@example.test`);
+          const userId = (
+            (await (await getAs("/api/me", cookie)).json()) as { user: { id: string } }
+          ).user.id;
+          const [membership] = await db
+            .select({ id: schema.members.id })
+            .from(schema.members)
+            .where(eq(schema.members.userId, userId));
+          // Assigning and removing at the same moment: whichever wins, nothing stale is left.
+          const [assigned, removed] = await Promise.all([
+            send("PUT", `/api/projects/${projectId}/members/${userId}`, { roleId: viewer }, owner),
+            send("DELETE", `/api/organisation/members/${membership?.id}`, {}, owner),
+          ]);
+          expect([204, 404]).toContain(assigned.status);
+          expect(removed.status).toBe(204);
+          const left = await db
+            .select()
+            .from(schema.projectMembers)
+            .where(eq(schema.projectMembers.userId, userId));
+          expect(left).toHaveLength(0);
+        }
+      });
+
       it("stops an upload whose uploader loses the role mid-way", async () => {
         const { owner, projectId } = await studio();
         const engineer = await joinAs(owner, "engineer@example.test");

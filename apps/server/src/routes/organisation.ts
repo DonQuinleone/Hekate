@@ -107,6 +107,12 @@ export const organisationRoutes = (
       }
       // Their roles in the organisation's projects go with them.
       await db.transaction(async (tx) => {
+        // Lock the membership first, as role assignment does, so neither can slip past the other.
+        await tx
+          .select({ id: members.id })
+          .from(members)
+          .where(inOrg(members, c.var.organisationId, eq(members.id, id)))
+          .for("update");
         await tx
           .delete(schema.projectMembers)
           .where(
