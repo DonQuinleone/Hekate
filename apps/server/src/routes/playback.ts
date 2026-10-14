@@ -213,8 +213,9 @@ export const playRoutes = (deps: PlaybackDeps) => {
         const rendition = await renditionOf(claims, rid);
         const index = Number.parseInt(segment, 10);
         const [row] = await deps.db
-          .select({ blobId: renditionSegments.blobId })
+          .select({ blobId: renditionSegments.blobId, projectId: files.projectId })
           .from(renditionSegments)
+          .innerJoin(files, inOrg(files, claims.organisationId, eq(files.id, claims.fileId)))
           .where(
             inOrg(
               renditionSegments,
@@ -224,6 +225,18 @@ export const playRoutes = (deps: PlaybackDeps) => {
             ),
           );
         if (!row) throw new NotFound("Segment");
+        // Logged before it is sent, like keys: which parts of a file reached whom.
+        await deps.audit.record(
+          claims.organisationId,
+          await deps.audit.member(c.var.userId),
+          {
+            action: "stream.segment",
+            projectId: row.projectId,
+            fileId: claims.fileId,
+            details: { rendition: rendition.name, segment: index },
+          },
+          requestInfo(c, deps.trustProxy),
+        );
         return sendBlob(
           rendition.organisationId,
           row.blobId,

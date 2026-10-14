@@ -7,10 +7,10 @@ import { createDb, runMigrations, schema } from "@hekate/db";
 import { createBackends, storageConfigFromEnv, unwrapKey } from "@hekate/storage";
 import { asc, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createJobs, type JobName } from "./jobs.ts";
+import { createJobs, type JobName, jobDefinitions } from "./jobs.ts";
 import { createKeyring } from "./keyring.ts";
 import { run } from "./media/ffmpeg.ts";
-import { startWorkers } from "./media/workers.ts";
+import { probeHandler, startWorkers } from "./media/workers.ts";
 import { createStorage } from "./storage.ts";
 
 const url = process.env.DATABASE_URL;
@@ -203,5 +203,44 @@ describe.runIf(url && (hasFfmpeg || process.env.CI))("media jobs", () => {
     ).toBe("completed");
     expect(await mediaInfoOf(fileId)).toBeNull();
     await expect(jobs.send("media-probe", { organisationId: "nope", fileId })).rejects.toThrow();
+  });
+
+  it("gives up on a file it cannot reach after the last attempt, rather than leave it waiting", async () => {
+    const fileId = await addFile(Buffer.from("RIFF"), "audio", "Unreachable.wav");
+    await db
+      .update(schema.files)
+      .set({ streamStatus: "pending" })
+      .where(eq(schema.files.id, fileId));
+    const broken = {
+      ...storage,
+      open: async () => {
+        throw new Error("Storage is unavailable");
+      },
+    };
+    const handler = probeHandler({
+      db,
+      storage: broken,
+      keyring,
+      jobs,
+      workDir: join(root, "work"),
+    });
+    const statusOf = async () =>
+      (
+        await db
+          .select({ status: schema.files.streamStatus })
+          .from(schema.files)
+          .where(eq(schema.files.id, fileId))
+      )[0]?.status;
+    const attempt = (retryCount: number) =>
+      handler(
+        { organisationId, fileId },
+        { id: "job", signal: new AbortController().signal, retryCount },
+      );
+    await expect(attempt(0)).rejects.toThrow(/unavailable/);
+    expect(await statusOf()).toBe("pending");
+    await expect(attempt(jobDefinitions["media-probe"].options.retryLimit)).rejects.toThrow(
+      /unavailable/,
+    );
+    expect(await statusOf()).toBe("failed");
   });
 });

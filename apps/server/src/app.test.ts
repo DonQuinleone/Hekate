@@ -1267,11 +1267,15 @@ describe.runIf(url)("api", () => {
           expect(info.audio).toMatchObject({ codec: "aac", channels: 2, sampleRate: 48000 });
           expect(info.duration).toBeCloseTo(8, 0);
 
-          const logged = await audit.query(organisationId, { fileId, limit: 10 });
-          expect(logged.events.map((e) => e.action).sort()).toEqual([
-            "stream.key",
-            "stream.session",
-          ]);
+          // The session, the key and every segment served, each attributable.
+          const logged = await audit.query(organisationId, { fileId, limit: 50 });
+          const actions = logged.events.map((e) => e.action);
+          const served = media.split("\n").filter((l) => l.startsWith("seg/")).length;
+          expect(actions.filter((a) => a === "stream.segment")).toHaveLength(served);
+          expect(new Set(actions)).toEqual(
+            new Set(["stream.key", "stream.session", "stream.segment"]),
+          );
+          expect(logged.events.every((e) => e.projectId)).toBe(true);
         }, 120_000);
 
         it("plays video as an encrypted ladder that decrypts to H.264 and AAC", async () => {

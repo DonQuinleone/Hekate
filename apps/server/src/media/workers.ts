@@ -3,6 +3,7 @@ import { createWriteStream } from "node:fs";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { type Database, inOrg, schema, uuidv7 } from "@hekate/db";
+import type { MediaInfo } from "@hekate/shared";
 import { wrapKey } from "@hekate/storage";
 import { and, eq, isNull } from "drizzle-orm";
 import { type JobHandler, type Jobs, jobDefinitions } from "../jobs.ts";
@@ -48,21 +49,33 @@ export function probeHandler(deps: MediaWorkerDeps): JobHandler<"media-probe"> {
     // Deleted since it was queued, or never media: nothing to measure.
     if (!file || (file.kind !== "audio" && file.kind !== "video")) return;
 
-    const info = await withWorkspace(deps.workDir, async (dir) => {
-      const path = await materialise(deps.storage, organisationId, file.blobId, dir, job.signal);
-      try {
-        return await probe(path, { signal: job.signal });
-      } catch (error) {
-        // The tool ran and rejected the file: retrying will not help. Record that it was
-        // examined and found nothing, and keep the reason in the log. Anything else
-        // (ffprobe missing, a timeout, cancellation) is thrown, so the queue retries it.
-        if (error instanceof InvalidMediaError) {
-          console.warn(`Probe found no readable media in file ${fileId}: ${error.message}`);
-          return {};
+    let info: MediaInfo;
+    try {
+      info = await withWorkspace(deps.workDir, async (dir) => {
+        const path = await materialise(deps.storage, organisationId, file.blobId, dir, job.signal);
+        try {
+          return await probe(path, { signal: job.signal });
+        } catch (error) {
+          // The tool ran and rejected the file: retrying will not help. Record that it was
+          // examined and found nothing, and keep the reason in the log. Anything else
+          // (ffprobe missing, a timeout, cancellation) is thrown, so the queue retries it.
+          if (error instanceof InvalidMediaError) {
+            console.warn(`Probe found no readable media in file ${fileId}: ${error.message}`);
+            return {};
+          }
+          throw error;
         }
-        throw error;
+      });
+    } catch (error) {
+      // Out of retries: say so, rather than leave the file waiting to be prepared.
+      if (job.retryCount >= jobDefinitions["media-probe"].options.retryLimit) {
+        await deps.db
+          .update(files)
+          .set({ streamStatus: "failed" })
+          .where(inOrg(files, organisationId, eq(files.id, fileId)));
       }
-    });
+      throw error;
+    }
 
     const playable = Boolean(info.audio || info.video);
     await deps.db
@@ -172,9 +185,16 @@ export function proxyHandler(deps: MediaWorkerDeps): JobHandler<"media-proxy"> {
           .where(inOrg(files, organisationId, eq(files.id, fileId)));
       });
     } catch (error) {
-      // Nothing records these segments; remove them so a retry starts clean.
+      // Nothing records these segments; remove them so a retry starts clean. Any that cannot
+      // be removed now (storage down) stay as unreferenced blobs, which reconciliation finds.
+      const left: string[] = [];
       for (const blobId of stored) {
-        await deps.storage.remove(organisationId, blobId).catch(() => undefined);
+        await deps.storage.remove(organisationId, blobId).catch(() => left.push(blobId));
+      }
+      if (left.length > 0) {
+        console.warn(
+          `Could not remove ${left.length} segment blobs of file ${fileId} after a failed proxy: ${left.join(", ")}`,
+        );
       }
       if (job.retryCount >= jobDefinitions["media-proxy"].options.retryLimit) {
         await markFailed(organisationId, fileId);

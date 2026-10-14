@@ -30,6 +30,30 @@ const DOLBY_PASSTHROUGH: Record<string, { codecs: string; bandwidth: number }> =
   ac3: { codecs: "ac-3", bandwidth: 640_000 },
 };
 
+/** H.264 levels as [level × 10, max macroblocks per frame, max macroblocks per second] (Annex A). */
+const H264_LEVELS = [
+  [30, 1620, 40_500],
+  [31, 3600, 108_000],
+  [32, 5120, 216_000],
+  [40, 8192, 245_760],
+  [42, 8704, 522_240],
+  [50, 22_080, 589_824],
+  [51, 36_864, 983_040],
+  [52, 36_864, 2_073_600],
+] as const;
+
+/**
+ * The lowest H.264 level that holds a frame size and rate, as level × 10 (42 for 4.2), so
+ * the playlist's CODECS describes what the encoder is told to produce.
+ */
+export function h264Level(width: number, height: number, fps: number): number {
+  const macroblocks = Math.ceil(width / 16) * Math.ceil(height / 16);
+  const found = H264_LEVELS.find(
+    ([, frame, rate]) => macroblocks <= frame && macroblocks * fps <= rate,
+  );
+  return found ? found[0] : 52;
+}
+
 /** Even dimensions for a target height, keeping the aspect ratio. */
 function scaled(info: NonNullable<MediaInfo["video"]>, height: number) {
   const width = Math.round((info.width * height) / info.height / 2) * 2;
@@ -102,10 +126,11 @@ export function planRenditions(kind: "audio" | "video", info: MediaInfo): Rendit
 
   const video = info.video;
   const ladder = [
-    { height: 1080, rate: 6_000_000, profile: "avc1.640028" },
-    { height: 720, rate: 3_000_000, profile: "avc1.64001f" },
-    { height: 480, rate: 1_200_000, profile: "avc1.64001e" },
+    { height: 1080, rate: 6_000_000 },
+    { height: 720, rate: 3_000_000 },
+    { height: 480, rate: 1_200_000 },
   ];
+  const fps = video.fps ?? 30;
   // Every rung at or below the source, and always at least the smallest.
   const rungs = ladder.filter((r) => r.height <= video.height);
   if (rungs.length === 0)
@@ -116,9 +141,12 @@ export function planRenditions(kind: "audio" | "video", info: MediaInfo): Rendit
   return rungs.slice(0, 2).map((rung) => {
     const size = scaled(video, rung.height);
     const keyframes = 2;
+    const level = h264Level(size.width, size.height, fps);
+    // High profile (0x64), no constraint flags, then the level.
+    const profile = `avc1.6400${level.toString(16).padStart(2, "0")}`;
     return {
       name: `${rung.height}p`,
-      codecs: audio ? `${rung.profile},${AUDIO_CODEC}` : rung.profile,
+      codecs: audio ? `${profile},${AUDIO_CODEC}` : profile,
       bandwidth: rung.rate + (audio ? 200_000 : 0),
       width: size.width,
       height: size.height,
@@ -131,6 +159,8 @@ export function planRenditions(kind: "audio" | "video", info: MediaInfo): Rendit
         "libx264",
         "-profile:v",
         "high",
+        "-level:v",
+        (level / 10).toFixed(1),
         "-preset",
         "veryfast",
         "-crf",

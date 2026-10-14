@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { probe, run } from "./ffmpeg.ts";
-import { hasMedia, packageRendition, parsePlaylist, planRenditions } from "./proxy.ts";
+import { h264Level, hasMedia, packageRendition, parsePlaylist, planRenditions } from "./proxy.ts";
 
 const box = (type: string, payload: Buffer) => {
   const header = Buffer.alloc(8);
@@ -58,6 +58,21 @@ describe("proxies", () => {
     const small = planRenditions("video", { video: { codec: "h264", width: 640, height: 360 } });
     expect(small.map((r) => [r.name, r.height, r.codecs])).toEqual([["360p", 360, "avc1.64001e"]]);
     expect(planRenditions("audio", {})).toEqual([]);
+  });
+
+  it("declares the H.264 level the frame size and rate need", () => {
+    expect(h264Level(1920, 1080, 25)).toBe(40);
+    expect(h264Level(1920, 1080, 60)).toBe(42);
+    expect(h264Level(1280, 720, 30)).toBe(31);
+    expect(h264Level(1280, 720, 60)).toBe(32);
+    expect(h264Level(854, 480, 30)).toBe(31);
+    expect(h264Level(720, 480, 30)).toBe(30);
+    expect(h264Level(854, 480, 60)).toBe(31);
+    const fast = planRenditions("video", {
+      video: { codec: "prores", width: 1920, height: 1080, fps: 59.94 },
+    });
+    expect(fast.map((r) => r.codecs)).toEqual(["avc1.64002a", "avc1.640020"]);
+    expect(fast[0]?.args).toContain("4.2");
   });
 
   it("passes Dolby Digital and Dolby Digital Plus through untouched", () => {
