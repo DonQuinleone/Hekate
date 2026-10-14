@@ -59,20 +59,20 @@ Each screen lists its states. Every screen is designed at desktop (1440) and pho
 | Dashboard (home) | Waiting on you: reviews to decide, feedback to give, comments to triage, comments assigned to you; upcoming due dates; recent activity; uploads processing. | Empty (new organisation); loading. | canvas note |
 | Reviews (mine) | Every review you are in or asked for: waiting on you, in progress, finished; state dots. | Empty; long list; filters. | #22 |
 | Notifications | Decisions, replies, new versions, stage changes, assignments; mark read. | Empty. | #25 |
-| Search | Across projects, files, tracks, comments and people. | No results. | #6 |
+| Search | Across projects, files, tracks, comments and people; advanced search by field (type, duration, size, frame rate, tags, uploader, comment text) with saved searches. | No results; a saved search. | #6, legacy |
 
 ### 3.3 Projects
 
 | Screen | What it shows | States | Issues |
 | --- | --- | --- | --- |
-| Projects list | Rows: name, profile, members, what is waiting. | Empty (create your first project); loading. | #6 |
+| Projects list | Rows: name, profile, members, what is waiting; archive and templates. | Empty (create your first project); loading; archived. | #6, legacy |
 | New project | Name, profile (music, video, general: decides which tools appear), the roles it starts with. | Validation. | #2 |
 | Project overview | The project's dashboard: due dates, what waits on whom, recent activity, next stage per track or deliverable, uploads processing. | Empty project; long lists. | canvas note |
-| Project files | The file manager: folders, tracks among folders as a special kind of folder, files; list and grid; Upload button and drop anywhere; "attach to" after upload (a version's variation, a take, loose); row menus on hover (rename, move, delete); breadcrumb; sort and filter. | Empty folder; uploading (resumable, per-file progress, retry); processing (probing, analysing, rendering pages); failed upload; failed processing; long names; thousands of files; a file under review that cannot be deleted. | #8 #10 #19 #20 #27 |
+| Project files | The file manager: folders, tracks among folders as a special kind of folder, files; list and grid with configurable columns; Upload button and drop anywhere; "attach to" after upload (a version's variation, a take, loose); row menus on hover (rename, move, tag, pin, favourite, mark viewed, delete); bulk selection; breadcrumb; sort and filters (type, unviewed, with comments, mine, tags). | Empty folder; uploading (resumable, per-file progress, retry); processing (probing, analysing, rendering pages); failed upload; failed processing; long names; thousands of files; a file under review that cannot be deleted. | #8 #10 #19 #20 #27 |
 | Project board | Where everything stands: columns per workflow status, each card a track or deliverable with who it waits on, the next stage and the due date; a timeline view approximating a Gantt from the schedule and due dates. | Empty; a track with no workflow. | #26, canvas note |
 | Project reviews | Reviews in this project: state, due, reviewers responded; request a review. | Empty. | #22 |
 | Project people | Members and their roles, groups, guests; invite; change role; remove. | A pending invitation; empty groups. | #23 #24 |
-| Project settings | Name, profile, delivery profile, comment categories, carry-over default (show on this version), playback normalisation (off, optional, forced), upload rules (require an edit decision list), tool access matrix, roles, workflow, watermark, storage backend for new files, danger zone. | Validation; a role in use cannot be deleted. | #7 #23 #31 #35 #36 #43 #55 #56 #98 |
+| Project settings | Name, profile, archive, delivery profile, comment categories, carry-over default (show on this version), playback normalisation (off, optional, forced), upload rules (require an edit decision list), tool access matrix, roles, workflow, watermark, storage backend for new files, danger zone. | Validation; a role in use cannot be deleted. | #7 #23 #31 #35 #36 #43 #55 #56 #98 |
 | Roles | The permission matrix per role with the five defaults; add, rename, delete a role. | The last role with "manage roles" cannot lose it. | #23 #80 |
 | Workflow builder | A canvas of stages (approval, feedback, task) and statuses with connections for transitions and dependencies; a stage editor (kind, participants, order, rule, due offset, notifications); statuses grouped to do, in progress, done; templates (Simple approval, Conductor first, Parallel stakeholders); duplicate from another project; simulation stepping through outcomes; activate; per-track override. | Default workflow; invalid graph; simulating; a track overriding the project. | #25 #26 |
 | Comment categories | Name, colour, key, default handling (normal, deferred to a stage, information only); defaults Noise, Edit, Balance, Performance. | Default set. | #36 |
@@ -88,10 +88,10 @@ Each screen lists its states. Every screen is designed at desktop (1440) and pho
 | Recording: Review | The player on one combined waveform; View menu: split channels, spectrogram below, behind or instead, colour map and scale presets; channel layout for surround and Atmos (lane per channel, LFE distinct, solo, mute, level, downmix switch, "hearing: stereo downmix" label, binaural); version and variation switches keeping the position; loop (drag, nudge, pre and post roll, loop a comment or bar range); quick comparison (sources on keys 1 to 4, level-matched, aligned, blind mode); playback rate; the normalisation toggle where allowed; the loudness chip opening QA; the comment column with Open, Resolved and Deferred, category filters, carried threads, before and after; the composer with its anchor (at playhead, range, bar, whole file), bars typed ("25", "0" for an upbeat, "9-12"), pages and beats optional, a category and the keyboard map on "?". | Loading peaks; processing; analysis failed; no comments; long threads; a thread hidden on this version; a reviewer seeing only their own comments; a reviewer without the spectrogram; a surround file; blind comparison in progress; normalised playback. | #11 #12 #14 #15 #33 #34 #35 #36 #44 #74 #98 |
 | Recording: QA | Findings worst first against the delivery profile (clipping, true peak, dropouts, clicks, silence, DC offset, balance, phase, bandwidth, format), each playing from where it is, passes folded away, one action making a comment with a category; loudness (integrated, range, true peak, short-term history); meters at the playhead (peak, RMS, mid, side, correlation, per channel, goniometer); format; embedded metadata (bext, iXML, ID3, artwork); markers on the waveform; what changed since the previous version (fixed, new); report export (PDF, CSV, JSON) stamped with project and engineer details; the profile chooser. | No findings; analysis running; file not analysable; profile unset (suggested); diff with nothing changed; a reviewer without QA. | #41 #43 #74, canvas note |
 | Score beside the recording | The score's pages as paper on the desk, under or beside the player; thumbnails; go to page and go to bar; the score's own comments; region comments. | No score linked; rendering; more than 300 pages. | #12 #29 |
-| Comment thread | A thread in full: anchor, replies, category, assignee, deferred to a stage, carried from a version with status (open, fixed in V5, not fixed, won't fix) and "show on this version", before and after player, other takes for this bar, loop this, resolve, edit, history across versions. | Resolved; deferred; carried with a moved anchor; a reply you cannot see. | #14 #35 #36 #46 |
+| Comment thread | A thread in full: anchor, replies with mentions, category, assignee, to-do with done, attached file, deferred to a stage, carried from a version with status (open, fixed in V5, not fixed, won't fix) and "show on this version", before and after player, other takes for this bar, loop this, resolve, edit, history across versions. | Resolved; deferred; carried with a moved anchor; a reply you cannot see. | #14 #35 #36 #46 |
 | Triage | For those who may: a version's open comments to categorise, defer, undefer, assign, resolve and carry, with bulk actions; what returns when a stage starts. | Nothing to triage. | #36 |
 | Compare versions | Two versions aligned by their audio, the alignment path and quality, comments mapped across, findings fixed and new. | Alignment running; alignment too poor to use. | #33 #43 |
-| Comment export | A version's comments as a timed list for a target application (Pyramix, SADiE, Pro Tools, Sequoia, Nuendo, Reaper, Final Cut Pro, DaVinci Resolve, Premiere Pro, CSV), scope (this version, open only, by category). | Nothing to export. | #99 |
+| Comment export and import | A version's comments as a timed list for a target application (Pyramix, SADiE, Pro Tools, Sequoia, Nuendo, Reaper, Final Cut Pro, DaVinci Resolve, Premiere Pro, Avid, CSV, plain text), scope (this version, open only, by category, replies, all versions), encoding; a printable sheet; import of a marker list in the same formats with an author and colour mapping. | Nothing to export; an import with unmatched rows. | #99, legacy |
 | DAW synchronisation | The take log's "synced to recorder" state and a connected-client indicator, as a placeholder for the post-1.0 client. | Not connected. | #58 |
 
 ### 3.5 Video: deliverables, versions and renditions
@@ -99,7 +99,7 @@ Each screen lists its states. Every screen is designed at desktop (1440) and pho
 | Screen | What it shows | States | Issues |
 | --- | --- | --- | --- |
 | Deliverable | Like a track: cuts in order, renditions per cut (16:9, 9:16, subtitled, clean, graded; one primary), the H.264 and the royalty-free (AV1 or VP9) rendition marked. | No cuts; a rendition still encoding. | #16 |
-| Video: Review | The frame with filmstrip and waveform, SMPTE timecode and frame number, frame stepping, range and region and drawing comments, rendition switch, compare cuts side by side and by wipe, the per-viewer watermark overlay, audio layout (stereo, 5.1, Atmos bed) with solo and mute. | Processing; failed; long comment list; a guest with a visible watermark. | #16 #31 #44 #74 |
+| Video: Review | The frame with filmstrip and waveform, SMPTE timecode and frame number (drop-frame aware), frame stepping and JKL shuttle, go to timecode, mattes and safe areas, captions, range and region comments and drawing (box, circle, line, arrow, freehand, text), rendition switch, compare cuts side by side and by wipe, the per-viewer watermark overlay, audio layout (stereo, 5.1, Atmos bed) with solo and mute. | Processing; failed; long comment list; a guest with a visible watermark. | #16 #31 #44 #74 |
 | Video: QA | Format conformance, black and frozen frames, dropped or duplicated frames, interlacing, broadcast-safe levels, letterboxing, timecode continuity, flashing risk, programme loudness; markers on the timeline; report. | No findings; running. | #42 #43 |
 
 ### 3.6 Documents, pictures and other files
@@ -162,23 +162,44 @@ Each screen lists its states. Every screen is designed at desktop (1440) and pho
 | Members | Members with organisation roles, pending invitations (resend, revoke), guests (name, email, label; revoke); invite. | Empty invitations; the last owner cannot be removed. | #24 #59 |
 | Organisation settings | Name, defaults for reviewer permissions and tool access, comment categories, delivery profiles, storage backend; switch organisation. | Validation. | #7 #55 |
 | Security | Sign-in policy: methods allowed, second factor required, security key required; SSO providers (OIDC, SAML: metadata, certificate, attribute and group-to-role mapping, enforce with break-glass); LDAP (server, TLS, bind, search, mapping, test connection). | SSO test failed; LDAP test failed; enforced. | #5 #37 #38 |
-| Account | Name, email, passkeys and security keys (named, last used, revoke, up to five), recovery codes, sessions, notification preferences. | A key added; limit reached. | #39 |
+| Account | Name, email, passkeys and security keys (named, last used, revoke, up to five), recovery codes, sessions, notification preferences (instant or digest, per event, subscriptions). | A key added; limit reached. | #39, legacy |
 | Mail | Provider (SMTP, Google Workspace, Microsoft 365, SparkPost, Mailgun, SendGrid, Mailcoach, Plunk, Postal, Amazon SES) with its fields, from address, test send. | Test failed; log-only in development. | #59 #71 |
-| Storage | Backends (local disk, S3-compatible), default for new objects, usage, reconciliation (last run, orphaned, removed, missing bytes needing a person; report only). | Missing bytes found. | #7 #67 |
+| Storage | Backends (local disk, S3-compatible), default for new objects, usage per project, reconciliation (last run, orphaned, removed, missing bytes needing a person; report only). | Missing bytes found. | #7 #67 |
 | Leak tracing | Forensic marking on streams and downloads; upload a suspected leak; the matching access or "no mark found". | Match; no match; scanning. | #32 |
 | Access log | Every key issue, stream, page render, download, guest sign-in, decision and export, with person, review, address and agent; filters by project, file, review, person, action, time; CSV export. | Empty; long. | #30 |
 | Operations | Connected, version, worker on or off, queue depth, encryption and key rotation state, Prometheus endpoint, backups and upgrade notes. | Worker off; key rotation pending. | #4 #9 #17 #28 #62 #70 |
 
-## 4. Rounds
+## 4. From Hekate-Legacy
+
+What the tool you use today has, checked against this inventory. Folded in above: the dashboard's "waiting on you", advanced and saved searches, configurable file columns, tags, pins, favourites and viewed state, bulk actions, project archive and templates, drawing tools and shuttle on video, mattes and safe areas, mentions, to-dos and attachments on comments, comment import in the DAW and NLE formats, printable comments, notification digests and subscriptions, per-file history, a guest filtered to one reviewer's comments, the reviewer capabilities (comments: full, own threads, read-only, none; download; versions; navigate), approval quorum ("a percentage of reviewers"), reminders and the completion summary, the review report with first access and submitted times.
+
+Not in Hekate's plan, and so not in the inventory unless you say otherwise:
+
+| Legacy feature | What it does | Proposed |
+| --- | --- | --- |
+| Share links outside a review | A link per file or folder with password, expiry, view limit, download hidden, comments allowed, versions accessible, relink to latest; per-recipient stats. | Guests reach material only through reviews (decision 025). A feedback review with one item covers most of it. Say if plain links must stay. |
+| Upload requests | An inbound link into a folder for outsiders to upload, with a limit and expiry. | Not planned. Useful for collecting takes or stems from a venue; a candidate for the backlog. |
+| Tasks | Tasks with assignee, priority, status, deadline, related files and deliverables, created from a comment. | Workflows have task stages and comments have assignees (3.4). A separate task list is not planned. |
+| Trash and restore | Deleted files kept for a retention period, restorable, per project or all. | Deleting a file is final (decision 027); a file under review cannot be deleted. Say if restore is wanted. |
+| Synced sessions | A leader drives followers' playback over websockets (play, seek, file change). | Not planned. Fits the live take log and a listening session; a candidate for the backlog. |
+| Captions and transcripts | Caption tracks, transcription, transcript search, caption export (SRT, WebVTT, TTML). | Not planned for launch. |
+| Aliases and relationships | A shortcut to a file with its own comment thread; links between files, tasks and comments. | Not planned; tracks and reviews cover the use. |
+| Encoding profiles and overlays | Admin-chosen H.264 profiles; burned-in overlays (title, timecode, date) at upload. | Renditions are fixed (H.264 plus AV1 or VP9); the per-viewer watermark replaces burned-in overlays. |
+| Branding | Custom logo and colours per instance and per user. | Not planned; the Signal brand is the product. |
+| Webhooks | Per-user and instance webhooks on file, comment, task and workflow events. | Not planned; notifications are in the app and by mail. A candidate for operations later. |
+| Private files | A personal space outside projects. | Not planned. |
+
+## 5. Rounds
 
 - **Round one:** the shell and switcher, home and the dashboards, projects and files, the track, the recording page (Review and QA) with the score, loops, comparison and takes, the comment thread, the review pages, the guest experience, and every state of those. The two open questions settled.
 - **Round two:** video, documents, the board and the workflow builder, triage and categories, carry-over and version comparison, exports, normalisation, members and groups.
 - **Round three:** the production tools, organisation settings, security, mail, storage, watermarking, leak tracing, the access log, operations, and every remaining state.
 
-## 5. Questions for round one
+## 6. Questions for round one
 
 1. **Shadows.** The prototype implements "shadows only for what floats" (menus, popovers, dialogs, the paper of a score) with a switch to the brand's current "no drop shadows", so both can be compared on the same screens. Proposed: amend `docs/brand.md` to the former.
 2. **Spectrogram on Review.** Your canvas note says the spectrogram belongs on the main review page as a view option, and the brief says technical detail lives on QA. Read together: the spectrogram, split channels and colour maps are **views of the player** on Review, from its View menu (decision 028); meters, loudness history, format, metadata and findings are **QA**. The loudness chip on Review opens QA.
 3. **Bars.** "We're not having bars" and "support pages, bars and beats, all optional" are read together as: no bar ruler on the waveform; bars, beats and pages typed into comments, each optional; the score beside the recording for reference.
 4. **Project views.** Your note asks for a dashboard, a file manager, a board (Kanban, approximate Gantt) and a workflow screen. All four are in 3.3. Proposed: a project opens on its overview.
 5. **ControlRoom's hidden model.** Take lifecycle, timecode in and out, wall-clock times, score start and end, numbering modes, the unused mark kinds (take start and end, wrong-note cross, circled dynamic) and category editing exist in ControlRoom's data but not its interface. The prototype surfaces all of them, as the issues ask; say if any should stay hidden.
+6. **Legacy features** in section 4: confirm that the eleven rows marked "not planned" stay out, or name the ones to bring in.
