@@ -54,8 +54,9 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (res.status === 204 ? undefined : await res.json()) as T;
 }
 
-const resumeKey = (projectId: string, file: File) =>
-  `hekate:upload:${projectId}:${file.name}:${file.size}:${file.lastModified}`;
+/** One resumable upload per file and destination: the same file sent to two folders is two uploads. */
+const resumeKey = (projectId: string, folderId: string | null | undefined, file: File) =>
+  `hekate:upload:${projectId}:${folderId ?? "top"}:${file.name}:${file.size}:${file.lastModified}`;
 
 function remember(key: string, id: string | null) {
   try {
@@ -145,7 +146,7 @@ export async function uploadFile(
   },
 ): Promise<UploadedFile> {
   const { projectId, signal, onProgress } = options;
-  const key = resumeKey(projectId, file);
+  const key = resumeKey(projectId, options.folderId, file);
   onProgress({ sent: 0, total: file.size, phase: "starting" });
 
   let upload: UploadView | undefined;
@@ -235,8 +236,8 @@ export async function uploadFile(
 }
 
 /** Cancel an upload the server already knows about, discarding what it stored. */
-export async function cancelUpload(projectId: string, file: File) {
-  const key = resumeKey(projectId, file);
+export async function cancelUpload(projectId: string, folderId: string | null, file: File) {
+  const key = resumeKey(projectId, folderId, file);
   const id = recall(key);
   remember(key, null);
   if (id) await call(`/uploads/${id}`, { method: "DELETE" }).catch(() => undefined);

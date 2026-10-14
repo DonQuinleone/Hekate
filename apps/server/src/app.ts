@@ -10,6 +10,7 @@ import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
 import type { Mailer } from "./mail.ts";
 import { commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
+import { fileManageRoutes, folderRoutes, projectFolderRoutes } from "./routes/folders.ts";
 import { projectGroupRoutes } from "./routes/groups.ts";
 import { guestRoutes } from "./routes/guest.ts";
 import { health } from "./routes/health.ts";
@@ -93,6 +94,9 @@ export function createApi(deps: AppDeps) {
       .route("/projects", projectAccessRoutes(deps.db))
       .route("/projects", projectReviewRoutes(reviewDeps))
       .route("/projects", projectGroupRoutes(deps.db))
+      .route("/projects", projectFolderRoutes(deps.db))
+      .use("/folders/*", ...member)
+      .route("/folders", folderRoutes(deps.db))
       .use("/tracks/*", ...member)
       .route("/tracks", trackRoutes(deps.db))
       .use("/versions/*", ...member)
@@ -109,6 +113,7 @@ export function createApi(deps: AppDeps) {
       .use("/files/*", viewer)
       .route("/files", fileRoutes(playback))
       .route("/files", fileCommentRoutes(deps.db, deps.audit, deps.trustProxy ?? false))
+      .route("/files", fileManageRoutes(deps.db, deps.audit, deps.trustProxy ?? false))
       .use("/reviews/*", viewer)
       .route("/reviews", reviewRoutes(reviewDeps))
       .route("/guest", guestRoutes(reviewDeps))

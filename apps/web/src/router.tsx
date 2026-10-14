@@ -6,6 +6,7 @@ import {
   Outlet,
   redirect,
 } from "@tanstack/react-router";
+import { useCallback } from "react";
 import { Shell } from "~/components/shell";
 import { guestMeQuery, meQuery, setupQuery } from "~/lib/queries";
 import { ViewerProvider } from "~/lib/viewer";
@@ -129,9 +130,21 @@ const projects = createRoute({ getParentRoute: () => app, path: "/", component: 
 const project = createRoute({
   getParentRoute: () => app,
   path: "/projects/$projectId",
+  // The open folder lives in the address, so it survives a reload and can be shared.
+  validateSearch: (search: Record<string, unknown>): { folder?: string } =>
+    typeof search.folder === "string" && /^[0-9a-f-]{36}$/i.test(search.folder)
+      ? { folder: search.folder }
+      : {},
   component: function ProjectRoute() {
     const { projectId } = project.useParams();
-    return <ProjectPage projectId={projectId} />;
+    const { folder } = project.useSearch();
+    const navigate = project.useNavigate();
+    const open = useCallback(
+      (next: string | null) =>
+        void navigate({ search: next ? { folder: next } : {}, replace: false }),
+      [navigate],
+    );
+    return <ProjectPage projectId={projectId} folderId={folder ?? null} onOpenFolder={open} />;
   },
 });
 const track = createRoute({

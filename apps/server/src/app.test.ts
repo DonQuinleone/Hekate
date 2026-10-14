@@ -2610,6 +2610,200 @@ describe.runIf(url)("api", () => {
       });
     });
 
+    describe("folders", () => {
+      const send = (method: string, path: string, body: unknown, cookie: string) =>
+        app.request(path, { ...json(body, cookie), method });
+      const remove = (path: string, cookie: string) =>
+        app.request(path, { method: "DELETE", headers: { cookie } });
+      interface Folder {
+        id: string;
+        parentId: string | null;
+        name: string;
+      }
+
+      /** A project with two loose files, and a colleague with the given role in it. */
+      const library = async (role: string) => {
+        const owner = cookieOf(await setup());
+        const me = (await (
+          await app.request("/api/me", { headers: { cookie: owner } })
+        ).json()) as {
+          activeOrganisationId: string;
+        };
+        const organisationId = me.activeOrganisationId;
+        const made = await app.request(
+          "/api/projects",
+          json({ name: "Rags", profile: "music" }, owner),
+        );
+        const projectId = ((await made.json()) as { project: { id: string } }).project.id;
+        const file = async (name: string) => {
+          const blob = await storage.put(organisationId, Buffer.from(name));
+          const [row] = await db
+            .insert(schema.files)
+            .values({
+              organisationId,
+              projectId,
+              name,
+              kind: "audio",
+              blobId: blob.id,
+              contentType: "audio/wav",
+              byteSize: blob.byteSize,
+            })
+            .returning();
+          return row?.id ?? "";
+        };
+        const { body } = await invite(owner, "colleague@example.test", "member");
+        const colleague = cookieOf(
+          await app.request(
+            `/api/invitations/${tokenFrom(body.link)}/accept`,
+            json({ name: "Colleague", password: "correct horse battery" }),
+          ),
+        );
+        await grantRole(owner, projectId, colleague, role);
+        return {
+          owner,
+          colleague,
+          organisationId,
+          projectId,
+          mix: await file("Mix v3.wav"),
+          stem: await file("Drums.wav"),
+        };
+      };
+      const folderOf = async (res: Response) => ((await res.json()) as { folder: Folder }).folder;
+
+      it("nests, renames and moves folders, never into themselves", async () => {
+        const s = await library("Reviewer");
+        const base = `/api/projects/${s.projectId}/folders`;
+        const mixes = await folderOf(await app.request(base, json({ name: "Mixes" }, s.owner)));
+        const stems = await folderOf(
+          await app.request(base, json({ name: "Stems", parentId: mixes.id }, s.owner)),
+        );
+        expect(stems.parentId).toBe(mixes.id);
+        // One name per place, at the top as below.
+        expect((await app.request(base, json({ name: "Mixes" }, s.owner))).status).toBe(409);
+        expect(
+          (await app.request(base, json({ name: "Stems", parentId: mixes.id }, s.owner))).status,
+        ).toBe(409);
+        expect((await app.request(base, json({ name: "Stems" }, s.owner))).status).toBe(201);
+        // A folder cannot go inside itself or below itself.
+        expect(
+          (await send("PATCH", `/api/folders/${mixes.id}`, { parentId: stems.id }, s.owner)).status,
+        ).toBe(422);
+        expect(
+          (await send("PATCH", `/api/folders/${mixes.id}`, { parentId: mixes.id }, s.owner)).status,
+        ).toBe(422);
+        const renamed = await folderOf(
+          await send(
+            "PATCH",
+            `/api/folders/${stems.id}`,
+            { name: "Stems (final)", parentId: null },
+            s.owner,
+          ),
+        );
+        expect(renamed).toMatchObject({ name: "Stems (final)", parentId: null });
+        // A Reviewer sees folders but cannot organise them.
+        const seen = (await (
+          await app.request(base, { headers: { cookie: s.colleague } })
+        ).json()) as { folders: Folder[] };
+        expect(seen.folders.map((f) => f.name)).toEqual(["Mixes", "Stems", "Stems (final)"]);
+        expect((await app.request(base, json({ name: "Mine" }, s.colleague))).status).toBe(403);
+        expect(
+          (await send("PATCH", `/api/folders/${mixes.id}`, { name: "Theirs" }, s.colleague)).status,
+        ).toBe(403);
+        expect((await remove(`/api/folders/${mixes.id}`, s.colleague)).status).toBe(403);
+        // Another project's folder is not a place to put things.
+        const other = await app.request(
+          "/api/projects",
+          json({ name: "Elite", profile: "music" }, s.owner),
+        );
+        const otherId = ((await other.json()) as { project: { id: string } }).project.id;
+        const elsewhere = await folderOf(
+          await app.request(`/api/projects/${otherId}/folders`, json({ name: "Theirs" }, s.owner)),
+        );
+        expect(
+          (await send("PATCH", `/api/folders/${mixes.id}`, { parentId: elsewhere.id }, s.owner))
+            .status,
+        ).toBe(422);
+        expect(
+          (await send("PATCH", `/api/files/${s.mix}`, { folderId: elsewhere.id }, s.owner)).status,
+        ).toBe(422);
+      });
+
+      it("moves and renames files, and keeps them when their folder goes", async () => {
+        const s = await library("Engineer");
+        const base = `/api/projects/${s.projectId}/folders`;
+        const mixes = await folderOf(await app.request(base, json({ name: "Mixes" }, s.owner)));
+        const stems = await folderOf(
+          await app.request(base, json({ name: "Stems", parentId: mixes.id }, s.owner)),
+        );
+        // An Engineer organises.
+        const moved = (await (
+          await send(
+            "PATCH",
+            `/api/files/${s.stem}`,
+            { folderId: stems.id, name: "Kit.wav" },
+            s.colleague,
+          )
+        ).json()) as { file: { folderId: string; name: string } };
+        expect(moved.file).toMatchObject({ folderId: stems.id, name: "Kit.wav" });
+        await send("PATCH", `/api/files/${s.mix}`, { folderId: mixes.id }, s.colleague);
+        // Deleting Mixes takes Stems with it, and both files move up to the top.
+        const gone = (await (await remove(`/api/folders/${mixes.id}`, s.owner)).json()) as {
+          moved: number;
+        };
+        expect(gone.moved).toBe(2);
+        const listed = (await (
+          await app.request(`/api/projects/${s.projectId}/files`, { headers: { cookie: s.owner } })
+        ).json()) as { files: { id: string; folderId: string | null }[] };
+        expect(listed.files.map((f) => f.folderId)).toEqual([null, null]);
+        const left = (await (await app.request(base, { headers: { cookie: s.owner } })).json()) as {
+          folders: Folder[];
+        };
+        expect(left.folders).toEqual([]);
+      });
+
+      it("deletes a loose file, logged, but not one in a version or a review", async () => {
+        const s = await library("Reviewer");
+        // A Reviewer cannot delete.
+        expect((await remove(`/api/files/${s.stem}`, s.colleague)).status).toBe(403);
+        // In a track's version: refused.
+        const track = await app.request(
+          `/api/projects/${s.projectId}/tracks`,
+          json({ name: "Maple Leaf Rag" }, s.owner),
+        );
+        const trackId = ((await track.json()) as { track: { id: string } }).track.id;
+        await app.request(
+          `/api/tracks/${trackId}/versions`,
+          json({ variations: [{ fileId: s.mix, name: "Mix" }] }, s.owner),
+        );
+        const inVersion = await remove(`/api/files/${s.mix}`, s.owner);
+        expect(inVersion.status).toBe(409);
+        // In a review: refused.
+        const [review] = await db
+          .insert(schema.reviews)
+          .values({
+            organisationId: s.organisationId,
+            projectId: s.projectId,
+            kind: "feedback",
+            title: "Stems",
+          })
+          .returning();
+        await db.insert(schema.reviewItems).values({
+          organisationId: s.organisationId,
+          reviewId: review?.id ?? "",
+          fileId: s.stem,
+        });
+        expect((await remove(`/api/files/${s.stem}`, s.owner)).status).toBe(409);
+        await db.delete(schema.reviews).where(eq(schema.reviews.id, review?.id ?? ""));
+        // Loose: deleted, and in the log.
+        expect((await remove(`/api/files/${s.stem}`, s.owner)).status).toBe(204);
+        expect(
+          (await app.request(`/api/files/${s.stem}`, { headers: { cookie: s.owner } })).status,
+        ).toBe(404);
+        const logged = await audit.query(s.organisationId, { action: "file.delete", limit: 5 });
+        expect(logged.events[0]?.details).toMatchObject({ fileId: s.stem, name: "Drums.wav" });
+      });
+    });
+
     describe("comments", () => {
       const joinAs = async (owner: string, email: string, role: string) => {
         const { body } = await invite(owner, email, role);
