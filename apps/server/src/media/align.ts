@@ -27,6 +27,11 @@ const COARSE_CELLS = 4_000_000;
 const RADIUS = 2;
 /** What a step that holds one version still costs on top of the distance: edits are rare. */
 const STALL = 0.15;
+/**
+ * What each frame left out at either end costs: more than matching music, less than
+ * matching silence to sound, so a lead-in or a tail only one version has is left out.
+ */
+const SKIP = 0.6;
 
 /** Mono 32-bit float audio at the alignment rate, decoded from any file ffmpeg reads. */
 export async function decodeForAlignment(path: string, signal: AbortSignal): Promise<Float32Array> {
@@ -60,7 +65,14 @@ export async function decodeForAlignment(path: string, signal: AbortSignal): Pro
   return samples;
 }
 
-/** Unit-length vectors, one per frame: the spectrum's shape in log-spaced bands. */
+/** Below this, a frame is silence: a gap matches nothing rather than everything. */
+const SILENCE = 1e-4;
+
+/**
+ * Unit-length vectors, one per frame. Half is the spectrum's shape in log-spaced bands
+ * (what is playing); half is where it has just grown (what has just started), which tells
+ * apart two moments of the same steady sound. Silence is all zeros.
+ */
 export function fingerprints(samples: Float32Array): Float32Array[] {
   const fft = new Fft(WINDOW);
   const hann = new Float64Array(WINDOW);
@@ -72,10 +84,11 @@ export function fingerprints(samples: Float32Array): Float32Array[] {
     if (hz < LOW_HZ || hz >= HIGH_HZ) continue;
     bandOf[k] = Math.floor((Math.log(hz / LOW_HZ) / Math.log(HIGH_HZ / LOW_HZ)) * BANDS);
   }
-  const frames: Float32Array[] = [];
+  const logs: Float64Array[] = [];
+  const energies: number[] = [];
   const re = new Float64Array(WINDOW);
   const im = new Float64Array(WINDOW);
-  for (let start = 0; start + WINDOW <= samples.length || frames.length === 0; start += HOP) {
+  for (let start = 0; start + WINDOW <= samples.length || logs.length === 0; start += HOP) {
     for (let i = 0; i < WINDOW; i++) {
       re[i] = (samples[start + i] ?? 0) * (hann[i] as number);
       im[i] = 0;
@@ -86,10 +99,36 @@ export function fingerprints(samples: Float32Array): Float32Array[] {
       const b = bandOf[k] as number;
       if (b >= 0) bands[b] = (bands[b] as number) + (re[k] as number) ** 2 + (im[k] as number) ** 2;
     }
-    frames.push(normalise(bands.map((e) => Math.log1p(e * 1e4))));
+    energies.push(bands.reduce((sum, e) => sum + e, 0));
+    logs.push(bands.map((e) => Math.log1p(e * 1e4)));
     if (start + WINDOW >= samples.length) break;
   }
-  return frames;
+  const loudest = Math.max(...energies, 0);
+  const half = Math.SQRT1_2;
+  return logs.map((log, t) => {
+    const frame = new Float32Array(BANDS * 2);
+    if ((energies[t] as number) <= loudest * SILENCE) return frame;
+    const shape = normalise(log);
+    const previous = logs[t - 1];
+    const onset = unit(
+      log.map((v, b) => Math.max(0, v - (previous ? (previous[b] as number) : v))),
+    );
+    for (let b = 0; b < BANDS; b++) {
+      frame[b] = (shape[b] as number) * half;
+      frame[BANDS + b] = (onset[b] as number) * half;
+    }
+    return frame;
+  });
+}
+
+/** Scaled to unit length, or left at zero. */
+function unit(values: ArrayLike<number>): Float32Array {
+  const out = Float32Array.from(values as ArrayLike<number>);
+  let norm = 0;
+  for (let i = 0; i < out.length; i++) norm += (out[i] as number) ** 2;
+  norm = Math.sqrt(norm);
+  if (norm > 1e-9) for (let i = 0; i < out.length; i++) out[i] = (out[i] as number) / norm;
+  return out;
 }
 
 /** Centred and scaled to unit length, so a level change between versions does not matter. */
@@ -119,27 +158,31 @@ function distance(a: Float32Array, b: Float32Array): number {
 /** Averages of `factor` frames, renormalised: the coarse pass's view. */
 function pool(frames: Float32Array[], factor: number): Float32Array[] {
   const out: Float32Array[] = [];
+  const size = frames[0]?.length ?? 0;
   for (let i = 0; i < frames.length; i += factor) {
-    const sum = new Float64Array(BANDS);
+    const sum = new Float64Array(size);
     for (let k = i; k < Math.min(frames.length, i + factor); k++) {
       const f = frames[k] as Float32Array;
-      for (let b = 0; b < BANDS; b++) sum[b] = (sum[b] as number) + (f[b] as number);
+      for (let b = 0; b < size; b++) sum[b] = (sum[b] as number) + (f[b] as number);
     }
-    out.push(normalise(sum));
+    out.push(unit(sum));
   }
   return out;
 }
 
 /**
- * The cheapest path from the start of both to the end of both, through the cells each row
- * allows (`from[i]` to `to[i]`, inclusive). Returns the path as [row, column] pairs, start
- * first, and its mean distance.
+ * The cheapest path through the cells each row allows (`from[i]` to `to[i]`, inclusive),
+ * from the start of either to the end of either: an intro, a lead-in or a tail that only
+ * one version has is left out rather than forced to match. Returns the path as [row,
+ * column] pairs, start first, and its mean distance.
  */
 function warp(
   a: Float32Array[],
   b: Float32Array[],
   from: Int32Array,
   to: Int32Array,
+  /** How many frames at either end of either version a path may leave out. */
+  skip: number,
 ): { path: [number, number][]; cost: number } {
   const n = a.length;
   const rows: Float64Array[] = [];
@@ -153,8 +196,9 @@ function warp(
       r && j >= rLo && j - rLo < r.length ? (r[j - rLo] as number) : Number.POSITIVE_INFINITY;
     for (let j = lo; j <= hi; j++) {
       const d = distance(a[i] as Float32Array, b[j] as Float32Array);
-      if (i === 0 && j === 0) {
-        row[0] = d;
+      // A path may begin anywhere near the start of either.
+      if ((i === 0 && j <= skip) || (j === 0 && i <= skip)) {
+        row[j - lo] = d + SKIP * (i + j);
         continue;
       }
       const diagonal = at(prev, prevLo, j - 1);
@@ -164,17 +208,28 @@ function warp(
     }
     rows.push(row);
   }
-  // Back from the end of both to the start.
-  const path: [number, number][] = [];
-  let i = n - 1;
-  let j = b.length - 1;
   const cell = (r: number, c: number) => {
     const lo = from[r] as number;
     const row = rows[r] as Float64Array;
     return c >= lo && c - lo < row.length ? (row[c - lo] as number) : Number.POSITIVE_INFINITY;
   };
+  // And end anywhere along the end of either: the cheapest per step taken.
+  const m = b.length;
+  let i = n - 1;
+  let j = m - 1;
+  let best = cell(i, j);
+  for (let c = Math.max(from[n - 1] as number, m - 1 - skip); c <= (to[n - 1] as number); c++) {
+    const score = cell(n - 1, c) + SKIP * (m - 1 - c);
+    if (score < best) [best, i, j] = [score, n - 1, c];
+  }
+  for (let r = Math.max(0, n - 1 - skip); r < n; r++) {
+    if ((to[r] as number) < m - 1) continue;
+    const score = cell(r, m - 1) + SKIP * (n - 1 - r);
+    if (score < best) [best, i, j] = [score, r, m - 1];
+  }
   const total = cell(i, j);
-  while (i > 0 || j > 0) {
+  const path: [number, number][] = [];
+  while (i > 0 && j > 0) {
     path.push([i, j]);
     const diagonal = i > 0 && j > 0 ? cell(i - 1, j - 1) : Number.POSITIVE_INFINITY;
     const up = i > 0 ? cell(i - 1, j) + STALL : Number.POSITIVE_INFINITY;
@@ -185,7 +240,7 @@ function warp(
     } else if (up <= left) i--;
     else j--;
   }
-  path.push([0, 0]);
+  path.push([i, j]);
   path.reverse();
   return { path, cost: total / path.length };
 }
@@ -236,9 +291,12 @@ export function alignFingerprints(a: Float32Array[], b: Float32Array[]): Alignme
   const ca = pool(a, factor);
   const cb = pool(b, factor);
   const whole = everything(ca.length, cb.length);
-  const coarse = warp(ca, cb, whole.from, whole.to);
+  // Either end may leave out an intro or a tail: up to half a minute, and never more than
+  // a quarter of the shorter version.
+  const skip = Math.min(30 * FRAMES_PER_SECOND, Math.floor(Math.min(a.length, b.length) / 4));
+  const coarse = warp(ca, cb, whole.from, whole.to, Math.ceil(skip / factor));
   const band = around(coarse.path, a.length, b.length, factor);
-  const fine = warp(a, b, band.from, band.to);
+  const fine = warp(a, b, band.from, band.to, skip);
   // One pair per frame of A: where B is, on average, while A is there.
   const sums = new Float64Array(a.length);
   const counts = new Uint32Array(a.length);
@@ -249,15 +307,33 @@ export function alignFingerprints(a: Float32Array[], b: Float32Array[]): Alignme
   const points: AlignmentPoints = [];
   let last = -1;
   for (let i = 0; i < a.length; i++) {
-    const j = (sums[i] as number) / Math.max(1, counts[i] as number);
+    // Rows the path does not reach (an intro only A has) are left to extrapolation.
+    if ((counts[i] as number) === 0) continue;
+    const j = (sums[i] as number) / (counts[i] as number);
     // Rising only: a held note in A must not send B backwards.
     const at = Math.max(j, last);
     last = at;
     points.push([i / FRAMES_PER_SECOND, at / FRAMES_PER_SECOND]);
   }
+  // How alike the matched music sounds: the spectra's shapes along the path, silence aside.
+  let alike = 0;
+  let heard = 0;
+  for (const [i, j] of fine.path) {
+    const fa = a[i] as Float32Array;
+    const fb = b[j] as Float32Array;
+    let dot = 0;
+    let energy = 0;
+    for (let k = 0; k < BANDS; k++) {
+      dot += (fa[k] as number) * (fb[k] as number);
+      energy += (fa[k] as number) ** 2 + (fb[k] as number) ** 2;
+    }
+    if (energy === 0) continue;
+    alike += dot * 2;
+    heard++;
+  }
   return {
     points: simplifyAlignment(points, 0.05),
-    quality: Math.max(0, Math.min(1, 1 - fine.cost)),
+    quality: heard > 0 ? Math.max(0, Math.min(1, alike / heard)) : 0,
   };
 }
 

@@ -53,6 +53,17 @@ describe("aligning versions", () => {
     expect(mapTime(points, 17)).toBeLessThan(18.4);
   });
 
+  it("leaves out a lead-in that only one version has", () => {
+    // The same steady chords, but version 2 starts with a second and a half of silence.
+    const music = join([0, 1, 2, 3, 4, 5].map((k) => segment(k, 3)));
+    const lead = join([new Float32Array(Math.round(1.5 * ALIGN_SAMPLE_RATE)), music]);
+    const { points } = alignAudio(music, lead);
+    for (const t of [1, 6, 12, 17]) {
+      expect(mapTime(points, t)).toBeGreaterThan(t + 1.2);
+      expect(mapTime(points, t)).toBeLessThan(t + 1.8);
+    }
+  });
+
   it("keeps identical versions in step", () => {
     const v = join([0, 1, 2, 3].map((k) => segment(k, 2)));
     const { points, quality } = alignAudio(v, v);

@@ -1,3 +1,4 @@
+import { mapTime } from "@hekate/shared";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import type Hls from "hls.js";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -16,6 +17,7 @@ import {
   sourceFor,
 } from "~/lib/compare";
 import {
+  alignmentsQuery,
   type FileDetail,
   loudnessQuery,
   type Playback,
@@ -33,22 +35,22 @@ function Follower({
   playback,
   master,
   volume,
-  shift,
+  follow,
   onFail,
 }: {
   playback: Playback;
   master: HTMLMediaElement;
   /** 0 while another source is heard. */
   volume: number;
-  /** Seconds this source runs ahead of the master: where the same passage sits in it. */
-  shift: number;
+  /** Where this source should be for a time in the master: the same music, or the same time. */
+  follow: (masterTime: number) => number;
   /** The stream could not be loaded, so this source cannot be heard. */
   onFail: () => void;
 }) {
   const fail = useRef(onFail);
   fail.current = onFail;
-  const offset = useRef(shift);
-  offset.current = shift;
+  const position = useRef(follow);
+  position.current = follow;
 
   const element = useRef<HTMLAudioElement>(null);
 
@@ -89,7 +91,7 @@ function Follower({
     const audio = element.current;
     if (!audio) return;
     const sync = () => {
-      const target = Math.max(0, master.currentTime + offset.current);
+      const target = Math.max(0, position.current(master.currentTime));
       if (needsResync(target, audio.currentTime)) audio.currentTime = target;
     };
     const play = () => {
@@ -145,13 +147,13 @@ function FollowerSource({
   fileId,
   master,
   volume,
-  shift,
+  follow,
   onFail,
 }: {
   fileId: string;
   master: HTMLMediaElement;
   volume: number;
-  shift: number;
+  follow: (masterTime: number) => number;
   onFail: () => void;
 }) {
   const { data, error } = useQuery(playbackQuery(fileId));
@@ -161,7 +163,7 @@ function FollowerSource({
     if (error) fail.current();
   }, [error]);
   return data ? (
-    <Follower playback={data} master={master} volume={volume} shift={shift} onFail={onFail} />
+    <Follower playback={data} master={master} volume={volume} follow={follow} onFail={onFail} />
   ) : null;
 }
 
@@ -216,6 +218,18 @@ export function Compare({
   const [order, setOrder] = useState<number[]>([]);
   /** Per source, how far ahead of the master it plays; none for most. */
   const [shifts, setShifts] = useState<Record<string, number>>({});
+  // Where the same music sits in each other version, once the worker has aligned them.
+  const { data: aligned = [] } = useQuery({
+    ...alignmentsQuery(file.id),
+    enabled: Boolean(variation),
+  });
+  const pointsOf = (fileId: string) => aligned.find((a) => a.fileId === fileId)?.points;
+  /** Alignment when there is one; otherwise the same time, or a comment's offset. */
+  const followFor = (fileId: string) => {
+    const points = pointsOf(fileId);
+    const shift = shifts[fileId] ?? 0;
+    return points ? (t: number) => mapTime(points, t) : (t: number) => t + shift;
+  };
 
   // Asked to bring a source in: pin it (making room if need be) and hear it first.
   const focused = useRef<number | null>(null);
@@ -376,7 +390,9 @@ export function Compare({
                     <span className="min-w-0 flex-1 truncate text-[13px]">
                       {blind ? `Source ${blindLetter(key)}` : s.label}
                     </span>
-                    {!blind && shifts[s.fileId] ? (
+                    {!blind && i > 0 && pointsOf(s.fileId) ? (
+                      <span className="shrink-0 text-[11px] text-ink-3">aligned</span>
+                    ) : !blind && shifts[s.fileId] ? (
                       <span className="tabular shrink-0 font-mono text-[11px] text-ink-3">
                         {shiftLabel(shifts[s.fileId] ?? 0)}
                       </span>
@@ -408,9 +424,11 @@ export function Compare({
             )}
             <span className="text-xs text-ink-3">
               {matched ? "" : "Not level-matched until every source is measured. "}
-              {Object.values(shifts).some(Boolean)
-                ? "Offsets follow where a comment's passage was moved to on this version."
-                : "Versions are compared at the same time from the start; alignment by musical position follows."}
+              {sources.slice(1).some((s) => pointsOf(s.fileId))
+                ? "Aligned sources follow the music, wherever an edit moved it."
+                : Object.values(shifts).some(Boolean)
+                  ? "Offsets follow where a comment's passage was moved to on this version."
+                  : "Until versions are aligned, they play at the same time from the start."}
             </span>
           </div>
           {sources.slice(1).map((s, i) => (
@@ -419,7 +437,7 @@ export function Compare({
               fileId={s.fileId}
               master={media}
               volume={current === i + 1 ? (gains[i + 1] ?? 1) : 0}
-              shift={shifts[s.fileId] ?? 0}
+              follow={followFor(s.fileId)}
               onFail={() =>
                 setFailed((list) => (list.includes(s.fileId) ? list : [...list, s.fileId]))
               }

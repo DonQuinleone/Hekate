@@ -1,4 +1,5 @@
 import {
+  type AlignmentPoints,
   type Anchor,
   type CarryStatus,
   type CreateReviewInput,
@@ -566,6 +567,25 @@ export function useCommentMutations(fileId: string) {
     }),
   };
 }
+
+/** Another file aligned with this one: where the same music sits there, from this file's times. */
+export interface FileAlignment {
+  fileId: string;
+  points: AlignmentPoints;
+  quality: number;
+}
+
+export const alignmentsQuery = (fileId: string) =>
+  queryOptions({
+    queryKey: ["files", fileId, "alignments"],
+    queryFn: async () =>
+      (
+        await json<{ alignments: FileAlignment[] }>(
+          await api.files[":id"].alignments.$get({ param: { id: fileId } }),
+        )
+      ).alignments,
+    staleTime: 60_000,
+  });
 
 export interface Variation {
   id: string;
