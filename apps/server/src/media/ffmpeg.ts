@@ -52,8 +52,14 @@ export const ALLOWED_DEMUXERS = [
 const BASE_ARGS = ["-hide_banner", "-protocol_whitelist", "file"];
 const formatWhitelist = ALLOWED_DEMUXERS.join(",");
 
+/** A media tool could not do its work: missing, timed out, cancelled, overloaded. Worth retrying. */
 export class MediaToolError extends Error {
   override name = "MediaToolError";
+}
+
+/** The tool ran and rejected the input: the file is not readable media. Retrying will not help. */
+export class InvalidMediaError extends MediaToolError {
+  override name = "InvalidMediaError";
 }
 
 export interface RunOptions {
@@ -112,7 +118,12 @@ export function run(command: string, args: string[], options: RunOptions = {}): 
       if (failure) reject(failure);
       else if (code !== 0) {
         const reason = stderr.trim().split("\n").slice(-3).join(" ").slice(0, 500);
-        reject(new MediaToolError(`${command} exited with ${code}: ${reason}`));
+        // Terminated by a signal (code null) is operational; a non-zero exit means the tool rejected the input.
+        reject(
+          code === null
+            ? new MediaToolError(`${command} was killed: ${reason}`)
+            : new InvalidMediaError(`${command} exited with ${code}: ${reason}`),
+        );
       } else resolve({ stdout: Buffer.concat(stdout).toString(), stderr });
     });
   });

@@ -78,7 +78,7 @@ The media worker runs ffmpeg and ffprobe on uploads, which are untrusted input.
 
 - **No playlists, no network.** Every call allows only the `file` protocol and an allow-list of real media demuxers, so a crafted upload cannot be an HLS playlist, concat list or image sequence that reads other files or reaches the network. Arguments are passed as a list, never through a shell, and file names are prefixed with `file:`.
 - **Bounded.** Each run has a time limit, honours cancellation, and caps how much output it keeps.
-- **Scratch space.** Media tools need seekable local files, so a job decrypts its input into a private directory (mode 0700) that is removed when the job ends, whether it succeeds or fails. Plaintext exists there only while a job runs. Set `WORK_DIR` to a tmpfs to keep it off disk entirely.
+- **Scratch space.** Media tools need seekable local files, so a job decrypts its input into a private directory (mode 0700) that is removed when the job ends, whether it succeeds or fails. If a worker dies mid-job, the next worker to start removes what it left. The Compose file mounts the scratch space as a tmpfs (`HEKATE_WORK_SIZE`, 8 GB by default), so plaintext never reaches a disk; elsewhere, point `WORK_DIR` at a tmpfs.
 - **Tenancy.** Job data carries only an organisation id and record ids; workers load everything else themselves, scoped to that organisation.
 
 ## Audit

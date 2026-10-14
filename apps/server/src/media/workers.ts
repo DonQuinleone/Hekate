@@ -5,8 +5,8 @@ import { type Database, inOrg, schema } from "@hekate/db";
 import { eq } from "drizzle-orm";
 import type { JobHandler, Jobs } from "../jobs.ts";
 import type { Storage } from "../storage.ts";
-import { MediaToolError, probe } from "./ffmpeg.ts";
-import { withWorkspace } from "./workspace.ts";
+import { InvalidMediaError, probe } from "./ffmpeg.ts";
+import { sweepWorkspaces, withWorkspace } from "./workspace.ts";
 
 const { files } = schema;
 
@@ -45,9 +45,10 @@ export function probeHandler(deps: MediaWorkerDeps): JobHandler<"media-probe"> {
       try {
         return await probe(path, { signal: job.signal });
       } catch (error) {
-        // The file itself is unreadable: retrying will not help. Record that it was
-        // examined and found nothing, and keep the reason in the log.
-        if (error instanceof MediaToolError && !job.signal.aborted) {
+        // The tool ran and rejected the file: retrying will not help. Record that it was
+        // examined and found nothing, and keep the reason in the log. Anything else
+        // (ffprobe missing, a timeout, cancellation) is thrown, so the queue retries it.
+        if (error instanceof InvalidMediaError) {
           console.warn(`Probe found no readable media in file ${fileId}: ${error.message}`);
           return {};
         }
@@ -64,5 +65,8 @@ export function probeHandler(deps: MediaWorkerDeps): JobHandler<"media-probe"> {
 
 /** Start every media worker in this process. */
 export async function startMediaWorkers(jobs: Jobs, deps: MediaWorkerDeps, concurrency: number) {
+  // Plaintext left behind by a process that crashed mid-job is removed before any new work.
+  const swept = await sweepWorkspaces(deps.workDir);
+  if (swept > 0) console.log(`Removed ${swept} workspace(s) left by a stopped worker`);
   await jobs.work("media-probe", probeHandler(deps), { concurrency });
 }

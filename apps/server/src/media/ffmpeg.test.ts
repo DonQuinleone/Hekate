@@ -1,10 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { MediaToolError, parseProbe, probe, run } from "./ffmpeg.ts";
-import { withWorkspace } from "./workspace.ts";
+import { InvalidMediaError, MediaToolError, parseProbe, probe, run } from "./ffmpeg.ts";
+import { sweepWorkspaces, withWorkspace } from "./workspace.ts";
 
 const hasFfmpeg = spawnSync("ffprobe", ["-version"]).status === 0;
 
@@ -175,6 +176,38 @@ describe.runIf(hasFfmpeg || process.env.CI)("media tools", () => {
     const controller = new AbortController();
     setTimeout(() => controller.abort(), 200);
     await expect(run("ffmpeg", slow, { signal: controller.signal })).rejects.toThrow(/cancelled/);
+  });
+
+  it("tells unreadable media from a tool that could not run", async () => {
+    await withWorkspace(undefined, async (dir) => {
+      const junk = join(dir, "junk.wav");
+      await writeFile(junk, "definitely not audio");
+      await expect(probe(junk)).rejects.toBeInstanceOf(InvalidMediaError);
+    });
+    // Missing tools, timeouts and cancellation are operational: retryable, not invalid media.
+    const missing = run("ffprobe-that-does-not-exist", []);
+    await expect(missing).rejects.toBeInstanceOf(MediaToolError);
+    await expect(missing).rejects.not.toBeInstanceOf(InvalidMediaError);
+    const slow = run(
+      "ffmpeg",
+      ["-hide_banner", "-nostdin", "-f", "lavfi", "-i", "sine", "-f", "null", "-"],
+      {
+        timeoutMs: 200,
+      },
+    );
+    await expect(slow).rejects.not.toBeInstanceOf(InvalidMediaError);
+  });
+
+  it("sweeps workspaces left by a process that died, and only those", async () => {
+    const root = await mkdtemp(join(tmpdir(), "hekate-sweep-"));
+    // A pid far above any real one stands in for a process that has gone.
+    await mkdir(join(root, "job-999999999-abc"), { recursive: true });
+    await writeFile(join(root, "job-999999999-abc", "decrypted.wav"), "secret");
+    await mkdir(join(root, `job-${process.pid}-live`));
+    await mkdir(join(root, "something-else"));
+    expect(await sweepWorkspaces(root)).toBe(1);
+    expect((await readdir(root)).sort()).toEqual([`job-${process.pid}-live`, "something-else"]);
+    await rm(root, { recursive: true, force: true });
   });
 
   it("removes the workspace afterwards, even when the job fails", async () => {
