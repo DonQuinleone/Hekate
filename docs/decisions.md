@@ -33,3 +33,35 @@ Dark, understated, one signal colour (`#F0762E`), hairlines over cards, Schibste
 ## 008. Licence
 
 GNU Affero General Public License v3.0 only.
+
+## 009. Domain vocabulary
+
+Projects contain folders and files of any kind. Tracks have versions (edits) and variations (treatments such as dry and wet mixes). Takes are recording-session snippets kept as reference, never versions. There are no movements. Reviews are approvals (logged decisions) or feedback (comments only), run by configurable workflows with guests, groups and per-project roles. Full definitions in `docs/domain.md`; this supersedes the asset and version wording in 004.
+
+## 010. Media security from day one
+
+Reviewers receive encrypted, segmented streams and server-rendered tiles, never original files or plain URLs. Keys and segment URLs are short-lived and bound to the viewer's session. Files are encrypted at rest with per-file keys. Visible watermarks come first; forensic watermarking (A/B segment marking for streams, per-recipient marks on downloads) follows. Every access is logged. This is not DRM, and the design leaves room for commercial DRM on the same segments. Details in `docs/security.md`.
+
+## 011. Waveform first; comments carry across versions
+
+The waveform is the primary surface for audio; a score is optional. Engineer tools (spectrogram, metering, loudness, phase) are part of the product, computed by the media worker. Comments carry over between versions with mapped anchors and a before and after, and configurable categories (such as Noise) can defer a comment to a later workflow stage. Details in `docs/domain.md`.
+
+## 012. Identity
+
+Better Auth underpins sign-in. Members can use OIDC or SAML single sign-on, LDAP, passkeys and hardware security keys (up to five per account by default), or passwords where allowed; guests use magic links scoped to their reviews. Organisations set the policy. Details in `docs/security.md`.
+
+## 013. Built-in QA for audio and video
+
+Quality checks are a native part of Hekate, run by the media worker on every audio and video upload, not an import from another tool. Findings are versioned with the file, drawn on the waveform, spectrogram and timeline, and can become comments. Checks are configured by delivery profiles per project. The default spectrogram palette is the iZotope RX style *Cyan to orange* map. Details in `docs/domain.md`.
+
+## 014. Production tools built in
+
+Scheduling, personnel, venues, repertoire, live take logging, score marking with T-notation and edit plots, stage plans and patch lists are part of Hekate, reimplemented natively from the maintainer's ControlRoom desktop tool. They share the project's data with tracks, takes and reviews. Take logging is local-first so it works without a connection. ControlRoom's movements map to tracks within a work. Details in `docs/domain.md` (Production).
+
+## 015. Video deliverables and reviewer permissions
+
+Video uses deliverables, versions and renditions, a concept separate from tracks. Every reviewer has an individual permission set (items, history, comment visibility, tools, downloads, access window, view limits, actions), with defaults per organisation and project. Edit decisions are optional, imported from an EDL, and a project can require one on upload.
+
+## 016. How work lands
+
+All changes reach `master` through pull requests with green CI; `master` is protected. Work proceeds from the ground up, each layer complete and tested before the next is built on it.

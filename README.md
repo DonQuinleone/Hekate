@@ -6,14 +6,16 @@
 
 Hekate is an open-source, self-hosted media review and approval system: a sovereign alternative to Dropbox Replay and Frame.io. Upload a cut, a mix or a score, invite reviewers, and collect feedback where every comment is anchored to an exact place in the media. Approve a version when it is right.
 
-Classical music is a first-class citizen (bar numbers, score pages, tracks, movements, takes, a recording synced to its score), and Hekate works just as well for video and for general documents. It should never feel like a classical-music-only tool.
+Classical music is a first-class citizen (tracks with versions and variations, bar numbers, score pages, session takes, a recording synced to its score), and Hekate works just as well for video and for general documents. It should never feel like a classical-music-only tool.
 
 > **Status:** pre-release. The foundations are being built; nothing here is production-ready yet.
 
 ## What makes it different
 
-- **Anchored comments.** Every comment carries an anchor: a time range or frame, a region of a PDF page, a bar and beat, a track or movement. Feedback always points at something.
+- **Anchored comments.** Every comment carries an anchor: a time range or frame, a region of a PDF page, or a bar and beat in a score. Feedback always points at something.
+- **Approval flows.** Send reviews to members, guests and groups, at once or in order. Approvals are logged decisions; feedback is comments. Workflows, statuses and roles are configurable per project.
 - **Project profiles.** A project picks a profile (Music, Video or General) which decides which tools appear. The model underneath is the same.
+- **Protected by design.** Reviewers get encrypted streams and rendered pages, never the original files. Every access is logged, and watermarks identify who was given a copy.
 - **Yours to run.** One app image, PostgreSQL and Caddy, deployed with Docker Compose. Local storage by default, S3-compatible storage if you want it.
 - **Multi-tenant from day one.** Every record belongs to an organisation, so a hosted offering can follow without a rewrite.
 
@@ -42,7 +44,7 @@ packages/
   shared/     Domain types and validation shared by server and web (anchors, profiles)
   db/         Drizzle schema, migrations and database client
 brand/        Mark, wordmark and icons (SVG)
-docs/         Decisions and the brand system
+docs/         Decisions, domain vocabulary, media security and the brand system
 deploy/       Docker Compose and Caddy configuration
 ```
 
