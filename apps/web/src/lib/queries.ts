@@ -1,6 +1,8 @@
 import {
   type AlignmentPoints,
   type Anchor,
+  type BarMap,
+  type BarMapSource,
   type CarryStatus,
   type CreateReviewInput,
   decodeLoudness,
@@ -18,6 +20,7 @@ import {
   type ReviewerPermissionsChange,
   type ReviewerState,
   type ReviewKind,
+  type SaveBarMapInput,
   type UpdateCarryInput,
 } from "@hekate/shared";
 import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -593,6 +596,52 @@ export function useCommentMutations(fileId: string) {
         client.invalidateQueries({
           predicate: (q) => q.queryKey[0] === "files" && q.queryKey[2] === "comments",
         }),
+    }),
+  };
+}
+
+/** Where each bar begins in a recording (#13): its own map, or its version's. */
+export interface FileBarMap extends BarMap {
+  /** The file the map was made on: this one, or another variation of its version. */
+  fileId: string;
+  source: BarMapSource;
+  updatedAt: string;
+  updatedByName: string | null;
+}
+
+export const barMapQuery = (fileId: string) =>
+  queryOptions({
+    queryKey: ["files", fileId, "bars"],
+    queryFn: async () =>
+      (
+        await json<{ barMap: FileBarMap | null }>(
+          await api.files[":id"].bars.$get({ param: { id: fileId } }),
+        )
+      ).barMap,
+    staleTime: 60_000,
+  });
+
+export function useBarMapMutations(fileId: string) {
+  const client = useQueryClient();
+  // A version's variations read one map: refresh every file's.
+  const refresh = () =>
+    client.invalidateQueries({
+      predicate: (q) => q.queryKey[0] === "files" && q.queryKey[2] === "bars",
+    });
+  return {
+    save: useMutation({
+      mutationFn: async (input: SaveBarMapInput) =>
+        json<{ barMap: FileBarMap }>(
+          await api.files[":id"].bars.$put({ param: { id: fileId }, json: input }),
+        ),
+      onSuccess: refresh,
+    }),
+    clear: useMutation({
+      mutationFn: async () => {
+        const res = await api.files[":id"].bars.$delete({ param: { id: fileId } });
+        if (!res.ok) await json(res);
+      },
+      onSuccess: refresh,
     }),
   };
 }

@@ -161,3 +161,20 @@ export function rulerBars(map: BarMap, duration: number, width: number, gap = 28
   while (pixels * every < gap && every < 1024) every *= 2;
   return map.points.flatMap(([, bar], i) => (bar % every === 0 || i === 0 ? [i] : []));
 }
+
+/** Taps closer together than this are one tap, bounced. */
+export const MIN_TAP_GAP = 0.08;
+
+/** Barlines from taps along the recording, numbered by the form. */
+export function pointsFromTaps(
+  taps: readonly number[],
+  form: { from: number; to: number | null }[],
+): BarMap["points"] {
+  const times: number[] = [];
+  for (const t of [...taps].sort((a, b) => a - b)) {
+    const last = times.at(-1);
+    if (t >= 0 && (last === undefined || t - last >= MIN_TAP_GAP)) times.push(t);
+  }
+  const bars = formBars(form, times.length);
+  return times.map((t, i) => [Math.round(t * 1000) / 1000, bars[i] ?? 0]);
+}

@@ -1,9 +1,16 @@
-import { formatChannels, formatDuration, type MediaInfo, type ReviewerTool } from "@hekate/shared";
+import {
+  type BarMap,
+  formatChannels,
+  formatDuration,
+  type MediaInfo,
+  type ReviewerTool,
+} from "@hekate/shared";
 import type Hls from "hls.js";
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
 import { type Loop, loopEntry, loopFrom, type Rolls, roll, wrapTarget } from "~/lib/loop";
 import type { Playback, Rendition } from "~/lib/queries";
+import { BarReadout, BarRuler } from "./bars";
 import { Icon } from "./icons";
 import { LoopControls, LoopSurface } from "./loop";
 import { Spectrogram, type SpectrogramChannelChoice } from "./spectrogram";
@@ -167,6 +174,7 @@ export function Player({
   loop = null,
   onLoop = () => {},
   tools = null,
+  bars = null,
 }: {
   fileId: string;
   kind: "audio" | "video";
@@ -182,6 +190,8 @@ export function Player({
   onLoop?: (loop: Loop | null) => void;
   /** The tools a guest's review allows; null for members, who have them all. */
   tools?: readonly ReviewerTool[] | null;
+  /** Where each bar begins, when the recording is synced to its score. */
+  bars?: BarMap | null;
 }) {
   const canLoop = !tools || tools.includes("loops");
   const canSpectrogram = !tools || tools.includes("spectrogram");
@@ -566,6 +576,7 @@ export function Player({
               />
             </LoopSurface>
           )}
+          {bars && duration > 0 && <BarRuler map={bars} duration={duration} onSeek={seek} />}
           <div className="relative h-4">
             <div className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-hairline" />
             {loop && duration > 0 && (
@@ -630,6 +641,7 @@ export function Player({
               {formatDuration(time)}{" "}
               <span className="text-ink-3">/ {formatDuration(duration)}</span>
             </span>
+            {bars && <BarReadout map={bars} time={time} />}
             <Button
               variant="ghost"
               size="icon"

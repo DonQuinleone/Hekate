@@ -7,6 +7,7 @@ import {
   formBars,
   parseBarLabels,
   parseForm,
+  pointsFromTaps,
   rulerBars,
   timeOfBar,
 } from "./bars.ts";
@@ -81,6 +82,19 @@ describe("bar maps", () => {
     const form = parseForm("1-2, 1-2, 3") ?? [];
     expect(formBars(form, 7)).toEqual([1, 2, 1, 2, 3, 4, 5]);
     expect(formBars(parseForm("17-") ?? [], 3)).toEqual([17, 18, 19]);
+  });
+
+  it("turns taps into barlines, numbered by the form, and drops bounces", () => {
+    const form = parseForm("0, 1-2, 1-2, 3-") ?? [];
+    expect(pointsFromTaps([0.4, 1.0, 1.02, 2.0, 3.0, 4.0, 5.0, 6.0], form)).toEqual([
+      [0.4, 0],
+      [1, 1],
+      [2, 2],
+      [3, 1],
+      [4, 2],
+      [5, 3],
+      [6, 4],
+    ]);
   });
 
   it("reads Audacity and Sonic Visualiser labels", () => {

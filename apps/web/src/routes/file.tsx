@@ -8,6 +8,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
+import { BarSync } from "~/components/bars";
 import {
   type BeforeAfter,
   Comments,
@@ -25,6 +26,7 @@ import { FileContext } from "~/components/tracks";
 import type { Loop } from "~/lib/loop";
 import { initialFocus, type PageFocus } from "~/lib/pages";
 import {
+  barMapQuery,
   type FileDetail,
   fileQuery,
   playbackQuery,
@@ -71,6 +73,7 @@ function Playback({
   // Only a recording plays: asking for a document's playback would log a session for nothing.
   const plays = file.kind === "audio" || file.kind === "video";
   const { data, error } = useQuery({ ...playbackQuery(file.id), enabled: ready && plays });
+  const { data: bars } = useQuery({ ...barMapQuery(file.id), enabled: plays });
   if (pages) {
     // Seen only as pages the server draws: never the file itself.
     if (file.streamStatus === "ready")
@@ -111,6 +114,7 @@ function Playback({
       loop={loop}
       onLoop={onLoop}
       tools={file.grant?.tools ?? null}
+      bars={bars ?? null}
       onExpired={() => client.resetQueries({ queryKey: playbackQuery(file.id).queryKey })}
     />
   );
@@ -162,6 +166,10 @@ export function FilePage({
     ...projectQuery(file?.projectId ?? ""),
     enabled: Boolean(file) && !guest,
   });
+  const { data: barMap } = useQuery({
+    ...barMapQuery(fileId),
+    enabled: file?.kind === "audio" || file?.kind === "video",
+  });
   if (error) return <p className="p-8 text-signal">{error.message}</p>;
   if (!file) return <p className="p-8 text-ink-3">Loading</p>;
   // A guest's review decides which tools they have; members have them all.
@@ -177,6 +185,9 @@ export function FilePage({
         }
       : undefined;
   const comparable = !guest && file.kind === "audio" && file.streamStatus === "ready";
+  /** A recording members can sync to its score; guests see its bars in the player only. */
+  const syncable =
+    !guest && (file.kind === "audio" || file.kind === "video") && file.streamStatus === "ready";
   /** Loop the passage and hear it from where it began; one key then flips to this version. */
   const beforeAfter = (target: BeforeAfter) => {
     setFocus({ fileId: target.fileId, shift: target.shift, nonce: Date.now() });
@@ -249,6 +260,14 @@ export function FilePage({
               canComment={canComment}
             />
             {comparable && <Compare file={file} media={media} focus={focus} />}
+            {syncable && (
+              <BarSync
+                fileId={file.id}
+                media={media}
+                map={barMap ?? null}
+                canEdit={can("organise")}
+              />
+            )}
             {file.mediaInfo?.audio && allows("meters") && (
               <Loudness
                 fileId={file.id}
