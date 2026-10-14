@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { composeAlignments, invertAlignment, mapTime, simplifyAlignment } from "./alignment.ts";
+import {
+  composeAlignments,
+  invertAlignment,
+  mapTime,
+  remapAnchor,
+  simplifyAlignment,
+} from "./alignment.ts";
 
 describe("alignment maps", () => {
   // Version 2 adds 4 seconds at 10 s: before it, the same; after it, 4 s later.
@@ -57,5 +63,28 @@ describe("alignment maps", () => {
     expect(mapTime(v1v3, 5)).toBeCloseTo(5, 1);
     expect(mapTime(v1v3, 20)).toBeCloseTo(24, 1);
     expect(mapTime(v1v3, 40)).toBeCloseTo(42, 1);
+  });
+});
+
+describe("remapAnchor", () => {
+  const later: [number, number][] = [
+    [0, 1.5],
+    [10, 11.5],
+  ];
+  it("moves times, and the moment a bar was named, with the music", () => {
+    expect(remapAnchor(later, { kind: "time", start: 2, end: 3 })).toEqual({
+      kind: "time",
+      start: 3.5,
+      end: 4.5,
+    });
+    expect(remapAnchor(later, { kind: "bar", from: { bar: 9, beat: 1 }, at: 4 })).toEqual({
+      kind: "bar",
+      from: { bar: 9, beat: 1 },
+      at: 5.5,
+    });
+  });
+  it("leaves anchors without a time in the recording", () => {
+    expect(remapAnchor(later, { kind: "bar", from: { bar: 9, beat: 1 } })).toBeNull();
+    expect(remapAnchor(later, null)).toBeNull();
   });
 });

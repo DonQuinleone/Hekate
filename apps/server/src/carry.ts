@@ -1,5 +1,5 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { type AlignmentPoints, type Anchor, carryTarget, mapTime } from "@hekate/shared";
+import { type AlignmentPoints, type Anchor, carryTarget, remapAnchor } from "@hekate/shared";
 import { and, desc, eq, inArray, isNull, lt } from "drizzle-orm";
 
 const { alignments, comments, commentCarries, tracks, variations, versions } = schema;
@@ -180,13 +180,11 @@ export async function remapCarries(
   const earlier = new Map([...raised, ...carried].map((r) => [r.commentId, r.anchor]));
   let moved = 0;
   for (const carry of here) {
-    const anchor = earlier.get(carry.commentId);
-    if (anchor?.kind !== "time") continue;
-    const start = Math.round(mapTime(points, anchor.start) * 1000) / 1000;
-    const end = Math.max(start, Math.round(mapTime(points, anchor.end) * 1000) / 1000);
+    const anchor = remapAnchor(points, earlier.get(carry.commentId) ?? null);
+    if (!anchor) continue;
     await tx
       .update(commentCarries)
-      .set({ anchor: { kind: "time", start, end }, updatedAt: new Date() })
+      .set({ anchor, updatedAt: new Date() })
       // Placed by hand since it was read: the hand wins.
       .where(
         inOrg(

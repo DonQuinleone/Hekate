@@ -336,7 +336,11 @@ export interface FileDetail extends ProjectFile {
     versionNumber: number;
     trackId: string;
     trackName: string;
+    /** The track's score, when one is linked. */
+    scoreFileId: string | null;
   } | null;
+  /** The project's profile: it decides which tools the page offers, bars among them. */
+  profile: ProjectProfile;
   /** For a guest, what their reviews let them do with this file; null for members. */
   grant: Pick<ReviewerPermissions, "comment" | "comments" | "tools"> | null;
 }
@@ -692,6 +696,7 @@ export function useTrackMutations(projectId: string) {
         id: string;
         name?: string;
         folderId?: string | null;
+        scoreFileId?: string | null;
       }) =>
         (
           await json<{ track: Track }>(
@@ -1076,6 +1081,7 @@ export function useOrganise(projectId: string) {
         id: string;
         name?: string;
         folderId?: string | null;
+        scoreFileId?: string | null;
       }) => json(await api.files[":id"].$patch({ param: { id }, json: input })),
       onSuccess: refresh,
     }),

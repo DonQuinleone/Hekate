@@ -3,6 +3,7 @@ import {
   addVariationInput,
   createTrackInput,
   createVersionInput,
+  isPdf,
   type ProjectPermission,
   updateTrackInput,
   withPrimary,
@@ -45,6 +46,24 @@ async function assertProjectFiles(
     );
   if (found.length !== new Set(fileIds).size) {
     throw new HTTPException(422, { message: "Files must come from the same project" });
+  }
+}
+
+/** A track's score: a document of the same project, whose pages show beside its recordings. */
+async function assertScore(
+  db: Database,
+  organisationId: string,
+  projectId: string,
+  fileId: string,
+) {
+  const [file] = await db
+    .select({ name: files.name, contentType: files.contentType })
+    .from(files)
+    .where(inOrg(files, organisationId, eq(files.projectId, projectId), eq(files.id, fileId)));
+  if (!file) throw new HTTPException(422, { message: "Files must come from the same project" });
+  // Only a PDF's pages are drawn, so only a PDF can show beside the recordings.
+  if (!isPdf(file.name, file.contentType)) {
+    throw new HTTPException(422, { message: "A score is a PDF" });
   }
 }
 
@@ -156,9 +175,7 @@ export const projectTrackRoutes = (db: Database) =>
       const input = c.req.valid("json");
       const { projectId } = await can(db, actorOf(c.var), "organise", c.req.valid("param").id);
       const project = { id: projectId };
-      if (input.scoreFileId) {
-        await assertProjectFiles(db, organisationId, project.id, [input.scoreFileId]);
-      }
+      if (input.scoreFileId) await assertScore(db, organisationId, project.id, input.scoreFileId);
       const created = await db.transaction(async (tx) => {
         // Lock the project so tracks added at the same moment take consecutive positions,
         // and so the folder it goes in cannot be deleted meanwhile.
@@ -199,7 +216,7 @@ export const trackRoutes = (db: Database, jobs: Pick<Jobs, "send">) =>
       const track = await trackOf(db, organisationId, id);
       await canSeeTrack(db, c.var, track.projectId, "organise");
       if (input.scoreFileId) {
-        await assertProjectFiles(db, organisationId, track.projectId, [input.scoreFileId]);
+        await assertScore(db, organisationId, track.projectId, input.scoreFileId);
       }
       await db.transaction(async (tx) => {
         if (input.folderId !== undefined) {

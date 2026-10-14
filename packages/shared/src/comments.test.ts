@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   anchorProblem,
   anchorShift,
+  anchorTime,
   carrySettles,
   carryStatusLabel,
   carryTarget,
@@ -40,7 +41,15 @@ describe("comments", () => {
     expect(anchorProblem(nowhere, { kind: "image" })).toBeNull();
     const bar = { kind: "bar" as const, from: { bar: 72, beat: 1 } };
     expect(anchorProblem(bar, { kind: "audio" })).toBeNull();
+    expect(anchorProblem(bar, { kind: "audio", profile: "music" })).toBeNull();
+    expect(anchorProblem(bar, { kind: "audio", profile: "video" })).toMatch(/music projects/);
     expect(anchorProblem(bar, { kind: "image" })).toMatch(/recording or a score/);
+    // A bar named while listening keeps the moment, which must be in the recording.
+    expect(anchorProblem({ ...bar, at: 30 }, { kind: "audio", duration: 60 })).toBeNull();
+    expect(anchorProblem({ ...bar, at: 90 }, { kind: "audio", duration: 60 })).toMatch(
+      /past the end/,
+    );
+    expect(anchorProblem({ ...bar, at: 3 }, { kind: "document" })).toMatch(/timeline/);
   });
 
   it("carries a thread to the same treatment, or else the new primary", () => {
@@ -75,5 +84,19 @@ describe("comments", () => {
     expect(anchorShift(at(12), at(10.5))).toBe(1.5);
     expect(anchorShift(at(12), null)).toBe(0);
     expect(anchorShift(null, at(3))).toBe(0);
+  });
+});
+
+describe("anchorTime", () => {
+  it("is where a time starts, or where a bar was named", () => {
+    expect(anchorTime({ kind: "time", start: 4, end: 6 })).toBe(4);
+    expect(anchorTime({ kind: "bar", from: { bar: 9, beat: 1 }, at: 12 })).toBe(12);
+    expect(anchorTime({ kind: "bar", from: { bar: 9, beat: 1 } })).toBeNull();
+    expect(
+      anchorShift(
+        { kind: "bar", from: { bar: 9, beat: 1 }, at: 12 },
+        { kind: "time", start: 10, end: 10 },
+      ),
+    ).toBe(2);
   });
 });

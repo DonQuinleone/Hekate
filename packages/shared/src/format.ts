@@ -44,7 +44,10 @@ export function formatAnchor(anchor: Anchor, options: { fps?: number } = {}): st
     case "bar": {
       if (anchor.to && anchor.to.bar !== anchor.from.bar)
         return `BARS ${anchor.from.bar}–${anchor.to.bar}`;
-      return `BAR ${anchor.from.bar}.${anchor.from.beat}`;
+      // The beat only when it says something: bar 25 is its first beat.
+      return anchor.from.beat === 1
+        ? `BAR ${anchor.from.bar}`
+        : `BAR ${anchor.from.bar}.${anchor.from.beat}`;
     }
   }
 }
