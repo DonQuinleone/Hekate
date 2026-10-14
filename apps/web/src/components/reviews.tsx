@@ -1,4 +1,4 @@
-import type { ReviewKind } from "@hekate/shared";
+import type { GuestInput, ReviewerInput, ReviewKind } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useState } from "react";
@@ -63,6 +63,59 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+/** Add a guest reviewer by name and email: someone outside the organisation, without an account. */
+export function GuestFields({
+  onAdd,
+  submitLabel = "Add guest",
+}: {
+  onAdd: (guest: GuestInput) => void;
+  submitLabel?: string;
+}) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [label, setLabel] = useState("");
+  const valid = name.trim() && /^[^\s@]+@[^\s@]+$/.test(email.trim());
+  const add = () => {
+    if (!valid) return;
+    onAdd({ name: name.trim(), email: email.trim(), label: label.trim() || undefined });
+    setName("");
+    setEmail("");
+    setLabel("");
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <input
+        className={cn(control, "min-w-36 flex-1")}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Name"
+        aria-label="Guest name"
+      />
+      <input
+        className={cn(control, "min-w-44 flex-1")}
+        type="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        placeholder="Email"
+        aria-label="Guest email"
+      />
+      <input
+        className={cn(control, "w-32")}
+        value={label}
+        onChange={(e) => setLabel(e.target.value)}
+        placeholder="Role (optional)"
+        aria-label="Guest role"
+      />
+      <Button size="sm" disabled={!valid} onClick={add}>
+        {submitLabel}
+      </Button>
+    </div>
+  );
+}
+
+const keyOf = (entry: ReviewerInput) =>
+  typeof entry === "string" ? `member:${entry}` : `guest:${entry.email.toLowerCase()}`;
+
 /** Ask reviewers for an approval or for feedback on tracks and files of this project. */
 function RequestReview({ projectId, onDone }: { projectId: string; onDone: () => void }) {
   const navigate = useNavigate();
@@ -78,13 +131,24 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
   const [order, setOrder] = useState<"parallel" | "sequence">("parallel");
   const [rule, setRule] = useState<"all" | "any">("all");
   const [items, setItems] = useState<string[]>([]);
-  const [reviewers, setReviewers] = useState<string[]>([]);
+  // Members (by user id) and guests, in the order a sequence would ask them.
+  const [reviewers, setReviewers] = useState<ReviewerInput[]>([]);
   // An approval asks for a decision, so only roles that can decide may review one.
   const deciders = new Set(
     (roles ?? []).filter((r) => r.permissions.includes("decide")).map((r) => r.id),
   );
   const people = (members ?? []).filter((p) => kind === "feedback" || deciders.has(p.roleId));
-  const chosen = reviewers.filter((id) => people.some((p) => p.userId === id));
+  const chosen = reviewers.filter(
+    (r) => typeof r !== "string" || people.some((p) => p.userId === r),
+  );
+  const toggleMember = (userId: string) =>
+    setReviewers(
+      reviewers.includes(userId) ? reviewers.filter((r) => r !== userId) : [...reviewers, userId],
+    );
+  const addGuest = (guest: GuestInput) => {
+    if (!reviewers.some((r) => keyOf(r) === keyOf(guest))) setReviewers([...reviewers, guest]);
+  };
+  const guests = chosen.filter((r): r is GuestInput => typeof r !== "string");
 
   const toggle = (list: string[], set: (next: string[]) => void, value: string) =>
     set(list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
@@ -193,7 +257,7 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
                   <input
                     type="checkbox"
                     checked={at >= 0}
-                    onChange={() => toggle(reviewers, setReviewers, person.userId)}
+                    onChange={() => toggleMember(person.userId)}
                     className="accent-[var(--hk-ink)]"
                   />
                   <span className="text-ink">{person.name}</span>
@@ -204,7 +268,32 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
               </li>
             );
           })}
+          {guests.map((guest) => (
+            <li key={keyOf(guest)} className="flex items-center gap-2 text-[13px] text-ink-2">
+              <span className="text-ink">{guest.name}</span>
+              <span className="truncate text-xs text-ink-3">
+                {guest.label ? `${guest.label}, guest` : "Guest"} · {guest.email}
+              </span>
+              {order === "sequence" && (
+                <span className="tabular font-mono text-[11px] text-ink-3">
+                  {chosen.indexOf(guest) + 1}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setReviewers(reviewers.filter((r) => r !== guest))}
+                className="ml-auto cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-signal"
+              >
+                Remove
+              </button>
+            </li>
+          ))}
         </ul>
+        <GuestFields onAdd={addGuest} />
+        <p className="m-0 text-xs text-ink-3">
+          Guests need no account: each is emailed a link that works once, for three days, and
+          reaches only this review.
+        </p>
       </Field>
 
       <div className="flex flex-wrap gap-6">

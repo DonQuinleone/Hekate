@@ -8,7 +8,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { type Actor, actorOf, can } from "../access.ts";
+import { actorOf, can, type MemberActor } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { Jobs } from "../jobs.ts";
@@ -80,7 +80,7 @@ export const uploadRoutes = (
    * The caller's own open-or-finished upload, or 404, while they may still upload to its
    * project: a role taken away mid-upload stops the upload.
    */
-  const own = async (actor: Actor, id: string) => {
+  const own = async (actor: MemberActor, id: string) => {
     const [row] = await db
       .select()
       .from(uploads)

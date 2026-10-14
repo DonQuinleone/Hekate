@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { reviewState } from "~/components/reviews";
+import { GuestFields, reviewState } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
 import { StatusPill } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
 import { projectQuery, type ReviewDetail, reviewQuery, useReviewActions } from "~/lib/queries";
+import { useViewer } from "~/lib/viewer";
 
 const dateTime = new Intl.DateTimeFormat("en-GB", {
   day: "numeric",
@@ -113,11 +114,96 @@ function YourTurn({ review }: { review: ReviewDetail }) {
   return null;
 }
 
+/** The reviewers, in order, and for those who may manage them: guests' links and inviting more. */
+function Reviewers({ review }: { review: ReviewDetail }) {
+  const { addReviewer, sendLink, revoke } = useReviewActions(review.id);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [inviting, setInviting] = useState(false);
+  const manage = review.you.canManageReviewers && review.status === "open";
+  const error = addReviewer.error ?? sendLink.error ?? revoke.error;
+  return (
+    <>
+      <ol className="m-0 flex list-none flex-col border-t border-hairline p-0">
+        {review.reviewers.map((r, i) => (
+          <li key={r.id} className="flex flex-col gap-1 border-b border-hairline py-2.5">
+            <span className="flex items-center justify-between gap-3">
+              <span className="flex min-w-0 items-center gap-2">
+                {review.order === "sequence" && (
+                  <span className="tabular font-mono text-[11px] text-ink-3">{i + 1}</span>
+                )}
+                <span className="truncate text-[13px] text-ink">{r.name}</span>
+                {r.guest && (
+                  <span className="shrink-0 text-xs text-ink-3">
+                    {r.label ? `${r.label}, guest` : "guest"}
+                  </span>
+                )}
+              </span>
+              <span className="shrink-0 text-xs text-ink-3">
+                {r.decision ? decisionCopy[r.decision] : stateCopy[r.state]}
+              </span>
+            </span>
+            {manage && r.guest && (
+              <span className="flex gap-3 text-xs">
+                <button
+                  type="button"
+                  disabled={sendLink.isPending}
+                  onClick={() =>
+                    sendLink.mutate(r.id, {
+                      onSuccess: () => setNotice(`A new link is on its way to ${r.name}.`),
+                    })
+                  }
+                  className="cursor-pointer border-0 bg-transparent p-0 text-ink-3 hover:text-ink"
+                >
+                  Send a new link
+                </button>
+                <button
+                  type="button"
+                  disabled={revoke.isPending}
+                  onClick={() =>
+                    revoke.mutate(r.id, {
+                      onSuccess: () =>
+                        setNotice(`${r.name} is signed out everywhere until sent a new link.`),
+                    })
+                  }
+                  className="cursor-pointer border-0 bg-transparent p-0 text-ink-3 hover:text-signal"
+                >
+                  Revoke access
+                </button>
+              </span>
+            )}
+          </li>
+        ))}
+      </ol>
+      {notice && <p className="m-0 text-xs text-ink-2">{notice}</p>}
+      {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
+      {manage &&
+        (inviting ? (
+          <GuestFields
+            submitLabel="Invite"
+            onAdd={(guest) =>
+              addReviewer.mutate(guest, {
+                onSuccess: () => {
+                  setInviting(false);
+                  setNotice(`${guest.name} is invited.`);
+                },
+              })
+            }
+          />
+        ) : (
+          <Button variant="ghost" size="sm" onClick={() => setInviting(true)}>
+            Invite a guest
+          </Button>
+        ))}
+    </>
+  );
+}
+
 export function ReviewPage({ reviewId }: { reviewId: string }) {
   const { data: review, error } = useQuery(reviewQuery(reviewId));
+  const { guest } = useViewer();
   const { data: project } = useQuery({
     ...projectQuery(review?.projectId ?? ""),
-    enabled: Boolean(review),
+    enabled: Boolean(review) && !guest,
   });
   const { viewed, cancel } = useReviewActions(reviewId);
   // A reviewer opening the review has viewed it: once per visit.
@@ -137,17 +223,25 @@ export function ReviewPage({ reviewId }: { reviewId: string }) {
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-8 sm:px-8">
       <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-[13px]">
-        <Link to="/" className="shrink-0 text-ink-3 no-underline hover:text-ink">
-          Projects
-        </Link>
-        <span className="text-edge">/</span>
-        <Link
-          to="/projects/$projectId"
-          params={{ projectId: review.projectId }}
-          className="truncate text-ink-3 no-underline hover:text-ink"
-        >
-          {project?.name ?? "Project"}
-        </Link>
+        {guest ? (
+          <Link to="/g" className="shrink-0 text-ink-3 no-underline hover:text-ink">
+            Your reviews
+          </Link>
+        ) : (
+          <>
+            <Link to="/" className="shrink-0 text-ink-3 no-underline hover:text-ink">
+              Projects
+            </Link>
+            <span className="text-edge">/</span>
+            <Link
+              to="/projects/$projectId"
+              params={{ projectId: review.projectId }}
+              className="truncate text-ink-3 no-underline hover:text-ink"
+            >
+              {project?.name ?? "Project"}
+            </Link>
+          </>
+        )}
         <span className="text-edge">/</span>
         <span className="truncate font-medium text-ink">{review.title}</span>
       </nav>
@@ -199,7 +293,7 @@ export function ReviewPage({ reviewId }: { reviewId: string }) {
                   </span>
                   {item.fileId ? (
                     <Link
-                      to="/files/$fileId"
+                      to={guest ? "/g/files/$fileId" : "/files/$fileId"}
                       params={{ fileId: item.fileId }}
                       className="shrink-0 text-[13px] text-ink-2 no-underline hover:text-signal"
                     >
@@ -239,24 +333,7 @@ export function ReviewPage({ reviewId }: { reviewId: string }) {
         </div>
         <aside className="flex flex-col gap-3">
           <h2 className="m-0 text-[15px] font-medium">Reviewers</h2>
-          <ol className="m-0 flex list-none flex-col border-t border-hairline p-0">
-            {review.reviewers.map((r, i) => (
-              <li
-                key={r.id}
-                className="flex items-center justify-between gap-3 border-b border-hairline py-2.5"
-              >
-                <span className="flex min-w-0 items-center gap-2">
-                  {review.order === "sequence" && (
-                    <span className="tabular font-mono text-[11px] text-ink-3">{i + 1}</span>
-                  )}
-                  <span className="truncate text-[13px] text-ink">{r.name}</span>
-                </span>
-                <span className="text-xs text-ink-3">
-                  {r.decision ? decisionCopy[r.decision] : stateCopy[r.state]}
-                </span>
-              </li>
-            ))}
-          </ol>
+          <Reviewers review={review} />
           {review.you.canManage && (
             <Button
               variant="ghost"

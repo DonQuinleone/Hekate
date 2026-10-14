@@ -83,6 +83,22 @@ describe("review input", () => {
     expect(createReviewInput.parse({ ...base, kind: "feedback", rule: "any" }).rule).toBeNull();
     expect(createReviewInput.parse({ ...base, kind: "feedback" }).order).toBe("parallel");
   });
+  it("takes guests by email, case aside, and refuses asking them twice", () => {
+    const guest = { name: "Mira Solberg", email: "Conductor@Example.test", label: "Conductor" };
+    const parsed = createReviewInput.parse({
+      ...base,
+      kind: "feedback",
+      reviewers: ["composer", guest],
+    });
+    expect(parsed.reviewers[1]).toEqual({ ...guest, email: "conductor@example.test" });
+    expect(
+      createReviewInput.safeParse({
+        ...base,
+        kind: "feedback",
+        reviewers: [guest, { ...guest, email: "conductor@example.test" }],
+      }).success,
+    ).toBe(false);
+  });
   it("refuses an empty review and asking someone twice", () => {
     expect(createReviewInput.safeParse({ ...base, kind: "approval", items: [] }).success).toBe(
       false,

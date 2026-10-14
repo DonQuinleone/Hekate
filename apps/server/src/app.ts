@@ -5,10 +5,12 @@ import { logger } from "hono/logger";
 import type { Audit } from "./audit.ts";
 import type { Auth } from "./auth.ts";
 import { onError } from "./errors.ts";
+import { requirePlaySession, requireViewer } from "./guests.ts";
 import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
 import type { Mailer } from "./mail.ts";
 import { commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
+import { guestRoutes } from "./routes/guest.ts";
 import { health } from "./routes/health.ts";
 import { invitationRoutes } from "./routes/invitations.ts";
 import { meRoutes } from "./routes/me.ts";
@@ -47,6 +49,7 @@ export interface AppDeps {
 
 export function createApi(deps: AppDeps) {
   const member = [requireSession(deps.auth), requireOrganisation(deps.db)] as const;
+  const viewer = requireViewer(deps.auth, deps.db);
   const playback = {
     db: deps.db,
     storage: deps.storage,
@@ -100,15 +103,17 @@ export function createApi(deps: AppDeps) {
         "/uploads",
         uploadRoutes(deps.db, deps.storage, deps.jobs, deps.audit, deps.trustProxy ?? false),
       )
-      .use("/files/*", ...member)
+      // Guest reviewers reach files and reviews too, only those of their own reviews.
+      .use("/files/*", viewer)
       .route("/files", fileRoutes(playback))
-      .route("/files", fileCommentRoutes(deps.db))
-      .use("/reviews/*", ...member)
+      .route("/files", fileCommentRoutes(deps.db, deps.audit, deps.trustProxy ?? false))
+      .use("/reviews/*", viewer)
       .route("/reviews", reviewRoutes(reviewDeps))
+      .route("/guest", guestRoutes(reviewDeps))
       .use("/comments/*", ...member)
       .route("/comments", commentRoutes(deps.db))
       // The organisation comes from the token, which the route checks against membership.
-      .use("/play/*", requireSession(deps.auth))
+      .use("/play/*", requirePlaySession(deps.auth, deps.db))
       .route("/play", playRoutes(playback))
   );
 }

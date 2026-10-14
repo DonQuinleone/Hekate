@@ -30,30 +30,37 @@ export const requireSession = (auth: Auth) =>
   });
 
 /**
- * Resolves the organisation for the request from the session's active organisation, falling back
- * to the member's first organisation. Responds 403 when the user belongs to none.
+ * The organisation a signed-in user acts in: their session's active organisation, falling
+ * back to their first. Responds 403 when they belong to none.
  */
+export async function organisationFor(db: Database, userId: string, sessionId: string) {
+  const [session] = await db
+    .select({ active: schema.authSessions.activeOrganisationId })
+    .from(schema.authSessions)
+    .where(eq(schema.authSessions.id, sessionId));
+  const memberships = await db
+    .select({ organisationId: schema.members.organisationId, role: schema.members.role })
+    .from(schema.members)
+    .where(eq(schema.members.userId, userId))
+    .orderBy(asc(schema.members.createdAt));
+  const membership =
+    memberships.find((m) => m.organisationId === session?.active) ?? memberships[0];
+  if (!membership) {
+    throw new HTTPException(403, { message: "You are not a member of any organisation" });
+  }
+  if (membership.organisationId !== session?.active) {
+    await db
+      .update(schema.authSessions)
+      .set({ activeOrganisationId: membership.organisationId })
+      .where(eq(schema.authSessions.id, sessionId));
+  }
+  return membership;
+}
+
+/** Resolves the organisation for the request (`organisationFor`). */
 export const requireOrganisation = (db: Database) =>
   createMiddleware<{ Variables: TenantVariables }>(async (c, next) => {
-    const [session] = await db
-      .select({ active: schema.authSessions.activeOrganisationId })
-      .from(schema.authSessions)
-      .where(eq(schema.authSessions.id, c.var.sessionId));
-    const memberships = await db
-      .select({ organisationId: schema.members.organisationId, role: schema.members.role })
-      .from(schema.members)
-      .where(eq(schema.members.userId, c.var.userId))
-      .orderBy(asc(schema.members.createdAt));
-    const membership =
-      memberships.find((m) => m.organisationId === session?.active) ?? memberships[0];
-    if (!membership)
-      throw new HTTPException(403, { message: "You are not a member of any organisation" });
-    if (membership.organisationId !== session?.active) {
-      await db
-        .update(schema.authSessions)
-        .set({ activeOrganisationId: membership.organisationId })
-        .where(eq(schema.authSessions.id, c.var.sessionId));
-    }
+    const membership = await organisationFor(db, c.var.userId, c.var.sessionId);
     c.set("organisationId", membership.organisationId);
     c.set("organisationRole", membership.role);
     await next();

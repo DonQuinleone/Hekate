@@ -5,6 +5,7 @@ import {
   decodePeaks,
   decodeSpectrogram,
   type FileKind,
+  type GuestInput,
   type LoudnessSummary,
   type MediaInfo,
   type ProjectPermission,
@@ -476,6 +477,9 @@ export interface Comment {
   body: string;
   authorId: string | null;
   authorName: string | null;
+  /** Written by a guest reviewer; their label (for example "Conductor") reads beside the name. */
+  authorGuest: boolean;
+  authorLabel: string | null;
   resolvedAt: string | null;
   resolvedByName: string | null;
   editedAt: string | null;
@@ -661,8 +665,14 @@ export interface ReviewDetail {
   )[];
   reviewers: {
     id: string;
-    userId: string;
+    /** Null for a guest. */
+    userId: string | null;
     name: string;
+    guest: boolean;
+    /** A guest's role on the production, such as "Conductor". */
+    label: string | null;
+    /** Shown to members only; guests never see other reviewers' addresses. */
+    email: string | null;
     state: ReviewerState;
     decision: ReviewDecision | null;
     decidedAt: string | null;
@@ -682,6 +692,8 @@ export interface ReviewDetail {
     canDecide: boolean;
     canSubmit: boolean;
     canManage: boolean;
+    canManageReviewers: boolean;
+    guest: boolean;
   };
 }
 
@@ -747,5 +759,72 @@ export function useReviewActions(reviewId: string) {
         call(await api.reviews[":id"].cancel.$post({ param: { id: reviewId } })),
       onSuccess: settle,
     }),
+    addReviewer: useMutation({
+      mutationFn: async (input: { userId: string } | GuestInput) =>
+        call(await api.reviews[":id"].reviewers.$post({ param: { id: reviewId }, json: input })),
+      onSuccess: settle,
+    }),
+    /** Send a guest a fresh magic link; the last one stops working. */
+    sendLink: useMutation({
+      mutationFn: async (reviewerId: string) => {
+        const res = await api.reviews[":id"].reviewers[":reviewerId"].link.$post({
+          param: { id: reviewId, reviewerId },
+        });
+        if (!res.ok) await json(res);
+      },
+    }),
+    /** End a guest's links and signed-in browsers. */
+    revoke: useMutation({
+      mutationFn: async (reviewerId: string) => {
+        const res = await api.reviews[":id"].reviewers[":reviewerId"].revoke.$post({
+          param: { id: reviewId, reviewerId },
+        });
+        if (!res.ok) await json(res);
+      },
+    }),
   };
+}
+
+export interface GuestMe {
+  guest: { id: string; name: string; email: string; label: string | null };
+  organisation: string | null;
+  reviews: (Pick<
+    ReviewSummary,
+    "id" | "kind" | "title" | "status" | "outcome" | "dueAt" | "createdAt"
+  > & {
+    submittedAt: string | null;
+  })[];
+}
+
+/** The signed-in guest reviewer, or null when this browser has no guest session. */
+export const guestMeQuery = queryOptions({
+  queryKey: ["guest", "me"],
+  queryFn: async (): Promise<GuestMe | null> => {
+    const res = await api.guest.me.$get();
+    if (res.status === 401) return null;
+    return json<GuestMe>(res);
+  },
+  staleTime: 60_000,
+});
+
+/** Exchange a magic link for a guest session in this browser. */
+export function useGuestSignIn() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (token: string) =>
+      json<Omit<GuestMe, "guest"> & { guest: { id: string } }>(
+        await api.guest.sessions.$post({ json: { token } }),
+      ),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["guest"] }),
+  });
+}
+
+export function useGuestSignOut() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      await api.guest["sign-out"].$post();
+    },
+    onSuccess: () => client.clear(),
+  });
 }

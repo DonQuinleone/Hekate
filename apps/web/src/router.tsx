@@ -7,9 +7,11 @@ import {
   redirect,
 } from "@tanstack/react-router";
 import { Shell } from "~/components/shell";
-import { meQuery, setupQuery } from "~/lib/queries";
+import { guestMeQuery, meQuery, setupQuery } from "~/lib/queries";
+import { ViewerProvider } from "~/lib/viewer";
 import { SetupPage, SignInPage } from "~/routes/auth-pages";
 import { FilePage } from "~/routes/file";
+import { GuestHomePage, GuestLinkPage, GuestShell, GuestSignedOutPage } from "~/routes/guest";
 import { InvitePage } from "~/routes/invite";
 import { ProjectPage } from "~/routes/project";
 import { ProjectsPage } from "~/routes/projects";
@@ -52,6 +54,57 @@ const invite = createRoute({
   component: function InviteRoute() {
     const { token } = invite.useParams();
     return <InvitePage token={token} />;
+  },
+});
+
+/** Guest reviewers: a magic link, and the pages of their reviews (docs/security.md). */
+const guestLink = createRoute({
+  getParentRoute: () => root,
+  path: "/guest/$token",
+  component: function GuestLinkRoute() {
+    const { token } = guestLink.useParams();
+    return <GuestLinkPage token={token} />;
+  },
+});
+const guestSignedOut = createRoute({
+  getParentRoute: () => root,
+  path: "/guest",
+  component: GuestSignedOutPage,
+});
+const guestApp = createRoute({
+  getParentRoute: () => root,
+  id: "guest-app",
+  beforeLoad: async ({ context }) => {
+    const me = await context.queryClient.ensureQueryData(guestMeQuery);
+    if (!me) throw redirect({ to: "/guest" });
+  },
+  component: () => (
+    <ViewerProvider viewer={{ guest: true }}>
+      <GuestShell>
+        <Outlet />
+      </GuestShell>
+    </ViewerProvider>
+  ),
+});
+const guestHome = createRoute({
+  getParentRoute: () => guestApp,
+  path: "/g",
+  component: GuestHomePage,
+});
+const guestReview = createRoute({
+  getParentRoute: () => guestApp,
+  path: "/g/reviews/$reviewId",
+  component: function GuestReviewRoute() {
+    const { reviewId } = guestReview.useParams();
+    return <ReviewPage reviewId={reviewId} />;
+  },
+});
+const guestFile = createRoute({
+  getParentRoute: () => guestApp,
+  path: "/g/files/$fileId",
+  component: function GuestFileRoute() {
+    const { fileId } = guestFile.useParams();
+    return <FilePage fileId={fileId} />;
   },
 });
 
@@ -116,6 +169,9 @@ export const router = createRouter({
     setup,
     signIn,
     invite,
+    guestLink,
+    guestSignedOut,
+    guestApp.addChildren([guestHome, guestReview, guestFile]),
     app.addChildren([projects, project, track, file, review, settings]),
   ]),
   context: { queryClient },
