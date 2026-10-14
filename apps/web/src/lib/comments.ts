@@ -1,4 +1,4 @@
-import type { Anchor, CarryStatus } from "@hekate/shared";
+import { type Anchor, type BarMap, type CarryStatus, timeOfBar } from "@hekate/shared";
 import type { Loop } from "./loop";
 import type { Comment, CommentHistory } from "./queries";
 
@@ -7,14 +7,19 @@ export interface Thread {
   replies: Comment[];
 }
 
-/** Where an anchor sits, for ordering: seconds, then bar, then page; whole-file last. */
-function position(anchor: Anchor | null): [number, number] {
+/**
+ * Where an anchor sits, for ordering: by time, a bar where the bar map says it is heard
+ * (by its number without one), then by page; whole-file last.
+ */
+function position(anchor: Anchor | null, bars: BarMap | null): [number, number] {
   if (!anchor) return [1, Number.POSITIVE_INFINITY];
   switch (anchor.kind) {
     case "time":
       return [0, anchor.start];
-    case "bar":
-      return [0, anchor.from.bar * 1000 + anchor.from.beat];
+    case "bar": {
+      const heard = bars ? timeOfBar(bars, anchor.from.bar, anchor.from.beat) : null;
+      return heard !== null ? [0, heard] : [0, anchor.from.bar * 1000 + anchor.from.beat];
+    }
     case "region":
       return [0, anchor.at ?? (anchor.page ?? 0) * 1000 + anchor.y];
   }
@@ -25,7 +30,10 @@ function position(anchor: Anchor | null): [number, number] {
  * comments after them, resolved threads apart, and threads carried here but hidden on
  * this version apart again. Replies stay in the order they were written.
  */
-export function threadsOf(comments: Comment[]): {
+export function threadsOf(
+  comments: Comment[],
+  bars: BarMap | null = null,
+): {
   open: Thread[];
   resolved: Thread[];
   hidden: Thread[];
@@ -41,8 +49,8 @@ export function threadsOf(comments: Comment[]): {
     else threads.set(c.id, { comment: c, replies: [] });
   }
   const ordered = [...threads.values()].sort((a, b) => {
-    const [ga, pa] = position(a.comment.anchor);
-    const [gb, pb] = position(b.comment.anchor);
+    const [ga, pa] = position(a.comment.anchor, bars);
+    const [gb, pb] = position(b.comment.anchor, bars);
     return ga - gb || pa - pb || a.comment.createdAt.localeCompare(b.comment.createdAt);
   });
   const shown = ordered.filter((t) => t.comment.carry?.visible !== false);

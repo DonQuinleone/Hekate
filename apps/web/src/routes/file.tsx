@@ -283,6 +283,7 @@ export function FilePage({
             media={media}
             loop={passage}
             pages={file.streamStatus === "ready" ? pages : undefined}
+            bars={barMap ?? null}
             onBeforeAfter={comparable ? beforeAfter : undefined}
             onLoop={
               allows("loops")

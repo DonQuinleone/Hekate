@@ -22,6 +22,27 @@ const comment = (id: string, extra: Partial<Comment> = {}): Comment => ({
 });
 
 describe("comment threads", () => {
+  it("places a bar where the bar map says it is heard", () => {
+    const bars = {
+      beatsPerBar: 2,
+      points: [
+        [1, 1],
+        [2, 2],
+        [3, 3],
+      ] as [number, number][],
+    };
+    const list = [
+      comment("bar 3", { anchor: { kind: "bar", from: { bar: 3, beat: 1 } } }),
+      comment("at 2.5 s", { anchor: { kind: "time", start: 2.5, end: 2.5 } }),
+      comment("bar 1", { anchor: { kind: "bar", from: { bar: 1, beat: 1 } } }),
+    ];
+    expect(threadsOf(list, bars).open.map((t) => t.comment.id)).toEqual([
+      "bar 1",
+      "at 2.5 s",
+      "bar 3",
+    ]);
+  });
+
   it("orders open threads by where they point, keeps replies, and sets resolved apart", () => {
     const { open, resolved } = threadsOf([
       comment("late", { anchor: { kind: "time", start: 90, end: 90 } }),

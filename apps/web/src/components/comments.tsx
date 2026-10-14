@@ -1,10 +1,14 @@
 import {
   type Anchor,
   anchorShift,
+  type BarMap,
+  barAt,
+  barLabel,
   type CarryStatus,
   carryStatuses,
   carryStatusLabel,
   formatAnchor,
+  timeOfBar,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
@@ -66,6 +70,19 @@ function Target({
       {children}
     </button>
   );
+}
+
+/** A bar anchor as the player reads bars: "Bar 25", "Bar 25.2", "Bars 9–12". */
+function barAnchorLabel(anchor: Extract<Anchor, { kind: "bar" }>): string {
+  if (anchor.to && anchor.to.bar !== anchor.from.bar)
+    return `Bars ${anchor.from.bar}–${anchor.to.bar}`;
+  return barLabel(anchor.from);
+}
+
+/** " · Bar 17.2" after a time, when the recording is synced to its score. */
+function BarOf({ bars, at }: { bars: BarMap; at: number }) {
+  const position = barAt(bars, at);
+  return position ? <span className="text-ink-3"> · {barLabel(position)}</span> : null;
 }
 
 /** What before and after needs: the earlier file, the passage there and here. */
@@ -209,6 +226,7 @@ function ThreadView({
   canTriage,
   marker,
   pages,
+  bars,
 }: {
   thread: Thread;
   /** The file being looked at, which a carried thread was brought to. */
@@ -227,6 +245,8 @@ function ThreadView({
   /** The thread's number on the page, when it points at a region of it. */
   marker?: RegionMarker;
   pages?: PageComments;
+  /** The recording's bar map, to say which bar a moment falls in. */
+  bars?: BarMap | null;
 }) {
   const [replying, setReplying] = useState(false);
   const { comment, replies } = thread;
@@ -267,6 +287,18 @@ function ThreadView({
               aria-label={`Play from ${anchorLabel(anchor)}`}
             >
               {anchorLabel(anchor)}
+              {bars && <BarOf bars={bars} at={anchor.start} />}
+            </button>
+          ) : anchor.kind === "bar" &&
+            bars &&
+            timeOfBar(bars, anchor.from.bar, anchor.from.beat) !== null ? (
+            <button
+              type="button"
+              onClick={() => onSeek(timeOfBar(bars, anchor.from.bar, anchor.from.beat) ?? 0)}
+              className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 font-mono text-[11px] text-ink hover:border-signal"
+              aria-label={`Play from ${barAnchorLabel(anchor).toLowerCase()}`}
+            >
+              {barAnchorLabel(anchor)}
             </button>
           ) : anchor.kind === "region" && pages ? (
             <button
@@ -459,6 +491,7 @@ export function Comments({
   onLoop,
   onBeforeAfter,
   pages,
+  bars = null,
 }: {
   fileId: string;
   /** The file's project, whose role decides who may comment and resolve. */
@@ -473,6 +506,8 @@ export function Comments({
   onBeforeAfter?: (target: BeforeAfter) => void;
   /** On a document or picture: the page shown and the region drawn on it. */
   pages?: PageComments;
+  /** On a recording synced to its score: where each bar begins. */
+  bars?: BarMap | null;
 }) {
   const { data, error } = useQuery(commentsQuery(fileId));
   const { guest } = useViewer();
@@ -486,6 +521,10 @@ export function Comments({
   /** The playhead when writing began; null for a whole-file comment. */
   const [at, setAt] = useState<number | null>(null);
   const [wholeFile, setWholeFile] = useState(false);
+  /** On a recording synced to its score: point at the bar rather than the moment. */
+  const [byBar, setByBar] = useState(false);
+  /** The bar at the captured playhead, when there is a bar map. */
+  const barHere = bars && at !== null ? barAt(bars, at) : null;
   /** With a loop set, new comments point at the looped passage unless told otherwise. */
   const [onPassage, setOnPassage] = useState(true);
   const [showResolved, setShowResolved] = useState(false);
@@ -521,10 +560,12 @@ export function Comments({
     if (!media || wholeFile) return null;
     if (loop && onPassage) return { kind: "time", start: loop.start, end: loop.end };
     const start = at ?? Math.round(media.currentTime * 1000) / 1000;
+    const bar = byBar && bars ? barAt(bars, start) : null;
+    if (bar) return { kind: "bar", from: { bar: bar.bar, beat: Math.floor(bar.beat) } };
     return { kind: "time", start, end: start };
   };
 
-  const threads = data ? threadsOf(data) : { open: [], resolved: [], hidden: [] };
+  const threads = data ? threadsOf(data, bars) : { open: [], resolved: [], hidden: [] };
   const markers = data ? regionMarkers(data) : [];
   const view = (t: Thread) => (
     <ThreadView
@@ -541,6 +582,7 @@ export function Comments({
       canTriage={canTriage}
       marker={markers.find((m) => m.id === t.comment.id)}
       pages={pages}
+      bars={bars}
     />
   );
 
@@ -571,6 +613,7 @@ export function Comments({
               await mutations.create.mutateAsync({ body, anchor: anchorNow() });
               setAt(null);
               setWholeFile(false);
+              setByBar(false);
               // Each document comment starts again from the page shown.
               if (pages) {
                 if (pageAim === "region") pages.onFocus({ draft: null });
@@ -599,21 +642,36 @@ export function Comments({
               <span className="flex items-center gap-1">
                 <button
                   type="button"
-                  aria-pressed={!wholeFile && !(loop && onPassage)}
+                  aria-pressed={!wholeFile && !(loop && onPassage) && !(byBar && barHere)}
                   onClick={() => {
                     setWholeFile(false);
                     setOnPassage(false);
+                    setByBar(false);
                     setAt(Math.round(media.currentTime * 1000) / 1000);
                   }}
                   className={cn(
                     "tabular h-6 cursor-pointer rounded-chip border px-2 font-mono text-[11px]",
-                    !wholeFile && !(loop && onPassage)
+                    !wholeFile && !(loop && onPassage) && !(byBar && barHere)
                       ? "border-edge bg-raised text-ink"
                       : "border-transparent bg-transparent text-ink-3",
                   )}
                 >
                   {at === null ? "At playhead" : anchorLabel({ kind: "time", start: at, end: at })}
                 </button>
+                {barHere && (
+                  // The bar, not the moment: it reads the same in any recording of the score.
+                  <Target
+                    pressed={!wholeFile && !(loop && onPassage) && byBar}
+                    onClick={() => {
+                      setWholeFile(false);
+                      setOnPassage(false);
+                      setByBar(true);
+                    }}
+                    mono
+                  >
+                    {barLabel(barHere)}
+                  </Target>
+                )}
                 {loop && (
                   <button
                     type="button"
@@ -621,6 +679,7 @@ export function Comments({
                     onClick={() => {
                       setWholeFile(false);
                       setOnPassage(true);
+                      setByBar(false);
                     }}
                     className={cn(
                       "tabular h-6 cursor-pointer rounded-chip border px-2 font-mono text-[11px]",
