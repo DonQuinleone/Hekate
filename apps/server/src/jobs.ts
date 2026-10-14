@@ -39,6 +39,15 @@ export const jobDefinitions = {
     options: { retryLimit: 2, expireInSeconds: 30 * 60 },
     schedule: "17 * * * *",
   },
+  /**
+   * Queue alignments still pending a while after their version was made: the queue was
+   * down, or the process stopped, between creating the version and queueing its work.
+   */
+  "alignments-sweep": {
+    data: z.object({}),
+    options: { retryLimit: 1, expireInSeconds: 10 * 60 },
+    schedule: "*/15 * * * *",
+  },
   /** Compare storage with the database: remove what nothing uses, report what is missing. Daily. */
   "storage-reconcile": {
     data: z.object({}),

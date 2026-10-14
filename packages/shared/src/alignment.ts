@@ -41,27 +41,56 @@ export const invertAlignment = (points: AlignmentPoints): AlignmentPoints =>
 
 /**
  * Keep only the pairs that change the line: a run of pairs on one straight line becomes its
- * two ends. `tolerance` is how far, in seconds, a dropped pair may sit from the line.
+ * two ends. `tolerance` is how far, in seconds, a dropped pair may sit from the line. One
+ * pass, in linear time: from the last kept pair, the slopes that still pass within the
+ * tolerance of every pair since narrow to a cone; a pair outside it starts a new segment.
  */
 export function simplifyAlignment(points: AlignmentPoints, tolerance = 0.02): AlignmentPoints {
   if (points.length <= 2) return points;
   const kept: AlignmentPoints = [points[0] as [number, number]];
-  let anchor = 0;
-  for (let i = 2; i < points.length; i++) {
-    const [a0, b0] = points[anchor] as [number, number];
-    const [a1, b1] = points[i] as [number, number];
-    // Every pair since the anchor must lie near the line from the anchor to this one.
-    let straight = true;
-    for (let k = anchor + 1; k < i && straight; k++) {
-      const [a, b] = points[k] as [number, number];
-      const expected = a1 === a0 ? b0 : b0 + ((a - a0) / (a1 - a0)) * (b1 - b0);
-      if (Math.abs(expected - b) > tolerance) straight = false;
+  let [a0, b0] = points[0] as [number, number];
+  let low = Number.NEGATIVE_INFINITY;
+  let high = Number.POSITIVE_INFINITY;
+  for (let i = 1; i < points.length; i++) {
+    const [a, b] = points[i] as [number, number];
+    const da = a - a0;
+    if (da <= 0) continue;
+    const slope = (b - b0) / da;
+    if (slope < low || slope > high) {
+      // This pair is off every line the run allows: the run ends at the pair before.
+      const [pa, pb] = points[i - 1] as [number, number];
+      kept.push([pa, pb]);
+      [a0, b0] = [pa, pb];
+      low = Number.NEGATIVE_INFINITY;
+      high = Number.POSITIVE_INFINITY;
+      const span = a - a0;
+      if (span > 0) {
+        low = (b - tolerance - b0) / span;
+        high = (b + tolerance - b0) / span;
+      }
+      continue;
     }
-    if (!straight) {
-      anchor = i - 1;
-      kept.push(points[anchor] as [number, number]);
-    }
+    low = Math.max(low, (b - tolerance - b0) / da);
+    high = Math.min(high, (b + tolerance - b0) / da);
   }
-  kept.push(points.at(-1) as [number, number]);
+  const last = points.at(-1) as [number, number];
+  if (kept.at(-1) !== last) kept.push(last);
   return kept;
+}
+
+/**
+ * One alignment followed by another: from A to B, then B to C, as one from A to C. The
+ * result bends wherever either did.
+ */
+export function composeAlignments(ab: AlignmentPoints, bc: AlignmentPoints): AlignmentPoints {
+  const ba = invertAlignment(ab);
+  const times = [...ab.map(([a]) => a), ...bc.map(([b]) => mapTime(ba, b))]
+    .filter((t) => t >= 0)
+    .sort((x, y) => x - y);
+  const points: AlignmentPoints = [];
+  for (const t of times) {
+    if (points.length > 0 && t - (points.at(-1) as [number, number])[0] < 1e-6) continue;
+    points.push([t, mapTime(bc, mapTime(ab, t))]);
+  }
+  return simplifyAlignment(points, 0.02);
 }

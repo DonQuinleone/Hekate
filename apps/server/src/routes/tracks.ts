@@ -278,12 +278,13 @@ export const trackRoutes = (db: Database, jobs: Pick<Jobs, "send">) =>
         throw error;
       }
       // Where the music moved between this version and the last, worked out from the audio.
+      // The version is made either way: what the queue misses now, the sweep queues later.
       for (const alignmentId of aligning) {
-        await jobs.send(
-          "media-align",
-          { organisationId, alignmentId },
-          { singletonKey: alignmentId },
-        );
+        await jobs
+          .send("media-align", { organisationId, alignmentId }, { singletonKey: alignmentId })
+          .catch((error: unknown) =>
+            console.warn(`Could not queue alignment ${alignmentId} now: ${String(error)}`),
+          );
       }
       return c.json({ track: await oneTrack(db, organisationId, id) }, 201);
     });

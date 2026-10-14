@@ -187,7 +187,15 @@ export async function remapCarries(
     await tx
       .update(commentCarries)
       .set({ anchor: { kind: "time", start, end }, updatedAt: new Date() })
-      .where(inOrg(commentCarries, organisationId, eq(commentCarries.id, carry.id)));
+      // Placed by hand since it was read: the hand wins.
+      .where(
+        inOrg(
+          commentCarries,
+          organisationId,
+          eq(commentCarries.id, carry.id),
+          eq(commentCarries.anchorPlaced, false),
+        ),
+      );
     moved++;
   }
   return moved;

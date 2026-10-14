@@ -5,13 +5,13 @@ import { pipeline } from "node:stream/promises";
 import { type Database, inOrg, schema, uuidv7 } from "@hekate/db";
 import { encodeLoudness, encodePeaks, type MediaInfo, usableAlignment } from "@hekate/shared";
 import { wrapKey } from "@hekate/storage";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt } from "drizzle-orm";
 import { remapCarries } from "../carry.ts";
 import { type JobHandler, type Jobs, jobDefinitions } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
 import type { Storage } from "../storage.ts";
 import { expireUploads } from "../uploads.ts";
-import { alignAudio, decodeForAlignment } from "./align.ts";
+import { alignInThread } from "./align.ts";
 import { analyseAudio } from "./analysis.ts";
 import { InvalidMediaError, probe } from "./ffmpeg.ts";
 import { type PackagedRendition, packageRendition, planRenditions } from "./proxy.ts";
@@ -371,11 +371,8 @@ export function alignHandler(deps: MediaWorkerDeps): JobHandler<"media-align"> {
           "a",
         );
         const b = await materialise(deps.storage, organisationId, to.blobId, dir, job.signal, "b");
-        const [pa, pb] = await Promise.all([
-          decodeForAlignment(a, job.signal),
-          decodeForAlignment(b, job.signal),
-        ]);
-        return alignAudio(pa, pb);
+        // Off the main thread, so the API keeps answering while the music is matched.
+        return alignInThread(a, b, job.signal);
       });
       await deps.db.transaction(async (tx) => {
         await tx
@@ -396,6 +393,36 @@ export function alignHandler(deps: MediaWorkerDeps): JobHandler<"media-align"> {
       throw error;
     }
   };
+}
+
+/**
+ * Queue every alignment left pending for more than a few minutes. Housekeeping across
+ * organisations, like expiring uploads: each job it queues names its own organisation.
+ * The queue drops a duplicate of one already queued or running.
+ */
+export async function requeueAlignments(
+  db: Database,
+  jobs: Pick<Jobs, "send">,
+  now = new Date(),
+): Promise<number> {
+  const waiting = await db
+    .select({ id: alignments.id, organisationId: alignments.organisationId })
+    .from(alignments)
+    .where(
+      and(
+        eq(alignments.status, "pending"),
+        lt(alignments.updatedAt, new Date(now.getTime() - 5 * 60_000)),
+      ),
+    )
+    .limit(500);
+  for (const a of waiting) {
+    await jobs.send(
+      "media-align",
+      { organisationId: a.organisationId, alignmentId: a.id },
+      { singletonKey: a.id },
+    );
+  }
+  return waiting.length;
 }
 
 /** Hash a blob's content by reading it back through decryption, which also proves it is intact. */
@@ -430,6 +457,10 @@ export async function startWorkers(jobs: Jobs, deps: MediaWorkerDeps, concurrenc
   await jobs.work("blob-checksum", checksumHandler(deps), { concurrency });
   await jobs.work("media-align", alignHandler(deps), {
     concurrency: Math.max(1, Math.floor(concurrency / 2)),
+  });
+  await jobs.work("alignments-sweep", async () => {
+    const queued = await requeueAlignments(deps.db, deps.jobs);
+    if (queued > 0) console.log(`Queued ${queued} alignment(s) that were waiting`);
   });
   await jobs.work("uploads-expire", async () => {
     const aborted = await expireUploads(deps.db, deps.storage);

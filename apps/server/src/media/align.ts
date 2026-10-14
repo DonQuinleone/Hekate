@@ -1,5 +1,6 @@
+import { Worker } from "node:worker_threads";
 import { type AlignmentPoints, simplifyAlignment } from "@hekate/shared";
-import { run, safeInputArgs } from "./ffmpeg.ts";
+import { MediaToolError, run, safeInputArgs } from "./ffmpeg.ts";
 import { Fft } from "./spectrogram.ts";
 
 /**
@@ -103,7 +104,9 @@ export function fingerprints(samples: Float32Array): Float32Array[] {
     logs.push(bands.map((e) => Math.log1p(e * 1e4)));
     if (start + WINDOW >= samples.length) break;
   }
-  const loudest = Math.max(...energies, 0);
+  // A loop, not a spread: hours of frames are more arguments than a call may take.
+  let loudest = 0;
+  for (const e of energies) if (e > loudest) loudest = e;
   const half = Math.SQRT1_2;
   return logs.map((log, t) => {
     const frame = new Float32Array(BANDS * 2);
@@ -340,3 +343,35 @@ export function alignFingerprints(a: Float32Array[], b: Float32Array[]): Alignme
 /** Align two decoded versions. */
 export const alignAudio = (a: Float32Array, b: Float32Array): Alignment =>
   alignFingerprints(fingerprints(a), fingerprints(b));
+
+/** Decode and align two files on a thread of their own; cancelling the signal stops it. */
+export function alignInThread(a: string, b: string, signal: AbortSignal): Promise<Alignment> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL("./align-thread.ts", import.meta.url), {
+      workerData: { a, b },
+    });
+    let settled = false;
+    const finish = (outcome: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      outcome();
+    };
+    const onAbort = () => worker.postMessage("abort");
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+    worker.on(
+      "message",
+      (message: { ok: true; alignment: Alignment } | { ok: false; message: string }) => {
+        finish(() =>
+          message.ok ? resolve(message.alignment) : reject(new MediaToolError(message.message)),
+        );
+        void worker.terminate();
+      },
+    );
+    worker.on("error", (error) => finish(() => reject(error)));
+    worker.on("exit", (code) =>
+      finish(() => reject(new MediaToolError(`The alignment thread stopped (${code})`))),
+    );
+  });
+}
