@@ -2279,6 +2279,15 @@ describe.runIf(url)("api", () => {
           expect((await getAs(url, s.cookie)).status).toBe(404);
           // A member's browser cannot use the guest's link.
           expect((await getAs(url, s.owner)).status).toBe(403);
+          // The log names the review the guest came through.
+          const logged = await audit.query(s.organisationId, {
+            action: "stream.session",
+            limit: 5,
+          });
+          expect(logged.events[0]).toMatchObject({ actorType: "guest", reviewId: s.review.id });
+          // Once the review closes, the link stops working.
+          await app.request(`/api/reviews/${s.review.id}/cancel`, json({}, s.owner));
+          expect((await getAs(url, s.cookie)).status).toBe(403);
         });
 
         it("re-sends and revokes links, and closes access with the review", async () => {

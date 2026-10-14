@@ -36,6 +36,13 @@ export async function issueGuestLink(
 ) {
   const { token, hash } = newToken();
   await db.transaction(async (tx) => {
+    // One issue at a time per guest, so two sends cannot leave two working links.
+    const [guest] = await tx
+      .select({ id: guests.id })
+      .from(guests)
+      .where(inOrg(guests, organisationId, eq(guests.id, guestId)))
+      .for("update");
+    if (!guest) throw new Error("No such guest to send a link to");
     await tx
       .update(guestLinks)
       .set({ revokedAt: now })
@@ -58,12 +65,21 @@ export async function issueGuestLink(
   return token;
 }
 
+type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
 /**
  * Exchange a magic link for a session. The link is spent atomically, so two browsers
  * racing with the same link get one session between them. Null for a link that is
  * unknown, used, revoked or expired: the same answer for each, so nothing can be learnt.
+ * `andThen` runs in the same transaction (to log the sign-in): if it fails, the link
+ * stays unspent.
  */
-export async function useGuestLink(db: Database, token: string, now = new Date()) {
+export async function useGuestLink(
+  db: Database,
+  token: string,
+  andThen: (tx: Tx, session: typeof guestSessions.$inferSelect) => Promise<void> = async () => {},
+  now = new Date(),
+) {
   return db.transaction(async (tx) => {
     const [link] = await tx
       .update(guestLinks)
@@ -90,6 +106,7 @@ export async function useGuestLink(db: Database, token: string, now = new Date()
       })
       .returning();
     if (!row) throw new Error("Guest session insert returned no row");
+    await andThen(tx, row);
     return { session: row, token: session.token };
   });
 }

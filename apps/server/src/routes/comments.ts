@@ -117,32 +117,37 @@ export const fileCommentRoutes = (db: Database, audit: Audit, trustProxy: boolea
         if (problem) throw new HTTPException(422, { message: problem });
       }
 
-      const [created] = await db
-        .insert(comments)
-        .values({
-          organisationId,
-          fileId: file.id,
-          parentId: input.parentId ?? null,
-          authorId: actor.kind === "guest" ? null : actor.userId,
-          guestAuthorId: actor.kind === "guest" ? actor.guestId : null,
-          anchor: input.anchor ?? null,
-          body: input.body,
-        })
-        .returning({ id: comments.id });
-      // Every guest comment is in the access log (docs/security.md).
-      if (actor.kind === "guest") {
-        await audit.record(
-          organisationId,
-          await audit.guest(actor.guestId),
-          {
-            action: "comment.create",
-            projectId: file.projectId,
+      // Every guest comment is in the access log (docs/security.md), written with it.
+      const who = actor.kind === "guest" ? await audit.guest(actor.guestId) : null;
+      const created = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(comments)
+          .values({
+            organisationId,
             fileId: file.id,
-            details: { commentId: created?.id },
-          },
-          requestInfo(c, trustProxy),
-        );
-      }
+            parentId: input.parentId ?? null,
+            authorId: actor.kind === "guest" ? null : actor.userId,
+            guestAuthorId: actor.kind === "guest" ? actor.guestId : null,
+            anchor: input.anchor ?? null,
+            body: input.body,
+          })
+          .returning({ id: comments.id });
+        if (who) {
+          await audit.record(
+            organisationId,
+            who,
+            {
+              action: "comment.create",
+              projectId: file.projectId,
+              fileId: file.id,
+              details: { commentId: row?.id },
+            },
+            requestInfo(c, trustProxy),
+            tx,
+          );
+        }
+        return row;
+      });
       return c.json({ comment: await commentOf(db, organisationId, created?.id ?? "") }, 201);
     });
 

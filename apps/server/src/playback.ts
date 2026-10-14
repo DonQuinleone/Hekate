@@ -12,6 +12,8 @@ export interface PlaybackClaims {
   sessionId: string;
   organisationId: string;
   fileId: string;
+  /** For a guest, the review they came through: every playback event names it. */
+  reviewId?: string;
   /** Unix seconds. */
   expiresAt: number;
 }
@@ -32,6 +34,7 @@ export function signPlayback(secret: Buffer, claims: PlaybackClaims): string {
       s: claims.sessionId,
       o: claims.organisationId,
       f: claims.fileId,
+      ...(claims.reviewId ? { r: claims.reviewId } : {}),
       e: claims.expiresAt,
     }),
   );
@@ -50,7 +53,7 @@ export function verifyPlayback(
   const expected = createHmac("sha256", secret).update(payload).digest();
   const given = Buffer.from(signature, "base64url");
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
-  let raw: { s?: unknown; o?: unknown; f?: unknown; e?: unknown };
+  let raw: { s?: unknown; o?: unknown; f?: unknown; r?: unknown; e?: unknown };
   try {
     raw = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
   } catch {
@@ -60,12 +63,19 @@ export function verifyPlayback(
     typeof raw.s !== "string" ||
     typeof raw.o !== "string" ||
     typeof raw.f !== "string" ||
-    typeof raw.e !== "number"
+    typeof raw.e !== "number" ||
+    (raw.r !== undefined && typeof raw.r !== "string")
   ) {
     return null;
   }
   if (raw.e * 1000 <= now) return null;
-  return { sessionId: raw.s, organisationId: raw.o, fileId: raw.f, expiresAt: raw.e };
+  return {
+    sessionId: raw.s,
+    organisationId: raw.o,
+    fileId: raw.f,
+    ...(typeof raw.r === "string" ? { reviewId: raw.r } : {}),
+    expiresAt: raw.e,
+  };
 }
 
 /**

@@ -57,8 +57,20 @@ export async function guestFileIds(
   db: Pick<Database, "select">,
   guest: GuestActor,
 ): Promise<Set<string>> {
+  return new Set((await guestFileReviews(db, guest)).keys());
+}
+
+/**
+ * For each file a guest may reach, the open reviews that give it to them, newest first:
+ * the access log names the review a guest came through.
+ */
+export async function guestFileReviews(
+  db: Pick<Database, "select">,
+  guest: GuestActor,
+): Promise<Map<string, string[]>> {
   const items = await db
     .select({
+      reviewId: reviews.id,
       fileId: reviewItems.fileId,
       trackId: reviewItems.trackId,
       versionId: reviewItems.versionId,
@@ -73,11 +85,17 @@ export async function guestFileIds(
         eq(reviewReviewers.guestId, guest.guestId),
       ),
     )
-    .where(inOrg(reviewItems, guest.organisationId, eq(reviews.status, "open")));
-  const ids = new Set<string>();
+    .where(inOrg(reviewItems, guest.organisationId, eq(reviews.status, "open")))
+    .orderBy(desc(reviews.createdAt), desc(reviews.id));
+  const ids = new Map<string, string[]>();
+  const add = (fileId: string, reviewId: string) => {
+    const list = ids.get(fileId) ?? [];
+    if (!list.includes(reviewId)) list.push(reviewId);
+    ids.set(fileId, list);
+  };
   for (const item of items) {
     if (item.fileId) {
-      ids.add(item.fileId);
+      add(item.fileId, item.reviewId);
       continue;
     }
     if (!item.trackId) continue;
@@ -98,7 +116,7 @@ export async function guestFileIds(
       .select({ fileId: variations.fileId })
       .from(variations)
       .where(inOrg(variations, guest.organisationId, eq(variations.versionId, version.id)));
-    for (const v of variants) ids.add(v.fileId);
+    for (const v of variants) add(v.fileId, item.reviewId);
   }
   return ids;
 }

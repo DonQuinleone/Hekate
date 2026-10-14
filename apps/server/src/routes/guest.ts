@@ -1,4 +1,4 @@
-import { type Database, schema } from "@hekate/db";
+import { type Database, inOrg, schema } from "@hekate/db";
 import { zValidator } from "@hono/zod-validator";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
@@ -39,7 +39,16 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
       "/sessions",
       zValidator("json", z.object({ token: z.string().min(16).max(128) })),
       async (c) => {
-        const used = await useGuestLink(deps.db, c.req.valid("json").token);
+        // The sign-in is logged in the transaction that spends the link.
+        const used = await useGuestLink(deps.db, c.req.valid("json").token, async (tx, session) => {
+          await deps.audit.record(
+            session.organisationId,
+            await deps.audit.guest(session.guestId),
+            { action: "guest.sign_in" },
+            requestInfo(c, deps.trustProxy),
+            tx,
+          );
+        });
         // One answer for unknown, used, revoked and expired links: nothing to learn from it.
         if (!used) {
           throw new HTTPException(410, {
@@ -49,12 +58,6 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
         }
         const { session, token } = used;
         setGuestCookie(c, token, secure);
-        await deps.audit.record(
-          session.organisationId,
-          await deps.audit.guest(session.guestId),
-          { action: "guest.sign_in" },
-          requestInfo(c, deps.trustProxy),
-        );
         return c.json(
           {
             guest: { id: session.guestId },
@@ -71,7 +74,7 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
       await deps.db
         .update(guestSessions)
         .set({ lastSeenAt: new Date() })
-        .where(eq(guestSessions.id, guest.id));
+        .where(inOrg(guestSessions, guest.organisationId, eq(guestSessions.id, guest.id)));
       return c.json({
         guest: { id: guest.guestId, name: guest.name, email: guest.email, label: guest.label },
         ...(await profile(guest.organisationId, guest.guestId)),
@@ -83,7 +86,7 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
         await deps.db
           .update(guestSessions)
           .set({ revokedAt: new Date() })
-          .where(eq(guestSessions.id, guest.id));
+          .where(inOrg(guestSessions, guest.organisationId, eq(guestSessions.id, guest.id)));
       }
       clearGuestCookie(c);
       return c.body(null, 204);

@@ -6,7 +6,7 @@ import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { type Actor, canOnFile, fileAccess } from "../access.ts";
+import { type Actor, canOnFile, fileAccess, guestFileReviews } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { PlaySessionVariables, ViewerVariables } from "../guests.ts";
@@ -283,16 +283,29 @@ export const fileRoutes = (deps: PlaybackDeps) =>
         .where(inOrg(renditions, organisationId, eq(renditions.fileId, file.id)))
         .orderBy(asc(renditions.bandwidth));
       const expiresAt = Math.floor(Date.now() / 1000) + PLAYBACK_LIFETIME_SECONDS;
+      // A guest plays a file through a review: the newest open one that includes it.
+      const actor = c.var.actor;
+      const reviewId =
+        actor.kind === "guest"
+          ? (await guestFileReviews(deps.db, actor)).get(file.id)?.[0]
+          : undefined;
+      if (actor.kind === "guest" && !reviewId) throw new NotFound("File");
       const token = signPlayback(deps.secret, {
         sessionId: c.var.sessionId,
         organisationId,
         fileId: file.id,
+        ...(reviewId ? { reviewId } : {}),
         expiresAt,
       });
       await deps.audit.record(
         organisationId,
-        await deps.audit.actor(c.var.actor),
-        { action: "stream.session", projectId: file.projectId, fileId: file.id },
+        await deps.audit.actor(actor),
+        {
+          action: "stream.session",
+          projectId: file.projectId,
+          fileId: file.id,
+          ...(reviewId ? { reviewId } : {}),
+        },
         requestInfo(c, deps.trustProxy),
       );
       return c.json(
@@ -328,7 +341,13 @@ export const playRoutes = (deps: PlaybackDeps) => {
     const who = c.var.who;
     let actor: Actor;
     if (who.kind === "guest") {
-      if (who.organisationId !== claims.organisationId) {
+      // Still in the review the link was issued through, and that review still open.
+      const through = (await guestFileReviews(deps.db, who)).get(claims.fileId) ?? [];
+      if (
+        who.organisationId !== claims.organisationId ||
+        !claims.reviewId ||
+        !through.includes(claims.reviewId)
+      ) {
         throw new HTTPException(403, { message: "This playback link is not valid for you" });
       }
       actor = who;
@@ -483,6 +502,7 @@ export const playRoutes = (deps: PlaybackDeps) => {
             action: "stream.segment",
             projectId: row.projectId,
             fileId: claims.fileId,
+            ...(claims.reviewId ? { reviewId: claims.reviewId } : {}),
             details: { rendition: rendition.name, segment: index },
           },
           requestInfo(c, deps.trustProxy),
@@ -512,6 +532,7 @@ export const playRoutes = (deps: PlaybackDeps) => {
         {
           action: "stream.key",
           fileId: claims.fileId,
+          ...(claims.reviewId ? { reviewId: claims.reviewId } : {}),
           ...(file ? { projectId: file.projectId } : {}),
           details: { rendition: rendition.name },
         },
