@@ -591,6 +591,22 @@ describe.runIf(url)("api", () => {
         expect(row?.wrappedKey).toBe(before.wrappedKey);
       });
 
+      it("refuses to start with a corrupted organisation key", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        await storage.put(organisationId, Buffer.from("x"));
+        const [row] = await db.select().from(schema.organisationKeys);
+        const bytes = Buffer.from(row?.wrappedKey ?? "", "base64");
+        bytes[20] = (bytes[20] ?? 0) ^ 1;
+        await db
+          .update(schema.organisationKeys)
+          .set({ wrappedKey: bytes.toString("base64") })
+          .where(sql`id = ${row?.id}`);
+        await expect(
+          createKeyring(db, { current: masterKey, previous: [] }).reconcile(),
+        ).rejects.toThrow(/corrupt/);
+      });
+
       it("gives each organisation its own key", async () => {
         const owner = cookieOf(await setup());
         const organisationId = await organisationOf(owner);

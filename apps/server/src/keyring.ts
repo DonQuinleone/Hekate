@@ -1,6 +1,6 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import { generateKey, keyId, unwrapKey, wrapKey } from "@hekate/storage";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 const { organisationKeys } = schema;
 
@@ -104,16 +104,24 @@ export function createKeyring(db: Database, master: MasterKeys): Keyring {
     },
 
     async reconcile() {
-      // Fails start-up on any key wrapped by an unknown master key: better than failing on first read.
+      // Opens every organisation key, so a key that cannot be unwrapped (unknown master key,
+      // corrupted record) stops start-up instead of surfacing on the first read.
       // Deliberately instance-wide (no organisation condition): master-key rotation is an
       // operator task across every tenant, and it runs only at start-up, never for a request.
-      const stale = await db
-        .select()
-        .from(organisationKeys)
-        .where(ne(organisationKeys.masterKeyId, currentId));
+      const rows = await db.select().from(organisationKeys);
       let rewrapped = 0;
-      for (const row of stale) {
-        const key = unwrapRow(row);
+      for (const row of rows) {
+        let key: Buffer;
+        try {
+          key = unwrapRow(row);
+        } catch (error) {
+          if (error instanceof UnknownMasterKeyError) throw error;
+          throw new UnknownMasterKeyError(
+            `Organisation ${row.organisationId} key v${row.version} cannot be unwrapped with master key ${row.masterKeyId}: the record is corrupt or the key is wrong. Restore it from a backup.`,
+          );
+        }
+        remember(row.organisationId, row.version, key);
+        if (row.masterKeyId === currentId) continue;
         await db
           .update(organisationKeys)
           .set({
