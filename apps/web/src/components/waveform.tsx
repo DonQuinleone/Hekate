@@ -8,7 +8,14 @@ import { peakLevelQuery, peaksQuery } from "~/lib/queries";
 export type WaveformView = "channels" | "combined";
 
 /** Total height of the waveform, shared between channels. */
-const HEIGHT = 168;
+export const WAVEFORM_HEIGHT = 168;
+const HEIGHT = WAVEFORM_HEIGHT;
+
+/** A token colour with transparency, for a waveform drawn over a spectrogram. */
+const translucent = (hex: string, alpha: number) => {
+  const value = Number.parseInt(hex.replace("#", "").slice(0, 6), 16);
+  return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
+};
 
 /** Per channel, the peaks as wavesurfer draws them: min and max alternating, from −1 to 1. */
 export function toChannelArrays(level: PeakLevel): Float32Array[] {
@@ -38,12 +45,15 @@ export function Waveform({
   duration,
   layout,
   view,
+  overlay = false,
 }: {
   fileId: string;
   media: HTMLMediaElement;
   duration: number;
   layout?: string;
   view: WaveformView;
+  /** Drawn see-through, over a spectrogram. */
+  overlay?: boolean;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -83,11 +93,17 @@ export function Waveform({
       if (cancelled) return;
       const rowHeight = Math.floor(HEIGHT / shown.channels);
       // Played audio reads brighter; the signal colour is kept for the playhead alone.
-      const style = {
-        waveColor: token("--hk-edge"),
-        progressColor: token("--hk-ink-3"),
-        height: rowHeight,
-      };
+      const style = overlay
+        ? {
+            waveColor: translucent(token("--hk-ink"), 0.28),
+            progressColor: translucent(token("--hk-ink"), 0.5),
+            height: rowHeight,
+          }
+        : {
+            waveColor: token("--hk-edge"),
+            progressColor: token("--hk-ink-3"),
+            height: rowHeight,
+          };
       instance = WaveSurfer.create({
         container: element,
         media,
@@ -100,12 +116,16 @@ export function Waveform({
         dragToSeek: true,
         splitChannels: Array.from({ length: shown.channels }, () => style),
       });
+      // A waveform drawn while paused (a new view, or the overlay) starts at the playhead.
+      instance.once("redrawcomplete", () => {
+        if (media.currentTime > 0) instance?.setTime(media.currentTime);
+      });
     });
     return () => {
       cancelled = true;
       instance?.destroy();
     };
-  }, [shown, media, duration]);
+  }, [shown, media, duration, overlay]);
 
   // Nothing to wait for: no peaks are coming for this file.
   if (index && index.status !== "pending" && index.status !== "ready") return null;
@@ -114,7 +134,7 @@ export function Waveform({
     <div className="relative">
       <div
         ref={container}
-        className={cn("w-full", !shown && "animate-pulse rounded-control bg-raised")}
+        className={cn("w-full", !shown && !overlay && "animate-pulse rounded-control bg-raised")}
         style={{ height: HEIGHT }}
         aria-label="Waveform"
         role="img"

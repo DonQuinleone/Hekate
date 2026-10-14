@@ -26,6 +26,7 @@ const {
   users,
   peakLevels,
   loudness,
+  spectrograms,
   variations,
   versions,
   tracks,
@@ -179,6 +180,58 @@ export const fileRoutes = (deps: PlaybackDeps) =>
         },
       });
     })
+    // Spectrograms: band levels over time, from which no audio can be rebuilt (like peaks).
+    .get("/:id/spectrograms", fileParam, async (c) => {
+      const organisationId = c.var.organisationId;
+      const [file] = await deps.db
+        .select({ id: files.id, analysisStatus: files.analysisStatus })
+        .from(files)
+        .where(inOrg(files, organisationId, eq(files.id, c.req.valid("param").id)));
+      if (!file) throw new NotFound("File");
+      const rows = await deps.db
+        .select({
+          id: spectrograms.id,
+          channel: spectrograms.channel,
+          fftSize: spectrograms.fftSize,
+          sampleRate: spectrograms.sampleRate,
+          samplesPerColumn: spectrograms.samplesPerColumn,
+          columns: spectrograms.columnCount,
+          bands: spectrograms.bandCount,
+        })
+        .from(spectrograms)
+        .where(inOrg(spectrograms, organisationId, eq(spectrograms.fileId, file.id)));
+      return c.json({ status: file.analysisStatus, spectrograms: rows }, 200, {
+        "cache-control": "no-store",
+      });
+    })
+    .get(
+      "/:id/spectrograms/:spectrogramId",
+      zValidator("param", z.object({ id: z.uuid(), spectrogramId: z.uuid() })),
+      async (c) => {
+        const { id, spectrogramId } = c.req.valid("param");
+        const organisationId = c.var.organisationId;
+        const [row] = await deps.db
+          .select({ blobId: spectrograms.blobId })
+          .from(spectrograms)
+          .where(
+            inOrg(
+              spectrograms,
+              organisationId,
+              eq(spectrograms.id, spectrogramId),
+              eq(spectrograms.fileId, id),
+            ),
+          );
+        if (!row) throw new NotFound("Spectrogram");
+        const { blob, stream } = await deps.storage.open(organisationId, row.blobId);
+        return new Response(stream as unknown as ReadableStream, {
+          headers: {
+            ...PRIVATE,
+            "content-type": "application/octet-stream",
+            "content-length": String(blob.byteSize),
+          },
+        });
+      },
+    )
     .post("/:id/playback", fileParam, async (c) => {
       const { id } = c.req.valid("param");
       const organisationId = c.var.organisationId;

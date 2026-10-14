@@ -43,6 +43,7 @@ describe("tenancy", () => {
       "rendition_segments",
       "renditions",
       "sessions",
+      "spectrograms",
       "takes",
       "tracks",
       "upload_parts",

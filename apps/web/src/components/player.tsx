@@ -4,8 +4,19 @@ import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "re
 import { cn } from "~/lib/cn";
 import type { Playback, Rendition } from "~/lib/queries";
 import { Icon } from "./icons";
+import { Spectrogram, type SpectrogramChannelChoice } from "./spectrogram";
+import { SpectrogramSettings, useSpectrogramView } from "./spectrogram-settings";
 import { Button } from "./ui/button";
-import { Waveform, type WaveformView } from "./waveform";
+import { WAVEFORM_HEIGHT, Waveform, type WaveformView } from "./waveform";
+
+/** How the audio is drawn above the transport. */
+type Display = "waveform" | "spectrogram" | "both" | "overlay";
+const displayNames: Record<Display, string> = {
+  waveform: "Waveform",
+  spectrogram: "Spectrogram",
+  both: "Both",
+  overlay: "Overlay",
+};
 
 /** What a reviewer chooses between, in plain words. */
 export function renditionLabel(rendition: Rendition, info: MediaInfo | null): string {
@@ -117,6 +128,12 @@ export function Player({
   const [element, setElement] = useState<HTMLMediaElement | null>(null);
   const [view, setView] = useState<WaveformView>("channels");
   const channels = info?.audio?.channels ?? 0;
+  const [display, setDisplay] = useState<Display>("waveform");
+  const [spectrum, setSpectrum] = useSpectrogramView();
+  const [spectrumChannel, setSpectrumChannel] = useState<SpectrogramChannelChoice>(
+    channels > 1 ? "each" : "0",
+  );
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     const element = media.current;
@@ -282,7 +299,7 @@ export function Player({
         </div>
       ) : (
         <div className="flex flex-col gap-3 px-4 py-4">
-          {kind === "audio" && element && (
+          {kind === "audio" && element && (display === "waveform" || display === "both") && (
             <Waveform
               fileId={fileId}
               media={element}
@@ -290,6 +307,44 @@ export function Player({
               layout={info?.audio?.channelLayout}
               view={view}
             />
+          )}
+          {kind === "audio" && element && (display === "spectrogram" || display === "both") && (
+            <Spectrogram
+              fileId={fileId}
+              media={element}
+              duration={duration}
+              layout={info?.audio?.channelLayout}
+              channel={spectrumChannel}
+              view={spectrum}
+              height={WAVEFORM_HEIGHT}
+            />
+          )}
+          {kind === "audio" && element && display === "overlay" && (
+            // The waveform, drawn see-through, sits on the spectrogram and keeps the playhead.
+            <div className="relative">
+              <div className="absolute inset-0">
+                <Spectrogram
+                  fileId={fileId}
+                  media={element}
+                  duration={duration}
+                  layout={info?.audio?.channelLayout}
+                  // Row for row under the waveform: each channel, or the mid under the combined view.
+                  channel={channels > 1 && view === "combined" ? "mid" : "each"}
+                  view={spectrum}
+                  height={WAVEFORM_HEIGHT}
+                  playhead={false}
+                  labels={false}
+                />
+              </div>
+              <Waveform
+                fileId={fileId}
+                media={element}
+                duration={duration}
+                layout={info?.audio?.channelLayout}
+                view={view}
+                overlay
+              />
+            </div>
           )}
           <div className="relative h-4">
             <div className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-hairline" />
@@ -352,7 +407,27 @@ export function Player({
             >
               <Icon name={muted ? "mute" : "volume"} size={14} />
             </Button>
-            {kind === "audio" && channels > 1 && (
+            {kind === "audio" && (
+              <fieldset className="m-0 flex min-w-0 flex-wrap items-center gap-1 border-0 p-0">
+                <legend className="sr-only">Display</legend>
+                {(Object.keys(displayNames) as Display[]).map((d) => (
+                  <ChoiceButton key={d} selected={display === d} onSelect={() => setDisplay(d)}>
+                    {displayNames[d]}
+                  </ChoiceButton>
+                ))}
+                {display !== "waveform" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-expanded={settingsOpen}
+                    onClick={() => setSettingsOpen((open) => !open)}
+                  >
+                    Settings
+                  </Button>
+                )}
+              </fieldset>
+            )}
+            {kind === "audio" && channels > 1 && display !== "spectrogram" && (
               <fieldset className="m-0 flex min-w-0 items-center gap-1 border-0 p-0">
                 <legend className="sr-only">Waveform</legend>
                 <ChoiceButton selected={view === "channels"} onSelect={() => setView("channels")}>
@@ -388,6 +463,17 @@ export function Player({
               </fieldset>
             )}
           </div>
+          {kind === "audio" && display !== "waveform" && settingsOpen && (
+            <SpectrogramSettings
+              view={spectrum}
+              onView={setSpectrum}
+              channel={spectrumChannel}
+              onChannel={setSpectrumChannel}
+              channels={channels}
+              layout={info?.audio?.channelLayout}
+              sampleRate={info?.audio?.sampleRate ?? 48_000}
+            />
+          )}
         </div>
       )}
     </section>

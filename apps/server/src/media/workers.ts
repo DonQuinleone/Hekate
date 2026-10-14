@@ -13,9 +13,11 @@ import { expireUploads } from "../uploads.ts";
 import { analyseAudio } from "./analysis.ts";
 import { InvalidMediaError, probe } from "./ffmpeg.ts";
 import { type PackagedRendition, packageRendition, planRenditions } from "./proxy.ts";
+import { spectrogramsInThread } from "./spectrogram.ts";
+import { together } from "./together.ts";
 import { sweepWorkspaces, withWorkspace } from "./workspace.ts";
 
-const { files, blobs, renditions, renditionSegments, peakLevels, loudness } = schema;
+const { files, blobs, renditions, renditionSegments, peakLevels, loudness, spectrograms } = schema;
 
 export interface MediaWorkerDeps {
   db: Database;
@@ -218,8 +220,9 @@ export function proxyHandler(deps: MediaWorkerDeps): JobHandler<"media-proxy"> {
 }
 
 /**
- * Analyse a file's audio in one decode, every channel as recorded: waveform peaks at each
- * zoom level, and loudness and levels over time, each stored as an encrypted blob.
+ * Analyse a file's audio, every channel as recorded: waveform peaks at each zoom level,
+ * loudness and levels over time, and a spectrogram per channel (and the mid and side of
+ * the front pair), each stored as an encrypted blob.
  * Idempotent: a file already analysed is left alone.
  */
 export function analysisHandler(deps: MediaWorkerDeps): JobHandler<"media-analysis"> {
@@ -246,9 +249,13 @@ export function analysisHandler(deps: MediaWorkerDeps): JobHandler<"media-analys
       return blob.id;
     };
     try {
-      const analysis = await withWorkspace(deps.workDir, async (dir) => {
+      const [analysis, spectra] = await withWorkspace(deps.workDir, async (dir) => {
         const input = await materialise(deps.storage, organisationId, file.blobId, dir, job.signal);
-        return analyseAudio(input, audio, dir, job.signal);
+        // Two decodes side by side, the spectrograms on their own thread.
+        return together(job.signal, [
+          (signal) => analyseAudio(input, audio, dir, signal),
+          (signal) => spectrogramsInThread(input, audio, file.mediaInfo?.duration, signal),
+        ] as const);
       });
       const rows: (typeof peakLevels.$inferInsert)[] = [];
       for (const level of analysis.levels) {
@@ -264,6 +271,20 @@ export function analysisHandler(deps: MediaWorkerDeps): JobHandler<"media-analys
       }
       const { series, summary } = analysis.loudness;
       const seriesBlobId = await store(encodeLoudness(series));
+      const spectrumRows: (typeof spectrograms.$inferInsert)[] = [];
+      for (const spectrum of spectra) {
+        spectrumRows.push({
+          organisationId,
+          fileId,
+          channel: spectrum.channel,
+          fftSize: spectrum.fftSize,
+          sampleRate: audio.sampleRate,
+          samplesPerColumn: spectrum.samplesPerColumn,
+          columnCount: spectrum.columns,
+          bandCount: spectrum.bands,
+          blobId: await store(spectrum.bytes),
+        });
+      }
       await deps.db.transaction(async (tx) => {
         await tx.insert(peakLevels).values(rows);
         await tx.insert(loudness).values({
@@ -276,6 +297,7 @@ export function analysisHandler(deps: MediaWorkerDeps): JobHandler<"media-analys
           frameCount: series.count,
           blobId: seriesBlobId,
         });
+        await tx.insert(spectrograms).values(spectrumRows);
         await tx
           .update(files)
           .set({ analysisStatus: "ready" })
