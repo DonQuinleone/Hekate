@@ -51,15 +51,24 @@ const failureCopy: Record<Failure, string> = {
   failed: "Playback stopped because the stream could not be loaded.",
 };
 
+/** About half of the smallest audio buffer a browser gives (Chrome's is about 12 MB). */
+const AUDIO_BUFFER_BYTES = 6_000_000;
+
 /**
- * Browsers give audio-only streams a small buffer (Chrome about 12 MB), which a few segments
- * of high-resolution surround overflow. Read ahead only as far as about 6 MB of the heaviest
- * rendition allows, between 6 and 30 seconds, and let played audio go.
+ * Browsers give audio-only streams a small buffer, which a few segments of high-resolution
+ * surround overflow. hls.js reads ahead by bytes and by seconds, so bound both: about 6 MB
+ * of the heaviest rendition, between 6 and 30 seconds. Streams too heavy for 30 seconds
+ * also let played audio go at once, so nothing behind the playhead takes the space.
  */
 export function audioBuffer(renditions: Rendition[]) {
   const peak = Math.max(1, ...renditions.map((r) => r.bandwidth));
-  const seconds = Math.min(30, Math.max(6, Math.floor(48_000_000 / peak)));
-  return { maxBufferLength: seconds, maxMaxBufferLength: seconds * 2, backBufferLength: 10 };
+  const seconds = Math.min(30, Math.max(6, Math.floor((AUDIO_BUFFER_BYTES * 8) / peak)));
+  return {
+    maxBufferSize: AUDIO_BUFFER_BYTES,
+    maxBufferLength: seconds,
+    maxMaxBufferLength: seconds,
+    backBufferLength: seconds < 30 ? 0 : 10,
+  };
 }
 
 /**
@@ -88,6 +97,10 @@ export function Player({
   const [duration, setDuration] = useState(info?.duration ?? 0);
   const [buffered, setBuffered] = useState(0);
   const [muted, setMuted] = useState(false);
+  /** A source is attached, so play can start. */
+  const [ready, setReady] = useState(false);
+  /** Safari on iOS plays the stream itself, so its errors come from the element, not hls.js. */
+  const native = useRef(false);
 
   useEffect(() => {
     const element = media.current;
@@ -95,48 +108,59 @@ export function Player({
     let cancelled = false;
     setFailure(null);
     setChoices([]);
-    void import("hls.js").then(({ default: Hls }) => {
-      if (cancelled) return;
-      if (!Hls.isSupported()) {
-        // Safari on iOS has no Media Source Extensions but plays AES-128 HLS natively.
-        if (element.canPlayType("application/vnd.apple.mpegurl")) element.src = playback.url;
-        else setFailure("unsupported");
-        return;
-      }
-      const instance = new Hls({
-        enableWorker: true,
-        startFragPrefetch: true,
-        ...(kind === "audio" ? audioBuffer(playback.renditions) : {}),
-      });
-      hls.current = instance;
-      instance.on(Hls.Events.MANIFEST_PARSED, () => {
-        // The browser drops renditions it cannot decode; offer what is left.
-        const found: Choice[] = [];
-        instance.levels.forEach((l, index) => {
-          const rendition = playback.renditions.find((r) => l.uri.includes(`/r/${r.id}/`));
-          if (rendition) found.push({ rendition, level: index });
-        });
-        setChoices(found);
-        if (kind === "audio") {
-          const preferred = preferredRendition(found.map((c) => c.rendition));
-          const choice = found.find((c) => c.rendition === preferred);
-          if (choice) {
-            instance.currentLevel = choice.level;
-            setLevel(choice.level);
-          }
+    setReady(false);
+    native.current = false;
+    import("hls.js")
+      .then(({ default: Hls }) => {
+        if (cancelled) return;
+        if (!Hls.isSupported()) {
+          // Safari on iOS has no Media Source Extensions but plays AES-128 HLS natively.
+          if (element.canPlayType("application/vnd.apple.mpegurl")) {
+            native.current = true;
+            element.src = playback.url;
+            setReady(true);
+          } else setFailure("unsupported");
+          return;
         }
+        const instance = new Hls({
+          enableWorker: true,
+          startFragPrefetch: true,
+          ...(kind === "audio" ? audioBuffer(playback.renditions) : {}),
+        });
+        hls.current = instance;
+        instance.on(Hls.Events.MANIFEST_PARSED, () => {
+          // The browser drops renditions it cannot decode; offer what is left.
+          const found: Choice[] = [];
+          instance.levels.forEach((l, index) => {
+            const rendition = playback.renditions.find((r) => l.uri.includes(`/r/${r.id}/`));
+            if (rendition) found.push({ rendition, level: index });
+          });
+          setChoices(found);
+          setReady(true);
+          if (kind === "audio") {
+            const preferred = preferredRendition(found.map((c) => c.rendition));
+            const choice = found.find((c) => c.rendition === preferred);
+            if (choice) {
+              instance.currentLevel = choice.level;
+              setLevel(choice.level);
+            }
+          }
+        });
+        instance.on(Hls.Events.ERROR, (_event, data) => {
+          if (!data.fatal) return;
+          if (data.details === Hls.ErrorDetails.MANIFEST_INCOMPATIBLE_CODECS_ERROR)
+            setFailure("codecs");
+          else if (data.response?.code === 403) setFailure("expired");
+          else setFailure("failed");
+          instance.destroy();
+        });
+        instance.loadSource(playback.url);
+        instance.attachMedia(element);
+      })
+      // The player's code could not be fetched (a dropped connection, or a new release).
+      .catch(() => {
+        if (!cancelled) setFailure("failed");
       });
-      instance.on(Hls.Events.ERROR, (_event, data) => {
-        if (!data.fatal) return;
-        if (data.details === Hls.ErrorDetails.MANIFEST_INCOMPATIBLE_CODECS_ERROR)
-          setFailure("codecs");
-        else if (data.response?.code === 403) setFailure("expired");
-        else setFailure("failed");
-        instance.destroy();
-      });
-      instance.loadSource(playback.url);
-      instance.attachMedia(element);
-    });
     return () => {
       cancelled = true;
       hls.current?.destroy();
@@ -155,8 +179,15 @@ export function Player({
   const toggle = useCallback(() => {
     const element = media.current;
     if (!element) return;
-    if (element.paused) void element.play();
-    else element.pause();
+    if (!element.paused) {
+      element.pause();
+      return;
+    }
+    element.play().catch((error: unknown) => {
+      // A pause or a new source interrupting play is not a failure.
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setFailure("failed");
+    });
   }, []);
 
   const seekBy = (seconds: number) => {
@@ -194,6 +225,10 @@ export function Player({
         setBuffered(element.buffered.end(element.buffered.length - 1));
     },
     onVolumeChange: () => setMuted(media.current?.muted ?? false),
+    onError: () => {
+      // hls.js reports and recovers its own errors; only the native player needs this.
+      if (native.current) setFailure("failed");
+    },
   };
 
   const share = (value: number) => (duration > 0 ? Math.min(100, (value / duration) * 100) : 0);
@@ -262,6 +297,7 @@ export function Player({
               size="icon"
               className="h-8 w-8"
               aria-label={playing ? "Pause" : "Play"}
+              disabled={!ready}
               onClick={toggle}
             >
               <Icon name={playing ? "pause" : "play"} size={14} />

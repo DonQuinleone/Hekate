@@ -43,10 +43,18 @@ describe("player", () => {
   });
 
   it("reads ahead less on heavy audio, to stay inside the browser's buffer", () => {
-    // 96 kHz, 24-bit, 5.1 lossless.
-    expect(audioBuffer([rendition("flac", { bandwidth: 13_824_000 })]).maxBufferLength).toBe(6);
+    // 96 kHz, 24-bit, 5.1 lossless: the least read-ahead, a byte cap, nothing kept behind.
+    expect(audioBuffer([rendition("flac", { bandwidth: 13_824_000 })])).toEqual({
+      maxBufferSize: 6_000_000,
+      maxBufferLength: 6,
+      maxMaxBufferLength: 6,
+      backBufferLength: 0,
+    });
     // 48 kHz, 24-bit stereo lossless.
     expect(audioBuffer([rendition("flac", { bandwidth: 2_304_000 })]).maxBufferLength).toBe(20);
-    expect(audioBuffer([rendition("aac-256", { bandwidth: 300_000 })]).maxBufferLength).toBe(30);
+    expect(audioBuffer([rendition("aac-256", { bandwidth: 300_000 })])).toMatchObject({
+      maxBufferLength: 30,
+      backBufferLength: 10,
+    });
   });
 });
