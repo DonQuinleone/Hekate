@@ -4,8 +4,10 @@ import { serve } from "@hono/node-server";
 import { createApp } from "./app.ts";
 import { createAuth } from "./auth.ts";
 import { loadConfig } from "./config.ts";
+import { createJobs } from "./jobs.ts";
 import { createKeyring, UnknownMasterKeyError } from "./keyring.ts";
 import { createMailer } from "./mail.ts";
+import { startMediaWorkers } from "./media/workers.ts";
 import { serveWeb } from "./static.ts";
 import { createStorage } from "./storage.ts";
 import { version } from "./version.ts";
@@ -61,6 +63,17 @@ try {
   process.exit(1);
 }
 const storage = createStorage(db, backends, keyring);
+
+const jobs = createJobs({ connectionString: config.DATABASE_URL });
+await jobs.start();
+if (config.WORKER) {
+  await startMediaWorkers(
+    jobs,
+    { db, storage, ...(config.WORK_DIR ? { workDir: config.WORK_DIR } : {}) },
+    config.WORKER_CONCURRENCY,
+  );
+}
+
 const app = createApp({ db, auth, mailer, storage, publicUrl: config.PUBLIC_URL });
 if (config.WEB_DIST) serveWeb(app, config.WEB_DIST);
 
@@ -68,9 +81,17 @@ const server = serve({ fetch: app.fetch, port: config.PORT }, (info) => {
   console.log(`Hekate ${version} listening on :${info.port}`);
 });
 
+let stopping = false;
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
+    if (stopping) return;
+    stopping = true;
     server.close();
-    void close().then(() => process.exit(0));
+    // Let running jobs finish (or give up at the timeout) before closing the database.
+    void jobs
+      .stop()
+      .catch((error: unknown) => console.error("Stopping the job queue failed:", error))
+      .then(() => close())
+      .then(() => process.exit(0));
   });
 }
