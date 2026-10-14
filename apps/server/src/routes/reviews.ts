@@ -88,8 +88,13 @@ async function reviewersOf(db: Database | Tx, organisationId: string, reviewId: 
       startedAt: reviewReviewers.startedAt,
       submittedAt: reviewReviewers.submittedAt,
       permissions: reviewReviewers.permissions,
+      kind: reviews.kind,
     })
     .from(reviewReviewers)
+    .innerJoin(
+      reviews,
+      and(eq(reviews.id, reviewReviewers.reviewId), eq(reviews.organisationId, organisationId)),
+    )
     .leftJoin(users, eq(users.id, reviewReviewers.userId))
     .leftJoin(
       guests,
@@ -125,6 +130,8 @@ async function reviewersOf(db: Database | Tx, organisationId: string, reviewId: 
     decision: latest.get(r.id) ?? null,
     viewed: r.viewedAt !== null,
     started: r.startedAt !== null,
+    // An approval that asks them for no decision goes on without them.
+    observer: r.kind === "approval" && !r.permissions.decide,
   }));
   return { rows, decisions, facts };
 }
@@ -967,7 +974,7 @@ export const reviewRoutes = (deps: ReviewDeps) =>
       async (c) => {
         const actor = memberOnly(c.var.actor);
         const { id, reviewerId } = c.req.valid("param");
-        await deps.db.transaction(async (tx) => {
+        const changed = await deps.db.transaction(async (tx) => {
           const { review } = await lockReview(tx, actor, id);
           await can(tx, actor, "manage_reviewers", review.projectId);
           if (review.status !== "open") {
@@ -991,13 +998,37 @@ export const reviewRoutes = (deps: ReviewDeps) =>
               message: next.error.issues[0]?.message ?? "Those permissions do not fit together",
             });
           }
+          const before = activeReviewers(
+            review.order,
+            (await reviewersOf(tx, actor.organisationId, review.id)).facts,
+          );
           await tx
             .update(reviewReviewers)
             .set({ permissions: next.data, updatedAt: new Date() })
             .where(
               inOrg(reviewReviewers, actor.organisationId, eq(reviewReviewers.id, reviewer.id)),
             );
+          // Taking a decision away can let the order move on, or settle the review.
+          const settled = await settle(tx, review);
+          const after = await reviewersOf(tx, actor.organisationId, review.id);
+          return {
+            review: settled,
+            next:
+              settled.status === "open"
+                ? after.rows.filter((r) =>
+                    newlyActive(before, activeReviewers(review.order, after.facts)).includes(r.id),
+                  )
+                : [],
+          };
         });
+        if (changed.next.length > 0) {
+          await notify(
+            deps,
+            changed.next,
+            changed.review,
+            `It is your turn to ${ask(changed.review)}.`,
+          );
+        }
         return c.json({ review: await reviewView(deps.db, actor, id) });
       },
     )

@@ -35,6 +35,7 @@ const off = "border-transparent bg-transparent text-ink-3 hover:text-ink";
 export function ReviewerPermissionsEditor({
   name,
   kind,
+  guest,
   initial,
   pending,
   error,
@@ -43,6 +44,8 @@ export function ReviewerPermissionsEditor({
 }: {
   name: string;
   kind: "approval" | "feedback";
+  /** A guest gets exactly this; a member's comments and tools follow their project role. */
+  guest: boolean;
   initial: ReviewerPermissions;
   pending: boolean;
   error: string | null;
@@ -75,28 +78,32 @@ export function ReviewerPermissionsEditor({
       aria-label={`What ${name} may do`}
       className="mt-1 flex flex-col gap-4 rounded-panel border border-hairline bg-surface p-4"
     >
-      <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
-        <legend className="label mb-2">Comments they see</legend>
-        <div className="flex flex-wrap gap-1">
-          {scopes.map((s) => (
-            <button
-              key={s.value}
-              type="button"
-              aria-pressed={p.comments === s.value}
-              onClick={() => setP({ ...p, comments: s.value })}
-              className={cn(chip, p.comments === s.value ? on : off)}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-      </fieldset>
+      {guest && (
+        <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
+          <legend className="label mb-2">Comments they see</legend>
+          <div className="flex flex-wrap gap-1">
+            {scopes.map((s) => (
+              <button
+                key={s.value}
+                type="button"
+                aria-pressed={p.comments === s.value}
+                onClick={() => setP({ ...p, comments: s.value })}
+                className={cn(chip, p.comments === s.value ? on : off)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+      )}
       <div className="flex max-w-72 flex-col gap-2.5">
-        <Toggle
-          label="Comment"
-          checked={p.comment}
-          onChange={(comment) => setP({ ...p, comment })}
-        />
+        {guest && (
+          <Toggle
+            label="Comment"
+            checked={p.comment}
+            onChange={(comment) => setP({ ...p, comment })}
+          />
+        )}
         {kind === "approval" && (
           <Toggle
             label="Record a decision"
@@ -105,22 +112,24 @@ export function ReviewerPermissionsEditor({
           />
         )}
       </div>
-      <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
-        <legend className="label mb-2">Tools</legend>
-        <div className="flex flex-wrap gap-1">
-          {reviewerTools.map((t) => (
-            <button
-              key={t}
-              type="button"
-              aria-pressed={p.tools.includes(t)}
-              onClick={() => toggleTool(t)}
-              className={cn(chip, p.tools.includes(t) ? on : off)}
-            >
-              {toolLabels[t]}
-            </button>
-          ))}
-        </div>
-      </fieldset>
+      {guest && (
+        <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
+          <legend className="label mb-2">Tools</legend>
+          <div className="flex flex-wrap gap-1">
+            {reviewerTools.map((t) => (
+              <button
+                key={t}
+                type="button"
+                aria-pressed={p.tools.includes(t)}
+                onClick={() => toggleTool(t)}
+                className={cn(chip, p.tools.includes(t) ? on : off)}
+              >
+                {toolLabels[t]}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+      )}
       <fieldset className="m-0 grid grid-cols-1 gap-3 border-0 p-0 sm:grid-cols-2">
         <legend className="label mb-2">Access</legend>
         <span className="flex flex-col gap-1">
@@ -147,8 +156,8 @@ export function ReviewerPermissionsEditor({
         </span>
       </fieldset>
       <p className="m-0 text-xs text-ink-3">
-        Left empty, access runs from now until the review ends. A member's project role still
-        applies on top.
+        Left empty, access runs from now until the review ends.
+        {guest ? "" : " Their comments and tools follow their role in the project."}
       </p>
       {error && <p className="m-0 text-xs text-signal">{error}</p>}
       <div className="flex justify-end gap-2">

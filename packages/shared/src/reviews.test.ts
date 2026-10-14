@@ -23,6 +23,25 @@ const approved = { submitted: true, decision: "approved" as const };
 const changes = { submitted: true, decision: "changes_requested" as const };
 
 describe("who acts", () => {
+  it("lets an approval go on without those asked for no decision", () => {
+    const people = [
+      reviewer("observer", { observer: true }),
+      reviewer("composer", approved),
+      reviewer("soloist"),
+    ];
+    expect([...activeReviewers("sequence", people)]).toEqual(["soloist"]);
+    expect(reviewerState("sequence", people, people[0] as ReviewerFacts)).toBe("observing");
+    expect(reviewOutcome("approval", "all", people)).toBeNull();
+    const done = [
+      people[0] as ReviewerFacts,
+      people[1] as ReviewerFacts,
+      reviewer("soloist", approved),
+    ];
+    expect(reviewOutcome("approval", "all", done)).toBe("approved");
+    // With nobody left to decide, nothing settles it.
+    expect(reviewOutcome("approval", "all", [reviewer("x", { observer: true })])).toBeNull();
+  });
+
   it("asks everyone at once, or one after another", () => {
     const people = [reviewer("composer", approved), reviewer("accompanist"), reviewer("soloist")];
     expect([...activeReviewers("parallel", people)]).toEqual(["accompanist", "soloist"]);

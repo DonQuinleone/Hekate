@@ -2396,6 +2396,31 @@ describe.runIf(url)("api", () => {
             ).status,
           ).toBe(403);
 
+          // Asked for no decision, they follow along: the approval goes on without them.
+          const inTurn = await reviewOf(
+            await request(s.owner, s.projectId, {
+              kind: "approval",
+              order: "sequence",
+              title: "Final mix",
+              items: [{ trackId: s.trackId }],
+              reviewers: [s.ids.composer, s.ids.accompanist],
+            }),
+          );
+          expect(inTurn.reviewers.map((r) => r.state)).toEqual(["invited", "waiting"]);
+          const first = inTurn.reviewers[0]?.id;
+          const moved = await reviewOf(
+            await patch(s.owner, { decide: false }, `/api/reviews/${inTurn.id}/reviewers/${first}`),
+          );
+          expect(moved.reviewers.map((r) => r.state)).toEqual(["observing", "invited"]);
+          const settled = await reviewOf(
+            await post(
+              `/api/reviews/${inTurn.id}/decisions`,
+              { decision: "approved" },
+              s.accompanist,
+            ),
+          );
+          expect(settled).toMatchObject({ status: "completed", outcome: "approved" });
+
           // A review can set everyone's permissions when it is asked.
           const restricted = await reviewOf(
             await request(s.owner, s.projectId, {

@@ -16,16 +16,21 @@ const toolNames: Record<ReviewerTool, string> = {
 
 /**
  * Where a reviewer's permissions depart from the defaults, in a few words each, for one
- * line under their name: what someone checking the review needs to notice.
+ * line under their name: what someone checking the review needs to notice. A member's
+ * comments and tools follow their project role, so only a guest's are mentioned.
  */
-export function permissionSummary(p: ReviewerPermissions, kind: "approval" | "feedback"): string[] {
+export function permissionSummary(
+  p: ReviewerPermissions,
+  kind: "approval" | "feedback",
+  guest = true,
+): string[] {
   const notes: string[] = [];
-  if (p.comments === "own_and_replies") notes.push("Sees own comments and replies");
-  if (p.comments === "own") notes.push("Sees only own comments");
-  if (!p.comment) notes.push("Cannot comment");
+  if (guest && p.comments === "own_and_replies") notes.push("Sees own comments and replies");
+  if (guest && p.comments === "own") notes.push("Sees only own comments");
+  if (guest && !p.comment) notes.push("Cannot comment");
   if (kind === "approval" && !p.decide) notes.push("No decision");
   const missing = (Object.keys(toolNames) as ReviewerTool[]).filter((t) => !p.tools.includes(t));
-  if (missing.length > 0) notes.push(`No ${missing.map((t) => toolNames[t]).join(", ")}`);
+  if (guest && missing.length > 0) notes.push(`No ${missing.map((t) => toolNames[t]).join(", ")}`);
   if (p.startsAt) notes.push(`From ${at(p.startsAt)}`);
   if (p.expiresAt) notes.push(`Until ${at(p.expiresAt)}`);
   return notes;

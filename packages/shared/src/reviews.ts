@@ -20,8 +20,18 @@ export type ApprovalRule = (typeof approvalRules)[number];
 export const reviewDecisions = ["approved", "changes_requested"] as const;
 export type ReviewDecision = (typeof reviewDecisions)[number];
 
-/** Where a reviewer has got to. "waiting" is a reviewer later in a sequence, not yet asked. */
-export const reviewerStates = ["waiting", "invited", "viewed", "in_progress", "submitted"] as const;
+/**
+ * Where a reviewer has got to. "waiting" is a reviewer later in a sequence, not yet asked;
+ * "observing" is one an approval does not ask for a decision, who follows along.
+ */
+export const reviewerStates = [
+  "waiting",
+  "invited",
+  "viewed",
+  "in_progress",
+  "submitted",
+  "observing",
+] as const;
 export type ReviewerState = (typeof reviewerStates)[number];
 
 export const reviewStatuses = ["open", "completed", "cancelled"] as const;
@@ -119,6 +129,8 @@ export interface ReviewerFacts {
   decision: ReviewDecision | null;
   viewed: boolean;
   started: boolean;
+  /** In an approval, asked for no decision: they neither hold up the order nor count. */
+  observer?: boolean;
 }
 
 /**
@@ -127,7 +139,7 @@ export interface ReviewerFacts {
  * finishes, and a group's members are one step).
  */
 export function activeReviewers(order: ReviewOrder, reviewers: ReviewerFacts[]): Set<string> {
-  const waiting = reviewers.filter((r) => !r.submitted);
+  const waiting = reviewers.filter((r) => !r.submitted && !r.observer);
   if (order === "parallel") return new Set(waiting.map((r) => r.id));
   const step = Math.min(...waiting.map((r) => r.step));
   return new Set(waiting.filter((r) => r.step === step).map((r) => r.id));
@@ -139,6 +151,7 @@ export function reviewerState(
   reviewers: ReviewerFacts[],
   reviewer: ReviewerFacts,
 ): ReviewerState {
+  if (reviewer.observer) return "observing";
   if (reviewer.submitted) return "submitted";
   if (!activeReviewers(order, reviewers).has(reviewer.id)) return "waiting";
   if (reviewer.started) return "in_progress";
@@ -157,8 +170,9 @@ export function reviewerState(
 export function reviewOutcome(
   kind: ReviewKind,
   rule: ApprovalRule | null,
-  reviewers: ReviewerFacts[],
+  everyone: ReviewerFacts[],
 ): ReviewOutcome {
+  const reviewers = everyone.filter((r) => !r.observer);
   if (reviewers.length === 0) return null;
   if (kind === "feedback") return reviewers.every((r) => r.submitted) ? "submitted" : null;
   if (rule === "any" && reviewers.some((r) => r.decision === "approved")) return "approved";

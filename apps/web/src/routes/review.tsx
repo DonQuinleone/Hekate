@@ -27,6 +27,7 @@ const stateCopy: Record<ReviewDetail["reviewers"][number]["state"], string> = {
   viewed: "Viewed",
   in_progress: "In progress",
   submitted: "Responded",
+  observing: "Following along",
 };
 const decisionCopy = { approved: "Approved", changes_requested: "Changes requested" } as const;
 
@@ -134,7 +135,7 @@ function Reviewers({ review }: { review: ReviewDetail }) {
     <>
       <ol className="m-0 flex list-none flex-col border-t border-hairline p-0">
         {review.reviewers.map((r) => {
-          const notes = r.permissions ? permissionSummary(r.permissions, review.kind) : [];
+          const notes = r.permissions ? permissionSummary(r.permissions, review.kind, r.guest) : [];
           return (
             <li key={r.id} className="group flex flex-col gap-1 border-b border-hairline py-2.5">
               <span className="flex items-center justify-between gap-3">
@@ -199,6 +200,7 @@ function Reviewers({ review }: { review: ReviewDetail }) {
                 <ReviewerPermissionsEditor
                   name={r.name}
                   kind={review.kind}
+                  guest={r.guest}
                   initial={r.permissions}
                   pending={permissions.isPending}
                   error={permissions.error?.message ?? null}

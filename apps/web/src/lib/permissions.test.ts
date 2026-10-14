@@ -16,6 +16,10 @@ describe("reviewer permissions in words", () => {
       "No decision",
       "No spectrogram, meters",
     ]);
+    // A member's comments and tools follow their role; only the review's own rules show.
+    expect(
+      permissionSummary({ ...all, comments: "own", tools: [], decide: false }, "approval", false),
+    ).toEqual(["No decision"]);
     // Feedback reviews ask for no decision, so saying so would be noise.
     expect(permissionSummary({ ...all, decide: false }, "feedback")).toEqual([]);
     expect(permissionSummary({ ...all, expiresAt: "2026-11-03T17:00:00Z" }, "feedback")[0]).toMatch(
