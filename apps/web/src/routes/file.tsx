@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import { Comments, useCommentMarkers } from "~/components/comments";
+import { Compare } from "~/components/compare";
 import { kindIcon, mediaSummary } from "~/components/files";
 import { Icon } from "~/components/icons";
 import { Loudness } from "~/components/loudness";
@@ -163,6 +164,9 @@ export function FilePage({
       <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="flex min-w-0 flex-col gap-6">
           <Playback file={file} onMedia={setMedia} loop={loop} onLoop={onLoop} />
+          {!guest && file.kind === "audio" && file.streamStatus === "ready" && (
+            <Compare file={file} media={media} />
+          )}
           {file.mediaInfo?.audio && (
             <Loudness fileId={file.id} media={media} layout={file.mediaInfo.audio.channelLayout} />
           )}
