@@ -343,6 +343,8 @@ export function FileContext({ file }: { file: FileDetail }) {
                   key={v.id}
                   to="/files/$fileId"
                   params={{ fileId: current ? file.id : target.fileId }}
+                  // A loop holds while switching version or variation.
+                  search={(prev) => ({ loop: prev.loop })}
                   aria-current={current ? "page" : undefined}
                   className={cn(
                     "tabular h-6 rounded-chip border px-2 font-mono text-[11px] leading-6 no-underline",
@@ -366,6 +368,8 @@ export function FileContext({ file }: { file: FileDetail }) {
               to="/files/$fileId"
               params={{ fileId: v.fileId }}
               aria-current={v.fileId === file.id ? "page" : undefined}
+              // A loop holds while switching version or variation.
+              search={(prev) => ({ loop: prev.loop })}
               className={cn(
                 "h-7 rounded-chip border px-2.5 text-xs leading-7 no-underline",
                 v.fileId === file.id
