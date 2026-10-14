@@ -16,6 +16,17 @@ Anything that can be heard or seen can be recorded from the speakers or the scre
 - **Encrypted at rest.** Stored files are encrypted with a per-file key.
 - **Every access is logged.** Keys issued, segments served, pages rendered and downloads, with the person or guest and the review they came through.
 
+## Authentication
+
+Members sign in with what their organisation already uses; guests never need an account.
+
+- **Single sign-on:** OpenID Connect and SAML 2.0, configured per organisation, with just-in-time membership and optional group-to-role mapping. An organisation can require SSO for its members.
+- **Directory:** LDAP (including Active Directory) bind authentication for self-hosted installs, with group-to-role mapping.
+- **Passkeys and security keys:** WebAuthn passkeys for passwordless sign-in, and hardware security keys such as YubiKeys as a second factor or as the sole factor. Up to five keys per account by default (configurable by the operator), each named and individually revocable, with recovery codes.
+- **Passwords:** optional, can be disabled per organisation; always paired with a second factor when policy requires.
+- **Guests:** magic links. A guest receives a single-use, short-lived link by email, scoped to the reviews they are invited to; opening it starts a session bound to that browser. Links can be re-sent and revoked, and every use is logged.
+- **Policy:** per organisation, owners choose the allowed methods and whether a second factor or a security key is required.
+
 ## Delivery
 
 ### Audio and video

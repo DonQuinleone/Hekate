@@ -45,3 +45,7 @@ Reviewers receive encrypted, segmented streams and server-rendered tiles, never 
 ## 011. Waveform first; comments carry across versions
 
 The waveform is the primary surface for audio; a score is optional. Engineer tools (spectrogram, metering, loudness, phase) are part of the product, computed by the media worker. Comments carry over between versions with mapped anchors and a before and after, and configurable categories (such as Noise) can defer a comment to a later workflow stage. Details in `docs/domain.md`.
+
+## 012. Identity
+
+Better Auth underpins sign-in. Members can use OIDC or SAML single sign-on, LDAP, passkeys and hardware security keys (up to five per account by default), or passwords where allowed; guests use magic links scoped to their reviews. Organisations set the policy. Details in `docs/security.md`.
