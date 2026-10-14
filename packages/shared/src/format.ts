@@ -34,13 +34,12 @@ export function formatAnchor(anchor: Anchor, options: { fps?: number } = {}): st
       return anchor.frame === undefined ? range : `${range} · F ${anchor.frame}`;
     }
     case "region": {
-      const where =
-        anchor.page !== undefined
-          ? `P. ${anchor.page}`
-          : anchor.at !== undefined
-            ? time(anchor.at)
-            : "FRAME";
-      return `${where} · REGION`;
+      const whole = anchor.x === 0 && anchor.y === 0 && anchor.width === 1 && anchor.height === 1;
+      // A picture is one page: a region on it needs no place.
+      if (anchor.page === undefined && anchor.at === undefined) return "REGION";
+      const where = anchor.page !== undefined ? `P. ${anchor.page}` : time(anchor.at ?? 0);
+      // The whole of a page is simply the page; a whole video frame stays a region.
+      return whole && anchor.page !== undefined ? where : `${where} · REGION`;
     }
     case "bar": {
       if (anchor.to && anchor.to.bar !== anchor.from.bar)

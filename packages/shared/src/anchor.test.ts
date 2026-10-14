@@ -42,8 +42,16 @@ describe("formatting", () => {
     expect(formatAnchor({ kind: "time", start: 72.32, end: 72.32, frame: 1808 }, { fps: 25 })).toBe(
       "00:01:12:08 · F 1808",
     );
-    expect(formatAnchor({ kind: "region", page: 7, x: 0, y: 0, width: 1, height: 1 })).toBe(
+    expect(formatAnchor({ kind: "region", page: 7, x: 0.1, y: 0.2, width: 0.3, height: 0.1 })).toBe(
       "P. 7 · REGION",
+    );
+    expect(formatAnchor({ kind: "region", page: 7, x: 0, y: 0, width: 1, height: 1 })).toBe("P. 7");
+    expect(formatAnchor({ kind: "region", x: 0.1, y: 0.1, width: 0.5, height: 0.5 })).toBe(
+      "REGION",
+    );
+    // A whole video frame is still a region, not a time.
+    expect(formatAnchor({ kind: "region", at: 12, x: 0, y: 0, width: 1, height: 1 })).toBe(
+      "00:12.000 · REGION",
     );
   });
 });
