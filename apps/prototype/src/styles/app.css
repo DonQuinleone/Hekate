@@ -1,0 +1,90 @@
+@import "tailwindcss";
+@import "../../../web/src/styles/tokens.css";
+@import "./depth.css";
+
+/* Tailwind reads the Signal tokens; the default palette is removed so only these exist. */
+@theme {
+  --color-*: initial;
+  --color-ground: var(--hk-ground);
+  --color-sunken: var(--hk-sunken);
+  --color-nav: var(--hk-nav);
+  --color-surface: var(--hk-surface);
+  --color-raised: var(--hk-raised);
+  --color-overlay: var(--hk-overlay);
+  --color-hairline: var(--hk-hairline);
+  --color-hairline-soft: var(--hk-hairline-soft);
+  --color-edge: var(--hk-edge);
+  --color-edge-strong: var(--hk-edge-strong);
+  --color-ink: var(--hk-ink);
+  --color-ink-2: var(--hk-ink-2);
+  --color-ink-3: var(--hk-ink-3);
+  --color-signal: var(--hk-signal);
+  --color-paper: var(--hk-paper);
+  --color-transparent: transparent;
+  --color-current: currentColor;
+
+  --font-sans: var(--hk-font-sans);
+  --font-mono: var(--hk-font-mono);
+
+  --radius-chip: var(--hk-radius-chip);
+  --radius-control: var(--hk-radius-control);
+  --radius-panel: var(--hk-radius-panel);
+  --radius-panel-lg: var(--hk-radius-panel-lg);
+
+  --shadow-*: initial;
+  --shadow-1: var(--hk-elevation-1);
+  --shadow-2: var(--hk-elevation-2);
+  --shadow-3: var(--hk-elevation-3);
+  --shadow-4: var(--hk-elevation-4);
+  --shadow-paper: var(--hk-shadow-paper);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--hk-ground);
+    color: var(--hk-ink);
+    font-family: var(--hk-font-sans);
+    font-size: 13px;
+    line-height: 20px;
+    -webkit-font-smoothing: antialiased;
+    color-scheme: dark;
+  }
+  *,
+  ::before,
+  ::after {
+    border-color: var(--hk-hairline);
+  }
+  :focus-visible {
+    outline: none;
+    box-shadow: var(--hk-focus-ring);
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--hk-signal) 35%, transparent);
+  }
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+}
+
+@utility label {
+  font-family: var(--hk-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--hk-ink-3);
+}
+
+@utility tabular {
+  font-family: var(--hk-font-mono);
+  font-variant-numeric: tabular-nums;
+}

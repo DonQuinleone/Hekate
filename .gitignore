@@ -7,3 +7,4 @@ dist/
 coverage/
 data/
 .DS_Store
+artifact/
