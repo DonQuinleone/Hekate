@@ -2343,6 +2343,47 @@ describe.runIf(url)("api", () => {
         });
       });
 
+      it("lists a member's reviews, open first, saying whose turn it is", async () => {
+        const s = await studio();
+        const make = (title: string) =>
+          request(s.owner, s.projectId, {
+            kind: "approval",
+            title,
+            order: "sequence",
+            items: [{ trackId: s.trackId }],
+            reviewers: [s.ids.composer, s.ids.accompanist],
+          });
+        const first = await reviewOf(await make("Album master"));
+        const second = await reviewOf(await make("Single edit"));
+        await app.request(`/api/reviews/${second.id}/cancel`, json({}, s.owner));
+        const mine = async (cookie: string) =>
+          (
+            (await (await getAs("/api/reviews", cookie)).json()) as {
+              reviews: {
+                id: string;
+                title: string;
+                status: string;
+                yourTurn: boolean;
+                projectName: string;
+              }[];
+            }
+          ).reviews;
+        const composer = await mine(s.composer);
+        expect(composer.map((r) => [r.title, r.status, r.yourTurn])).toEqual([
+          ["Album master", "open", true],
+          ["Single edit", "cancelled", false],
+        ]);
+        expect(composer[0]?.projectName).toBe("Rags");
+        // The accompanist is second in turn: listed, but not yet theirs.
+        expect((await mine(s.accompanist)).find((r) => r.id === first.id)?.yourTurn).toBe(false);
+        // Someone who reviews nothing sees nothing; losing the project hides its reviews.
+        expect(await mine(s.engineer)).toEqual([]);
+        await db
+          .delete(schema.projectMembers)
+          .where(eq(schema.projectMembers.organisationId, s.organisationId));
+        expect(await mine(s.composer)).toEqual([]);
+      });
+
       describe("groups", () => {
         interface GroupBody {
           id: string;
@@ -2759,6 +2800,32 @@ describe.runIf(url)("api", () => {
           folders: Folder[];
         };
         expect(left.folders).toEqual([]);
+
+        // Tracks sit in folders too: made in one, moved out, and moved up with a deleted folder.
+        const scores = await folderOf(await app.request(base, json({ name: "Rags" }, s.owner)));
+        const made = await app.request(
+          `/api/projects/${s.projectId}/tracks`,
+          json({ name: "Maple Leaf Rag", folderId: scores.id }, s.owner),
+        );
+        const track = ((await made.json()) as { track: { id: string; folderId: string } }).track;
+        expect(track.folderId).toBe(scores.id);
+        const other = await app.request(
+          "/api/projects",
+          json({ name: "Elite", profile: "music" }, s.owner),
+        );
+        const otherId = ((await other.json()) as { project: { id: string } }).project.id;
+        const elsewhere = await folderOf(
+          await app.request(`/api/projects/${otherId}/folders`, json({ name: "Theirs" }, s.owner)),
+        );
+        expect(
+          (await send("PATCH", `/api/tracks/${track.id}`, { folderId: elsewhere.id }, s.owner))
+            .status,
+        ).toBe(422);
+        await remove(`/api/folders/${scores.id}`, s.owner);
+        const after = (await (
+          await app.request(`/api/tracks/${track.id}`, { headers: { cookie: s.owner } })
+        ).json()) as { track: { folderId: string | null } };
+        expect(after.track.folderId).toBeNull();
       });
 
       it("deletes a loose file, logged, but not one in a version or a review", async () => {

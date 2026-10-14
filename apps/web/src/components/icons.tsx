@@ -23,6 +23,14 @@ const paths = {
   pause: "M5.5 3.5 V12.5 M10.5 3.5 V12.5",
   volume: "M2.5 6 H5 L8.5 3 V13 L5 10 H2.5 Z M11 5.5 a3.5 3.5 0 0 1 0 5",
   mute: "M2.5 6 H5 L8.5 3 V13 L5 10 H2.5 Z M11 6 L14 10 M14 6 L11 10",
+  /** A track: a folder holding a piece's versions. */
+  track:
+    "M2.5 4.5 H6.5 L8 6 H13.5 V12.5 H2.5 Z M7 11.25 V8.25 L10.5 7.75 V10.75 M7 11.25 a0.9 0.9 0 1 1 -0.01 0 M10.5 10.75 a0.9 0.9 0 1 1 -0.01 0",
+  /** The sidebar: shown with labels, or as icons alone. */
+  sidebar: "M2.5 3 H13.5 V13 H2.5 Z M6 3 V13",
+  /** Reviews: a mark of approval in a box. */
+  review: "M2.5 2.5 H13.5 V13.5 H2.5 Z M5.25 8.25 L7.25 10.25 L10.75 6",
+  more: "M3.5 8 h0.01 M8 8 h0.01 M12.5 8 h0.01",
 } as const;
 
 export type IconName = keyof typeof paths;

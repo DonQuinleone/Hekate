@@ -1,18 +1,21 @@
 import { descendantsOf, folderPath, formatBytes } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
 import {
   type Folder,
   type ProjectFile,
   projectFilesQuery,
   projectFoldersQuery,
+  projectTracksQuery,
+  type Track,
   useOrganise,
   useProjectCan,
+  useTrackMutations,
 } from "~/lib/queries";
-import { kindIcon, mediaSummary } from "./files";
-import { Icon } from "./icons";
+import { kindIcon, mediaSummary, UploadButton, UploadList } from "./files";
+import { Icon, type IconName } from "./icons";
 import { Button } from "./ui/button";
 
 const dateFormat = new Intl.DateTimeFormat("en-GB", {
@@ -38,9 +41,21 @@ function storedView(): View {
   }
 }
 
-type Item = { kind: "folder"; folder: Folder } | { kind: "file"; file: ProjectFile };
-const itemId = (item: Item) => (item.kind === "folder" ? item.folder.id : item.file.id);
-const itemName = (item: Item) => (item.kind === "folder" ? item.folder.name : item.file.name);
+/** What a folder holds: folders, tracks (a folder of a piece's versions) and loose files. */
+type Item =
+  | { kind: "folder"; folder: Folder }
+  | { kind: "track"; track: Track }
+  | { kind: "file"; file: ProjectFile };
+const itemId = (item: Item) =>
+  item.kind === "folder" ? item.folder.id : item.kind === "track" ? item.track.id : item.file.id;
+const itemName = (item: Item) =>
+  item.kind === "folder"
+    ? item.folder.name
+    : item.kind === "track"
+      ? item.track.name
+      : item.file.name;
+const itemIcon = (item: Item): IconName =>
+  item.kind === "folder" ? "folder" : item.kind === "track" ? "track" : kindIcon[item.file.kind];
 
 /** What is being done to one item: renaming it, choosing where it goes, or confirming its removal. */
 type Editing = { id: string; mode: "rename" | "move" | "delete" } | null;
@@ -141,28 +156,110 @@ function MoveForm({
   );
 }
 
+/** A row's actions, behind one button: shown on hover or focus, and always on touch screens. */
+function ItemMenu({
+  label,
+  actions,
+}: {
+  label: string;
+  actions: { label: string; danger?: boolean; onSelect: () => void }[];
+}) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: PointerEvent) => {
+      if (!box.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onEscape = (event: KeyboardEvent) => event.key === "Escape" && setOpen(false);
+    window.addEventListener("pointerdown", away);
+    window.addEventListener("keydown", onEscape);
+    return () => {
+      window.removeEventListener("pointerdown", away);
+      window.removeEventListener("keydown", onEscape);
+    };
+  }, [open]);
+  return (
+    <div ref={box} className="relative">
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label={`Actions for ${label}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          "h-7 w-7 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100",
+          open && "opacity-100",
+        )}
+      >
+        <Icon name="more" size={16} strokeWidth={2.5} />
+      </Button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 z-30 mt-1 flex min-w-36 flex-col rounded-control border border-edge bg-raised p-1 shadow-none"
+        >
+          {actions.map((a) => (
+            <button
+              key={a.label}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                a.onSelect();
+              }}
+              className={cn(
+                "cursor-pointer rounded-[4px] border-0 bg-transparent px-2.5 py-1.5 text-left text-[13px] hover:bg-surface",
+                a.danger ? "text-signal" : "text-ink",
+              )}
+            >
+              {a.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** "3 versions · V3": what a track holds, in a glance. */
+function trackSummary(track: Track) {
+  const latest = track.versions.at(-1);
+  if (!latest) return "No versions yet";
+  const count = track.versions.length;
+  return `${count} ${count === 1 ? "version" : "versions"} · V${latest.number} ${latest.variations.map((v) => v.name).join(", ")}`;
+}
+
 /**
- * A project's files and folders, one folder at a time, as a list or a grid. Those whose role
- * can organise make folders, and rename, move and delete what is here.
+ * A project's folders, tracks and files, one folder at a time, as a list or a grid. A track
+ * is a special kind of folder: it sits among them, and the files in its versions live in it
+ * rather than loose beside it. Those who can organise make folders and tracks, and rename,
+ * move and delete what is here; files dropped anywhere on the page land in the open folder.
  */
 export function FileBrowser({
   projectId,
   folderId,
   onOpenFolder,
-  children,
+  tracks: withTracks,
 }: {
   projectId: string;
   folderId: string | null;
   onOpenFolder: (folderId: string | null) => void;
-  /** Shown above the listing, such as the uploader for this folder. */
-  children?: ReactNode;
+  /** Music projects hold tracks. */
+  tracks: boolean;
 }) {
   const { data: files, error } = useQuery(projectFilesQuery(projectId));
   const { data: folders, error: foldersError } = useQuery(projectFoldersQuery(projectId));
+  const { data: trackList, error: tracksError } = useQuery({
+    ...projectTracksQuery(projectId),
+    enabled: withTracks,
+  });
   const can = useProjectCan(projectId);
   const organise = useOrganise(projectId);
+  const trackMutations = useTrackMutations(projectId);
   const [view, setView] = useState<View>(storedView);
-  const [naming, setNaming] = useState(false);
+  const [naming, setNaming] = useState<"folder" | "track" | null>(null);
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState<Editing>(null);
   const manage = can("organise");
@@ -183,13 +280,21 @@ export function FileBrowser({
   };
 
   const all = folders ?? [];
+  const allTracks = trackList ?? [];
   const path = folderPath(all, folderId);
+  // Files that are a track's variations live in the track, not loose in its folder.
+  const inTracks = new Set(
+    allTracks.flatMap((t) => t.versions.flatMap((v) => v.variations.map((x) => x.fileId))),
+  );
   const items: Item[] = [
     ...all
       .filter((f) => f.parentId === folderId)
       .map((folder) => ({ kind: "folder" as const, folder })),
+    ...allTracks
+      .filter((t) => t.folderId === folderId)
+      .map((track) => ({ kind: "track" as const, track })),
     ...(files ?? [])
-      .filter((f) => f.folderId === folderId)
+      .filter((f) => f.folderId === folderId && !inTracks.has(f.id))
       .map((file) => ({ kind: "file" as const, file })),
   ];
   const parentName = path.at(-2)?.name ?? "the top of the project";
@@ -198,64 +303,81 @@ export function FileBrowser({
     organise.updateFolder.error ??
     organise.deleteFolder.error ??
     organise.updateFile.error ??
-    organise.deleteFile.error;
+    organise.deleteFile.error ??
+    trackMutations.createTrack.error ??
+    trackMutations.updateTrack.error;
 
-  const createFolder = (event: FormEvent) => {
+  const create = (event: FormEvent) => {
     event.preventDefault();
-    organise.createFolder.mutate(
-      { name: newName.trim(), parentId: folderId },
-      {
-        onSuccess: () => {
-          setNewName("");
-          setNaming(false);
-        },
+    const name = newName.trim();
+    const done = {
+      onSuccess: () => {
+        setNewName("");
+        setNaming(null);
       },
-    );
+    };
+    if (naming === "track") trackMutations.createTrack.mutate({ name, folderId }, done);
+    else organise.createFolder.mutate({ name, parentId: folderId }, done);
   };
   const done = { onSuccess: () => setEditing(null) };
   const rename = (item: Item, name: string) =>
     item.kind === "folder"
       ? organise.updateFolder.mutate({ id: item.folder.id, name }, done)
-      : organise.updateFile.mutate({ id: item.file.id, name }, done);
+      : item.kind === "track"
+        ? trackMutations.updateTrack.mutate({ id: item.track.id, name }, done)
+        : organise.updateFile.mutate({ id: item.file.id, name }, done);
   const move = (item: Item, to: string | null) =>
     item.kind === "folder"
       ? organise.updateFolder.mutate({ id: item.folder.id, parentId: to }, done)
-      : organise.updateFile.mutate({ id: item.file.id, folderId: to }, done);
-  const remove = (item: Item) =>
-    item.kind === "folder"
-      ? organise.deleteFolder.mutate(item.folder.id, done)
-      : organise.deleteFile.mutate(item.file.id, done);
+      : item.kind === "track"
+        ? trackMutations.updateTrack.mutate({ id: item.track.id, folderId: to }, done)
+        : organise.updateFile.mutate({ id: item.file.id, folderId: to }, done);
+  const remove = (item: Item) => {
+    if (item.kind === "folder") organise.deleteFolder.mutate(item.folder.id, done);
+    else if (item.kind === "file") organise.deleteFile.mutate(item.file.id, done);
+  };
   const pending =
     organise.updateFolder.isPending ||
     organise.updateFile.isPending ||
     organise.deleteFolder.isPending ||
-    organise.deleteFile.isPending;
+    organise.deleteFile.isPending ||
+    trackMutations.updateTrack.isPending;
 
-  /** The name, as a link into a folder or to a file. */
+  /** The name, opening a folder or a track, or a file. */
   const title = (item: Item) =>
     item.kind === "folder" ? (
       <button
         type="button"
         onClick={() => onOpenFolder(item.folder.id)}
-        className="cursor-pointer truncate border-0 bg-transparent p-0 text-left text-sm font-medium text-ink hover:text-signal"
+        className="cursor-pointer truncate border-0 bg-transparent p-0 text-left text-sm text-ink hover:text-signal"
       >
         {item.folder.name}
       </button>
+    ) : item.kind === "track" ? (
+      <Link
+        to="/tracks/$trackId"
+        params={{ trackId: item.track.id }}
+        className="truncate text-sm text-ink no-underline hover:text-signal"
+      >
+        {item.track.name}
+      </Link>
     ) : (
       <Link
         to="/files/$fileId"
         params={{ fileId: item.file.id }}
-        className="truncate text-sm font-medium text-ink no-underline hover:text-signal"
+        className="truncate text-sm text-ink no-underline hover:text-signal"
       >
         {item.file.name}
       </Link>
     );
 
   const details = (item: Item) => {
+    if (item.kind === "track") return trackSummary(item.track);
     if (item.kind === "folder") {
       const inside =
         all.filter((f) => f.parentId === item.folder.id).length +
-        (files ?? []).filter((f) => f.folderId === item.folder.id).length;
+        allTracks.filter((t) => t.folderId === item.folder.id).length +
+        (files ?? []).filter((f) => f.folderId === item.folder.id && !inTracks.has(f.id)).length;
       return inside === 0 ? "Empty" : inside === 1 ? "1 item" : `${inside} items`;
     }
     return (
@@ -264,34 +386,27 @@ export function FileBrowser({
     );
   };
 
-  const actions = (item: Item) =>
+  const menu = (item: Item) =>
     manage && (
-      <span className="flex shrink-0 gap-3">
-        <button
-          type="button"
-          className={action}
-          onClick={() => setEditing({ id: itemId(item), mode: "rename" })}
-        >
-          Rename
-        </button>
-        <button
-          type="button"
-          className={action}
-          onClick={() => setEditing({ id: itemId(item), mode: "move" })}
-        >
-          Move
-        </button>
-        <button
-          type="button"
-          className={cn(action, "hover:text-signal")}
-          onClick={() => setEditing({ id: itemId(item), mode: "delete" })}
-        >
-          Delete
-        </button>
-      </span>
+      <ItemMenu
+        label={itemName(item)}
+        actions={[
+          { label: "Rename", onSelect: () => setEditing({ id: itemId(item), mode: "rename" }) },
+          { label: "Move to…", onSelect: () => setEditing({ id: itemId(item), mode: "move" }) },
+          ...(item.kind === "track"
+            ? []
+            : [
+                {
+                  label: "Delete…",
+                  danger: true,
+                  onSelect: () => setEditing({ id: itemId(item), mode: "delete" as const }),
+                },
+              ]),
+        ]}
+      />
     );
 
-  /** The open editor for an item, in place of its actions. */
+  /** The open editor for an item, in place of its menu. */
   const editor = (item: Item) => {
     if (!editing || editing.id !== itemId(item)) return null;
     if (editing.mode === "rename") {
@@ -322,7 +437,7 @@ export function FileBrowser({
         <span className="text-[13px] text-ink-2">
           {item.kind === "folder"
             ? `Delete ${item.folder.name}? What is in it moves to ${parentName}.`
-            : `Delete ${item.file.name}? This cannot be undone.`}
+            : `Delete ${itemName(item)}? This cannot be undone.`}
         </span>
         <Button size="sm" variant="primary" disabled={pending} onClick={() => remove(item)}>
           Delete
@@ -334,19 +449,18 @@ export function FileBrowser({
     );
   };
 
-  // Without its folders the tree would look empty, so either failing is shown, never hidden.
-  const loadError = error ?? foldersError;
+  const loadError = error ?? foldersError ?? tracksError;
   if (loadError) return <p className="m-0 text-signal">{loadError.message}</p>;
 
   return (
-    <section aria-label="Files" className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <section aria-label="Files" className="flex flex-col gap-3">
+      <div className="flex min-h-8 flex-wrap items-center justify-between gap-3">
         <nav
           aria-label="Folder path"
           className="flex min-w-0 flex-wrap items-center gap-2 text-[13px]"
         >
           {path.length === 0 ? (
-            <span className="font-medium text-ink">All files</span>
+            <span className="text-ink-2">All files</span>
           ) : (
             <button
               type="button"
@@ -360,7 +474,7 @@ export function FileBrowser({
             <span key={f.id} className="flex min-w-0 items-center gap-2">
               <span className="text-edge">/</span>
               {i === path.length - 1 ? (
-                <span className="truncate font-medium text-ink">{f.name}</span>
+                <span className="truncate text-ink">{f.name}</span>
               ) : (
                 <button
                   type="button"
@@ -373,8 +487,8 @@ export function FileBrowser({
             </span>
           ))}
         </nav>
-        <div className="flex items-center gap-3">
-          <fieldset className="m-0 flex gap-1 border-0 p-0" aria-label="View">
+        <div className="flex flex-wrap items-center gap-2">
+          <fieldset className="m-0 flex gap-0.5 border-0 p-0" aria-label="View">
             {(["list", "grid"] as const).map((v) => (
               <button
                 key={v}
@@ -392,83 +506,113 @@ export function FileBrowser({
               </button>
             ))}
           </fieldset>
-          {manage && !naming && (
-            <Button size="sm" onClick={() => setNaming(true)}>
+          {manage && (
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label="New folder"
+              onClick={() => setNaming("folder")}
+            >
               <Icon name="folder" size={14} />
-              New folder
+              <span className="hidden sm:inline">New folder</span>
             </Button>
           )}
+          {manage && withTracks && (
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label="New track"
+              onClick={() => setNaming("track")}
+            >
+              <Icon name="track" size={14} />
+              <span className="hidden sm:inline">New track</span>
+            </Button>
+          )}
+          <UploadButton />
         </div>
       </div>
 
       {naming && (
         <form
-          onSubmit={createFolder}
+          onSubmit={create}
           className="flex flex-wrap items-center gap-2"
-          aria-label="New folder"
+          aria-label={naming === "track" ? "New track" : "New folder"}
         >
           <input
-            // biome-ignore lint/a11y/noAutofocus: the field appears because the person asked for a folder
+            // biome-ignore lint/a11y/noAutofocus: the field appears because the person asked for it
             autoFocus
-            aria-label="Folder name"
-            placeholder="Mixes"
+            aria-label={naming === "track" ? "Track name" : "Folder name"}
+            placeholder={naming === "track" ? "Maple Leaf Rag" : "Mixes"}
             className={cn(control, "w-64")}
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => e.key === "Escape" && setNaming(false)}
+            onKeyDown={(e) => e.key === "Escape" && setNaming(null)}
           />
           <Button
             size="sm"
             type="submit"
-            disabled={!newName.trim() || organise.createFolder.isPending}
+            disabled={
+              !newName.trim() ||
+              organise.createFolder.isPending ||
+              trackMutations.createTrack.isPending
+            }
           >
             Create
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => setNaming(false)}>
+          <Button size="sm" variant="ghost" onClick={() => setNaming(null)}>
             Cancel
           </Button>
         </form>
       )}
       {failure && <p className="m-0 text-xs text-signal">{failure.message}</p>}
 
-      {children}
+      <UploadList />
 
       {items.length === 0 ? (
-        folderId && <p className="m-0 text-[13px] text-ink-3">This folder is empty.</p>
+        <div className="flex flex-col items-center gap-2 rounded-panel border border-dashed border-hairline px-6 py-12 text-center">
+          <Icon name="upload" size={20} className="text-ink-3" />
+          <p className="m-0 text-[13px] text-ink-2">
+            {folderId ? "This folder is empty." : "Nothing here yet."}
+          </p>
+          {can("upload") && (
+            <p className="m-0 text-xs text-ink-3">Drop files anywhere on this page to add them.</p>
+          )}
+        </div>
       ) : view === "list" ? (
         <ul className="m-0 flex list-none flex-col p-0" aria-label="Contents">
-          <li className="label hidden grid-cols-[auto_minmax(0,1fr)_280px_72px_104px] gap-3 border-b border-hairline px-2 pb-2 sm:grid">
+          <li className="label hidden grid-cols-[auto_minmax(0,1fr)_minmax(0,280px)_72px_104px_28px] gap-3 border-b border-hairline px-2 pb-2 sm:grid">
             <span className="w-4" />
             <span>Name</span>
             <span>Details</span>
             <span className="text-right">Size</span>
             <span className="text-right">Added</span>
+            <span />
           </li>
           {items.map((item) => {
             const open = editing?.id === itemId(item);
             return (
               <li
                 key={itemId(item)}
-                className="group flex flex-col gap-2 border-b border-hairline px-2 py-2"
+                className="group flex flex-col gap-2 border-b border-hairline px-2 py-1.5 hover:bg-surface"
               >
-                <div className="grid min-h-8 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 sm:grid-cols-[auto_minmax(0,1fr)_280px_72px_104px]">
-                  <Icon
-                    name={item.kind === "folder" ? "folder" : kindIcon[item.file.kind]}
-                    className="row-span-2 text-ink-2 sm:row-span-1"
-                  />
-                  <span className="flex min-w-0 items-center gap-3">
+                <div className="grid min-h-9 grid-cols-[auto_minmax(0,1fr)_28px] items-center gap-x-3 gap-y-0.5 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,280px)_72px_104px_28px]">
+                  <Icon name={itemIcon(item)} className="text-ink-2" />
+                  <span className="flex min-w-0 flex-col sm:flex-row sm:items-center sm:gap-3">
                     {open && editing?.mode === "rename" ? editor(item) : title(item)}
+                    <span className="tabular truncate text-xs text-ink-3 sm:hidden">
+                      {details(item)}
+                    </span>
                   </span>
-                  <span className="tabular text-right text-xs text-ink-3 sm:order-last">
-                    {item.kind === "file" ? dateFormat.format(new Date(item.file.createdAt)) : ""}
-                  </span>
-                  <span className="tabular col-span-2 flex min-w-0 items-center justify-between gap-3 text-xs text-ink-2 sm:col-span-1">
-                    <span className="truncate">{details(item)}</span>
-                    {!open && actions(item)}
+                  <span className="tabular hidden truncate text-xs text-ink-2 sm:block">
+                    {details(item)}
                   </span>
                   <span className="tabular hidden text-right text-xs text-ink-3 sm:block">
                     {item.kind === "file" ? formatBytes(item.file.byteSize) : ""}
                   </span>
+                  <span className="tabular hidden text-right text-xs text-ink-3 sm:block">
+                    {item.kind === "file" ? dateFormat.format(new Date(item.file.createdAt)) : ""}
+                  </span>
+                  <span className="flex justify-end">{!open && menu(item)}</span>
                 </div>
                 {open && editing?.mode !== "rename" && <div className="pl-7">{editor(item)}</div>}
               </li>
@@ -486,20 +630,19 @@ export function FileBrowser({
               <li
                 key={itemId(item)}
                 className={cn(
-                  "flex min-w-0 flex-col gap-3 rounded-panel border border-hairline p-3",
+                  "group flex min-w-0 flex-col gap-3 rounded-panel border border-hairline p-3 hover:border-edge",
                   open && "col-span-2 sm:col-span-3 lg:col-span-4",
                 )}
               >
-                <Icon
-                  name={item.kind === "folder" ? "folder" : kindIcon[item.file.kind]}
-                  size={28}
-                  className="text-ink-2"
-                />
+                <span className="flex items-start justify-between">
+                  <Icon name={itemIcon(item)} size={28} className="text-ink-2" />
+                  {!open && menu(item)}
+                </span>
                 <span className="flex min-w-0 flex-col gap-0.5">
                   {open && editing?.mode === "rename" ? editor(item) : title(item)}
                   <span className="tabular truncate text-xs text-ink-3">{details(item)}</span>
                 </span>
-                {open ? editing?.mode !== "rename" && editor(item) : actions(item)}
+                {open && editing?.mode !== "rename" && editor(item)}
               </li>
             );
           })}

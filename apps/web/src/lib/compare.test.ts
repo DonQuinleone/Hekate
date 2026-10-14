@@ -33,6 +33,7 @@ const track: Track = {
   projectId: "p",
   name: "Maple Leaf Rag",
   scoreFileId: null,
+  folderId: null,
   position: 0,
   createdAt: "",
   versions: [

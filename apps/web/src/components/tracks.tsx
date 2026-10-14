@@ -326,13 +326,7 @@ export function FileContext({ file }: { file: FileDetail }) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px]">
-        <Link
-          to="/tracks/$trackId"
-          params={{ trackId: variation.trackId }}
-          className="font-medium text-ink no-underline hover:text-signal"
-        >
-          {variation.trackName}
-        </Link>
+        {/* The track itself is in the page's breadcrumb; here, only where to go within it. */}
         {track && track.versions.length > 0 && (
           <nav aria-label="Versions" className="flex flex-wrap items-center gap-1">
             {track.versions.map((v) => {

@@ -4,7 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { Mark } from "~/components/brand";
 import { Icon, type IconName } from "~/components/icons";
-import { OrganisationName } from "~/components/organisation-name";
+import { PageHeader } from "~/components/page-header";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { cn } from "~/lib/cn";
@@ -119,50 +119,53 @@ export function ProjectsPage() {
   const { data, isPending, error } = useQuery(projectsQuery);
   const [creating, setCreating] = useState(false);
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-8 sm:px-8">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <OrganisationName />
-          <h1 className="m-0 text-[28px] font-medium tracking-[-0.02em]">Projects</h1>
-        </div>
-        {!creating && data && data.length > 0 && (
-          <Button variant="primary" onClick={() => setCreating(true)}>
-            <Icon name="plus" size={14} />
-            New project
-          </Button>
+    <>
+      <PageHeader
+        title="Projects"
+        actions={
+          !creating &&
+          data &&
+          data.length > 0 && (
+            <Button size="sm" variant="primary" onClick={() => setCreating(true)}>
+              <Icon name="plus" size={14} />
+              New project
+            </Button>
+          )
+        }
+      />
+      <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6 sm:px-6">
+        {creating && <NewProject onDone={() => setCreating(false)} />}
+        {error && <p className="text-signal">{error.message}</p>}
+        {isPending && <p className="text-ink-3">Loading</p>}
+        {data && data.length === 0 && !creating && <Empty onCreate={() => setCreating(true)} />}
+        {data && data.length > 0 && (
+          <ul className="m-0 flex list-none flex-col p-0">
+            <li className="label grid grid-cols-[1fr_auto] gap-4 sm:grid-cols-[1fr_120px_120px] border-b border-hairline px-2 pb-2">
+              <span>Name</span>
+              <span>Profile</span>
+              <span className="hidden text-right sm:block">Created</span>
+            </li>
+            {data.map((p) => (
+              <li key={p.id}>
+                <Link
+                  to="/projects/$projectId"
+                  params={{ projectId: p.id }}
+                  className="grid h-12 grid-cols-[1fr_auto] items-center sm:grid-cols-[1fr_120px_120px] gap-4 border-b border-hairline px-2 text-ink no-underline hover:bg-surface"
+                >
+                  <span className="truncate text-sm font-medium">{p.name}</span>
+                  <span className="flex items-center gap-2 text-ink-2">
+                    <Icon name={profileIcon[p.profile]} />
+                    {profiles[p.profile].label}
+                  </span>
+                  <span className="tabular hidden text-right text-xs text-ink-3 sm:block">
+                    {dateFormat.format(new Date(p.createdAt))}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
-      {creating && <NewProject onDone={() => setCreating(false)} />}
-      {error && <p className="text-signal">{error.message}</p>}
-      {isPending && <p className="text-ink-3">Loading</p>}
-      {data && data.length === 0 && !creating && <Empty onCreate={() => setCreating(true)} />}
-      {data && data.length > 0 && (
-        <ul className="m-0 flex list-none flex-col p-0">
-          <li className="label grid grid-cols-[1fr_auto] gap-4 sm:grid-cols-[1fr_120px_120px] border-b border-hairline px-2 pb-2">
-            <span>Name</span>
-            <span>Profile</span>
-            <span className="hidden text-right sm:block">Created</span>
-          </li>
-          {data.map((p) => (
-            <li key={p.id}>
-              <Link
-                to="/projects/$projectId"
-                params={{ projectId: p.id }}
-                className="grid h-12 grid-cols-[1fr_auto] items-center sm:grid-cols-[1fr_120px_120px] gap-4 border-b border-hairline px-2 text-ink no-underline hover:bg-surface"
-              >
-                <span className="truncate text-sm font-medium">{p.name}</span>
-                <span className="flex items-center gap-2 text-ink-2">
-                  <Icon name={profileIcon[p.profile]} />
-                  {profiles[p.profile].label}
-                </span>
-                <span className="tabular hidden text-right text-xs text-ink-3 sm:block">
-                  {dateFormat.format(new Date(p.createdAt))}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    </>
   );
 }

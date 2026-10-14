@@ -45,6 +45,7 @@ const {
   guests,
   groups,
   groupMembers,
+  projects,
 } = schema;
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
@@ -681,6 +682,11 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
  */
 export const reviewRoutes = (deps: ReviewDeps) =>
   new Hono<{ Variables: ViewerVariables }>()
+    // The reviews a member is asked to take part in, open ones first: the sidebar's inbox.
+    .get("/", async (c) => {
+      const actor = memberOnly(c.var.actor);
+      return c.json({ reviews: await memberReviews(deps.db, actor) });
+    })
     .get("/:id", idParam, async (c) =>
       c.json({ review: await reviewView(deps.db, c.var.actor, c.req.valid("param").id) }),
     )
@@ -1017,6 +1023,64 @@ export const reviewRoutes = (deps: ReviewDeps) =>
     });
 
 /** A guest's open and past reviews, newest first, for their landing page. */
+/**
+ * The reviews a member is a reviewer of, in projects they can still see, with whether it is
+ * their turn now. Open reviews first, then the most recent.
+ */
+export async function memberReviews(db: Database, actor: MemberActor) {
+  const rows = await db
+    .select({
+      id: reviews.id,
+      projectId: reviews.projectId,
+      projectName: projects.name,
+      kind: reviews.kind,
+      title: reviews.title,
+      status: reviews.status,
+      outcome: reviews.outcome,
+      order: reviews.order,
+      dueAt: reviews.dueAt,
+      createdAt: reviews.createdAt,
+      reviewerId: reviewReviewers.id,
+      submittedAt: reviewReviewers.submittedAt,
+    })
+    .from(reviewReviewers)
+    .innerJoin(
+      reviews,
+      and(
+        eq(reviews.id, reviewReviewers.reviewId),
+        eq(reviews.organisationId, actor.organisationId),
+      ),
+    )
+    .innerJoin(
+      projects,
+      and(eq(projects.id, reviews.projectId), eq(projects.organisationId, actor.organisationId)),
+    )
+    .where(inOrg(reviewReviewers, actor.organisationId, eq(reviewReviewers.userId, actor.userId)))
+    // Open reviews come before the limit does, so one still waiting is never cut off.
+    .orderBy(
+      desc(sql`${reviews.status} = 'open' and ${reviewReviewers.submittedAt} is null`),
+      desc(sql`${reviews.status} = 'open'`),
+      desc(reviews.createdAt),
+    )
+    .limit(100);
+  const visible = new Map<string, boolean>();
+  const out = [];
+  for (const row of rows) {
+    if (!visible.has(row.projectId)) {
+      visible.set(row.projectId, Boolean(await projectAccess(db, actor, row.projectId)));
+    }
+    if (!visible.get(row.projectId)) continue;
+    let yourTurn = false;
+    if (row.status === "open" && !row.submittedAt) {
+      const { facts } = await reviewersOf(db, actor.organisationId, row.id);
+      yourTurn = activeReviewers(row.order, facts).has(row.reviewerId);
+    }
+    const { reviewerId: _, ...rest } = row;
+    out.push({ ...rest, yourTurn });
+  }
+  return out.sort((a, b) => Number(b.status === "open") - Number(a.status === "open"));
+}
+
 export async function guestReviews(db: Database, organisationId: string, guestId: string) {
   return db
     .select({

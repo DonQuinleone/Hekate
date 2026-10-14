@@ -14,6 +14,8 @@ export const createTrackInput = z.object({
   name: trackName,
   /** A score in the same project, for bar anchors and the score view. */
   scoreFileId: z.uuid().nullish(),
+  /** The folder it sits in, like a folder of its own; null or left out is the top. */
+  folderId: z.uuid().nullish(),
 });
 
 export const updateTrackInput = z
@@ -21,6 +23,8 @@ export const updateTrackInput = z
     name: trackName.optional(),
     scoreFileId: z.uuid().nullable().optional(),
     position: z.number().int().nonnegative().optional(),
+    /** Move it to a folder; null is the top of the project. */
+    folderId: z.uuid().nullable().optional(),
   })
   .refine((t) => Object.keys(t).length > 0, { message: "Nothing to change" });
 
