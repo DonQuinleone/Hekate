@@ -1,7 +1,9 @@
 import {
   type Anchor,
+  decodeLoudness,
   decodePeaks,
   type FileKind,
+  type LoudnessSummary,
   type MediaInfo,
   type ProjectProfile,
 } from "@hekate/shared";
@@ -164,7 +166,7 @@ export interface ProjectFile {
   /** Playable proxies: prepared in the background after the file is measured. */
   streamStatus: StreamStatus;
   /** Waveform peaks: computed in the background for files with audio. */
-  peaksStatus: StreamStatus;
+  analysisStatus: StreamStatus;
   uploadedBy: string | null;
   createdAt: string;
 }
@@ -272,6 +274,36 @@ export const peakLevelQuery = (fileId: string, levelId: string) =>
       });
       if (!res.ok) await json(res);
       return decodePeaks(new Uint8Array(await res.arrayBuffer()));
+    },
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+
+/** A file's loudness: the summary, and the shape of its series, once the worker has measured it. */
+export const loudnessQuery = (fileId: string) =>
+  queryOptions({
+    queryKey: ["files", fileId, "loudness"],
+    queryFn: async () =>
+      json<{
+        status: StreamStatus;
+        summary: LoudnessSummary | null;
+        series: {
+          channels: number;
+          sampleRate: number;
+          samplesPerFrame: number;
+          count: number;
+        } | null;
+      }>(await api.files[":id"].loudness.$get({ param: { id: fileId } })),
+    refetchInterval: (query) => (query.state.data?.status === "pending" ? 3000 : false),
+  });
+
+/** Loudness and levels over time, decoded. They never change, so they are kept for the visit. */
+export const loudnessSeriesQuery = (fileId: string) =>
+  queryOptions({
+    queryKey: ["files", fileId, "loudness", "series"],
+    queryFn: async () => {
+      const res = await api.files[":id"].loudness.series.$get({ param: { id: fileId } });
+      if (!res.ok) await json(res);
+      return decodeLoudness(new Uint8Array(await res.arrayBuffer()));
     },
     staleTime: Number.POSITIVE_INFINITY,
   });

@@ -35,6 +35,7 @@ describe("tenancy", () => {
       "files",
       "folders",
       "invitations",
+      "loudness",
       "members",
       "organisation_keys",
       "peak_levels",

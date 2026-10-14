@@ -2,6 +2,7 @@ import {
   type Anchor,
   auditActions,
   auditActorTypes,
+  type LoudnessSummary,
   type MediaInfo,
   type ProjectProfile,
 } from "@hekate/shared";
@@ -317,8 +318,8 @@ export const files = pgTable(
     byteSize: bigint("byte_size", { mode: "number" }).notNull(),
     /** Playable proxies: "none" for files that are not audio or video. */
     streamStatus: streamStatusEnum("stream_status").notNull().default("none"),
-    /** Waveform peaks: "none" for files without audio. */
-    peaksStatus: streamStatusEnum("peaks_status").notNull().default("none"),
+    /** Audio analysis (waveform peaks and loudness): "none" for files without audio. */
+    analysisStatus: streamStatusEnum("analysis_status").notNull().default("none"),
     /** Measured by the media worker; null until the file has been probed. */
     mediaInfo: jsonb("media_info").$type<MediaInfo>(),
     takeId: uuid("take_id").references(() => takes.id, { onDelete: "set null" }),
@@ -600,6 +601,32 @@ export const peakLevels = pgTable(
   (t) => [
     uniqueIndex("peak_levels_file_level_idx").on(t.organisationId, t.fileId, t.samplesPerPeak),
   ],
+);
+
+/**
+ * A file's loudness and levels (docs/security.md): the summary a reviewer reads first, and
+ * the series over time (100 ms frames) as an encrypted blob in the format of
+ * `packages/shared/src/loudness.ts`.
+ */
+export const loudness = pgTable(
+  "loudness",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => files.id, { onDelete: "cascade" }),
+    summary: jsonb("summary").$type<LoudnessSummary>().notNull(),
+    channels: integer("channels").notNull(),
+    sampleRate: integer("sample_rate").notNull(),
+    samplesPerFrame: integer("samples_per_frame").notNull(),
+    frameCount: integer("frame_count").notNull(),
+    blobId: uuid("blob_id")
+      .notNull()
+      .references(() => blobs.id, { onDelete: "no action" }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("loudness_file_idx").on(t.organisationId, t.fileId)],
 );
 
 // Storage reconciliation
