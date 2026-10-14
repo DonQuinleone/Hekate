@@ -1,4 +1,10 @@
-import type { Anchor, MediaInfo, ProjectProfile } from "@hekate/shared";
+import {
+  type Anchor,
+  auditActions,
+  auditActorTypes,
+  type MediaInfo,
+  type ProjectProfile,
+} from "@hekate/shared";
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
@@ -7,6 +13,7 @@ import {
   check,
   date,
   index,
+  inet,
   integer,
   jsonb,
   pgEnum,
@@ -45,6 +52,8 @@ export const profileEnum = pgEnum("project_profile", ["music", "video", "general
 /** Organisation-level role. Per-project roles and permissions are a separate model (issue 23). */
 export const organisationRoleEnum = pgEnum("organisation_role", ["owner", "admin", "member"]);
 export const fileKindEnum = pgEnum("file_kind", ["audio", "video", "document", "image", "other"]);
+export const auditActionEnum = pgEnum("audit_action", auditActions);
+export const auditActorEnum = pgEnum("audit_actor", auditActorTypes);
 
 // Organisations and people
 
@@ -393,4 +402,43 @@ export const comments = pgTable(
     ...timestamps,
   },
   (t) => [index("comments_org_idx").on(t.organisationId), index("comments_file_idx").on(t.fileId)],
+);
+
+// Access log
+
+/**
+ * The append-only access log (docs/security.md). Rows are never updated, and only
+ * deleted by an explicit purge; triggers in migration 0006 enforce both. References
+ * are plain ids, not foreign keys, so the record outlives the files, people and
+ * reviews it mentions. The actor's name and email are copied at the time.
+ */
+export const accessEvents = pgTable(
+  "access_events",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    action: auditActionEnum("action").notNull(),
+    actorType: auditActorEnum("actor_type").notNull(),
+    /** The member's user id, or null for guests and the system. */
+    userId: text("user_id"),
+    /** Guest access record, once guests exist (issue 24). */
+    guestId: uuid("guest_id"),
+    /** Who it was, as shown at the time: a name and email address. */
+    actorLabel: text("actor_label").notNull(),
+    projectId: uuid("project_id"),
+    fileId: uuid("file_id"),
+    reviewId: uuid("review_id"),
+    ipAddress: inet("ip_address"),
+    userAgent: text("user_agent"),
+    /** Action-specific facts, for example the byte range or rendition. Never secrets. */
+    details: jsonb("details").$type<Record<string, unknown>>(),
+  },
+  (t) => [
+    index("access_events_org_time_idx").on(t.organisationId, t.id),
+    index("access_events_file_idx").on(t.organisationId, t.fileId, t.id),
+    index("access_events_user_idx").on(t.organisationId, t.userId, t.id),
+    index("access_events_review_idx").on(t.organisationId, t.reviewId, t.id),
+    index("access_events_project_idx").on(t.organisationId, t.projectId, t.id),
+  ],
 );

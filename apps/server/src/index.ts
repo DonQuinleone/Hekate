@@ -2,6 +2,7 @@ import { createDb, runMigrations } from "@hekate/db";
 import { createBackends, StorageConfigError, storageConfigFromEnv } from "@hekate/storage";
 import { serve } from "@hono/node-server";
 import { createApp } from "./app.ts";
+import { createAudit } from "./audit.ts";
 import { createAuth } from "./auth.ts";
 import { loadConfig } from "./config.ts";
 import { createJobs } from "./jobs.ts";
@@ -74,7 +75,16 @@ if (config.WORKER) {
   );
 }
 
-const app = createApp({ db, auth, mailer, storage, publicUrl: config.PUBLIC_URL });
+const audit = createAudit(db);
+const app = createApp({
+  db,
+  auth,
+  mailer,
+  storage,
+  audit,
+  publicUrl: config.PUBLIC_URL,
+  trustProxy: config.TRUST_PROXY,
+});
 if (config.WEB_DIST) serveWeb(app, config.WEB_DIST);
 
 const server = serve({ fetch: app.fetch, port: config.PORT }, (info) => {

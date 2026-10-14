@@ -85,6 +85,12 @@ The media worker runs ffmpeg and ffprobe on uploads, which are untrusted input.
 
 An append-only access log records who accessed what, when, through which review, from which IP address and user agent, and whether it was a stream, a page, a key or a download. Owners can filter it per file, per person and per review.
 
+- **Append-only in the database.** Triggers refuse every update, and every delete or truncate unless the transaction explicitly turns on `hekate.audit_purge`, which only retention and organisation removal do. A bug or a careless query cannot quietly rewrite history.
+- **Self-contained records.** Events keep plain ids rather than foreign keys and copy the person's name and email at the time, so the record outlives the files, people and reviews it mentions.
+- **Written before access.** Recording is awaited: if an event cannot be written, the key, page or download it describes is not served.
+- **Client addresses** come from the socket, or from `X-Forwarded-For` only when `TRUST_PROXY` is set (the Compose file sets it, because Caddy replaces that header with the real client address). A client cannot claim another address otherwise.
+- **Reading and export** are for organisation admins and owners: filters by project, file, review, person, action and time, newest first with cursor paging, and a CSV export. Exports are themselves logged, and cells that a spreadsheet would run as formulas are neutralised.
+
 ## Settled questions
 
 - Commercial DRM is not needed yet; encrypted HLS with `cbcs` leaves room for it.

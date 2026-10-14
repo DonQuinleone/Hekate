@@ -2,6 +2,7 @@ import type { Database } from "@hekate/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { logger } from "hono/logger";
+import type { Audit } from "./audit.ts";
 import type { Auth } from "./auth.ts";
 import { onError } from "./errors.ts";
 import type { Mailer } from "./mail.ts";
@@ -19,6 +20,9 @@ export interface AppDeps {
   auth: Auth;
   mailer: Mailer;
   storage: Storage;
+  audit: Audit;
+  /** Read the client address from X-Forwarded-For (behind Caddy). */
+  trustProxy?: boolean;
   publicUrl: string;
   log?: boolean;
 }
@@ -33,7 +37,17 @@ export function createApi(deps: AppDeps) {
     .route("/me", meRoutes(deps.db))
     .route("/invitations", invitationRoutes(deps.db, deps.auth))
     .use("/organisation/*", ...member)
-    .route("/organisation", organisationRoutes(deps.db, deps.mailer, deps.publicUrl, deps.storage))
+    .route(
+      "/organisation",
+      organisationRoutes(
+        deps.db,
+        deps.mailer,
+        deps.publicUrl,
+        deps.storage,
+        deps.audit,
+        deps.trustProxy ?? false,
+      ),
+    )
     .use("/projects/*", ...member)
     .use("/projects", ...member)
     .route("/projects", projectRoutes(deps.db));

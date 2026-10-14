@@ -1,10 +1,17 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { atLeast, inviteInput, organisationRole, organisationStorageInput } from "@hekate/shared";
+import {
+  atLeast,
+  auditQuery,
+  inviteInput,
+  organisationRole,
+  organisationStorageInput,
+} from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, count, desc, eq, gt, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
+import { type Audit, csvHeader, csvRow, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import { INVITATION_LIFETIME_MS, newInvitationToken } from "../invitation-token.ts";
 import type { Mailer } from "../mail.ts";
@@ -27,6 +34,8 @@ export const organisationRoutes = (
   mailer: Mailer,
   publicUrl: string,
   storage: Storage,
+  audit: Audit,
+  trustProxy: boolean,
 ) =>
   new Hono<{ Variables: TenantVariables }>()
     .get("/members", async (c) => {
@@ -227,5 +236,49 @@ export const organisationRoutes = (
           .set({ storageBackend: backend })
           .where(eq(organisations.id, c.var.organisationId));
         return c.json({ backend });
+      },
+    )
+    .get("/audit", requireRole("admin"), zValidator("query", auditQuery), async (c) => {
+      return c.json(await audit.query(c.var.organisationId, c.req.valid("query")));
+    })
+    .get(
+      "/audit.csv",
+      requireRole("admin"),
+      zValidator("query", auditQuery.omit({ before: true, limit: true })),
+      async (c) => {
+        const filters = c.req.valid("query");
+        const organisationId = c.var.organisationId;
+        // Exporting the log is itself recorded, before any of it leaves.
+        await audit.record(
+          organisationId,
+          await audit.member(c.var.userId),
+          { action: "audit.export", details: { filters } },
+          requestInfo(c, trustProxy),
+        );
+        const encoder = new TextEncoder();
+        let before: string | undefined;
+        let started = false;
+        const body = new ReadableStream<Uint8Array>({
+          async pull(controller) {
+            if (!started) {
+              started = true;
+              controller.enqueue(encoder.encode(csvHeader()));
+            }
+            const page = await audit.query(organisationId, {
+              ...filters,
+              limit: 200,
+              ...(before ? { before } : {}),
+            });
+            for (const event of page.events) controller.enqueue(encoder.encode(csvRow(event)));
+            if (page.nextBefore) before = page.nextBefore;
+            else controller.close();
+          },
+        });
+        const stamp = new Date().toISOString().slice(0, 10);
+        return c.body(body, 200, {
+          "content-type": "text/csv; charset=utf-8",
+          "content-disposition": `attachment; filename="hekate-access-log-${stamp}.csv"`,
+          "cache-control": "no-store",
+        });
       },
     );

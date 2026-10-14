@@ -12,12 +12,24 @@ describe("uuidv7", () => {
     expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(a < b).toBe(true);
   });
+
+  it("sorts in creation order within one millisecond, and never repeats", () => {
+    const ids = Array.from({ length: 10_000 }, () => uuidv7(1_800_000_000_000));
+    expect([...ids].sort()).toEqual(ids);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("never goes backwards when the clock does", () => {
+    const later = uuidv7(1_900_000_000_000);
+    expect(uuidv7(1_800_000_000_000) > later).toBe(true);
+  });
 });
 
 describe("tenancy", () => {
   it("covers every tenant-owned table", () => {
     const names = tenantTables.map((t) => getTableName(t)).sort();
     expect(names).toEqual([
+      "access_events",
       "blobs",
       "comments",
       "files",

@@ -1,0 +1,40 @@
+import { z } from "zod";
+
+/**
+ * What the access log records (docs/security.md). Every key issued, playback
+ * session, rendered page and download, plus the changes that matter to an
+ * investigation: uploads, deletions and exports of the log itself.
+ */
+export const auditActions = [
+  /** A content key was issued to a player. */
+  "stream.key",
+  /** A player started a session of signed segment URLs. */
+  "stream.session",
+  /** A document or image page was rendered as tiles for a viewer. */
+  "page.render",
+  /** A file left Hekate as a download. */
+  "download",
+  "file.upload",
+  "file.delete",
+  /** Someone exported this log. */
+  "audit.export",
+] as const;
+export const auditAction = z.enum(auditActions);
+export type AuditAction = z.infer<typeof auditAction>;
+
+export const auditActorTypes = ["member", "guest", "system"] as const;
+export type AuditActorType = (typeof auditActorTypes)[number];
+
+/** Filters for reading the log. Results run newest first; `before` is the last id of the previous page. */
+export const auditQuery = z.object({
+  projectId: z.uuid().optional(),
+  fileId: z.uuid().optional(),
+  reviewId: z.uuid().optional(),
+  userId: z.string().min(1).max(64).optional(),
+  action: auditAction.optional(),
+  from: z.iso.datetime({ offset: true }).optional(),
+  to: z.iso.datetime({ offset: true }).optional(),
+  before: z.uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+export type AuditQuery = z.infer<typeof auditQuery>;
