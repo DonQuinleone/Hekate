@@ -6,6 +6,7 @@ import { Comments, useCommentMarkers } from "~/components/comments";
 import { kindIcon, mediaSummary } from "~/components/files";
 import { Icon } from "~/components/icons";
 import { Player } from "~/components/player";
+import { FileContext } from "~/components/tracks";
 import { type FileDetail, fileQuery, playbackQuery, projectQuery } from "~/lib/queries";
 
 const dateFormat = new Intl.DateTimeFormat("en-GB", {
@@ -130,6 +131,7 @@ export function FilePage({ fileId }: { fileId: string }) {
         <h1 className="m-0 break-words text-[28px] font-medium tracking-[-0.02em]">{file.name}</h1>
         {summary && <p className="tabular m-0 text-[13px] text-ink-2">{summary}</p>}
       </div>
+      <FileContext file={file} />
       <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="flex min-w-0 flex-col gap-6">
           <Playback file={file} onMedia={setMedia} />

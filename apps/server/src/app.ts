@@ -16,6 +16,12 @@ import { organisationRoutes } from "./routes/organisation.ts";
 import { fileRoutes, playRoutes } from "./routes/playback.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { setupRoutes } from "./routes/setup.ts";
+import {
+  projectTrackRoutes,
+  trackRoutes,
+  variationRoutes,
+  versionRoutes,
+} from "./routes/tracks.ts";
 import { uploadRoutes } from "./routes/uploads.ts";
 import type { Storage } from "./storage.ts";
 import { requireOrganisation, requireSession } from "./tenancy.ts";
@@ -70,6 +76,13 @@ export function createApi(deps: AppDeps) {
       .use("/projects/*", ...member)
       .use("/projects", ...member)
       .route("/projects", projectRoutes(deps.db))
+      .route("/projects", projectTrackRoutes(deps.db))
+      .use("/tracks/*", ...member)
+      .route("/tracks", trackRoutes(deps.db))
+      .use("/versions/*", ...member)
+      .route("/versions", versionRoutes(deps.db))
+      .use("/variations/*", ...member)
+      .route("/variations", variationRoutes(deps.db))
       .use("/uploads/*", ...member)
       .use("/uploads", ...member)
       .route(

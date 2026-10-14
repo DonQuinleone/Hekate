@@ -14,6 +14,7 @@ import { InvitePage } from "~/routes/invite";
 import { ProjectPage } from "~/routes/project";
 import { ProjectsPage } from "~/routes/projects";
 import { SettingsPage } from "~/routes/settings";
+import { TrackPage } from "~/routes/track";
 
 export const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 10_000 } } });
 
@@ -79,6 +80,14 @@ const project = createRoute({
     return <ProjectPage projectId={projectId} />;
   },
 });
+const track = createRoute({
+  getParentRoute: () => app,
+  path: "/tracks/$trackId",
+  component: function TrackRoute() {
+    const { trackId } = track.useParams();
+    return <TrackPage trackId={trackId} />;
+  },
+});
 const file = createRoute({
   getParentRoute: () => app,
   path: "/files/$fileId",
@@ -98,7 +107,7 @@ export const router = createRouter({
     setup,
     signIn,
     invite,
-    app.addChildren([projects, project, file, settings]),
+    app.addChildren([projects, project, track, file, settings]),
   ]),
   context: { queryClient },
   defaultPreload: "intent",
