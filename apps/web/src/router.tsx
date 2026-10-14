@@ -13,6 +13,7 @@ import { FilePage } from "~/routes/file";
 import { InvitePage } from "~/routes/invite";
 import { ProjectPage } from "~/routes/project";
 import { ProjectsPage } from "~/routes/projects";
+import { ReviewPage } from "~/routes/review";
 import { SettingsPage } from "~/routes/settings";
 import { TrackPage } from "~/routes/track";
 
@@ -96,6 +97,14 @@ const file = createRoute({
     return <FilePage fileId={fileId} />;
   },
 });
+const review = createRoute({
+  getParentRoute: () => app,
+  path: "/reviews/$reviewId",
+  component: function ReviewRoute() {
+    const { reviewId } = review.useParams();
+    return <ReviewPage reviewId={reviewId} />;
+  },
+});
 const settings = createRoute({
   getParentRoute: () => app,
   path: "/members",
@@ -107,7 +116,7 @@ export const router = createRouter({
     setup,
     signIn,
     invite,
-    app.addChildren([projects, project, track, file, settings]),
+    app.addChildren([projects, project, track, file, review, settings]),
   ]),
   context: { queryClient },
   defaultPreload: "intent",

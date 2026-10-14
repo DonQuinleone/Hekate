@@ -16,6 +16,7 @@ import { organisationRoutes } from "./routes/organisation.ts";
 import { fileRoutes, playRoutes } from "./routes/playback.ts";
 import { projectAccessRoutes } from "./routes/project-access.ts";
 import { projectRoutes } from "./routes/projects.ts";
+import { projectReviewRoutes, reviewRoutes } from "./routes/reviews.ts";
 import { setupRoutes } from "./routes/setup.ts";
 import {
   projectTrackRoutes,
@@ -54,6 +55,13 @@ export function createApi(deps: AppDeps) {
     secret: deps.playbackSecret,
     trustProxy: deps.trustProxy ?? false,
   };
+  const reviewDeps = {
+    db: deps.db,
+    audit: deps.audit,
+    mailer: deps.mailer,
+    publicUrl: deps.publicUrl,
+    trustProxy: deps.trustProxy ?? false,
+  };
   return (
     new Hono()
       .route("/health", health(deps.db))
@@ -79,6 +87,7 @@ export function createApi(deps: AppDeps) {
       .route("/projects", projectRoutes(deps.db))
       .route("/projects", projectTrackRoutes(deps.db))
       .route("/projects", projectAccessRoutes(deps.db))
+      .route("/projects", projectReviewRoutes(reviewDeps))
       .use("/tracks/*", ...member)
       .route("/tracks", trackRoutes(deps.db))
       .use("/versions/*", ...member)
@@ -94,6 +103,8 @@ export function createApi(deps: AppDeps) {
       .use("/files/*", ...member)
       .route("/files", fileRoutes(playback))
       .route("/files", fileCommentRoutes(deps.db))
+      .use("/reviews/*", ...member)
+      .route("/reviews", reviewRoutes(reviewDeps))
       .use("/comments/*", ...member)
       .route("/comments", commentRoutes(deps.db))
       // The organisation comes from the token, which the route checks against membership.

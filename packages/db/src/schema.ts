@@ -1,11 +1,17 @@
 import {
   type Anchor,
+  approvalRules,
   auditActions,
   auditActorTypes,
   type LoudnessSummary,
   type MediaInfo,
   type ProjectPermission,
   type ProjectProfile,
+  type ReviewOutcome,
+  reviewDecisions,
+  reviewKinds,
+  reviewOrders,
+  reviewStatuses,
 } from "@hekate/shared";
 import { sql } from "drizzle-orm";
 import {
@@ -57,6 +63,11 @@ export const profileEnum = pgEnum("project_profile", ["music", "video", "general
 export const organisationRoleEnum = pgEnum("organisation_role", ["owner", "admin", "member"]);
 export const fileKindEnum = pgEnum("file_kind", ["audio", "video", "document", "image", "other"]);
 export const auditActionEnum = pgEnum("audit_action", auditActions);
+export const reviewKindEnum = pgEnum("review_kind", reviewKinds);
+export const reviewOrderEnum = pgEnum("review_order", reviewOrders);
+export const approvalRuleEnum = pgEnum("approval_rule", approvalRules);
+export const reviewStatusEnum = pgEnum("review_status", reviewStatuses);
+export const reviewDecisionEnum = pgEnum("review_decision", reviewDecisions);
 export const uploadStatusEnum = pgEnum("upload_status", [
   "open",
   "completing",
@@ -698,6 +709,100 @@ export const spectrograms = pgTable(
     ...timestamps,
   },
   (t) => [uniqueIndex("spectrograms_file_channel_idx").on(t.organisationId, t.fileId, t.channel)],
+);
+
+// Reviews (docs/domain.md)
+
+/** A request to reviewers about one or more items, for approval or for feedback. */
+export const reviews = pgTable(
+  "reviews",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: projectId(),
+    kind: reviewKindEnum("kind").notNull(),
+    title: text("title").notNull(),
+    message: text("message"),
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    order: reviewOrderEnum("order").notNull().default("parallel"),
+    /** Approvals only. */
+    rule: approvalRuleEnum("rule"),
+    status: reviewStatusEnum("status").notNull().default("open"),
+    /** Set when the review completes: approved, changes requested, or (feedback) submitted. */
+    outcome: text("outcome").$type<Exclude<ReviewOutcome, null>>(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index("reviews_project_idx").on(t.organisationId, t.projectId, t.createdAt)],
+);
+
+/** What a review covers: a track (a specific version, or its latest) or a file. */
+export const reviewItems = pgTable(
+  "review_items",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    reviewId: uuid("review_id")
+      .notNull()
+      .references(() => reviews.id, { onDelete: "cascade" }),
+    trackId: uuid("track_id").references(() => tracks.id, { onDelete: "cascade" }),
+    /** With a track: a specific version. Null follows the track's latest. */
+    versionId: uuid("version_id").references(() => versions.id, { onDelete: "cascade" }),
+    fileId: uuid("file_id").references(() => files.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [
+    index("review_items_review_idx").on(t.organisationId, t.reviewId),
+    check(
+      "review_items_one_kind",
+      sql`(${t.trackId} is not null and ${t.fileId} is null) or (${t.trackId} is null and ${t.fileId} is not null and ${t.versionId} is null)`,
+    ),
+  ],
+);
+
+/** Who is asked, in order. Guests and groups follow (#24). */
+export const reviewReviewers = pgTable(
+  "review_reviewers",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    reviewId: uuid("review_id")
+      .notNull()
+      .references(() => reviews.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    viewedAt: timestamp("viewed_at", { withTimezone: true }),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("review_reviewers_user_idx").on(t.organisationId, t.reviewId, t.userId)],
+);
+
+/**
+ * Approval decisions, append-only: a later decision supersedes an earlier one but never
+ * erases it. The database refuses updates (migration 0016); rows go only with their review.
+ */
+export const reviewDecisionLog = pgTable(
+  "review_decisions",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    reviewId: uuid("review_id")
+      .notNull()
+      .references(() => reviews.id, { onDelete: "cascade" }),
+    reviewerId: uuid("reviewer_id")
+      .notNull()
+      .references(() => reviewReviewers.id, { onDelete: "cascade" }),
+    decision: reviewDecisionEnum("decision").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("review_decisions_review_idx").on(t.organisationId, t.reviewId, t.createdAt)],
 );
 
 // Storage reconciliation
