@@ -8,6 +8,7 @@ import { Icon } from "~/components/icons";
 import { Loudness } from "~/components/loudness";
 import { Player } from "~/components/player";
 import { FileContext } from "~/components/tracks";
+import type { Loop } from "~/lib/loop";
 import { type FileDetail, fileQuery, playbackQuery, projectQuery } from "~/lib/queries";
 import { useViewer } from "~/lib/viewer";
 
@@ -30,9 +31,13 @@ function Notice({ children }: { children: ReactNode }) {
 function Playback({
   file,
   onMedia,
+  loop,
+  onLoop,
 }: {
   file: FileDetail;
   onMedia: (element: HTMLMediaElement | null) => void;
+  loop: Loop | null;
+  onLoop: (loop: Loop | null) => void;
 }) {
   const client = useQueryClient();
   const markers = useCommentMarkers(file.id);
@@ -57,6 +62,8 @@ function Playback({
       info={file.mediaInfo}
       onMedia={onMedia}
       markers={markers}
+      loop={loop}
+      onLoop={onLoop}
       onExpired={() => client.resetQueries({ queryKey: playbackQuery(file.id).queryKey })}
     />
   );
@@ -82,7 +89,16 @@ function technicalDetails(info: MediaInfo | null): [string, string][] {
   return rows;
 }
 
-export function FilePage({ fileId }: { fileId: string }) {
+export function FilePage({
+  fileId,
+  loop = null,
+  onLoop = () => {},
+}: {
+  fileId: string;
+  /** The passage being looped, kept in the address so it holds across versions and variations. */
+  loop?: Loop | null;
+  onLoop?: (loop: Loop | null) => void;
+}) {
   const { data: file, error } = useQuery(fileQuery(fileId));
   const [media, setMedia] = useState<HTMLMediaElement | null>(null);
   const { guest } = useViewer();
@@ -146,13 +162,19 @@ export function FilePage({ fileId }: { fileId: string }) {
       {!guest && <FileContext file={file} />}
       <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="flex min-w-0 flex-col gap-6">
-          <Playback file={file} onMedia={setMedia} />
+          <Playback file={file} onMedia={setMedia} loop={loop} onLoop={onLoop} />
           {file.mediaInfo?.audio && (
             <Loudness fileId={file.id} media={media} layout={file.mediaInfo.audio.channelLayout} />
           )}
           <dl className="m-0 hidden flex-col border-t border-hairline lg:flex">{detailRows}</dl>
         </div>
-        <Comments fileId={file.id} projectId={file.projectId} media={media} />
+        <Comments
+          fileId={file.id}
+          projectId={file.projectId}
+          media={media}
+          loop={loop}
+          onLoop={onLoop}
+        />
         <dl className="m-0 flex flex-col border-t border-hairline lg:hidden">{detailRows}</dl>
       </div>
     </div>

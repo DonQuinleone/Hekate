@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { Shell } from "~/components/shell";
+import { formatLoop, parseLoop } from "~/lib/loop";
 import { guestMeQuery, meQuery, setupQuery } from "~/lib/queries";
 import { ViewerProvider } from "~/lib/viewer";
 import { SetupPage, SignInPage } from "~/routes/auth-pages";
@@ -21,6 +22,10 @@ import { SettingsPage } from "~/routes/settings";
 import { TrackPage } from "~/routes/track";
 
 export const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 10_000 } } });
+
+/** A file page's loop, from its address: kept only when it reads as one. */
+const loopSearch = (search: Record<string, unknown>): { loop?: string } =>
+  typeof search.loop === "string" && parseLoop(search.loop) ? { loop: search.loop } : {};
 
 const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   component: Outlet,
@@ -103,9 +108,20 @@ const guestReview = createRoute({
 const guestFile = createRoute({
   getParentRoute: () => guestApp,
   path: "/g/files/$fileId",
+  validateSearch: loopSearch,
   component: function GuestFileRoute() {
     const { fileId } = guestFile.useParams();
-    return <FilePage fileId={fileId} />;
+    const { loop } = guestFile.useSearch();
+    const navigate = guestFile.useNavigate();
+    return (
+      <FilePage
+        fileId={fileId}
+        loop={parseLoop(loop)}
+        onLoop={(next) =>
+          void navigate({ search: next ? { loop: formatLoop(next) } : {}, replace: true })
+        }
+      />
+    );
   },
 });
 
@@ -158,9 +174,20 @@ const track = createRoute({
 const file = createRoute({
   getParentRoute: () => app,
   path: "/files/$fileId",
+  validateSearch: loopSearch,
   component: function FileRoute() {
     const { fileId } = file.useParams();
-    return <FilePage fileId={fileId} />;
+    const { loop } = file.useSearch();
+    const navigate = file.useNavigate();
+    return (
+      <FilePage
+        fileId={fileId}
+        loop={parseLoop(loop)}
+        onLoop={(next) =>
+          void navigate({ search: next ? { loop: formatLoop(next) } : {}, replace: true })
+        }
+      />
+    );
   },
 });
 const review = createRoute({

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, type KeyboardEvent, useState } from "react";
 import { cn } from "~/lib/cn";
 import { ago, type Thread, threadsOf } from "~/lib/comments";
+import { type Loop, MIN_LOOP } from "~/lib/loop";
 import {
   type Comment,
   commentsQuery,
@@ -139,6 +140,7 @@ function ThreadView({
   thread,
   me,
   onSeek,
+  onLoop,
   mutations,
   canComment,
   canTriage,
@@ -146,6 +148,8 @@ function ThreadView({
   thread: Thread;
   me: string | undefined;
   onSeek: (seconds: number) => void;
+  /** Loop a comment's passage, when it covers one. */
+  onLoop?: (loop: Loop) => void;
   mutations: ReturnType<typeof useCommentMutations>;
   canComment: boolean;
   canTriage: boolean;
@@ -177,6 +181,16 @@ function ThreadView({
           )
         ) : (
           <span className="label">Whole file</span>
+        )}
+        {anchor?.kind === "time" && onLoop && anchor.end - anchor.start >= MIN_LOOP && (
+          <button
+            type="button"
+            onClick={() => onLoop({ start: anchor.start, end: anchor.end })}
+            className="cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+            aria-label={`Loop ${anchorLabel(anchor)}`}
+          >
+            Loop
+          </button>
         )}
         {comment.resolvedAt && (
           <span className="text-xs text-ink-3">
@@ -244,12 +258,18 @@ export function Comments({
   fileId,
   projectId,
   media,
+  loop = null,
+  onLoop,
 }: {
   fileId: string;
   /** The file's project, whose role decides who may comment and resolve. */
   projectId: string;
   /** The player's media element, when the file plays. */
   media: HTMLMediaElement | null;
+  /** The passage the player is looping: a new comment can point at it. */
+  loop?: Loop | null;
+  /** Loop a comment's passage in the player. */
+  onLoop?: (loop: Loop) => void;
 }) {
   const { data, error } = useQuery(commentsQuery(fileId));
   const { guest } = useViewer();
@@ -262,6 +282,8 @@ export function Comments({
   /** The playhead when writing began; null for a whole-file comment. */
   const [at, setAt] = useState<number | null>(null);
   const [wholeFile, setWholeFile] = useState(false);
+  /** With a loop set, new comments point at the looped passage unless told otherwise. */
+  const [onPassage, setOnPassage] = useState(true);
   const [showResolved, setShowResolved] = useState(false);
 
   const seek = (seconds: number) => {
@@ -275,6 +297,7 @@ export function Comments({
   /** The anchor for a new comment: the captured time, or the playhead as it is now. */
   const anchorNow = (): Anchor | null => {
     if (!media || wholeFile) return null;
+    if (loop && onPassage) return { kind: "time", start: loop.start, end: loop.end };
     const start = at ?? Math.round(media.currentTime * 1000) / 1000;
     return { kind: "time", start, end: start };
   };
@@ -306,20 +329,39 @@ export function Comments({
               <span className="flex items-center gap-1">
                 <button
                   type="button"
-                  aria-pressed={!wholeFile}
+                  aria-pressed={!wholeFile && !(loop && onPassage)}
                   onClick={() => {
                     setWholeFile(false);
+                    setOnPassage(false);
                     setAt(Math.round(media.currentTime * 1000) / 1000);
                   }}
                   className={cn(
                     "tabular h-6 cursor-pointer rounded-chip border px-2 font-mono text-[11px]",
-                    !wholeFile
+                    !wholeFile && !(loop && onPassage)
                       ? "border-edge bg-raised text-ink"
                       : "border-transparent bg-transparent text-ink-3",
                   )}
                 >
                   {at === null ? "At playhead" : anchorLabel({ kind: "time", start: at, end: at })}
                 </button>
+                {loop && (
+                  <button
+                    type="button"
+                    aria-pressed={!wholeFile && onPassage}
+                    onClick={() => {
+                      setWholeFile(false);
+                      setOnPassage(true);
+                    }}
+                    className={cn(
+                      "tabular h-6 cursor-pointer rounded-chip border px-2 font-mono text-[11px]",
+                      !wholeFile && onPassage
+                        ? "border-edge bg-raised text-ink"
+                        : "border-transparent bg-transparent text-ink-3",
+                    )}
+                  >
+                    {anchorLabel({ kind: "time", start: loop.start, end: loop.end })}
+                  </button>
+                )}
                 <button
                   type="button"
                   aria-pressed={wholeFile}
@@ -349,6 +391,7 @@ export function Comments({
             thread={t}
             me={me?.user.id}
             onSeek={seek}
+            onLoop={onLoop}
             mutations={mutations}
             canComment={canComment}
             canTriage={canTriage}
@@ -373,6 +416,7 @@ export function Comments({
                   thread={t}
                   me={me?.user.id}
                   onSeek={seek}
+                  onLoop={onLoop}
                   mutations={mutations}
                   canComment={canComment}
                   canTriage={canTriage}

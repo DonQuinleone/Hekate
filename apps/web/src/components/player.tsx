@@ -2,12 +2,37 @@ import { formatChannels, formatDuration, type MediaInfo } from "@hekate/shared";
 import type Hls from "hls.js";
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
+import { type Loop, loopEntry, loopFrom, type Rolls, roll, wrapTarget } from "~/lib/loop";
 import type { Playback, Rendition } from "~/lib/queries";
 import { Icon } from "./icons";
+import { LoopControls, LoopSurface } from "./loop";
 import { Spectrogram, type SpectrogramChannelChoice } from "./spectrogram";
 import { SpectrogramSettings, useSpectrogramView } from "./spectrogram-settings";
 import { Button } from "./ui/button";
 import { WAVEFORM_HEIGHT, Waveform, type WaveformView } from "./waveform";
+
+const ROLLS_KEY = "hekate.loop.rolls";
+
+/** Pre-roll and post-roll, remembered per browser; storage can be missing or refuse. */
+function useRolls(): [Rolls, (rolls: Rolls) => void] {
+  const [rolls, setRolls] = useState<Rolls>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(ROLLS_KEY) ?? "null") as Partial<Rolls> | null;
+      return { pre: roll(saved?.pre ?? 0), post: roll(saved?.post ?? 0) };
+    } catch {
+      return { pre: 0, post: 0 };
+    }
+  });
+  const save = (next: Rolls) => {
+    setRolls(next);
+    try {
+      localStorage.setItem(ROLLS_KEY, JSON.stringify(next));
+    } catch {
+      // Not remembered; the setting still holds for this visit.
+    }
+  };
+  return [rolls, save];
+}
 
 /** How the audio is drawn above the transport. */
 type Display = "waveform" | "spectrogram" | "both" | "overlay";
@@ -95,6 +120,8 @@ export function Player({
   onExpired,
   onMedia,
   markers = [],
+  loop = null,
+  onLoop = () => {},
 }: {
   fileId: string;
   kind: "audio" | "video";
@@ -105,6 +132,9 @@ export function Player({
   onMedia?: (element: HTMLMediaElement | null) => void;
   /** Positions in seconds to mark on the timeline, such as anchored comments. */
   markers?: number[];
+  /** The passage being looped; kept by the page so it holds across files. */
+  loop?: Loop | null;
+  onLoop?: (loop: Loop | null) => void;
 }) {
   const media = useRef<HTMLVideoElement & HTMLAudioElement>(null);
   // Kept in a ref so a new callback from the parent does not restart playback.
@@ -134,6 +164,10 @@ export function Player({
     channels > 1 ? "each" : "0",
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** A loop can be kept but switched off, to hear on past it. */
+  const [looping, setLooping] = useState(true);
+  const [rolls, setRolls] = useRolls();
+  const active = Boolean(loop) && looping;
 
   useEffect(() => {
     const element = media.current;
@@ -226,6 +260,35 @@ export function Player({
     });
   }, []);
 
+  const seek = (seconds: number) => {
+    const element = media.current;
+    if (element) element.currentTime = Math.max(0, Math.min(duration, seconds));
+  };
+
+  /** A new loop starts playing from its entry, so it can be heard at once. */
+  const setLoop = (next: Loop | null) => {
+    onLoop(next);
+    if (next) {
+      setLooping(true);
+      seek(loopEntry(next, rolls));
+    }
+  };
+
+  // Go round the loop. Checked every frame while playing: the media's own time updates
+  // come only a few times a second, too coarse for a tight passage.
+  useEffect(() => {
+    const element = media.current;
+    if (!element || !playing || !loop || !looping) return;
+    let frame = 0;
+    const check = () => {
+      const target = wrapTarget(element.currentTime, loop, rolls, duration);
+      if (target !== null) element.currentTime = target;
+      frame = requestAnimationFrame(check);
+    };
+    frame = requestAnimationFrame(check);
+    return () => cancelAnimationFrame(frame);
+  }, [playing, loop, looping, rolls, duration]);
+
   const seekBy = (seconds: number) => {
     const element = media.current;
     if (element)
@@ -243,13 +306,39 @@ export function Player({
     } else if (event.key === "ArrowRight") {
       event.preventDefault();
       seekBy(5);
+    } else if (event.key === "i" || event.key === "o") {
+      // Loop in and out at the playhead; the other edge stays, or the loop runs to the end.
+      const element = media.current;
+      if (!element || !(duration > 0)) return;
+      event.preventDefault();
+      const at = element.currentTime;
+      const next =
+        event.key === "i"
+          ? loopFrom(at, loop && loop.end > at ? loop.end : duration, duration)
+          : loopFrom(loop && loop.start < at ? loop.start : 0, at, duration);
+      if (next) {
+        onLoop(next);
+        setLooping(true);
+      }
+    } else if (event.key === "l" && loop) {
+      event.preventDefault();
+      setLooping((on) => !on);
     }
   };
 
   const events = {
     onPlay: () => setPlaying(true),
     onPause: () => setPlaying(false),
-    onEnded: () => setPlaying(false),
+    onEnded: () => {
+      // A loop that runs to the very end goes round when the media stops.
+      const element = media.current;
+      if (element && loop && looping) {
+        element.currentTime = loopEntry(loop, rolls);
+        void element.play().catch(() => undefined);
+        return;
+      }
+      setPlaying(false);
+    },
     onTimeUpdate: () => setTime(media.current?.currentTime ?? 0),
     onDurationChange: () => {
       const d = media.current?.duration;
@@ -299,55 +388,90 @@ export function Player({
         </div>
       ) : (
         <div className="flex flex-col gap-3 px-4 py-4">
-          {kind === "audio" && element && (display === "waveform" || display === "both") && (
-            <Waveform
-              fileId={fileId}
-              media={element}
+          {kind === "audio" && element && (
+            <LoopSurface
               duration={duration}
-              layout={info?.audio?.channelLayout}
-              view={view}
-            />
-          )}
-          {kind === "audio" && element && (display === "spectrogram" || display === "both") && (
-            <Spectrogram
-              fileId={fileId}
-              media={element}
-              duration={duration}
-              layout={info?.audio?.channelLayout}
-              channel={spectrumChannel}
-              view={spectrum}
-              height={WAVEFORM_HEIGHT}
-            />
-          )}
-          {kind === "audio" && element && display === "overlay" && (
-            // The waveform, drawn see-through, sits on the spectrogram and keeps the playhead.
-            <div className="relative">
-              <div className="absolute inset-0">
+              loop={loop}
+              active={active}
+              onSeek={seek}
+              onLoop={setLoop}
+              label="Waveform: click to move the playhead, drag to loop a passage"
+              className="flex flex-col gap-3"
+            >
+              {element && (display === "waveform" || display === "both") && (
+                <Waveform
+                  fileId={fileId}
+                  media={element}
+                  duration={duration}
+                  layout={info?.audio?.channelLayout}
+                  view={view}
+                />
+              )}
+              {element && (display === "spectrogram" || display === "both") && (
                 <Spectrogram
                   fileId={fileId}
                   media={element}
                   duration={duration}
                   layout={info?.audio?.channelLayout}
-                  // Row for row under the waveform: each channel, or all of them combined.
-                  channel={view === "combined" ? "all" : "each"}
+                  channel={spectrumChannel}
                   view={spectrum}
                   height={WAVEFORM_HEIGHT}
-                  playhead={false}
-                  labels={false}
                 />
-              </div>
-              <Waveform
-                fileId={fileId}
-                media={element}
-                duration={duration}
-                layout={info?.audio?.channelLayout}
-                view={view}
-                overlay
-              />
-            </div>
+              )}
+              {element && display === "overlay" && (
+                // The waveform, drawn see-through, sits on the spectrogram and keeps the playhead.
+                <div className="relative">
+                  <div className="absolute inset-0">
+                    <Spectrogram
+                      fileId={fileId}
+                      media={element}
+                      duration={duration}
+                      layout={info?.audio?.channelLayout}
+                      // Row for row under the waveform: each channel, or all of them combined.
+                      channel={view === "combined" ? "all" : "each"}
+                      view={spectrum}
+                      height={WAVEFORM_HEIGHT}
+                      playhead={false}
+                      labels={false}
+                    />
+                  </div>
+                  <Waveform
+                    fileId={fileId}
+                    media={element}
+                    duration={duration}
+                    layout={info?.audio?.channelLayout}
+                    view={view}
+                    overlay
+                  />
+                </div>
+              )}
+            </LoopSurface>
           )}
+          {/* The loop lane: drag here to loop a passage of a video, or of audio too. */}
+          <LoopSurface
+            duration={duration}
+            loop={loop}
+            active={active}
+            onSeek={seek}
+            onLoop={setLoop}
+            label="Loop lane: drag to loop a passage"
+            className="h-3 rounded-full bg-hairline/40"
+          />
           <div className="relative h-4">
             <div className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-hairline" />
+            {loop && duration > 0 && (
+              <div
+                aria-hidden="true"
+                className={cn(
+                  "absolute top-1/2 h-1.5 -translate-y-1/2 bg-signal/30",
+                  !active && "opacity-40",
+                )}
+                style={{
+                  left: `${share(loop.start)}%`,
+                  width: `${share(loop.end) - share(loop.start)}%`,
+                }}
+              />
+            )}
             {markers.map((at) => (
               <div
                 key={at}
@@ -463,6 +587,18 @@ export function Player({
               </fieldset>
             )}
           </div>
+          {loop && (
+            <LoopControls
+              loop={loop}
+              duration={duration}
+              fps={info?.video?.fps}
+              active={looping}
+              rolls={rolls}
+              onLoop={(next) => onLoop(next)}
+              onActive={setLooping}
+              onRolls={setRolls}
+            />
+          )}
           {kind === "audio" && display !== "waveform" && settingsOpen && (
             <SpectrogramSettings
               view={spectrum}
