@@ -12,6 +12,7 @@ import { actorOf, can, type MemberActor } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { Jobs } from "../jobs.ts";
+import { pageSourceOf } from "../media/pages.ts";
 import type { Storage } from "../storage.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { sessionOf, staleClaim, UPLOAD_LIFETIME_MS, type UploadRow } from "../uploads.ts";
@@ -262,6 +263,13 @@ export const uploadRoutes = (
             { organisationId, fileId: file.id },
             { singletonKey: file.id },
           );
+        } else if (pageSourceOf(file.name, file.contentType)) {
+          // Scores, documents and artwork are seen only as pages the server draws.
+          await jobs.send(
+            "document-render",
+            { organisationId, fileId: file.id },
+            { singletonKey: file.id },
+          );
         }
       };
 
@@ -345,7 +353,12 @@ export const uploadRoutes = (
                   contentType: claimed.contentType,
                   byteSize: claimed.byteSize,
                   uploadedBy: c.var.userId,
-                  streamStatus: kind === "audio" || kind === "video" ? "pending" : "none",
+                  streamStatus:
+                    kind === "audio" ||
+                    kind === "video" ||
+                    pageSourceOf(claimed.name, claimed.contentType)
+                      ? "pending"
+                      : "none",
                 })
                 .returning();
           await tx

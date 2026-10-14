@@ -10,6 +10,7 @@ import { Link } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import { type BeforeAfter, Comments, useCommentMarkers } from "~/components/comments";
 import { Compare, type CompareFocus } from "~/components/compare";
+import { DocumentViewer } from "~/components/document-viewer";
 import { mediaSummary } from "~/components/files";
 import { Loudness } from "~/components/loudness";
 import { type Crumb, PageHeader } from "~/components/page-header";
@@ -49,9 +50,19 @@ function Playback({
   const client = useQueryClient();
   const markers = useCommentMarkers(file.id);
   const ready = file.streamStatus === "ready";
-  const { data, error } = useQuery({ ...playbackQuery(file.id), enabled: ready });
+  // Only a recording plays: asking for a document's playback would log a session for nothing.
+  const plays = file.kind === "audio" || file.kind === "video";
+  const { data, error } = useQuery({ ...playbackQuery(file.id), enabled: ready && plays });
+  if (file.kind === "document" || file.kind === "image") {
+    // Seen only as pages the server draws: never the file itself.
+    if (file.streamStatus === "ready") return <DocumentViewer fileId={file.id} name={file.name} />;
+    if (file.streamStatus === "pending") return <Notice>Drawing the pages.</Notice>;
+    if (file.streamStatus === "failed")
+      return <Notice>This file could not be drawn as pages.</Notice>;
+    return <Notice>Only PDFs and pictures are shown as pages.</Notice>;
+  }
   if (file.kind !== "audio" && file.kind !== "video") {
-    return <Notice>Previews for documents and images arrive with protected viewing.</Notice>;
+    return <Notice>This kind of file has nothing to show here.</Notice>;
   }
   if (file.streamStatus === "failed")
     return <Notice>This file could not be prepared for playback.</Notice>;

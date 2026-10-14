@@ -1,5 +1,5 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { and, eq, inArray, isNull, lt, notExists, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, notExists, or, sql } from "drizzle-orm";
 import { type Audit, systemActor } from "./audit.ts";
 import type { Storage } from "./storage.ts";
 
@@ -11,6 +11,7 @@ const {
   peakLevels,
   loudness,
   spectrograms,
+  filePages,
   organisations,
   storageFindings,
   uploads,
@@ -238,6 +239,18 @@ export async function reconcileStorage(
                 .select({ x: sql`1` })
                 .from(spectrograms)
                 .where(inOrg(spectrograms, owner, eq(spectrograms.blobId, blobs.id))),
+            ),
+            notExists(
+              db
+                .select({ x: sql`1` })
+                .from(filePages)
+                .where(
+                  inOrg(
+                    filePages,
+                    owner,
+                    or(eq(filePages.blobId, blobs.id), eq(filePages.thumbBlobId, blobs.id)),
+                  ),
+                ),
             ),
             // Nor an upload that may still finish and make a file of it.
             notExists(
