@@ -58,6 +58,7 @@ docker compose -f deploy/compose.dev.yml up -d   # PostgreSQL on localhost:5432
 cp .env.example .env
 pnpm db:migrate
 pnpm dev                                         # API on :3000, web on :5173
+# Open http://localhost:5173 and complete first-run setup to create the owner account.
 ```
 
 Checks:
