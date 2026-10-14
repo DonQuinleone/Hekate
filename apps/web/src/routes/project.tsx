@@ -1,7 +1,8 @@
 import { profiles } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { FileList, Uploader } from "~/components/files";
+import { FileBrowser } from "~/components/file-browser";
+import { Uploader } from "~/components/files";
 import { ReviewerGroups } from "~/components/groups";
 import { Icon } from "~/components/icons";
 import { ProjectAccess } from "~/components/project-access";
@@ -27,7 +28,16 @@ const uploadCopy = {
   },
 } as const;
 
-export function ProjectPage({ projectId }: { projectId: string }) {
+export function ProjectPage({
+  projectId,
+  folderId = null,
+  onOpenFolder = () => {},
+}: {
+  projectId: string;
+  /** The folder open in the file browser; null is the top of the project. */
+  folderId?: string | null;
+  onOpenFolder?: (folderId: string | null) => void;
+}) {
   const { data: project, error } = useQuery(projectQuery(projectId));
   const can = useProjectCan(projectId);
   if (error) return <p className="p-8 text-signal">{error.message}</p>;
@@ -63,8 +73,16 @@ export function ProjectPage({ projectId }: { projectId: string }) {
         </TabsList>
         <TabsContent value="media" className="flex flex-col gap-6 pt-6">
           {project.profile === "music" && <TrackList projectId={project.id} />}
-          {can("upload") && <Uploader projectId={project.id} title={copy.title} body={copy.body} />}
-          <FileList projectId={project.id} />
+          <FileBrowser projectId={project.id} folderId={folderId} onOpenFolder={onOpenFolder}>
+            {can("upload") && (
+              <Uploader
+                projectId={project.id}
+                folderId={folderId}
+                title={copy.title}
+                body={copy.body}
+              />
+            )}
+          </FileBrowser>
           <p className="label m-0">Anchors in this profile · {profile.anchors.join(" · ")}</p>
         </TabsContent>
         <TabsContent value="reviews" className="flex flex-col gap-10 pt-6">

@@ -30,6 +30,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -259,6 +260,10 @@ export const folders = pgTable(
   (t) => [
     index("folders_org_idx").on(t.organisationId),
     index("folders_project_idx").on(t.projectId, t.parentId),
+    // One name per place: two folders called "Mixes" at the top would be indistinguishable.
+    unique("folders_sibling_name")
+      .on(t.organisationId, t.projectId, t.parentId, t.name)
+      .nullsNotDistinct(),
   ],
 );
 

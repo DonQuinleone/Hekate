@@ -5,11 +5,10 @@ import {
   formatDuration,
   type MediaInfo,
 } from "@hekate/shared";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { type DragEvent, useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
-import { type ProjectFile, projectFilesQuery, type StreamStatus } from "~/lib/queries";
+import type { StreamStatus } from "~/lib/queries";
 import { cancelUpload, type UploadProgress, uploadFile } from "~/lib/upload";
 import { Icon, type IconName } from "./icons";
 import { Button } from "./ui/button";
@@ -21,12 +20,6 @@ export const kindIcon: Record<FileKind, IconName> = {
   document: "file",
   other: "file",
 };
-
-const dateFormat = new Intl.DateTimeFormat("en-GB", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-});
 
 /** The facts a reviewer scans for, in the order they read them. */
 export function mediaSummary(
@@ -61,10 +54,13 @@ interface Pending {
 /** Drop zone, upload button and live progress for one project. */
 export function Uploader({
   projectId,
+  folderId = null,
   title,
   body,
 }: {
   projectId: string;
+  /** Where new files go; null is the top of the project. */
+  folderId?: string | null;
   title: string;
   body: string;
 }) {
@@ -88,6 +84,7 @@ export function Uploader({
         ]);
         uploadFile(file, {
           projectId,
+          folderId,
           signal: controller.signal,
           onProgress: (progress) => update(key, { progress }),
         })
@@ -101,7 +98,7 @@ export function Uploader({
           });
       }
     },
-    [client, projectId, update],
+    [client, projectId, folderId, update],
   );
 
   const cancel = (p: Pending) => {
@@ -225,55 +222,5 @@ export function Uploader({
         </ul>
       )}
     </div>
-  );
-}
-
-function FileRow({ file }: { file: ProjectFile }) {
-  const summary = mediaSummary(file.kind, file.mediaInfo, file.streamStatus);
-  return (
-    <li className="grid min-h-12 grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-0.5 border-b border-hairline px-2 py-2 sm:grid-cols-[auto_minmax(0,1fr)_320px_72px_104px]">
-      <Icon name={kindIcon[file.kind]} className="row-span-2 text-ink-2 sm:row-span-1" />
-      <Link
-        to="/files/$fileId"
-        params={{ fileId: file.id }}
-        className="truncate text-sm font-medium text-ink no-underline hover:text-signal"
-      >
-        {file.name}
-      </Link>
-      <span className="tabular text-right text-xs text-ink-3 sm:order-last">
-        {dateFormat.format(new Date(file.createdAt))}
-      </span>
-      <span
-        className={cn(
-          "tabular col-span-2 truncate text-xs sm:col-span-1",
-          summary === "Measuring" ? "text-ink-3" : "text-ink-2",
-        )}
-      >
-        {summary ?? file.contentType}
-      </span>
-      <span className="tabular hidden text-right text-xs text-ink-3 sm:block">
-        {formatBytes(file.byteSize)}
-      </span>
-    </li>
-  );
-}
-
-export function FileList({ projectId }: { projectId: string }) {
-  const { data, error } = useQuery(projectFilesQuery(projectId));
-  if (error) return <p className="m-0 text-signal">{error.message}</p>;
-  if (!data || data.length === 0) return null;
-  return (
-    <ul className="m-0 flex list-none flex-col p-0" aria-label="Files">
-      <li className="label hidden grid-cols-[auto_minmax(0,1fr)_320px_72px_104px] gap-3 border-b border-hairline px-2 pb-2 sm:grid">
-        <span className="w-4" />
-        <span>Name</span>
-        <span>Details</span>
-        <span className="text-right">Size</span>
-        <span className="text-right">Added</span>
-      </li>
-      {data.map((file) => (
-        <FileRow key={file.id} file={file} />
-      ))}
-    </ul>
   );
 }

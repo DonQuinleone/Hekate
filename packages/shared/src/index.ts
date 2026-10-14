@@ -2,6 +2,7 @@ export * from "./anchor.ts";
 export * from "./audit.ts";
 export * from "./comments.ts";
 export * from "./files.ts";
+export * from "./folders.ts";
 export * from "./format.ts";
 export * from "./loudness.ts";
 export * from "./media.ts";

@@ -1,0 +1,1 @@
+ALTER TABLE "folders" ADD CONSTRAINT "folders_sibling_name" UNIQUE NULLS NOT DISTINCT("organisation_id","project_id","parent_id","name");
