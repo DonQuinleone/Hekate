@@ -8,7 +8,7 @@ RUN npm install -g pnpm@12.11.2 && npm cache clean --force
 WORKDIR /app
 
 FROM base AS build
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .pnpmfile.cjs ./
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
 COPY packages/shared/package.json packages/shared/
@@ -23,7 +23,7 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production PORT=3000 WEB_DIST=/app/apps/web/dist MIGRATE_ON_START=true
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .pnpmfile.cjs ./
 COPY apps/server apps/server
 COPY packages packages
 COPY apps/web/package.json apps/web/
