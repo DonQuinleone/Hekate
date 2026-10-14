@@ -52,6 +52,14 @@ pnpm db:generate  # create a migration after changing the schema
 pnpm db:migrate
 ```
 
+## Toolchain and supply chain
+
+- Node.js 26, pnpm 12 (pinned in `packageManager`), PostgreSQL 18. Keep everything on its latest release; Dependabot opens weekly grouped updates.
+- pnpm refuses versions published less than a day ago (`minimumReleaseAge`) and runs install scripts only for packages in `allowBuilds`.
+- GitHub Actions are pinned to commit SHAs with the version in a comment.
+- Trivy scans the repository and the image in CI and fails on fixable high or critical findings.
+- Releases: Conventional Commits drive Release Please, which opens the release PR and writes `CHANGELOG.md`.
+
 ## Conventions
 
 - **Language:** British English everywhere: code comments, docs, UI copy, commit messages (colour, organisation, licence as a noun, behaviour).

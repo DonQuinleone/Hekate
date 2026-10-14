@@ -1,9 +1,10 @@
 # syntax=docker/dockerfile:1.7
 # One image: the Hono server, the built web app and ffmpeg.
 
-FROM node:22-bookworm-slim AS base
+FROM node:26-trixie-slim AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
-RUN corepack enable
+# Node 26 no longer ships Corepack; install the pnpm version package.json pins.
+RUN npm install -g pnpm@12.11.2 && npm cache clean --force
 WORKDIR /app
 
 FROM base AS build
@@ -18,6 +19,7 @@ RUN pnpm --filter @hekate/web build
 
 FROM base AS runtime
 RUN apt-get update \
+  && apt-get upgrade -y --no-install-recommends \
   && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production PORT=3000 WEB_DIST=/app/apps/web/dist MIGRATE_ON_START=true

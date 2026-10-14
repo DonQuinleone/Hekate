@@ -3,14 +3,14 @@ name: hekate-dev
 
 services:
   db:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: hekate
       POSTGRES_PASSWORD: hekate
       POSTGRES_DB: hekate
     ports: ["5432:5432"]
     volumes:
-      - postgres:/var/lib/postgresql/data
+      - postgres:/var/lib/postgresql
 
 volumes:
   postgres:
