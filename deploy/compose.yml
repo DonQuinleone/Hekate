@@ -11,6 +11,8 @@ services:
     environment:
       DATABASE_URL: postgres://hekate:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/hekate
       MIGRATE_ON_START: "true"
+      # Caddy sets X-Forwarded-For to the real client address.
+      TRUST_PROXY: "true"
       PUBLIC_URL: https://${HEKATE_DOMAIN:-localhost}
       AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET to at least 32 random characters}
       MASTER_KEY: ${MASTER_KEY:?set MASTER_KEY (openssl rand -base64 32) and back it up}

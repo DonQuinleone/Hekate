@@ -74,6 +74,11 @@ const schema = z.object({
   SMTP_URL: z.string().url().optional(),
   /** Sender address for email. */
   MAIL_FROM: z.string().default("Hekate <hekate@localhost>"),
+  /** Behind a reverse proxy (Caddy in the Compose file), take client addresses from X-Forwarded-For. */
+  TRUST_PROXY: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
   /** Run background workers (media processing) in this process. Turn off for API-only replicas. */
   WORKER: z
     .enum(["true", "false"])

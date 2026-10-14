@@ -1,3 +1,4 @@
+export * from "./audit.ts";
 export * from "./client.ts";
 export * from "./id.ts";
 export * from "./migrate.ts";

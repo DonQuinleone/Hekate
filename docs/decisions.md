@@ -77,3 +77,7 @@ Every stored object is encrypted before any backend sees it: AES-256-GCM in 64 K
 ## 019. Background jobs in PostgreSQL
 
 Background work runs on pg-boss in the app process, so self-hosting still needs only PostgreSQL. Each job type has one definition (a zod schema for its data and its retry policy) shared by senders and workers, and workers validate data again when they take a job. The worker can be turned off (`WORKER=false`) for API-only replicas. Media tools run with protocol and demuxer allow-lists, time limits and a private scratch directory (`docs/security.md`). Unreadable media is recorded as such rather than retried; infrastructure failures retry with backoff.
+
+## 020. The access log is append-only in the database
+
+The access log is enforced append-only by PostgreSQL triggers, not only by application code: updates are always refused, and deletes need an explicit, transaction-scoped purge setting. Events reference files, people and reviews by plain id and copy the actor's name and email, so the record survives deletions. Recording is awaited, so access is refused if it cannot be logged. Details in `docs/security.md`.

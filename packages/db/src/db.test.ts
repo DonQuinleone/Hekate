@@ -18,6 +18,7 @@ describe("tenancy", () => {
   it("covers every tenant-owned table", () => {
     const names = tenantTables.map((t) => getTableName(t)).sort();
     expect(names).toEqual([
+      "access_events",
       "blobs",
       "comments",
       "files",
