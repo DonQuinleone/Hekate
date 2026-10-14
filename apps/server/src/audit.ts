@@ -59,13 +59,15 @@ export function requestInfo(c: Context, trustProxy: boolean): RequestInfo {
 export interface Audit {
   /**
    * Append an event. Awaited, never fire-and-forget: if the log cannot be written,
-   * the access it describes must not happen either.
+   * the access it describes must not happen either. Pass the transaction that makes a
+   * change to commit the change and its event together.
    */
   record(
     organisationId: string,
     actor: Actor,
     event: AuditEvent,
     request?: RequestInfo,
+    into?: Pick<Database, "insert">,
   ): Promise<AccessEvent>;
   /** The actor for a signed-in member, labelled with their current name and email. */
   member(userId: string): Promise<Actor>;
@@ -78,8 +80,8 @@ export interface Audit {
 
 export function createAudit(db: Database): Audit {
   return {
-    async record(organisationId, actor, event, request) {
-      const [row] = await db
+    async record(organisationId, actor, event, request, into = db) {
+      const [row] = await into
         .insert(accessEvents)
         .values({
           organisationId,
