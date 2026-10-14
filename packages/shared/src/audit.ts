@@ -20,6 +20,10 @@ export const auditActions = [
   "file.delete",
   /** Someone exported this log. */
   "audit.export",
+  /** Storage reconciliation removed bytes or a blob that nothing used. */
+  "storage.remove",
+  /** Storage reconciliation found a blob whose bytes are missing. */
+  "storage.missing",
 ] as const;
 export const auditAction = z.enum(auditActions);
 export type AuditAction = z.infer<typeof auditAction>;

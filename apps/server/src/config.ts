@@ -88,6 +88,11 @@ const schema = z.object({
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(64).default(2),
   /** Scratch space for decrypted media while a job runs. A tmpfs keeps it off disk. */
   WORK_DIR: z.string().optional(),
+  /**
+   * What the daily storage reconciliation does with bytes and blobs nothing uses, once a
+   * second run a day later still finds them: `remove` them, or only `report` them.
+   */
+  STORAGE_RECONCILE: z.enum(["remove", "report"]).default("remove"),
   /** Extra origins allowed to call the API with credentials (comma separated), for example the Vite dev server. */
   TRUSTED_ORIGINS: z
     .string()
