@@ -5,6 +5,7 @@ import { type ReactNode, useState } from "react";
 import { Comments, useCommentMarkers } from "~/components/comments";
 import { kindIcon, mediaSummary } from "~/components/files";
 import { Icon } from "~/components/icons";
+import { Loudness } from "~/components/loudness";
 import { Player } from "~/components/player";
 import { FileContext } from "~/components/tracks";
 import { type FileDetail, fileQuery, playbackQuery, projectQuery } from "~/lib/queries";
@@ -135,6 +136,9 @@ export function FilePage({ fileId }: { fileId: string }) {
       <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="flex min-w-0 flex-col gap-6">
           <Playback file={file} onMedia={setMedia} />
+          {file.mediaInfo?.audio && (
+            <Loudness fileId={file.id} media={media} layout={file.mediaInfo.audio.channelLayout} />
+          )}
           <dl className="m-0 hidden flex-col border-t border-hairline lg:flex">{detailRows}</dl>
         </div>
         <Comments fileId={file.id} media={media} />

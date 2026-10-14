@@ -18,8 +18,8 @@ export const jobDefinitions = {
     data: z.object({ organisationId: z.uuid(), fileId: z.uuid() }),
     options: { retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 4 * 60 * 60 },
   },
-  /** Compute waveform peaks, per channel and at several zoom levels, for a file's audio. */
-  "media-peaks": {
+  /** Analyse a file's audio: waveform peaks per channel at several zoom levels, and loudness. */
+  "media-analysis": {
     data: z.object({ organisationId: z.uuid(), fileId: z.uuid() }),
     options: { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 2 * 60 * 60 },
   },

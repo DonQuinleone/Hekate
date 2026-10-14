@@ -19,8 +19,17 @@ import {
 import type { Storage } from "../storage.ts";
 import { membershipOf, type SessionVariables, type TenantVariables } from "../tenancy.ts";
 
-const { files, renditions, renditionSegments, users, peakLevels, variations, versions, tracks } =
-  schema;
+const {
+  files,
+  renditions,
+  renditionSegments,
+  users,
+  peakLevels,
+  loudness,
+  variations,
+  versions,
+  tracks,
+} = schema;
 
 export interface PlaybackDeps {
   db: Database;
@@ -56,7 +65,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
           byteSize: files.byteSize,
           mediaInfo: files.mediaInfo,
           streamStatus: files.streamStatus,
-          peaksStatus: files.peaksStatus,
+          analysisStatus: files.analysisStatus,
           uploadedBy: users.name,
           createdAt: files.createdAt,
         })
@@ -86,7 +95,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
     .get("/:id/peaks", fileParam, async (c) => {
       const organisationId = c.var.organisationId;
       const [file] = await deps.db
-        .select({ id: files.id, peaksStatus: files.peaksStatus })
+        .select({ id: files.id, analysisStatus: files.analysisStatus })
         .from(files)
         .where(inOrg(files, organisationId, eq(files.id, c.req.valid("param").id)));
       if (!file) throw new NotFound("File");
@@ -101,7 +110,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
         .from(peakLevels)
         .where(inOrg(peakLevels, organisationId, eq(peakLevels.fileId, file.id)))
         .orderBy(asc(peakLevels.samplesPerPeak));
-      return c.json({ status: file.peaksStatus, levels }, 200, { "cache-control": "no-store" });
+      return c.json({ status: file.analysisStatus, levels }, 200, { "cache-control": "no-store" });
     })
     .get(
       "/:id/peaks/:levelId",
@@ -131,6 +140,45 @@ export const fileRoutes = (deps: PlaybackDeps) =>
         });
       },
     )
+    // Loudness and levels: numbers about the audio, like peaks, so members fetch them directly.
+    .get("/:id/loudness", fileParam, async (c) => {
+      const organisationId = c.var.organisationId;
+      const [file] = await deps.db
+        .select({ id: files.id, analysisStatus: files.analysisStatus })
+        .from(files)
+        .where(inOrg(files, organisationId, eq(files.id, c.req.valid("param").id)));
+      if (!file) throw new NotFound("File");
+      const [row] = await deps.db
+        .select({
+          summary: loudness.summary,
+          channels: loudness.channels,
+          sampleRate: loudness.sampleRate,
+          samplesPerFrame: loudness.samplesPerFrame,
+          count: loudness.frameCount,
+        })
+        .from(loudness)
+        .where(inOrg(loudness, organisationId, eq(loudness.fileId, file.id)));
+      const { summary = null, ...series } = row ?? {};
+      return c.json({ status: file.analysisStatus, summary, series: row ? series : null }, 200, {
+        "cache-control": "no-store",
+      });
+    })
+    .get("/:id/loudness/series", fileParam, async (c) => {
+      const organisationId = c.var.organisationId;
+      const [row] = await deps.db
+        .select({ blobId: loudness.blobId })
+        .from(loudness)
+        .where(inOrg(loudness, organisationId, eq(loudness.fileId, c.req.valid("param").id)));
+      if (!row) throw new NotFound("Loudness");
+      const { blob, stream } = await deps.storage.open(organisationId, row.blobId);
+      return new Response(stream as unknown as ReadableStream, {
+        headers: {
+          ...PRIVATE,
+          "content-type": "application/octet-stream",
+          "content-length": String(blob.byteSize),
+        },
+      });
+    })
     .post("/:id/playback", fileParam, async (c) => {
       const { id } = c.req.valid("param");
       const organisationId = c.var.organisationId;

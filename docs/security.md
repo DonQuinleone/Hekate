@@ -37,6 +37,7 @@ Members sign in with what their organisation already uses; guests never need an 
 - The key endpoint returns the content key only on a valid token and session. Keys are never cached, are limited to 30 requests a minute per session, and every issue is logged (`stream.key`) before the key leaves. Starting playback (`stream.session`) and every segment served (`stream.segment`, with its rendition and index) are logged too, so the log shows which parts of a file reached whom. All playback responses are `no-store` and same-origin.
 - The player (hls.js under Hekate's own controls, for audio as well as video) decrypts through Media Source Extensions; Safari on iOS, which lacks them, plays the same encrypted stream natively. The network panel shows only encrypted fragments.
 - Waveforms are drawn from precomputed peaks, so the waveform never needs the audio itself. Peaks are each channel's lowest and highest sample over blocks of at least 256 samples, in 8 bits: enough to draw at any zoom, far too little to rebuild audio. They are stored encrypted like everything else and served to members of the file's organisation without a playback token or an access-log entry.
+- Loudness and levels are treated in the same way. They are momentary and short-term loudness, each channel's peak and RMS, and the phase correlation of the front pair, one set of numbers every 100 ms. They are measured from the same decode as the peaks, no audio can be rebuilt from them, and they are served like the peaks.
 
 This is not DRM: a determined person can capture the key from a live session. That capture is tied to their session in the audit log, and the forensic watermark below still identifies them. A pluggable commercial DRM (Widevine, FairPlay, PlayReady) can be added later on the same encrypted segments if a deployment needs it.
 
@@ -76,7 +77,7 @@ Envelope encryption: every stored object (an original or a derivative) has its o
 
 A daily job compares every storage backend with the database, one organisation at a time.
 
-- **Orphaned bytes** (objects no blob row accounts for, including those of a deleted organisation) and **unused blobs** (no file, rendition, segment or peak level points at them) are recorded on first sight and removed only when a run at least a day later still finds them. Uploads and jobs in flight are therefore never touched. Each removal is written to the organisation's access log (`storage.remove`).
+- **Orphaned bytes** (objects no blob row accounts for, including those of a deleted organisation) and **unused blobs** (no file, rendition, segment, peak level, loudness series or unfinished upload points at them) are recorded on first sight and removed only when a run at least a day later still finds them. Uploads and jobs in flight are therefore never touched. Each removal is written to the organisation's access log (`storage.remove`).
 - **Missing bytes** (a blob row whose object is gone) mean data loss. They are reported (logged, and `storage.missing` in the access log once) and never changed: a person decides.
 - `STORAGE_RECONCILE=report` keeps the findings and removes nothing.
 

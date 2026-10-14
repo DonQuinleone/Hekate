@@ -3,19 +3,19 @@ import { createWriteStream } from "node:fs";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { type Database, inOrg, schema, uuidv7 } from "@hekate/db";
-import { encodePeaks, type MediaInfo } from "@hekate/shared";
+import { encodeLoudness, encodePeaks, type MediaInfo } from "@hekate/shared";
 import { wrapKey } from "@hekate/storage";
 import { and, eq, isNull } from "drizzle-orm";
 import { type JobHandler, type Jobs, jobDefinitions } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
 import type { Storage } from "../storage.ts";
 import { expireUploads } from "../uploads.ts";
+import { analyseAudio } from "./analysis.ts";
 import { InvalidMediaError, probe } from "./ffmpeg.ts";
-import { computePeaks } from "./peaks.ts";
 import { type PackagedRendition, packageRendition, planRenditions } from "./proxy.ts";
 import { sweepWorkspaces, withWorkspace } from "./workspace.ts";
 
-const { files, blobs, renditions, renditionSegments, peakLevels } = schema;
+const { files, blobs, renditions, renditionSegments, peakLevels, loudness } = schema;
 
 export interface MediaWorkerDeps {
   db: Database;
@@ -98,14 +98,14 @@ export function probeHandler(deps: MediaWorkerDeps): JobHandler<"media-probe"> {
       .set({
         mediaInfo: info,
         ...(playable ? {} : { streamStatus: "failed" as const }),
-        ...(info.audio ? { peaksStatus: "pending" as const } : {}),
+        ...(info.audio ? { analysisStatus: "pending" as const } : {}),
       })
       .where(inOrg(files, organisationId, eq(files.id, fileId)));
     if (playable) {
       await deps.jobs.send("media-proxy", { organisationId, fileId }, { singletonKey: fileId });
     }
     if (info.audio) {
-      await deps.jobs.send("media-peaks", { organisationId, fileId }, { singletonKey: fileId });
+      await deps.jobs.send("media-analysis", { organisationId, fileId }, { singletonKey: fileId });
     }
   };
 }
@@ -218,10 +218,11 @@ export function proxyHandler(deps: MediaWorkerDeps): JobHandler<"media-proxy"> {
 }
 
 /**
- * Draw-ready waveform peaks: decode the audio once, every channel as recorded, and store
- * each zoom level as an encrypted blob. Idempotent: a file with peaks is left alone.
+ * Analyse a file's audio in one decode, every channel as recorded: waveform peaks at each
+ * zoom level, and loudness and levels over time, each stored as an encrypted blob.
+ * Idempotent: a file already analysed is left alone.
  */
-export function peaksHandler(deps: MediaWorkerDeps): JobHandler<"media-peaks"> {
+export function analysisHandler(deps: MediaWorkerDeps): JobHandler<"media-analysis"> {
   return async ({ organisationId, fileId }, job) => {
     const [file] = await deps.db
       .select()
@@ -237,17 +238,20 @@ export function peaksHandler(deps: MediaWorkerDeps): JobHandler<"media-peaks"> {
     if (existing.length > 0) return;
 
     const stored: string[] = [];
+    const store = async (bytes: Uint8Array) => {
+      const blob = await deps.storage.put(organisationId, Buffer.from(bytes), {
+        contentType: "application/octet-stream",
+      });
+      stored.push(blob.id);
+      return blob.id;
+    };
     try {
-      const levels = await withWorkspace(deps.workDir, async (dir) => {
+      const analysis = await withWorkspace(deps.workDir, async (dir) => {
         const input = await materialise(deps.storage, organisationId, file.blobId, dir, job.signal);
-        return computePeaks(input, audio, job.signal);
+        return analyseAudio(input, audio, dir, job.signal);
       });
       const rows: (typeof peakLevels.$inferInsert)[] = [];
-      for (const level of levels) {
-        const blob = await deps.storage.put(organisationId, Buffer.from(encodePeaks(level)), {
-          contentType: "application/octet-stream",
-        });
-        stored.push(blob.id);
+      for (const level of analysis.levels) {
         rows.push({
           organisationId,
           fileId,
@@ -255,22 +259,34 @@ export function peaksHandler(deps: MediaWorkerDeps): JobHandler<"media-peaks"> {
           peakCount: level.count,
           channels: level.channels,
           sampleRate: level.sampleRate,
-          blobId: blob.id,
+          blobId: await store(encodePeaks(level)),
         });
       }
+      const { series, summary } = analysis.loudness;
+      const seriesBlobId = await store(encodeLoudness(series));
       await deps.db.transaction(async (tx) => {
         await tx.insert(peakLevels).values(rows);
+        await tx.insert(loudness).values({
+          organisationId,
+          fileId,
+          summary,
+          channels: series.channels,
+          sampleRate: series.sampleRate,
+          samplesPerFrame: series.samplesPerFrame,
+          frameCount: series.count,
+          blobId: seriesBlobId,
+        });
         await tx
           .update(files)
-          .set({ peaksStatus: "ready" })
+          .set({ analysisStatus: "ready" })
           .where(inOrg(files, organisationId, eq(files.id, fileId)));
       });
     } catch (error) {
-      await discard(deps.storage, organisationId, stored, `peaks of file ${fileId}`);
-      if (job.retryCount >= jobDefinitions["media-peaks"].options.retryLimit) {
+      await discard(deps.storage, organisationId, stored, `analysis of file ${fileId}`);
+      if (job.retryCount >= jobDefinitions["media-analysis"].options.retryLimit) {
         await deps.db
           .update(files)
-          .set({ peaksStatus: "failed" })
+          .set({ analysisStatus: "failed" })
           .where(inOrg(files, organisationId, eq(files.id, fileId)));
       }
       throw error;
@@ -306,7 +322,7 @@ export async function startWorkers(jobs: Jobs, deps: MediaWorkerDeps, concurrenc
   await jobs.work("media-proxy", proxyHandler(deps), {
     concurrency: Math.max(1, Math.floor(concurrency / 2)),
   });
-  await jobs.work("media-peaks", peaksHandler(deps), { concurrency });
+  await jobs.work("media-analysis", analysisHandler(deps), { concurrency });
   await jobs.work("blob-checksum", checksumHandler(deps), { concurrency });
   await jobs.work("uploads-expire", async () => {
     const aborted = await expireUploads(deps.db, deps.storage);

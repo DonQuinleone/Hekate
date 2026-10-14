@@ -173,16 +173,16 @@ describe.runIf(url && (hasFfmpeg || process.env.CI))("media jobs", () => {
 
     // Probing also queues the waveform: peaks per channel, stored encrypted.
     const peaksDeadline = Date.now() + 60_000;
-    let peaksStatus = "";
+    let analysisStatus = "";
     while (Date.now() < peaksDeadline) {
-      [{ peaksStatus = "" } = {}] = await db
-        .select({ peaksStatus: schema.files.peaksStatus })
+      [{ analysisStatus = "" } = {}] = await db
+        .select({ analysisStatus: schema.files.analysisStatus })
         .from(schema.files)
         .where(eq(schema.files.id, fileId));
-      if (peaksStatus === "ready" || peaksStatus === "failed") break;
+      if (analysisStatus === "ready" || analysisStatus === "failed") break;
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
-    expect(peaksStatus).toBe("ready");
+    expect(analysisStatus).toBe("ready");
     const levels = await db
       .select()
       .from(schema.peakLevels)

@@ -60,7 +60,7 @@ export const projectRoutes = (db: Database) =>
           byteSize: files.byteSize,
           mediaInfo: files.mediaInfo,
           streamStatus: files.streamStatus,
-          peaksStatus: files.peaksStatus,
+          analysisStatus: files.analysisStatus,
           uploadedBy: users.name,
           createdAt: files.createdAt,
         })
