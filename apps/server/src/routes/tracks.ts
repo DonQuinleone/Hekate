@@ -15,6 +15,7 @@ import { z } from "zod";
 import { actorOf, can } from "../access.ts";
 import { carryThreads } from "../carry.ts";
 import { NotFound } from "../errors.ts";
+import type { Jobs } from "../jobs.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { folderIn, lockProject } from "./folders.ts";
 
@@ -184,7 +185,7 @@ export const projectTrackRoutes = (db: Database) =>
     });
 
 /** `/api/tracks/:id`: one track; renaming, linking its score, reordering; new versions. */
-export const trackRoutes = (db: Database) =>
+export const trackRoutes = (db: Database, jobs: Pick<Jobs, "send">) =>
   new Hono<{ Variables: TenantVariables }>()
     .get("/:id", idParam, async (c) => {
       const track = await trackOf(db, c.var.organisationId, c.req.valid("param").id);
@@ -224,8 +225,9 @@ export const trackRoutes = (db: Database) =>
         track.projectId,
         input.variations.map((v) => v.fileId),
       );
+      let aligning: string[] = [];
       try {
-        await db.transaction(async (tx) => {
+        aligning = await db.transaction(async (tx) => {
           // Lock the track so concurrent new versions take consecutive numbers.
           await tx
             .select({ id: tracks.id })
@@ -262,7 +264,7 @@ export const trackRoutes = (db: Database) =>
             .select({ shown: projects.carriedCommentsShown })
             .from(projects)
             .where(inOrg(projects, organisationId, eq(projects.id, track.projectId)));
-          await carryThreads(
+          return carryThreads(
             tx,
             organisationId,
             { id: version?.id ?? "", trackId: id, number },
@@ -274,6 +276,14 @@ export const trackRoutes = (db: Database) =>
           throw new HTTPException(409, { message: "A file is already a variation of a version" });
         }
         throw error;
+      }
+      // Where the music moved between this version and the last, worked out from the audio.
+      for (const alignmentId of aligning) {
+        await jobs.send(
+          "media-align",
+          { organisationId, alignmentId },
+          { singletonKey: alignmentId },
+        );
       }
       return c.json({ track: await oneTrack(db, organisationId, id) }, 201);
     });

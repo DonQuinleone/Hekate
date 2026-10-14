@@ -30,6 +30,7 @@ describe("tenancy", () => {
     const names = tenantTables.map((t) => getTableName(t)).sort();
     expect(names).toEqual([
       "access_events",
+      "alignments",
       "blobs",
       "comment_carries",
       "comments",

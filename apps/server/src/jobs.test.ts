@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDb, runMigrations, schema } from "@hekate/db";
-import { decodePeaks } from "@hekate/shared";
+import { decodePeaks, mapTime } from "@hekate/shared";
 import { createBackends, storageConfigFromEnv, unwrapKey } from "@hekate/storage";
 import { asc, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -196,6 +196,93 @@ describe.runIf(url && (hasFfmpeg || process.env.CI))("media jobs", () => {
     const decoded = decodePeaks(new Uint8Array(Buffer.concat(await peaks.stream.toArray())));
     expect(decoded.channels).toBe(2);
     expect(Math.max(...decoded.data)).toBeGreaterThan(10);
+  });
+
+  it("aligns two versions and moves carried comments to where the music went", async () => {
+    // Version 1: a tone that steps up every two seconds. Version 2: the same, 1.5 s later.
+    const v1 = join(root, "v1.wav");
+    const v2 = join(root, "v2.wav");
+    const tone = "aevalsrc=0.4*sin(2*PI*(220+55*floor(t/2))*t):d=12:s=22050";
+    for (const [path, filter] of [
+      [v1, "anull"],
+      [v2, "adelay=1500,volume=0.5"],
+    ] as const) {
+      await run("ffmpeg", [
+        "-hide_banner",
+        "-nostdin",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        tone,
+        "-af",
+        filter,
+        "-c:a",
+        "pcm_s16le",
+        path,
+      ]);
+    }
+    const from = await addFile(readFileSync(v1), "audio", "Mix v1.wav");
+    const to = await addFile(readFileSync(v2), "audio", "Mix v2.wav");
+    const [thread] = await db
+      .insert(schema.comments)
+      .values({
+        organisationId,
+        fileId: from,
+        body: "Click at the change",
+        anchor: { kind: "time", start: 6, end: 6.5 },
+      })
+      .returning();
+    const [placed] = await db
+      .insert(schema.comments)
+      .values({
+        organisationId,
+        fileId: from,
+        body: "Placed",
+        anchor: { kind: "time", start: 2, end: 2 },
+      })
+      .returning();
+    await db.insert(schema.commentCarries).values([
+      { organisationId, commentId: thread?.id ?? "", fileId: to, anchor: thread?.anchor ?? null },
+      {
+        organisationId,
+        commentId: placed?.id ?? "",
+        fileId: to,
+        anchor: { kind: "time", start: 9, end: 9 },
+        anchorPlaced: true,
+      },
+    ]);
+    const [pair] = await db
+      .insert(schema.alignments)
+      .values({ organisationId, fromFileId: from, toFileId: to })
+      .returning();
+    const state = await settle(
+      "media-align",
+      await jobs.send("media-align", { organisationId, alignmentId: pair?.id ?? "" }),
+    );
+    expect(state).toBe("completed");
+    const [aligned] = await db
+      .select()
+      .from(schema.alignments)
+      .where(eq(schema.alignments.id, pair?.id ?? ""));
+    expect(aligned?.status).toBe("ready");
+    expect(aligned?.quality).toBeGreaterThan(0.7);
+    expect(mapTime(aligned?.points ?? [], 6)).toBeCloseTo(7.5, 0);
+
+    const carries = await db
+      .select({ commentId: schema.commentCarries.commentId, anchor: schema.commentCarries.anchor })
+      .from(schema.commentCarries)
+      .where(eq(schema.commentCarries.fileId, to));
+    const moved = carries.find((c) => c.commentId === thread?.id)?.anchor;
+    expect(moved?.kind === "time" && moved.start).toBeGreaterThan(7.2);
+    expect(moved?.kind === "time" && moved.start).toBeLessThan(7.8);
+    // Placed by hand: left where it was put.
+    expect(carries.find((c) => c.commentId === placed?.id)?.anchor).toEqual({
+      kind: "time",
+      start: 9,
+      end: 9,
+    });
   });
 
   it("records unreadable media once instead of retrying forever", async () => {

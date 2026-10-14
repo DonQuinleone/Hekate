@@ -376,7 +376,8 @@ export const carryRoutes = (db: Database) =>
           .set({
             ...(status !== undefined && { status, statusById: c.var.userId }),
             ...(input.visible !== undefined && { visible: input.visible }),
-            ...(input.anchor !== undefined && { anchor: input.anchor }),
+            // Placed by hand: alignment leaves it where it was put.
+            ...(input.anchor !== undefined && { anchor: input.anchor, anchorPlaced: true }),
             updatedAt: now,
           })
           .where(inOrg(commentCarries, organisationId, eq(commentCarries.id, carry.id)));

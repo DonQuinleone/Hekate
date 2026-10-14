@@ -3357,6 +3357,65 @@ describe.runIf(url)("api", () => {
           history: { versionNumber: 1, hops: [{ fileId: dry2, versionNumber: 2, status: "open" }] },
         });
         expect((await listed(wet2)).map((c) => c.body)).toEqual(["Reverb tail cut short"]);
+        // Each earlier variation is queued for alignment with its counterpart.
+        const pairs = await db
+          .select({
+            id: schema.alignments.id,
+            from: schema.alignments.fromFileId,
+            to: schema.alignments.toFileId,
+          })
+          .from(schema.alignments)
+          .where(eq(schema.alignments.toFileId, dry2));
+        expect(pairs.map((p) => p.from)).toEqual([dry1]);
+        expect(
+          sent.some(
+            (j) =>
+              j.name === "media-align" &&
+              (j.data as { alignmentId: string }).alignmentId === pairs[0]?.id,
+          ),
+        ).toBe(true);
+        // Once aligned, each side reads it from its own time; a poor match is not offered.
+        await db
+          .update(schema.alignments)
+          .set({
+            status: "ready",
+            quality: 0.9,
+            points: [
+              [0, 0],
+              [60, 62],
+            ],
+          })
+          .where(eq(schema.alignments.id, pairs[0]?.id ?? ""));
+        const alignedFrom = async (fileId: string) =>
+          (
+            (await (
+              await app.request(`/api/files/${fileId}/alignments`, { headers: { cookie: owner } })
+            ).json()) as { alignments: { fileId: string; points: [number, number][] }[] }
+          ).alignments;
+        expect(await alignedFrom(dry1)).toEqual([
+          expect.objectContaining({
+            fileId: dry2,
+            points: [
+              [0, 0],
+              [60, 62],
+            ],
+          }),
+        ]);
+        expect(await alignedFrom(dry2)).toEqual([
+          expect.objectContaining({
+            fileId: dry1,
+            points: [
+              [0, 0],
+              [62, 60],
+            ],
+          }),
+        ]);
+        await db
+          .update(schema.alignments)
+          .set({ quality: 0.2 })
+          .where(eq(schema.alignments.id, pairs[0]?.id ?? ""));
+        expect(await alignedFrom(dry2)).toEqual([]);
+
         // Where it began, the thread knows where it went.
         expect((await listed(dry1)).find((c) => c.id === noise)?.history?.hops).toHaveLength(1);
 
@@ -3399,6 +3458,15 @@ describe.runIf(url)("api", () => {
             )
           ).status,
         ).toBe(204);
+        // Placed by hand, alignment will leave it alone.
+        expect(
+          (
+            await db
+              .select({ placed: schema.commentCarries.anchorPlaced })
+              .from(schema.commentCarries)
+              .where(eq(schema.commentCarries.id, carryId))
+          )[0]?.placed,
+        ).toBe(true);
         expect((await listed(dry2))[0]).toMatchObject({
           anchor: { kind: "time", start: 13, end: 15 },
           carry: { status: "not_fixed", from: { anchor: { kind: "time", start: 12, end: 14 } } },

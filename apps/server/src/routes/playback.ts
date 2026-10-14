@@ -1,8 +1,8 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import type { ReviewerTool } from "@hekate/shared";
+import { invertAlignment, type ReviewerTool, usableAlignment } from "@hekate/shared";
 import { unwrapKey } from "@hekate/storage";
 import { zValidator } from "@hono/zod-validator";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
@@ -23,6 +23,7 @@ import type { Storage } from "../storage.ts";
 import { membershipOf } from "../tenancy.ts";
 
 const {
+  alignments,
   files,
   renditions,
   renditionSegments,
@@ -91,6 +92,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
     .use("/:id/spectrograms/*", toolFile(deps.db, "spectrogram"))
     .use("/:id/spectrograms", toolFile(deps.db, "spectrogram"))
     .use("/:id/playback", viewFile(deps.db))
+    .use("/:id/alignments", viewFile(deps.db))
     .get("/:id", fileParam, async (c) => {
       // Metadata only: contents leave Hekate solely through protected delivery.
       const [file] = await deps.db
@@ -131,6 +133,38 @@ export const fileRoutes = (deps: PlaybackDeps) =>
       const access = await fileAccess(deps.db, c.var.actor, file.id);
       return c.json({
         file: { ...file, variation: variation ?? null, grant: access?.grant ?? null },
+      });
+    })
+    // Where the same music sits in this file and the others it was aligned with, read from
+    // this file's side. Members compare versions; guests see only their review's files.
+    .get("/:id/alignments", fileParam, async (c) => {
+      if (c.var.actor.kind === "guest") return c.json({ alignments: [] });
+      const id = c.req.valid("param").id;
+      const rows = await deps.db
+        .select({
+          fromFileId: alignments.fromFileId,
+          toFileId: alignments.toFileId,
+          points: alignments.points,
+          quality: alignments.quality,
+        })
+        .from(alignments)
+        .where(
+          inOrg(
+            alignments,
+            c.var.organisationId,
+            eq(alignments.status, "ready"),
+            or(eq(alignments.fromFileId, id), eq(alignments.toFileId, id)),
+          ),
+        );
+      return c.json({
+        alignments: rows
+          .filter((r) => usableAlignment(r.quality))
+          .map((r) => ({
+            fileId: r.fromFileId === id ? r.toFileId : r.fromFileId,
+            // From this file's time to the other's.
+            points: r.fromFileId === id ? (r.points ?? []) : invertAlignment(r.points ?? []),
+            quality: r.quality,
+          })),
       });
     })
     // Waveform peaks: an 8-bit envelope per channel, from which no audio can be rebuilt, so
