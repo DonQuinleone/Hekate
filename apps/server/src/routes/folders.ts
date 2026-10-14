@@ -225,8 +225,17 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
         const [variation] = await tx
           .select({ track: tracks.name, version: versions.number })
           .from(variations)
-          .innerJoin(versions, eq(versions.id, variations.versionId))
-          .innerJoin(tracks, eq(tracks.id, versions.trackId))
+          .innerJoin(
+            versions,
+            and(
+              eq(versions.id, variations.versionId),
+              eq(versions.organisationId, actor.organisationId),
+            ),
+          )
+          .innerJoin(
+            tracks,
+            and(eq(tracks.id, versions.trackId), eq(tracks.organisationId, actor.organisationId)),
+          )
           .where(inOrg(variations, actor.organisationId, eq(variations.fileId, id)));
         if (variation) {
           throw new HTTPException(409, {
