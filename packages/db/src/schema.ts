@@ -4,10 +4,12 @@ import {
   auditActions,
   auditActorTypes,
   carryStatuses,
+  defaultReviewerPermissions,
   type LoudnessSummary,
   type MediaInfo,
   type ProjectPermission,
   type ProjectProfile,
+  type ReviewerPermissions,
   type ReviewOutcome,
   reviewDecisions,
   reviewKinds,
@@ -923,6 +925,11 @@ export const reviewReviewers = pgTable(
     position: integer("position").notNull(),
     /** The group they were asked through, if any; kept for display. */
     groupId: uuid("group_id").references(() => groups.id, { onDelete: "set null" }),
+    /** What this reviewer may do in this review (docs/domain.md, Reviewer permissions). */
+    permissions: jsonb("permissions")
+      .$type<ReviewerPermissions>()
+      .notNull()
+      .default(defaultReviewerPermissions),
     viewedAt: timestamp("viewed_at", { withTimezone: true }),
     startedAt: timestamp("started_at", { withTimezone: true }),
     submittedAt: timestamp("submitted_at", { withTimezone: true }),

@@ -1,0 +1,1 @@
+ALTER TABLE "review_reviewers" ADD COLUMN "permissions" jsonb DEFAULT '{"comment":true,"decide":true,"comments":"all","tools":["spectrogram","meters","loops"],"startsAt":null,"expiresAt":null}'::jsonb NOT NULL;

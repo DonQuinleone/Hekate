@@ -1,5 +1,12 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { type OrganisationRole, type ProjectPermission, permissionsFor } from "@hekate/shared";
+import {
+  mergeGrants,
+  type OrganisationRole,
+  type ProjectPermission,
+  permissionsFor,
+  type ReviewerPermissions,
+  withinWindow,
+} from "@hekate/shared";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
 import { NotFound } from "./errors.ts";
@@ -46,8 +53,16 @@ export const actorOf = (vars: MemberActor): MemberActor => ({
   organisationRole: vars.organisationRole,
 });
 
-/** What a guest may do with what their reviews contain. */
-const guestPermissions = (): Set<ProjectPermission> => new Set(["view", "comment", "decide"]);
+/** What a guest may do, from what their review grants them: always view, the rest if allowed. */
+const guestPermissions = (grant: { comment: boolean; decide?: boolean }): Set<ProjectPermission> =>
+  new Set<ProjectPermission>([
+    "view",
+    ...(grant.comment ? (["comment"] as const) : []),
+    ...(grant.decide ? (["decide"] as const) : []),
+  ]);
+
+/** What a guest may use on a file: the widest grant among the reviews that give it them. */
+export type GuestGrant = NonNullable<ReturnType<typeof mergeGrants>>;
 
 /**
  * The files a guest may open: everything the open reviews they are asked to contain. A
@@ -68,9 +83,23 @@ export async function guestFileReviews(
   db: Pick<Database, "select">,
   guest: GuestActor,
 ): Promise<Map<string, string[]>> {
-  const items = await db
+  const reach = await guestReach(db, guest);
+  return new Map([...reach].map(([fileId, through]) => [fileId, through.map((t) => t.reviewId)]));
+}
+
+/**
+ * For each file a guest may reach, the reviews that give it to them (newest first) with
+ * what each lets them do. A review whose access window is not open for them gives nothing.
+ */
+async function guestReach(
+  db: Pick<Database, "select">,
+  guest: GuestActor,
+): Promise<Map<string, { reviewId: string; permissions: ReviewerPermissions }[]>> {
+  const now = new Date();
+  const rows = await db
     .select({
       reviewId: reviews.id,
+      permissions: reviewReviewers.permissions,
       fileId: reviewItems.fileId,
       trackId: reviewItems.trackId,
       versionId: reviewItems.versionId,
@@ -87,15 +116,17 @@ export async function guestFileReviews(
     )
     .where(inOrg(reviewItems, guest.organisationId, eq(reviews.status, "open")))
     .orderBy(desc(reviews.createdAt), desc(reviews.id));
-  const ids = new Map<string, string[]>();
-  const add = (fileId: string, reviewId: string) => {
+  const items = rows.filter((r) => withinWindow(r.permissions, now));
+  const ids = new Map<string, { reviewId: string; permissions: ReviewerPermissions }[]>();
+  const add = (fileId: string, item: { reviewId: string; permissions: ReviewerPermissions }) => {
     const list = ids.get(fileId) ?? [];
-    if (!list.includes(reviewId)) list.push(reviewId);
+    if (!list.some((x) => x.reviewId === item.reviewId))
+      list.push({ reviewId: item.reviewId, permissions: item.permissions });
     ids.set(fileId, list);
   };
   for (const item of items) {
     if (item.fileId) {
-      add(item.fileId, item.reviewId);
+      add(item.fileId, item);
       continue;
     }
     if (!item.trackId) continue;
@@ -116,7 +147,7 @@ export async function guestFileReviews(
       .select({ fileId: variations.fileId })
       .from(variations)
       .where(inOrg(variations, guest.organisationId, eq(variations.versionId, version.id)));
-    for (const v of variants) add(v.fileId, item.reviewId);
+    for (const v of variants) add(v.fileId, item);
   }
   return ids;
 }
@@ -183,16 +214,21 @@ export async function fileAccess(db: Pick<Database, "select">, actor: Actor, fil
     .where(inOrg(files, actor.organisationId, eq(files.id, fileId)));
   if (!file) return null;
   if (actor.kind === "guest") {
-    return (await guestFileIds(db, actor)).has(fileId)
-      ? { projectId: file.projectId, permissions: guestPermissions() }
+    const grant = mergeGrants(
+      ((await guestReach(db, actor)).get(fileId) ?? []).map((t) => t.permissions),
+    );
+    return grant
+      ? { projectId: file.projectId, permissions: guestPermissions(grant), grant }
       : null;
   }
-  return projectAccess(db, actor, file.projectId);
+  const access = await projectAccess(db, actor, file.projectId);
+  return access && { ...access, grant: null };
 }
 
 /**
  * What the actor may do in a review: a member, what their project role allows; a guest,
- * view, comment and decide, but only while they are one of its reviewers.
+ * what the review grants them, but only while they are one of its reviewers and their
+ * access window is open.
  */
 export async function reviewAccess(
   db: Pick<Database, "select">,
@@ -201,7 +237,7 @@ export async function reviewAccess(
 ) {
   if (actor.kind !== "guest") return projectAccess(db, actor, review.projectId);
   const [mine] = await db
-    .select({ id: reviewReviewers.id })
+    .select({ id: reviewReviewers.id, grant: reviewReviewers.permissions })
     .from(reviewReviewers)
     .where(
       inOrg(
@@ -211,7 +247,8 @@ export async function reviewAccess(
         eq(reviewReviewers.guestId, actor.guestId),
       ),
     );
-  return mine ? { projectId: review.projectId, permissions: guestPermissions() } : null;
+  if (!mine || !withinWindow(mine.grant, new Date())) return null;
+  return { projectId: review.projectId, permissions: guestPermissions(mine.grant) };
 }
 
 /** As `can`, for a file: 404 for a file the actor cannot see. Returns the file's project. */

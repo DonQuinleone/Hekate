@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { reviewerPermissionsChange } from "./reviewer-permissions.ts";
 
 /**
  * Reviews (docs/domain.md, Reviews): someone with the authority asks reviewers about one
@@ -92,6 +93,8 @@ export const createReviewInput = z
      * are asked together as one step.
      */
     reviewers: z.array(reviewerInput).min(1, "A review needs a reviewer").max(50),
+    /** What every reviewer may do, changed from the defaults; each can be adjusted later. */
+    permissions: reviewerPermissionsChange.optional(),
   })
   .refine((r) => new Set(r.reviewers.map(reviewerKey)).size === r.reviewers.length, {
     message: "Each reviewer can be asked once",

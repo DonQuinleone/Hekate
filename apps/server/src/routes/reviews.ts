@@ -1,16 +1,20 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
   activeReviewers,
+  applyPermissions,
   createReviewInput,
   decisionInput,
+  defaultReviewerPermissions,
   guestInput,
   type PersonInput,
   type ReviewDecision,
   type ReviewerFacts,
   type ReviewerInput,
   type ReviewKind,
+  reviewerPermissionsChange,
   reviewerState,
   reviewOutcome,
+  withinWindow,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, desc, eq, inArray, max, sql } from "drizzle-orm";
@@ -83,6 +87,7 @@ async function reviewersOf(db: Database | Tx, organisationId: string, reviewId: 
       viewedAt: reviewReviewers.viewedAt,
       startedAt: reviewReviewers.startedAt,
       submittedAt: reviewReviewers.submittedAt,
+      permissions: reviewReviewers.permissions,
     })
     .from(reviewReviewers)
     .leftJoin(users, eq(users.id, reviewReviewers.userId))
@@ -130,6 +135,19 @@ const mineOf = (rows: ReviewerRow[], actor: Actor) =>
   rows.find((r) =>
     actor.kind === "guest" ? r.guestId === actor.guestId : r.userId === actor.userId,
   );
+
+/**
+ * Whether a reviewer's own permissions let them act in the review now: their access window
+ * is open and, for a decision, the review asks them for one. A member's role still applies.
+ */
+function mayAct(me: ReviewerRow, act: "decide" | "submit" | "comment", now = new Date()) {
+  if (!withinWindow(me.permissions, now)) return false;
+  return act === "decide"
+    ? me.permissions.decide
+    : act === "comment"
+      ? me.permissions.comment
+      : true;
+}
 
 /** Only members manage reviews; a guest asking gets the same refusal as a lesser role. */
 function memberOnly(actor: Actor): MemberActor {
@@ -283,6 +301,11 @@ async function reviewView(db: Database, actor: Actor, reviewId: string) {
       decision: latest.get(row.id)?.decision ?? null,
       decidedAt: latest.get(row.id)?.createdAt ?? null,
       submittedAt: row.submittedAt,
+      // Each reviewer's permissions are for those who manage reviewers, and for themselves.
+      permissions:
+        (member && access.permissions.has("manage_reviewers")) || row.id === me?.id
+          ? row.permissions
+          : null,
     })),
     decisions: decisions
       .map((d) => ({
@@ -301,9 +324,14 @@ async function reviewView(db: Database, actor: Actor, reviewId: string) {
         r.kind === "approval" &&
         r.status === "open" &&
         access.permissions.has("decide") &&
+        Boolean(me && mayAct(me, "decide")) &&
         (active.has(me?.id ?? "") || Boolean(me?.submittedAt)),
       canSubmit:
-        Boolean(me) && r.kind === "feedback" && r.status === "open" && active.has(me?.id ?? ""),
+        Boolean(me && mayAct(me, "submit")) &&
+        r.kind === "feedback" &&
+        r.status === "open" &&
+        active.has(me?.id ?? ""),
+      permissions: me?.permissions ?? null,
       canManage: member && r.status === "open" && access.permissions.has("request_reviews"),
       canManageReviewers:
         member && r.status === "open" && access.permissions.has("manage_reviewers"),
@@ -605,6 +633,12 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
         }
       }
 
+      const granted = applyPermissions(defaultReviewerPermissions, input.permissions ?? {});
+      if (!granted.success) {
+        throw new HTTPException(422, {
+          message: granted.error.issues[0]?.message ?? "Those permissions do not fit together",
+        });
+      }
       const who = await deps.audit.member(c.var.userId);
       const review = await deps.db.transaction(async (tx) => {
         const [created] = await tx
@@ -647,6 +681,7 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
             guestId: person.guestId ?? null,
             groupId: person.groupId,
             position: person.position,
+            permissions: granted.data,
           })),
         );
         await deps.audit.record(
@@ -735,6 +770,9 @@ export const reviewRoutes = (deps: ReviewDeps) =>
         const { rows, facts } = await reviewersOf(tx, actor.organisationId, review.id);
         const me = mineOf(rows, actor);
         if (!me) throw new HTTPException(403, { message: "You are not a reviewer of this review" });
+        if (!mayAct(me, "decide")) {
+          throw new HTTPException(403, { message: "This review does not ask you for a decision" });
+        }
         const before = activeReviewers(review.order, facts);
         // Once decided, a reviewer may change their mind while the review is open.
         if (!before.has(me.id) && !me.submittedAt) {
@@ -796,6 +834,9 @@ export const reviewRoutes = (deps: ReviewDeps) =>
         const { rows, facts } = await reviewersOf(tx, actor.organisationId, review.id);
         const me = mineOf(rows, actor);
         if (!me) throw new HTTPException(403, { message: "You are not a reviewer of this review" });
+        if (!mayAct(me, "submit")) {
+          throw new HTTPException(403, { message: "Your access to this review is not open" });
+        }
         const before = activeReviewers(review.order, facts);
         if (!before.has(me.id)) {
           throw new HTTPException(409, {
@@ -918,6 +959,48 @@ export const reviewRoutes = (deps: ReviewDeps) =>
       }
       return c.json({ review: await reviewView(deps.db, actor, review.id) }, 201);
     })
+    // Adjust what one reviewer may do in this review.
+    .patch(
+      "/:id/reviewers/:reviewerId",
+      reviewerParam,
+      zValidator("json", z.object({ permissions: reviewerPermissionsChange })),
+      async (c) => {
+        const actor = memberOnly(c.var.actor);
+        const { id, reviewerId } = c.req.valid("param");
+        await deps.db.transaction(async (tx) => {
+          const { review } = await lockReview(tx, actor, id);
+          await can(tx, actor, "manage_reviewers", review.projectId);
+          if (review.status !== "open") {
+            throw new HTTPException(409, { message: `This review is ${review.status}` });
+          }
+          const [reviewer] = await tx
+            .select({ id: reviewReviewers.id, permissions: reviewReviewers.permissions })
+            .from(reviewReviewers)
+            .where(
+              inOrg(
+                reviewReviewers,
+                actor.organisationId,
+                eq(reviewReviewers.id, reviewerId),
+                eq(reviewReviewers.reviewId, review.id),
+              ),
+            );
+          if (!reviewer) throw new NotFound("Reviewer");
+          const next = applyPermissions(reviewer.permissions, c.req.valid("json").permissions);
+          if (!next.success) {
+            throw new HTTPException(422, {
+              message: next.error.issues[0]?.message ?? "Those permissions do not fit together",
+            });
+          }
+          await tx
+            .update(reviewReviewers)
+            .set({ permissions: next.data, updatedAt: new Date() })
+            .where(
+              inOrg(reviewReviewers, actor.organisationId, eq(reviewReviewers.id, reviewer.id)),
+            );
+        });
+        return c.json({ review: await reviewView(deps.db, actor, id) });
+      },
+    )
     // Send a guest reviewer a fresh magic link; any earlier unused one stops working.
     .post("/:id/reviewers/:reviewerId/link", reviewerParam, async (c) => {
       const actor = memberOnly(c.var.actor);
@@ -1082,7 +1165,7 @@ export async function memberReviews(db: Database, actor: MemberActor) {
 }
 
 export async function guestReviews(db: Database, organisationId: string, guestId: string) {
-  return db
+  const rows = await db
     .select({
       id: reviews.id,
       kind: reviews.kind,
@@ -1092,6 +1175,7 @@ export async function guestReviews(db: Database, organisationId: string, guestId
       dueAt: reviews.dueAt,
       createdAt: reviews.createdAt,
       submittedAt: reviewReviewers.submittedAt,
+      permissions: reviewReviewers.permissions,
     })
     .from(reviewReviewers)
     .innerJoin(reviews, eq(reviews.id, reviewReviewers.reviewId))
@@ -1102,4 +1186,12 @@ export async function guestReviews(db: Database, organisationId: string, guestId
       ),
     )
     .orderBy(desc(reviews.createdAt));
+  // When each opens and closes to them, so the list can say so rather than fail on opening.
+  const now = new Date();
+  return rows.map(({ permissions, ...row }) => ({
+    ...row,
+    opensAt: permissions.startsAt,
+    closesAt: permissions.expiresAt,
+    accessOpen: withinWindow(permissions, now),
+  }));
 }

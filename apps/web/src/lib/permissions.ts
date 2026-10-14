@@ -1,0 +1,58 @@
+import type { ReviewerPermissions, ReviewerTool } from "@hekate/shared";
+
+const moment = new Intl.DateTimeFormat("en-GB", {
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+const at = (iso: string) => moment.format(new Date(iso));
+
+const toolNames: Record<ReviewerTool, string> = {
+  spectrogram: "spectrogram",
+  meters: "meters",
+  loops: "loops",
+};
+
+/**
+ * Where a reviewer's permissions depart from the defaults, in a few words each, for one
+ * line under their name: what someone checking the review needs to notice.
+ */
+export function permissionSummary(p: ReviewerPermissions, kind: "approval" | "feedback"): string[] {
+  const notes: string[] = [];
+  if (p.comments === "own_and_replies") notes.push("Sees own comments and replies");
+  if (p.comments === "own") notes.push("Sees only own comments");
+  if (!p.comment) notes.push("Cannot comment");
+  if (kind === "approval" && !p.decide) notes.push("No decision");
+  const missing = (Object.keys(toolNames) as ReviewerTool[]).filter((t) => !p.tools.includes(t));
+  if (missing.length > 0) notes.push(`No ${missing.map((t) => toolNames[t]).join(", ")}`);
+  if (p.startsAt) notes.push(`From ${at(p.startsAt)}`);
+  if (p.expiresAt) notes.push(`Until ${at(p.expiresAt)}`);
+  return notes;
+}
+
+/** For a guest's list: when a review opens or closes to them, if that matters now. */
+export function accessNote(
+  review: { opensAt: string | null; closesAt: string | null; accessOpen: boolean },
+  now = new Date(),
+): string | null {
+  if (review.accessOpen) return review.closesAt ? `open until ${at(review.closesAt)}` : null;
+  if (review.opensAt && Date.parse(review.opensAt) > now.getTime())
+    return `opens ${at(review.opensAt)}`;
+  return review.closesAt ? `closed ${at(review.closesAt)}` : "closed";
+}
+
+/** A moment as a `datetime-local` field shows it, in this browser's time zone. */
+export function toLocalInput(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** And back: what the field holds, as an instant; empty is none. */
+export function fromLocalInput(value: string): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
