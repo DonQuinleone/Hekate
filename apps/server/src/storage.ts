@@ -6,10 +6,12 @@ import {
   type Backends,
   type ByteRange,
   decryptor,
+  encryptChunk,
   encryptedSize,
   encryptor,
   generateKey,
   HEADER_SIZE,
+  newNoncePrefix,
   objectKey,
   planRead,
   StorageConfigError,
@@ -48,6 +50,38 @@ export interface Storage {
   ): Promise<{ blob: Blob; stream: Readable }>;
   /** Delete a blob and its bytes. Refused while a file still uses it. */
   remove(organisationId: string, blobId: string): Promise<void>;
+
+  /** Start a resumable upload of `byteSize` bytes: keys and a backend multipart upload. */
+  beginUpload(
+    organisationId: string,
+    byteSize: number,
+    contentType: string,
+  ): Promise<UploadSession>;
+  /** Encrypt and store one chunk. Returns the tag needed to complete. */
+  putUploadChunk(
+    organisationId: string,
+    session: UploadSession,
+    index: number,
+    plain: Uint8Array,
+  ): Promise<string>;
+  /** Join the chunks into the blob and record it. Its checksum is computed later by a job. */
+  completeUpload(organisationId: string, session: UploadSession, tags: string[]): Promise<Blob>;
+  /** Discard an unfinished upload's stored parts. */
+  abortUpload(session: UploadSession): Promise<void>;
+}
+
+/** Everything needed to continue an upload, stored on its row between requests. */
+export interface UploadSession {
+  blobId: string;
+  backend: string;
+  key: string;
+  backendUploadId: string;
+  wrappedKey: string;
+  keyVersion: number;
+  /** Base64. */
+  noncePrefix: string;
+  byteSize: number;
+  contentType: string;
 }
 
 /** Binds a blob's ciphertext and data key to that blob, so neither can be moved to another. */
@@ -176,6 +210,105 @@ export function createStorage(db: Database, backends: Backends, keyring: Keyring
       ciphertext.on("error", (error) => decrypt.destroy(error));
       decrypt.on("close", () => dataKey.fill(0));
       return { blob, stream: ciphertext.pipe(decrypt) };
+    },
+
+    async beginUpload(organisationId, byteSize, contentType) {
+      const name = await backendFor(organisationId);
+      const blobId = uuidv7();
+      const key = objectKey(organisationId, blobId);
+      const organisationKey = await keyring.current(organisationId);
+      const dataKey = generateKey();
+      try {
+        const wrappedKey = wrapKey(organisationKey.key, dataKey, dataKeyContext(blobId));
+        const backendUploadId = await backends.get(name).createMultipart(key, { contentType });
+        return {
+          blobId,
+          backend: name,
+          key,
+          backendUploadId,
+          wrappedKey,
+          keyVersion: organisationKey.version,
+          noncePrefix: newNoncePrefix().toString("base64"),
+          byteSize,
+          contentType,
+        };
+      } finally {
+        dataKey.fill(0);
+      }
+    },
+
+    async putUploadChunk(organisationId, session, index, plain) {
+      const organisationKey = await keyring.version(organisationId, session.keyVersion);
+      const dataKey = unwrapKey(
+        organisationKey,
+        session.wrappedKey,
+        dataKeyContext(session.blobId),
+      );
+      try {
+        const sealed = encryptChunk({
+          key: dataKey,
+          aad: blobAad(session.blobId),
+          prefix: Buffer.from(session.noncePrefix, "base64"),
+          plainSize: session.byteSize,
+          index,
+          plain,
+        });
+        return await backends
+          .get(session.backend)
+          .putPart(session.key, session.backendUploadId, index + 1, sealed);
+      } finally {
+        dataKey.fill(0);
+      }
+    },
+
+    async completeUpload(organisationId, session, tags) {
+      // Safe to repeat: a retry after a crash finds the blob, or the joined object, already there.
+      const [recorded] = await db
+        .select()
+        .from(blobs)
+        .where(inOrg(blobs, organisationId, eq(blobs.id, session.blobId)));
+      if (recorded) return recorded;
+      const backend = backends.get(session.backend);
+      const expected = encryptedSize(session.byteSize);
+      const present = await backend.head(session.key);
+      const size =
+        present?.size === expected
+          ? present.size
+          : (
+              await backend.completeMultipart(
+                session.key,
+                session.backendUploadId,
+                tags.map((tag, i) => ({ partNumber: i + 1, tag })),
+              )
+            ).size;
+      if (size !== expected) {
+        await backend.delete(session.key).catch(() => undefined);
+        throw new StorageError(`Upload produced ${size} bytes, expected ${expected}`);
+      }
+      await db
+        .insert(blobs)
+        .values({
+          id: session.blobId,
+          organisationId,
+          backend: session.backend,
+          key: session.key,
+          byteSize: session.byteSize,
+          sha256: null,
+          wrappedKey: session.wrappedKey,
+          keyVersion: session.keyVersion,
+          contentType: session.contentType,
+        })
+        .onConflictDoNothing();
+      const [blob] = await db
+        .select()
+        .from(blobs)
+        .where(inOrg(blobs, organisationId, eq(blobs.id, session.blobId)));
+      if (!blob) throw new Error("Blob insert returned no row");
+      return blob;
+    },
+
+    async abortUpload(session) {
+      await backends.get(session.backend).abortMultipart(session.key, session.backendUploadId);
     },
 
     async remove(organisationId, blobId) {

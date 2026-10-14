@@ -50,6 +50,13 @@
       "when": 1791947395805,
       "tag": "0006_access_log_append_only",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791947955250,
+      "tag": "0007_uploads",
+      "breakpoints": true
     }
   ]
 }

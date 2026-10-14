@@ -81,3 +81,7 @@ Background work runs on pg-boss in the app process, so self-hosting still needs 
 ## 020. The access log is append-only in the database
 
 The access log is enforced append-only by PostgreSQL triggers, not only by application code: updates are always refused, and deletes need an explicit, transaction-scoped purge setting. Events reference files, people and reviews by plain id and copy the actor's name and email, so the record survives deletions. Recording is awaited, so access is refused if it cannot be logged. Details in `docs/security.md`.
+
+## 021. Resumable uploads, encrypted per chunk
+
+Uploads are Hekate's own small chunked protocol rather than tus: fixed 8 MiB chunks line up with the encryption segments, so each chunk is encrypted on arrival and stored directly as a multipart part (S3 multipart, or parts on local disk) and no plaintext is staged on the server. Because chunks arrive in any order, a blob's SHA-256 is computed afterwards by a job that reads the file back through decryption. Uploads are limited to 10,000 chunks (78 GiB), the S3 part limit.

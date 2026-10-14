@@ -41,4 +41,26 @@ export interface StorageBackend {
   list(prefix: string): AsyncIterable<ListedObject>;
   /** Prove the backend is reachable and writable. Used at start-up. */
   check(): Promise<void>;
+
+  /**
+   * Multipart writes, for resumable uploads: parts arrive separately, in any order,
+   * may be re-sent, and become one object on completion. Every part but the last
+   * must be at least `MIN_PART_SIZE` bytes (an S3 rule all backends follow).
+   */
+  createMultipart(key: string, options?: { contentType?: string }): Promise<string>;
+  /** Store part `partNumber` (1 to 10,000), replacing any earlier copy. Returns its tag. */
+  putPart(key: string, uploadId: string, partNumber: number, body: Uint8Array): Promise<string>;
+  /** Join the listed parts, in order, into the object at `key`. */
+  completeMultipart(
+    key: string,
+    uploadId: string,
+    parts: { partNumber: number; tag: string }[],
+  ): Promise<ObjectInfo>;
+  /** Discard an unfinished upload and its parts. Aborting twice succeeds. */
+  abortMultipart(key: string, uploadId: string): Promise<void>;
 }
+
+/** Smallest part allowed, except the last (S3's limit). */
+export const MIN_PART_SIZE = 5 * 1024 * 1024;
+/** Largest part number (S3's limit). */
+export const MAX_PARTS = 10_000;

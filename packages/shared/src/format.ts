@@ -49,3 +49,25 @@ export function formatAnchor(anchor: Anchor, options: { fps?: number } = {}): st
     }
   }
 }
+
+/** File sizes in decimal units, as operating systems show them: `412 KB`, `1.3 GB`. */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1000) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unit = -1;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit += 1;
+  }
+  return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
+}
+
+/** `4:31` or `1:02:03`: a duration for lists, to the second. */
+export function formatDuration(seconds: number): string {
+  const total = Math.round(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor(total / 60) % 60;
+  const s = total % 60;
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+}
