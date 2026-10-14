@@ -1,5 +1,6 @@
 import {
   type Anchor,
+  type CarryStatus,
   type CreateReviewInput,
   decodeLoudness,
   decodePeaks,
@@ -14,6 +15,7 @@ import {
   type ReviewDecision,
   type ReviewerState,
   type ReviewKind,
+  type UpdateCarryInput,
 } from "@hekate/shared";
 import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
@@ -485,6 +487,25 @@ export interface Comment {
   resolvedByName: string | null;
   editedAt: string | null;
   createdAt: string;
+  /** Set on a thread carried here from an earlier version; its anchor is then the mapped one. */
+  carry: CommentCarry | null;
+  /** On a thread: where it began, and each version it was carried to. */
+  history: CommentHistory | null;
+}
+
+export interface CommentCarry {
+  id: string;
+  status: CarryStatus;
+  /** Shown on this version; hidden ones reach only those who triage. */
+  visible: boolean;
+  /** The file it was raised on, and where it pointed there. */
+  from: { fileId: string; anchor: Anchor | null };
+}
+
+export interface CommentHistory {
+  /** The version it was raised on, when that file is a variation. */
+  versionNumber: number | null;
+  hops: { fileId: string; versionNumber: number; status: CarryStatus }[];
 }
 
 /** A file's comments, oldest first; kept fresh so colleagues' notes appear while reviewing. */
@@ -527,6 +548,17 @@ export function useCommentMutations(fileId: string) {
           }),
         ),
       onSuccess: refresh,
+    }),
+    /** Triage on a carried thread; its status shows on every version, so all refresh. */
+    carry: useMutation({
+      mutationFn: async ({ id, ...change }: { id: string } & UpdateCarryInput) => {
+        const res = await api["comment-carries"][":id"].$patch({ param: { id }, json: change });
+        if (!res.ok) await json(res);
+      },
+      onSuccess: () =>
+        client.invalidateQueries({
+          predicate: (q) => q.queryKey[0] === "files" && q.queryKey[2] === "comments",
+        }),
     }),
   };
 }

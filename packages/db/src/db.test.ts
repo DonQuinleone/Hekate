@@ -31,6 +31,7 @@ describe("tenancy", () => {
     expect(names).toEqual([
       "access_events",
       "blobs",
+      "comment_carries",
       "comments",
       "files",
       "folders",

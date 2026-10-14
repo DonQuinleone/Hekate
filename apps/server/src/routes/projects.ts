@@ -4,6 +4,7 @@ import {
   defaultProjectRoles,
   projectPermissions,
   projectProfile,
+  updateProjectInput,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { asc, desc, eq, isNull } from "drizzle-orm";
@@ -81,6 +82,22 @@ export const projectRoutes = (db: Database) =>
       // What the caller may do here, so the interface offers only that (the server still checks).
       return c.json({ project: { ...project, permissions: [...access.permissions] } });
     })
+    // Settings are part of how the project's work flows.
+    .patch(
+      "/:id",
+      zValidator("param", z.object({ id: z.uuid() })),
+      zValidator("json", updateProjectInput),
+      async (c) => {
+        const access = await can(db, actorOf(c.var), "edit_workflows", c.req.valid("param").id);
+        const input = c.req.valid("json");
+        const [project] = await db
+          .update(projects)
+          .set({ ...input, updatedAt: new Date() })
+          .where(inOrg(projects, c.var.organisationId, eq(projects.id, access.projectId)))
+          .returning();
+        return c.json({ project: { ...project, permissions: [...access.permissions] } });
+      },
+    )
     .get("/:id/files", zValidator("param", z.object({ id: z.uuid() })), async (c) => {
       const organisationId = c.var.organisationId;
       const access = await can(db, actorOf(c.var), "view", c.req.valid("param").id);

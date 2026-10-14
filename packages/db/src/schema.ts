@@ -3,6 +3,7 @@ import {
   approvalRules,
   auditActions,
   auditActorTypes,
+  carryStatuses,
   type LoudnessSummary,
   type MediaInfo,
   type ProjectPermission,
@@ -69,6 +70,7 @@ export const reviewOrderEnum = pgEnum("review_order", reviewOrders);
 export const approvalRuleEnum = pgEnum("approval_rule", approvalRules);
 export const reviewStatusEnum = pgEnum("review_status", reviewStatuses);
 export const reviewDecisionEnum = pgEnum("review_decision", reviewDecisions);
+export const carryStatusEnum = pgEnum("carry_status", carryStatuses);
 export const uploadStatusEnum = pgEnum("upload_status", [
   "open",
   "completing",
@@ -196,6 +198,8 @@ export const projects = pgTable(
     organisationId: organisationId(),
     name: text("name").notNull(),
     profile: profileEnum("profile").$type<ProjectProfile>().notNull(),
+    /** Whether threads carried to a new version show there until someone hides them. */
+    carriedCommentsShown: boolean("carried_comments_shown").notNull().default(true),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     ...timestamps,
   },
@@ -487,6 +491,38 @@ export const comments = pgTable(
     ...timestamps,
   },
   (t) => [index("comments_org_idx").on(t.organisationId), index("comments_file_idx").on(t.fileId)],
+);
+
+/**
+ * A comment thread carried to a later version (docs/domain.md, Comments across versions):
+ * where it points on that version's file, whether it shows there, and its status there.
+ * The thread itself stays on the file it was raised on; replies join it from any version.
+ */
+export const commentCarries = pgTable(
+  "comment_carries",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    /** The thread: its first comment. */
+    commentId: uuid("comment_id")
+      .notNull()
+      .references(() => comments.id, { onDelete: "cascade" }),
+    /** The later version's file it is carried to. */
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => files.id, { onDelete: "cascade" }),
+    /** The anchor mapped onto this file; null is the whole file. */
+    anchor: jsonb("anchor").$type<Anchor>(),
+    visible: boolean("visible").notNull().default(true),
+    status: carryStatusEnum("status").notNull().default("open"),
+    statusById: text("status_by_id").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [
+    index("comment_carries_org_idx").on(t.organisationId),
+    index("comment_carries_file_idx").on(t.fileId),
+    uniqueIndex("comment_carries_thread_file_idx").on(t.commentId, t.fileId),
+  ],
 );
 
 // Access log

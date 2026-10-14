@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { anchorProblem, createCommentInput } from "./comments.ts";
+import {
+  anchorProblem,
+  anchorShift,
+  carrySettles,
+  carryStatusLabel,
+  carryTarget,
+  createCommentInput,
+  updateCarryInput,
+} from "./comments.ts";
 
 describe("comments", () => {
   it("validates new comments and keeps replies on their thread's anchor", () => {
@@ -31,5 +39,39 @@ describe("comments", () => {
     const bar = { kind: "bar" as const, from: { bar: 72, beat: 1 } };
     expect(anchorProblem(bar, { kind: "audio" })).toBeNull();
     expect(anchorProblem(bar, { kind: "image" })).toMatch(/recording or a score/);
+  });
+
+  it("carries a thread to the same treatment, or else the new primary", () => {
+    const targets = [
+      { id: "dry", name: "Dry", isPrimary: true },
+      { id: "wet", name: "Wet mix", isPrimary: false },
+    ];
+    expect(carryTarget("wet mix ", targets)?.id).toBe("wet");
+    expect(carryTarget("Stems", targets)?.id).toBe("dry");
+    expect(carryTarget("Stems", [{ id: "only", name: "Mix", isPrimary: false }])?.id).toBe("only");
+    expect(carryTarget("Mix", [])).toBeUndefined();
+  });
+
+  it("names statuses on their version and knows which settle a thread", () => {
+    expect(carryStatusLabel("fixed", 5)).toBe("Fixed in V5");
+    expect(carryStatusLabel("wont_fix", 5)).toBe("Won't fix");
+    expect(carrySettles("fixed")).toBe(true);
+    expect(carrySettles("wont_fix")).toBe(true);
+    expect(carrySettles("not_fixed")).toBe(false);
+    expect(carrySettles("open")).toBe(false);
+  });
+
+  it("takes triage changes and refuses an empty one", () => {
+    expect(updateCarryInput.safeParse({}).success).toBe(false);
+    expect(updateCarryInput.parse({ visible: false })).toEqual({ visible: false });
+    expect(updateCarryInput.parse({ anchor: null })).toEqual({ anchor: null });
+    expect(updateCarryInput.safeParse({ status: "done" }).success).toBe(false);
+  });
+
+  it("measures how far a carried passage moved", () => {
+    const at = (start: number) => ({ kind: "time" as const, start, end: start + 2 });
+    expect(anchorShift(at(12), at(10.5))).toBe(1.5);
+    expect(anchorShift(at(12), null)).toBe(0);
+    expect(anchorShift(null, at(3))).toBe(0);
   });
 });

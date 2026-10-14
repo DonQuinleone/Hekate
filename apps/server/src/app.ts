@@ -9,7 +9,7 @@ import { requirePlaySession, requireViewer } from "./guests.ts";
 import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
 import type { Mailer } from "./mail.ts";
-import { commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
+import { carryRoutes, commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
 import { fileManageRoutes, folderRoutes, projectFolderRoutes } from "./routes/folders.ts";
 import { projectGroupRoutes } from "./routes/groups.ts";
 import { guestRoutes } from "./routes/guest.ts";
@@ -119,6 +119,8 @@ export function createApi(deps: AppDeps) {
       .route("/guest", guestRoutes(reviewDeps))
       .use("/comments/*", ...member)
       .route("/comments", commentRoutes(deps.db))
+      .use("/comment-carries/*", ...member)
+      .route("/comment-carries", carryRoutes(deps.db))
       // The organisation comes from the token, which the route checks against membership.
       .use("/play/*", requirePlaySession(deps.auth, deps.db))
       .route("/play", playRoutes(playback))
