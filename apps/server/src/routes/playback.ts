@@ -2,7 +2,7 @@ import { type Database, inOrg, schema } from "@hekate/db";
 import type { ReviewerTool } from "@hekate/shared";
 import { unwrapKey } from "@hekate/storage";
 import { zValidator } from "@hono/zod-validator";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
@@ -38,6 +38,7 @@ const {
   variations,
   versions,
   tracks,
+  projects,
 } = schema;
 
 export interface PlaybackDeps {
@@ -115,8 +116,14 @@ export const fileRoutes = (deps: PlaybackDeps) =>
           pageCount: files.pageCount,
           uploadedBy: users.name,
           createdAt: files.createdAt,
+          /** The project's profile decides which tools the file page offers. */
+          profile: projects.profile,
         })
         .from(files)
+        .innerJoin(
+          projects,
+          and(eq(projects.id, files.projectId), eq(projects.organisationId, c.var.organisationId)),
+        )
         .leftJoin(users, eq(files.uploadedBy, users.id))
         .where(inOrg(files, c.var.organisationId, eq(files.id, c.req.valid("param").id)));
       if (!file) throw new NotFound("File");
@@ -130,6 +137,8 @@ export const fileRoutes = (deps: PlaybackDeps) =>
           versionNumber: versions.number,
           trackId: tracks.id,
           trackName: tracks.name,
+          /** The score linked to the track, shown beside the recording. */
+          scoreFileId: tracks.scoreFileId,
         })
         .from(variations)
         .innerJoin(versions, eq(versions.id, variations.versionId))

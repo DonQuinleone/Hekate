@@ -23,7 +23,7 @@ import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
-const { comments, commentCarries, files, users, guests } = schema;
+const { comments, commentCarries, files, projects, users, guests } = schema;
 const resolver = alias(users, "resolver");
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
@@ -177,8 +177,13 @@ export const fileCommentRoutes = (db: Database, audit: Audit, trustProxy: boolea
           mediaInfo: files.mediaInfo,
           pageCount: files.pageCount,
           projectId: files.projectId,
+          profile: projects.profile,
         })
         .from(files)
+        .innerJoin(
+          projects,
+          and(eq(projects.id, files.projectId), eq(projects.organisationId, organisationId)),
+        )
         .where(inOrg(files, organisationId, eq(files.id, c.req.valid("param").id)));
       if (!file) throw new NotFound("File");
 
@@ -234,6 +239,7 @@ export const fileCommentRoutes = (db: Database, audit: Audit, trustProxy: boolea
           kind: file.kind,
           duration: file.mediaInfo?.duration,
           pages: file.pageCount,
+          profile: file.profile,
         });
         if (problem) throw new HTTPException(422, { message: problem });
       }
@@ -350,8 +356,17 @@ export const carryRoutes = (db: Database) =>
       await canOnFile(db, actorOf(c.var), "triage", carry.fileId);
       if (input.anchor) {
         const [file] = await db
-          .select({ kind: files.kind, mediaInfo: files.mediaInfo, pageCount: files.pageCount })
+          .select({
+            kind: files.kind,
+            mediaInfo: files.mediaInfo,
+            pageCount: files.pageCount,
+            profile: projects.profile,
+          })
           .from(files)
+          .innerJoin(
+            projects,
+            and(eq(projects.id, files.projectId), eq(projects.organisationId, organisationId)),
+          )
           .where(inOrg(files, organisationId, eq(files.id, carry.fileId)));
         const problem =
           file &&
@@ -359,6 +374,7 @@ export const carryRoutes = (db: Database) =>
             kind: file.kind,
             duration: file.mediaInfo?.duration,
             pages: file.pageCount,
+            profile: file.profile,
           });
         if (problem) throw new HTTPException(422, { message: problem });
       }

@@ -1,5 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { isPdf } from "@hekate/shared";
 import { InvalidMediaError, MediaToolError, run } from "./ffmpeg.ts";
 
 /**
@@ -34,7 +35,7 @@ export type PageSource = "pdf" | "image";
 /** Whether a file can be drawn as pages, and how. SVG is left out: it is a program, not a picture. */
 export function pageSourceOf(name: string, contentType: string): PageSource | null {
   const ext = name.toLowerCase().split(".").pop() ?? "";
-  if (contentType === "application/pdf" || ext === "pdf") return "pdf";
+  if (isPdf(name, contentType)) return "pdf";
   if (["jpg", "jpeg", "png", "webp", "tif", "tiff", "bmp", "gif"].includes(ext)) return "image";
   if (/^image\/(jpeg|png|webp|tiff|bmp|gif)$/.test(contentType)) return "image";
   return null;

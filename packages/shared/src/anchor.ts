@@ -39,7 +39,8 @@ export const regionAnchor = z
   });
 
 const barPosition = z.object({
-  bar: z.number().int().positive(),
+  /** Bar 0 is an upbeat, before the first full bar. */
+  bar: z.number().int().nonnegative(),
   /** 1-based beat within the bar; fractional beats are allowed for off-beat positions. */
   beat: z.number().positive().default(1),
 });
@@ -49,7 +50,12 @@ export const barAnchor = z
     kind: z.literal("bar"),
     from: barPosition,
     /** End of a bar range, inclusive. Omitted for a single bar position. */
-    to: z.object({ bar: z.number().int().positive() }).optional(),
+    to: z.object({ bar: z.number().int().nonnegative() }).optional(),
+    /**
+     * Where in a recording the reviewer was when they named the bar, in seconds, so the
+     * comment plays from there. Bars are typed by people, never synced to the recording.
+     */
+    at: seconds.optional(),
   })
   .refine((a) => a.to === undefined || a.to.bar >= a.from.bar, {
     message: "a bar range must not end before it starts",
@@ -63,3 +69,23 @@ export type RegionAnchor = z.infer<typeof regionAnchor>;
 export type BarAnchor = z.infer<typeof barAnchor>;
 export type Anchor = z.infer<typeof anchor>;
 export type AnchorKind = Anchor["kind"];
+
+/** The largest bar number a reference accepts; long enough for any score. */
+const MAX_BAR = 100_000;
+
+/**
+ * A bar reference as people type it: "25", "0" for an upbeat, or a range such as "9-12",
+ * "9–12" or "9 to 12". Null when the text is not one.
+ */
+export function parseBars(
+  text: string,
+): { from: { bar: number; beat: number }; to?: { bar: number } } | null {
+  const m = /^\s*(?:bars?\.?\s*)?(\d{1,6})\s*(?:(?:-|–|—|to)\s*(\d{1,6}))?\s*$/i.exec(text);
+  if (!m) return null;
+  const from = Number(m[1]);
+  const to = m[2] === undefined ? undefined : Number(m[2]);
+  if (from > MAX_BAR || (to !== undefined && (to > MAX_BAR || to < from))) return null;
+  return to === undefined || to === from
+    ? { from: { bar: from, beat: 1 } }
+    : { from: { bar: from, beat: 1 }, to: { bar: to } };
+}

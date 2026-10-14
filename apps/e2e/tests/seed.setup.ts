@@ -201,6 +201,12 @@ setup("seed", async ({ page, browser }) => {
     end: 33,
   });
   await api(page, "POST", `/api/comments/${lift.comment.id}/resolve`, { resolved: true });
+  await comment(dry, "The left hand rushes through these bars.", {
+    kind: "bar",
+    from: { bar: 9 },
+    to: { bar: 12 },
+    at: 14.2,
+  });
   await comment(dry, "Overall balance is great; the reverb tail could be a touch shorter.");
   await comment(score, "This dynamic is printed as mp in the parts.", {
     kind: "region",

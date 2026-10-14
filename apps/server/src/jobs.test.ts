@@ -245,8 +245,18 @@ describe.runIf(url && (hasFfmpeg || process.env.CI))("media jobs", () => {
         anchor: { kind: "time", start: 2, end: 2 },
       })
       .returning();
+    const [bars] = await db
+      .insert(schema.comments)
+      .values({
+        organisationId,
+        fileId: from,
+        body: "Rushed",
+        anchor: { kind: "bar", from: { bar: 9, beat: 1 }, to: { bar: 12 }, at: 4 },
+      })
+      .returning();
     await db.insert(schema.commentCarries).values([
       { organisationId, commentId: thread?.id ?? "", fileId: to, anchor: thread?.anchor ?? null },
+      { organisationId, commentId: bars?.id ?? "", fileId: to, anchor: bars?.anchor ?? null },
       {
         organisationId,
         commentId: placed?.id ?? "",
@@ -279,6 +289,11 @@ describe.runIf(url && (hasFfmpeg || process.env.CI))("media jobs", () => {
     const moved = carries.find((c) => c.commentId === thread?.id)?.anchor;
     expect(moved?.kind === "time" && moved.start).toBeGreaterThan(7.2);
     expect(moved?.kind === "time" && moved.start).toBeLessThan(7.8);
+    // Bars keep their numbers; the moment they were named at moves with the music.
+    const movedBars = carries.find((c) => c.commentId === bars?.id)?.anchor;
+    expect(movedBars).toMatchObject({ kind: "bar", from: { bar: 9 }, to: { bar: 12 } });
+    expect(movedBars?.kind === "bar" && movedBars.at).toBeGreaterThan(5.2);
+    expect(movedBars?.kind === "bar" && movedBars.at).toBeLessThan(5.8);
     // Placed by hand: left where it was put.
     expect(carries.find((c) => c.commentId === placed?.id)?.anchor).toEqual({
       kind: "time",

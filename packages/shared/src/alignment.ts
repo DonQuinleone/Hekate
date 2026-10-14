@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Anchor } from "./anchor.ts";
 
 /**
  * Where the same music sits in two versions of a track: pairs of times, in seconds, one in
@@ -93,4 +94,23 @@ export function composeAlignments(ab: AlignmentPoints, bc: AlignmentPoints): Ali
     points.push([t, mapTime(bc, mapTime(ab, t))]);
   }
   return simplifyAlignment(points, 0.02);
+}
+
+const ms = (t: number) => Math.round(t * 1000) / 1000;
+
+/**
+ * An anchor moved to where the same music is in the other version: a time range, or the
+ * moment a bar comment was named at. Null for anchors with no time in a recording, which
+ * stay where they are.
+ */
+export function remapAnchor(points: AlignmentPoints, anchor: Anchor | null): Anchor | null {
+  if (anchor?.kind === "time") {
+    const start = ms(mapTime(points, anchor.start));
+    const end = Math.max(start, ms(mapTime(points, anchor.end)));
+    return { kind: "time", start, end };
+  }
+  if (anchor?.kind === "bar" && anchor.at !== undefined) {
+    return { ...anchor, at: ms(mapTime(points, anchor.at)) };
+  }
+  return null;
 }
