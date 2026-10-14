@@ -2,8 +2,8 @@ import { formatBytes, formatChannels, formatDuration, type MediaInfo } from "@he
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
-import { Comments, useCommentMarkers } from "~/components/comments";
-import { Compare } from "~/components/compare";
+import { type BeforeAfter, Comments, useCommentMarkers } from "~/components/comments";
+import { Compare, type CompareFocus } from "~/components/compare";
 import { mediaSummary } from "~/components/files";
 import { Loudness } from "~/components/loudness";
 import { type Crumb, PageHeader } from "~/components/page-header";
@@ -102,6 +102,8 @@ export function FilePage({
 }) {
   const { data: file, error } = useQuery(fileQuery(fileId));
   const [media, setMedia] = useState<HTMLMediaElement | null>(null);
+  /** A source comparison should bring in and play first: before, for before and after. */
+  const [focus, setFocus] = useState<CompareFocus | null>(null);
   const { guest } = useViewer();
   // Guests see the files of their reviews, never the project around them.
   const { data: project } = useQuery({
@@ -110,6 +112,16 @@ export function FilePage({
   });
   if (error) return <p className="p-8 text-signal">{error.message}</p>;
   if (!file) return <p className="p-8 text-ink-3">Loading</p>;
+  const comparable = !guest && file.kind === "audio" && file.streamStatus === "ready";
+  /** Loop the passage and hear it from where it began; one key then flips to this version. */
+  const beforeAfter = (target: BeforeAfter) => {
+    setFocus({ fileId: target.fileId, shift: target.shift, nonce: Date.now() });
+    onLoop(target.loop);
+    if (media) {
+      media.currentTime = target.loop.start;
+      void media.play().catch(() => undefined);
+    }
+  };
   const summary = mediaSummary(file.kind, file.mediaInfo, file.streamStatus);
   const details: [string, string][] = [
     ["Type", file.contentType],
@@ -165,9 +177,7 @@ export function FilePage({
         <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
           <div className="flex min-w-0 flex-col gap-6">
             <Playback file={file} onMedia={setMedia} loop={loop} onLoop={onLoop} />
-            {!guest && file.kind === "audio" && file.streamStatus === "ready" && (
-              <Compare file={file} media={media} />
-            )}
+            {comparable && <Compare file={file} media={media} focus={focus} />}
             {file.mediaInfo?.audio && (
               <Loudness
                 fileId={file.id}
@@ -182,6 +192,7 @@ export function FilePage({
             projectId={file.projectId}
             media={media}
             loop={loop}
+            onBeforeAfter={comparable ? beforeAfter : undefined}
             onLoop={(next) => {
               // One action: the passage is looped and heard from its start.
               onLoop(next);

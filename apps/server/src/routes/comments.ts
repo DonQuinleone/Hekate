@@ -1,23 +1,28 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  type Anchor,
   anchorProblem,
+  type CarryStatus,
+  carrySettles,
   createCommentInput,
   editCommentInput,
   resolveCommentInput,
+  updateCarryInput,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, type SQL, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, canOnFile } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
+import { hopsOf, lockTrackOfFile, versionNumbersOf } from "../carry.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
-const { comments, files, users, guests } = schema;
+const { comments, commentCarries, files, users, guests } = schema;
 const resolver = alias(users, "resolver");
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
@@ -40,7 +45,7 @@ const commentColumns = {
   createdAt: comments.createdAt,
 };
 
-function selectComments(db: Database, organisationId: string, where: ReturnType<typeof eq>) {
+function selectComments(db: Database, organisationId: string, where: SQL | undefined) {
   return db
     .select(commentColumns)
     .from(comments)
@@ -64,17 +69,80 @@ export const fileCommentRoutes = (db: Database, audit: Audit, trustProxy: boolea
   new Hono<{ Variables: ViewerVariables }>()
     .get("/:id/comments", idParam, async (c) => {
       const organisationId = c.var.organisationId;
-      await canOnFile(db, c.var.actor, "view", c.req.valid("param").id);
+      const access = await canOnFile(db, c.var.actor, "view", c.req.valid("param").id);
       const [file] = await db
         .select({ id: files.id })
         .from(files)
         .where(inOrg(files, organisationId, eq(files.id, c.req.valid("param").id)));
       if (!file) throw new NotFound("File");
-      const rows = await selectComments(db, organisationId, eq(comments.fileId, file.id)).orderBy(
-        asc(comments.createdAt),
-        asc(comments.id),
+      // Threads carried here from earlier versions; hidden ones only for those who triage.
+      const triage = access.permissions.has("triage");
+      const carriedHere = await db
+        .select({
+          id: commentCarries.id,
+          commentId: commentCarries.commentId,
+          anchor: commentCarries.anchor,
+          visible: commentCarries.visible,
+          status: commentCarries.status,
+        })
+        .from(commentCarries)
+        .where(
+          inOrg(
+            commentCarries,
+            organisationId,
+            eq(commentCarries.fileId, file.id),
+            triage ? undefined : eq(commentCarries.visible, true),
+          ),
+        );
+      const carriedIds = carriedHere.map((k) => k.commentId);
+      const rows = await selectComments(
+        db,
+        organisationId,
+        carriedIds.length > 0
+          ? or(
+              eq(comments.fileId, file.id),
+              inArray(comments.id, carriedIds),
+              inArray(comments.parentId, carriedIds),
+            )
+          : eq(comments.fileId, file.id),
+      ).orderBy(asc(comments.createdAt), asc(comments.id));
+
+      // Each thread's history: where it began and every version it was carried to.
+      const roots = rows.filter((r) => !r.parentId);
+      const hops = await hopsOf(
+        db,
+        organisationId,
+        roots.map((r) => r.id),
       );
-      return c.json({ comments: rows });
+      const origins = await versionNumbersOf(db, organisationId, [
+        ...new Set(roots.map((r) => r.fileId)),
+      ]);
+      const here = new Map(carriedHere.map((k) => [k.commentId, k]));
+      return c.json({
+        comments: rows.map((row) => {
+          if (row.parentId) return { ...row, carry: null, history: null };
+          const carry = here.get(row.id);
+          const history = {
+            versionNumber: origins.get(row.fileId) ?? null,
+            hops: hops
+              .filter((h) => h.commentId === row.id)
+              .map((h) => ({ fileId: h.fileId, versionNumber: h.versionNumber, status: h.status })),
+          };
+          if (!carry) return { ...row, carry: null, history };
+          // On this version the thread points where it was mapped; where it began stays known.
+          return {
+            ...row,
+            anchor: carry.anchor,
+            carry: {
+              id: carry.id,
+              status: carry.status,
+              visible: carry.visible,
+              from: { fileId: row.fileId, anchor: row.anchor as Anchor | null },
+            },
+            history,
+          };
+        }),
+      });
     })
     .post("/:id/comments", idParam, zValidator("json", createCommentInput), async (c) => {
       const organisationId = c.var.organisationId;
@@ -92,22 +160,42 @@ export const fileCommentRoutes = (db: Database, audit: Audit, trustProxy: boolea
         .where(inOrg(files, organisationId, eq(files.id, c.req.valid("param").id)));
       if (!file) throw new NotFound("File");
 
+      /** A reply joins its thread on the file the thread was raised on. */
+      let threadFileId = file.id;
       if (input.parentId) {
-        // Threads are one level deep: a reply answers a top-level comment on this file.
+        // Threads are one level deep: a reply answers a top-level comment on this file, or
+        // one carried here from an earlier version and shown here.
         const [parent] = await db
-          .select({ id: comments.id })
+          .select({ id: comments.id, fileId: comments.fileId })
           .from(comments)
           .where(
             inOrg(
               comments,
               organisationId,
               eq(comments.id, input.parentId),
-              eq(comments.fileId, file.id),
               isNull(comments.parentId),
             ),
           );
-        if (!parent)
+        const reachable =
+          parent &&
+          (parent.fileId === file.id ||
+            (
+              await db
+                .select({ id: commentCarries.id })
+                .from(commentCarries)
+                .where(
+                  inOrg(
+                    commentCarries,
+                    organisationId,
+                    eq(commentCarries.commentId, parent.id),
+                    eq(commentCarries.fileId, file.id),
+                    eq(commentCarries.visible, true),
+                  ),
+                )
+            ).length > 0);
+        if (!parent || !reachable)
           throw new HTTPException(422, { message: "There is no such thread to reply to" });
+        threadFileId = parent.fileId;
       }
       if (input.anchor) {
         const problem = anchorProblem(input.anchor, {
@@ -124,7 +212,7 @@ export const fileCommentRoutes = (db: Database, audit: Audit, trustProxy: boolea
           .insert(comments)
           .values({
             organisationId,
-            fileId: file.id,
+            fileId: threadFileId,
             parentId: input.parentId ?? null,
             authorId: actor.kind === "guest" ? null : actor.userId,
             guestAuthorId: actor.kind === "guest" ? actor.guestId : null,
@@ -180,15 +268,94 @@ export const commentRoutes = (db: Database) =>
       const thread = await commentOf(db, organisationId, id);
       await canOnFile(db, actorOf(c.var), "triage", thread.fileId);
       // Threads resolve as a whole, through their first comment.
-      const [updated] = await db
-        .update(comments)
-        .set(
-          resolved
-            ? { resolvedAt: new Date(), resolvedById: c.var.userId, updatedAt: new Date() }
-            : { resolvedAt: null, resolvedById: null, updatedAt: new Date() },
-        )
-        .where(and(inOrg(comments, organisationId, eq(comments.id, id)), isNull(comments.parentId)))
-        .returning({ id: comments.id });
+      const updated = await db.transaction(async (tx) => {
+        // Not while a new version is deciding which threads to carry.
+        await lockTrackOfFile(tx, organisationId, thread.fileId);
+        const [row] = await tx
+          .update(comments)
+          .set(
+            resolved
+              ? { resolvedAt: new Date(), resolvedById: c.var.userId, updatedAt: new Date() }
+              : { resolvedAt: null, resolvedById: null, updatedAt: new Date() },
+          )
+          .where(
+            and(inOrg(comments, organisationId, eq(comments.id, id)), isNull(comments.parentId)),
+          )
+          .returning({ id: comments.id });
+        return row;
+      });
       if (!updated) throw new NotFound("Thread");
       return c.json({ comment: await commentOf(db, organisationId, id) });
     });
+
+/**
+ * `/api/comment-carries/:id`: triage on a thread carried to a later version: its status
+ * there, whether it shows there, and a corrected mapping. Fixed and won't fix settle the
+ * thread; open and not fixed reopen it, so it carries on to the next version.
+ */
+export const carryRoutes = (db: Database) =>
+  new Hono<{ Variables: TenantVariables }>().patch(
+    "/:id",
+    idParam,
+    zValidator("json", updateCarryInput),
+    async (c) => {
+      const organisationId = c.var.organisationId;
+      const { id } = c.req.valid("param");
+      const input = c.req.valid("json");
+      const [carry] = await db
+        .select({
+          id: commentCarries.id,
+          commentId: commentCarries.commentId,
+          fileId: commentCarries.fileId,
+        })
+        .from(commentCarries)
+        .where(inOrg(commentCarries, organisationId, eq(commentCarries.id, id)));
+      if (!carry) throw new NotFound("Carried thread");
+      await canOnFile(db, actorOf(c.var), "triage", carry.fileId);
+      if (input.anchor) {
+        const [file] = await db
+          .select({ kind: files.kind, mediaInfo: files.mediaInfo })
+          .from(files)
+          .where(inOrg(files, organisationId, eq(files.id, carry.fileId)));
+        const problem =
+          file &&
+          anchorProblem(input.anchor, { kind: file.kind, duration: file.mediaInfo?.duration });
+        if (problem) throw new HTTPException(422, { message: problem });
+      }
+      const now = new Date();
+      const status: CarryStatus | undefined = input.status;
+      await db.transaction(async (tx) => {
+        // Not while a new version is deciding which threads to carry.
+        await lockTrackOfFile(tx, organisationId, carry.fileId);
+        if (status !== undefined) {
+          // A thread's status is its latest version's; an earlier one is history.
+          const hops = await hopsOf(tx, organisationId, [carry.commentId]);
+          const here = hops.find((h) => h.id === carry.id)?.versionNumber ?? 0;
+          if (hops.some((h) => h.versionNumber > here)) {
+            throw new HTTPException(409, {
+              message: "A later version carries this thread; settle it there",
+            });
+          }
+        }
+        await tx
+          .update(commentCarries)
+          .set({
+            ...(status !== undefined && { status, statusById: c.var.userId }),
+            ...(input.visible !== undefined && { visible: input.visible }),
+            ...(input.anchor !== undefined && { anchor: input.anchor }),
+            updatedAt: now,
+          })
+          .where(inOrg(commentCarries, organisationId, eq(commentCarries.id, carry.id)));
+        if (status === undefined) return;
+        await tx
+          .update(comments)
+          .set(
+            carrySettles(status)
+              ? { resolvedAt: now, resolvedById: c.var.userId, updatedAt: now }
+              : { resolvedAt: null, resolvedById: null, updatedAt: now },
+          )
+          .where(inOrg(comments, organisationId, eq(comments.id, carry.commentId)));
+      });
+      return c.body(null, 204);
+    },
+  );

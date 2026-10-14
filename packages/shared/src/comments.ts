@@ -62,3 +62,63 @@ export function anchorProblem(
       return null;
   }
 }
+
+/**
+ * Comments across versions (docs/domain.md). A thread raised on one version is carried
+ * to the next while it is unresolved; on each version it has a status the editor or
+ * producer sets, and can be hidden there.
+ */
+export const carryStatuses = ["open", "fixed", "not_fixed", "wont_fix"] as const;
+export const carryStatus = z.enum(carryStatuses);
+export type CarryStatus = z.infer<typeof carryStatus>;
+
+/** Fixed and won't fix settle a thread; open and not fixed keep it going to the next version. */
+export const carrySettles = (status: CarryStatus) => status === "fixed" || status === "wont_fix";
+
+/** How a status reads on the version it was set on: "Fixed in V5". */
+export function carryStatusLabel(status: CarryStatus, versionNumber: number): string {
+  switch (status) {
+    case "open":
+      return "Open";
+    case "fixed":
+      return `Fixed in V${versionNumber}`;
+    case "not_fixed":
+      return "Not fixed";
+    case "wont_fix":
+      return "Won't fix";
+  }
+}
+
+/** Triage on a carried thread: its status here, whether it shows here, and where it points. */
+export const updateCarryInput = z
+  .object({
+    status: carryStatus.optional(),
+    visible: z.boolean().optional(),
+    /** The corrected mapping; null is the whole file. */
+    anchor: anchor.nullable().optional(),
+  })
+  .refine((u) => u.status !== undefined || u.visible !== undefined || u.anchor !== undefined, {
+    message: "Nothing to change",
+  });
+export type UpdateCarryInput = z.infer<typeof updateCarryInput>;
+
+/**
+ * Which file of a new version a thread moves to: the variation with the same name as the
+ * one it was on (the wet mix to the wet mix), otherwise the new version's primary.
+ */
+export function carryTarget<T extends { name: string; isPrimary: boolean }>(
+  fromName: string,
+  targets: T[],
+): T | undefined {
+  const named = targets.find((t) => t.name.trim().toLowerCase() === fromName.trim().toLowerCase());
+  return named ?? targets.find((t) => t.isPrimary) ?? targets[0];
+}
+
+/**
+ * How far a carried anchor has moved from where the thread began, in seconds: what a
+ * before-and-after comparison offsets the earlier version by. Zero unless both are times.
+ */
+export function anchorShift(from: Anchor | null, to: Anchor | null): number {
+  if (from?.kind !== "time" || to?.kind !== "time") return 0;
+  return from.start - to.start;
+}

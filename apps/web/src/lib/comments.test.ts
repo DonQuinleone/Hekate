@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ago, threadsOf } from "./comments";
+import { ago, historyLabel, passageLoop, threadsOf } from "./comments";
 import type { Comment } from "./queries";
 
 const comment = (id: string, extra: Partial<Comment> = {}): Comment => ({
@@ -16,6 +16,8 @@ const comment = (id: string, extra: Partial<Comment> = {}): Comment => ({
   resolvedByName: null,
   editedAt: null,
   createdAt: "2026-10-14T10:00:00.000Z",
+  carry: null,
+  history: null,
   ...extra,
 });
 
@@ -34,6 +36,41 @@ describe("comment threads", () => {
     expect(open.map((t) => t.comment.id)).toEqual(["early", "late", "whole"]);
     expect(open[1]?.replies.map((r) => r.id)).toEqual(["reply"]);
     expect(resolved.map((t) => t.comment.id)).toEqual(["done"]);
+  });
+
+  it("keeps threads hidden on this version apart", () => {
+    const carry = (visible: boolean) => ({
+      id: "k",
+      status: "open" as const,
+      visible,
+      from: { fileId: "earlier", anchor: null },
+    });
+    const { open, hidden } = threadsOf([
+      comment("shown", { carry: carry(true) }),
+      comment("hidden", { carry: carry(false) }),
+      comment("here"),
+    ]);
+    expect(open.map((t) => t.comment.id)).toEqual(["shown", "here"]);
+    expect(hidden.map((t) => t.comment.id)).toEqual(["hidden"]);
+  });
+
+  it("tells a thread's path through the versions", () => {
+    expect(historyLabel(null)).toBeNull();
+    expect(historyLabel({ versionNumber: 2, hops: [] })).toBeNull();
+    expect(
+      historyLabel({
+        versionNumber: 2,
+        hops: [
+          { fileId: "a", versionNumber: 3, status: "not_fixed" },
+          { fileId: "b", versionNumber: 4, status: "open" },
+        ],
+      }),
+    ).toBe("V2 → V3, not fixed → V4");
+  });
+
+  it("plays a passage with a second either side, within the file", () => {
+    expect(passageLoop({ start: 10, end: 12 })).toEqual({ start: 9, end: 13 });
+    expect(passageLoop({ start: 0.4, end: 59.5 }, 60)).toEqual({ start: 0, end: 60 });
   });
 
   it("says how long ago, in plain words", () => {
