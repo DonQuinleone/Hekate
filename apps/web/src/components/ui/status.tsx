@@ -1,11 +1,18 @@
 import { cn } from "~/lib/cn";
 
-export type ReviewState = "in_review" | "changes_requested" | "approved";
+export type ReviewState =
+  | "in_review"
+  | "changes_requested"
+  | "approved"
+  | "submitted"
+  | "cancelled";
 
 const copy: Record<ReviewState, string> = {
   in_review: "In review",
   changes_requested: "Changes requested",
   approved: "Approved",
+  submitted: "Feedback in",
+  cancelled: "Cancelled",
 };
 
 /** Status is told apart by dot shape and fill, never by a traffic-light palette. */
@@ -18,6 +25,8 @@ export function StatusDot({ state }: { state: ReviewState }) {
         state === "in_review" && "border-[1.5px] border-ink-3",
         state === "changes_requested" && "bg-signal",
         state === "approved" && "bg-ink",
+        state === "submitted" && "bg-ink-3",
+        state === "cancelled" && "border-[1.5px] border-dashed border-edge",
       )}
     />
   );

@@ -1,5 +1,6 @@
 import {
   type Anchor,
+  type CreateReviewInput,
   decodeLoudness,
   decodePeaks,
   decodeSpectrogram,
@@ -8,6 +9,9 @@ import {
   type MediaInfo,
   type ProjectPermission,
   type ProjectProfile,
+  type ReviewDecision,
+  type ReviewerState,
+  type ReviewKind,
 } from "@hekate/shared";
 import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
@@ -612,6 +616,136 @@ export function useTrackMutations(projectId: string) {
           )
         ).track,
       onSuccess: refresh,
+    }),
+  };
+}
+
+export interface ReviewSummary {
+  id: string;
+  kind: ReviewKind;
+  title: string;
+  status: "open" | "completed" | "cancelled";
+  outcome: "approved" | "changes_requested" | "submitted" | null;
+  dueAt: string | null;
+  createdAt: string;
+  reviewers: number;
+  submitted: number;
+  youReview: boolean;
+}
+
+export interface ReviewDetail {
+  id: string;
+  projectId: string;
+  kind: ReviewKind;
+  title: string;
+  message: string | null;
+  dueAt: string | null;
+  order: "parallel" | "sequence";
+  rule: "all" | "any" | null;
+  status: ReviewSummary["status"];
+  outcome: ReviewSummary["outcome"];
+  createdByName: string | null;
+  createdAt: string;
+  completedAt: string | null;
+  items: (
+    | { id: string; kind: "file"; fileId: string; name: string; fileKind: string }
+    | {
+        id: string;
+        kind: "track";
+        trackId: string;
+        name: string;
+        follows: "version" | "latest";
+        version: { id: string; number: number } | null;
+        fileId: string | null;
+      }
+  )[];
+  reviewers: {
+    id: string;
+    userId: string;
+    name: string;
+    state: ReviewerState;
+    decision: ReviewDecision | null;
+    decidedAt: string | null;
+    submittedAt: string | null;
+  }[];
+  decisions: {
+    id: string;
+    reviewerId: string;
+    reviewerName: string | null;
+    decision: ReviewDecision;
+    note: string | null;
+    createdAt: string;
+  }[];
+  you: {
+    reviewerId: string | null;
+    active: boolean;
+    canDecide: boolean;
+    canSubmit: boolean;
+    canManage: boolean;
+  };
+}
+
+export const projectReviewsQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "reviews"],
+    queryFn: async () =>
+      (
+        await json<{ reviews: ReviewSummary[] }>(
+          await api.projects[":id"].reviews.$get({ param: { id: projectId } }),
+        )
+      ).reviews,
+  });
+
+export const reviewQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["reviews", id],
+    queryFn: async () =>
+      (await json<{ review: ReviewDetail }>(await api.reviews[":id"].$get({ param: { id } })))
+        .review,
+    // Others decide while you look.
+    refetchInterval: 15_000,
+  });
+
+export function useCreateReview(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CreateReviewInput) =>
+      (
+        await json<{ review: ReviewDetail }>(
+          await api.projects[":id"].reviews.$post({ param: { id: projectId }, json: input }),
+        )
+      ).review,
+    onSuccess: () => client.invalidateQueries({ queryKey: ["projects", projectId, "reviews"] }),
+  });
+}
+
+export function useReviewActions(reviewId: string) {
+  const client = useQueryClient();
+  const settle = (review: ReviewDetail) => {
+    client.setQueryData(reviewQuery(reviewId).queryKey, review);
+    void client.invalidateQueries({ queryKey: ["projects", review.projectId, "reviews"] });
+  };
+  const call = async (res: Response) => (await json<{ review: ReviewDetail }>(res)).review;
+  return {
+    viewed: useMutation({
+      mutationFn: async () =>
+        call(await api.reviews[":id"].viewed.$post({ param: { id: reviewId } })),
+      onSuccess: settle,
+    }),
+    decide: useMutation({
+      mutationFn: async (input: { decision: ReviewDecision; note?: string }) =>
+        call(await api.reviews[":id"].decisions.$post({ param: { id: reviewId }, json: input })),
+      onSuccess: settle,
+    }),
+    submit: useMutation({
+      mutationFn: async () =>
+        call(await api.reviews[":id"].submit.$post({ param: { id: reviewId } })),
+      onSuccess: settle,
+    }),
+    cancel: useMutation({
+      mutationFn: async () =>
+        call(await api.reviews[":id"].cancel.$post({ param: { id: reviewId } })),
+      onSuccess: settle,
     }),
   };
 }

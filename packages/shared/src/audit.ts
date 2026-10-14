@@ -24,6 +24,12 @@ export const auditActions = [
   "storage.remove",
   /** Storage reconciliation found a blob whose bytes are missing. */
   "storage.missing",
+  /** A review was requested, or cancelled. */
+  "review.create",
+  "review.cancel",
+  /** A reviewer recorded an approval decision, or submitted feedback. */
+  "review.decision",
+  "review.submit",
 ] as const;
 export const auditAction = z.enum(auditActions);
 export type AuditAction = z.infer<typeof auditAction>;

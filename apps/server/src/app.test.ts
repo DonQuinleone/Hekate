@@ -1822,6 +1822,316 @@ describe.runIf(url)("api", () => {
       });
     });
 
+    describe("reviews", () => {
+      const joinAs = async (owner: string, email: string, role = "member") => {
+        const { body } = await invite(owner, email, role);
+        const res = await app.request(
+          `/api/invitations/${tokenFrom(body.link)}/accept`,
+          json({ name: email.split("@")[0], password: "correct horse battery" }),
+        );
+        expect(res.status).toBe(201);
+        return cookieOf(res);
+      };
+      const getAs = (path: string, cookie: string) => app.request(path, { headers: { cookie } });
+      const idOf = async (cookie: string) =>
+        ((await (await getAs("/api/me", cookie)).json()) as { user: { id: string } }).user.id;
+
+      interface ReviewBody {
+        id: string;
+        status: string;
+        outcome: string | null;
+        reviewers: { id: string; userId: string; state: string; decision: string | null }[];
+        decisions: { decision: string; reviewerName: string | null }[];
+        items: { kind: string; fileId: string | null; version?: { number: number } | null }[];
+        you: { active: boolean; canDecide: boolean; canSubmit: boolean };
+      }
+      const reviewOf = async (res: Response) =>
+        ((await res.json()) as { review: ReviewBody }).review;
+
+      /** A project with a track of one version and a loose file, and three colleagues. */
+      const studio = async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = (
+          (await (await getAs("/api/me", owner)).json()) as { activeOrganisationId: string }
+        ).activeOrganisationId;
+        const made = await app.request(
+          "/api/projects",
+          json({ name: "Rags", profile: "music" }, owner),
+        );
+        const projectId = ((await made.json()) as { project: { id: string } }).project.id;
+        const file = async (name: string) => {
+          const blob = await storage.put(organisationId, Buffer.from(name));
+          const [row] = await db
+            .insert(schema.files)
+            .values({
+              organisationId,
+              projectId,
+              name,
+              kind: "audio",
+              blobId: blob.id,
+              contentType: "audio/wav",
+              byteSize: blob.byteSize,
+              mediaInfo: {
+                duration: 60,
+                audio: { codec: "pcm_s24le", channels: 2, sampleRate: 48000 },
+              },
+            })
+            .returning();
+          return row?.id ?? "";
+        };
+        const mix = await file("Mix v1.wav");
+        const artwork = await file("Cover.wav");
+        const track = await app.request(
+          `/api/projects/${projectId}/tracks`,
+          json({ name: "Maple Leaf Rag" }, owner),
+        );
+        const trackId = ((await track.json()) as { track: { id: string } }).track.id;
+        await app.request(
+          `/api/tracks/${trackId}/versions`,
+          json({ variations: [{ fileId: mix, name: "Mix" }] }, owner),
+        );
+        const composer = await joinAs(owner, "composer@example.test");
+        const accompanist = await joinAs(owner, "accompanist@example.test");
+        const engineer = await joinAs(owner, "engineer@example.test");
+        await grantRole(owner, projectId, composer, "Reviewer");
+        await grantRole(owner, projectId, accompanist, "Reviewer");
+        await grantRole(owner, projectId, engineer, "Engineer");
+        return {
+          owner,
+          organisationId,
+          projectId,
+          trackId,
+          mix,
+          artwork,
+          composer,
+          accompanist,
+          engineer,
+          ids: {
+            composer: await idOf(composer),
+            accompanist: await idOf(accompanist),
+            engineer: await idOf(engineer),
+          },
+        };
+      };
+      const request = (cookie: string, projectId: string, body: Record<string, unknown>) =>
+        app.request(`/api/projects/${projectId}/reviews`, json(body, cookie));
+
+      it("asks reviewers in turn, logs every decision, and settles under the all rule", async () => {
+        const s = await studio();
+        mailer.sent.length = 0;
+        const created = await request(s.owner, s.projectId, {
+          kind: "approval",
+          title: "Album master",
+          message: "Final masters, please.",
+          order: "sequence",
+          items: [{ trackId: s.trackId }, { fileId: s.artwork }],
+          reviewers: [s.ids.composer, s.ids.accompanist],
+        });
+        expect(created.status).toBe(201);
+        const review = await reviewOf(created);
+        expect(review.items.map((i) => i.kind)).toEqual(["track", "file"]);
+        expect(review.items[0]?.fileId).toBe(s.mix);
+        expect(review.items[0]?.version?.number).toBe(1);
+        expect(review.reviewers.map((r) => r.state)).toEqual(["invited", "waiting"]);
+        // Only the first in the sequence is asked.
+        expect(mailer.sent.map((m) => m.to)).toEqual(["composer@example.test"]);
+        expect(mailer.sent[0]?.text).toContain(`/reviews/${review.id}`);
+
+        const path = `/api/reviews/${review.id}`;
+        // Not the accompanist's turn yet.
+        expect(
+          (await app.request(`${path}/decisions`, json({ decision: "approved" }, s.accompanist)))
+            .status,
+        ).toBe(409);
+        const viewed = await reviewOf(await app.request(`${path}/viewed`, json({}, s.composer)));
+        expect(viewed.reviewers[0]?.state).toBe("viewed");
+        mailer.sent.length = 0;
+        const approved = await reviewOf(
+          await app.request(`${path}/decisions`, json({ decision: "approved" }, s.composer)),
+        );
+        expect(approved.reviewers.map((r) => r.state)).toEqual(["submitted", "invited"]);
+        expect(mailer.sent.map((m) => m.to)).toEqual(["accompanist@example.test"]);
+        const done = await reviewOf(
+          await app.request(
+            `${path}/decisions`,
+            json({ decision: "changes_requested", note: "Bar 32 is clipped" }, s.accompanist),
+          ),
+        );
+        expect(done).toMatchObject({ status: "completed", outcome: "changes_requested" });
+        expect(done.decisions.map((d) => d.decision)).toEqual(["changes_requested", "approved"]);
+        expect(
+          (await app.request(`${path}/decisions`, json({ decision: "approved" }, s.composer)))
+            .status,
+        ).toBe(409);
+        // The access log has both decisions; the decision log refuses to be rewritten.
+        const logged = await audit.query(s.organisationId, {
+          action: "review.decision",
+          limit: 10,
+        });
+        expect(logged.events).toHaveLength(2);
+        await expect(
+          db.execute(sql`update review_decisions set decision = 'approved'`),
+        ).rejects.toThrow();
+      });
+
+      it("settles on one approval under the any rule, and lets a reviewer change their mind", async () => {
+        const s = await studio();
+        const review = await reviewOf(
+          await request(s.owner, s.projectId, {
+            kind: "approval",
+            title: "Mix",
+            rule: "any",
+            items: [{ trackId: s.trackId }],
+            reviewers: [s.ids.composer, s.ids.accompanist],
+          }),
+        );
+        const path = `/api/reviews/${review.id}/decisions`;
+        const first = await reviewOf(
+          await app.request(path, json({ decision: "changes_requested" }, s.composer)),
+        );
+        expect(first.status).toBe("open");
+        // Changing a decision adds to the record; it does not replace it.
+        const changed = await reviewOf(
+          await app.request(path, json({ decision: "approved" }, s.composer)),
+        );
+        expect(changed).toMatchObject({ status: "completed", outcome: "approved" });
+        expect(changed.decisions).toHaveLength(2);
+      });
+
+      it("completes feedback when everyone has submitted", async () => {
+        const s = await studio();
+        const review = await reviewOf(
+          await request(s.owner, s.projectId, {
+            kind: "feedback",
+            title: "Rough mix",
+            items: [{ fileId: s.mix }],
+            reviewers: [s.ids.composer, s.ids.engineer],
+          }),
+        );
+        const path = `/api/reviews/${review.id}`;
+        expect(
+          (await app.request(`${path}/decisions`, json({ decision: "approved" }, s.composer)))
+            .status,
+        ).toBe(409);
+        const one = await reviewOf(await app.request(`${path}/submit`, json({}, s.composer)));
+        expect(one.status).toBe("open");
+        expect((await app.request(`${path}/submit`, json({}, s.composer))).status).toBe(409);
+        const both = await reviewOf(await app.request(`${path}/submit`, json({}, s.engineer)));
+        expect(both).toMatchObject({ status: "completed", outcome: "submitted" });
+      });
+
+      it("keeps reviews to those whose role allows them", async () => {
+        const s = await studio();
+        const base = { kind: "approval", title: "Mix", items: [{ trackId: s.trackId }] };
+        // Engineers cannot request reviews; producers can.
+        expect(
+          (await request(s.engineer, s.projectId, { ...base, reviewers: [s.ids.composer] })).status,
+        ).toBe(403);
+        // Every reviewer must see the project.
+        const outsider = await joinAs(s.owner, "outsider@example.test");
+        expect(
+          (await request(s.owner, s.projectId, { ...base, reviewers: [await idOf(outsider)] }))
+            .status,
+        ).toBe(422);
+        // Items must come from this project.
+        const other = await app.request(
+          "/api/projects",
+          json({ name: "Elite", profile: "music" }, s.owner),
+        );
+        const otherId = ((await other.json()) as { project: { id: string } }).project.id;
+        expect(
+          (await request(s.owner, otherId, { ...base, reviewers: [s.ids.composer] })).status,
+        ).toBe(422);
+
+        // An engineer reviewer may give feedback but not record an approval decision.
+        const review = await reviewOf(
+          await request(s.owner, s.projectId, {
+            ...base,
+            reviewers: [s.ids.engineer, s.ids.composer],
+          }),
+        );
+        const path = `/api/reviews/${review.id}`;
+        expect(
+          (await app.request(`${path}/decisions`, json({ decision: "approved" }, s.engineer)))
+            .status,
+        ).toBe(403);
+        // Someone who is not a reviewer cannot decide; someone who cannot see the project cannot see it.
+        expect(
+          (await app.request(`${path}/decisions`, json({ decision: "approved" }, s.accompanist)))
+            .status,
+        ).toBe(403);
+        expect((await getAs(path, outsider)).status).toBe(404);
+        // Managing reviewers: the producer adds one, an engineer may not.
+        expect(
+          (await app.request(`${path}/reviewers`, json({ userId: s.ids.accompanist }, s.engineer)))
+            .status,
+        ).toBe(403);
+        const added = await reviewOf(
+          await app.request(`${path}/reviewers`, json({ userId: s.ids.accompanist }, s.owner)),
+        );
+        expect(added.reviewers).toHaveLength(3);
+        // Cancelling ends it.
+        expect((await app.request(`${path}/cancel`, json({}, s.engineer))).status).toBe(403);
+        const cancelled = await reviewOf(await app.request(`${path}/cancel`, json({}, s.owner)));
+        expect(cancelled.status).toBe("cancelled");
+
+        // Another organisation's reviews do not exist from here.
+        const [elsewhere] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-reviews" })
+          .returning();
+        const [foreignProject] = await db
+          .insert(schema.projects)
+          .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+          .returning();
+        const [foreign] = await db
+          .insert(schema.reviews)
+          .values({
+            organisationId: elsewhere?.id ?? "",
+            projectId: foreignProject?.id ?? "",
+            kind: "feedback",
+            title: "Theirs",
+          })
+          .returning();
+        expect((await getAs(`/api/reviews/${foreign?.id}`, s.owner)).status).toBe(404);
+        expect(
+          (await app.request(`/api/reviews/${foreign?.id}/cancel`, json({}, s.owner))).status,
+        ).toBe(404);
+      });
+
+      it("hands the turn on when the reviewer who is up is removed", async () => {
+        const s = await studio();
+        const review = await reviewOf(
+          await request(s.owner, s.projectId, {
+            kind: "feedback",
+            title: "Edit",
+            order: "sequence",
+            items: [{ fileId: s.mix }],
+            reviewers: [s.ids.composer, s.ids.accompanist],
+          }),
+        );
+        mailer.sent.length = 0;
+        const first = review.reviewers[0]?.id;
+        const after = await reviewOf(
+          await app.request(`/api/reviews/${review.id}/reviewers/${first}`, {
+            ...json({}, s.owner),
+            method: "DELETE",
+          }),
+        );
+        expect(after.reviewers.map((r) => r.state)).toEqual(["invited"]);
+        expect(mailer.sent.map((m) => m.to)).toEqual(["accompanist@example.test"]);
+        // The last reviewer cannot be removed: cancel the review instead.
+        expect(
+          (
+            await app.request(`/api/reviews/${review.id}/reviewers/${after.reviewers[0]?.id}`, {
+              ...json({}, s.owner),
+              method: "DELETE",
+            })
+          ).status,
+        ).toBe(409);
+      });
+    });
+
     describe("comments", () => {
       const joinAs = async (owner: string, email: string, role: string) => {
         const { body } = await invite(owner, email, role);

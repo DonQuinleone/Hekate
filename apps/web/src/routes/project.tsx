@@ -4,6 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { FileList, Uploader } from "~/components/files";
 import { Icon } from "~/components/icons";
 import { ProjectAccess } from "~/components/project-access";
+import { ProjectReviews } from "~/components/reviews";
 import { TrackList } from "~/components/tracks";
 import { StatusPill } from "~/components/ui/status";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
@@ -54,6 +55,7 @@ export function ProjectPage({ projectId }: { projectId: string }) {
       <Tabs defaultValue="media">
         <TabsList>
           <TabsTrigger value="media">Media</TabsTrigger>
+          <TabsTrigger value="reviews">Reviews</TabsTrigger>
           <TabsTrigger value="comments">Comments</TabsTrigger>
           <TabsTrigger value="activity">Activity</TabsTrigger>
           <TabsTrigger value="roles">Roles</TabsTrigger>
@@ -63,6 +65,9 @@ export function ProjectPage({ projectId }: { projectId: string }) {
           {can("upload") && <Uploader projectId={project.id} title={copy.title} body={copy.body} />}
           <FileList projectId={project.id} />
           <p className="label m-0">Anchors in this profile · {profile.anchors.join(" · ")}</p>
+        </TabsContent>
+        <TabsContent value="reviews" className="pt-6">
+          <ProjectReviews projectId={project.id} />
         </TabsContent>
         <TabsContent value="comments" className="pt-6 text-ink-3">
           No comments yet.
