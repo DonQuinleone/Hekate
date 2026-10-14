@@ -112,6 +112,20 @@ For anyone reviewing a pull request, human or agent. Review against this file an
 - **Design system.** Hard-coded colours instead of tokens; stock shadcn styling; copy or UI that makes Hekate read as a classical-music-only tool.
 - **Pull request hygiene.** Visual changes without screenshots; titles that are not Conventional Commits.
 
+### Interface: review every visual change as a product designer would
+
+For any pull request that changes what people see, review the interface itself, not only the code: read the components and the screenshots in the description, and compare the screen with how well-established products handle the same job. Name the product and the pattern you are comparing with. Good references: Linear (navigation, sidebar, page headers, density, keyboard), Frame.io and Dropbox Replay (media review, comments on a timeline, versions), Figma and Notion (toolbars, menus, inline editing), Apple Logic Pro and Music (transport and audio views), Vercel and Stripe (settings, tables, empty states).
+
+Flag, as important:
+
+- **Redundancy.** The same fact shown twice on one screen (a title in the breadcrumb and again as a heading; the organisation in the sidebar and the account menu); labels that state what is already obvious (a chip saying "Music" in a music project; a line of anchor types); helper text that repeats its control; a status shown where it carries no meaning.
+- **Wasted space.** Chrome before content: large panels for secondary actions (a full-width drop zone where an Upload button and drop-anywhere would do), sections that could be a toolbar action, a sidebar that does not earn its width (it should collapse, and hold something useful such as the reviews waiting on you).
+- **Unintuitive patterns.** Anything that departs from what people already know without a reason: drag and drop should work wherever files are shown; clicks seek and drags select on timelines; row actions belong in a hover or a menu rather than repeated text links on every row; related things are presented alike (a track is a special kind of folder, so it sits among folders, not in a separate section); keyboard shortcuts use the conventional keys; one primary action per view.
+- **Inconsistency.** The same thing named, placed or styled differently between screens; page headers that differ from page to page; spacing, sizes or type that do not follow the scale in `docs/brand.md`.
+- **Anything that undermines a premium feel.** Misalignment, uneven spacing, crowding, stock or default-looking controls, layout shift on load, missing hover, focus and pressed states, abrupt state changes, placeholder copy, empty states that do not say what to do next, and anything that looks unfinished at phone width.
+
+Suggest the concrete change (what to remove, merge or move, and to where), not only the problem.
+
 ### Style: mention once, never block
 
 - British English (colour, organisation, licence as a noun, behaviour) in code, comments, docs and UI copy.
