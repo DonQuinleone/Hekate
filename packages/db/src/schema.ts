@@ -737,6 +737,46 @@ export const guests = pgTable(
   (t) => [uniqueIndex("guests_email_idx").on(t.organisationId, t.email)],
 );
 
+/**
+ * A named set of reviewers in a project, for example "Soloists": members and guests. A
+ * review asks a group's members as they are when it is sent, all at the same step.
+ */
+export const groups = pgTable(
+  "groups",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("groups_name_idx").on(t.organisationId, t.projectId, t.name)],
+);
+
+/** A group's members: each a member of the organisation or a guest. */
+export const groupMembers = pgTable(
+  "group_members",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    guestId: uuid("guest_id").references(() => guests.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("group_members_user_idx").on(t.organisationId, t.groupId, t.userId),
+    uniqueIndex("group_members_guest_idx").on(t.organisationId, t.groupId, t.guestId),
+    check("group_members_one_person", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
+  ],
+);
+
 /** Magic links: single-use and short-lived. Only a hash of the token is stored. */
 export const guestLinks = pgTable(
   "guest_links",
@@ -824,7 +864,10 @@ export const reviewItems = pgTable(
   ],
 );
 
-/** Who is asked, in order. Guests and groups follow (#24). */
+/**
+ * Who is asked, in order. Position is the step: the members of a group share one, so in a
+ * sequence they act together and the next step starts once all of them have responded.
+ */
 export const reviewReviewers = pgTable(
   "review_reviewers",
   {
@@ -837,6 +880,8 @@ export const reviewReviewers = pgTable(
     userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
     guestId: uuid("guest_id").references(() => guests.id, { onDelete: "cascade" }),
     position: integer("position").notNull(),
+    /** The group they were asked through, if any; kept for display. */
+    groupId: uuid("group_id").references(() => groups.id, { onDelete: "set null" }),
     viewedAt: timestamp("viewed_at", { withTimezone: true }),
     startedAt: timestamp("started_at", { withTimezone: true }),
     submittedAt: timestamp("submitted_at", { withTimezone: true }),
