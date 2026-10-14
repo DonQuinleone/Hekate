@@ -192,6 +192,16 @@ export const projectFilesQuery = (projectId: string) =>
 
 export interface FileDetail extends ProjectFile {
   projectId: string;
+  /** Where the file sits in the music model, when it is a variation of a version. */
+  variation: {
+    id: string;
+    name: string;
+    isPrimary: boolean;
+    versionId: string;
+    versionNumber: number;
+    trackId: string;
+    trackName: string;
+  } | null;
 }
 
 export const fileQuery = (fileId: string) =>
@@ -319,6 +329,100 @@ export function useCommentMutations(fileId: string) {
             json: { resolved: input.resolved },
           }),
         ),
+      onSuccess: refresh,
+    }),
+  };
+}
+
+export interface Variation {
+  id: string;
+  versionId: string;
+  fileId: string;
+  name: string;
+  isPrimary: boolean;
+  position: number;
+  fileName: string;
+  kind: FileKind;
+  streamStatus: StreamStatus;
+}
+
+export interface Version {
+  id: string;
+  number: number;
+  notes: string | null;
+  createdAt: string;
+  variations: Variation[];
+}
+
+export interface Track {
+  id: string;
+  projectId: string;
+  name: string;
+  scoreFileId: string | null;
+  position: number;
+  createdAt: string;
+  versions: Version[];
+}
+
+export const projectTracksQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "tracks"],
+    queryFn: async () =>
+      (
+        await json<{ tracks: Track[] }>(
+          await api.projects[":id"].tracks.$get({ param: { id: projectId } }),
+        )
+      ).tracks,
+  });
+
+export const trackQuery = (trackId: string) =>
+  queryOptions({
+    queryKey: ["tracks", trackId],
+    queryFn: async () =>
+      (await json<{ track: Track }>(await api.tracks[":id"].$get({ param: { id: trackId } })))
+        .track,
+  });
+
+export function useTrackMutations(projectId: string) {
+  const client = useQueryClient();
+  const refresh = (track?: Track) => {
+    void client.invalidateQueries({ queryKey: ["projects", projectId, "tracks"] });
+    if (track) client.setQueryData(trackQuery(track.id).queryKey, track);
+    void client.invalidateQueries({ queryKey: ["files"] });
+  };
+  return {
+    createTrack: useMutation({
+      mutationFn: async (input: { name: string }) =>
+        (
+          await json<{ track: Track }>(
+            await api.projects[":id"].tracks.$post({ param: { id: projectId }, json: input }),
+          )
+        ).track,
+      onSuccess: refresh,
+    }),
+    createVersion: useMutation({
+      mutationFn: async (input: {
+        trackId: string;
+        notes?: string;
+        variations: { fileId: string; name: string; primary?: boolean }[];
+      }) =>
+        (
+          await json<{ track: Track }>(
+            await api.tracks[":id"].versions.$post({
+              param: { id: input.trackId },
+              json: { notes: input.notes, variations: input.variations },
+            }),
+          )
+        ).track,
+      onSuccess: refresh,
+    }),
+    makePrimary: useMutation({
+      mutationFn: async (variationId: string) =>
+        (
+          await json<{ track: Track }>(
+            await api.variations[":id"].primary.$post({ param: { id: variationId } }),
+          )
+        ).track,
       onSuccess: refresh,
     }),
   };

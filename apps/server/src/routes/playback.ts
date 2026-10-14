@@ -19,7 +19,8 @@ import {
 import type { Storage } from "../storage.ts";
 import { membershipOf, type SessionVariables, type TenantVariables } from "../tenancy.ts";
 
-const { files, renditions, renditionSegments, users, peakLevels } = schema;
+const { files, renditions, renditionSegments, users, peakLevels, variations, versions, tracks } =
+  schema;
 
 export interface PlaybackDeps {
   db: Database;
@@ -63,7 +64,22 @@ export const fileRoutes = (deps: PlaybackDeps) =>
         .leftJoin(users, eq(files.uploadedBy, users.id))
         .where(inOrg(files, c.var.organisationId, eq(files.id, c.req.valid("param").id)));
       if (!file) throw new NotFound("File");
-      return c.json({ file });
+      // Where the file sits in the music model, if it is a variation of a track's version.
+      const [variation] = await deps.db
+        .select({
+          id: variations.id,
+          name: variations.name,
+          isPrimary: variations.isPrimary,
+          versionId: versions.id,
+          versionNumber: versions.number,
+          trackId: tracks.id,
+          trackName: tracks.name,
+        })
+        .from(variations)
+        .innerJoin(versions, eq(versions.id, variations.versionId))
+        .innerJoin(tracks, eq(tracks.id, versions.trackId))
+        .where(inOrg(variations, c.var.organisationId, eq(variations.fileId, file.id)));
+      return c.json({ file: { ...file, variation: variation ?? null } });
     })
     // Waveform peaks: an 8-bit envelope per channel, from which no audio can be rebuilt, so
     // members fetch them directly rather than through playback tokens.
