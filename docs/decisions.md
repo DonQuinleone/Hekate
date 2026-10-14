@@ -85,3 +85,7 @@ The access log is enforced append-only by PostgreSQL triggers, not only by appli
 ## 021. Resumable uploads, encrypted per chunk
 
 Uploads are Hekate's own small chunked protocol rather than tus: fixed 8 MiB chunks line up with the encryption segments, so each chunk is encrypted on arrival and stored directly as a multipart part (S3 multipart, or parts on local disk) and no plaintext is staged on the server. Because chunks arrive in any order, a blob's SHA-256 is computed afterwards by a job that reads the file back through decryption. Uploads are limited to 10,000 chunks (78 GiB), the S3 part limit.
+
+## 022. Streaming: HLS AES-128 now, with surround kept intact
+
+Proxies are HLS with fragmented MP4 segments, encrypted by Hekate itself with the HLS `AES-128` method (whole-segment AES-128-CBC) rather than CENC `cbcs`. Every browser player supports `AES-128` through hls.js; `cbcs` needs Encrypted Media Extensions and, in practice, a DRM licence server. Segments are re-encrypted, not re-encoded, so moving to `cbcs` later for commercial DRM costs a packaging job, not a transcode. Audio is delivered as a stereo AAC monitoring rendition, a lossless FLAC rendition that keeps up to eight channels, and Dolby Digital or Dolby Digital Plus passed through untouched (so Atmos in E-AC-3 survives); the player picks what the browser can play. Playback links are signed tokens bound to the viewer's sign-in session. Details in `docs/security.md`.

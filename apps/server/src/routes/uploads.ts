@@ -316,6 +316,7 @@ export const uploadRoutes = (
           sessionOf(claimed),
           parts.map((p) => p.tag),
         );
+        const kind = fileKindOf(claimed.name, claimed.contentType);
         file = await db.transaction(async (tx) => {
           const [existing] = await tx
             .select()
@@ -330,11 +331,12 @@ export const uploadRoutes = (
                   projectId: claimed.projectId,
                   folderId: claimed.folderId,
                   name: claimed.name,
-                  kind: fileKindOf(claimed.name, claimed.contentType),
+                  kind,
                   blobId: blob.id,
                   contentType: claimed.contentType,
                   byteSize: claimed.byteSize,
                   uploadedBy: c.var.userId,
+                  streamStatus: kind === "audio" || kind === "video" ? "pending" : "none",
                 })
                 .returning();
           await tx

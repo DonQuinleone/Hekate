@@ -10,6 +10,8 @@ export const auditActions = [
   "stream.key",
   /** A player started a session of signed segment URLs. */
   "stream.session",
+  /** One encrypted segment of a stream was served. */
+  "stream.segment",
   /** A document or image page was rendered as tiles for a viewer. */
   "page.render",
   /** A file left Hekate as a download. */
