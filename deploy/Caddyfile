@@ -1,0 +1,14 @@
+{$HEKATE_DOMAIN} {
+	encode zstd gzip
+	# Large media uploads stream straight through to the app.
+	request_body {
+		max_size 20GB
+	}
+	reverse_proxy app:3000
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}

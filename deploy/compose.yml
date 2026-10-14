@@ -1,0 +1,50 @@
+# Self-hosted Hekate: the app, PostgreSQL and Caddy (automatic HTTPS).
+# Usage: cp .env.example .env, edit it, then: docker compose -f deploy/compose.yml up -d
+name: hekate
+
+services:
+  app:
+    build: { context: .., dockerfile: Dockerfile }
+    image: hekate:latest
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgres://hekate:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/hekate
+      MIGRATE_ON_START: "true"
+    volumes:
+      - media:/data
+    depends_on:
+      db: { condition: service_healthy }
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hekate
+      POSTGRES_DB: hekate
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hekate -d hekate"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      HEKATE_DOMAIN: ${HEKATE_DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [app]
+
+volumes:
+  media:
+  postgres:
+  caddy-data:
+  caddy-config:

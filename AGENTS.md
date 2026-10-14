@@ -6,22 +6,22 @@ Guidance for anyone, human or agent, working in this repository. Read it before 
 
 Hekate is an open-source (AGPL-3.0), self-hosted media review and approval system: a sovereign alternative to Dropbox Replay and Frame.io.
 
-- **Music first, never music only.** Classical music is first-class (bar numbers, score pages, tracks, movements, takes, a recording synced to its score). Video and general documents must work just as well. Nothing in the interface or the copy should make Hekate feel like a classical-music-only tool.
+- **Music first, never music only.** Classical music is first-class (tracks with versions and variations, bar numbers, score pages, session takes, a recording synced to its score). Video and general documents must work just as well. Nothing in the interface or the copy should make Hekate feel like a classical-music-only tool.
 - **Launch priority:** the music review experience.
 - **Fresh start.** There is no data migration from the legacy application, and no code, names or branding carry over from it.
 - **Multi-tenancy from day one.** Every tenant-owned table has an `organisation_id`. Every query is scoped to an organisation. A hosted offering may follow; nothing should need rewriting for it.
 
 ## Core model
 
-- **Organisation** owns members, projects and storage.
-- **Project** has a **profile**: `music`, `video` or `general`. The profile decides which tools and anchor types appear; the underlying model is shared.
-- **Asset** is a piece of media in a project (recording, video, score PDF, document). An asset has **versions** (takes, mixes, cuts). One version can be approved.
-- **Comment** always has an **anchor**. Anchor kinds:
-  - `time`: a range in seconds (an instant when start equals end), optionally with a frame number.
-  - `region`: a rectangle on a PDF page or a video frame, in normalised 0 to 1 coordinates.
-  - `bar`: a bar and beat, or a range of bars, in a score-synced recording.
-  - `section`: a track or movement.
-  Anchors are defined once in `packages/shared` and validated on both sides of the wire.
+The vocabulary is fixed and defined in `docs/domain.md`. Read it before naming anything.
+
+- **Project** contains **folders** and **files** of any kind. The **profile** (`music`, `video`, `general`) only decides which tools appear.
+- **Track** (a piece of music) has **versions** (successive edits, numbered), and each version has one or more **variations** (files differing in treatment, such as dry and wet mixes; one is primary).
+- **Take** means a recording-session snippet and nothing else. Takes are grouped in **sessions** and hold one file per microphone plus an optional summed mix. They are reference material for producers and editors, not versions.
+- There are no movements.
+- **Comments** belong to a file and may carry an **anchor**: `time` (range or frame), `region` (normalised rectangle on a page or frame) or `bar` (bar and beat, or bar range). Anchors are defined once in `packages/shared`.
+- **Reviews** are either an **approval** (each reviewer records a logged *Approved* or *Changes requested*) or **feedback** (comments, no formal sign-off). Reviewers are members, **guests** (external, no account) or **groups**, all at once or in order.
+- **Workflows** (stages, statuses, transitions, notifications) are built per project and overridable per track. **Roles** and their permissions are configurable per project.
 
 ## Stack (decided; do not substitute without discussion)
 
@@ -56,14 +56,25 @@ pnpm db:migrate
 
 - **Language:** British English everywhere: code comments, docs, UI copy, commit messages (colour, organisation, licence as a noun, behaviour).
 - **Punctuation:** never use em-dashes. Use commas, colons, semicolons or parentheses.
-- **Branches:** the default branch is `master`.
+- **Branches:** the default branch is `master`, which is protected: every change lands through a pull request with green CI. Include screenshots in pull requests for visual work.
+- **Order:** build from the ground up; finish and test each layer before building on it.
 - **Commits:** Conventional Commits (`feat(web): …`, `fix(server): …`, `chore: …`). Small and focused.
 - **Types:** strict TypeScript. No `any` without a comment explaining why. Validate every request body with the shared zod schemas.
 - **Tenancy:** never write a query against a tenant-owned table without an `organisation_id` condition.
 - **Identifiers:** UUIDv7 primary keys, generated in the application.
 - **Time:** store timestamps as `timestamptz`; media positions as seconds (double) plus an optional frame number.
-- **Tests:** Vitest. Put domain logic in pure functions and test them.
+- **Runtime:** the server runs its TypeScript sources directly with Node's type stripping (no build step). Use `.ts` extensions in relative imports and only erasable syntax: no `enum`, `namespace` or parameter properties.
+- **Tests:** Vitest. API tests run against a real PostgreSQL when `DATABASE_URL` is set (CI provides one). Put domain logic in pure functions and test them.
 - **Privacy:** do not record personal names, email addresses or other personal details of contributors in files, commits or docs. The maintainer is known only as DonQuinleone.
+
+## Media security
+
+Unreleased material is the product's cargo. Read `docs/security.md` before touching storage, delivery or players.
+
+- Never add a route that returns a stored file, or a URL that works outside the viewer's session. Media goes through the protected delivery path (encrypted segments, signed short-lived URLs, a session-bound key endpoint).
+- Originals reach a browser only through the download permission, watermarked per recipient, and logged.
+- Files are encrypted at rest with per-file keys; storage holds ciphertext only.
+- Log every key issue, page render and download in the access log.
 
 ## Design system
 
