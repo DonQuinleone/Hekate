@@ -169,6 +169,13 @@
       "when": 1791994782935,
       "tag": "0023_file_pages",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791997423673,
+      "tag": "0024_bar_maps",
+      "breakpoints": true
     }
   ]
 }

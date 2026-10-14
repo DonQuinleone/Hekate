@@ -3235,6 +3235,110 @@ describe.runIf(url)("api", () => {
         ]);
       });
 
+      it("keeps a bar map a version's variations share, made only by those who organise", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const dry = await recording(organisationId);
+        const projectId = await projectOfFile(dry);
+        const blob = await storage.put(organisationId, Buffer.from("not really audio either"));
+        const [wetRow] = await db
+          .insert(schema.files)
+          .values({
+            organisationId,
+            projectId,
+            name: "Mix v3 wet.wav",
+            kind: "audio",
+            blobId: blob.id,
+            contentType: "audio/wav",
+            byteSize: blob.byteSize,
+            mediaInfo: { duration: 60 },
+          })
+          .returning();
+        const wet = wetRow?.id ?? "";
+        const made = await app.request(
+          `/api/projects/${projectId}/tracks`,
+          json({ name: "Maple Leaf Rag" }, owner),
+        );
+        const { track } = (await made.json()) as { track: { id: string } };
+        expect(
+          (
+            await app.request(
+              `/api/tracks/${track.id}/versions`,
+              json(
+                {
+                  variations: [
+                    { fileId: dry, name: "Dry" },
+                    { fileId: wet, name: "Wet" },
+                  ],
+                },
+                owner,
+              ),
+            )
+          ).status,
+        ).toBe(201);
+
+        const bars = (id: string) => `/api/files/${id}/bars`;
+        const read = async (id: string, cookie = owner) =>
+          (
+            (await (await app.request(bars(id), { headers: { cookie } })).json()) as {
+              barMap: Record<string, unknown> | null;
+            }
+          ).barMap;
+        expect(await read(dry)).toBeNull();
+        const map = {
+          beatsPerBar: 2,
+          points: [
+            [0.5, 0],
+            [1.1, 1],
+            [2.3, 2],
+          ],
+          source: "tapped",
+        };
+        expect((await send("PUT", bars(dry), map, owner)).status).toBe(200);
+        // The wet mix reads the dry mix's map: they share their times.
+        expect(await read(wet)).toMatchObject({
+          fileId: dry,
+          beatsPerBar: 2,
+          points: map.points,
+          source: "tapped",
+          updatedByName: "Producer",
+        });
+
+        // Barlines out of order, past the end, or on a document: refused.
+        const refused = async (body: unknown, id = dry) =>
+          (await send("PUT", bars(id), body, owner)).status;
+        expect(
+          await refused({
+            ...map,
+            points: [
+              [3, 1],
+              [2, 2],
+            ],
+          }),
+        ).toBe(400);
+        expect(await refused({ ...map, points: [[90, 1]] })).toBe(422);
+        expect(await refused({ ...map, source: "carried" })).toBe(400);
+
+        // A reviewer reads the map but cannot change it.
+        const reviewer = await joinAs(owner, "reviewer@example.test", "member");
+        await grantRole(owner, projectId, reviewer, "Reviewer");
+        expect(await read(wet, reviewer)).toMatchObject({ fileId: dry });
+        expect((await send("PUT", bars(wet), map, reviewer)).status).toBe(403);
+        expect((await send("DELETE", bars(dry), undefined, reviewer)).status).toBe(403);
+
+        // Another organisation's recording has no map from here.
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-bars" })
+          .returning();
+        const foreign = await recording(other?.id ?? "");
+        expect((await app.request(bars(foreign), { headers: { cookie: owner } })).status).toBe(404);
+        expect((await send("PUT", bars(foreign), map, owner)).status).toBe(404);
+
+        expect((await send("DELETE", bars(dry), undefined, owner)).status).toBe(204);
+        expect(await read(wet)).toBeNull();
+      });
+
       it("lets only the author edit, anyone who triages resolve, and no one reach another organisation", async () => {
         const owner = cookieOf(await setup());
         const organisationId = await organisationOf(owner);

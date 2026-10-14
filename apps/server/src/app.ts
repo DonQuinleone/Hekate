@@ -9,6 +9,7 @@ import { requirePlaySession, requireViewer } from "./guests.ts";
 import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
 import type { Mailer } from "./mail.ts";
+import { fileBarRoutes } from "./routes/bars.ts";
 import { carryRoutes, commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
 import { fileManageRoutes, folderRoutes, projectFolderRoutes } from "./routes/folders.ts";
 import { projectGroupRoutes } from "./routes/groups.ts";
@@ -114,6 +115,7 @@ export function createApi(deps: AppDeps) {
       .route("/files", fileRoutes(playback))
       .route("/files", fileCommentRoutes(deps.db, deps.audit, deps.trustProxy ?? false))
       .route("/files", fileManageRoutes(deps.db, deps.audit, deps.trustProxy ?? false))
+      .route("/files", fileBarRoutes(deps.db))
       .use("/reviews/*", viewer)
       .route("/reviews", reviewRoutes(reviewDeps))
       .route("/guest", guestRoutes(reviewDeps))

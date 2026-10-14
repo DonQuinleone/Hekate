@@ -4,6 +4,7 @@ import {
   approvalRules,
   auditActions,
   auditActorTypes,
+  type BarMap,
   carryStatuses,
   defaultReviewerPermissions,
   type LoudnessSummary,
@@ -561,6 +562,32 @@ export const alignments = pgTable(
     index("alignments_org_idx").on(t.organisationId),
     uniqueIndex("alignments_pair_idx").on(t.fromFileId, t.toFileId),
     index("alignments_to_idx").on(t.toFileId),
+  ],
+);
+
+/**
+ * Where each bar of the score begins in a recording (#13): the barlines in the order
+ * they are heard. One map a file; a version's variations share their times, so a file
+ * without its own map reads its version's (see the bars route).
+ */
+export const barMaps = pgTable(
+  "bar_maps",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => files.id, { onDelete: "cascade" }),
+    beatsPerBar: integer("beats_per_bar").notNull(),
+    points: jsonb("points").$type<BarMap["points"]>().notNull(),
+    /** How the bars were found: tapped along, imported from labels, or carried from a version. */
+    source: text("source").$type<"tapped" | "imported" | "carried">().notNull(),
+    updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [
+    index("bar_maps_org_idx").on(t.organisationId),
+    uniqueIndex("bar_maps_file_idx").on(t.fileId),
   ],
 );
 

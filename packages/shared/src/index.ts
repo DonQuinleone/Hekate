@@ -1,6 +1,7 @@
 export * from "./alignment.ts";
 export * from "./anchor.ts";
 export * from "./audit.ts";
+export * from "./bars.ts";
 export * from "./comments.ts";
 export * from "./files.ts";
 export * from "./folders.ts";
