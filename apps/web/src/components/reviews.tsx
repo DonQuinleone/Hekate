@@ -5,6 +5,7 @@ import { type FormEvent, type ReactNode, useState } from "react";
 import { cn } from "~/lib/cn";
 import {
   projectFilesQuery,
+  projectGroupsQuery,
   projectMembersQuery,
   projectReviewsQuery,
   projectRolesQuery,
@@ -13,6 +14,7 @@ import {
   useCreateReview,
   useProjectCan,
 } from "~/lib/queries";
+import { GuestFields } from "./guest-fields";
 import { Button } from "./ui/button";
 import { type ReviewState, StatusPill } from "./ui/status";
 
@@ -63,58 +65,12 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-/** Add a guest reviewer by name and email: someone outside the organisation, without an account. */
-export function GuestFields({
-  onAdd,
-  submitLabel = "Add guest",
-}: {
-  onAdd: (guest: GuestInput) => void;
-  submitLabel?: string;
-}) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [label, setLabel] = useState("");
-  const valid = name.trim() && /^[^\s@]+@[^\s@]+$/.test(email.trim());
-  const add = () => {
-    if (!valid) return;
-    onAdd({ name: name.trim(), email: email.trim(), label: label.trim() || undefined });
-    setName("");
-    setEmail("");
-    setLabel("");
-  };
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <input
-        className={cn(control, "min-w-36 flex-1")}
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Name"
-        aria-label="Guest name"
-      />
-      <input
-        className={cn(control, "min-w-44 flex-1")}
-        type="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        placeholder="Email"
-        aria-label="Guest email"
-      />
-      <input
-        className={cn(control, "w-32")}
-        value={label}
-        onChange={(e) => setLabel(e.target.value)}
-        placeholder="Role (optional)"
-        aria-label="Guest role"
-      />
-      <Button size="sm" disabled={!valid} onClick={add}>
-        {submitLabel}
-      </Button>
-    </div>
-  );
-}
-
 const keyOf = (entry: ReviewerInput) =>
-  typeof entry === "string" ? `member:${entry}` : `guest:${entry.email.toLowerCase()}`;
+  typeof entry === "string"
+    ? `member:${entry}`
+    : "groupId" in entry
+      ? `group:${entry.groupId}`
+      : `guest:${entry.email.toLowerCase()}`;
 
 /** Ask reviewers for an approval or for feedback on tracks and files of this project. */
 function RequestReview({ projectId, onDone }: { projectId: string; onDone: () => void }) {
@@ -123,6 +79,7 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
   const { data: files } = useQuery(projectFilesQuery(projectId));
   const { data: members } = useQuery(projectMembersQuery(projectId));
   const { data: roles } = useQuery(projectRolesQuery(projectId));
+  const { data: groups } = useQuery(projectGroupsQuery(projectId));
   const create = useCreateReview(projectId);
   const [kind, setKind] = useState<ReviewKind>("approval");
   const [title, setTitle] = useState("");
@@ -131,16 +88,33 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
   const [order, setOrder] = useState<"parallel" | "sequence">("parallel");
   const [rule, setRule] = useState<"all" | "any">("all");
   const [items, setItems] = useState<string[]>([]);
-  // Members (by user id) and guests, in the order a sequence would ask them.
+  // Members (by user id), guests and groups, in the order a sequence would ask them.
   const [reviewers, setReviewers] = useState<ReviewerInput[]>([]);
   // An approval asks for a decision, so only roles that can decide may review one.
   const deciders = new Set(
     (roles ?? []).filter((r) => r.permissions.includes("decide")).map((r) => r.id),
   );
   const people = (members ?? []).filter((p) => kind === "feedback" || deciders.has(p.roleId));
-  const chosen = reviewers.filter(
-    (r) => typeof r !== "string" || people.some((p) => p.userId === r),
+  // A group can review an approval only if everyone in it can decide (guests always can).
+  const usableGroups = (groups ?? []).filter((g) =>
+    g.members.every((m) => m.guest || people.some((p) => p.userId === m.userId)),
   );
+  const chosen = reviewers.filter((r) =>
+    typeof r === "string"
+      ? people.some((p) => p.userId === r)
+      : "groupId" in r
+        ? usableGroups.some((g) => g.id === r.groupId)
+        : true,
+  );
+  const toggleGroup = (groupId: string) => {
+    const key = keyOf({ groupId });
+    setReviewers(
+      reviewers.some((r) => keyOf(r) === key)
+        ? reviewers.filter((r) => keyOf(r) !== key)
+        : [...reviewers, { groupId }],
+    );
+  };
+  const stepOf = (key: string) => chosen.findIndex((r) => keyOf(r) === key);
   const toggleMember = (userId: string) =>
     setReviewers(
       reviewers.includes(userId) ? reviewers.filter((r) => r !== userId) : [...reviewers, userId],
@@ -148,7 +122,7 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
   const addGuest = (guest: GuestInput) => {
     if (!reviewers.some((r) => keyOf(r) === keyOf(guest))) setReviewers([...reviewers, guest]);
   };
-  const guests = chosen.filter((r): r is GuestInput => typeof r !== "string");
+  const guests = chosen.filter((r): r is GuestInput => typeof r !== "string" && !("groupId" in r));
 
   const toggle = (list: string[], set: (next: string[]) => void, value: string) =>
     set(list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
@@ -268,6 +242,28 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
               </li>
             );
           })}
+          {usableGroups.map((group) => {
+            const at = stepOf(`group:${group.id}`);
+            return (
+              <li key={group.id}>
+                <label className="flex cursor-pointer items-center gap-2 text-[13px] text-ink-2">
+                  <input
+                    type="checkbox"
+                    checked={at >= 0}
+                    onChange={() => toggleGroup(group.id)}
+                    className="accent-[var(--hk-ink)]"
+                  />
+                  <span className="text-ink">{group.name}</span>
+                  <span className="truncate text-xs text-ink-3">
+                    group · {group.members.map((m) => m.name).join(", ")}
+                  </span>
+                  {order === "sequence" && at >= 0 && (
+                    <span className="tabular font-mono text-[11px] text-ink-3">{at + 1}</span>
+                  )}
+                </label>
+              </li>
+            );
+          })}
           {guests.map((guest) => (
             <li key={keyOf(guest)} className="flex items-center gap-2 text-[13px] text-ink-2">
               <span className="text-ink">{guest.name}</span>
@@ -292,7 +288,8 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
         <GuestFields onAdd={addGuest} />
         <p className="m-0 text-xs text-ink-3">
           Guests need no account: each is emailed a link that works once, for three days, and
-          reaches only this review.
+          reaches only this review. In turn, a group's members are asked together, and the next step
+          starts once all of them have responded.
         </p>
       </Field>
 

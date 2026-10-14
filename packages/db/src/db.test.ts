@@ -34,6 +34,8 @@ describe("tenancy", () => {
       "comments",
       "files",
       "folders",
+      "group_members",
+      "groups",
       "guest_links",
       "guest_sessions",
       "guests",

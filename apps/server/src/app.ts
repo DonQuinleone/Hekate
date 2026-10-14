@@ -10,6 +10,7 @@ import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
 import type { Mailer } from "./mail.ts";
 import { commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
+import { projectGroupRoutes } from "./routes/groups.ts";
 import { guestRoutes } from "./routes/guest.ts";
 import { health } from "./routes/health.ts";
 import { invitationRoutes } from "./routes/invitations.ts";
@@ -91,6 +92,7 @@ export function createApi(deps: AppDeps) {
       .route("/projects", projectTrackRoutes(deps.db))
       .route("/projects", projectAccessRoutes(deps.db))
       .route("/projects", projectReviewRoutes(reviewDeps))
+      .route("/projects", projectGroupRoutes(deps.db))
       .use("/tracks/*", ...member)
       .route("/tracks", trackRoutes(deps.db))
       .use("/versions/*", ...member)

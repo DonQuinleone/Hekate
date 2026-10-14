@@ -2,13 +2,17 @@ import { describe, expect, it } from "vitest";
 import {
   activeReviewers,
   createReviewInput,
+  groupInput,
   type ReviewerFacts,
   reviewerState,
   reviewOutcome,
 } from "./reviews.ts";
 
+// Each reviewer its own step, in the order made, unless a test puts several on one.
+let steps = 0;
 const reviewer = (id: string, facts: Partial<ReviewerFacts> = {}): ReviewerFacts => ({
   id,
+  step: steps++,
   submitted: false,
   decision: null,
   viewed: false,
@@ -28,6 +32,30 @@ describe("who acts", () => {
       "invited",
       "waiting",
     ]);
+  });
+
+  it("asks a group's members together, and moves on once all of them have responded", () => {
+    const people = [
+      reviewer("producer", approved),
+      reviewer("soprano", { step: 50 }),
+      reviewer("tenor", { step: 50, ...approved }),
+      reviewer("conductor", { step: 51 }),
+    ];
+    expect([...activeReviewers("sequence", people)]).toEqual(["soprano"]);
+    expect(people.map((p) => reviewerState("sequence", people, p))).toEqual([
+      "submitted",
+      "invited",
+      "submitted",
+      "waiting",
+    ]);
+    const after = people.map((p) => (p.id === "soprano" ? { ...p, ...approved } : p));
+    expect([...activeReviewers("sequence", after)]).toEqual(["conductor"]);
+    expect([
+      ...activeReviewers(
+        "sequence",
+        after.map((p) => ({ ...p, submitted: true })),
+      ),
+    ]).toEqual([]);
   });
 
   it("tracks viewing and starting", () => {
@@ -105,6 +133,34 @@ describe("review input", () => {
     );
     expect(
       createReviewInput.safeParse({ ...base, kind: "approval", reviewers: ["a", "a"] }).success,
+    ).toBe(false);
+  });
+});
+
+describe("groups", () => {
+  it("takes members and guests, each once", () => {
+    const soloists = groupInput.parse({
+      name: " Soloists ",
+      members: ["u1", { name: "Ines Arlow", email: "Ines@Example.test", label: "Soprano" }],
+    });
+    expect(soloists.name).toBe("Soloists");
+    expect(soloists.members[1]).toMatchObject({ email: "ines@example.test" });
+    expect(groupInput.safeParse({ name: "Empty", members: [] }).success).toBe(false);
+    expect(groupInput.safeParse({ name: "Twice", members: ["u1", "u1"] }).success).toBe(false);
+  });
+
+  it("can be asked in a review, once", () => {
+    const base = {
+      kind: "feedback",
+      title: "Mix",
+      items: [{ fileId: "0199e3a1-6c2b-7f00-8000-00000000000a" }],
+    };
+    const groupId = "0199e3a1-6c2b-7f00-8000-00000000000a";
+    expect(createReviewInput.safeParse({ ...base, reviewers: [{ groupId }, "u1"] }).success).toBe(
+      true,
+    );
+    expect(
+      createReviewInput.safeParse({ ...base, reviewers: [{ groupId }, { groupId }] }).success,
     ).toBe(false);
   });
 });
