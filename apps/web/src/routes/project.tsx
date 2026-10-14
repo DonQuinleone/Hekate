@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { FileList, Uploader } from "~/components/files";
 import { Icon } from "~/components/icons";
+import { TrackList } from "~/components/tracks";
 import { StatusPill } from "~/components/ui/status";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { projectQuery } from "~/lib/queries";
@@ -55,6 +56,7 @@ export function ProjectPage({ projectId }: { projectId: string }) {
           <TabsTrigger value="activity">Activity</TabsTrigger>
         </TabsList>
         <TabsContent value="media" className="flex flex-col gap-6 pt-6">
+          {project.profile === "music" && <TrackList projectId={project.id} />}
           <Uploader projectId={project.id} title={copy.title} body={copy.body} />
           <FileList projectId={project.id} />
           <p className="label m-0">Anchors in this profile · {profile.anchors.join(" · ")}</p>

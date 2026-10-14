@@ -1122,6 +1122,275 @@ describe.runIf(url)("api", () => {
       });
     });
 
+    describe("tracks", () => {
+      type TrackView = {
+        id: string;
+        name: string;
+        position: number;
+        scoreFileId: string | null;
+        versions: {
+          id: string;
+          number: number;
+          variations: { id: string; fileId: string; name: string; isPrimary: boolean }[];
+        }[];
+      };
+      const organisationOf = async (cookie: string) =>
+        (
+          (await (await app.request("/api/me", { headers: { cookie } })).json()) as {
+            activeOrganisationId: string;
+          }
+        ).activeOrganisationId;
+      const newProject = async (organisationId: string, name = "Rags") => {
+        const [project] = await db
+          .insert(schema.projects)
+          .values({ organisationId, name, profile: "music" })
+          .returning();
+        return project?.id ?? "";
+      };
+      const addFile = async (organisationId: string, projectId: string, name: string) => {
+        const blob = await storage.put(organisationId, Buffer.from(name));
+        const [file] = await db
+          .insert(schema.files)
+          .values({
+            organisationId,
+            projectId,
+            name,
+            kind: name.endsWith(".pdf") ? "document" : "audio",
+            blobId: blob.id,
+            contentType: "application/octet-stream",
+            byteSize: blob.byteSize,
+          })
+          .returning();
+        return file?.id ?? "";
+      };
+      const send = (method: string, path: string, body: unknown, cookie: string) =>
+        app.request(path, { ...json(body, cookie), method });
+      const trackFrom = async (res: Response) => ((await res.json()) as { track: TrackView }).track;
+
+      it("builds a track from numbered versions, each with one primary variation", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const projectId = await newProject(organisationId);
+        const [dry, wet, v2, wet2, score] = await Promise.all(
+          ["Dry v1.wav", "Wet v1.wav", "Dry v2.wav", "Wet v2.wav", "Score.pdf"].map((n) =>
+            addFile(organisationId, projectId, n),
+          ),
+        );
+
+        const created = await app.request(
+          `/api/projects/${projectId}/tracks`,
+          json({ name: "Maple Leaf Rag", scoreFileId: score }, owner),
+        );
+        expect(created.status).toBe(201);
+        const track = await trackFrom(created);
+        expect(track).toMatchObject({ name: "Maple Leaf Rag", position: 0, scoreFileId: score });
+        const second = await trackFrom(
+          await app.request(
+            `/api/projects/${projectId}/tracks`,
+            json({ name: "The Entertainer" }, owner),
+          ),
+        );
+        expect(second.position).toBe(1);
+
+        const first = await app.request(
+          `/api/tracks/${track.id}/versions`,
+          json(
+            {
+              notes: "First edit",
+              variations: [
+                { fileId: dry, name: "Dry" },
+                { fileId: wet, name: "Wet" },
+              ],
+            },
+            owner,
+          ),
+        );
+        expect(first.status).toBe(201);
+        const afterFirst = await trackFrom(first);
+        expect(afterFirst.versions[0]?.number).toBe(1);
+        expect(afterFirst.versions[0]?.variations.map((v) => [v.name, v.isPrimary])).toEqual([
+          ["Dry", true],
+          ["Wet", false],
+        ]);
+
+        const next = await trackFrom(
+          await app.request(
+            `/api/tracks/${track.id}/versions`,
+            json({ variations: [{ fileId: v2, name: "Dry" }] }, owner),
+          ),
+        );
+        const version2 = next.versions[1];
+        expect(version2?.number).toBe(2);
+
+        // A file is one variation only.
+        expect(
+          (
+            await app.request(
+              `/api/tracks/${track.id}/versions`,
+              json({ variations: [{ fileId: dry, name: "Again" }] }, owner),
+            )
+          ).status,
+        ).toBe(409);
+
+        // A wet mix arrives for version 2 and becomes the primary; then the dry one is restored.
+        const withWet = await trackFrom(
+          await app.request(
+            `/api/versions/${version2?.id}/variations`,
+            json({ fileId: wet2, name: "Wet", primary: true }, owner),
+          ),
+        );
+        const variations2 = withWet.versions[1]?.variations ?? [];
+        expect(variations2.map((v) => [v.name, v.isPrimary])).toEqual([
+          ["Dry", false],
+          ["Wet", true],
+        ]);
+        const restored = await trackFrom(
+          await app.request(`/api/variations/${variations2[0]?.id}/primary`, json({}, owner)),
+        );
+        expect(restored.versions[1]?.variations.map((v) => v.isPrimary)).toEqual([true, false]);
+
+        const renamed = await trackFrom(
+          await send(
+            "PATCH",
+            `/api/tracks/${track.id}`,
+            { name: "Maple Leaf Rag (1899)", scoreFileId: null },
+            owner,
+          ),
+        );
+        expect(renamed).toMatchObject({ name: "Maple Leaf Rag (1899)", scoreFileId: null });
+
+        const listed = (
+          (await (
+            await app.request(`/api/projects/${projectId}/tracks`, { headers: { cookie: owner } })
+          ).json()) as { tracks: TrackView[] }
+        ).tracks;
+        // A variation's file knows where it sits.
+        const detail = (
+          (await (
+            await app.request(`/api/files/${wet2}`, { headers: { cookie: owner } })
+          ).json()) as {
+            file: { variation: unknown };
+          }
+        ).file.variation;
+        expect(detail).toMatchObject({
+          name: "Wet",
+          isPrimary: false,
+          versionNumber: 2,
+          trackId: track.id,
+          trackName: "Maple Leaf Rag (1899)",
+        });
+
+        expect(listed.map((t) => [t.name, t.versions.length])).toEqual([
+          ["Maple Leaf Rag (1899)", 2],
+          ["The Entertainer", 0],
+        ]);
+      });
+
+      it("numbers simultaneous versions in turn", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const projectId = await newProject(organisationId);
+        const fileIds = await Promise.all(
+          ["a.wav", "b.wav", "c.wav", "d.wav"].map((n) => addFile(organisationId, projectId, n)),
+        );
+        const track = await trackFrom(
+          await app.request(`/api/projects/${projectId}/tracks`, json({ name: "Rag" }, owner)),
+        );
+        const results = await Promise.all(
+          fileIds.map((fileId) =>
+            app.request(
+              `/api/tracks/${track.id}/versions`,
+              json({ variations: [{ fileId, name: "Mix" }] }, owner),
+            ),
+          ),
+        );
+        expect(results.map((r) => r.status)).toEqual([201, 201, 201, 201]);
+        const final = await trackFrom(
+          await app.request(`/api/tracks/${track.id}`, { headers: { cookie: owner } }),
+        );
+        expect(final.versions.map((v) => v.number)).toEqual([1, 2, 3, 4]);
+      });
+
+      it("keeps tracks to their own project and organisation", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const projectId = await newProject(organisationId);
+        const otherProject = await newProject(organisationId, "Elsewhere");
+        const stray = await addFile(organisationId, otherProject, "Stray.wav");
+        const track = await trackFrom(
+          await app.request(`/api/projects/${projectId}/tracks`, json({ name: "Rag" }, owner)),
+        );
+        // Files from another project are refused, as variations and as scores.
+        expect(
+          (
+            await app.request(
+              `/api/tracks/${track.id}/versions`,
+              json({ variations: [{ fileId: stray, name: "Mix" }] }, owner),
+            )
+          ).status,
+        ).toBe(422);
+        expect(
+          (await send("PATCH", `/api/tracks/${track.id}`, { scoreFileId: stray }, owner)).status,
+        ).toBe(422);
+
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-tracks" })
+          .returning();
+        const foreignProject = await newProject(other?.id ?? "");
+        const foreignFile = await addFile(other?.id ?? "", foreignProject, "Theirs.wav");
+        const [foreignTrack] = await db
+          .insert(schema.tracks)
+          .values({ organisationId: other?.id ?? "", projectId: foreignProject, name: "Theirs" })
+          .returning();
+        const [foreignVersion] = await db
+          .insert(schema.versions)
+          .values({ organisationId: other?.id ?? "", trackId: foreignTrack?.id ?? "", number: 1 })
+          .returning();
+        const [foreignVariation] = await db
+          .insert(schema.variations)
+          .values({
+            organisationId: other?.id ?? "",
+            versionId: foreignVersion?.id ?? "",
+            fileId: foreignFile,
+            name: "Mix",
+            isPrimary: true,
+          })
+          .returning();
+        const headers = { cookie: owner };
+        expect(
+          (await app.request(`/api/projects/${foreignProject}/tracks`, { headers })).status,
+        ).toBe(404);
+        expect((await app.request(`/api/tracks/${foreignTrack?.id}`, { headers })).status).toBe(
+          404,
+        );
+        expect(
+          (await send("PATCH", `/api/tracks/${foreignTrack?.id}`, { name: "Mine" }, owner)).status,
+        ).toBe(404);
+        expect(
+          (
+            await app.request(
+              `/api/versions/${foreignVersion?.id}/variations`,
+              json({ fileId: foreignFile, name: "x" }, owner),
+            )
+          ).status,
+        ).toBe(404);
+        expect(
+          (await app.request(`/api/variations/${foreignVariation?.id}/primary`, json({}, owner)))
+            .status,
+        ).toBe(404);
+        // Nor can another organisation's file become a variation here.
+        expect(
+          (
+            await app.request(
+              `/api/tracks/${track.id}/versions`,
+              json({ variations: [{ fileId: foreignFile, name: "x" }] }, owner),
+            )
+          ).status,
+        ).toBe(422);
+      });
+    });
+
     describe("comments", () => {
       const joinAs = async (owner: string, email: string, role: string) => {
         const { body } = await invite(owner, email, role);
