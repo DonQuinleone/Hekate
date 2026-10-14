@@ -11,6 +11,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createJobs, type JobName, jobDefinitions } from "./jobs.ts";
 import { createKeyring } from "./keyring.ts";
 import { run } from "./media/ffmpeg.ts";
+import { webpComplete } from "./media/pages.ts";
+import { samplePdf } from "./media/sample-pdf.ts";
 import { probeHandler, startWorkers } from "./media/workers.ts";
 import { createStorage } from "./storage.ts";
 
@@ -284,6 +286,44 @@ describe.runIf(url && (hasFfmpeg || process.env.CI))("media jobs", () => {
       end: 9,
     });
   });
+
+  it("draws a PDF as encrypted pages, and fails a fake one at once", async () => {
+    const fileId = await addFile(samplePdf(3), "document", "Score.pdf");
+    expect(
+      await settle(
+        "document-render",
+        await jobs.send("document-render", { organisationId, fileId }),
+      ),
+    ).toBe("completed");
+    const [file] = await db
+      .select({ status: schema.files.streamStatus, pageCount: schema.files.pageCount })
+      .from(schema.files)
+      .where(eq(schema.files.id, fileId));
+    expect(file).toEqual({ status: "ready", pageCount: 3 });
+    const pages = await db
+      .select()
+      .from(schema.filePages)
+      .where(eq(schema.filePages.fileId, fileId))
+      .orderBy(asc(schema.filePages.page));
+    expect(pages.map((p) => p.page)).toEqual([1, 2, 3]);
+    // Stored encrypted: only through storage does a page read as WebP.
+    const { stream } = await storage.open(organisationId, pages[0]?.blobId ?? "");
+    const view = Buffer.concat(await stream.toArray());
+    expect(webpComplete(view)).toBe(true);
+
+    const fake = await addFile(Buffer.from("not a pdf"), "document", "Fake.pdf");
+    expect(
+      await settle(
+        "document-render",
+        await jobs.send("document-render", { organisationId, fileId: fake }),
+      ),
+    ).toBe("completed");
+    const [failed] = await db
+      .select({ status: schema.files.streamStatus })
+      .from(schema.files)
+      .where(eq(schema.files.id, fake));
+    expect(failed?.status).toBe("failed");
+  }, 30_000); // drawing and encoding six images takes seconds on a busy runner
 
   it("records unreadable media once instead of retrying forever", async () => {
     const fileId = await addFile(Buffer.from("not really audio at all"), "audio", "broken.wav");

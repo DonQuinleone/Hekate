@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { createDecipheriv } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { buffer } from "node:stream/consumers";
 import { createDb, runMigrations, schema, withAuditPurge } from "@hekate/db";
 import {
@@ -24,6 +24,7 @@ import { loadConfig } from "./config.ts";
 import { createKeyring } from "./keyring.ts";
 import { memoryMailer } from "./mail.ts";
 import { probe, run } from "./media/ffmpeg.ts";
+import { webpComplete } from "./media/pages.ts";
 import {
   analysisHandler,
   checksumHandler,
@@ -2457,6 +2458,58 @@ describe.runIf(url)("api", () => {
           ).toBe(422);
         });
 
+        it.runIf(spawnSync("ffmpeg", ["-version"]).status === 0 || process.env.CI)(
+          "burns the guest's name into every page they are shown, and only theirs",
+          async () => {
+            const s = await invited();
+            // The review's file, drawn as one white page.
+            const drawn = join(mkdtempSync(join(tmpdir(), "hekate-page-")), "white.webp");
+            await run("ffmpeg", [
+              ...["-hide_banner", "-nostdin", "-v", "error", "-f", "lavfi"],
+              ...["-i", "color=white:s=400x560", "-frames:v", "1", "-c:v", "libwebp", drawn],
+            ]);
+            const white = readFileSync(drawn);
+            rmSync(dirname(drawn), { recursive: true, force: true });
+            const view = await storage.put(s.organisationId, white);
+            const thumb = await storage.put(s.organisationId, white);
+            await db
+              .update(schema.files)
+              .set({
+                kind: "document",
+                contentType: "application/pdf",
+                streamStatus: "ready",
+                pageCount: 1,
+              })
+              .where(eq(schema.files.id, s.mix));
+            await db.insert(schema.filePages).values({
+              organisationId: s.organisationId,
+              fileId: s.mix,
+              page: 1,
+              width: 400,
+              height: 560,
+              blobId: view.id,
+              thumbBlobId: thumb.id,
+            });
+            const pagesFor = async (cookie: string) => {
+              const res = await app.request(`/api/files/${s.mix}/view`, json({}, cookie));
+              expect(res.status).toBe(201);
+              return ((await res.json()) as { pages: { url: string; thumbUrl: string }[] })
+                .pages[0];
+            };
+            const theirs = await pagesFor(s.cookie);
+            for (const url of [theirs?.url ?? "", theirs?.thumbUrl ?? ""]) {
+              const served = Buffer.from(await (await getAs(url, s.cookie)).arrayBuffer());
+              expect(webpComplete(served)).toBe(true);
+              // Not the stored page: their mark is on it.
+              expect(served.equals(white)).toBe(false);
+            }
+            // A member sees the page as it was drawn.
+            const ours = await pagesFor(s.owner);
+            const plain = Buffer.from(await (await getAs(ours?.url ?? "", s.owner)).arrayBuffer());
+            expect(plain.equals(white)).toBe(true);
+          },
+        );
+
         it("binds a guest's playback to their browser", async () => {
           const s = await invited();
           await db
@@ -3258,6 +3311,110 @@ describe.runIf(url)("api", () => {
         ).toBe(404);
         expect((await app.request(`/api/files/${fileId}/comments`)).status).toBe(401);
       });
+      it("shows a document only as pages, each one logged, through links bound to the viewer", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const audio = await recording(organisationId);
+        const projectId = await projectOfFile(audio);
+        const blob = await storage.put(organisationId, Buffer.from("%PDF-1.4 not drawn here"));
+        const [doc] = await db
+          .insert(schema.files)
+          .values({
+            organisationId,
+            projectId,
+            name: "Score.pdf",
+            kind: "document",
+            blobId: blob.id,
+            contentType: "application/pdf",
+            byteSize: blob.byteSize,
+            streamStatus: "ready",
+            pageCount: 2,
+          })
+          .returning();
+        const page = Buffer.from("RIFF0000WEBPVP8 page one");
+        for (const n of [1, 2]) {
+          const view = await storage.put(organisationId, n === 1 ? page : Buffer.from("two"));
+          const thumb = await storage.put(organisationId, Buffer.from(`thumb ${n}`));
+          await db.insert(schema.filePages).values({
+            organisationId,
+            fileId: doc?.id ?? "",
+            page: n,
+            width: 1414,
+            height: 2000,
+            blobId: view.id,
+            thumbBlobId: thumb.id,
+          });
+        }
+        const opened = await app.request(`/api/files/${doc?.id}/view`, json({}, owner));
+        expect(opened.status).toBe(201);
+        const view = (await opened.json()) as {
+          pageCount: number;
+          pages: { page: number; width: number; height: number; url: string; thumbUrl: string }[];
+        };
+        expect(view.pageCount).toBe(2);
+        expect(view.pages.map((p) => [p.page, p.width, p.height])).toEqual([
+          [1, 1414, 2000],
+          [2, 1414, 2000],
+        ]);
+        const first = view.pages[0];
+        const served = await app.request(first?.url ?? "", { headers: { cookie: owner } });
+        expect(served.status).toBe(200);
+        expect(served.headers.get("content-type")).toBe("image/webp");
+        expect(served.headers.get("cache-control")).toBe("no-store, private");
+        expect(Buffer.from(await served.arrayBuffer())).toEqual(page);
+        expect(
+          (await app.request(first?.thumbUrl ?? "", { headers: { cookie: owner } })).status,
+        ).toBe(200);
+        // The page at review size is logged; its thumbnail is not.
+        const logged = await audit.query(organisationId, { action: "page.render", limit: 10 });
+        expect(logged.events).toHaveLength(1);
+        expect(logged.events[0]).toMatchObject({ fileId: doc?.id, details: { page: 1 } });
+
+        // Someone else's browser cannot use the link, and there is no page beyond the last.
+        const colleague = await joinAs(owner, "viewer@example.test", "member");
+        expect(
+          (await app.request(first?.url ?? "", { headers: { cookie: colleague } })).status,
+        ).toBe(403);
+        expect(
+          (
+            await app.request((first?.url ?? "").replace("/pages/1/", "/pages/9/"), {
+              headers: { cookie: owner },
+            })
+          ).status,
+        ).toBe(404);
+        // Audio is played, not viewed, and a document is viewed, not played (nor logged as
+        // played); the raw file never has a route.
+        expect((await app.request(`/api/files/${audio}/view`, json({}, owner))).status).toBe(409);
+        expect((await app.request(`/api/files/${doc?.id}/playback`, json({}, owner))).status).toBe(
+          409,
+        );
+        const sessions = await audit.query(organisationId, { action: "stream.session", limit: 10 });
+        expect(sessions.events.filter((e) => e.fileId === doc?.id)).toHaveLength(0);
+        // Another organisation's document does not exist from here.
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-pages" })
+          .returning();
+        const foreign = await storage.put(other?.id ?? "", Buffer.from("%PDF-1.4 theirs"));
+        const [theirs] = await db
+          .insert(schema.files)
+          .values({
+            organisationId: other?.id ?? "",
+            projectId: await projectOfFile(await recording(other?.id ?? "")),
+            name: "Theirs.pdf",
+            kind: "document",
+            blobId: foreign.id,
+            contentType: "application/pdf",
+            byteSize: foreign.byteSize,
+            streamStatus: "ready",
+            pageCount: 1,
+          })
+          .returning();
+        expect((await app.request(`/api/files/${theirs?.id}/view`, json({}, owner))).status).toBe(
+          404,
+        );
+      });
+
       it("carries open threads to the next version, where triage settles, hides or remaps them", async () => {
         const owner = cookieOf(await setup());
         const organisationId = await organisationOf(owner);

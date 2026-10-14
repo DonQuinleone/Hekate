@@ -298,6 +298,8 @@ export interface ProjectFile {
   streamStatus: StreamStatus;
   /** Waveform peaks: computed in the background for files with audio. */
   analysisStatus: StreamStatus;
+  /** A document's pages, drawn or not; null for anything without pages. */
+  pageCount?: number | null;
   uploadedBy: string | null;
   createdAt: string;
 }
@@ -374,6 +376,33 @@ export const playbackQuery = (fileId: string) =>
     queryFn: async () =>
       json<Playback>(await api.files[":id"].playback.$post({ param: { id: fileId } })),
     staleTime: Number.POSITIVE_INFINITY,
+    gcTime: 0,
+    retry: false,
+  });
+
+/** One page of a document or picture as the server drew it, behind a session-bound link. */
+export interface ViewPage {
+  page: number;
+  width: number;
+  height: number;
+  url: string;
+  thumbUrl: string;
+}
+
+export interface DocumentView {
+  expiresAt: string;
+  /** Pages in the document; more than `pages` when only the first ones were drawn. */
+  pageCount: number;
+  pages: ViewPage[];
+}
+
+/** Links to a document's pages, bound to this browser's session; asked for again when they lapse. */
+export const viewQuery = (fileId: string) =>
+  queryOptions({
+    queryKey: ["files", fileId, "view"],
+    queryFn: async () =>
+      json<DocumentView>(await api.files[":id"].view.$post({ param: { id: fileId } })),
+    staleTime: 3 * 60 * 60 * 1000,
     gcTime: 0,
     retry: false,
   });

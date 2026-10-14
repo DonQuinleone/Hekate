@@ -23,6 +23,11 @@ export const jobDefinitions = {
     data: z.object({ organisationId: z.uuid(), fileId: z.uuid() }),
     options: { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 2 * 60 * 60 },
   },
+  /** Draw a document or picture as pages for protected viewing (#29). */
+  "document-render": {
+    data: z.object({ organisationId: z.uuid(), fileId: z.uuid() }),
+    options: { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 60 * 60 },
+  },
   /** Work out where the same music sits in two files, usually successive versions (#33). */
   "media-align": {
     data: z.object({ organisationId: z.uuid(), alignmentId: z.uuid() }),

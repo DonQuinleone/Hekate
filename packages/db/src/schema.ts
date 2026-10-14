@@ -383,8 +383,13 @@ export const files = pgTable(
       .references(() => blobs.id, { onDelete: "no action" }),
     contentType: text("content_type").notNull(),
     byteSize: bigint("byte_size", { mode: "number" }).notNull(),
-    /** Playable proxies: "none" for files that are not audio or video. */
+    /**
+     * Playable proxies, or for a document or picture its drawn pages (#29): "none" for
+     * files with neither.
+     */
     streamStatus: streamStatusEnum("stream_status").notNull().default("none"),
+    /** How many pages the document has, drawn or not; null for anything without pages. */
+    pageCount: integer("page_count"),
     /** Audio analysis (waveform peaks and loudness): "none" for files without audio. */
     analysisStatus: streamStatusEnum("analysis_status").notNull().default("none"),
     /** Measured by the media worker; null until the file has been probed. */
@@ -735,6 +740,34 @@ export const peakLevels = pgTable(
   (t) => [
     uniqueIndex("peak_levels_file_level_idx").on(t.organisationId, t.fileId, t.samplesPerPeak),
   ],
+);
+
+/**
+ * One page of a document or picture as the server drew it (#29, docs/security.md): at
+ * review size and as a thumbnail, both WebP, both encrypted blobs. The file itself never
+ * reaches a browser; these do, through session-bound links, every view logged.
+ */
+export const filePages = pgTable(
+  "file_pages",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => files.id, { onDelete: "cascade" }),
+    /** 1-based. */
+    page: integer("page").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    blobId: uuid("blob_id")
+      .notNull()
+      .references(() => blobs.id, { onDelete: "no action" }),
+    thumbBlobId: uuid("thumb_blob_id")
+      .notNull()
+      .references(() => blobs.id, { onDelete: "no action" }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("file_pages_file_page_idx").on(t.organisationId, t.fileId, t.page)],
 );
 
 /**

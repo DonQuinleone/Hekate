@@ -13,6 +13,7 @@ import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { PlaySessionVariables, ViewerVariables } from "../guests.ts";
 import type { Keyring } from "../keyring.ts";
+import { watermark, watermarkText } from "../media/watermark.ts";
 import {
   keyRateLimiter,
   PLAYBACK_LIFETIME_SECONDS,
@@ -24,7 +25,10 @@ import type { Storage } from "../storage.ts";
 import { membershipOf } from "../tenancy.ts";
 
 const {
+  filePages,
   files,
+  guests,
+  organisations,
   renditions,
   renditionSegments,
   users,
@@ -92,6 +96,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
     .use("/:id/spectrograms/*", toolFile(deps.db, "spectrogram"))
     .use("/:id/spectrograms", toolFile(deps.db, "spectrogram"))
     .use("/:id/playback", viewFile(deps.db))
+    .use("/:id/view", viewFile(deps.db))
     .use("/:id/alignments", viewFile(deps.db))
     .get("/:id", fileParam, async (c) => {
       // Metadata only: contents leave Hekate solely through protected delivery.
@@ -107,6 +112,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
           mediaInfo: files.mediaInfo,
           streamStatus: files.streamStatus,
           analysisStatus: files.analysisStatus,
+          pageCount: files.pageCount,
           uploadedBy: users.name,
           createdAt: files.createdAt,
         })
@@ -284,14 +290,78 @@ export const fileRoutes = (deps: PlaybackDeps) =>
         });
       },
     )
+    // Pages of a document or picture (#29): a session-bound link to each page the server
+    // drew, never the file. Each page is logged as it is served.
+    .post("/:id/view", fileParam, async (c) => {
+      const { id } = c.req.valid("param");
+      const organisationId = c.var.organisationId;
+      const [file] = await deps.db
+        .select({
+          id: files.id,
+          streamStatus: files.streamStatus,
+          pageCount: files.pageCount,
+          kind: files.kind,
+        })
+        .from(files)
+        .where(inOrg(files, organisationId, eq(files.id, id)));
+      if (!file) throw new NotFound("File");
+      if ((file.kind !== "document" && file.kind !== "image") || file.streamStatus !== "ready") {
+        throw new HTTPException(409, {
+          message:
+            file.streamStatus === "pending"
+              ? "This file is still being prepared"
+              : "This file has no pages to show",
+        });
+      }
+      const pages = await deps.db
+        .select({ page: filePages.page, width: filePages.width, height: filePages.height })
+        .from(filePages)
+        .where(inOrg(filePages, organisationId, eq(filePages.fileId, file.id)))
+        .orderBy(asc(filePages.page));
+      const actor = c.var.actor;
+      const reviewId =
+        actor.kind === "guest"
+          ? (await guestFileReviews(deps.db, actor)).get(file.id)?.[0]
+          : undefined;
+      if (actor.kind === "guest" && !reviewId) throw new NotFound("File");
+      const expiresAt = Math.floor(Date.now() / 1000) + PLAYBACK_LIFETIME_SECONDS;
+      const token = signPlayback(deps.secret, {
+        sessionId: c.var.sessionId,
+        organisationId,
+        fileId: file.id,
+        ...(reviewId ? { reviewId } : {}),
+        expiresAt,
+      });
+      return c.json(
+        {
+          expiresAt: new Date(expiresAt * 1000),
+          pageCount: file.pageCount ?? pages.length,
+          pages: pages.map((p) => ({
+            ...p,
+            url: `/api/play/${token}/pages/${p.page}/view`,
+            thumbUrl: `/api/play/${token}/pages/${p.page}/thumb`,
+          })),
+        },
+        201,
+      );
+    })
     .post("/:id/playback", fileParam, async (c) => {
       const { id } = c.req.valid("param");
       const organisationId = c.var.organisationId;
       const [file] = await deps.db
-        .select({ id: files.id, projectId: files.projectId, streamStatus: files.streamStatus })
+        .select({
+          id: files.id,
+          kind: files.kind,
+          projectId: files.projectId,
+          streamStatus: files.streamStatus,
+        })
         .from(files)
         .where(inOrg(files, organisationId, eq(files.id, id)));
       if (!file) throw new NotFound("File");
+      // Documents and pictures are viewed as pages, never played (and never logged as played).
+      if (file.kind !== "audio" && file.kind !== "video") {
+        throw new HTTPException(409, { message: "Only recordings play; this file is viewed" });
+      }
       if (file.streamStatus !== "ready") {
         throw new HTTPException(409, {
           message:
@@ -542,6 +612,77 @@ export const playRoutes = (deps: PlaybackDeps) => {
           row.blobId,
           rendition.height ? "video/mp4" : "audio/mp4",
         );
+      },
+    )
+
+    .get(
+      "/:token/pages/:page/:size",
+      zValidator(
+        "param",
+        z.object({
+          token: z.string(),
+          page: z.coerce.number().int().positive().max(10_000),
+          size: z.enum(["view", "thumb"]),
+        }),
+      ),
+      async (c) => {
+        const claims = c.var.playback;
+        const { page, size } = c.req.valid("param");
+        const [row] = await deps.db
+          .select({
+            blobId: filePages.blobId,
+            thumbBlobId: filePages.thumbBlobId,
+            projectId: files.projectId,
+          })
+          .from(filePages)
+          .innerJoin(files, inOrg(files, claims.organisationId, eq(files.id, claims.fileId)))
+          .where(
+            inOrg(
+              filePages,
+              claims.organisationId,
+              eq(filePages.fileId, claims.fileId),
+              eq(filePages.page, page),
+            ),
+          );
+        if (!row) throw new NotFound("Page");
+        // A page at review size is logged before it is sent: what was seen, by whom.
+        if (size === "view") {
+          await deps.audit.record(
+            claims.organisationId,
+            await deps.audit.actor(c.var.actor),
+            {
+              action: "page.render",
+              projectId: row.projectId,
+              fileId: claims.fileId,
+              ...(claims.reviewId ? { reviewId: claims.reviewId } : {}),
+              details: { page },
+            },
+            requestInfo(c, deps.trustProxy),
+          );
+        }
+        const blobId = size === "view" ? row.blobId : row.thumbBlobId;
+        const actor = c.var.actor;
+        if (actor.kind !== "guest") return sendBlob(claims.organisationId, blobId, "image/webp");
+        // A guest's page carries their name, burned in here (docs/security.md).
+        const [who] = await deps.db
+          .select({ name: guests.name, email: guests.email, organisation: organisations.name })
+          .from(guests)
+          .innerJoin(organisations, eq(organisations.id, guests.organisationId))
+          .where(inOrg(guests, claims.organisationId, eq(guests.id, actor.guestId)));
+        if (!who) throw new NotFound("Page");
+        const { stream } = await deps.storage.open(claims.organisationId, blobId);
+        const stored = Buffer.concat(await stream.toArray());
+        const marked = await watermark(
+          stored,
+          watermarkText(who, who.organisation, new Date()),
+          size,
+          c.req.raw.signal,
+        );
+        return c.body(new Uint8Array(marked), 200, {
+          ...PRIVATE,
+          "content-type": "image/webp",
+          "content-length": String(marked.length),
+        });
       },
     )
 
