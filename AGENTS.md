@@ -6,7 +6,7 @@ Guidance for anyone, human or agent, working in this repository. Read it before 
 
 Hekate is an open-source (AGPL-3.0), self-hosted media review and approval system: a sovereign alternative to Dropbox Replay and Frame.io.
 
-- **Music first, never music only.** Classical music is first-class (bar numbers, score pages, tracks, movements, takes, a recording synced to its score). Video and general documents must work just as well. Nothing in the interface or the copy should make Hekate feel like a classical-music-only tool.
+- **Music first, never music only.** Classical music is first-class (tracks with versions and variations, bar numbers, score pages, session takes, a recording synced to its score). Video and general documents must work just as well. Nothing in the interface or the copy should make Hekate feel like a classical-music-only tool.
 - **Launch priority:** the music review experience.
 - **Fresh start.** There is no data migration from the legacy application, and no code, names or branding carry over from it.
 - **Multi-tenancy from day one.** Every tenant-owned table has an `organisation_id`. Every query is scoped to an organisation. A hosted offering may follow; nothing should need rewriting for it.
