@@ -7,6 +7,8 @@ import {
   levelGains,
   levelMatchable,
   needsResync,
+  shiftLabel,
+  sourceFor,
 } from "./compare";
 import type { Track, Variation } from "./queries";
 
@@ -75,6 +77,16 @@ describe("comparison", () => {
     expect(compareSources(track, "file-e").map((s) => s.label)).toEqual(["V2 · Dry", "V1 · Mix"]);
   });
 
+  it("finds any ready variation as a source, but not one still being prepared", () => {
+    expect(sourceFor(track, "file-c")).toEqual({
+      fileId: "file-c",
+      label: "V2 · Wet",
+      versionNumber: 2,
+    });
+    expect(sourceFor(track, "file-d")).toBeUndefined();
+    expect(sourceFor(track, "nowhere")).toBeUndefined();
+  });
+
   it("turns louder sources down to the quietest", () => {
     const gains = levelGains([-14, -20, -20]);
     expect(gains[0]).toBeCloseTo(0.5012, 3);
@@ -97,6 +109,11 @@ describe("comparison", () => {
     expect(blindOrder(4, () => 0)).toEqual([1, 2, 3, 0]);
     expect([...blindOrder(4)].sort()).toEqual([0, 1, 2, 3]);
     expect(blindLetter(0)).toBe("A");
+  });
+
+  it("says which way a source is offset", () => {
+    expect(shiftLabel(-1.5)).toBe("1.5 s earlier");
+    expect(shiftLabel(0.25)).toBe("0.3 s later");
   });
 
   it("resyncs a follower that has drifted", () => {

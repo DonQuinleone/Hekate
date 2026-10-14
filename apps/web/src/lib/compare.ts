@@ -49,6 +49,19 @@ export function compareSources(track: Track, fileId: string): CompareSource[] {
   return [...siblings, ...others];
 }
 
+/** Any ready variation of the track as a source, whichever version it belongs to. */
+export function sourceFor(track: Track, fileId: string): CompareSource | undefined {
+  for (const v of track.versions) {
+    const x = v.variations.find((y) => y.fileId === fileId);
+    if (x) {
+      return x.streamStatus === "ready"
+        ? { fileId, label: `V${v.number} · ${x.name}`, versionNumber: v.number }
+        : undefined;
+    }
+  }
+  return undefined;
+}
+
 const measuredLevel = (l: number | null | undefined): l is number =>
   typeof l === "number" && Number.isFinite(l);
 
@@ -90,6 +103,12 @@ export function blindOrder(count: number, random: () => number = Math.random): n
 
 /** The letter for a key in blind listening: A for 1, B for 2. */
 export const blindLetter = (key: number) => "ABCD"[key] ?? "?";
+
+/** How far a source is offset from this file, beside it: "1.5 s earlier", "0.3 s later". */
+export function shiftLabel(shift: number) {
+  const amount = `${Math.abs(shift).toFixed(1)} s`;
+  return shift < 0 ? `${amount} earlier` : `${amount} later`;
+}
 
 /** Followers drift a little; past this, they are put back on the master's time. */
 export const DRIFT_TOLERANCE = 0.08;

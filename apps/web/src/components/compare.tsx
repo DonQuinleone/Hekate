@@ -12,6 +12,8 @@ import {
   levelMatchable,
   MAX_SOURCES,
   needsResync,
+  shiftLabel,
+  sourceFor,
 } from "~/lib/compare";
 import {
   type FileDetail,
@@ -31,17 +33,22 @@ function Follower({
   playback,
   master,
   volume,
+  shift,
   onFail,
 }: {
   playback: Playback;
   master: HTMLMediaElement;
   /** 0 while another source is heard. */
   volume: number;
+  /** Seconds this source runs ahead of the master: where the same passage sits in it. */
+  shift: number;
   /** The stream could not be loaded, so this source cannot be heard. */
   onFail: () => void;
 }) {
   const fail = useRef(onFail);
   fail.current = onFail;
+  const offset = useRef(shift);
+  offset.current = shift;
 
   const element = useRef<HTMLAudioElement>(null);
 
@@ -82,8 +89,8 @@ function Follower({
     const audio = element.current;
     if (!audio) return;
     const sync = () => {
-      if (needsResync(master.currentTime, audio.currentTime))
-        audio.currentTime = master.currentTime;
+      const target = Math.max(0, master.currentTime + offset.current);
+      if (needsResync(target, audio.currentTime)) audio.currentTime = target;
     };
     const play = () => {
       sync();
@@ -138,11 +145,13 @@ function FollowerSource({
   fileId,
   master,
   volume,
+  shift,
   onFail,
 }: {
   fileId: string;
   master: HTMLMediaElement;
   volume: number;
+  shift: number;
   onFail: () => void;
 }) {
   const { data, error } = useQuery(playbackQuery(fileId));
@@ -151,7 +160,9 @@ function FollowerSource({
   useEffect(() => {
     if (error) fail.current();
   }, [error]);
-  return data ? <Follower playback={data} master={master} volume={volume} onFail={onFail} /> : null;
+  return data ? (
+    <Follower playback={data} master={master} volume={volume} shift={shift} onFail={onFail} />
+  ) : null;
 }
 
 const chip =
@@ -162,13 +173,39 @@ const chip =
  * number keys. One key flips between them at the same position, level-matched, gapless and
  * inside any loop; blind mode hides which is which.
  */
-export function Compare({ file, media }: { file: FileDetail; media: HTMLMediaElement | null }) {
+/** A source to bring in and hear first, such as the version a carried comment began on. */
+export interface CompareFocus {
+  fileId: string;
+  /** Where the same passage sits in it, relative to this file, in seconds. */
+  shift: number;
+  /** Changes each time it is asked for, so asking again brings it back. */
+  nonce: number;
+}
+
+export function Compare({
+  file,
+  media,
+  focus = null,
+}: {
+  file: FileDetail;
+  media: HTMLMediaElement | null;
+  focus?: CompareFocus | null;
+}) {
   const variation = file.variation;
   const { data: track } = useQuery({
     ...trackQuery(variation?.trackId ?? ""),
     enabled: Boolean(variation),
   });
-  const candidates = useMemo(() => (track ? compareSources(track, file.id) : []), [track, file.id]);
+  const candidates = useMemo(() => {
+    if (!track) return [];
+    const offered = compareSources(track, file.id);
+    // A focused source joins the offer even when it is not one of the usual ones.
+    const extra =
+      focus && !offered.some((c) => c.fileId === focus.fileId)
+        ? sourceFor(track, focus.fileId)
+        : undefined;
+    return extra ? [extra, ...offered] : offered;
+  }, [track, file.id, focus]);
   const [pinned, setPinned] = useState<string[]>([]);
   /** The source being heard, by file, so pinning or unpinning others never changes it. */
   const [heard, setHeard] = useState<string | null>(null);
@@ -177,6 +214,22 @@ export function Compare({ file, media }: { file: FileDetail; media: HTMLMediaEle
   const [blind, setBlind] = useState(false);
   /** Blind: the source behind each key; otherwise key k is source k. */
   const [order, setOrder] = useState<number[]>([]);
+  /** Per source, how far ahead of the master it plays; none for most. */
+  const [shifts, setShifts] = useState<Record<string, number>>({});
+
+  // Asked to bring a source in: pin it (making room if need be) and hear it first.
+  const focused = useRef<number | null>(null);
+  useEffect(() => {
+    if (!focus || focused.current === focus.nonce) return;
+    if (!candidates.some((c) => c.fileId === focus.fileId)) return;
+    focused.current = focus.nonce;
+    setBlind(false);
+    setPinned((list) =>
+      list.includes(focus.fileId) ? list : [focus.fileId, ...list].slice(0, MAX_SOURCES - 1),
+    );
+    setShifts((map) => ({ ...map, [focus.fileId]: focus.shift }));
+    setHeard(focus.fileId);
+  }, [focus, candidates]);
 
   const self: CompareSource = {
     fileId: file.id,
@@ -319,6 +372,11 @@ export function Compare({ file, media }: { file: FileDetail; media: HTMLMediaEle
                     <span className="min-w-0 flex-1 truncate text-[13px]">
                       {blind ? `Source ${blindLetter(key)}` : s.label}
                     </span>
+                    {!blind && shifts[s.fileId] ? (
+                      <span className="tabular shrink-0 font-mono text-[11px] text-ink-3">
+                        {shiftLabel(shifts[s.fileId] ?? 0)}
+                      </span>
+                    ) : null}
                     {unavailable ? (
                       <span className="shrink-0 text-[11px] text-signal">Could not load</span>
                     ) : (
@@ -346,8 +404,9 @@ export function Compare({ file, media }: { file: FileDetail; media: HTMLMediaEle
             )}
             <span className="text-xs text-ink-3">
               {matched ? "" : "Not level-matched until every source is measured. "}
-              Versions are compared at the same time from the start; alignment by musical position
-              follows.
+              {Object.values(shifts).some(Boolean)
+                ? "Offsets follow where a comment's passage was moved to on this version."
+                : "Versions are compared at the same time from the start; alignment by musical position follows."}
             </span>
           </div>
           {sources.slice(1).map((s, i) => (
@@ -356,6 +415,7 @@ export function Compare({ file, media }: { file: FileDetail; media: HTMLMediaEle
               fileId={s.fileId}
               master={media}
               volume={current === i + 1 ? (gains[i + 1] ?? 1) : 0}
+              shift={shifts[s.fileId] ?? 0}
               onFail={() =>
                 setFailed((list) => (list.includes(s.fileId) ? list : [...list, s.fileId]))
               }

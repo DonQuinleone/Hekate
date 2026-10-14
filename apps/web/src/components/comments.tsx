@@ -1,8 +1,15 @@
-import { type Anchor, formatAnchor } from "@hekate/shared";
+import {
+  type Anchor,
+  anchorShift,
+  type CarryStatus,
+  carryStatuses,
+  carryStatusLabel,
+  formatAnchor,
+} from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, type KeyboardEvent, useState } from "react";
 import { cn } from "~/lib/cn";
-import { ago, type Thread, threadsOf } from "~/lib/comments";
+import { ago, historyLabel, passageLoop, type Thread, threadsOf } from "~/lib/comments";
 import { type Loop, MIN_LOOP } from "~/lib/loop";
 import {
   type Comment,
@@ -13,10 +20,23 @@ import {
 } from "~/lib/queries";
 import { useViewer } from "~/lib/viewer";
 import { Button } from "./ui/button";
+import { ActionMenu } from "./ui/menu";
 
 /** Lowercase time labels read better inline than the upper-case anchor labels on markers. */
 // "00:12.500" reads as "0:12.500", at either end of a range.
 const anchorLabel = (anchor: Anchor) => formatAnchor(anchor).replace(/(^|\s)0(\d:)/g, "$1$2");
+
+const textButton =
+  "cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink disabled:cursor-default disabled:opacity-40";
+
+/** What before and after needs: the earlier file, the passage there and here. */
+export interface BeforeAfter {
+  fileId: string;
+  /** Where the passage sits in the earlier file, relative to this one, in seconds. */
+  shift: number;
+  /** The passage here, with a little run-up and run-out. */
+  loop: Loop;
+}
 
 function Composer({
   placeholder,
@@ -139,18 +159,27 @@ function CommentBody({
 
 function ThreadView({
   thread,
+  fileId,
   me,
   onSeek,
   onLoop,
+  loop,
+  onBeforeAfter,
   mutations,
   canComment,
   canTriage,
 }: {
   thread: Thread;
+  /** The file being looked at, which a carried thread was brought to. */
+  fileId: string;
   me: string | undefined;
   onSeek: (seconds: number) => void;
   /** Loop a comment's passage, when it covers one. */
   onLoop?: (loop: Loop) => void;
+  /** The passage being looped, which a carried thread can be moved to. */
+  loop: Loop | null;
+  /** Hear a carried passage where it began, then here. */
+  onBeforeAfter?: (target: BeforeAfter) => void;
   mutations: ReturnType<typeof useCommentMutations>;
   canComment: boolean;
   canTriage: boolean;
@@ -158,11 +187,18 @@ function ThreadView({
   const [replying, setReplying] = useState(false);
   const { comment, replies } = thread;
   const anchor = comment.anchor;
+  const carry = comment.carry;
+  /** This version's number, for "Fixed in V3". */
+  const here = comment.history?.hops.find((h) => h.fileId === fileId)?.versionNumber;
+  const path = historyLabel(comment.history);
+  const from = carry?.from.anchor;
+  const setCarry = (change: { status?: CarryStatus; visible?: boolean; anchor?: Anchor | null }) =>
+    carry && mutations.carry.mutate({ id: carry.id, ...change });
   const edit = (id: string, body: string) => mutations.edit.mutateAsync({ id, body });
   return (
     <li
       className={cn(
-        "flex flex-col gap-3 border-b border-hairline py-4",
+        "group flex flex-col gap-3 border-b border-hairline py-4",
         comment.resolvedAt && "opacity-70",
       )}
     >
@@ -193,23 +229,79 @@ function ThreadView({
             Loop
           </button>
         )}
-        {comment.resolvedAt && (
-          <span className="text-xs text-ink-3">
-            Resolved{comment.resolvedByName ? ` by ${comment.resolvedByName}` : ""}
-          </span>
-        )}
-        {canTriage && (
-          <button
-            type="button"
-            onClick={() =>
-              mutations.resolve.mutate({ id: comment.id, resolved: !comment.resolvedAt })
-            }
-            className="ml-auto cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
-          >
-            {comment.resolvedAt ? "Reopen" : "Resolve"}
-          </button>
+        {carry ? (
+          // A carried thread is settled by its status on this version.
+          canTriage ? (
+            <span className="ml-auto flex items-center gap-1">
+              <select
+                aria-label="Status on this version"
+                value={carry.status}
+                onChange={(e) => setCarry({ status: e.target.value as CarryStatus })}
+                className="h-6 cursor-pointer rounded-chip border border-hairline bg-transparent px-1.5 text-xs text-ink-2 outline-none hover:border-edge focus:border-ink-3"
+              >
+                {carryStatuses.map((s) => (
+                  <option key={s} value={s}>
+                    {carryStatusLabel(s, here ?? 0)}
+                  </option>
+                ))}
+              </select>
+              <ActionMenu
+                label="this thread"
+                actions={[
+                  ...(loop
+                    ? [
+                        {
+                          label: "Move to the loop",
+                          onSelect: () =>
+                            setCarry({
+                              anchor: { kind: "time", start: loop.start, end: loop.end },
+                            }),
+                        },
+                      ]
+                    : []),
+                  {
+                    label: carry.visible ? "Hide on this version" : "Show on this version",
+                    onSelect: () => setCarry({ visible: !carry.visible }),
+                  },
+                ]}
+              />
+            </span>
+          ) : (
+            carry.status !== "open" && (
+              <span className="ml-auto text-xs text-ink-3">
+                {carryStatusLabel(carry.status, here ?? 0)}
+              </span>
+            )
+          )
+        ) : (
+          <>
+            {comment.resolvedAt && (
+              <span className="text-xs text-ink-3">
+                Resolved{comment.resolvedByName ? ` by ${comment.resolvedByName}` : ""}
+              </span>
+            )}
+            {canTriage && (
+              <button
+                type="button"
+                onClick={() =>
+                  mutations.resolve.mutate({ id: comment.id, resolved: !comment.resolvedAt })
+                }
+                className={cn(textButton, "ml-auto")}
+              >
+                {comment.resolvedAt ? "Reopen" : "Resolve"}
+              </button>
+            )}
+          </>
         )}
       </div>
+      {path && (
+        <p
+          className="tabular m-0 -mt-1.5 text-[11px] text-ink-3"
+          title="Versions this thread has been on"
+        >
+          {path}
+        </p>
+      )}
       <CommentBody comment={comment} own={canComment && comment.authorId === me} onEdit={edit} />
       {replies.length > 0 && (
         <ul className="m-0 flex list-none flex-col gap-3 border-l border-hairline p-0 pl-3">
@@ -236,16 +328,28 @@ function ThreadView({
           onCancel={() => setReplying(false)}
         />
       ) : (
-        !comment.resolvedAt &&
-        canComment && (
-          <button
-            type="button"
-            onClick={() => setReplying(true)}
-            className="w-fit cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
-          >
-            Reply
-          </button>
-        )
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          {!comment.resolvedAt && canComment && (
+            <button type="button" onClick={() => setReplying(true)} className={textButton}>
+              Reply
+            </button>
+          )}
+          {carry && onBeforeAfter && from?.kind === "time" && anchor?.kind === "time" && (
+            <button
+              type="button"
+              onClick={() =>
+                onBeforeAfter({
+                  fileId: carry.from.fileId,
+                  shift: anchorShift(from, anchor),
+                  loop: passageLoop(anchor),
+                })
+              }
+              className={textButton}
+            >
+              Before and after
+            </button>
+          )}
+        </div>
       )}
     </li>
   );
@@ -261,6 +365,7 @@ export function Comments({
   media,
   loop = null,
   onLoop,
+  onBeforeAfter,
 }: {
   fileId: string;
   /** The file's project, whose role decides who may comment and resolve. */
@@ -271,6 +376,8 @@ export function Comments({
   loop?: Loop | null;
   /** Loop a comment's passage in the player. */
   onLoop?: (loop: Loop) => void;
+  /** Hear a carried thread's passage where it began, then here. */
+  onBeforeAfter?: (target: BeforeAfter) => void;
 }) {
   const { data, error } = useQuery(commentsQuery(fileId));
   const { guest } = useViewer();
@@ -286,6 +393,7 @@ export function Comments({
   /** With a loop set, new comments point at the looped passage unless told otherwise. */
   const [onPassage, setOnPassage] = useState(true);
   const [showResolved, setShowResolved] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
 
   const seek = (seconds: number) => {
     if (!media) return;
@@ -303,7 +411,22 @@ export function Comments({
     return { kind: "time", start, end: start };
   };
 
-  const threads = data ? threadsOf(data) : { open: [], resolved: [] };
+  const threads = data ? threadsOf(data) : { open: [], resolved: [], hidden: [] };
+  const view = (t: Thread) => (
+    <ThreadView
+      key={t.comment.id}
+      thread={t}
+      fileId={fileId}
+      me={me?.user.id}
+      onSeek={seek}
+      onLoop={onLoop}
+      loop={loop}
+      onBeforeAfter={onBeforeAfter}
+      mutations={mutations}
+      canComment={canComment}
+      canTriage={canTriage}
+    />
+  );
 
   return (
     <section aria-label="Comments" className="flex flex-col gap-4">
@@ -382,23 +505,13 @@ export function Comments({
         </div>
       )}
       {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
-      {data && threads.open.length === 0 && threads.resolved.length === 0 && (
-        <p className="m-0 text-[13px] text-ink-3">No comments yet.</p>
-      )}
-      <ul className="m-0 flex list-none flex-col p-0">
-        {threads.open.map((t) => (
-          <ThreadView
-            key={t.comment.id}
-            thread={t}
-            me={me?.user.id}
-            onSeek={seek}
-            onLoop={onLoop}
-            mutations={mutations}
-            canComment={canComment}
-            canTriage={canTriage}
-          />
-        ))}
-      </ul>
+      {data &&
+        threads.open.length === 0 &&
+        threads.resolved.length === 0 &&
+        threads.hidden.length === 0 && (
+          <p className="m-0 text-[13px] text-ink-3">No comments yet.</p>
+        )}
+      <ul className="m-0 flex list-none flex-col p-0">{threads.open.map(view)}</ul>
       {threads.resolved.length > 0 && (
         <div className="flex flex-col">
           <button
@@ -410,20 +523,22 @@ export function Comments({
             {showResolved ? "Hide" : "Show"} {threads.resolved.length} resolved
           </button>
           {showResolved && (
-            <ul className="m-0 flex list-none flex-col p-0">
-              {threads.resolved.map((t) => (
-                <ThreadView
-                  key={t.comment.id}
-                  thread={t}
-                  me={me?.user.id}
-                  onSeek={seek}
-                  onLoop={onLoop}
-                  mutations={mutations}
-                  canComment={canComment}
-                  canTriage={canTriage}
-                />
-              ))}
-            </ul>
+            <ul className="m-0 flex list-none flex-col p-0">{threads.resolved.map(view)}</ul>
+          )}
+        </div>
+      )}
+      {threads.hidden.length > 0 && (
+        <div className="flex flex-col">
+          <button
+            type="button"
+            onClick={() => setShowHidden((v) => !v)}
+            aria-expanded={showHidden}
+            className="w-fit cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+          >
+            {showHidden ? "Hide" : "Show"} {threads.hidden.length} hidden on this version
+          </button>
+          {showHidden && (
+            <ul className="m-0 flex list-none flex-col p-0">{threads.hidden.map(view)}</ul>
           )}
         </div>
       )}
@@ -438,7 +553,10 @@ export function useCommentMarkers(fileId: string): number[] {
   return [
     ...new Set(
       data
-        .filter((c) => !c.parentId && !c.resolvedAt && c.anchor?.kind === "time")
+        .filter(
+          (c) =>
+            !c.parentId && !c.resolvedAt && c.carry?.visible !== false && c.anchor?.kind === "time",
+        )
         .map((c) => (c.anchor?.kind === "time" ? c.anchor.start : 0)),
     ),
   ];

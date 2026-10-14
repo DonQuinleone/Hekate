@@ -1,5 +1,6 @@
-import type { Anchor } from "@hekate/shared";
-import type { Comment } from "./queries";
+import type { Anchor, CarryStatus } from "@hekate/shared";
+import type { Loop } from "./loop";
+import type { Comment, CommentHistory } from "./queries";
 
 export interface Thread {
   comment: Comment;
@@ -21,9 +22,14 @@ function position(anchor: Anchor | null): [number, number] {
 
 /**
  * A file's comments as threads: open ones in the order they occur in the file, whole-file
- * comments after them, resolved threads apart. Replies stay in the order they were written.
+ * comments after them, resolved threads apart, and threads carried here but hidden on
+ * this version apart again. Replies stay in the order they were written.
  */
-export function threadsOf(comments: Comment[]): { open: Thread[]; resolved: Thread[] } {
+export function threadsOf(comments: Comment[]): {
+  open: Thread[];
+  resolved: Thread[];
+  hidden: Thread[];
+} {
   const threads = new Map<string, Thread>();
   for (const c of comments) if (!c.parentId) threads.set(c.id, { comment: c, replies: [] });
   for (const c of comments) if (c.parentId) threads.get(c.parentId)?.replies.push(c);
@@ -32,9 +38,45 @@ export function threadsOf(comments: Comment[]): { open: Thread[]; resolved: Thre
     const [gb, pb] = position(b.comment.anchor);
     return ga - gb || pa - pb || a.comment.createdAt.localeCompare(b.comment.createdAt);
   });
+  const shown = ordered.filter((t) => t.comment.carry?.visible !== false);
   return {
-    open: ordered.filter((t) => !t.comment.resolvedAt),
-    resolved: ordered.filter((t) => t.comment.resolvedAt),
+    open: shown.filter((t) => !t.comment.resolvedAt),
+    resolved: shown.filter((t) => t.comment.resolvedAt),
+    hidden: ordered.filter((t) => t.comment.carry?.visible === false),
+  };
+}
+
+const hopStatus: Record<CarryStatus, string> = {
+  open: "",
+  fixed: "fixed",
+  not_fixed: "not fixed",
+  wont_fix: "won't fix",
+};
+
+/**
+ * The versions a thread has passed through, for one line under it: "V2 → V3, not fixed →
+ * V4". Null when it has never left the version it was raised on.
+ */
+export function historyLabel(history: CommentHistory | null): string | null {
+  if (!history || history.hops.length === 0) return null;
+  const steps = [
+    history.versionNumber === null ? "Raised" : `V${history.versionNumber}`,
+    ...history.hops.map((h) =>
+      hopStatus[h.status] ? `V${h.versionNumber}, ${hopStatus[h.status]}` : `V${h.versionNumber}`,
+    ),
+  ];
+  return steps.join(" → ");
+}
+
+/** A second either side of a passage, so it is heard in context: what before and after loops. */
+export const PASSAGE_ROLL = 1;
+
+/** The loop that plays a time anchor with a little run-up and run-out. */
+export function passageLoop(anchor: { start: number; end: number }, duration?: number): Loop {
+  const end = anchor.end + PASSAGE_ROLL;
+  return {
+    start: Math.max(0, anchor.start - PASSAGE_ROLL),
+    end: duration === undefined ? end : Math.min(duration, end),
   };
 }
 
