@@ -274,6 +274,15 @@ export function Player({
     }
   };
 
+  // A page opened with a loop (from its address, or a switch of version) starts at it.
+  const placed = useRef(false);
+  useEffect(() => {
+    const element = media.current;
+    if (!ready || !element || placed.current) return;
+    placed.current = true;
+    if (loop && looping) element.currentTime = loopEntry(loop, rolls);
+  }, [ready, loop, looping, rolls]);
+
   // Go round the loop. Checked every frame while playing: the media's own time updates
   // come only a few times a second, too coarse for a tight passage.
   useEffect(() => {

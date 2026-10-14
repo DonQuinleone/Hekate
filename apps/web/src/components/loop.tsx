@@ -24,7 +24,7 @@ function Band({ loop, duration, draft }: { loop: Loop; duration: number; draft?:
       aria-hidden="true"
       className={cn(
         "pointer-events-none absolute inset-y-0 border-x border-signal",
-        draft ? "bg-signal/10" : "bg-signal/15",
+        draft ? "bg-signal/5" : "bg-signal/10",
       )}
       style={{ left: `${left}%`, width: `${width}%` }}
     />
@@ -61,55 +61,58 @@ export function LoopSurface({
     return box.width > 0 ? ((event.clientX - box.left) / box.width) * duration : 0;
   };
   return (
-    <div
-      role="slider"
-      aria-label={label}
-      aria-valuemin={0}
-      aria-valuemax={duration}
-      aria-valuenow={loop?.start ?? 0}
-      aria-valuetext={
-        loop ? `Loop ${preciseTime(loop.start)} to ${preciseTime(loop.end)}` : "No loop"
-      }
-      tabIndex={-1}
-      className={cn("relative cursor-crosshair touch-none select-none", className)}
-      onPointerDown={(event) => {
-        if (event.button !== 0 || !(duration > 0)) return;
-        event.currentTarget.setPointerCapture(event.pointerId);
-        from.current = { x: event.clientX, time: timeAt(event) };
-      }}
-      onPointerMove={(event) => {
-        const start = from.current;
-        if (!start || Math.abs(event.clientX - start.x) < DRAG_THRESHOLD) return;
-        setDraft(loopFrom(start.time, timeAt(event), duration));
-      }}
-      onPointerUp={(event) => {
-        const start = from.current;
-        from.current = null;
-        if (!start) return;
-        const made =
-          Math.abs(event.clientX - start.x) >= DRAG_THRESHOLD
-            ? loopFrom(start.time, timeAt(event), duration)
-            : null;
-        setDraft(null);
-        if (made) onLoop(made);
-        else onSeek(Math.max(0, Math.min(duration, timeAt(event))));
-      }}
-      onPointerCancel={() => {
-        from.current = null;
-        setDraft(null);
-      }}
-    >
+    <div className={cn("relative", className)}>
       {children}
-      {loop && !draft && (
-        <div className={cn("pointer-events-none absolute inset-0", !active && "opacity-40")}>
-          <Band loop={loop} duration={duration} />
-        </div>
-      )}
-      {draft && (
-        <div className="pointer-events-none absolute inset-0">
-          <Band loop={draft} duration={duration} draft />
-        </div>
-      )}
+      {/* On top of what it covers, so the waveform's own seeking never runs underneath. */}
+      <div
+        role="slider"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={duration}
+        aria-valuenow={loop?.start ?? 0}
+        aria-valuetext={
+          loop ? `Loop ${preciseTime(loop.start)} to ${preciseTime(loop.end)}` : "No loop"
+        }
+        tabIndex={-1}
+        className="absolute inset-0 z-10 cursor-crosshair touch-none select-none"
+        onPointerDown={(event) => {
+          if (event.button !== 0 || !(duration > 0)) return;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          from.current = { x: event.clientX, time: timeAt(event) };
+        }}
+        onPointerMove={(event) => {
+          const start = from.current;
+          if (!start || Math.abs(event.clientX - start.x) < DRAG_THRESHOLD) return;
+          setDraft(loopFrom(start.time, timeAt(event), duration));
+        }}
+        onPointerUp={(event) => {
+          const start = from.current;
+          from.current = null;
+          if (!start) return;
+          const made =
+            Math.abs(event.clientX - start.x) >= DRAG_THRESHOLD
+              ? loopFrom(start.time, timeAt(event), duration)
+              : null;
+          setDraft(null);
+          if (made) onLoop(made);
+          else onSeek(Math.max(0, Math.min(duration, timeAt(event))));
+        }}
+        onPointerCancel={() => {
+          from.current = null;
+          setDraft(null);
+        }}
+      >
+        {loop && !draft && (
+          <div className={cn("pointer-events-none absolute inset-0", !active && "opacity-40")}>
+            <Band loop={loop} duration={duration} />
+          </div>
+        )}
+        {draft && (
+          <div className="pointer-events-none absolute inset-0">
+            <Band loop={draft} duration={duration} draft />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

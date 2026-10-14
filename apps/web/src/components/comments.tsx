@@ -15,7 +15,8 @@ import { useViewer } from "~/lib/viewer";
 import { Button } from "./ui/button";
 
 /** Lowercase time labels read better inline than the upper-case anchor labels on markers. */
-const anchorLabel = (anchor: Anchor) => formatAnchor(anchor).replace(/^0(\d:)/, "$1");
+// "00:12.500" reads as "0:12.500", at either end of a range.
+const anchorLabel = (anchor: Anchor) => formatAnchor(anchor).replace(/(^|\s)0(\d:)/g, "$1$2");
 
 function Composer({
   placeholder,
