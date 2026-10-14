@@ -68,6 +68,11 @@ export interface RunOptions {
   signal?: AbortSignal;
   /** Maximum stdout kept, in bytes; more fails the run. */
   maxOutput?: number;
+  /**
+   * Receive standard output as it arrives instead of keeping it (`maxOutput` then does not
+   * apply). The process waits while the handler runs; a handler that throws stops the run.
+   */
+  onStdout?: (chunk: Buffer) => void;
 }
 
 export interface RunResult {
@@ -101,6 +106,14 @@ export function run(command: string, args: string[], options: RunOptions = {}): 
     signal?.addEventListener("abort", onAbort, { once: true });
 
     child.stdout.on("data", (chunk: Buffer) => {
+      if (options.onStdout) {
+        try {
+          options.onStdout(chunk);
+        } catch (error) {
+          stop(error instanceof Error ? error : new Error(String(error)));
+        }
+        return;
+      }
       stdoutSize += chunk.length;
       if (stdoutSize > maxOutput) stop(new MediaToolError(`${command} produced too much output`));
       else stdout.push(chunk);

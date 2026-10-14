@@ -18,6 +18,11 @@ export const jobDefinitions = {
     data: z.object({ organisationId: z.uuid(), fileId: z.uuid() }),
     options: { retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 4 * 60 * 60 },
   },
+  /** Compute waveform peaks, per channel and at several zoom levels, for a file's audio. */
+  "media-peaks": {
+    data: z.object({ organisationId: z.uuid(), fileId: z.uuid() }),
+    options: { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 2 * 60 * 60 },
+  },
   /** Compute a blob's SHA-256 after an upload, whose chunks arrived in any order. */
   "blob-checksum": {
     data: z.object({ organisationId: z.uuid(), blobId: z.uuid() }),

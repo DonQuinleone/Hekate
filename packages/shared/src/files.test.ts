@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cleanContentType, fileKindOf, fileName } from "./files.ts";
-import { formatBytes, formatChannels, formatDuration } from "./format.ts";
+import { channelNames, formatBytes, formatChannels, formatDuration } from "./format.ts";
 
 describe("files", () => {
   it("knows a file's kind from its name first, then its type", () => {
@@ -52,5 +52,18 @@ describe("formatting for lists", () => {
     expect(formatChannels(12, "7.1.4")).toBe("7.1.4");
     expect(formatChannels(6, "6 channels")).toBe("6 ch");
     expect(formatChannels(4)).toBe("4 ch");
+  });
+
+  it("labels each channel of a layout in stream order", () => {
+    expect(channelNames(2, "stereo")).toEqual(["L", "R"]);
+    expect(channelNames(6, "5.1(side)")).toEqual(["L", "R", "C", "LFE", "Ls", "Rs"]);
+    // Plain 5.1 in FFmpeg has back surrounds, not side ones.
+    expect(channelNames(6, "5.1")).toEqual(["L", "R", "C", "LFE", "Lb", "Rb"]);
+    expect(channelNames(8, "5.1.2")).toEqual(["L", "R", "C", "LFE", "Lb", "Rb", "Ltf", "Rtf"]);
+    expect(channelNames(12, "7.1.4")).toHaveLength(12);
+    expect(channelNames(2)).toEqual(["L", "R"]);
+    expect(channelNames(4, "4 channels")).toEqual(["1", "2", "3", "4"]);
+    // A layout that does not match the count is not trusted.
+    expect(channelNames(3, "stereo")).toEqual(["1", "2", "3"]);
   });
 });

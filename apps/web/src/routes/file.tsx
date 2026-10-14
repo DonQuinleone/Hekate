@@ -40,6 +40,7 @@ function Playback({ file }: { file: FileDetail }) {
   if (!data) return <Notice>Loading the player.</Notice>;
   return (
     <Player
+      fileId={file.id}
       kind={file.kind}
       playback={data}
       info={file.mediaInfo}
