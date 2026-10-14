@@ -8,7 +8,7 @@ import { defineConfig } from "@playwright/test";
  * The visual suite: the real app, seeded with known music, captured screen by screen at
  * desktop and phone width. Every capture also has its layout and accessibility checked
  * (tests/checks.ts), and goes to Argos, which compares it with master's and asks for
- * approval on any change. Without an Argos token the captures are kept as a CI artefact.
+ * approval on any change. Without an Argos token the checks still run; nothing is compared.
  */
 const PORT = 3990;
 const state = join(import.meta.dirname, ".state");
