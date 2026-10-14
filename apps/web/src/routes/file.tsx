@@ -7,8 +7,14 @@ import {
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type ReactNode, useState } from "react";
-import { type BeforeAfter, Comments, useCommentMarkers } from "~/components/comments";
+import { type ReactNode, useEffect, useState } from "react";
+import {
+  type BeforeAfter,
+  Comments,
+  type PageComments,
+  useCommentMarkers,
+  useRegionMarkers,
+} from "~/components/comments";
 import { Compare, type CompareFocus } from "~/components/compare";
 import { DocumentViewer } from "~/components/document-viewer";
 import { mediaSummary } from "~/components/files";
@@ -17,7 +23,14 @@ import { type Crumb, PageHeader } from "~/components/page-header";
 import { Player } from "~/components/player";
 import { FileContext } from "~/components/tracks";
 import type { Loop } from "~/lib/loop";
-import { type FileDetail, fileQuery, playbackQuery, projectQuery } from "~/lib/queries";
+import { initialFocus, type PageFocus } from "~/lib/pages";
+import {
+  type FileDetail,
+  fileQuery,
+  playbackQuery,
+  projectQuery,
+  useProjectCan,
+} from "~/lib/queries";
 import { useViewer } from "~/lib/viewer";
 
 const dateFormat = new Intl.DateTimeFormat("en-GB", {
@@ -41,21 +54,36 @@ function Playback({
   onMedia,
   loop,
   onLoop,
+  pages,
+  canComment,
 }: {
   file: FileDetail;
   onMedia: (element: HTMLMediaElement | null) => void;
   loop: Loop | null;
   onLoop: (loop: Loop | null) => void;
+  pages: PageComments | undefined;
+  canComment: boolean;
 }) {
   const client = useQueryClient();
   const markers = useCommentMarkers(file.id);
+  const regions = useRegionMarkers(file.id);
   const ready = file.streamStatus === "ready";
   // Only a recording plays: asking for a document's playback would log a session for nothing.
   const plays = file.kind === "audio" || file.kind === "video";
   const { data, error } = useQuery({ ...playbackQuery(file.id), enabled: ready && plays });
-  if (file.kind === "document" || file.kind === "image") {
+  if (pages) {
     // Seen only as pages the server draws: never the file itself.
-    if (file.streamStatus === "ready") return <DocumentViewer fileId={file.id} name={file.name} />;
+    if (file.streamStatus === "ready")
+      return (
+        <DocumentViewer
+          fileId={file.id}
+          name={file.name}
+          focus={pages.focus}
+          onFocus={pages.onFocus}
+          markers={regions}
+          canDraw={canComment}
+        />
+      );
     if (file.streamStatus === "pending") return <Notice>Drawing the pages.</Notice>;
     if (file.streamStatus === "failed")
       return <Notice>This file could not be drawn as pages.</Notice>;
@@ -123,6 +151,12 @@ export function FilePage({
   /** A source comparison should bring in and play first: before, for before and after. */
   const [focus, setFocus] = useState<CompareFocus | null>(null);
   const { guest } = useViewer();
+  /** On a document: the page shown, and the region drawn or thread picked on it. */
+  const [pageFocus, setPageFocus] = useState<PageFocus>(initialFocus);
+  // Another file starts on its first page, with nothing drawn.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset whenever the file changes.
+  useEffect(() => setPageFocus(initialFocus), [fileId]);
+  const can = useProjectCan(guest || !file ? undefined : file.projectId);
   // Guests see the files of their reviews, never the project around them.
   const { data: project } = useQuery({
     ...projectQuery(file?.projectId ?? ""),
@@ -133,6 +167,15 @@ export function FilePage({
   // A guest's review decides which tools they have; members have them all.
   const allows = (tool: ReviewerTool) => !file.grant || file.grant.tools.includes(tool);
   const passage = allows("loops") ? loop : null;
+  const canComment = guest ? Boolean(file.grant?.comment) : can("comment");
+  const pages: PageComments | undefined =
+    file.kind === "document" || file.kind === "image"
+      ? {
+          focus: pageFocus,
+          onFocus: (change) => setPageFocus((f) => ({ ...f, ...change })),
+          paged: file.kind === "document",
+        }
+      : undefined;
   const comparable = !guest && file.kind === "audio" && file.streamStatus === "ready";
   /** Loop the passage and hear it from where it began; one key then flips to this version. */
   const beforeAfter = (target: BeforeAfter) => {
@@ -197,7 +240,14 @@ export function FilePage({
         {!guest && <FileContext file={file} />}
         <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
           <div className="flex min-w-0 flex-col gap-6">
-            <Playback file={file} onMedia={setMedia} loop={passage} onLoop={onLoop} />
+            <Playback
+              file={file}
+              onMedia={setMedia}
+              loop={passage}
+              onLoop={onLoop}
+              pages={pages}
+              canComment={canComment}
+            />
             {comparable && <Compare file={file} media={media} focus={focus} />}
             {file.mediaInfo?.audio && allows("meters") && (
               <Loudness
@@ -213,6 +263,7 @@ export function FilePage({
             projectId={file.projectId}
             media={media}
             loop={passage}
+            pages={file.streamStatus === "ready" ? pages : undefined}
             onBeforeAfter={comparable ? beforeAfter : undefined}
             onLoop={
               allows("loops")

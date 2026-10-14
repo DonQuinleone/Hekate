@@ -40,7 +40,8 @@ const END_TOLERANCE = 0.5;
  */
 export function anchorProblem(
   value: Anchor,
-  file: { kind: FileKind; duration?: number },
+  /** `pages` is how many pages a document was drawn with, once it has been. */
+  file: { kind: FileKind; duration?: number; pages?: number | null },
 ): string | null {
   switch (value.kind) {
     case "time":
@@ -56,6 +57,8 @@ export function anchorProblem(
       // Say where: a document's page, a video's moment. An image is one picture.
       if (file.kind === "document" && value.page === undefined) return "Say which page";
       if (file.kind === "video" && value.at === undefined) return "Say which frame";
+      if (value.page !== undefined && file.pages && value.page > file.pages)
+        return "The document has no such page";
       return null;
     case "bar":
       if (file.kind === "image" || file.kind === "other") return "Bars need a recording or a score";

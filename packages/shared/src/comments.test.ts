@@ -29,6 +29,8 @@ describe("comments", () => {
     expect(anchorProblem(time, { kind: "document" })).toMatch(/timeline/);
     const region = { kind: "region" as const, page: 2, x: 0, y: 0, width: 0.5, height: 0.5 };
     expect(anchorProblem(region, { kind: "document" })).toBeNull();
+    expect(anchorProblem(region, { kind: "document", pages: 2 })).toBeNull();
+    expect(anchorProblem(region, { kind: "document", pages: 1 })).toMatch(/no such page/);
     expect(anchorProblem(region, { kind: "audio" })).toMatch(/page or a frame/);
     expect(anchorProblem(region, { kind: "video" })).toMatch(/Only documents have pages/);
     const nowhere = { kind: "region" as const, x: 0, y: 0, width: 0.5, height: 0.5 };
