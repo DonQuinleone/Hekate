@@ -73,3 +73,7 @@ Storage is a set of named, configurable backends (local disk and any S3-compatib
 ## 018. Encryption at rest: segmented envelope encryption
 
 Every stored object is encrypted before any backend sees it: AES-256-GCM in 64 KiB segments (the STREAM construction), with a per-object data key wrapped by a per-organisation key, itself wrapped by the instance master key. Segments keep range reads cheap for audio and video seeking. Master-key rotation re-wraps organisation keys at start-up and never rewrites objects. The master key is mandatory configuration; losing it loses the stored media, so the documentation tells operators to back it up apart from the database and storage. Details in `docs/security.md`.
+
+## 019. Background jobs in PostgreSQL
+
+Background work runs on pg-boss in the app process, so self-hosting still needs only PostgreSQL. Each job type has one definition (a zod schema for its data and its retry policy) shared by senders and workers, and workers validate data again when they take a job. The worker can be turned off (`WORKER=false`) for API-only replicas. Media tools run with protocol and demuxer allow-lists, time limits and a private scratch directory (`docs/security.md`). Unreadable media is recorded as such rather than retried; infrastructure failures retry with backoff.

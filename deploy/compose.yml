@@ -16,6 +16,10 @@ services:
       MASTER_KEY: ${MASTER_KEY:?set MASTER_KEY (openssl rand -base64 32) and back it up}
     volumes:
       - media:/data
+    # Decrypted media exists only while a job runs; keep it in memory, never on disk.
+    # Raise the size for very long multitrack sessions.
+    tmpfs:
+      - /tmp/hekate-work:size=${HEKATE_WORK_SIZE:-8g},mode=0700,uid=1000,gid=1000
     depends_on:
       db: { condition: service_healthy }
 

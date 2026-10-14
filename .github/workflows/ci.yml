@@ -46,6 +46,8 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg
       - name: Start an S3-compatible server
         run: |
           archive="versitygw_${VERSITYGW_VERSION}_Linux_x86_64.tar.gz"

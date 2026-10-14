@@ -74,6 +74,15 @@ const schema = z.object({
   SMTP_URL: z.string().url().optional(),
   /** Sender address for email. */
   MAIL_FROM: z.string().default("Hekate <hekate@localhost>"),
+  /** Run background workers (media processing) in this process. Turn off for API-only replicas. */
+  WORKER: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
+  /** Media jobs run at once in this process. ffmpeg is CPU-heavy; about half the cores is a good start. */
+  WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(64).default(2),
+  /** Scratch space for decrypted media while a job runs. A tmpfs keeps it off disk. */
+  WORK_DIR: z.string().optional(),
   /** Extra origins allowed to call the API with credentials (comma separated), for example the Vite dev server. */
   TRUSTED_ORIGINS: z
     .string()
