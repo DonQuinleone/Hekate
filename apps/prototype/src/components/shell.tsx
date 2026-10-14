@@ -166,16 +166,24 @@ function AccountMenu() {
   );
 }
 
+/** One bar: the trail and the page's actions. On a phone the actions take a row of their own under the title. */
 function TopBar({ children }: { children?: ReactNode }) {
   const header = useCurrentHeader();
   return (
-    <header className="flex h-[52px] shrink-0 items-center gap-3 border-b border-hairline px-4 @3xl/app:px-6">
-      {header ? <Trail spec={header} /> : <div className="flex-1" />}
-      <div className="flex shrink-0 items-center gap-1">
-        {header?.actions}
-        {children}
-      </div>
-    </header>
+    <div className="shrink-0 border-b border-hairline">
+      <header className="flex h-[52px] items-center gap-3 px-4 @3xl/app:px-6">
+        {header ? <Trail spec={header} /> : <div className="flex-1" />}
+        <div className="flex shrink-0 items-center gap-1">
+          <span className="hidden items-center gap-1 @3xl/app:flex">{header?.actions}</span>
+          {children}
+        </div>
+      </header>
+      {header?.actions && (
+        <div className="flex items-center gap-1 overflow-x-auto px-4 pb-2 @3xl/app:hidden">
+          {header.actions}
+        </div>
+      )}
+    </div>
   );
 }
 

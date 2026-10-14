@@ -9,12 +9,14 @@ export function Frame({
   className,
   watermark,
   portrait = false,
+  thumb = false,
 }: {
   file: File;
   time: number;
   className?: string;
   watermark?: string;
   portrait?: boolean;
+  thumb?: boolean;
 }) {
   const t = time / Math.max(1, file.media.duration);
   const lamp = t > 0.28 && t < 0.34;
@@ -41,7 +43,7 @@ export function Frame({
         <div className="absolute top-[18%] left-[62%] size-[14%] rounded-full bg-signal/80 blur-xl" />
       )}
       <div className="absolute bottom-[32%] left-[34%] h-[46%] w-[12%] rounded-t-full bg-[#1a1a1c]" />
-      {t > 0.05 && t < 0.2 && (
+      {!thumb && t > 0.05 && t < 0.2 && (
         <div className="absolute inset-0 flex items-center justify-center">
           <span className="font-sans text-[clamp(16px,4cqw,40px)] font-medium tracking-[-0.02em] text-paper opacity-90">
             Opening titles

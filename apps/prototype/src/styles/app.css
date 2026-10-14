@@ -73,6 +73,10 @@
   textarea {
     font: inherit;
   }
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--hk-signal);
+  }
 }
 
 @utility label {

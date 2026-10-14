@@ -260,7 +260,7 @@ export function Waveform({
 
 /** The time ruler under the waveform. */
 export function Ruler({ duration, video = false }: { duration: number; video?: boolean }) {
-  const step = duration > 600 ? 60 : duration > 200 ? 30 : duration > 60 ? 10 : 5;
+  const step = duration > 600 ? 120 : duration > 100 ? 30 : duration > 60 ? 10 : 5;
   const ticks: number[] = [];
   for (let t = 0; t <= duration; t += step) ticks.push(t);
   return (

@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { createContext, type ReactNode, useContext, useLayoutEffect, useState } from "react";
+import { Icon } from "~/components/icons";
 
 export interface Crumb {
   label: string;
@@ -54,10 +55,23 @@ export function useCurrentHeader() {
 /** The trail and the title, inside whichever bar holds them. */
 export function Trail({ spec, compact = false }: { spec: PageHeaderSpec; compact?: boolean }) {
   const crumbs = compact ? spec.crumbs?.slice(-1) : spec.crumbs;
+  const back = spec.back ?? spec.crumbs?.at(-1)?.to;
   return (
     <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-2 text-[13px]">
+      {back && (
+        <Link
+          to={back}
+          aria-label="Back"
+          className="-ml-2 flex size-8 shrink-0 items-center justify-center rounded-control text-ink-2 no-underline hover:bg-raised hover:text-ink @3xl/app:hidden"
+        >
+          <Icon name="chevronLeft" size={16} />
+        </Link>
+      )}
       {crumbs?.map((c) => (
-        <span key={c.label + c.to} className="flex min-w-0 shrink items-center gap-2">
+        <span
+          key={c.label + c.to}
+          className="hidden min-w-0 shrink items-center gap-2 @3xl/app:flex"
+        >
           {c.to ? (
             <Link to={c.to} className="min-w-0 truncate text-ink-3 no-underline hover:text-ink">
               {c.label}
