@@ -262,43 +262,49 @@ export function createStorage(db: Database, backends: Backends, keyring: Keyring
     },
 
     async completeUpload(organisationId, session, tags) {
+      // Safe to repeat: a retry after a crash finds the blob, or the joined object, already there.
+      const [recorded] = await db
+        .select()
+        .from(blobs)
+        .where(inOrg(blobs, organisationId, eq(blobs.id, session.blobId)));
+      if (recorded) return recorded;
       const backend = backends.get(session.backend);
-      const { size } = await backend.completeMultipart(
-        session.key,
-        session.backendUploadId,
-        tags.map((tag, i) => ({ partNumber: i + 1, tag })),
-      );
-      try {
-        if (size !== encryptedSize(session.byteSize)) {
-          throw new StorageError(
-            `Upload produced ${size} bytes, expected ${encryptedSize(session.byteSize)}`,
-          );
-        }
-        const [blob] = await db
-          .insert(blobs)
-          .values({
-            id: session.blobId,
-            organisationId,
-            backend: session.backend,
-            key: session.key,
-            byteSize: session.byteSize,
-            sha256: null,
-            wrappedKey: session.wrappedKey,
-            keyVersion: session.keyVersion,
-            contentType: session.contentType,
-          })
-          .returning();
-        if (!blob) throw new Error("Blob insert returned no row");
-        return blob;
-      } catch (error) {
-        await backend.delete(session.key).catch((cleanup: unknown) => {
-          console.error(
-            `Orphaned object "${session.key}" in storage backend "${session.backend}"`,
-            cleanup,
-          );
-        });
-        throw error;
+      const expected = encryptedSize(session.byteSize);
+      const present = await backend.head(session.key);
+      const size =
+        present?.size === expected
+          ? present.size
+          : (
+              await backend.completeMultipart(
+                session.key,
+                session.backendUploadId,
+                tags.map((tag, i) => ({ partNumber: i + 1, tag })),
+              )
+            ).size;
+      if (size !== expected) {
+        await backend.delete(session.key).catch(() => undefined);
+        throw new StorageError(`Upload produced ${size} bytes, expected ${expected}`);
       }
+      await db
+        .insert(blobs)
+        .values({
+          id: session.blobId,
+          organisationId,
+          backend: session.backend,
+          key: session.key,
+          byteSize: session.byteSize,
+          sha256: null,
+          wrappedKey: session.wrappedKey,
+          keyVersion: session.keyVersion,
+          contentType: session.contentType,
+        })
+        .onConflictDoNothing();
+      const [blob] = await db
+        .select()
+        .from(blobs)
+        .where(inOrg(blobs, organisationId, eq(blobs.id, session.blobId)));
+      if (!blob) throw new Error("Blob insert returned no row");
+      return blob;
     },
 
     async abortUpload(session) {

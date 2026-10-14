@@ -3,7 +3,7 @@ import { type Database, inOrg, schema } from "@hekate/db";
 import { cleanContentType, createUploadInput, fileKindOf } from "@hekate/shared";
 import { CHUNK_SIZE, chunkCount, chunkLength, MAX_PARTS } from "@hekate/storage";
 import { zValidator } from "@hono/zod-validator";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
@@ -13,9 +13,10 @@ import { NotFound } from "../errors.ts";
 import type { Jobs } from "../jobs.ts";
 import type { Storage } from "../storage.ts";
 import type { TenantVariables } from "../tenancy.ts";
-import { sessionOf, UPLOAD_LIFETIME_MS, type UploadRow } from "../uploads.ts";
+import { sessionOf, staleClaim, UPLOAD_LIFETIME_MS, type UploadRow } from "../uploads.ts";
 
-const { uploads, uploadParts, projects, folders, files } = schema;
+const { uploads, uploadParts, projects, folders, files, accessEvents } = schema;
+type FileRow = typeof files.$inferSelect;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 const chunkParam = zValidator(
@@ -120,18 +121,25 @@ export const uploadRoutes = (
       }
       const contentType = cleanContentType(input.contentType);
       const session = await storage.beginUpload(organisationId, input.size, contentType);
-      const [row] = await db
-        .insert(uploads)
-        .values({
-          organisationId,
-          projectId: project.id,
-          folderId: input.folderId ?? null,
-          createdBy: c.var.userId,
-          name: input.name,
-          ...session,
-          expiresAt: new Date(Date.now() + UPLOAD_LIFETIME_MS),
-        })
-        .returning();
+      let row: UploadRow | undefined;
+      try {
+        [row] = await db
+          .insert(uploads)
+          .values({
+            organisationId,
+            projectId: project.id,
+            folderId: input.folderId ?? null,
+            createdBy: c.var.userId,
+            name: input.name,
+            ...session,
+            expiresAt: new Date(Date.now() + UPLOAD_LIFETIME_MS),
+          })
+          .returning();
+      } catch (error) {
+        // No row means nothing would ever find this multipart session again: discard it now.
+        await storage.abortUpload(session).catch(() => undefined);
+        throw error;
+      }
       if (!row) throw new Error("Upload insert returned no row");
       return c.json({ upload: view(row, []) }, 201);
     })
@@ -194,23 +202,94 @@ export const uploadRoutes = (
       const organisationId = c.var.organisationId;
       const { id } = c.req.valid("param");
       const row = await own(organisationId, c.var.userId, id);
+      const fileOf = async () =>
+        (
+          await db
+            .select()
+            .from(files)
+            .where(inOrg(files, organisationId, eq(files.blobId, row.blobId)))
+        )[0];
+
+      /**
+       * What follows a completed upload. Idempotent, and run again whenever a completed
+       * upload is completed again, so work lost to a failure after the file was created
+       * (the access log event, the jobs) is caught up by the client's retry.
+       */
+      const finalise = async (file: FileRow) => {
+        const [logged] = await db
+          .select({ id: accessEvents.id })
+          .from(accessEvents)
+          .where(
+            inOrg(
+              accessEvents,
+              organisationId,
+              eq(accessEvents.fileId, file.id),
+              eq(accessEvents.action, "file.upload"),
+            ),
+          )
+          .limit(1);
+        if (!logged) {
+          await audit.record(
+            organisationId,
+            await audit.member(c.var.userId),
+            {
+              action: "file.upload",
+              projectId: file.projectId,
+              fileId: file.id,
+              details: { name: file.name, size: file.byteSize, kind: file.kind },
+            },
+            requestInfo(c, trustProxy),
+          );
+        }
+        // Single-instance keys drop duplicates; the jobs themselves are idempotent too.
+        await jobs.send(
+          "blob-checksum",
+          { organisationId, blobId: file.blobId },
+          { singletonKey: file.blobId },
+        );
+        if (file.kind === "audio" || file.kind === "video") {
+          await jobs.send(
+            "media-probe",
+            { organisationId, fileId: file.id },
+            { singletonKey: file.id },
+          );
+        }
+      };
+
       if (row.status === "completed") {
-        // Completing twice (a retry after a lost response) returns the same file.
-        const [file] = await db
-          .select()
-          .from(files)
-          .where(inOrg(files, organisationId, eq(files.blobId, row.blobId)));
-        if (file) return c.json({ file }, 200);
+        // Completing again (a retry after a lost response) returns the same file.
+        const file = await fileOf();
+        if (file) {
+          await finalise(file);
+          return c.json({ file }, 200);
+        }
       }
-      assertOpen(row);
-      // Claim it, so two completions cannot race.
+      if (row.status === "open") assertOpen(row);
+      // Claim it, so two completions cannot race. A claim is a lease: one left behind by
+      // a crash or a failed request can be taken again once it is stale.
       const [claimed] = await db
         .update(uploads)
         .set({ status: "completing" })
-        .where(inOrg(uploads, organisationId, eq(uploads.id, id), eq(uploads.status, "open")))
+        .where(
+          inOrg(
+            uploads,
+            organisationId,
+            eq(uploads.id, id),
+            or(
+              eq(uploads.status, "open"),
+              and(eq(uploads.status, "completing"), lt(uploads.updatedAt, staleClaim())),
+            ),
+          ),
+        )
         .returning();
-      if (!claimed)
-        throw new HTTPException(409, { message: "This upload is already being completed" });
+      if (!claimed) {
+        throw new HTTPException(409, {
+          message:
+            row.status === "completing"
+              ? "This upload is already being completed"
+              : `This upload is ${row.status}`,
+        });
+      }
       const reopen = () =>
         db
           .update(uploads)
@@ -229,77 +308,65 @@ export const uploadRoutes = (
         });
       }
 
-      let blob: Awaited<ReturnType<Storage["completeUpload"]>>;
+      let file: FileRow | undefined;
       try {
-        blob = await storage.completeUpload(
+        // Each step is safe to repeat, so a stale claim can simply run them again.
+        const blob = await storage.completeUpload(
           organisationId,
           sessionOf(claimed),
           parts.map((p) => p.tag),
         );
+        file = await db.transaction(async (tx) => {
+          const [existing] = await tx
+            .select()
+            .from(files)
+            .where(inOrg(files, organisationId, eq(files.blobId, blob.id)));
+          const [created] = existing
+            ? [existing]
+            : await tx
+                .insert(files)
+                .values({
+                  organisationId,
+                  projectId: claimed.projectId,
+                  folderId: claimed.folderId,
+                  name: claimed.name,
+                  kind: fileKindOf(claimed.name, claimed.contentType),
+                  blobId: blob.id,
+                  contentType: claimed.contentType,
+                  byteSize: claimed.byteSize,
+                  uploadedBy: c.var.userId,
+                })
+                .returning();
+          await tx
+            .update(uploads)
+            .set({ status: "completed" })
+            .where(inOrg(uploads, organisationId, eq(uploads.id, id)));
+          await tx
+            .delete(uploadParts)
+            .where(inOrg(uploadParts, organisationId, eq(uploadParts.uploadId, id)));
+          return created;
+        });
       } catch (error) {
         await reopen();
         throw error;
       }
-
-      const kind = fileKindOf(claimed.name, claimed.contentType);
-      const file = await db.transaction(async (tx) => {
-        const [created] = await tx
-          .insert(files)
-          .values({
-            organisationId,
-            projectId: claimed.projectId,
-            folderId: claimed.folderId,
-            name: claimed.name,
-            kind,
-            blobId: blob.id,
-            contentType: claimed.contentType,
-            byteSize: claimed.byteSize,
-            uploadedBy: c.var.userId,
-          })
-          .returning();
-        await tx
-          .update(uploads)
-          .set({ status: "completed" })
-          .where(inOrg(uploads, organisationId, eq(uploads.id, id)));
-        await tx
-          .delete(uploadParts)
-          .where(inOrg(uploadParts, organisationId, eq(uploadParts.uploadId, id)));
-        return created;
-      });
       if (!file) throw new Error("File insert returned no row");
-
-      await audit.record(
-        organisationId,
-        await audit.member(c.var.userId),
-        {
-          action: "file.upload",
-          projectId: file.projectId,
-          fileId: file.id,
-          details: { name: file.name, size: file.byteSize, kind },
-        },
-        requestInfo(c, trustProxy),
-      );
-      await jobs.send("blob-checksum", { organisationId, blobId: blob.id });
-      if (kind === "audio" || kind === "video") {
-        await jobs.send(
-          "media-probe",
-          { organisationId, fileId: file.id },
-          { singletonKey: file.id },
-        );
-      }
+      await finalise(file);
       return c.json({ file }, 201);
     })
 
     .delete("/:id", idParam, async (c) => {
       const organisationId = c.var.organisationId;
       const row = await own(organisationId, c.var.userId, c.req.valid("param").id);
-      const [claimed] = await db
+      if (row.status !== "open") {
+        throw new HTTPException(409, { message: `This upload is ${row.status}` });
+      }
+      // Discard the stored parts first: if that fails, the upload stays open to try again.
+      await storage.abortUpload(sessionOf(row));
+      await db
         .update(uploads)
         .set({ status: "aborted" })
-        .where(inOrg(uploads, organisationId, eq(uploads.id, row.id), eq(uploads.status, "open")))
-        .returning();
-      if (!claimed) throw new HTTPException(409, { message: `This upload is ${row.status}` });
-      await storage.abortUpload(sessionOf(claimed));
+        .where(inOrg(uploads, organisationId, eq(uploads.id, row.id), eq(uploads.status, "open")));
       return c.body(null, 204);
     });
 };

@@ -48,8 +48,14 @@ describe.runIf(url)("api", () => {
   const storage = createStorage(db, backends, keyring);
   const audit = createAudit(db);
   const sent: { name: string; data: unknown }[] = [];
+  /** Set to make the next queue call fail, as if the queue were down. */
+  let failNextSend = false;
   const jobs = {
     send: async (name: string, data: unknown) => {
+      if (failNextSend) {
+        failNextSend = false;
+        throw new Error("queue unavailable");
+      }
       sent.push({ name, data });
       return `job-${sent.length}`;
     },
@@ -1035,6 +1041,64 @@ describe.runIf(url)("api", () => {
         const [row] = await db.select().from(schema.uploads).where(sql`id = ${stale}`);
         expect(row?.status).toBe("aborted");
         expect(await expireUploads(db, storage)).toBe(0);
+      });
+
+      it("catches up on work lost after the file was created", async () => {
+        sent.length = 0;
+        const owner = cookieOf(await setup());
+        const projectId = await newProject(owner);
+        const { upload } = await create(owner, { projectId, name: "Take 7.wav", size: 3 });
+        const id = upload?.id ?? "";
+        await putChunk(owner, id, 0, Buffer.from("abc"));
+        failNextSend = true;
+        expect((await complete(owner, id)).status).toBe(500);
+        // The retry finds the upload completed and replays what was missed, once.
+        const retry = await complete(owner, id);
+        expect(retry.status).toBe(200);
+        const { file } = (await retry.json()) as { file: { id: string } };
+        expect(sent.map((j) => j.name).sort()).toEqual(["blob-checksum", "media-probe"]);
+        await complete(owner, id);
+        const [row] = await db.select().from(schema.files).where(sql`id = ${file.id}`);
+        const logged = await audit.query(row?.organisationId ?? "", {
+          action: "file.upload",
+          limit: 10,
+        });
+        expect(logged.events.filter((e) => e.fileId === file.id)).toHaveLength(1);
+      });
+
+      it("lets a stale completion claim be retaken, but not a fresh one", async () => {
+        const owner = cookieOf(await setup());
+        const projectId = await newProject(owner);
+        const { upload } = await create(owner, { projectId, name: "Take 8.wav", size: 3 });
+        const id = upload?.id ?? "";
+        await putChunk(owner, id, 0, Buffer.from("abc"));
+        await db.update(schema.uploads).set({ status: "completing" }).where(sql`id = ${id}`);
+        expect((await complete(owner, id)).status).toBe(409);
+        await db
+          .update(schema.uploads)
+          .set({ status: "completing", updatedAt: new Date(Date.now() - 20 * 60_000) })
+          .where(sql`id = ${id}`);
+        expect((await complete(owner, id)).status).toBe(201);
+      });
+
+      it("keeps an upload open when its stored parts cannot be discarded yet", async () => {
+        const owner = cookieOf(await setup());
+        const projectId = await newProject(owner);
+        const id = (await create(owner, { projectId, name: "c.wav", size: 3 })).upload?.id ?? "";
+        await db
+          .update(schema.uploads)
+          .set({ expiresAt: new Date(Date.now() - 1000) })
+          .where(sql`id = ${id}`);
+        const unavailable = {
+          ...storage,
+          abortUpload: async () => {
+            throw new Error("storage unavailable");
+          },
+        };
+        expect(await expireUploads(db, unavailable)).toBe(0);
+        const [still] = await db.select().from(schema.uploads).where(sql`id = ${id}`);
+        expect(still?.status).toBe("open");
+        expect(await expireUploads(db, storage)).toBe(1);
       });
 
       it("uploads an empty file", async () => {

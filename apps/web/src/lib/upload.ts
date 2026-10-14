@@ -151,9 +151,21 @@ export async function uploadFile(
   let upload: UploadView | undefined;
   const previous = recall(key);
   if (previous) {
-    upload = await call<{ upload: UploadView }>(`/uploads/${previous}`)
-      .then((r) => (r.upload.status === "open" ? r.upload : undefined))
+    const found = await call<{ upload: UploadView }>(`/uploads/${previous}`)
+      .then((r) => r.upload)
       .catch(() => undefined);
+    if (found?.status === "completed") {
+      // Finished on the server, but the answer never arrived: completing again returns the file.
+      const { file: done } = await call<{ file: UploadedFile }>(`/uploads/${found.id}/complete`, {
+        method: "POST",
+        body: "{}",
+        signal,
+      });
+      remember(key, null);
+      onProgress({ sent: file.size, total: file.size, phase: "completing" });
+      return done;
+    }
+    if (found?.status === "open") upload = found;
   }
   if (!upload) {
     upload = (
