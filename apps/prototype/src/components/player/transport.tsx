@@ -247,6 +247,9 @@ export function Transport({
           playback.seek(playback.time - 5);
           break;
         case "l":
+          playback.seek(playback.time + 5);
+          break;
+        case "L":
           if (loopsAllowed) playback.setLooping(!playback.looping);
           break;
         case "i":
@@ -337,7 +340,7 @@ export function Transport({
           <button
             type="button"
             aria-pressed={playback.looping}
-            title="Loop (L); I and O set the points"
+            title="Loop (shift L); I and O set the points"
             onClick={() => playback.setLooping(!playback.looping)}
             className={cn(
               "flex h-9 items-center gap-1.5 rounded-full px-3 text-[13px] transition-colors",

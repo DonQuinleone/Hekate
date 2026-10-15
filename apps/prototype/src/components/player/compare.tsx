@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Kbd } from "~/components/label";
 import { cn } from "~/lib/cn";
+import { inField } from "~/lib/dom";
 
 export interface Source {
   id: string;
@@ -30,8 +31,7 @@ export function CompareBar({
   const [pinned, setPinned] = useState<string[]>(sources.slice(0, 2).map((s) => s.id));
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target?.closest("input, textarea, select")) return;
+      if (inField(e)) return;
       const n = Number(e.key);
       if (n >= 1 && n <= pinned.length) onCurrent(pinned[n - 1] ?? current);
     };
