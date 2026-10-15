@@ -4,19 +4,24 @@ import { Avatar, AvatarRow } from "~/components/avatar";
 import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
 import { usePageHeader } from "~/components/page-header";
+import { Property } from "~/components/property";
 import { Dot, reviewDot } from "~/components/status";
+import { Thumb } from "~/components/thumb";
 import { Button } from "~/components/ui/button";
 import { ActionMenu } from "~/components/ui/menu";
 import {
   activity,
   files as allFiles,
+  deliveryProfiles,
   type File,
   folders,
   groups,
   latestVersion,
   type Project,
   personById,
+  primaryFile,
   projectById,
+  type Review,
   reviews,
   sessions,
   type Track,
@@ -40,7 +45,7 @@ import { Empty, Refused, StateGate, useScreenState } from "~/viewer/state-gate";
 import { Soon } from "./_soon.tsx";
 
 const Panel = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <div className={cn("rounded-panel-lg border border-hairline bg-surface shadow-1", className)}>
+  <div className={cn("rounded-panel-lg border border-line bg-raised/25 shadow-1", className)}>
     {children}
   </div>
 );
@@ -72,7 +77,7 @@ function Tabs({ project, view }: { project: Project; view: string }) {
   return (
     <div
       role="tablist"
-      className="-mb-px flex items-stretch gap-0.5 overflow-x-auto border-b border-hairline"
+      className="-mx-4 flex items-stretch gap-1 overflow-x-auto border-b border-line px-4 @3xl/app:-mx-6 @3xl/app:px-6"
     >
       {tabs.map((t) => (
         <Link
@@ -82,18 +87,14 @@ function Tabs({ project, view }: { project: Project; view: string }) {
           to={t.id === "overview" ? "/projects/$projectId" : "/projects/$projectId/$view"}
           params={{ projectId: project.id, view: t.id }}
           className={cn(
-            "flex h-10 shrink-0 items-center gap-1.5 border-b px-2.5 text-[13px] font-medium no-underline",
+            "-mb-px flex h-10 shrink-0 items-center gap-1.5 border-b-2 px-2 text-[14px] font-medium transition-colors",
             view === t.id
               ? "border-ink text-ink"
               : "border-transparent text-ink-3 hover:text-ink-2",
           )}
         >
           {t.label}
-          {t.count ? (
-            <span className="tabular rounded-full bg-raised px-1.5 text-[11px] leading-[18px] text-ink-2">
-              {t.count}
-            </span>
-          ) : null}
+          {t.count ? <span className="tabular text-[12px] text-ink-3">{t.count}</span> : null}
         </Link>
       ))}
     </div>
@@ -107,42 +108,47 @@ function Overview({ project }: { project: Project }) {
   const workflow = workflows.find((w) => w.id === project.workflowId);
   const projectTracks = tracks.filter((t) => t.projectId === project.id);
   const open = reviews.filter((r) => r.projectId === project.id && r.status === "open");
-  const due = open
-    .filter((r) => r.dueAt)
-    .sort((a, b) => (a.dueAt ?? "").localeCompare(b.dueAt ?? ""));
   const recent = activity.filter((a) => a.projectId === project.id).slice(0, 8);
-  const openTasks = tasks.filter((t) => t.projectId === project.id && t.status !== "done");
+  const profileName = { music: "Music", video: "Video", general: "General" }[project.profile];
   return (
-    <div className="grid gap-8 @5xl/app:grid-cols-[minmax(0,1fr)_320px]">
+    <div className="grid gap-10 @5xl/app:grid-cols-[minmax(0,1fr)_272px]">
       <div className="flex min-w-0 flex-col gap-8">
         <section className="flex flex-col gap-2">
-          <div className="flex items-baseline gap-2">
-            <h2 className="m-0 text-[15px] font-medium">Where things stand</h2>
-            <span className="text-xs text-ink-3">{workflow?.name}</span>
-          </div>
-          <Panel>
-            <ul className="m-0 list-none p-0">
-              {projectTracks.map((t) => {
-                const v = latestVersion(t);
-                const stage = workflow?.stages.find((s) => s.status === v?.status);
-                const next = workflow?.stages.find((s) => s.after.includes(stage?.id ?? ""));
-                const waitingOn = open.find((r) => r.items.some((i) => i.trackId === t.id));
-                return (
-                  <li
-                    key={t.id}
-                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-hairline-soft px-4 py-2.5 last:border-b-0 @3xl/app:grid-cols-[minmax(0,1fr)_150px_200px_120px]"
+          <Label>
+            {project.profile === "music" ? "Tracks" : "Deliverables"} · {projectTracks.length}
+          </Label>
+          <ul className="-mx-2 flex flex-col">
+            {projectTracks.map((t) => {
+              const v = latestVersion(t);
+              const stage = workflow?.stages.find((s) => s.status === v?.status);
+              const next = workflow?.stages.find((s) => s.after.includes(stage?.id ?? ""));
+              const waitingOn = open.find((r) => r.items.some((i) => i.trackId === t.id));
+              const file = v ? primaryFile(v) : undefined;
+              return (
+                <li key={t.id}>
+                  <Link
+                    to="/tracks/$trackId"
+                    params={{ trackId: t.id }}
+                    className="group grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3.5 rounded-panel px-2 py-2 transition-colors hover:bg-raised/60 @3xl/app:grid-cols-[auto_minmax(0,1fr)_150px_200px_72px]"
                   >
-                    <Link
-                      to="/tracks/$trackId"
-                      params={{ trackId: t.id }}
-                      className="min-w-0 truncate text-[13px] font-medium text-ink no-underline hover:text-signal"
-                    >
-                      {t.name}
-                      <span className="tabular ml-2 text-xs text-ink-3">
-                        {v ? `V${v.number}` : "no versions"}
+                    {file ? (
+                      <Thumb file={file} width={48} height={32} />
+                    ) : (
+                      <span className="flex h-8 w-12 items-center justify-center rounded-[5px] border border-dashed border-line-strong text-ink-3">
+                        <Icon name="track" size={14} />
                       </span>
-                    </Link>
-                    <span className="flex items-center gap-2 text-xs text-ink-2">
+                    )}
+                    <span className="min-w-0">
+                      <span className="block truncate text-[14px] font-medium text-ink">
+                        {t.name}
+                      </span>
+                      <span className="block truncate text-[13px] text-ink-3 @3xl/app:hidden">
+                        {v
+                          ? `V${v.number} · ${v.state === "pending" ? "analysing" : v.state === "failed" ? "could not be analysed" : v.status}`
+                          : "No versions yet"}
+                      </span>
+                    </span>
+                    <span className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
                       {v ? (
                         <>
                           <Dot
@@ -151,177 +157,110 @@ function Overview({ project }: { project: Project }) {
                                 ? "approved"
                                 : v.state === "failed"
                                   ? "changes_requested"
-                                  : "in_review"
+                                  : v.state === "pending"
+                                    ? "working"
+                                    : "in_review"
                             }
                           />
-                          {v.state === "pending"
-                            ? "Analysing"
-                            : v.state === "failed"
-                              ? "Could not be analysed"
-                              : v.status}
+                          <span className="truncate">
+                            V{v.number} ·{" "}
+                            {v.state === "pending"
+                              ? "Analysing"
+                              : v.state === "failed"
+                                ? "Failed"
+                                : v.status}
+                          </span>
                         </>
                       ) : (
-                        <span className="text-ink-3">Upload the first version</span>
+                        <span className="text-ink-3">No versions yet</span>
                       )}
                     </span>
-                    <span className="hidden truncate text-xs text-ink-3 @3xl/app:block">
+                    <span className="hidden truncate text-[13px] text-ink-3 @3xl/app:block">
                       {waitingOn
-                        ? `waiting on ${
+                        ? `Waiting on ${
                             waitingOn.reviewers
                               .filter((r) => r.state !== "submitted" && r.state !== "observing")
                               .map((r) => personById(r.personId).name.split(" ")[0])
                               .join(", ") || "nobody"
                           }`
                         : next
-                          ? `next: ${next.name}`
+                          ? `Next: ${next.name}`
                           : ""}
                     </span>
-                    <span className="hidden text-right text-xs text-ink-3 @3xl/app:block">
+                    <span className="tabular text-right text-[13px] text-ink-3">
                       {v ? ago(v.uploadedAt) : ""}
                     </span>
-                  </li>
-                );
-              })}
-              {projectTracks.length === 0 && (
-                <li className="px-4 py-4 text-xs text-ink-3">No tracks yet.</li>
-              )}
-            </ul>
-          </Panel>
+                  </Link>
+                </li>
+              );
+            })}
+            {projectTracks.length === 0 && (
+              <li className="px-2 py-4 text-[13px] text-ink-3">Nothing uploaded yet.</li>
+            )}
+          </ul>
         </section>
         <section className="flex flex-col gap-2">
-          <h2 className="m-0 text-[15px] font-medium">Recent activity</h2>
-          <Panel>
-            <ul className="m-0 list-none p-0">
-              {recent.map((a) => (
-                <li
-                  key={a.id}
-                  className="flex items-center gap-3 border-b border-hairline-soft px-4 py-2.5 last:border-b-0"
+          <Label>Activity</Label>
+          <ul className="flex flex-col">
+            {recent.map((a) => (
+              <li key={a.id} className="flex items-center gap-3 py-2">
+                <Avatar personId={a.personId} size={22} />
+                <span className="min-w-0 flex-1 truncate text-[14px] text-ink-2">
+                  <span className="text-ink">{personById(a.personId).name}</span> {a.text}
+                </span>
+                <span className="tabular shrink-0 text-[13px] text-ink-3">{ago(a.at)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      </div>
+      <aside className="flex min-w-0 flex-col gap-6">
+        <section className="flex flex-col gap-0.5">
+          <Label className="mb-1.5">Properties</Label>
+          <Property name="Profile">{profileName}</Property>
+          <Property name="Workflow">{workflow?.name}</Property>
+          {project.deliveryProfile && (
+            <Property name="Delivery">
+              {deliveryProfiles.find((d) => d.id === project.deliveryProfile)?.name}
+            </Property>
+          )}
+          <Property name="People">
+            <AvatarRow personIds={project.members.map((m) => m.personId)} size={20} />
+          </Property>
+          <Property name="Your role">{viewer.roleName(project.id) ?? "Organisation"}</Property>
+        </section>
+        <section className="flex flex-col gap-2">
+          <Label>In review · {open.length}</Label>
+          <ul className="-mx-2 flex flex-col">
+            {open.map((r) => (
+              <li key={r.id}>
+                <Link
+                  to="/reviews/$reviewId"
+                  params={{ reviewId: r.id }}
+                  className="flex items-center gap-2.5 rounded-control px-2 py-1.5 transition-colors hover:bg-raised/60"
                 >
-                  <Avatar personId={a.personId} size={22} />
-                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink-2">
-                    <span className="text-ink">{personById(a.personId).name}</span> {a.text}
+                  <Dot state={reviewDot(r.status, reviewOutcome(r))} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] text-ink">{r.title}</span>
+                    <span className="block truncate text-[12px] text-ink-3">
+                      {responded(r)} of {r.reviewers.length}
+                      {r.dueAt && (
+                        <span className={cn(dueIn(r.dueAt).days < 0 && "text-signal")}>
+                          {" "}
+                          · {dueIn(r.dueAt).label}
+                        </span>
+                      )}
+                    </span>
                   </span>
-                  <span className="tabular shrink-0 text-xs text-ink-3">{ago(a.at)}</span>
-                </li>
-              ))}
-            </ul>
-          </Panel>
+                </Link>
+              </li>
+            ))}
+            {open.length === 0 && (
+              <li className="px-2 py-2 text-[13px] text-ink-3">Nothing in review.</li>
+            )}
+          </ul>
         </section>
-      </div>
-      <div className="flex min-w-0 flex-col gap-8">
-        <section className="flex flex-col gap-2">
-          <h2 className="m-0 text-[15px] font-medium">In review</h2>
-          <Panel>
-            <ul className="m-0 list-none p-0">
-              {open.map((r) => (
-                <li key={r.id} className="border-b border-hairline-soft px-4 py-3 last:border-b-0">
-                  <div className="flex items-center gap-2">
-                    <Dot state={reviewDot(r.status, reviewOutcome(r))} />
-                    <Link
-                      to="/reviews/$reviewId"
-                      params={{ reviewId: r.id }}
-                      className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink no-underline hover:text-signal"
-                    >
-                      {r.title}
-                    </Link>
-                    {r.dueAt && (
-                      <span className={cn("label", dueIn(r.dueAt).days < 0 && "text-signal")}>
-                        due {formatDate(r.dueAt)}
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-1 flex items-center gap-2 text-xs text-ink-3">
-                    <span>
-                      {kindCopy[r.kind]}
-                      {r.kind === "approval" && `, ${r.rule === "any" ? "any one" : "everyone"}`}
-                    </span>
-                    <span className="ml-auto">
-                      {responded(r)} of {r.reviewers.length} responded
-                    </span>
-                  </div>
-                  <div className="mt-1.5 flex h-1 overflow-hidden rounded-full bg-raised">
-                    <div
-                      className="bg-ink-3"
-                      style={{
-                        width: `${(responded(r) / Math.max(1, r.reviewers.length)) * 100}%`,
-                      }}
-                    />
-                  </div>
-                </li>
-              ))}
-              {open.length === 0 && (
-                <li className="px-4 py-3 text-xs text-ink-3">Nothing in review.</li>
-              )}
-            </ul>
-          </Panel>
-        </section>
-        <section className="flex flex-col gap-2">
-          <h2 className="m-0 text-[15px] font-medium">Due soon</h2>
-          <Panel>
-            <ul className="m-0 list-none p-0">
-              {[
-                ...due.map((r) => ({ at: r.dueAt as string, label: r.title, kind: "Review" })),
-                ...openTasks
-                  .filter((t) => t.dueAt)
-                  .map((t) => ({ at: `${t.dueAt}T23:59:00Z`, label: t.title, kind: "Task" })),
-              ]
-                .sort((a, b) => a.at.localeCompare(b.at))
-                .slice(0, 6)
-                .map((d) => (
-                  <li
-                    key={d.label}
-                    className="flex items-center gap-3 border-b border-hairline-soft px-4 py-2.5 last:border-b-0"
-                  >
-                    <span
-                      className={cn(
-                        "tabular w-12 shrink-0 text-xs",
-                        dueIn(d.at).days < 0 ? "text-signal" : "text-ink-3",
-                      )}
-                    >
-                      {formatDate(d.at)}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{d.label}</span>
-                    <Label>{d.kind}</Label>
-                  </li>
-                ))}
-            </ul>
-          </Panel>
-        </section>
-        {viewer.can(project.id, "upload") && (
-          <section className="flex flex-col gap-2">
-            <h2 className="m-0 text-[15px] font-medium">Processing</h2>
-            <Panel>
-              <ul className="m-0 list-none p-0">
-                {projectTracks
-                  .flatMap((t) =>
-                    t.versions.filter((v) => v.state !== "ready").map((v) => ({ t, v })),
-                  )
-                  .map(({ t, v }) => (
-                    <li
-                      key={v.id}
-                      className="flex items-center gap-3 border-b border-hairline-soft px-4 py-2.5 last:border-b-0"
-                    >
-                      {v.state === "failed" ? (
-                        <Icon name="warning" className="text-signal" />
-                      ) : (
-                        <span className="size-[8px] animate-pulse rounded-full border-[1.5px] border-ink-3" />
-                      )}
-                      <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
-                        {t.name} V{v.number}
-                      </span>
-                      <span className="text-xs text-ink-3">
-                        {v.state === "failed" ? "could not be analysed" : "analysing"}
-                      </span>
-                    </li>
-                  ))}
-                {projectTracks.every((t) => t.versions.every((v) => v.state === "ready")) && (
-                  <li className="px-4 py-3 text-xs text-ink-3">Nothing processing.</li>
-                )}
-              </ul>
-            </Panel>
-          </section>
-        )}
-      </div>
+      </aside>
     </div>
   );
 }
@@ -338,19 +277,15 @@ function TrackRow({ track }: { track: Track }) {
     : undefined;
   const comments = v ? v.variations.reduce((n, x) => n + openCommentCount(x.fileId), 0) : 0;
   return (
-    <li className="group grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-hairline-soft px-3 last:border-b-0 hover:bg-raised/50 @3xl/app:grid-cols-[auto_minmax(0,1fr)_140px_180px_90px_32px]">
+    <li className="group grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-line px-3 last:border-b-0 hover:bg-raised/60 @3xl/app:grid-cols-[auto_minmax(0,1fr)_140px_180px_90px_32px]">
       <Icon name="track" className="text-ink-2" />
-      <Link
-        to="/tracks/$trackId"
-        params={{ trackId: track.id }}
-        className="min-w-0 py-2.5 no-underline"
-      >
-        <span className="block truncate text-[13px] font-medium text-ink">{track.name}</span>
-        <span className="block truncate text-xs text-ink-3 @3xl/app:hidden">
+      <Link to="/tracks/$trackId" params={{ trackId: track.id }} className="min-w-0 py-2.5">
+        <span className="block truncate text-[14px] font-medium text-ink">{track.name}</span>
+        <span className="block truncate text-[13px] text-ink-3 @3xl/app:hidden">
           {v ? `V${v.number} · ${v.variations.map((x) => x.name).join(", ")}` : "No versions"}
         </span>
       </Link>
-      <span className="hidden items-center gap-2 text-xs text-ink-2 @3xl/app:flex">
+      <span className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
         {v ? (
           <>
             <Dot
@@ -368,12 +303,12 @@ function TrackRow({ track }: { track: Track }) {
           <span className="text-ink-3">No versions</span>
         )}
       </span>
-      <span className="hidden truncate text-xs text-ink-3 @3xl/app:block">
+      <span className="hidden truncate text-[13px] text-ink-3 @3xl/app:block">
         {v
           ? `V${v.number} · ${v.variations.map((x) => x.name).join(", ")}`
           : "Upload the first version"}
       </span>
-      <span className="tabular hidden text-xs text-ink-3 @3xl/app:flex @3xl/app:items-center @3xl/app:gap-1">
+      <span className="tabular hidden text-[13px] text-ink-3 @3xl/app:flex @3xl/app:items-center @3xl/app:gap-1">
         {comments > 0 && (
           <>
             <Icon name="comment" size={12} /> {comments}
@@ -381,7 +316,7 @@ function TrackRow({ track }: { track: Track }) {
         )}
       </span>
       <span className="flex items-center gap-2">
-        <span className="tabular text-xs text-ink-3 @3xl/app:hidden">
+        <span className="tabular text-[13px] text-ink-3 @3xl/app:hidden">
           {v ? ago(v.uploadedAt) : ""}
         </span>
         {viewer.can(track.projectId, "organise") && (
@@ -406,23 +341,19 @@ function FileRow({ file }: { file: File }) {
   const comments = openCommentCount(file.id);
   const long = useScreenState() === "long";
   return (
-    <li className="group grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-hairline-soft px-3 last:border-b-0 hover:bg-raised/50 @3xl/app:grid-cols-[auto_minmax(0,1fr)_140px_180px_90px_32px]">
+    <li className="group grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-line px-3 last:border-b-0 hover:bg-raised/60 @3xl/app:grid-cols-[auto_minmax(0,1fr)_140px_180px_90px_32px]">
       <Icon name={kindIcon[file.kind]} className="text-ink-3" />
-      <Link
-        to="/files/$fileId"
-        params={{ fileId: file.id }}
-        className="min-w-0 py-2.5 no-underline"
-      >
+      <Link to="/files/$fileId" params={{ fileId: file.id }} className="min-w-0 py-2.5">
         <span
-          className={cn("block text-[13px] text-ink", long ? "line-clamp-2 break-all" : "truncate")}
+          className={cn("block text-[14px] text-ink", long ? "line-clamp-2 break-all" : "truncate")}
         >
           {file.name}
         </span>
-        <span className="block truncate text-xs text-ink-3 @3xl/app:hidden">
+        <span className="block truncate text-[13px] text-ink-3 @3xl/app:hidden">
           {fileDetails(file)}
         </span>
       </Link>
-      <span className="hidden items-center gap-2 text-xs @3xl/app:flex">
+      <span className="hidden items-center gap-2 text-[13px] @3xl/app:flex">
         {file.state === "pending" && (
           <>
             <span className="size-[8px] animate-pulse rounded-full border-[1.5px] border-ink-3" />{" "}
@@ -437,8 +368,10 @@ function FileRow({ file }: { file: File }) {
         )}
         {file.state === "ready" && <span className="text-ink-3">{formatBytes(file.size)}</span>}
       </span>
-      <span className="hidden truncate text-xs text-ink-3 @3xl/app:block">{fileDetails(file)}</span>
-      <span className="tabular hidden items-center gap-1 text-xs text-ink-3 @3xl/app:flex">
+      <span className="hidden truncate text-[13px] text-ink-3 @3xl/app:block">
+        {fileDetails(file)}
+      </span>
+      <span className="tabular hidden items-center gap-1 text-[13px] text-ink-3 @3xl/app:flex">
         {comments > 0 && (
           <>
             <Icon name="comment" size={12} /> {comments}
@@ -446,7 +379,9 @@ function FileRow({ file }: { file: File }) {
         )}
       </span>
       <span className="flex items-center gap-2">
-        <span className="tabular text-xs text-ink-3 @3xl/app:hidden">{ago(file.uploadedAt)}</span>
+        <span className="tabular text-[13px] text-ink-3 @3xl/app:hidden">
+          {ago(file.uploadedAt)}
+        </span>
         {viewer.can(file.projectId, "organise") && (
           <ActionMenu
             label={file.name}
@@ -484,7 +419,7 @@ function Files({ project, folderId }: { project: Project; folderId: string | nul
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <nav aria-label="Folder" className="flex min-w-0 items-center gap-1 text-[13px]">
+        <nav aria-label="Folder" className="flex min-w-0 items-center gap-1 text-[14px]">
           <Link
             to="/projects/$projectId/$view"
             params={{ projectId: project.id, view: "files" }}
@@ -512,14 +447,14 @@ function Files({ project, folderId }: { project: Project; folderId: string | nul
         <div className="ml-auto flex flex-wrap items-center gap-1">
           <button
             type="button"
-            className="flex h-7 items-center gap-1.5 rounded-control px-2 text-xs text-ink-3 hover:bg-raised hover:text-ink"
+            className="flex h-7 items-center gap-1.5 rounded-control px-2 text-[13px] text-ink-3 hover:bg-raised hover:text-ink"
           >
             <Icon name="filter" size={14} />
             Filter
           </button>
           <div
             role="radiogroup"
-            className="flex rounded-control border border-hairline bg-surface p-0.5"
+            className="flex rounded-control border border-line bg-raised/40 p-0.5"
           >
             {(["list", "grid"] as const).map((v) => (
               <button
@@ -560,24 +495,24 @@ function Files({ project, folderId }: { project: Project; folderId: string | nul
       </div>
       {uploading && (
         <Panel className="p-3">
-          <div className="label mb-2">Uploading · 2 of 3</div>
+          <div className="eyebrow mb-2">Uploading · 2 of 3</div>
           {[
             { name: "The Entertainer - V1 mix.wav", pct: 100, size: "31 MB" },
             { name: "The Entertainer - V1 wet.wav", pct: 62, size: "31 MB" },
             { name: "Pine Apple Rag - V1 mix.wav", pct: 0, size: "28 MB", failed: true },
           ].map((u) => (
-            <div key={u.name} className="flex items-center gap-3 py-1.5 text-[13px]">
+            <div key={u.name} className="flex items-center gap-3 py-1.5 text-[14px]">
               <Icon name="music" className="text-ink-3" />
               <span className="min-w-0 flex-1 truncate text-ink">{u.name}</span>
               {u.failed ? (
                 <>
-                  <span className="text-xs text-signal">Connection lost</span>
-                  <button type="button" className="text-xs text-ink-2 hover:text-ink">
+                  <span className="text-[13px] text-signal">Connection lost</span>
+                  <button type="button" className="text-[13px] text-ink-2 hover:text-ink">
                     Retry
                   </button>
                 </>
               ) : (
-                <span className="tabular text-xs text-ink-3">
+                <span className="tabular text-[13px] text-ink-3">
                   {u.pct === 100 ? "Checking" : `${u.pct}% · ${u.size}`}
                 </span>
               )}
@@ -611,23 +546,23 @@ function Files({ project, folderId }: { project: Project; folderId: string | nul
             <Label>Notes</Label>
             <span />
           </div>
-          <ul className="m-0 list-none rounded-panel-lg border border-hairline bg-surface p-0 shadow-1">
+          <ul className="list-none rounded-panel-lg border border-line bg-raised/25 p-0 shadow-1">
             {subfolders.map((f) => (
               <li
                 key={f.id}
-                className="group grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-hairline-soft px-3 last:border-b-0 hover:bg-raised/50 @3xl/app:grid-cols-[auto_minmax(0,1fr)_140px_180px_90px_32px]"
+                className="group grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-line px-3 last:border-b-0 hover:bg-raised/60 @3xl/app:grid-cols-[auto_minmax(0,1fr)_140px_180px_90px_32px]"
               >
                 <Icon name="folder" className="text-ink-2" />
                 <Link
                   to="/projects/$projectId/$view"
                   params={{ projectId: project.id, view: "files" }}
                   search={{ folder: f.id }}
-                  className="min-w-0 truncate py-2.5 text-[13px] font-medium text-ink no-underline"
+                  className="min-w-0 truncate py-2.5 text-[14px] font-medium text-ink no-underline"
                 >
                   {f.name}
                 </Link>
-                <span className="hidden text-xs text-ink-3 @3xl/app:block">Folder</span>
-                <span className="hidden truncate text-xs text-ink-3 @3xl/app:block">
+                <span className="hidden text-[13px] text-ink-3 @3xl/app:block">Folder</span>
+                <span className="hidden truncate text-[13px] text-ink-3 @3xl/app:block">
                   {f.id === "f-sessions"
                     ? `${sessions.filter((s) => s.projectId === project.id).length} sessions · 26 takes`
                     : plural(
@@ -660,7 +595,7 @@ function Files({ project, folderId }: { project: Project; folderId: string | nul
           </ul>
         </>
       ) : (
-        <ul className="m-0 grid list-none grid-cols-2 gap-3 p-0 @3xl/app:grid-cols-4">
+        <ul className="grid list-none grid-cols-2 gap-3 p-0 @3xl/app:grid-cols-4">
           {[
             ...subfolders.map((f) => ({
               id: f.id,
@@ -687,22 +622,17 @@ function Files({ project, folderId }: { project: Project; folderId: string | nul
             <li key={item.id}>
               <Link
                 to={item.to}
-                className="flex flex-col gap-2 rounded-panel border border-hairline bg-surface p-3 no-underline shadow-1 hover:border-edge"
+                className="flex flex-col gap-2 rounded-panel border border-line bg-raised/40 p-3 no-underline shadow-1 hover:border-edge"
               >
                 <span className="flex aspect-[4/3] items-center justify-center rounded-control bg-sunken text-ink-3">
                   <Icon name={item.icon} size={22} />
                 </span>
-                <span className="truncate text-[13px] text-ink">{item.name}</span>
-                <span className="truncate text-xs text-ink-3">{item.sub}</span>
+                <span className="truncate text-[14px] text-ink">{item.name}</span>
+                <span className="truncate text-[13px] text-ink-3">{item.sub}</span>
               </Link>
             </li>
           ))}
         </ul>
-      )}
-      {canUpload && !empty && (
-        <p className="m-0 text-center text-xs text-ink-3">
-          Drop files anywhere on this page to upload them here.
-        </p>
       )}
     </div>
   );
@@ -722,12 +652,10 @@ function Board({ project }: { project: Project }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
-        <span className="text-xs text-ink-3">
-          {workflow?.name}: each card is where a track stands, who it waits on and what comes next.
-        </span>
+        <span className="text-[13px] text-ink-3">{workflow?.name}</span>
         <div
           role="radiogroup"
-          className="ml-auto flex rounded-control border border-hairline bg-surface p-0.5"
+          className="ml-auto flex rounded-control border border-line bg-raised/40 p-0.5"
         >
           {(["board", "timeline"] as const).map((m) => (
             <button
@@ -737,7 +665,7 @@ function Board({ project }: { project: Project }) {
               aria-checked={mode === m}
               onClick={() => setMode(m)}
               className={cn(
-                "h-6 rounded-[4px] px-2.5 text-xs capitalize",
+                "h-6 rounded-[4px] px-2.5 text-[13px] capitalize",
                 mode === m ? "bg-overlay text-ink shadow-2" : "text-ink-3 hover:text-ink",
               )}
             >
@@ -768,8 +696,8 @@ function Board({ project }: { project: Project }) {
                             : "in_review"
                       }
                     />
-                    <span className="text-[13px] font-medium text-ink">{col.name}</span>
-                    <span className="tabular text-xs text-ink-3">{cards.length}</span>
+                    <span className="text-[14px] font-medium text-ink">{col.name}</span>
+                    <span className="tabular text-[13px] text-ink-3">{cards.length}</span>
                   </div>
                   <div className="flex min-h-24 flex-col gap-2 rounded-panel-lg bg-sunken p-2">
                     {cards.map((t) => {
@@ -782,19 +710,19 @@ function Board({ project }: { project: Project }) {
                           key={t.id}
                           to="/tracks/$trackId"
                           params={{ trackId: t.id }}
-                          className="flex flex-col gap-1.5 rounded-panel border border-hairline bg-surface p-3 no-underline shadow-1 hover:border-edge"
+                          className="flex flex-col gap-1.5 rounded-panel border border-line bg-raised/40 p-3 no-underline shadow-1 hover:border-edge"
                         >
                           <span className="flex items-baseline gap-2">
-                            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
+                            <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-ink">
                               {t.name}
                             </span>
-                            <span className="tabular text-xs text-ink-3">
+                            <span className="tabular text-[13px] text-ink-3">
                               {v ? `V${v.number}` : ""}
                             </span>
                           </span>
-                          {stage && <span className="text-xs text-ink-2">{stage.name}</span>}
+                          {stage && <span className="text-[13px] text-ink-2">{stage.name}</span>}
                           {r && (
-                            <span className="flex items-center gap-2 text-xs text-ink-3">
+                            <span className="flex items-center gap-2 text-[13px] text-ink-3">
                               <AvatarRow
                                 personIds={r.reviewers
                                   .filter((x) => x.state !== "submitted")
@@ -815,10 +743,10 @@ function Board({ project }: { project: Project }) {
                             </span>
                           )}
                           {!r && next && (
-                            <span className="text-xs text-ink-3">next: {next.name}</span>
+                            <span className="text-[13px] text-ink-3">next: {next.name}</span>
                           )}
                           {v?.state === "failed" && (
-                            <span className="flex items-center gap-1 text-xs text-signal">
+                            <span className="flex items-center gap-1 text-[13px] text-signal">
                               <Icon name="warning" size={12} /> could not be analysed
                             </span>
                           )}
@@ -841,61 +769,84 @@ function Board({ project }: { project: Project }) {
 function ProjectReviews({ project }: { project: Project }) {
   const viewer = useViewer();
   const list = reviews.filter((r) => r.projectId === project.id);
+  const groups: [string, Review[]][] = [
+    ["Open", list.filter((r) => r.status === "open")],
+    ["Finished", list.filter((r) => r.status !== "open")],
+  ];
+  if (list.length === 0)
+    return (
+      <Empty
+        title="No reviews yet"
+        text="Ask people to approve or give feedback on tracks and files, or share them to listen."
+        action={
+          viewer.can(project.id, "request_reviews") ? (
+            <Button variant="primary" asChild>
+              <Link to="/reviews/new" search={{ project: project.id }}>
+                Request a review
+              </Link>
+            </Button>
+          ) : undefined
+        }
+      />
+    );
   return (
-    <div className="flex flex-col gap-3">
-      {list.length === 0 ? (
-        <Empty
-          title="No reviews yet"
-          text="Ask people to approve or give feedback on tracks and files, or share them to listen."
-          action={
-            viewer.can(project.id, "request_reviews") ? (
-              <Button variant="primary" asChild>
-                <Link to="/reviews/new" search={{ project: project.id }}>
-                  Request a review
-                </Link>
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <ul className="m-0 list-none rounded-panel-lg border border-hairline bg-surface p-0 shadow-1">
-          {list.map((r) => (
-            <li
-              key={r.id}
-              className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-hairline-soft px-4 py-3 last:border-b-0 @3xl/app:grid-cols-[auto_minmax(0,1fr)_150px_140px_110px]"
-            >
-              <Dot state={reviewDot(r.status, reviewOutcome(r))} />
-              <div className="min-w-0">
-                <Link
-                  to="/reviews/$reviewId"
-                  params={{ reviewId: r.id }}
-                  className="block truncate text-[13px] font-medium text-ink no-underline hover:text-signal"
-                >
-                  {r.title}
-                </Link>
-                <div className="truncate text-xs text-ink-3">
-                  {kindCopy[r.kind]}
-                  {r.order === "sequence" && ", in turn"} · asked by{" "}
-                  {personById(r.requestedBy).name} · {r.items.length}{" "}
-                  {r.items.length === 1 ? "item" : "items"}
-                </div>
-              </div>
-              <span className="hidden @3xl/app:block">
-                <AvatarRow personIds={r.reviewers.map((x) => x.personId)} />
-              </span>
-              <span className="tabular hidden text-xs text-ink-3 @3xl/app:block">
-                {r.dueAt ? `due ${formatDate(r.dueAt)}` : ""}
-              </span>
-              <span className="text-right text-xs text-ink-2">
-                {r.status === "cancelled"
-                  ? "Cancelled"
-                  : r.status === "completed"
-                    ? "Finished"
-                    : `${responded(r)} of ${r.reviewers.length}`}
-              </span>
-            </li>
-          ))}
-        </ul>
+    <div className="flex flex-col gap-6">
+      {groups.map(([title, rows]) =>
+        rows.length === 0 ? null : (
+          <section key={title} className="flex flex-col gap-2">
+            <Label>
+              {title} · {rows.length}
+            </Label>
+            <ul className="-mx-2 flex flex-col">
+              {rows.map((r) => {
+                const due = r.dueAt ? dueIn(r.dueAt) : null;
+                return (
+                  <li key={r.id}>
+                    <Link
+                      to="/reviews/$reviewId"
+                      params={{ reviewId: r.id }}
+                      className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3.5 rounded-panel px-2 py-2 transition-colors hover:bg-raised/60 @3xl/app:grid-cols-[auto_minmax(0,1fr)_120px_130px_130px]"
+                    >
+                      <Dot state={reviewDot(r.status, reviewOutcome(r))} />
+                      <span className="min-w-0">
+                        <span className="block truncate text-[14px] font-medium text-ink">
+                          {r.title}
+                        </span>
+                        <span className="block truncate text-[13px] text-ink-3">
+                          {kindCopy[r.kind]}
+                          {r.order === "sequence" && ", in turn"} · {personById(r.requestedBy).name}{" "}
+                          · {plural(r.items.length, "item")}
+                        </span>
+                      </span>
+                      <span className="hidden @3xl/app:block">
+                        <AvatarRow personIds={r.reviewers.map((x) => x.personId)} size={20} />
+                      </span>
+                      <span
+                        className={cn(
+                          "tabular hidden text-[13px] @3xl/app:block",
+                          r.status === "open" && due && due.days < 0 ? "text-signal" : "text-ink-3",
+                        )}
+                      >
+                        {r.dueAt ? (r.status === "open" ? due?.label : formatDate(r.dueAt)) : ""}
+                      </span>
+                      <span className="text-right text-[13px] text-ink-2">
+                        {r.status === "cancelled"
+                          ? "Cancelled"
+                          : r.status === "completed"
+                            ? reviewOutcome(r) === "approved"
+                              ? "Approved"
+                              : reviewOutcome(r) === "changes_requested"
+                                ? "Changes requested"
+                                : "Finished"
+                            : `${responded(r)} of ${r.reviewers.length} responded`}
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ),
       )}
     </div>
   );
@@ -910,11 +861,11 @@ function ProjectTasks({ project }: { project: Project }) {
     done: "Done",
   };
   return (
-    <ul className="m-0 list-none rounded-panel-lg border border-hairline bg-surface p-0 shadow-1">
+    <ul className="list-none rounded-panel-lg border border-line bg-raised/25 p-0 shadow-1">
       {list.map((t) => (
         <li
           key={t.id}
-          className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-hairline-soft px-4 py-2.5 last:border-b-0 @3xl/app:grid-cols-[auto_minmax(0,1fr)_140px_130px_90px]"
+          className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-line px-4 py-2.5 last:border-b-0 @3xl/app:grid-cols-[auto_minmax(0,1fr)_140px_130px_90px]"
         >
           <span
             className={cn(
@@ -928,13 +879,13 @@ function ProjectTasks({ project }: { project: Project }) {
           />
           <span
             className={cn(
-              "min-w-0 truncate text-[13px]",
+              "min-w-0 truncate text-[14px]",
               t.status === "done" ? "text-ink-3 line-through" : "text-ink",
             )}
           >
             {t.title}
           </span>
-          <span className="hidden items-center gap-2 text-xs text-ink-2 @3xl/app:flex">
+          <span className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
             {t.assigneeId ? (
               <>
                 <Avatar personId={t.assigneeId} size={18} />
@@ -944,10 +895,12 @@ function ProjectTasks({ project }: { project: Project }) {
               <span className="text-ink-3">Unassigned</span>
             )}
           </span>
-          <span className="hidden text-xs text-ink-3 @3xl/app:block">{statusCopy[t.status]}</span>
+          <span className="hidden text-[13px] text-ink-3 @3xl/app:block">
+            {statusCopy[t.status]}
+          </span>
           <span
             className={cn(
-              "tabular text-xs",
+              "tabular text-[13px]",
               t.dueAt && t.status !== "done" && dueIn(`${t.dueAt}T23:59:00Z`).days < 0
                 ? "text-signal"
                 : "text-ink-3",
@@ -969,31 +922,31 @@ function People({ project }: { project: Project }) {
     <div className="grid gap-8 @5xl/app:grid-cols-[minmax(0,1fr)_320px]">
       <section className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
-          <h2 className="m-0 text-[15px] font-medium">Members</h2>
+          <Label>Members</Label>
           {manage && (
             <Button variant="secondary" size="sm" className="ml-auto">
               Add member
             </Button>
           )}
         </div>
-        <ul className="m-0 list-none rounded-panel-lg border border-hairline bg-surface p-0 shadow-1">
+        <ul className="list-none rounded-panel-lg border border-line bg-raised/25 p-0 shadow-1">
           {project.members.map((m) => {
             const p = personById(m.personId);
             const role = project.roles.find((r) => r.id === m.roleId);
             return (
               <li
                 key={m.personId}
-                className="group flex items-center gap-3 border-b border-hairline-soft px-3 py-2 last:border-b-0"
+                className="group flex items-center gap-3 border-b border-line px-3 py-2 last:border-b-0"
               >
                 <Avatar personId={m.personId} size={28} />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] text-ink">{p.name}</span>
-                  <span className="block truncate text-xs text-ink-3">{p.email}</span>
+                  <span className="block truncate text-[14px] text-ink">{p.name}</span>
+                  <span className="block truncate text-[13px] text-ink-3">{p.email}</span>
                 </span>
                 {manage ? (
                   <select
                     defaultValue={m.roleId}
-                    className="h-7 rounded-control border border-transparent bg-transparent text-[13px] text-ink-2 hover:border-edge"
+                    className="h-7 rounded-control border border-transparent bg-transparent text-[14px] text-ink-2 hover:border-edge"
                   >
                     {project.roles.map((r) => (
                       <option key={r.id} value={r.id}>
@@ -1002,7 +955,7 @@ function People({ project }: { project: Project }) {
                     ))}
                   </select>
                 ) : (
-                  <span className="text-[13px] text-ink-2">{role?.name}</span>
+                  <span className="text-[14px] text-ink-2">{role?.name}</span>
                 )}
                 {manage && (
                   <ActionMenu
@@ -1014,29 +967,25 @@ function People({ project }: { project: Project }) {
             );
           })}
         </ul>
-        <p className="m-0 text-xs text-ink-3">
-          Organisation owners and admins can do everything here without a role. Roles and their
-          permissions are set in Settings.
-        </p>
       </section>
       <section className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
-          <h2 className="m-0 text-[15px] font-medium">Groups</h2>
+          <Label>Groups</Label>
           {viewer.can(project.id, "manage_reviewers") && (
             <Button variant="secondary" size="sm" className="ml-auto">
               New group
             </Button>
           )}
         </div>
-        <ul className="m-0 list-none rounded-panel-lg border border-hairline bg-surface p-0 shadow-1">
+        <ul className="list-none rounded-panel-lg border border-line bg-raised/25 p-0 shadow-1">
           {projectGroups.map((g) => (
             <li
               key={g.id}
-              className="flex items-center gap-3 border-b border-hairline-soft px-3 py-2.5 last:border-b-0"
+              className="flex items-center gap-3 border-b border-line px-3 py-2.5 last:border-b-0"
             >
               <span className="min-w-0 flex-1">
-                <span className="block text-[13px] text-ink">{g.name}</span>
-                <span className="block truncate text-xs text-ink-3">
+                <span className="block text-[14px] text-ink">{g.name}</span>
+                <span className="block truncate text-[13px] text-ink-3">
                   {g.personIds.map((id) => personById(id).name).join(", ")}
                 </span>
               </span>
@@ -1044,9 +993,6 @@ function People({ project }: { project: Project }) {
             </li>
           ))}
         </ul>
-        <p className="m-0 text-xs text-ink-3">
-          A group is one step of a review: everyone in it is asked together.
-        </p>
       </section>
     </div>
   );
@@ -1095,7 +1041,7 @@ export function ProjectPage({
   if (!project || !visible) return <Refused />;
   void section;
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-5 px-4 py-4 @3xl/app:px-6">
+    <div className="fade-in mx-auto flex max-w-[1120px] flex-col gap-6 px-4 pb-10 @3xl/app:px-6">
       <Tabs project={project} view={view} />
       <StateGate>
         {view === "overview" && <Overview project={project} />}

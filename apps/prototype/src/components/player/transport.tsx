@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { Icon } from "~/components/icons";
 import { Kbd } from "~/components/label";
+import { Dropdown, MenuList, usePopover } from "~/components/ui/menu";
+import { Switch } from "~/components/ui/toggle";
 import { cn } from "~/lib/cn";
+import { inField } from "~/lib/dom";
 import { formatClock, formatTimecode } from "~/lib/format";
 import type { Playback } from "./playback.ts";
 import type { ColourMap } from "./spectrogram.tsx";
@@ -24,22 +27,24 @@ export const defaultView: View = {
   normalised: false,
 };
 
-function Seg<T extends string>({
+export function Seg<T extends string>({
   value,
   options,
   onChange,
   label,
+  size = "sm",
 }: {
   value: T;
-  options: { id: T; label: string }[];
+  options: { id: T; label: string; hint?: string }[];
   onChange: (v: T) => void;
   label: string;
+  size?: "sm" | "md";
 }) {
   return (
     <div
       role="radiogroup"
       aria-label={label}
-      className="flex rounded-control border border-hairline bg-ground p-0.5"
+      className="flex shrink-0 rounded-control border border-line bg-ground/60 p-0.5"
     >
       {options.map((o) => (
         <button
@@ -49,11 +54,13 @@ function Seg<T extends string>({
           aria-checked={value === o.id}
           onClick={() => onChange(o.id)}
           className={cn(
-            "h-6 rounded-[4px] px-2 text-xs",
+            "flex items-center gap-1.5 rounded-[4px] transition-colors",
+            size === "sm" ? "h-6 px-2 text-[12px]" : "h-7 px-2.5 text-[13px]",
             value === o.id ? "bg-overlay text-ink shadow-2" : "text-ink-3 hover:text-ink",
           )}
         >
           {o.label}
+          {o.hint && <span className="text-ink-3">{o.hint}</span>}
         </button>
       ))}
     </div>
@@ -67,65 +74,56 @@ export function ViewMenu({
   channels,
   spectrogramAllowed,
   normaliseAllowed,
-  open,
-  onOpen,
 }: {
   view: View;
   onView: (v: View) => void;
   channels: number;
   spectrogramAllowed: boolean;
   normaliseAllowed: boolean;
-  open: boolean;
-  onOpen: (o: boolean) => void;
 }) {
+  const [open, setOpen, box] = usePopover();
+  const row = "flex items-center justify-between gap-4 text-[13px] text-ink";
   return (
-    <div className="relative">
+    <div ref={box} className="relative">
       <button
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => onOpen(!open)}
+        onClick={() => setOpen(!open)}
         className={cn(
-          "flex h-8 items-center gap-1.5 rounded-control border px-2.5 text-[13px]",
-          open
-            ? "border-edge bg-raised text-ink shadow-1"
-            : "border-transparent text-ink-2 hover:bg-raised hover:text-ink",
+          "flex h-8 items-center gap-1.5 rounded-control px-2.5 text-[13px] text-ink-2 transition-colors hover:bg-raised hover:text-ink",
+          open && "bg-raised text-ink",
         )}
       >
-        <Icon name="eye" size={14} />
+        <Icon name="waveform" size={14} />
         View
-        <Icon name="chevronDown" size={12} />
       </button>
       {open && (
         <div
           role="menu"
-          className="absolute right-0 z-30 mt-1 flex w-80 flex-col gap-3 rounded-panel border border-edge bg-overlay p-3 shadow-3"
+          className="rise-in absolute right-0 z-30 mt-1 flex w-80 flex-col gap-3.5 rounded-panel bg-overlay p-4 shadow-3"
         >
-          <label className="flex items-center justify-between text-[13px] text-ink-2">
+          <div className={row}>
             Split channels
-            <input
-              type="checkbox"
-              role="switch"
+            <Switch
+              label="Split channels"
               checked={view.split}
-              aria-checked={view.split}
-              onChange={(e) => onView({ ...view, split: e.target.checked })}
+              onChange={(v) => onView({ ...view, split: v })}
             />
-          </label>
+          </div>
           {channels > 2 && (
-            <label className="flex items-center justify-between text-[13px] text-ink-2">
+            <div className={row}>
               Hear the stereo downmix
-              <input
-                type="checkbox"
-                role="switch"
+              <Switch
+                label="Hear the stereo downmix"
                 checked={view.downmix}
-                aria-checked={view.downmix}
-                onChange={(e) => onView({ ...view, downmix: e.target.checked })}
+                onChange={(v) => onView({ ...view, downmix: v })}
               />
-            </label>
+            </div>
           )}
           {spectrogramAllowed ? (
             <>
-              <div className="flex items-center justify-between gap-3 text-[13px] text-ink-2">
+              <div className={row}>
                 Spectrogram
                 <Seg
                   value={view.spectrogram}
@@ -141,7 +139,7 @@ export function ViewMenu({
               </div>
               {view.spectrogram !== "off" && (
                 <>
-                  <div className="flex items-center justify-between gap-3 text-[13px] text-ink-2">
+                  <div className={row}>
                     Colours
                     <Seg
                       value={view.colourMap}
@@ -155,7 +153,7 @@ export function ViewMenu({
                       ]}
                     />
                   </div>
-                  <div className="flex items-center justify-between gap-3 text-[13px] text-ink-2">
+                  <div className={row}>
                     Scale
                     <Seg
                       value={view.scale}
@@ -168,40 +166,41 @@ export function ViewMenu({
                       ]}
                     />
                   </div>
-                  <button type="button" className="self-start text-xs text-ink-3 hover:text-ink">
-                    Window, FFT size, overlap, range and presets…
+                  <button
+                    type="button"
+                    className="self-start text-[13px] text-ink-3 hover:text-ink"
+                  >
+                    Window, FFT size, overlap and presets…
                   </button>
                 </>
               )}
             </>
           ) : (
-            <p className="m-0 text-xs text-ink-3">The spectrogram is not among your tools here.</p>
+            <p className="text-[13px] text-ink-3">The spectrogram is not among your tools here.</p>
           )}
           {normaliseAllowed && (
-            <label className="flex items-center justify-between text-[13px] text-ink-2">
+            <div className={row}>
               <span>
                 Normalised playback
-                <span className="block text-xs text-ink-3">
-                  Level-matched to the project's target
+                <span className="block text-[12px] text-ink-3">
+                  Level-matched to the project target
                 </span>
               </span>
-              <input
-                type="checkbox"
-                role="switch"
+              <Switch
+                label="Normalised playback"
                 checked={view.normalised}
-                aria-checked={view.normalised}
-                onChange={(e) => onView({ ...view, normalised: e.target.checked })}
+                onChange={(v) => onView({ ...view, normalised: v })}
               />
-            </label>
+            </div>
           )}
-          <p className="m-0 border-t border-hairline-soft pt-2 text-xs text-ink-3">
-            Remembered for you, on every recording.
-          </p>
         </div>
       )}
     </div>
   );
 }
+
+const iconButton =
+  "flex size-9 items-center justify-center rounded-full text-ink-2 transition-colors hover:bg-raised hover:text-ink";
 
 /** Play, seek, the readout, loop, rate, compare, volume. Keys: Space, J K L, arrows, I O, L. */
 export function Transport({
@@ -228,11 +227,9 @@ export function Transport({
   hearing?: string;
 }) {
   const [muted, setMuted] = useState(false);
-  const [rateOpen, setRateOpen] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target?.closest("input, textarea, select, [contenteditable=true]")) return;
+      if (inField(e)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       switch (e.key) {
         case " ":
@@ -282,28 +279,33 @@ export function Transport({
   }, [playback, duration, video, fps, loopsAllowed]);
   const fmt = (t: number) => (video ? formatTimecode(t, fps) : formatClock(t));
   return (
-    <div className="flex min-h-[56px] flex-wrap items-center gap-1 border-t border-hairline-soft px-3 py-2">
+    <div className="flex min-h-16 flex-wrap items-center gap-1 px-3 py-2 @3xl/app:px-4">
       <button
         type="button"
         aria-label="Back five seconds"
         title="Back (J, ←)"
         onClick={() => playback.seek(playback.time - 5)}
-        className="flex size-8 items-center justify-center rounded-control text-ink-2 hover:bg-raised hover:text-ink"
+        className={iconButton}
       >
-        <Icon name="back5" />
+        <Icon name="back5" size={18} />
       </button>
       <button
         type="button"
         aria-label={playback.playing ? "Pause" : "Play"}
         title="Play or pause (Space)"
         onClick={playback.toggle}
-        className="flex size-10 items-center justify-center rounded-full bg-ink text-ground shadow-2 hover:bg-ink/90"
+        className={cn(
+          "flex size-11 items-center justify-center rounded-full bg-ink text-ground shadow-2 transition-[transform,box-shadow] duration-150 hover:scale-105 active:scale-95",
+          playback.playing &&
+            "shadow-[0_0_0_1px_rgb(0_0_0/0.4),0_0_28px_-4px_var(--hk-signal-line)]",
+        )}
       >
         <Icon
           name={playback.playing ? "pause" : "play"}
-          size={14}
+          size={16}
           fill="currentColor"
           strokeWidth={0}
+          className={playback.playing ? "" : "ml-0.5"}
         />
       </button>
       <button
@@ -311,29 +313,26 @@ export function Transport({
         aria-label="Forward five seconds"
         title="Forward (L, →)"
         onClick={() => playback.seek(playback.time + 5)}
-        className="flex size-8 items-center justify-center rounded-control text-ink-2 hover:bg-raised hover:text-ink"
+        className={iconButton}
       >
-        <Icon name="forward5" />
+        <Icon name="forward5" size={18} />
       </button>
-      <div className="tabular ml-2 text-[15px] text-ink">
+      <div className="tabular ml-3 text-[16px] text-ink">
         {fmt(playback.time)}
         <span className="text-[13px] text-ink-3"> / {fmt(duration)}</span>
       </div>
       {video && (
-        <span className="tabular ml-2 text-xs text-ink-3">F {Math.floor(playback.time * fps)}</span>
-      )}
-      {reference && (
-        <>
-          <span className="mx-2 h-5 w-px bg-hairline" aria-hidden="true" />
-          <span className="label text-ink-2">{reference}</span>
-        </>
-      )}
-      {hearing && (
-        <span className="ml-2 hidden rounded-chip border border-hairline px-1.5 text-[11px] leading-[18px] text-ink-3 @3xl/app:inline">
-          {hearing}
+        <span className="tabular ml-3 text-[13px] text-ink-3">
+          frame {Math.floor(playback.time * fps)}
         </span>
       )}
-      <div className="ml-auto flex items-center gap-1">
+      {reference && (
+        <span className="ml-3 hidden text-[13px] text-ink-2 @3xl/app:inline">{reference}</span>
+      )}
+      {hearing && (
+        <span className="ml-3 hidden text-[12px] text-ink-3 @5xl/app:inline">{hearing}</span>
+      )}
+      <div className="ml-auto flex items-center gap-0.5">
         {loopsAllowed && (
           <button
             type="button"
@@ -341,7 +340,7 @@ export function Transport({
             title="Loop (L); I and O set the points"
             onClick={() => playback.setLooping(!playback.looping)}
             className={cn(
-              "flex h-8 items-center gap-1.5 rounded-control px-2 text-xs",
+              "flex h-9 items-center gap-1.5 rounded-full px-3 text-[13px] transition-colors",
               playback.looping
                 ? "bg-signal/15 text-signal"
                 : "text-ink-2 hover:bg-raised hover:text-ink",
@@ -355,52 +354,30 @@ export function Transport({
             )}
           </button>
         )}
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setRateOpen((o) => !o)}
-            aria-haspopup="menu"
-            aria-expanded={rateOpen}
-            className="tabular h-8 rounded-control px-2 text-xs text-ink-2 hover:bg-raised hover:text-ink"
-          >
-            {playback.rate.toFixed(playback.rate === 1 ? 1 : 2).replace(/0$/, "")}×
-          </button>
-          {rateOpen && (
-            <div
-              role="menu"
-              className="absolute right-0 z-30 mt-1 flex flex-col rounded-control border border-edge bg-overlay p-1 shadow-3"
-            >
-              {[0.5, 0.75, 1, 1.25, 1.5].map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={playback.rate === r}
-                  onClick={() => {
-                    playback.setRate(r);
-                    setRateOpen(false);
-                  }}
-                  className={cn(
-                    "tabular rounded-[4px] px-3 py-1 text-left text-xs hover:bg-raised",
-                    playback.rate === r ? "text-ink" : "text-ink-2",
-                  )}
-                >
-                  {r}×
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <Dropdown
+          value={
+            <span className="tabular">
+              {playback.rate.toFixed(playback.rate === 1 ? 1 : 2).replace(/0$/, "")}×
+            </span>
+          }
+          align="right"
+          actions={[0.5, 0.75, 1, 1.25, 1.5].map((r) => ({
+            label: `${r}×`,
+            checked: playback.rate === r,
+            onSelect: () => playback.setRate(r),
+          }))}
+          className="h-9 rounded-full"
+        />
         {compareAllowed && (
           <button
             type="button"
             aria-pressed={compareOpen}
             onClick={onCompare}
             className={cn(
-              "flex h-8 items-center gap-1.5 rounded-control border px-2.5 text-[13px]",
+              "flex h-9 items-center gap-1.5 rounded-full px-3 text-[13px] transition-colors",
               compareOpen
-                ? "border-edge bg-raised text-ink shadow-1"
-                : "border-edge bg-raised text-ink shadow-1 hover:border-edge-strong",
+                ? "bg-raised text-ink shadow-1"
+                : "text-ink-2 hover:bg-raised hover:text-ink",
             )}
           >
             <Icon name="compare" size={14} />
@@ -411,16 +388,9 @@ export function Transport({
           type="button"
           aria-label={muted ? "Unmute" : "Mute"}
           onClick={() => setMuted((m) => !m)}
-          className="flex size-8 items-center justify-center rounded-control text-ink-2 hover:bg-raised hover:text-ink"
+          className={iconButton}
         >
           <Icon name={muted ? "mute" : "volume"} />
-        </button>
-        <button
-          type="button"
-          className="tabular h-8 rounded-control px-2 text-xs text-ink-2 hover:bg-raised hover:text-ink"
-          title="Zoom: Fit, or scroll to zoom in to the sample"
-        >
-          Fit
         </button>
       </div>
     </div>
@@ -433,17 +403,19 @@ export function LoopBar({ playback }: { playback: Playback }) {
   if (!loop || !playback.looping) return null;
   const nudge = (which: "start" | "end", by: number) =>
     playback.setLoop({ ...loop, [which]: Math.max(0, loop[which] + by) });
+  const small =
+    "flex size-6 items-center justify-center rounded-chip border border-line text-ink-2 transition-colors hover:bg-raised hover:text-ink";
   return (
-    <div className="flex flex-wrap items-center gap-3 border-t border-hairline-soft px-3 py-2 text-xs text-ink-2">
-      <span className="label text-signal">Loop</span>
+    <div className="rise-in flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line px-4 py-2 text-[13px] text-ink-2">
+      <span className="font-medium text-signal">Loop</span>
       {(["start", "end"] as const).map((w) => (
-        <span key={w} className="flex items-center gap-1">
+        <span key={w} className="flex items-center gap-1.5">
           <span className="text-ink-3">{w === "start" ? "In" : "Out"}</span>
           <button
             type="button"
             aria-label={`${w} earlier`}
             onClick={() => nudge(w, -0.05)}
-            className="flex size-6 items-center justify-center rounded-chip border border-hairline hover:bg-raised"
+            className={small}
           >
             −
           </button>
@@ -452,39 +424,30 @@ export function LoopBar({ playback }: { playback: Playback }) {
             type="button"
             aria-label={`${w} later`}
             onClick={() => nudge(w, 0.05)}
-            className="flex size-6 items-center justify-center rounded-chip border border-hairline hover:bg-raised"
+            className={small}
           >
             +
           </button>
         </span>
       ))}
-      <span className="flex items-center gap-1 text-ink-3">
+      <span className="flex items-center gap-1.5 text-ink-3">
         step <Kbd>50 ms</Kbd>
       </span>
-      <span className="flex items-center gap-2 text-ink-3">
-        pre-roll{" "}
-        <input
-          type="number"
-          defaultValue={1}
-          min={0}
-          max={10}
-          step={0.5}
-          className="h-6 w-14 rounded-chip border border-hairline bg-ground px-1.5 text-xs text-ink"
-        />{" "}
-        s
-      </span>
-      <span className="flex items-center gap-2 text-ink-3">
-        post-roll{" "}
-        <input
-          type="number"
-          defaultValue={1}
-          min={0}
-          max={10}
-          step={0.5}
-          className="h-6 w-14 rounded-chip border border-hairline bg-ground px-1.5 text-xs text-ink"
-        />{" "}
-        s
-      </span>
+      {(["pre-roll", "post-roll"] as const).map((k) => (
+        <span key={k} className="flex items-center gap-1.5 text-ink-3">
+          {k}
+          <input
+            type="number"
+            defaultValue={1}
+            min={0}
+            max={10}
+            step={0.5}
+            aria-label={k}
+            className="tabular h-6 w-14 rounded-chip border border-line bg-ground/60 px-1.5 text-[13px] text-ink"
+          />
+          s
+        </span>
+      ))}
       <button
         type="button"
         onClick={() => {
@@ -498,3 +461,5 @@ export function LoopBar({ playback }: { playback: Playback }) {
     </div>
   );
 }
+
+export { MenuList };

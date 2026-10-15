@@ -43,7 +43,7 @@ function TakeRow({
   return (
     <li
       className={cn(
-        "flex items-center gap-3 border-b border-hairline-soft px-3 py-2 last:border-b-0",
+        "flex items-center gap-3 border-b border-line px-3 py-2 last:border-b-0",
         auditioning && "bg-signal/10",
       )}
     >
@@ -67,7 +67,7 @@ function TakeRow({
         <Icon name={auditioning ? "pause" : "play"} size={11} fill="currentColor" strokeWidth={0} />
       </button>
       <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-2 text-[13px] text-ink">
+        <span className="flex items-center gap-2 text-[14px] text-ink">
           <span className="tabular">T{take.number}</span>
           {take.starred && (
             <Icon name="star" size={12} className="text-signal" fill="var(--hk-signal)" />
@@ -76,14 +76,14 @@ function TakeRow({
           {used && <Label className="text-ink-2">in this version</Label>}
           {take.lifecycle === "aborted" && <Label>aborted</Label>}
         </span>
-        <span className="block truncate text-xs text-ink-3">
+        <span className="block truncate text-[13px] text-ink-3">
           {take.coverage
             ? `p. ${take.coverage.page}, bars ${take.coverage.barFrom}–${take.coverage.barTo}`
             : "no coverage"}
           {take.notes && ` · ${take.notes}`}
         </span>
       </span>
-      <span className="tabular text-xs text-ink-3">{formatDuration(take.duration)}</span>
+      <span className="tabular text-[13px] text-ink-3">{formatDuration(take.duration)}</span>
     </li>
   );
 }
@@ -119,11 +119,11 @@ export function OtherTakes({
     setSelected(next);
   };
   return (
-    <div className="mt-2 rounded-panel border border-hairline bg-ground">
-      <div className="flex items-center gap-2 border-b border-hairline-soft px-3 py-2">
+    <div className="mt-2 rounded-panel border border-line bg-ground">
+      <div className="flex items-center gap-2 border-b border-line px-3 py-2">
         <Icon name="take" size={14} className="text-ink-3" />
-        <span className="text-[13px] font-medium text-ink">Other takes for bar {bar}</span>
-        <span className="text-xs text-ink-3">{list.length} cover it</span>
+        <span className="text-[14px] font-medium text-ink">Other takes for bar {bar}</span>
+        <span className="text-[13px] text-ink-3">{list.length} cover it</span>
         <button
           type="button"
           onClick={onClose}
@@ -134,11 +134,11 @@ export function OtherTakes({
         </button>
       </div>
       {list.length === 0 ? (
-        <p className="m-0 px-3 py-3 text-xs text-ink-3">
+        <p className="px-3 py-3 text-[13px] text-ink-3">
           No take covers bar {bar}. Coverage is set in the take manager, or proposed from the audio.
         </p>
       ) : (
-        <ul className="m-0 list-none p-0">
+        <ul className="list-none p-0">
           {list.map((t) => (
             <TakeRow
               key={t.id}
@@ -158,14 +158,14 @@ export function OtherTakes({
         </ul>
       )}
       {auditioning && (
-        <p className="m-0 border-t border-hairline-soft px-3 py-1.5 text-[11px] text-ink-3">
+        <p className="border-t border-line px-3 py-1.5 text-[12px] text-ink-3">
           Auditioning at bar {bar}, looped and level-matched against the version. Press 1 and 2 to
           flip between them.
         </p>
       )}
       {canShare && list.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 border-t border-hairline-soft px-3 py-2">
-          <span className="text-xs text-ink-3">Share with this thread:</span>
+        <div className="flex flex-wrap items-center gap-2 border-t border-line px-3 py-2">
+          <span className="text-[13px] text-ink-3">Share with this thread:</span>
           {(
             [
               ["specific", "the ticked takes"],
@@ -179,7 +179,7 @@ export function OtherTakes({
               aria-pressed={mode === m}
               onClick={() => setMode(m)}
               className={cn(
-                "h-6 rounded-chip border px-2 text-xs",
+                "h-6 rounded-chip border px-2 text-[13px]",
                 mode === m
                   ? "border-edge bg-raised text-ink"
                   : "border-transparent text-ink-3 hover:text-ink",
@@ -212,19 +212,19 @@ export function SharedTakes({ ids }: { ids: string[] }) {
   const [auditioning, setAuditioning] = useState<string | null>(null);
   const list = ids.map(takeById).filter((t): t is Take => Boolean(t));
   return (
-    <div className="mt-2 rounded-panel border border-hairline bg-ground">
-      <div className="flex items-center gap-2 border-b border-hairline-soft px-3 py-1.5">
+    <div className="mt-2 rounded-panel border border-line bg-ground">
+      <div className="flex items-center gap-2 border-b border-line px-3 py-1.5">
         <Icon name="take" size={14} className="text-ink-3" />
-        <span className="text-xs text-ink-2">
+        <span className="text-[13px] text-ink-2">
           {list.length} takes shared with you for this passage
         </span>
       </div>
-      <ul className="m-0 list-none p-0">
+      <ul className="list-none p-0">
         {list.map((t) => (
           <li
             key={t.id}
             className={cn(
-              "flex items-center gap-3 border-b border-hairline-soft px-3 py-2 last:border-b-0",
+              "flex items-center gap-3 border-b border-line px-3 py-2 last:border-b-0",
               auditioning === t.id && "bg-signal/10",
             )}
           >
@@ -244,13 +244,15 @@ export function SharedTakes({ ids }: { ids: string[] }) {
                 strokeWidth={0}
               />
             </button>
-            <span className="tabular text-[13px] text-ink">Take {t.number}</span>
-            <span className="truncate text-xs text-ink-3">{t.notes}</span>
-            <span className="tabular ml-auto text-xs text-ink-3">{formatDuration(t.duration)}</span>
+            <span className="tabular text-[14px] text-ink">Take {t.number}</span>
+            <span className="truncate text-[13px] text-ink-3">{t.notes}</span>
+            <span className="tabular ml-auto text-[13px] text-ink-3">
+              {formatDuration(t.duration)}
+            </span>
           </li>
         ))}
       </ul>
-      <p className="m-0 px-3 py-1.5 text-[11px] text-ink-3">
+      <p className="px-3 py-1.5 text-[12px] text-ink-3">
         Those with the take manager see every take:{" "}
         <Link
           to="/sessions/$sessionId"

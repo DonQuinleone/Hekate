@@ -52,7 +52,7 @@ export function Loading({ rows = 6 }: { rows?: number }) {
       {Array.from({ length: rows }, (_, i) => (
         <div
           key={String(i)}
-          className="h-[34px] animate-pulse rounded-control bg-surface"
+          className="h-9 animate-pulse rounded-control bg-raised/60"
           style={{ width: `${[72, 48, 64, 40, 58, 52][i % 6]}%`, animationDelay: `${i * 80}ms` }}
         />
       ))}
@@ -72,11 +72,11 @@ export function Failed({
       <span className="flex size-8 items-center justify-center rounded-full border border-signal/60 text-signal">
         <Icon name="close" size={14} />
       </span>
-      <h2 className="m-0 text-[15px] font-medium">{title}</h2>
-      <p className="m-0 text-ink-2">{text}</p>
+      <h2 className="text-[16px] font-medium">{title}</h2>
+      <p className="text-ink-2">{text}</p>
       <button
         type="button"
-        className="h-8 rounded-control border border-edge bg-raised px-3 text-[13px] text-ink shadow-1"
+        className="h-8 rounded-control border border-edge bg-raised px-3 text-[14px] text-ink shadow-1"
       >
         Try again
       </button>
@@ -93,8 +93,8 @@ export function Refused({
 }) {
   return (
     <div className="mx-auto flex max-w-md flex-col items-start gap-3 px-6 py-16">
-      <h2 className="m-0 text-[15px] font-medium">{title}</h2>
-      <p className="m-0 text-ink-2">{text}</p>
+      <h2 className="text-[16px] font-medium">{title}</h2>
+      <p className="text-ink-2">{text}</p>
     </div>
   );
 }
@@ -110,9 +110,9 @@ export function Empty({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center gap-3 rounded-panel-lg border border-edge border-dashed px-6 py-14 text-center">
-      <h2 className="m-0 text-[15px] font-medium">{title}</h2>
-      {text && <p className="m-0 max-w-sm text-ink-2">{text}</p>}
+    <div className="flex flex-col items-center gap-3 rounded-panel-lg border border-dashed border-line-strong px-6 py-16 text-center">
+      <h2 className="text-[16px] font-medium">{title}</h2>
+      {text && <p className="max-w-sm text-ink-2">{text}</p>}
       {action && <div className="mt-1">{action}</div>}
     </div>
   );

@@ -56,7 +56,7 @@ export function Frame({
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 flex items-end justify-end p-3"
         >
-          <span className="font-mono text-[10px] tracking-[0.2em] text-paper/40">{watermark}</span>
+          <span className="font-sans text-[11px] tracking-[0.2em] text-paper/40">{watermark}</span>
         </div>
       )}
     </div>
@@ -77,7 +77,7 @@ export function Filmstrip({
   return (
     <div className="relative mt-2">
       <div
-        className="flex h-12 cursor-crosshair overflow-hidden rounded-control border border-hairline-soft"
+        className="flex h-12 cursor-crosshair overflow-hidden rounded-control border border-line"
         onPointerDown={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
           playback.seek(((e.clientX - r.left) / r.width) * file.media.duration);

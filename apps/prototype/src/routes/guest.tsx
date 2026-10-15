@@ -12,8 +12,8 @@ export function GuestHomePage() {
   usePageHeader({ title: "Your reviews" });
   const mine = viewer.reviews();
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6 @3xl/app:px-6">
-      <p className="m-0 text-ink-2">{organisation.name} asked you to look at these.</p>
+    <div className="fade-in mx-auto flex max-w-[760px] flex-col gap-6 px-4 py-8 @3xl/app:px-8">
+      <p className="text-ink-2">{organisation.name} asked you to look at these.</p>
       <StateGate
         empty={
           <Empty
@@ -22,7 +22,7 @@ export function GuestHomePage() {
           />
         }
       >
-        <ul className="m-0 flex list-none flex-col rounded-panel-lg border border-hairline bg-surface p-0 shadow-1">
+        <ul className="flex list-none flex-col rounded-panel-lg border border-line bg-raised/40 p-0 shadow-1">
           {mine.map((r) => {
             const me = viewer.reviewerIn(r);
             const outcome = reviewOutcome(r);
@@ -33,22 +33,22 @@ export function GuestHomePage() {
             return (
               <li
                 key={r.id}
-                className="flex items-center gap-4 border-b border-hairline-soft px-4 py-3 last:border-b-0"
+                className="flex items-center gap-4 rounded-panel px-3 py-3 transition-colors hover:bg-raised/60"
               >
                 <Dot state={reviewDot(r.status, outcome)} />
                 <div className="min-w-0 flex-1">
                   {closed ? (
-                    <span className="text-[13px] font-medium text-ink-2">{r.title}</span>
+                    <span className="text-[14px] font-medium text-ink-2">{r.title}</span>
                   ) : (
                     <Link
                       to="/g/reviews/$reviewId"
                       params={{ reviewId: r.id }}
-                      className="text-[13px] font-medium text-ink no-underline hover:text-signal"
+                      className="text-[14px] font-medium text-ink no-underline hover:text-signal"
                     >
                       {r.title}
                     </Link>
                   )}
-                  <div className="truncate text-xs text-ink-3">
+                  <div className="truncate text-[13px] text-ink-3">
                     {r.kind === "approval"
                       ? "Approval"
                       : r.kind === "feedback"

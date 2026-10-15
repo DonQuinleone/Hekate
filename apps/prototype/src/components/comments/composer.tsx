@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Icon } from "~/components/icons";
 import { Kbd } from "~/components/label";
 import { Button } from "~/components/ui/button";
+import { Dropdown } from "~/components/ui/menu";
 import { categories } from "~/data";
 import { cn } from "~/lib/cn";
 import { formatClock, formatTimecode } from "~/lib/format";
@@ -15,7 +16,10 @@ export interface References {
   beat: boolean;
 }
 
-/** The comment box: where it points, what it refers to, what it says. */
+const smallField =
+  "tabular h-7 rounded-chip border border-line bg-ground/60 px-2 text-[12px] text-ink transition-colors placeholder:text-ink-3 focus:border-edge-strong focus:outline-none";
+
+/** The comment box: pinned to the playhead, the page or the whole file; what it refers to; what it says. */
 export function Composer({
   playback,
   kind,
@@ -39,36 +43,43 @@ export function Composer({
 }) {
   const [target, setTarget] = useState<Target>(kind === "media" ? "playhead" : "page");
   const [body, setBody] = useState("");
+  const [focused, setFocused] = useState(false);
   const fmt = (t: number) => (video ? formatTimecode(t, fps) : formatClock(t));
   if (disabledReason) {
     return (
-      <p className="m-0 border-t border-hairline-soft px-4 py-3 text-xs text-ink-3">
-        {disabledReason}
-      </p>
+      <p className="border-t border-line px-4 py-3 text-[13px] text-ink-3">{disabledReason}</p>
     );
   }
-  const chips: { id: Target; label: string }[] =
+  const loop = playback?.loop && playback.looping ? playback.loop : null;
+  const targets: { id: Target; label: string }[] =
     kind === "media"
       ? [
-          { id: "playhead", label: `At ${playback ? fmt(playback.time) : "playhead"}` },
-          {
-            id: "range",
-            label:
-              playback?.loop && playback.looping
-                ? `${formatClock(playback.loop.start, false)}–${formatClock(playback.loop.end, false)}`
-                : "Range",
-          },
-          { id: "whole", label: "Whole file" },
+          { id: "playhead", label: "At the playhead" },
+          { id: "range", label: loop ? "Over the loop" : "Over a range (drag on the waveform)" },
+          { id: "whole", label: "The whole file" },
         ]
       : [
-          { id: "region", label: "Drag a region" },
+          { id: "region", label: "A region (drag on the page)" },
           { id: "page", label: `Page ${page ?? 1}` },
-          { id: "whole", label: "Whole file" },
+          { id: "whole", label: "The whole file" },
         ];
+  const where =
+    target === "playhead" && playback
+      ? fmt(playback.time)
+      : target === "range"
+        ? loop
+          ? `${formatClock(loop.start, false)}–${formatClock(loop.end, false)}`
+          : "Range"
+        : target === "whole"
+          ? "Whole file"
+          : target === "page"
+            ? `Page ${page ?? 1}`
+            : "Region";
   const anyRef = references.page || references.bar || references.beat;
+  const open = focused || body.length > 0;
   return (
     <form
-      className="flex flex-col gap-2 border-t border-hairline-soft bg-surface px-3 py-3"
+      className="flex flex-col gap-2 border-t border-line px-3 py-3"
       onSubmit={(e) => {
         e.preventDefault();
         if (!body.trim()) return;
@@ -76,99 +87,88 @@ export function Composer({
         setBody("");
       }}
     >
-      <div className="flex flex-wrap items-center gap-1">
-        {chips.map((c) => (
-          <button
-            key={c.id}
-            type="button"
-            aria-pressed={target === c.id}
-            onClick={() => setTarget(c.id)}
-            className={cn(
-              "tabular h-7 rounded-full border px-2.5 text-xs",
-              target === c.id
-                ? "border-signal/60 bg-signal/10 text-ink"
-                : "border-hairline text-ink-3 hover:border-edge hover:text-ink",
-            )}
-          >
-            {c.label}
-          </button>
-        ))}
-      </div>
-      {anyRef && (
-        <div className="flex flex-wrap items-center gap-2">
-          {references.page && (
-            <input
-              aria-label="Page"
-              placeholder="Page"
-              className="tabular h-7 w-16 rounded-chip border border-hairline bg-ground px-2 text-xs text-ink placeholder:text-ink-3"
-            />
-          )}
-          {references.bar && (
-            <input
-              aria-label="Bar or bars"
-              placeholder="Bar, or 9-12"
-              className="tabular h-7 w-24 rounded-chip border border-hairline bg-ground px-2 text-xs text-ink placeholder:text-ink-3"
-            />
-          )}
-          {references.beat && (
-            <input
-              aria-label="Beat"
-              placeholder="Beat"
-              className="tabular h-7 w-14 rounded-chip border border-hairline bg-ground px-2 text-xs text-ink placeholder:text-ink-3"
-            />
-          )}
-          <span className="text-[11px] text-ink-3">as printed; 0 for an upbeat</span>
-        </div>
-      )}
-      <div className="flex items-end gap-2">
+      <div className="flex items-end gap-2 rounded-panel border border-line bg-ground/50 p-1.5 pl-2 shadow-1 transition-colors focus-within:border-edge-strong">
+        <Dropdown
+          size="sm"
+          value={<span className="tabular font-medium text-signal">{where}</span>}
+          actions={targets.map((t) => ({
+            label: t.label,
+            checked: target === t.id,
+            onSelect: () => setTarget(t.id),
+          }))}
+          className="mb-0.5 shrink-0 px-1.5"
+        />
         <textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           onKeyDown={(e) => {
             if ((e.metaKey || e.ctrlKey) && e.key === "Enter")
               (e.currentTarget.form as HTMLFormElement | null)?.requestSubmit();
           }}
-          rows={2}
-          placeholder={target === "whole" ? "Comment on the whole file" : "Comment"}
-          className="min-h-[44px] flex-1 resize-y rounded-control border border-edge bg-ground px-3 py-2 text-[13px] text-ink placeholder:text-ink-3 focus:border-ink-3 focus:outline-none"
+          rows={open ? 2 : 1}
+          placeholder="Write a comment"
+          className="min-h-8 flex-1 resize-none bg-transparent py-1.5 text-[14px] leading-5 text-ink placeholder:text-ink-3 focus:outline-none"
         />
         <Button
           type="submit"
-          variant="primary"
+          variant={body.trim() ? "primary" : "ghost"}
           size="icon"
           aria-label="Post comment"
           disabled={!body.trim()}
-          className="size-9 shrink-0"
+          className="size-8 shrink-0 rounded-full"
         >
           <Icon name="send" size={14} />
         </Button>
       </div>
-      <div className="flex items-center gap-2 text-[11px] text-ink-3">
-        {canCategorise && (
-          <select
-            aria-label="Category"
-            defaultValue=""
-            className="h-6 rounded-chip border border-hairline bg-ground px-1.5 text-[11px] text-ink-2"
+      {open && (
+        <div className="rise-in flex flex-wrap items-center gap-2 px-0.5 text-[12px] text-ink-3">
+          {anyRef && (
+            <>
+              {references.page && (
+                <input aria-label="Page" placeholder="Page" className={cn(smallField, "w-16")} />
+              )}
+              {references.bar && (
+                <input
+                  aria-label="Bar or bars"
+                  placeholder="Bar, or 9–12"
+                  className={cn(smallField, "w-24")}
+                />
+              )}
+              {references.beat && (
+                <input aria-label="Beat" placeholder="Beat" className={cn(smallField, "w-14")} />
+              )}
+            </>
+          )}
+          {canCategorise && (
+            <select aria-label="Category" defaultValue="" className={cn(smallField, "text-ink-2")}>
+              <option value="">No category</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            type="button"
+            className="flex h-7 items-center gap-1 rounded-chip px-1.5 hover:bg-raised hover:text-ink"
           >
-            <option value="">No category</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        )}
-        <button type="button" className="hover:text-ink">
-          @ mention
-        </button>
-        <button type="button" className="hover:text-ink">
-          Attach a file
-        </button>
-        <span className="ml-auto flex items-center gap-1">
-          <Kbd>⌘</Kbd>
-          <Kbd>↵</Kbd> posts
-        </span>
-      </div>
+            @ Mention
+          </button>
+          <button
+            type="button"
+            className="flex h-7 items-center gap-1 rounded-chip px-1.5 hover:bg-raised hover:text-ink"
+          >
+            <Icon name="link" size={12} /> Attach
+          </button>
+          <span className="ml-auto flex items-center gap-1">
+            <Kbd>⌘</Kbd>
+            <Kbd>↵</Kbd>
+          </span>
+        </div>
+      )}
     </form>
   );
 }

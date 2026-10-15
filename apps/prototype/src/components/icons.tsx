@@ -68,6 +68,14 @@ const paths = {
   stop: "M4 4 H12 V12 H4 Z",
   record: "M8 4 a4 4 0 1 1 -0.01 0",
   warning: "M8 2.5 L14 13 H2 Z M8 7 V9.5 M8 11.5 h0.01",
+  inbox: "M2.5 9 L4 3.5 H12 L13.5 9 V12.5 H2.5 Z M2.5 9 H6 L7 10.5 H9 L10 9 H13.5",
+  layoutRight: "M2.5 3 H13.5 V13 H2.5 Z M10 3 V13",
+  layoutBottom: "M2.5 3 H13.5 V13 H2.5 Z M2.5 9.5 H13.5",
+  layoutHide: "M2.5 3 H13.5 V13 H2.5 Z M10 3 V13 M11 6.5 L12.5 8 L11 9.5",
+  sort: "M3 4.5 H13 M3 8 H10 M3 11.5 H7",
+  chevronUp: "M3 10 L8 5 L13 10",
+  waveform: "M2 8 V8 M4.5 5 V11 M7 3 V13 M9.5 6 V10 M12 4.5 V11.5 M14 8 V8",
+  arrowRight: "M3 8 H13 M9 4 L13 8 L9 12",
 } as const;
 
 export type IconName = keyof typeof paths;

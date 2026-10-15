@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Icon } from "~/components/icons";
-import { Label } from "~/components/label";
+import { Button } from "~/components/ui/button";
+import { Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { type Comment, categories, type Project, personById } from "~/data";
 import { cn } from "~/lib/cn";
@@ -29,7 +30,9 @@ export interface ThreadProps {
   onSelect: () => void;
 }
 
-/** One thread: its anchor and reference, the comment, replies, and what the viewer may do with it. */
+const tag = "rounded-chip bg-raised px-1.5 text-[12px] leading-5 text-ink-3";
+
+/** One thread: who, where, what, the replies, and what the viewer may do with it. */
 export function Thread({
   comment,
   replies,
@@ -54,15 +57,9 @@ export function Thread({
   const category = categories.find((c) => c.id === comment.categoryId);
   const carry = comment.carries?.find((c) => c.versionNumber === versionNumber);
   const carriedFrom = comment.carries?.[0]?.versionNumber;
-  const refs = project.references;
-  const reference = formatReference(comment.reference, refs);
+  const reference = formatReference(comment.reference, project.references);
   const anchorText =
-    comment.anchor.kind === "whole"
-      ? reference
-        ? ""
-        : "WHOLE FILE"
-      : formatAnchor(comment.anchor, { video, fps });
-  const chip = [anchorText, reference].filter(Boolean).join(" · ");
+    comment.anchor.kind === "whole" ? "" : formatAnchor(comment.anchor, { video, fps });
   const canTriage = access.triage;
   const mine = comment.authorId === personId;
   const seekTo = () => {
@@ -87,103 +84,90 @@ export function Thread({
     playback.seek(Math.max(0, start - 1));
   };
   const bar = comment.reference?.bar;
+  const action = "rounded-chip px-1 text-[12px] text-ink-3 transition-colors hover:text-ink";
   return (
     <article
       aria-current={active ? "true" : undefined}
+      onClick={onSelect}
       className={cn(
-        "rounded-panel border px-3 pt-3 pb-2",
-        active ? "border-edge bg-overlay shadow-2" : "border-transparent hover:bg-raised/60",
-        resolved && !active && "opacity-70",
+        "group/thread relative flex flex-col gap-1.5 rounded-panel px-3 py-2.5 transition-colors duration-150",
+        active ? "bg-raised shadow-1" : "hover:bg-raised/50",
+        resolved && !active && "opacity-60",
       )}
     >
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        {number !== null ? (
-          <button
-            type="button"
-            onClick={seekTo}
-            aria-label={`Comment ${number}, go to it`}
-            className="tabular flex size-[17px] shrink-0 items-center justify-center rounded-full bg-signal text-[10px] font-medium text-ground"
-          >
-            {number}
-          </button>
-        ) : (
-          <span className="flex size-[17px] shrink-0 items-center justify-center text-ink-3">
-            <Icon name="check" size={12} />
-          </span>
-        )}
-        {chip ? (
-          <button
-            type="button"
-            onClick={seekTo}
-            className={cn("label truncate hover:text-ink", active ? "text-ink" : "text-ink-2")}
-          >
-            {chip}
-          </button>
-        ) : (
-          <Label>Whole file</Label>
-        )}
-        {comment.channel && <Label className="text-ink-3">{comment.channel}</Label>}
-        <span className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-ink-3">
-          <Avatar personId={comment.authorId} size={18} />
-          <span className="hidden @md/app:inline">
-            {isGuest && !mine ? author.name.split(" ")[0] : author.name}
-          </span>
-          <span>{ago(comment.createdAt)}</span>
+      {active && (
+        <span
+          aria-hidden="true"
+          className="absolute top-3 bottom-3 left-0 w-0.5 rounded-full bg-signal"
+        />
+      )}
+      <div className="flex items-center gap-2">
+        <Avatar personId={comment.authorId} size={22} />
+        <span className="truncate text-[13px] font-medium text-ink">
+          {isGuest && !mine ? author.name.split(" ")[0] : author.name}
+        </span>
+        <span className="tabular text-[12px] text-ink-3">{ago(comment.createdAt)}</span>
+        <span className="ml-auto flex items-center gap-1">
+          {number !== null ? (
+            <span className="tabular text-[12px] text-ink-3">#{number}</span>
+          ) : (
+            <Icon name="check" size={13} className="text-ink-3" />
+          )}
         </span>
       </div>
-      {(category ||
-        comment.deferredToStage ||
-        carriedFrom !== undefined ||
-        comment.assigneeId ||
-        comment.todo) && (
-        <div className="mt-1.5 ml-[25px] flex flex-wrap items-center gap-1.5">
-          {category && (
-            <span className="rounded-chip border border-hairline px-1.5 text-[11px] leading-[18px] text-ink-2">
-              {category.name}
-            </span>
-          )}
-          {comment.deferredToStage && (
-            <span className="rounded-chip bg-raised px-1.5 text-[11px] leading-[18px] text-ink-3">
-              deferred to {comment.deferredToStage}
-            </span>
-          )}
-          {carriedFrom !== undefined && versionNumber !== null && carriedFrom !== versionNumber && (
-            <span className="rounded-chip bg-raised px-1.5 text-[11px] leading-[18px] text-ink-3">
-              carried from V{carriedFrom}
-            </span>
-          )}
-          {comment.assigneeId && (
-            <span className="flex items-center gap-1 rounded-chip bg-raised px-1.5 text-[11px] leading-[18px] text-ink-3">
-              <Avatar personId={comment.assigneeId} size={12} />{" "}
-              {personById(comment.assigneeId).name.split(" ")[0]}
-            </span>
-          )}
-          {comment.todo && (
-            <span
-              className={cn(
-                "rounded-chip px-1.5 text-[11px] leading-[18px]",
-                comment.todo.done
-                  ? "bg-raised text-ink-3 line-through"
-                  : "border border-signal/50 text-signal",
-              )}
-            >
-              to do
-            </span>
-          )}
-        </div>
-      )}
-      <p className="m-0 mt-1 ml-[25px] text-[13px] leading-[19px] text-ink">{comment.body}</p>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {anchorText && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              seekTo();
+            }}
+            className="tabular rounded-chip bg-signal/15 px-1.5 text-[12px] leading-5 font-medium text-signal transition-colors hover:bg-signal/25"
+          >
+            {anchorText}
+          </button>
+        )}
+        {reference && <span className={cn(tag, "text-ink-2")}>{reference}</span>}
+        {!anchorText && !reference && <span className={tag}>Whole file</span>}
+        {comment.channel && <span className={tag}>{comment.channel}</span>}
+        {category && <span className={tag}>{category.name}</span>}
+        {comment.deferredToStage && (
+          <span className={tag}>deferred to {comment.deferredToStage}</span>
+        )}
+        {carriedFrom !== undefined && versionNumber !== null && carriedFrom !== versionNumber && (
+          <span className={tag}>from V{carriedFrom}</span>
+        )}
+        {comment.assigneeId && (
+          <span className={cn(tag, "flex items-center gap-1")}>
+            <Avatar personId={comment.assigneeId} size={12} />
+            {personById(comment.assigneeId).name.split(" ")[0]}
+          </span>
+        )}
+        {comment.todo && (
+          <span
+            className={cn(
+              "rounded-chip px-1.5 text-[12px] leading-5",
+              comment.todo.done
+                ? "bg-raised text-ink-3 line-through"
+                : "border border-signal/50 text-signal",
+            )}
+          >
+            to do
+          </span>
+        )}
+      </div>
+      <p className="text-[14px] leading-[21px] text-ink">{comment.body}</p>
       {comment.sharedTakeIds && !access.tools.has("takes") && (
-        <div className="ml-[25px]">
-          <SharedTakes ids={comment.sharedTakeIds} />
-        </div>
+        <SharedTakes ids={comment.sharedTakeIds} />
       )}
       {carry && canTriage && versionNumber !== null && (
-        <div className="mt-2 ml-[25px] flex flex-wrap items-center gap-2 text-xs text-ink-3">
-          <span>On V{versionNumber}:</span>
+        <div className="flex flex-wrap items-center gap-2 text-[12px] text-ink-3">
+          <span>On V{versionNumber}</span>
           <select
             defaultValue={carry.status}
-            className="h-6 rounded-chip border border-hairline bg-ground px-1.5 text-[11px] text-ink-2"
+            onClick={(e) => e.stopPropagation()}
+            className="h-6 rounded-chip border border-line bg-ground/60 px-1.5 text-[12px] text-ink-2"
           >
             <option value="open">Open</option>
             <option value="fixed">Fixed in V{versionNumber}</option>
@@ -191,7 +175,7 @@ export function Thread({
             <option value="wont_fix">Won't fix</option>
           </select>
           <label className="flex items-center gap-1">
-            <input type="checkbox" defaultChecked={carry.visible} /> show on this version
+            <input type="checkbox" defaultChecked={carry.visible} /> shown here
           </label>
           {carry.movedByHand === undefined && comment.anchor.kind === "time" && (
             <span>anchor followed the audio to {formatClock(carry.at)}</span>
@@ -199,7 +183,7 @@ export function Thread({
         </div>
       )}
       {carry && !canTriage && carry.status !== "open" && (
-        <p className="m-0 mt-1 ml-[25px] text-xs text-ink-3">
+        <p className="text-[12px] text-ink-3">
           {carryCopy[carry.status]} in V{carry.versionNumber}
         </p>
       )}
@@ -207,7 +191,7 @@ export function Thread({
         comment.carries.length > 1 &&
         comment.carries.some((c) => c.status === "fixed") &&
         playback && (
-          <div className="mt-2 ml-[25px] flex items-center gap-1 rounded-control border border-hairline bg-ground p-1">
+          <div className="flex items-center gap-1 rounded-control border border-line bg-ground/50 p-1">
             {(["before", "after"] as const).map((side) => {
               const c =
                 side === "before"
@@ -218,7 +202,8 @@ export function Thread({
                   key={side}
                   type="button"
                   aria-pressed={beforeAfter === side}
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
                     setBeforeAfter(beforeAfter === side ? null : side);
                     if (c) {
                       playback.setLoop({ start: Math.max(0, c.at - 1.5), end: c.at + 2.5 });
@@ -227,7 +212,7 @@ export function Thread({
                     }
                   }}
                   className={cn(
-                    "tabular flex h-7 flex-1 items-center justify-center gap-1.5 rounded-[4px] text-xs",
+                    "tabular flex h-7 flex-1 items-center justify-center gap-1.5 rounded-[4px] text-[12px] transition-colors",
                     beforeAfter === side
                       ? "bg-overlay text-ink shadow-2"
                       : "text-ink-2 hover:text-ink",
@@ -239,9 +224,7 @@ export function Thread({
                     fill="currentColor"
                     strokeWidth={0}
                   />
-                  {side === "before"
-                    ? `Before · V${c?.versionNumber}`
-                    : `After · V${c?.versionNumber}`}
+                  {side === "before" ? "Before" : "After"} · V{c?.versionNumber}
                 </button>
               );
             })}
@@ -249,53 +232,88 @@ export function Thread({
           </div>
         )}
       {replies.map((r) => (
-        <div key={r.id} className="mt-2 ml-[25px] border-l border-hairline pl-3">
-          <div className="flex items-center gap-1.5 text-xs text-ink-3">
-            <Avatar personId={r.authorId} size={16} />
-            <span className="text-ink-2">{personById(r.authorId).name}</span>
-            <span>{ago(r.createdAt)}</span>
+        <div key={r.id} className="mt-1 flex gap-2">
+          <Avatar personId={r.authorId} size={18} className="mt-0.5" />
+          <div className="min-w-0 flex-1">
+            <span className="text-[13px] font-medium text-ink">{personById(r.authorId).name}</span>
+            <span className="tabular ml-1.5 text-[12px] text-ink-3">{ago(r.createdAt)}</span>
+            <p className="text-[14px] leading-[21px] text-ink">{r.body}</p>
           </div>
-          <p className="m-0 mt-0.5 text-[13px] leading-[19px] text-ink">{r.body}</p>
         </div>
       ))}
       {takesOpen && trackId && bar !== undefined && (
-        <div className="ml-[25px]">
-          <OtherTakes
-            trackId={trackId}
-            bar={bar}
-            versionNumber={versionNumber ?? 0}
-            canShare={canTriage}
-            onClose={() => setTakesOpen(false)}
-          />
-        </div>
+        <OtherTakes
+          trackId={trackId}
+          bar={bar}
+          versionNumber={versionNumber ?? 0}
+          canShare={canTriage}
+          onClose={() => setTakesOpen(false)}
+        />
       )}
-      <div className="mt-1.5 ml-[25px] flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3">
+      <div
+        className={cn(
+          "-mb-1 flex flex-wrap items-center gap-2.5 transition-opacity",
+          active
+            ? "opacity-100"
+            : "opacity-0 group-hover/thread:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100",
+        )}
+      >
         {access.comment && (
-          <button type="button" onClick={() => setReplying((r) => !r)} className="hover:text-ink">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setReplying((r) => !r);
+            }}
+            className={action}
+          >
             Reply
           </button>
         )}
         {playback && access.tools.has("loops") && comment.anchor.kind !== "whole" && (
-          <button type="button" onClick={loopIt} className="hover:text-ink">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              loopIt();
+            }}
+            className={action}
+          >
             Loop
           </button>
         )}
         {trackId && bar !== undefined && (access.tools.has("takes") || canTriage) && (
-          <button type="button" onClick={() => setTakesOpen((o) => !o)} className="hover:text-ink">
-            Other takes for bar {bar}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setTakesOpen((o) => !o);
+            }}
+            className={action}
+          >
+            Takes for bar {bar}
           </button>
         )}
         {(canTriage || mine) && (
-          <button type="button" onClick={() => setResolved((r) => !r)} className="hover:text-ink">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setResolved((r) => !r);
+            }}
+            className={action}
+          >
             {resolved ? "Reopen" : "Resolve"}
           </button>
         )}
         {canTriage && (
-          <span className="ml-auto">
+          <span className="ml-auto" onClick={(e) => e.stopPropagation()}>
             <ActionMenu
+              always
               label="comment"
               actions={[
                 ...categories.map((c) => ({ label: `Mark as ${c.name}`, onSelect: () => {} })),
+                "divider" as const,
                 {
                   label: comment.deferredToStage ? "Undefer" : "Defer to a stage…",
                   onSelect: () => {},
@@ -306,6 +324,7 @@ export function Thread({
                 { label: "Copy link", onSelect: () => {} },
                 ...(mine
                   ? [
+                      "divider" as const,
                       { label: "Edit", onSelect: () => {} },
                       { label: "Delete", danger: true, onSelect: () => {} },
                     ]
@@ -317,23 +336,27 @@ export function Thread({
       </div>
       {replying && (
         <form
-          className="mt-2 ml-[25px] flex items-end gap-2"
+          className="rise-in mt-1 flex items-end gap-2"
+          onClick={(e) => e.stopPropagation()}
           onSubmit={(e) => {
             e.preventDefault();
             setReplying(false);
           }}
         >
-          <textarea
-            rows={2}
+          <Textarea
+            rows={1}
             placeholder={`Reply${playback ? ` at ${formatClock(playback.time)}` : ""}`}
-            className="flex-1 rounded-control border border-edge bg-ground px-3 py-2 text-[13px] text-ink placeholder:text-ink-3 focus:border-ink-3 focus:outline-none"
+            className="min-h-9 text-[13px]"
           />
-          <button
+          <Button
             type="submit"
-            className="h-8 rounded-control bg-signal px-3 text-[13px] font-medium text-ground"
+            variant="primary"
+            size="icon"
+            aria-label="Post reply"
+            className="size-9 rounded-full"
           >
-            Post
-          </button>
+            <Icon name="send" size={14} />
+          </Button>
         </form>
       )}
     </article>

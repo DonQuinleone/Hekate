@@ -23,16 +23,30 @@ const channelNames = (channels: number): string[] => {
   return Array.from({ length: channels }, (_, i) => `${i + 1}`);
 };
 
+/** A closed outline of the envelope: the top edge left to right, the bottom edge back. */
+function envelope(data: number[], mid: number, amp: number, step: number): string {
+  if (data.length === 0) return "";
+  const smooth = data.map((v, i) => {
+    const a = data[i - 1] ?? v;
+    const b = data[i + 1] ?? v;
+    return (a + v * 2 + b) / 4;
+  });
+  const top = smooth.map((v, i) => `${(i * step).toFixed(1)},${(mid - v * amp).toFixed(1)}`);
+  const bottom = smooth
+    .map((v, i) => `${(i * step).toFixed(1)},${(mid + v * amp).toFixed(1)}`)
+    .reverse();
+  return `M${top.join("L")}L${bottom.join("L")}Z`;
+}
+
 /**
  * The waveform, drawn from peaks the worker would have computed: one combined lane, or a
- * lane per channel. Click seeks; drag selects a loop. Comment markers sit above it, QA
- * markers below, and the playhead crosses everything.
+ * lane per channel, as a continuous envelope. Click seeks; drag selects a loop. Comment
+ * markers sit above it, QA markers below, and the playhead crosses everything.
  */
 export function Waveform({
   seed,
   duration,
   channels = 2,
-  layout,
   playback,
   split,
   markers,
@@ -42,6 +56,7 @@ export function Waveform({
   solo = null,
   height = 220,
   overlay,
+  className,
 }: {
   seed: number;
   duration: number;
@@ -57,6 +72,7 @@ export function Waveform({
   height?: number;
   /** Something drawn behind the peaks, such as the spectrogram. */
   overlay?: React.ReactNode;
+  className?: string;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(800);
@@ -70,14 +86,17 @@ export function Waveform({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const columns = Math.floor(width / 3);
+  const step = 2;
+  const columns = Math.ceil(width / step) + 1;
   const lanes = split ? channels : 1;
-  const peaks = useMemo(
-    () => peaksFor(seed, columns, split ? channels : 2),
-    [seed, columns, channels, split],
-  );
+  const peaks = useMemo(() => {
+    const raw = peaksFor(seed, columns, split ? channels : 2);
+    if (split) return raw;
+    const a = raw[0] ?? [];
+    const b = raw[1] ?? a;
+    return [a.map((v, i) => Math.max(v, b[i] ?? 0))];
+  }, [seed, columns, channels, split]);
   const names = channelNames(channels);
-  void layout;
   const x = (t: number) => (t / duration) * width;
   const tAt = (clientX: number) => {
     const rect = box.current?.getBoundingClientRect();
@@ -86,12 +105,23 @@ export function Waveform({
   };
   const played = x(playback.time);
   const laneH = height / lanes;
+  const paths = useMemo(
+    () =>
+      Array.from({ length: lanes }, (_, lane) => {
+        const mid = lane * laneH + laneH / 2;
+        const lfe = names[lane] === "LFE";
+        const amp = (laneH / 2 - (split ? 8 : 14)) * (lfe ? 0.45 : 1);
+        return envelope(peaks[lane] ?? peaks[0] ?? [], mid, amp, step);
+      }),
+    [lanes, laneH, names, split, peaks],
+  );
+  const clipId = `played-${seed}`;
 
   return (
-    <div className="relative select-none" style={{ height }}>
+    <div className={cn("relative select-none", className)} style={{ height }}>
       <div
         ref={box}
-        className="absolute inset-0 cursor-crosshair overflow-hidden rounded-control border border-hairline-soft bg-sunken"
+        className="absolute inset-0 cursor-crosshair overflow-hidden"
         onPointerDown={(e) => {
           if (e.button !== 0) return;
           const t = tAt(e.clientX);
@@ -115,6 +145,16 @@ export function Waveform({
         }}
       >
         {overlay}
+        {/* a soft light that travels with the playhead */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute top-0 bottom-0 w-[260px] -translate-x-1/2 opacity-70"
+          style={{
+            left: played,
+            background:
+              "radial-gradient(closest-side, color-mix(in oklab, var(--hk-signal) 14%, transparent), transparent)",
+          }}
+        />
         <svg
           width={width}
           height={height}
@@ -122,51 +162,35 @@ export function Waveform({
           role="img"
           aria-label="Waveform"
         >
-          {Array.from({ length: lanes }, (_, lane) => {
-            const mid = lane * laneH + laneH / 2;
-            const amp = laneH / 2 - 6;
-            const data = peaks[lane] ?? peaks[0] ?? [];
+          <defs>
+            <clipPath id={clipId}>
+              <rect x={0} y={0} width={Math.max(0, played)} height={height} />
+            </clipPath>
+          </defs>
+          {paths.map((d, lane) => {
             const off = (solo !== null && solo !== lane) || muted.has(lane);
             const lfe = names[lane] === "LFE";
             return (
-              <g key={lane} opacity={off ? 0.3 : 1}>
+              <g key={String(lane)} opacity={off ? 0.3 : 1}>
                 {lane > 0 && (
                   <line
                     x1={0}
                     x2={width}
                     y1={lane * laneH}
                     y2={lane * laneH}
-                    stroke="var(--hk-hairline-soft)"
+                    stroke="var(--hk-line)"
                   />
                 )}
-                {data.map((v, i) => {
-                  const px = i * 3;
-                  const h = Math.max(
-                    1,
-                    v * amp * (lfe ? 0.45 : 1) * (split ? 1 : lane === 0 ? 1 : 0),
-                  );
-                  const combined = !split ? Math.max(1, Math.max(v, peaks[1]?.[i] ?? 0) * amp) : h;
-                  const hh = split ? h : combined;
-                  const isPlayed = px <= played;
-                  return (
-                    <rect
-                      key={String(i)}
-                      x={px}
-                      y={mid - hh}
-                      width={2}
-                      height={hh * 2}
-                      fill={isPlayed ? "var(--hk-ink-2)" : "var(--hk-edge-strong)"}
-                    />
-                  );
-                })}
+                <path d={d} fill="var(--hk-ink-3)" opacity={0.55} />
+                <path d={d} fill="var(--hk-ink)" opacity={0.92} clipPath={`url(#${clipId})`} />
                 {split && (
                   <text
-                    x={8}
-                    y={lane * laneH + 14}
+                    x={10}
+                    y={lane * laneH + 15}
                     fill={lfe ? "var(--hk-signal)" : "var(--hk-ink-3)"}
-                    fontFamily="var(--hk-font-mono)"
-                    fontSize={10}
-                    letterSpacing="0.08em"
+                    fontFamily="var(--hk-font-sans)"
+                    fontSize={11}
+                    fontWeight={500}
                   >
                     {names[lane]}
                   </text>
@@ -174,45 +198,54 @@ export function Waveform({
               </g>
             );
           })}
-          {/* QA markers along the foot */}
           {findings
             ?.filter(
               (f) => f.start !== undefined && (f.severity === "fail" || f.severity === "warn"),
             )
             .map((f) => (
-              <g key={f.id}>
-                <rect
-                  x={x(f.start ?? 0) - 1}
-                  y={height - 6}
-                  width={
-                    f.end && f.end - (f.start ?? 0) > 0.2
-                      ? Math.max(3, x(f.end) - x(f.start ?? 0))
-                      : 3
-                  }
-                  height={6}
-                  fill={f.severity === "fail" ? "var(--hk-signal)" : "transparent"}
-                  stroke="var(--hk-signal)"
-                  strokeWidth={1}
-                />
-              </g>
+              <rect
+                key={f.id}
+                x={x(f.start ?? 0) - 1}
+                y={height - 5}
+                width={
+                  f.end && f.end - (f.start ?? 0) > 0.2
+                    ? Math.max(3, x(f.end) - x(f.start ?? 0))
+                    : 3
+                }
+                height={5}
+                rx={1}
+                fill={f.severity === "fail" ? "var(--hk-signal)" : "transparent"}
+                stroke="var(--hk-signal)"
+                strokeWidth={1}
+              />
             ))}
-          {/* comment ranges */}
           {markers
             .filter((m) => m.end !== undefined && m.end > m.at)
             .map((m) => (
-              <rect
-                key={`r-${m.id}`}
-                x={x(m.at)}
-                y={0}
-                width={x(m.end ?? m.at) - x(m.at)}
-                height={height}
-                fill="var(--hk-signal-wash)"
-              />
+              <g key={`r-${m.id}`}>
+                <rect
+                  x={x(m.at)}
+                  y={0}
+                  width={x(m.end ?? m.at) - x(m.at)}
+                  height={height}
+                  fill="var(--hk-signal)"
+                  opacity={m.active ? 0.1 : 0.05}
+                />
+                <rect
+                  x={x(m.at)}
+                  y={30}
+                  width={x(m.end ?? m.at) - x(m.at)}
+                  height={2}
+                  rx={1}
+                  fill="var(--hk-signal)"
+                  opacity={m.active ? 1 : 0.6}
+                />
+              </g>
             ))}
         </svg>
         {(drag || (playback.loop && playback.looping)) && (
           <div
-            className="pointer-events-none absolute top-0 bottom-0 border-x bg-signal/15"
+            className="pointer-events-none absolute top-0 bottom-0 border-x bg-signal/10"
             style={{
               left: x(drag ? Math.min(drag.from, drag.to) : (playback.loop?.start ?? 0)),
               width: Math.max(
@@ -228,10 +261,10 @@ export function Waveform({
           />
         )}
         <div
-          className="pointer-events-none absolute top-0 bottom-0 w-[2px] bg-signal"
+          className="pointer-events-none absolute top-0 bottom-0 w-px bg-signal shadow-[0_0_8px_var(--hk-signal)]"
           style={{ left: played }}
         >
-          <span className="tabular absolute bottom-1.5 left-2 rounded-chip bg-signal px-1.5 text-[10px] leading-[18px] font-medium text-ground">
+          <span className="tabular absolute bottom-2 left-2 rounded-chip bg-signal px-1.5 text-[11px] leading-[18px] font-medium text-ground">
             {formatClock(playback.time)}
           </span>
         </div>
@@ -246,8 +279,8 @@ export function Waveform({
             onMarker?.(m.id);
           }}
           className={cn(
-            "tabular absolute top-1.5 z-10 flex size-[17px] -translate-x-1/2 items-center justify-center rounded-full bg-signal text-[10px] font-medium text-ground",
-            m.active && "ring-2 ring-signal ring-offset-2 ring-offset-sunken",
+            "tabular absolute top-2 z-10 flex size-[18px] -translate-x-1/2 items-center justify-center rounded-full text-[10px] font-medium shadow-2 transition-transform duration-150 hover:scale-110",
+            m.active ? "ring-out bg-signal text-ground" : "bg-ink text-ground",
           )}
           style={{ left: x(m.at) }}
         >
@@ -259,16 +292,24 @@ export function Waveform({
 }
 
 /** The time ruler under the waveform. */
-export function Ruler({ duration, video = false }: { duration: number; video?: boolean }) {
+export function Ruler({
+  duration,
+  video = false,
+  className,
+}: {
+  duration: number;
+  video?: boolean;
+  className?: string;
+}) {
   const step = duration > 600 ? 120 : duration > 100 ? 30 : duration > 60 ? 10 : 5;
   const ticks: number[] = [];
   for (let t = 0; t <= duration; t += step) ticks.push(t);
   return (
-    <div className="tabular relative h-5 text-[10px] text-ink-3">
+    <div className={cn("tabular relative h-5 text-[11px] text-ink-3", className)}>
       {ticks.map((t) => (
         <span
           key={t}
-          className="absolute top-1 -translate-x-1/2 first:translate-x-0 last:-translate-x-full"
+          className="absolute top-0.5 -translate-x-1/2 first:translate-x-0 last:-translate-x-full"
           style={{ left: `${(t / duration) * 100}%` }}
         >
           {video

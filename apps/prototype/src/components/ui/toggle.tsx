@@ -1,28 +1,56 @@
+import { cn } from "~/lib/cn";
+
 /** A labelled on and off switch. */
 export function Toggle({
   label,
+  hint,
   checked,
   onChange,
 }: {
   label: string;
+  hint?: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-6 text-[13px] text-ink-2">
-      {label}
-      <input
-        type="checkbox"
-        role="switch"
-        aria-checked={checked}
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="peer sr-only"
-      />
+    <label className="flex cursor-pointer items-center justify-between gap-6 text-[14px] text-ink">
+      <span>
+        {label}
+        {hint && <span className="block text-[13px] text-ink-3">{hint}</span>}
+      </span>
+      <Switch checked={checked} onChange={onChange} label={label} />
+    </label>
+  );
+}
+
+export function Switch({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        "relative h-5 w-9 shrink-0 rounded-full border transition-colors duration-200",
+        checked ? "border-signal bg-signal" : "border-line-strong bg-raised",
+      )}
+    >
       <span
         aria-hidden="true"
-        className="relative h-[18px] w-8 shrink-0 rounded-full border border-edge bg-ground transition-colors peer-checked:border-signal peer-checked:bg-signal/80 peer-focus-visible:outline peer-focus-visible:outline-1 peer-focus-visible:outline-signal after:absolute after:top-[2px] after:left-[2px] after:size-3 after:rounded-full after:bg-ink-2 after:transition-transform peer-checked:after:translate-x-[14px] peer-checked:after:bg-ground"
+        className={cn(
+          "absolute top-[2px] left-[2px] size-[14px] rounded-full shadow-2 transition-transform duration-200 ease-out",
+          checked ? "translate-x-4 bg-ground" : "bg-ink-2",
+        )}
       />
-    </label>
+    </button>
   );
 }

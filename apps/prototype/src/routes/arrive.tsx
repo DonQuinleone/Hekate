@@ -12,10 +12,8 @@ function Frame({ title, intro, children }: { title: string; intro?: string; chil
       <div className="flex w-full max-w-[380px] flex-col gap-8">
         <Lockup size={22} />
         <div>
-          <h1 className="m-0 text-[24px] leading-[30px] font-medium tracking-[-0.015em]">
-            {title}
-          </h1>
-          {intro && <p className="m-0 mt-2 text-ink-2">{intro}</p>}
+          <h1 className="text-[24px] leading-[30px] font-medium tracking-[-0.015em]">{title}</h1>
+          {intro && <p className="mt-2 text-ink-2">{intro}</p>}
         </div>
         {children}
       </div>
@@ -36,7 +34,7 @@ function Field({
 }) {
   const id = `field-${label.toLowerCase().replace(/\W+/g, "-")}`;
   return (
-    <label htmlFor={id} className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+    <label htmlFor={id} className="flex flex-col gap-1.5 text-[14px] text-ink-2">
       {label}
       <input
         id={id}
@@ -66,7 +64,7 @@ export function SignInPage() {
         }}
       >
         {ssoOnly ? (
-          <p className="m-0 rounded-panel border border-hairline bg-surface px-4 py-3 text-[13px] text-ink-2">
+          <p className="rounded-panel border border-line bg-raised/40 px-4 py-3 text-[14px] text-ink-2">
             {organisation.name} signs in through its identity provider. Passwords are off for
             members.
           </p>
@@ -80,7 +78,7 @@ export function SignInPage() {
             />
             <Field label="Password" type="password" autoComplete="current-password" />
             {refused && (
-              <p className="m-0 text-[13px] text-signal">
+              <p className="text-[14px] text-signal">
                 {settings.state === "failed"
                   ? "Too many attempts. Wait a minute before trying again."
                   : "That email and password do not match."}
@@ -105,7 +103,7 @@ export function SignInPage() {
           Continue with Endless Hall SSO
         </Button>
       </form>
-      <p className="m-0 border-t border-hairline pt-4 text-xs text-ink-3">
+      <p className="border-t border-line pt-4 text-[13px] text-ink-3">
         Accounts are by invitation. Guests reviewing a file open the link in their email instead.
       </p>
     </Frame>
@@ -158,7 +156,7 @@ export function GuestLinkPage() {
           <Button type="submit" variant="primary" size="lg">
             Open the review
           </Button>
-          <button type="button" className="text-left text-xs text-ink-3 hover:text-ink">
+          <button type="button" className="text-left text-[13px] text-ink-3 hover:text-ink">
             Send another code
           </button>
         </form>

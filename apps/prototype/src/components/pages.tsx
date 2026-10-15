@@ -65,7 +65,7 @@ export function Page({
           y="262"
           textAnchor="middle"
           fill="#e9e8e3"
-          fontFamily="var(--hk-font-mono)"
+          fontFamily="var(--hk-font-sans)"
           fontSize="9"
           letterSpacing="0.2em"
           opacity="0.8"
@@ -323,8 +323,8 @@ export function PageViewer({
     return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
   };
   return (
-    <div className="flex min-h-0 flex-col rounded-panel-lg border border-hairline bg-surface shadow-1">
-      <div className="flex flex-wrap items-center gap-2 border-b border-hairline-soft px-3 py-2">
+    <div className="flex min-h-0 flex-col rounded-panel-lg border border-line bg-raised/40 shadow-1">
+      <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2">
         <button
           type="button"
           aria-label="Previous page"
@@ -334,7 +334,7 @@ export function PageViewer({
         >
           <Icon name="chevronLeft" size={14} />
         </button>
-        <span className="tabular text-xs text-ink">
+        <span className="tabular text-[13px] text-ink">
           P. {page} <span className="text-ink-3">/ {pages}</span>
         </span>
         <button
@@ -347,11 +347,11 @@ export function PageViewer({
           <Icon name="chevronRight" size={14} />
         </button>
         {!compact && (
-          <label className="ml-2 flex items-center gap-1 text-xs text-ink-3">
+          <label className="ml-2 flex items-center gap-1 text-[13px] text-ink-3">
             Go to{" "}
             <input
               aria-label="Go to page"
-              className="tabular h-6 w-12 rounded-chip border border-hairline bg-ground px-1.5 text-xs text-ink"
+              className="tabular h-6 w-12 rounded-chip border border-line bg-ground px-1.5 text-[13px] text-ink"
               onKeyDown={(e) => {
                 if (e.key === "Enter")
                   onPage(
@@ -362,7 +362,7 @@ export function PageViewer({
           </label>
         )}
         {canDraw && (
-          <span className="hidden text-xs text-ink-3 @3xl/app:inline">
+          <span className="hidden text-[13px] text-ink-3 @3xl/app:inline">
             Drag on the page to comment on part of it
           </span>
         )}
@@ -378,7 +378,7 @@ export function PageViewer({
           <button
             type="button"
             onClick={() => setZoom(1)}
-            className="tabular h-7 rounded-control px-1.5 text-xs text-ink-2 hover:bg-raised"
+            className="tabular h-7 rounded-control px-1.5 text-[13px] text-ink-2 hover:bg-raised"
           >
             {zoom === 1 ? "Fit" : `${Math.round(zoom * 100)}%`}
           </button>
@@ -395,7 +395,7 @@ export function PageViewer({
       <div className="flex min-h-0 flex-1">
         {!compact && pages > 1 && (
           <div
-            className="hidden w-[108px] shrink-0 flex-col gap-2 overflow-auto border-r border-hairline-soft bg-sunken p-2 @3xl/app:flex"
+            className="hidden w-[108px] shrink-0 flex-col gap-2 overflow-auto border-r border-line bg-sunken p-2 @3xl/app:flex"
             style={{ maxHeight: 640 }}
           >
             {Array.from({ length: Math.min(pages, 40) }, (_, i) => i + 1).map((p) => (
@@ -416,10 +416,10 @@ export function PageViewer({
                     {markers.filter((m) => m.page === p).length}
                   </span>
                 )}
-                <span className="tabular mt-0.5 block text-[10px] text-ink-3">{p}</span>
+                <span className="tabular mt-0.5 block text-[11px] text-ink-3">{p}</span>
               </button>
             ))}
-            {pages > 40 && <p className="m-0 text-[10px] text-ink-3">{pages - 40} more pages</p>}
+            {pages > 40 && <p className="text-[11px] text-ink-3">{pages - 40} more pages</p>}
           </div>
         )}
         <div
@@ -462,7 +462,7 @@ export function PageViewer({
                 className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden"
               >
                 <span
-                  className="-rotate-[28deg] whitespace-nowrap font-mono text-[11px] tracking-[0.3em] text-[#1a1a1c] opacity-[0.16]"
+                  className="-rotate-[28deg] whitespace-nowrap font-sans text-[12px] tracking-[0.3em] text-[#1a1a1c] opacity-[0.16]"
                   style={{ fontSize: Math.max(10, pageWidth / 28) }}
                 >
                   {watermark}
@@ -493,7 +493,7 @@ export function PageViewer({
                     height: `${m.height * 100}%`,
                   }}
                 >
-                  <span className="tabular absolute -top-2 -left-2 flex size-[17px] items-center justify-center rounded-full bg-signal text-[10px] font-medium text-ground">
+                  <span className="tabular absolute -top-2 -left-2 flex size-[17px] items-center justify-center rounded-full bg-signal text-[11px] font-medium text-ground">
                     {m.number}
                   </span>
                 </button>
@@ -511,7 +511,7 @@ export function PageViewer({
             )}
           </div>
           {drawn && (
-            <p className="m-0 mt-3 text-center text-xs text-ink-3">
+            <p className="mt-3 text-center text-[13px] text-ink-3">
               Region drawn on page {page}: the next comment points at it.
             </p>
           )}

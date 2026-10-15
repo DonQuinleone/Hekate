@@ -10,22 +10,24 @@ export type DotState =
   | "cancelled"
   | "invited"
   | "waiting"
-  | "passed";
+  | "passed"
+  | "working";
 
 export function Dot({ state, className }: { state: DotState; className?: string }) {
   return (
     <span
       aria-hidden="true"
       className={cn(
-        "inline-block size-[8px] shrink-0 rounded-full",
+        "inline-block size-[9px] shrink-0 rounded-full",
         state === "in_review" && "border-[1.5px] border-ink",
         state === "changes_requested" && "bg-signal",
         state === "approved" && "bg-ink",
         state === "submitted" && "bg-ink-3",
         state === "invited" && "border-[1.5px] border-dashed border-ink-3",
         state === "waiting" && "border-[1.5px] border-dotted border-edge-strong",
-        state === "cancelled" && "size-[6px] bg-edge-strong",
-        state === "passed" && "size-[4px] bg-ink-3",
+        state === "cancelled" && "size-[7px] bg-edge-strong",
+        state === "passed" && "size-[5px] bg-ink-3",
+        state === "working" && "breathe border-[1.5px] border-ink-2",
         className,
       )}
     />
@@ -47,7 +49,7 @@ export const reviewerCopy: Record<ReviewerState, string> = {
   viewed: "Opened",
   in_progress: "In progress",
   submitted: "Responded",
-  observing: "Following along",
+  observing: "Following",
 };
 
 export function reviewDot(status: ReviewStatus, outcome: Decision | "submitted" | null): DotState {
@@ -70,7 +72,7 @@ export function Pill({
   return (
     <span
       className={cn(
-        "inline-flex h-6 items-center gap-[7px] rounded-full border border-hairline px-2.5 text-xs text-ink-2",
+        "inline-flex h-7 items-center gap-2 rounded-full border border-line-strong bg-raised/50 px-3 text-[13px] text-ink-2",
         className,
       )}
     >

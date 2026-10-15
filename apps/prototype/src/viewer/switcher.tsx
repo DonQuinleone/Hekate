@@ -46,9 +46,9 @@ export function Switcher() {
     >
       {open && (
         <div className="pointer-events-auto flex max-h-[min(80vh,640px)] w-[340px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-panel-lg border border-edge bg-overlay shadow-4">
-          <div className="flex items-center gap-2 border-b border-hairline-soft px-4 py-3">
+          <div className="flex items-center gap-2 border-b border-line px-4 py-3">
             <Label>Prototype</Label>
-            <span className="text-xs text-ink-3">who you are, and how it is shown</span>
+            <span className="text-[13px] text-ink-3">who you are, and how it is shown</span>
             <button
               type="button"
               aria-label="Close"
@@ -59,8 +59,8 @@ export function Switcher() {
             </button>
           </div>
           <div className="min-h-0 flex-1 overflow-auto">
-            <fieldset className="m-0 border-0 p-2">
-              <legend className="label px-2 pt-2 pb-1">You are</legend>
+            <fieldset className="border-0 p-2">
+              <legend className="eyebrow px-2 pt-2 pb-1">You are</legend>
               {personas.map((p) => {
                 const who = personById(p.personId);
                 const active = viewer.persona.id === p.id;
@@ -87,20 +87,22 @@ export function Switcher() {
                     />
                     <span className="min-w-0 flex-1">
                       <span className="flex items-baseline gap-2">
-                        <span className="text-[13px] font-medium text-ink">{p.label}</span>
-                        <span className="truncate text-xs text-ink-3">{who.name}</span>
+                        <span className="text-[14px] font-medium text-ink">{p.label}</span>
+                        <span className="truncate text-[13px] text-ink-3">{who.name}</span>
                       </span>
-                      <span className="block text-xs leading-[17px] text-ink-2">{p.summary}</span>
+                      <span className="block text-[13px] leading-[17px] text-ink-2">
+                        {p.summary}
+                      </span>
                     </span>
                   </button>
                 );
               })}
             </fieldset>
-            <div className="flex flex-col gap-3 border-t border-hairline-soft p-4">
-              <label className="flex items-center justify-between gap-4 text-[13px] text-ink-2">
+            <div className="flex flex-col gap-3 border-t border-line p-4">
+              <label className="flex items-center justify-between gap-4 text-[14px] text-ink-2">
                 <span>
                   Shadows for what floats
-                  <span className="block text-xs text-ink-3">
+                  <span className="block text-[13px] text-ink-3">
                     Off: the brand's current rule, a step up the surface scale
                   </span>
                 </span>
@@ -122,11 +124,11 @@ export function Switcher() {
                   )}
                 />
               </label>
-              <div className="flex items-center justify-between gap-4 text-[13px] text-ink-2">
+              <div className="flex items-center justify-between gap-4 text-[14px] text-ink-2">
                 <span>Width</span>
                 <div
                   role="radiogroup"
-                  className="flex rounded-control border border-hairline bg-surface p-0.5"
+                  className="flex rounded-control border border-line bg-raised/40 p-0.5"
                 >
                   {(["desktop", "phone"] as const).map((w) => (
                     <button
@@ -136,7 +138,7 @@ export function Switcher() {
                       aria-checked={viewer.settings.width === w}
                       onClick={() => viewer.setSettings({ width: w })}
                       className={cn(
-                        "h-6 rounded-[4px] px-2.5 text-xs capitalize",
+                        "h-6 rounded-[4px] px-2.5 text-[13px] capitalize",
                         viewer.settings.width === w
                           ? "bg-overlay text-ink shadow-2"
                           : "text-ink-3 hover:text-ink",
@@ -147,12 +149,12 @@ export function Switcher() {
                   ))}
                 </div>
               </div>
-              <label className="flex items-center justify-between gap-4 text-[13px] text-ink-2">
+              <label className="flex items-center justify-between gap-4 text-[14px] text-ink-2">
                 <span>Screen state</span>
                 <select
                   value={viewer.settings.state}
                   onChange={(e) => viewer.setSettings({ state: e.target.value as ScreenState })}
-                  className="h-7 rounded-control border border-edge bg-ground px-2 text-[13px] text-ink"
+                  className="h-7 rounded-control border border-edge bg-ground px-2 text-[14px] text-ink"
                 >
                   {states.map((s) => (
                     <option key={s.id} value={s.id}>
@@ -169,15 +171,15 @@ export function Switcher() {
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className="pointer-events-auto flex h-9 items-center gap-2 rounded-full border border-edge bg-overlay pr-3 pl-1.5 text-[13px] text-ink shadow-3 hover:border-edge-strong"
+        className="pointer-events-auto flex h-9 items-center gap-2 rounded-full border border-edge bg-overlay pr-3 pl-1.5 text-[14px] text-ink shadow-3 hover:border-edge-strong"
       >
-        <span className="flex size-6 items-center justify-center rounded-full bg-signal text-[10px] font-medium text-ground">
+        <span className="flex size-6 items-center justify-center rounded-full bg-signal text-[11px] font-medium text-ground">
           {viewer.persona.label.slice(0, 1)}
         </span>
         <span className="font-medium">{viewer.persona.label}</span>
         <span className="hidden text-ink-3 @md/app:inline">{person.name}</span>
         {viewer.settings.state !== "normal" && (
-          <span className="label text-signal">{viewer.settings.state}</span>
+          <span className="eyebrow text-signal">{viewer.settings.state}</span>
         )}
       </button>
     </div>

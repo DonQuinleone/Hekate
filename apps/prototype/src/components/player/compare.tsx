@@ -40,8 +40,8 @@ export function CompareBar({
   }, [pinned, onCurrent, current]);
   const letters = ["A", "B", "C", "D"];
   return (
-    <div className="flex flex-wrap items-center gap-2 border-t border-hairline-soft px-3 py-2">
-      <span className="label">Compare</span>
+    <div className="flex flex-wrap items-center gap-2 border-t border-line px-3 py-2">
+      <span className="eyebrow">Compare</span>
       <div className="flex flex-wrap gap-1">
         {pinned.map((id, i) => {
           const s = sources.find((x) => x.id === id);
@@ -53,16 +53,16 @@ export function CompareBar({
               aria-pressed={current === id}
               onClick={() => onCurrent(id)}
               className={cn(
-                "flex h-8 items-center gap-2 rounded-control border px-2.5 text-[13px]",
+                "flex h-8 items-center gap-2 rounded-control border px-2.5 text-[14px]",
                 current === id
                   ? "border-signal/60 bg-signal/10 text-ink"
-                  : "border-hairline text-ink-2 hover:border-edge",
+                  : "border-line text-ink-2 hover:border-edge",
               )}
             >
               <Kbd>{String(i + 1)}</Kbd>
               {blind ? letters[order.indexOf(id)] : s.label}
               {!blind && (
-                <span className="tabular text-[11px] text-ink-3">
+                <span className="tabular text-[12px] text-ink-3">
                   {s.aligned ? "aligned" : "same time"} · {s.gain}
                 </span>
               )}
@@ -76,7 +76,7 @@ export function CompareBar({
             onChange={(e) => {
               if (e.target.value) setPinned([...pinned, e.target.value]);
             }}
-            className="h-8 rounded-control border border-hairline border-dashed bg-transparent px-2 text-xs text-ink-3"
+            className="h-8 rounded-control border border-line border-dashed bg-transparent px-2 text-[13px] text-ink-3"
           >
             <option value="">+ pin</option>
             {sources
@@ -89,7 +89,7 @@ export function CompareBar({
           </select>
         )}
       </div>
-      <span className="hidden text-xs text-ink-3 @3xl/app:inline">
+      <span className="hidden text-[13px] text-ink-3 @3xl/app:inline">
         Level-matched · gapless · the loop holds
       </span>
       <button
@@ -100,13 +100,13 @@ export function CompareBar({
           setBlind(!blind);
         }}
         className={cn(
-          "ml-auto h-7 rounded-chip border px-2.5 text-xs",
+          "ml-auto h-7 rounded-chip border px-2.5 text-[13px]",
           blind ? "border-edge bg-raised text-ink" : "border-transparent text-ink-3 hover:text-ink",
         )}
       >
         {blind ? "Reveal" : "Listen blind"}
       </button>
-      <button type="button" onClick={onClose} className="text-xs text-ink-3 hover:text-ink">
+      <button type="button" onClick={onClose} className="text-[13px] text-ink-3 hover:text-ink">
         Close
       </button>
     </div>

@@ -20,7 +20,7 @@ import {
 } from "~/data";
 import { cn } from "~/lib/cn";
 import { openCommentCount, qaSummary } from "~/lib/files";
-import { ago, formatDateTime, plural } from "~/lib/format";
+import { formatDateTime, plural } from "~/lib/format";
 import { useViewer } from "~/viewer/context";
 import { Empty, Refused, StateGate, useScreenState } from "~/viewer/state-gate";
 
@@ -37,23 +37,23 @@ function NewVersion({
   const refused = state === "failed";
   return (
     <form
-      className="flex flex-col gap-5 rounded-panel-lg border border-hairline bg-surface p-5 shadow-1"
+      className="flex flex-col gap-5 rounded-panel-lg border border-line bg-raised/40 p-5 shadow-1"
       onSubmit={(e) => {
         e.preventDefault();
         onClose();
       }}
     >
       <div className="flex items-baseline justify-between">
-        <h2 className="m-0 text-[15px] font-medium">Version {next}</h2>
-        <span className="text-xs text-ink-3">
+        <h2 className="text-[16px] font-medium">Version {next}</h2>
+        <span className="text-[13px] text-ink-3">
           A new edit is a new version, never a replacement.
         </span>
       </div>
       <div className="flex flex-col gap-2 rounded-panel border border-edge border-dashed p-4">
-        <p className="m-0 text-[13px] text-ink-2">
+        <p className="text-[14px] text-ink-2">
           Drop the files of this version here, or choose them. One file per variation.
         </p>
-        <ul className="m-0 flex list-none flex-col gap-1 p-0">
+        <ul className="flex list-none flex-col gap-1 p-0">
           {[
             { name: "Maple Leaf Rag - V3 dry.wav", variation: "Dry", primary: true },
             { name: "Maple Leaf Rag - V3 wet.wav", variation: "Wet", primary: false },
@@ -63,9 +63,9 @@ function NewVersion({
               className="grid grid-cols-[auto_minmax(0,1fr)_120px_auto] items-center gap-3 rounded-control bg-ground px-3 py-2"
             >
               <Icon name="music" className="text-ink-3" />
-              <span className="truncate text-[13px] text-ink">{f.name}</span>
+              <span className="truncate text-[14px] text-ink">{f.name}</span>
               <Input defaultValue={f.variation} aria-label="Variation name" className="h-7" />
-              <label className="flex items-center gap-1.5 text-xs text-ink-2">
+              <label className="flex items-center gap-1.5 text-[13px] text-ink-2">
                 <input type="radio" name="primary" defaultChecked={f.primary} /> Primary
               </label>
             </li>
@@ -76,7 +76,7 @@ function NewVersion({
         </Button>
       </div>
       {refused && (
-        <p className="m-0 flex items-start gap-2 rounded-panel border border-signal/50 bg-signal/10 px-3 py-2 text-[13px] text-ink">
+        <p className="flex items-start gap-2 rounded-panel border border-signal/50 bg-signal/10 px-3 py-2 text-[14px] text-ink">
           <Icon name="warning" className="mt-0.5 shrink-0 text-signal" />
           <span>
             The upload workflow refused Maple Leaf Rag - V3 dry.wav: true peak +0.2 dBTP is over the
@@ -85,39 +85,41 @@ function NewVersion({
           </span>
         </p>
       )}
-      <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+      <label className="flex flex-col gap-1.5 text-[14px] text-ink-2">
         What changed
         <textarea
           rows={2}
           placeholder="Pedal noise cleaned at bar 5; tighter join at 17."
-          className="rounded-control border border-edge bg-ground px-3 py-2 text-[13px] text-ink placeholder:text-ink-3 focus:border-ink-3 focus:outline-none"
+          className="rounded-control border border-edge bg-ground px-3 py-2 text-[14px] text-ink placeholder:text-ink-3 focus:border-ink-3 focus:outline-none"
         />
       </label>
       <div className="grid gap-4 @3xl/app:grid-cols-2">
-        <label className="flex items-start gap-2 text-[13px] text-ink-2">
+        <label className="flex items-start gap-2 text-[14px] text-ink-2">
           <input type="checkbox" defaultChecked className="mt-1" />
           <span>
             Carry over the 4 open comments from V{next - 1}
-            <span className="block text-xs text-ink-3">
+            <span className="block text-[13px] text-ink-3">
               Their anchors follow the music once the versions are aligned; you can move any by
               hand.
             </span>
           </span>
         </label>
-        <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+        <label className="flex flex-col gap-1.5 text-[14px] text-ink-2">
           Edit decision list
           <span className="flex items-center gap-2">
             <Button variant="secondary" size="sm">
               Attach EDL
             </Button>
-            <span className="text-xs text-ink-3">CMX 3600, Pyramix or Sequoia. Optional here.</span>
+            <span className="text-[13px] text-ink-3">
+              CMX 3600, Pyramix or Sequoia. Optional here.
+            </span>
           </span>
         </label>
-        <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+        <label className="flex flex-col gap-1.5 text-[14px] text-ink-2">
           Restart the workflow from
           <select
             defaultValue="st-conductor-2"
-            className="h-8 rounded-control border border-edge bg-ground px-2 text-[13px] text-ink"
+            className="h-8 rounded-control border border-edge bg-ground px-2 text-[14px] text-ink"
           >
             <option value="none">Keep the current stage</option>
             <option value="st-conductor-1">Conductor, round one</option>
@@ -127,11 +129,11 @@ function NewVersion({
           </select>
         </label>
         {hasScore && (
-          <label className="flex items-start gap-2 text-[13px] text-ink-2">
+          <label className="flex items-start gap-2 text-[14px] text-ink-2">
             <input type="checkbox" defaultChecked className="mt-1" />
             <span>
               Keep the score beside this version
-              <span className="block text-xs text-ink-3">Maple Leaf Rag - Score.pdf</span>
+              <span className="block text-[13px] text-ink-3">Maple Leaf Rag - Score.pdf</span>
             </span>
           </label>
         )}
@@ -171,11 +173,11 @@ function VersionRow({
       ),
   );
   return (
-    <li className="flex flex-col gap-3 border-b border-hairline-soft px-4 py-4 last:border-b-0">
+    <li className="flex flex-col gap-3 border-b border-line px-4 py-4 last:border-b-0">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="tabular text-[15px] font-medium text-ink">V{version.number}</span>
         {latest && <Label>latest</Label>}
-        <span className="flex items-center gap-2 text-xs text-ink-2">
+        <span className="flex items-center gap-2 text-[13px] text-ink-2">
           <Dot
             state={
               version.status === "Approved"
@@ -195,16 +197,16 @@ function VersionRow({
           <Link
             to="/reviews/$reviewId"
             params={{ reviewId: review.id }}
-            className="text-xs text-ink-3 no-underline hover:text-ink"
+            className="text-[13px] text-ink-3 no-underline hover:text-ink"
           >
             in {review.title}
           </Link>
         )}
-        <span className="ml-auto flex items-center gap-2 text-xs text-ink-3">
+        <span className="ml-auto flex items-center gap-2 text-[13px] text-ink-3">
           <Avatar personId={version.uploadedBy} size={18} />
           {personById(version.uploadedBy).name} · {formatDateTime(version.uploadedAt)}
           {version.editDecisionList && (
-            <span className="rounded-chip border border-hairline px-1.5 text-[11px]">EDL</span>
+            <span className="rounded-chip border border-line px-1.5 text-[12px]">EDL</span>
           )}
           {canOrganise && (
             <ActionMenu
@@ -222,9 +224,9 @@ function VersionRow({
           )}
         </span>
       </div>
-      {version.note && <p className="m-0 text-[13px] text-ink-2">{version.note}</p>}
+      {version.note && <p className="text-[14px] text-ink-2">{version.note}</p>}
       {version.state === "failed" && (
-        <p className="m-0 flex items-start gap-2 text-[13px] text-ink-2">
+        <p className="flex items-start gap-2 text-[14px] text-ink-2">
           <Icon name="warning" className="mt-0.5 shrink-0 text-signal" />
           <span>
             The file could not be read: the container says 96 kHz but holds 44.1 kHz frames.
@@ -237,7 +239,7 @@ function VersionRow({
           </span>
         </p>
       )}
-      <ul className="m-0 flex list-none flex-wrap gap-2 p-0">
+      <ul className="flex list-none flex-wrap gap-2 p-0">
         {version.variations.map((v) => {
           const file = fileById(v.fileId);
           const qa = qaSummary(v.fileId);
@@ -250,18 +252,18 @@ function VersionRow({
                 params={{ fileId: v.fileId }}
                 className={cn(
                   "flex items-center gap-3 rounded-panel border px-3 py-2 no-underline hover:border-edge",
-                  v.primary ? "border-edge bg-raised shadow-1" : "border-hairline bg-ground",
+                  v.primary ? "border-edge bg-raised shadow-1" : "border-line bg-ground",
                 )}
               >
                 <span className="flex size-7 items-center justify-center rounded-full bg-ink text-ground">
                   <Icon name="play" size={12} />
                 </span>
                 <span className="flex flex-col">
-                  <span className="text-[13px] text-ink">
+                  <span className="text-[14px] text-ink">
                     {v.name}
                     {v.primary && <span className="text-ink-3"> · primary</span>}
                   </span>
-                  <span className="tabular text-[11px] text-ink-3">
+                  <span className="tabular text-[12px] text-ink-3">
                     {pending
                       ? "analysing"
                       : file?.state === "failed"
@@ -303,12 +305,6 @@ export function TrackPage({ trackId }: { trackId: string }) {
       ...(project && visible ? [{ label: project.name, to: `/projects/${project.id}` }] : []),
     ],
     title: track && visible ? track.name : "Not found",
-    meta:
-      track && visible
-        ? versions.length === 0
-          ? "no versions yet"
-          : plural(versions.length, "version")
-        : undefined,
     actions: visible ? (
       <>
         {viewer.can(project.id, "request_reviews") && latest && (
@@ -345,7 +341,7 @@ export function TrackPage({ trackId }: { trackId: string }) {
     );
   const empty = state === "empty" || versions.length === 0;
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6 @3xl/app:px-6">
+    <div className="fade-in mx-auto flex max-w-[1000px] flex-col gap-6 px-4 py-6 @3xl/app:px-8">
       {adding && (
         <NewVersion
           next={(latest?.number ?? 0) + 1}
@@ -382,57 +378,31 @@ export function TrackPage({ trackId }: { trackId: string }) {
           />
         ) : (
           <>
-            <div className="grid gap-3 @3xl/app:grid-cols-3">
-              <div className="rounded-panel-lg border border-hairline bg-surface px-4 py-3 shadow-1">
-                <Label>Workflow</Label>
-                <div className="mt-1 flex items-center gap-2 text-[13px] text-ink">
-                  <Dot state={latest?.status === "Approved" ? "approved" : "in_review"} />
-                  {latest?.status}
-                </div>
-                <div className="mt-0.5 text-xs text-ink-3">
-                  {stage ? `${stage.name} · ${stage.participants}` : workflow?.name}
-                </div>
-                {next && <div className="mt-0.5 text-xs text-ink-3">next: {next.name}</div>}
-              </div>
-              <div className="rounded-panel-lg border border-hairline bg-surface px-4 py-3 shadow-1">
-                <Label>Score</Label>
-                {score ? (
-                  <Link
-                    to="/files/$fileId"
-                    params={{ fileId: score.id }}
-                    className="mt-1 flex items-center gap-2 text-[13px] text-ink no-underline hover:text-signal"
-                  >
-                    <Icon name="score" className="text-ink-3" />
-                    <span className="truncate">{score.name}</span>
-                  </Link>
-                ) : (
-                  <div className="mt-1 text-[13px] text-ink-3">
-                    {viewer.can(project.id, "organise") ? (
-                      <button type="button" className="text-ink-2 hover:text-ink">
-                        Link a PDF of this project
-                      </button>
-                    ) : (
-                      "No score linked"
-                    )}
-                  </div>
-                )}
-                <div className="mt-0.5 text-xs text-ink-3">
-                  Shown beside the recording for reference; bars are typed, never synced.
-                </div>
-              </div>
-              <div className="rounded-panel-lg border border-hairline bg-surface px-4 py-3 shadow-1">
-                <Label>Comments</Label>
-                <div className="mt-1 text-[13px] text-ink">
-                  {plural(openComments, "open comment")}
-                </div>
-                <div className="mt-0.5 text-xs text-ink-3">
-                  {track.deliveryProfile
-                    ? `Delivery profile: ${track.deliveryProfile} (overrides the project)`
-                    : "Delivery profile: the project's"}
-                </div>
-              </div>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px] text-ink-3">
+              <span className="flex items-center gap-2 text-ink">
+                <Dot state={latest?.status === "Approved" ? "approved" : "in_review"} />
+                {latest?.status}
+                {stage && <span className="text-ink-3">· {stage.name}</span>}
+              </span>
+              {next && <span>Next: {next.name}</span>}
+              {score ? (
+                <Link
+                  to="/files/$fileId"
+                  params={{ fileId: score.id }}
+                  className="flex items-center gap-1.5 text-ink-2 hover:text-ink"
+                >
+                  <Icon name="score" size={14} />
+                  {score.name}
+                </Link>
+              ) : viewer.can(project.id, "organise") ? (
+                <button type="button" className="flex items-center gap-1.5 hover:text-ink">
+                  <Icon name="plus" size={12} /> Link a score
+                </button>
+              ) : null}
+              <span>{plural(openComments, "open comment")}</span>
+              {track.deliveryProfile && <span>Delivery: {track.deliveryProfile}</span>}
             </div>
-            <ul className="m-0 list-none rounded-panel-lg border border-hairline bg-surface p-0 shadow-1">
+            <ul className="list-none rounded-panel-lg border border-line bg-raised/40 p-0 shadow-1">
               {versions.map((v) => (
                 <VersionRow
                   key={v.id}
@@ -443,11 +413,6 @@ export function TrackPage({ trackId }: { trackId: string }) {
                 />
               ))}
             </ul>
-            <p className="m-0 text-xs text-ink-3">
-              Versions never replace each other: comments raised on one are carried to the next, and
-              before and after plays both. Latest first.{" "}
-              {latest && `Last change ${ago(latest.uploadedAt)}.`}
-            </p>
           </>
         )}
       </StateGate>

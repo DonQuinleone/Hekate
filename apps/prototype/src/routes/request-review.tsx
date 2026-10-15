@@ -62,10 +62,10 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="grid gap-3 border-t border-hairline-soft py-5 @3xl/app:grid-cols-[200px_minmax(0,1fr)]">
+    <section className="grid gap-3 border-t border-line py-5 @3xl/app:grid-cols-[200px_minmax(0,1fr)]">
       <div>
-        <h2 className="m-0 text-[13px] font-medium text-ink">{title}</h2>
-        {hint && <p className="m-0 mt-1 text-xs text-ink-3">{hint}</p>}
+        <h2 className="text-[14px] font-medium text-ink">{title}</h2>
+        {hint && <p className="mt-1 text-[13px] text-ink-3">{hint}</p>}
       </div>
       <div className="flex min-w-0 flex-col gap-3">{children}</div>
     </section>
@@ -87,7 +87,7 @@ function Chip({
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        "h-7 rounded-chip border px-2.5 text-xs",
+        "h-7 rounded-chip border px-2.5 text-[13px]",
         active
           ? "border-edge bg-raised text-ink shadow-1"
           : "border-transparent text-ink-3 hover:text-ink",
@@ -117,7 +117,11 @@ export function RequestReviewPage({
   const [items, setItems] = useState<Set<string>>(new Set(item ? [item] : []));
   const [people, setPeople] = useState<Set<string>>(new Set(["p-mira", "p-tomas"]));
   const [adjusting, setAdjusting] = useState<string | null>(null);
-  usePageHeader({ crumbs: [{ label: "Reviews", to: "/reviews" }], title: "Request a review" });
+  const proj = projectById(project);
+  usePageHeader({
+    crumbs: proj ? [{ label: proj.name, to: `/projects/${proj.id}` }] : [],
+    title: "Request a review",
+  });
   if (candidates.length === 0)
     return (
       <Refused
@@ -125,7 +129,6 @@ export function RequestReviewPage({
         text="Requesting reviews needs the permission in a project role. Ask a producer."
       />
     );
-  const proj = projectById(project);
   const projectTracks = tracks.filter((t) => t.projectId === project && latestVersion(t));
   const loose = files.filter(
     (f) =>
@@ -164,9 +167,7 @@ export function RequestReviewPage({
               key={k.id}
               className={cn(
                 "flex cursor-pointer flex-col gap-1 rounded-panel border p-3",
-                kind === k.id
-                  ? "border-signal/60 bg-signal/10"
-                  : "border-hairline hover:border-edge",
+                kind === k.id ? "border-signal/60 bg-signal/10" : "border-line hover:border-edge",
               )}
             >
               <input
@@ -177,8 +178,8 @@ export function RequestReviewPage({
                 onChange={() => setKind(k.id)}
                 className="sr-only"
               />
-              <span className="text-[13px] font-medium text-ink">{k.label}</span>
-              <span className="text-xs text-ink-3">{k.hint}</span>
+              <span className="text-[14px] font-medium text-ink">{k.label}</span>
+              <span className="text-[13px] text-ink-3">{k.hint}</span>
             </label>
           ))}
         </div>
@@ -192,7 +193,7 @@ export function RequestReviewPage({
               setProject(e.target.value);
               setItems(new Set());
             }}
-            className="h-8 rounded-control border border-edge bg-ground px-2 text-[13px] text-ink"
+            className="h-8 rounded-control border border-edge bg-ground px-2 text-[14px] text-ink"
           >
             {candidates.map((p) => (
               <option key={p.id} value={p.id}>
@@ -201,14 +202,14 @@ export function RequestReviewPage({
             ))}
           </select>
         </div>
-        <ul className="m-0 list-none rounded-panel border border-hairline bg-surface p-0">
+        <ul className="list-none rounded-panel border border-line bg-raised/40 p-0">
           {projectTracks.map((t) => {
             const v = latestVersion(t);
             const on = items.has(t.id);
             return (
               <li
                 key={t.id}
-                className="flex items-center gap-3 border-b border-hairline-soft px-3 py-2 last:border-b-0"
+                className="flex items-center gap-3 border-b border-line px-3 py-2 last:border-b-0"
               >
                 <input
                   type="checkbox"
@@ -217,11 +218,11 @@ export function RequestReviewPage({
                   aria-label={t.name}
                 />
                 <Icon name="track" className="text-ink-3" />
-                <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{t.name}</span>
+                <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{t.name}</span>
                 {on && (
                   <select
                     defaultValue="latest"
-                    className="h-7 rounded-control border border-edge bg-ground px-2 text-xs text-ink"
+                    className="h-7 rounded-control border border-edge bg-ground px-2 text-[13px] text-ink"
                   >
                     <option value="latest">Latest (V{v?.number})</option>
                     {t.versions.map((x) => (
@@ -237,7 +238,7 @@ export function RequestReviewPage({
           {loose.slice(0, 5).map((f) => (
             <li
               key={f.id}
-              className="flex items-center gap-3 border-b border-hairline-soft px-3 py-2 last:border-b-0"
+              className="flex items-center gap-3 border-b border-line px-3 py-2 last:border-b-0"
             >
               <input
                 type="checkbox"
@@ -246,7 +247,7 @@ export function RequestReviewPage({
                 aria-label={f.name}
               />
               <Icon name="file" className="text-ink-3" />
-              <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{f.name}</span>
+              <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{f.name}</span>
             </li>
           ))}
         </ul>
@@ -255,14 +256,14 @@ export function RequestReviewPage({
         title="Who"
         hint="Members, guests and groups. A guest reaches only these items, through a link sent by email."
       >
-        <ul className="m-0 list-none rounded-panel border border-hairline bg-surface p-0">
+        <ul className="list-none rounded-panel border border-line bg-raised/40 p-0">
           {proj?.members.map((m) => {
             const p = personById(m.personId);
             const on = people.has(m.personId);
             const role = proj.roles.find((r) => r.id === m.roleId);
             const canDecide = role?.permissions.includes("decide");
             return (
-              <li key={m.personId} className="border-b border-hairline-soft last:border-b-0">
+              <li key={m.personId} className="border-b border-line last:border-b-0">
                 <div className="flex items-center gap-3 px-3 py-2">
                   <input
                     type="checkbox"
@@ -272,7 +273,7 @@ export function RequestReviewPage({
                     disabled={kind === "approval" && !canDecide}
                   />
                   <Avatar personId={m.personId} size={22} />
-                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
+                  <span className="min-w-0 flex-1 truncate text-[14px] text-ink">
                     {p.name} <span className="text-ink-3">· {role?.name}</span>
                     {kind === "approval" && !canDecide && (
                       <span className="text-ink-3"> · cannot decide, follows along</span>
@@ -289,7 +290,7 @@ export function RequestReviewPage({
                     <button
                       type="button"
                       onClick={() => setAdjusting(adjusting === m.personId ? null : m.personId)}
-                      className="text-xs text-ink-3 hover:text-ink"
+                      className="text-[13px] text-ink-3 hover:text-ink"
                     >
                       {adjusting === m.personId ? "Done" : "Permissions"}
                     </button>
@@ -303,7 +304,7 @@ export function RequestReviewPage({
             const p = personById(g.personId);
             const on = people.has(`guest-${g.personId}`);
             return (
-              <li key={g.personId} className="border-b border-hairline-soft last:border-b-0">
+              <li key={g.personId} className="border-b border-line last:border-b-0">
                 <div className="flex items-center gap-3 px-3 py-2">
                   <input
                     type="checkbox"
@@ -312,7 +313,7 @@ export function RequestReviewPage({
                     aria-label={p.name}
                   />
                   <Avatar personId={g.personId} size={22} />
-                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
+                  <span className="min-w-0 flex-1 truncate text-[14px] text-ink">
                     {p.name} <span className="text-ink-3">· {g.label}, guest</span>
                   </span>
                   {on && order === "sequence" && (
@@ -326,7 +327,7 @@ export function RequestReviewPage({
                     <button
                       type="button"
                       onClick={() => setAdjusting(adjusting === g.personId ? null : g.personId)}
-                      className="text-xs text-ink-3 hover:text-ink"
+                      className="text-[13px] text-ink-3 hover:text-ink"
                     >
                       {adjusting === g.personId ? "Done" : "Permissions"}
                     </button>
@@ -341,7 +342,7 @@ export function RequestReviewPage({
             .map((g) => (
               <li
                 key={g.id}
-                className="flex items-center gap-3 border-b border-hairline-soft px-3 py-2 last:border-b-0"
+                className="flex items-center gap-3 border-b border-line px-3 py-2 last:border-b-0"
               >
                 <input
                   type="checkbox"
@@ -350,7 +351,7 @@ export function RequestReviewPage({
                   aria-label={g.name}
                 />
                 <Icon name="users" className="text-ink-3" />
-                <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
+                <span className="min-w-0 flex-1 truncate text-[14px] text-ink">
                   {g.name}{" "}
                   <span className="text-ink-3">
                     · group,{" "}
@@ -368,7 +369,7 @@ export function RequestReviewPage({
             <Icon name="plus" size={14} />
             Invite a guest by email
           </Button>
-          <span className="text-xs text-ink-3">
+          <span className="text-[13px] text-ink-3">
             Someone named twice is asked once, at their first step.
           </span>
         </div>
@@ -398,7 +399,7 @@ export function RequestReviewPage({
                   A share
                 </Chip>
                 {rule === "quorum" && (
-                  <span className="flex items-center gap-1 text-xs text-ink-3">
+                  <span className="flex items-center gap-1 text-[13px] text-ink-3">
                     <Input
                       defaultValue="66"
                       className="h-7 w-14 text-center"
@@ -410,7 +411,7 @@ export function RequestReviewPage({
               </div>
             )}
           </div>
-          <p className="m-0 text-xs text-ink-3">
+          <p className="text-[13px] text-ink-3">
             {order === "sequence"
               ? "Each step starts when the one before finishes. Everyone at a step acts together."
               : "Everyone is asked now."}{" "}
@@ -420,16 +421,16 @@ export function RequestReviewPage({
       )}
       <Section title="When and why">
         <div className="grid gap-3 @3xl/app:grid-cols-[200px_minmax(0,1fr)]">
-          <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+          <label className="flex flex-col gap-1.5 text-[14px] text-ink-2">
             {kind === "share" ? "Expires" : "Due"}
             <Input type="date" defaultValue="2026-10-30" />
           </label>
-          <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+          <label className="flex flex-col gap-1.5 text-[14px] text-ink-2">
             Message
             <textarea
               rows={3}
               placeholder="Final masters for the album. Listen on headphones and on speakers, please."
-              className="rounded-control border border-edge bg-ground px-3 py-2 text-[13px] text-ink placeholder:text-ink-3 focus:border-ink-3 focus:outline-none"
+              className="rounded-control border border-edge bg-ground px-3 py-2 text-[14px] text-ink placeholder:text-ink-3 focus:border-ink-3 focus:outline-none"
             />
           </label>
         </div>
@@ -440,14 +441,16 @@ export function RequestReviewPage({
       >
         <Permissions guest={false} />
       </Section>
-      <div className="flex items-center gap-3 border-t border-hairline-soft py-5">
-        <span className="text-xs text-ink-3">
+      <div className="flex items-center gap-3 border-t border-line py-5">
+        <span className="text-[13px] text-ink-3">
           {kind === "share" ? "Shares" : "Invitations"} go by email when you send. {items.size}{" "}
           {items.size === 1 ? "item" : "items"}, {people.size}{" "}
           {people.size === 1 ? "person" : "people"}.
         </span>
         <Button variant="ghost" className="ml-auto" asChild>
-          <Link to="/reviews">Cancel</Link>
+          <Link to="/projects/$projectId/$view" params={{ projectId: project, view: "reviews" }}>
+            Cancel
+          </Link>
         </Button>
         <Button variant="primary" type="submit" disabled={items.size === 0 || people.size === 0}>
           <Icon name="send" size={14} />
@@ -476,8 +479,8 @@ export function Permissions({ guest, compact = false }: { guest: boolean; compac
   return (
     <div
       className={cn(
-        "grid gap-4 text-[13px]",
-        compact ? "" : "rounded-panel border border-hairline bg-ground p-4",
+        "grid gap-4 text-[14px]",
+        compact ? "" : "rounded-panel border border-line bg-ground p-4",
         "@3xl/app:grid-cols-2",
       )}
     >
@@ -530,7 +533,7 @@ export function Permissions({ guest, compact = false }: { guest: boolean; compac
           ))}
         </div>
         {!guest && (
-          <span className="text-xs text-ink-3">
+          <span className="text-[13px] text-ink-3">
             A member keeps the tools of their role; a review can only take away.
           </span>
         )}
@@ -554,7 +557,7 @@ export function Permissions({ guest, compact = false }: { guest: boolean; compac
           </span>
         </div>
         {download !== "none" && (
-          <span className="text-xs text-ink-3">Watermarked per recipient and logged.</span>
+          <span className="text-[13px] text-ink-3">Watermarked per recipient and logged.</span>
         )}
       </div>
       <div className="flex flex-col gap-1.5 @3xl/app:col-span-2">

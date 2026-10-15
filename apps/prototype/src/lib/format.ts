@@ -26,20 +26,20 @@ export function formatTimecode(seconds: number, fps = 25): string {
 
 export const frameOf = (seconds: number, fps = 25) => Math.floor(seconds * fps);
 
-/** The typed reference, as the brand writes it: P. 2 · BAR 112.1 · BARS 118–124. */
+/** The typed reference: p. 2 · bar 112.1 · bars 118–124. */
 export function formatReference(
   ref: Reference | undefined,
   enabled = { page: true, bar: true, beat: true },
 ): string {
   if (!ref) return "";
   const parts: string[] = [];
-  if (enabled.page && ref.page !== undefined) parts.push(`P. ${ref.page}`);
+  if (enabled.page && ref.page !== undefined) parts.push(`p. ${ref.page}`);
   if (enabled.bar && ref.bar !== undefined) {
     if (ref.barTo !== undefined && ref.barTo !== ref.bar)
-      parts.push(`BARS ${ref.bar}–${ref.barTo}`);
+      parts.push(`bars ${ref.bar}–${ref.barTo}`);
     else if (enabled.beat && ref.beat !== undefined && ref.beat !== 1)
-      parts.push(`BAR ${ref.bar}.${ref.beat}`);
-    else parts.push(`BAR ${ref.bar}`);
+      parts.push(`bar ${ref.bar}.${ref.beat}`);
+    else parts.push(`bar ${ref.bar}`);
   }
   return parts.join(" · ");
 }
@@ -54,10 +54,10 @@ export function formatAnchor(anchor: Anchor, opts: { fps?: number; video?: boole
     }
     case "region":
       if (anchor.at !== undefined)
-        return `${formatTimecode(anchor.at, opts.fps)} · F ${frameOf(anchor.at, opts.fps)} · REGION`;
-      return anchor.page !== undefined ? `P. ${anchor.page} · REGION` : "REGION";
+        return `${formatTimecode(anchor.at, opts.fps)} · frame ${frameOf(anchor.at, opts.fps)}`;
+      return anchor.page !== undefined ? `p. ${anchor.page}` : "region";
     case "whole":
-      return "WHOLE FILE";
+      return "Whole file";
   }
 }
 

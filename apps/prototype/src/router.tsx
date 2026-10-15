@@ -9,6 +9,7 @@ import {
 import { useEffect } from "react";
 import { PageHeaderProvider } from "~/components/page-header";
 import { GuestShell, InstanceShell, Shell } from "~/components/shell";
+import { appRoot } from "~/lib/dom";
 import { AccountPage } from "~/routes/account";
 import { GuestLinkPage, GuestSignedOutPage, SignInPage } from "~/routes/arrive";
 import { FilePage } from "~/routes/file";
@@ -21,7 +22,6 @@ import { ProjectPage } from "~/routes/project";
 import { ProjectsPage } from "~/routes/projects";
 import { RequestReviewPage } from "~/routes/request-review";
 import { ReviewPage } from "~/routes/review";
-import { ReviewsPage } from "~/routes/reviews";
 import { SettingsPage } from "~/routes/settings";
 import { SessionPage, TakePage } from "~/routes/takes";
 import { TrackPage } from "~/routes/track";
@@ -63,8 +63,8 @@ const root = createRootRoute({
   component: Root,
   notFoundComponent: () => (
     <div className="mx-auto max-w-md px-6 py-16">
-      <h1 className="m-0 text-[15px] font-medium">Not found</h1>
-      <p className="text-ink-2">
+      <h1 className="text-[16px] font-medium">Not found</h1>
+      <p className="mt-1 text-ink-2">
         There is nothing at this address, or you do not have access to it.
       </p>
     </div>
@@ -74,7 +74,7 @@ const root = createRootRoute({
 /** Scrolls the main pane to the top on each page. */
 function ScrollTop() {
   useEffect(() => {
-    document.querySelector("main")?.scrollTo({ top: 0 });
+    appRoot().querySelector("main")?.scrollTo({ top: 0 });
   });
   return null;
 }
@@ -132,11 +132,14 @@ const guestOut = createRoute({
 });
 
 const app = createRoute({ getParentRoute: () => root, id: "app", component: App });
-const home = createRoute({ getParentRoute: () => app, path: "/", component: HomePage });
-const reviewsRoute = createRoute({
+const home = createRoute({
   getParentRoute: () => app,
-  path: "/reviews",
-  component: ReviewsPage,
+  path: "/",
+  validateSearch: (s: Record<string, unknown>) => pick(s, ["item"]),
+  component: function HomeRoute() {
+    const search = home.useSearch();
+    return <HomePage item={search.item} />;
+  },
 });
 const requestReview = createRoute({
   getParentRoute: () => app,
@@ -333,7 +336,6 @@ export const router = createRouter({
     guestOut,
     app.addChildren([
       home,
-      reviewsRoute,
       requestReview,
       review,
       projectsRoute,
