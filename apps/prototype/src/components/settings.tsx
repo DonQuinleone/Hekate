@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { Page } from "~/components/page";
 import { cn } from "~/lib/cn";
 import { Label } from "./label";
 import { Switch } from "./ui/toggle";
@@ -25,7 +26,7 @@ export function SettingsLayout({
 }) {
   const groups = [...new Set(sections.map((s) => s.group ?? ""))];
   return (
-    <div className="fade-in mx-auto flex w-full max-w-[1120px] flex-col gap-6 px-4 py-6 @3xl/app:flex-row @3xl/app:gap-12 @3xl/app:px-8 @3xl/app:py-8">
+    <Page className="gap-6 @3xl/app:flex-row @3xl/app:gap-12">
       <nav
         aria-label="Sections"
         className="flex shrink-0 gap-1 overflow-x-auto @3xl/app:w-[200px] @3xl/app:flex-col"
@@ -60,7 +61,7 @@ export function SettingsLayout({
         </div>
         {children}
       </div>
-    </div>
+    </Page>
   );
 }
 

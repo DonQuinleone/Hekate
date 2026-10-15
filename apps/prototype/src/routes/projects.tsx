@@ -1,22 +1,16 @@
-import { Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { AvatarRow } from "~/components/avatar";
-import { Icon, type IconName } from "~/components/icons";
+import { Icon } from "~/components/icons";
+import { Page } from "~/components/page";
 import { usePageHeader } from "~/components/page-header";
+import { NewProjectTile, ProjectCard, profileIcon } from "~/components/project-card";
 import { Button } from "~/components/ui/button";
-import { Input } from "~/components/ui/input";
-import { type ProjectProfile, reviews, tracks } from "~/data";
+import { Dialog } from "~/components/ui/dialog";
+import { Input, Textarea } from "~/components/ui/input";
+import type { ProjectProfile } from "~/data";
 import { cn } from "~/lib/cn";
-import { formatDate } from "~/lib/format";
-import { needsYou } from "~/lib/reviews";
 import { useViewer } from "~/viewer/context";
 import { Empty, StateGate } from "~/viewer/state-gate";
 
-export const profileIcon: Record<ProjectProfile, IconName> = {
-  music: "music",
-  video: "film",
-  general: "file",
-};
 const profileCopy: Record<ProjectProfile, { label: string; hint: string }> = {
   music: {
     label: "Music",
@@ -32,23 +26,33 @@ const profileCopy: Record<ProjectProfile, { label: string; hint: string }> = {
   },
 };
 
-function NewProject({ onClose }: { onClose: () => void }) {
+/** The new project form; `bare` leaves out its own frame when it sits in a dialog. */
+export function NewProject({ onClose, bare = false }: { onClose: () => void; bare?: boolean }) {
   const [profile, setProfile] = useState<ProjectProfile>("music");
   return (
     <form
-      className="flex flex-col gap-5 rounded-panel-lg border border-line bg-raised/40 p-5 shadow-1"
+      className={cn(
+        "flex flex-col gap-5",
+        !bare && "rounded-panel-lg border border-line bg-raised/40 p-5 shadow-1",
+      )}
       onSubmit={(e) => {
         e.preventDefault();
         onClose();
       }}
     >
-      <div className="flex items-baseline justify-between">
-        <h2 className="text-[16px] font-medium">New project</h2>
-        <span className="text-[13px] text-ink-3">You become its first Producer.</span>
-      </div>
+      {!bare && (
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-[16px] font-medium">New project</h2>
+          <span className="text-[13px] text-ink-3">You become its first Producer.</span>
+        </div>
+      )}
       <label className="flex flex-col gap-1.5 text-[14px] text-ink-2">
         Name
-        <Input placeholder="Autumn sessions" />
+        <Input placeholder="Autumn sessions" autoFocus />
+      </label>
+      <label className="flex flex-col gap-1.5 text-[14px] text-ink-2">
+        What it is
+        <Textarea rows={2} placeholder="A line for the project list." />
       </label>
       <fieldset className="flex flex-col gap-2 border-0 p-0">
         <legend className="mb-2 text-[14px] text-ink-2">
@@ -82,7 +86,10 @@ function NewProject({ onClose }: { onClose: () => void }) {
           ))}
         </div>
       </fieldset>
-      <div className="flex justify-end gap-2">
+      <div className="flex items-center justify-end gap-2">
+        {bare && (
+          <span className="mr-auto text-[13px] text-ink-3">You become its first Producer.</span>
+        )}
         <Button variant="ghost" onClick={onClose}>
           Cancel
         </Button>
@@ -97,6 +104,7 @@ function NewProject({ onClose }: { onClose: () => void }) {
 export function ProjectsPage() {
   const viewer = useViewer();
   const [creating, setCreating] = useState(false);
+  const [filter, setFilter] = useState<"active" | "archived">("active");
   const mine = viewer.projects();
   const canCreate = !viewer.isGuest;
   usePageHeader({
@@ -109,8 +117,7 @@ export function ProjectsPage() {
     ) : undefined,
   });
   return (
-    <div className="fade-in mx-auto flex max-w-[1000px] flex-col gap-6 px-4 py-6 @3xl/app:px-8">
-      {creating && <NewProject onClose={() => setCreating(false)} />}
+    <Page>
       <StateGate
         empty={
           <Empty
@@ -124,59 +131,46 @@ export function ProjectsPage() {
           />
         }
       >
-        <ul className="-mx-2 flex flex-col">
-          {mine.map((p) => {
-            const waiting = reviews.filter(
-              (r) => r.projectId === p.id && needsYou(r, viewer.reviewerIn(r)),
-            ).length;
-            const latest =
-              tracks
-                .filter((t) => t.projectId === p.id)
-                .flatMap((t) => t.versions)
-                .map((v) => v.uploadedAt)
-                .sort()
-                .at(-1) ?? p.createdAt;
-            return (
-              <li
-                key={p.id}
-                className="grid grid-cols-[1fr_auto] items-center gap-4 rounded-panel px-2 transition-colors hover:bg-raised/60 @3xl/app:grid-cols-[minmax(0,1fr)_120px_120px_90px]"
-              >
-                <Link
-                  to="/projects/$projectId"
-                  params={{ projectId: p.id }}
-                  className="flex min-w-0 items-center gap-3.5 py-2.5"
-                >
-                  <span
-                    className="flex size-10 shrink-0 items-center justify-center rounded-panel text-ink shadow-2"
-                    style={{
-                      background: `linear-gradient(145deg, oklch(0.4 0.07 ${p.profile === "music" ? 40 : p.profile === "video" ? 260 : 150}), oklch(0.22 0.04 ${p.profile === "music" ? 60 : p.profile === "video" ? 290 : 170}))`,
-                    }}
-                  >
-                    <Icon name={profileIcon[p.profile]} size={18} />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-[15px] font-medium text-ink">
-                      {p.name}
-                    </span>
-                    <span className="block truncate text-[13px] text-ink-3">{p.description}</span>
-                  </span>
-                </Link>
-                <span className="hidden @3xl/app:block">
-                  <AvatarRow personIds={p.members.map((m) => m.personId)} />
-                </span>
-                <span className="hidden text-[13px] @3xl/app:block">
-                  {waiting > 0 ? (
-                    <span className="text-signal">{waiting} on you</span>
-                  ) : (
-                    <span className="text-ink-3" />
-                  )}
-                </span>
-                <span className="tabular text-[13px] text-ink-3">{formatDate(latest)}</span>
-              </li>
-            );
-          })}
-        </ul>
+        <div className="flex items-center gap-1">
+          {(
+            [
+              ["active", "Active"],
+              ["archived", "Archived"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={filter === id}
+              onClick={() => setFilter(id)}
+              className={cn(
+                "h-8 rounded-control px-3 text-[13px] transition-colors",
+                filter === id ? "bg-raised text-ink shadow-1" : "text-ink-3 hover:text-ink",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+          <span className="ml-auto text-[13px] text-ink-3">
+            {mine.length} {mine.length === 1 ? "project" : "projects"}
+          </span>
+        </div>
+        {filter === "archived" ? (
+          <Empty title="Nothing archived" text="Archived projects keep everything, read-only." />
+        ) : (
+          <div className="grid gap-4 @3xl/app:grid-cols-2 @6xl/app:grid-cols-3">
+            {mine.map((p) => (
+              <ProjectCard key={p.id} project={p} />
+            ))}
+            {canCreate && <NewProjectTile onClick={() => setCreating(true)} />}
+          </div>
+        )}
       </StateGate>
-    </div>
+      {creating && (
+        <Dialog title="New project" onClose={() => setCreating(false)} width="lg">
+          <NewProject onClose={() => setCreating(false)} bare />
+        </Dialog>
+      )}
+    </Page>
   );
 }

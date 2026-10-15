@@ -1,91 +1,20 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Avatar } from "~/components/avatar";
-import { Icon, type IconName } from "~/components/icons";
+import { Icon } from "~/components/icons";
 import { Kbd, Label } from "~/components/label";
+import { notificationIcon } from "~/components/notifications";
+import { Page } from "~/components/page";
 import { usePageHeader } from "~/components/page-header";
 import { Dot } from "~/components/status";
 import { Thumb } from "~/components/thumb";
 import { Button } from "~/components/ui/button";
 import { Input, Select } from "~/components/ui/input";
-import { comments, files, people, personById, projects, tracks } from "~/data";
+import { comments, files, notifications, people, personById, projects, tracks } from "~/data";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/format";
 import { useViewer } from "~/viewer/context";
 import { Empty, StateGate } from "~/viewer/state-gate";
-
-const notifications = [
-  {
-    id: "n-1",
-    at: "2026-10-14T20:41:00Z",
-    personId: "p-tomas",
-    text: "uploaded Maple Leaf Rag V3",
-    kind: "version",
-    href: "/tracks/t-maple",
-    read: false,
-  },
-  {
-    id: "n-2",
-    at: "2026-10-14T19:25:00Z",
-    personId: "p-alex",
-    text: "replied to your comment on Maple Leaf Rag V2",
-    kind: "reply",
-    href: "/files/file-maple-v2-dry?comment=c-2",
-    read: false,
-  },
-  {
-    id: "n-3",
-    at: "2026-10-14T14:20:00Z",
-    personId: "p-tomas",
-    text: "requested changes on Album masters",
-    kind: "decision",
-    href: "/reviews/rev-masters",
-    read: false,
-  },
-  {
-    id: "n-4",
-    at: "2026-10-14T12:35:00Z",
-    personId: "p-tomas",
-    text: "submitted feedback on Mix notes, round two",
-    kind: "decision",
-    href: "/reviews/rev-mixnotes",
-    read: true,
-  },
-  {
-    id: "n-5",
-    at: "2026-10-14T10:02:00Z",
-    personId: "p-mira",
-    text: "approved Album masters",
-    kind: "decision",
-    href: "/reviews/rev-masters",
-    read: true,
-  },
-  {
-    id: "n-6",
-    at: "2026-10-13T20:00:00Z",
-    personId: "p-mira",
-    text: "assigned you: move the title away from the sleeve edge",
-    kind: "assignment",
-    href: "/projects/proj-joplin/tasks",
-    read: true,
-  },
-  {
-    id: "n-7",
-    at: "2026-10-13T19:05:00Z",
-    personId: "p-tomas",
-    text: "moved Opening titles to With director",
-    kind: "stage",
-    href: "/tracks/t-titles",
-    read: true,
-  },
-];
-const kindIcon: Record<string, IconName> = {
-  version: "upload",
-  reply: "comment",
-  decision: "review",
-  assignment: "users",
-  stage: "board",
-};
 
 export function NotificationsPage() {
   const navigate = useNavigate();
@@ -115,7 +44,7 @@ export function NotificationsPage() {
         </div>
       }
     >
-      <div className="fade-in mx-auto flex w-full max-w-[760px] flex-col gap-6 px-4 py-6 @3xl/app:px-8">
+      <Page width="narrow" className="gap-6">
         {groups.map(([title, list]) => (
           <section key={title} className="flex flex-col gap-1">
             <Label className="mb-1">{title}</Label>
@@ -132,7 +61,7 @@ export function NotificationsPage() {
                 <span className="relative mt-0.5">
                   <Avatar personId={n.personId} size={28} />
                   <span className="absolute -right-1 -bottom-1 flex size-4 items-center justify-center rounded-full bg-overlay text-ink-2 shadow-2">
-                    <Icon name={kindIcon[n.kind] ?? "bell"} size={9} />
+                    <Icon name={notificationIcon[n.kind]} size={9} />
                   </span>
                 </span>
                 <span className="min-w-0 flex-1">
@@ -151,7 +80,7 @@ export function NotificationsPage() {
             ))}
           </section>
         ))}
-      </div>
+      </Page>
     </StateGate>
   );
 }
@@ -177,7 +106,7 @@ export function SearchPage() {
   };
   const total = Object.values(results).reduce((n, l) => n + l.length, 0);
   return (
-    <div className="fade-in mx-auto flex w-full max-w-[880px] flex-col gap-5 px-4 py-6 @3xl/app:px-8">
+    <Page width="narrow" className="gap-5">
       <div className="relative">
         <Icon
           name="search"
@@ -395,6 +324,6 @@ export function SearchPage() {
           </span>
         </aside>
       </div>
-    </div>
+    </Page>
   );
 }

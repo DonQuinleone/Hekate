@@ -30,10 +30,12 @@ import { inField } from "~/lib/dom";
 import { formatLongDate } from "~/lib/format";
 import { useViewer } from "~/viewer/context";
 import { Empty, Refused, useScreenState } from "~/viewer/state-gate";
+import { SessionsView } from "./takes.tsx";
 
 export const productionSections = [
   { id: "repertoire", label: "Repertoire" },
   { id: "schedule", label: "Schedule" },
+  { id: "sessions", label: "Sessions" },
   { id: "takelog", label: "Take log" },
   { id: "marking", label: "Score marking" },
   { id: "stage", label: "Stage plan" },
@@ -1723,6 +1725,7 @@ export function ProductionView({ project, section }: { project: Project; section
       </nav>
       {sec === "repertoire" && <Repertoire />}
       {sec === "schedule" && <Schedule />}
+      {sec === "sessions" && <SessionsView project={project} />}
       {sec === "takelog" && <TakeLog />}
       {sec === "marking" && <ScoreMarking />}
       {sec === "stage" && <StagePlan />}

@@ -23,7 +23,7 @@ export function Frame({ children }: { children: ReactNode }) {
       <div className="relative flex h-full items-center justify-center overflow-auto bg-canvas p-6">
         <Ambient />
         <div
-          className="@container/app relative z-10 h-[844px] w-[390px] shrink-0 overflow-hidden rounded-[32px] border border-edge bg-ground shadow-4"
+          className="@container/app relative z-10 h-[844px] w-[390px] shrink-0 transform-gpu overflow-hidden rounded-[32px] border border-edge bg-ground shadow-4"
           data-flat={settings.shadows ? undefined : ""}
         >
           {children}

@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { Rating } from "~/components/comments/takes";
 import { Icon } from "~/components/icons";
 import { Kbd, Label } from "~/components/label";
+import { Page } from "~/components/page";
 import { usePageHeader } from "~/components/page-header";
 import { PageViewer } from "~/components/pages";
 import { usePlayback } from "~/components/player/playback";
@@ -259,7 +260,7 @@ export function SessionPage({ sessionId }: { sessionId: string }) {
   if (!session || !project || !allowed) return <Refused />;
   const list = session.takeIds.map(takeById).filter((t): t is Take => Boolean(t));
   return (
-    <div className="fade-in mx-auto flex w-full max-w-[1120px] flex-col gap-5 px-4 py-6 @3xl/app:px-8">
+    <Page className="gap-5">
       <p className="text-[14px] text-ink-2">
         {formatLongDate(session.date)} · {session.venue} · {plural(list.length, "take")}
       </p>
@@ -342,7 +343,7 @@ export function SessionPage({ sessionId }: { sessionId: string }) {
           </tbody>
         </table>
       </div>
-    </div>
+    </Page>
   );
 }
 

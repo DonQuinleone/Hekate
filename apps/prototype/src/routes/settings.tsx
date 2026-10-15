@@ -456,7 +456,22 @@ export function SettingsPage({ section }: { section: string }) {
               <Row
                 key={c.id}
                 name={
-                  <span className="flex items-center gap-2">
+                  <span className="flex items-center gap-2.5">
+                    <span className="flex size-7 items-center justify-center rounded-control bg-raised text-ink-2">
+                      <Icon
+                        name={
+                          c.id === "slack"
+                            ? "slack"
+                            : c.id === "discord"
+                              ? "discord"
+                              : c.id === "webhook"
+                                ? "webhook"
+                                : "mail"
+                        }
+                        size={16}
+                      />
+                    </span>
+                    {c.name}
                     <Dot
                       state={
                         c.state === "on"
@@ -465,8 +480,8 @@ export function SettingsPage({ section }: { section: string }) {
                             ? "changes_requested"
                             : "invited"
                       }
+                      className="size-[7px]"
                     />
-                    {c.name}
                   </span>
                 }
                 hint={c.hint}

@@ -20,9 +20,10 @@ import {
   UploadRequestPage,
 } from "~/routes/arrive";
 import { ComparePage } from "~/routes/compare";
+import { DashboardPage } from "~/routes/dashboard";
 import { FilePage } from "~/routes/file";
 import { GuestHomePage } from "~/routes/guest";
-import { HomePage } from "~/routes/home";
+import { InboxPage } from "~/routes/home";
 import { InstancePage } from "~/routes/instance";
 import { MembersPage } from "~/routes/members";
 import { NotificationsPage, SearchPage } from "~/routes/misc";
@@ -158,13 +159,14 @@ const uploadRequest = createRoute({
   },
 });
 const app = createRoute({ getParentRoute: () => root, id: "app", component: App });
-const home = createRoute({
+const home = createRoute({ getParentRoute: () => app, path: "/", component: DashboardPage });
+const inbox = createRoute({
   getParentRoute: () => app,
-  path: "/",
+  path: "/inbox",
   validateSearch: (s: Record<string, unknown>) => pick(s, ["item"]),
-  component: function HomeRoute() {
-    const search = home.useSearch();
-    return <HomePage item={search.item} />;
+  component: function InboxRoute() {
+    const search = inbox.useSearch();
+    return <InboxPage item={search.item} />;
   },
 });
 const requestReview = createRoute({
@@ -192,7 +194,7 @@ const projectsRoute = createRoute({
 const project = createRoute({
   getParentRoute: () => app,
   path: "/projects/$projectId",
-  validateSearch: (s: Record<string, unknown>) => pick(s, ["folder", "section"]),
+  validateSearch: (s: Record<string, unknown>) => pick(s, ["folder", "section", "task", "month"]),
   component: function ProjectRoute() {
     const { projectId } = project.useParams();
     const search = project.useSearch();
@@ -202,6 +204,8 @@ const project = createRoute({
         view="overview"
         folderId={search.folder}
         section={search.section}
+        taskId={search.task}
+        month={search.month}
       />
     );
   },
@@ -209,7 +213,7 @@ const project = createRoute({
 const projectView = createRoute({
   getParentRoute: () => app,
   path: "/projects/$projectId/$view",
-  validateSearch: (s: Record<string, unknown>) => pick(s, ["folder", "section"]),
+  validateSearch: (s: Record<string, unknown>) => pick(s, ["folder", "section", "task", "month"]),
   component: function ProjectViewRoute() {
     const { projectId, view } = projectView.useParams();
     const search = projectView.useSearch();
@@ -219,6 +223,8 @@ const projectView = createRoute({
         view={view}
         folderId={search.folder}
         section={search.section}
+        taskId={search.task}
+        month={search.month}
       />
     );
   },
@@ -226,9 +232,11 @@ const projectView = createRoute({
 const track = createRoute({
   getParentRoute: () => app,
   path: "/tracks/$trackId",
+  validateSearch: (s: Record<string, unknown>) => pick(s, ["view"]),
   component: function TrackRoute() {
     const { trackId } = track.useParams();
-    return <TrackPage trackId={trackId} />;
+    const search = track.useSearch();
+    return <TrackPage trackId={trackId} view={search.view} />;
   },
 });
 const compare = createRoute({
@@ -375,6 +383,7 @@ export const router = createRouter({
     uploadRequest,
     app.addChildren([
       home,
+      inbox,
       requestReview,
       review,
       projectsRoute,

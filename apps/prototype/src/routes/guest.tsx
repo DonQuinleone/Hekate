@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { Page } from "~/components/page";
 import { usePageHeader } from "~/components/page-header";
 import { Dot, reviewDot } from "~/components/status";
 import { organisation } from "~/data";
@@ -12,7 +13,7 @@ export function GuestHomePage() {
   usePageHeader({ title: "Your reviews" });
   const mine = viewer.reviews();
   return (
-    <div className="fade-in mx-auto flex max-w-[760px] flex-col gap-6 px-4 py-8 @3xl/app:px-8">
+    <Page width="narrow" className="gap-6">
       <p className="text-ink-2">{organisation.name} asked you to look at these.</p>
       <StateGate
         empty={
@@ -65,6 +66,6 @@ export function GuestHomePage() {
           })}
         </ul>
       </StateGate>
-    </div>
+    </Page>
   );
 }

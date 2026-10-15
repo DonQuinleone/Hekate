@@ -1,4 +1,6 @@
 export * from "./comments.ts";
+export * from "./graphs.ts";
+export * from "./notifications.ts";
 export * from "./people.ts";
 export * from "./production.ts";
 export * from "./projects.ts";

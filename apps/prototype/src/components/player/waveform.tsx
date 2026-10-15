@@ -5,13 +5,26 @@ import { formatClock } from "~/lib/format";
 import { peaksFor } from "~/lib/seeded";
 import type { Playback } from "./playback.ts";
 
+export type MarkerState = "open" | "todo" | "deferred" | "resolved";
+
 export interface Marker {
   id: string;
   at: number;
   end?: number;
   number: number;
   active?: boolean;
+  /** Open threads are quiet, ones with work to do carry the signal colour, deferred ones fade. */
+  state?: MarkerState;
 }
+
+export const waveColours = {
+  ink: "var(--hk-ink)",
+  signal: "var(--hk-signal)",
+  cool: "oklch(0.78 0.09 235)",
+  warm: "oklch(0.82 0.09 75)",
+} as const;
+
+export type WaveColourName = keyof typeof waveColours;
 
 const channelNames = (channels: number): string[] => {
   if (channels === 1) return ["M"];
@@ -26,11 +39,7 @@ const channelNames = (channels: number): string[] => {
 /** A closed outline of the envelope: the top edge left to right, the bottom edge back. */
 function envelope(data: number[], mid: number, amp: number, step: number): string {
   if (data.length === 0) return "";
-  const smooth = data.map((v, i) => {
-    const a = data[i - 1] ?? v;
-    const b = data[i + 1] ?? v;
-    return (a + v * 2 + b) / 4;
-  });
+  const smooth = data;
   const top = smooth.map((v, i) => `${(i * step).toFixed(1)},${(mid - v * amp).toFixed(1)}`);
   const bottom = smooth
     .map((v, i) => `${(i * step).toFixed(1)},${(mid + v * amp).toFixed(1)}`)
@@ -57,6 +66,9 @@ export function Waveform({
   height = 220,
   overlay,
   className,
+  colour = "ink",
+  opacity = 0.5,
+  amplitude = 0.32,
 }: {
   seed: number;
   duration: number;
@@ -73,6 +85,10 @@ export function Waveform({
   /** Something drawn behind the peaks, such as the spectrogram. */
   overlay?: React.ReactNode;
   className?: string;
+  colour?: WaveColourName;
+  opacity?: number;
+  /** How much of the lane the loudest peak reaches: a third by default, the viewer's to change. */
+  amplitude?: number;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(800);
@@ -86,7 +102,7 @@ export function Waveform({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const step = 2;
+  const step = 1;
   const columns = Math.ceil(width / step) + 1;
   const lanes = split ? channels : 1;
   const peaks = useMemo(() => {
@@ -110,12 +126,17 @@ export function Waveform({
       Array.from({ length: lanes }, (_, lane) => {
         const mid = lane * laneH + laneH / 2;
         const lfe = names[lane] === "LFE";
-        const amp = (laneH / 2 - (split ? 8 : 14)) * (lfe ? 0.45 : 1);
+        const amp = (laneH / 2 - 6) * amplitude * (lfe ? 0.45 : 1);
         return envelope(peaks[lane] ?? peaks[0] ?? [], mid, amp, step);
       }),
-    [lanes, laneH, names, split, peaks],
+    [lanes, laneH, names, peaks, amplitude],
   );
-  const clipId = `played-${seed}`;
+  const loopOn = playback.loop && playback.looping;
+  const region = drag
+    ? { start: Math.min(drag.from, drag.to), end: Math.max(drag.from, drag.to) }
+    : loopOn
+      ? playback.loop
+      : null;
 
   return (
     <div className={cn("relative select-none", className)} style={{ height }}>
@@ -148,11 +169,11 @@ export function Waveform({
         {/* a soft light that travels with the playhead */}
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute top-0 bottom-0 w-[260px] -translate-x-1/2 opacity-70"
+          className="pointer-events-none absolute top-0 bottom-0 w-[260px] -translate-x-1/2 opacity-50"
           style={{
             left: played,
             background:
-              "radial-gradient(closest-side, color-mix(in oklab, var(--hk-signal) 14%, transparent), transparent)",
+              "radial-gradient(closest-side, color-mix(in oklab, var(--hk-signal) 12%, transparent), transparent)",
           }}
         />
         <svg
@@ -162,11 +183,6 @@ export function Waveform({
           role="img"
           aria-label="Waveform"
         >
-          <defs>
-            <clipPath id={clipId}>
-              <rect x={0} y={0} width={Math.max(0, played)} height={height} />
-            </clipPath>
-          </defs>
           {paths.map((d, lane) => {
             const off = (solo !== null && solo !== lane) || muted.has(lane);
             const lfe = names[lane] === "LFE";
@@ -181,8 +197,7 @@ export function Waveform({
                     stroke="var(--hk-line)"
                   />
                 )}
-                <path d={d} fill="var(--hk-ink-3)" opacity={0.55} />
-                <path d={d} fill="var(--hk-ink)" opacity={0.92} clipPath={`url(#${clipId})`} />
+                <path d={d} fill={waveColours[colour]} opacity={opacity} />
                 {split && (
                   <text
                     x={10}
@@ -243,22 +258,26 @@ export function Waveform({
               </g>
             ))}
         </svg>
-        {(drag || (playback.loop && playback.looping)) && (
-          <div
-            className="pointer-events-none absolute top-0 bottom-0 border-x bg-signal/10"
-            style={{
-              left: x(drag ? Math.min(drag.from, drag.to) : (playback.loop?.start ?? 0)),
-              width: Math.max(
-                1,
-                x(
-                  drag
-                    ? Math.abs(drag.to - drag.from)
-                    : (playback.loop?.end ?? 0) - (playback.loop?.start ?? 0),
-                ),
-              ),
-              borderColor: "var(--hk-signal-line)",
-            }}
-          />
+        {region && (
+          <>
+            {/* Outside the loop the recording steps back; the loop itself stays as it was. */}
+            <div
+              className="pointer-events-none absolute top-0 bottom-0 left-0 bg-canvas/55"
+              style={{ width: x(region.start) }}
+            />
+            <div
+              className="pointer-events-none absolute top-0 right-0 bottom-0 bg-canvas/55"
+              style={{ width: Math.max(0, width - x(region.end)) }}
+            />
+            <div
+              className="pointer-events-none absolute top-0 bottom-0 border-x"
+              style={{
+                left: x(region.start),
+                width: Math.max(1, x(region.end) - x(region.start)),
+                borderColor: "var(--hk-signal-line)",
+              }}
+            />
+          </>
         )}
         <div
           className="pointer-events-none absolute top-0 bottom-0 w-px bg-signal shadow-[0_0_8px_var(--hk-signal)]"
@@ -279,8 +298,16 @@ export function Waveform({
             onMarker?.(m.id);
           }}
           className={cn(
-            "tabular absolute top-2 z-10 flex size-[18px] -translate-x-1/2 items-center justify-center rounded-full text-[10px] font-medium shadow-2 transition-transform duration-150 hover:scale-110",
-            m.active ? "ring-out bg-signal text-ground" : "bg-ink text-ground",
+            "tabular absolute top-2 z-10 flex size-[18px] -translate-x-1/2 items-center justify-center rounded-full border text-[10px] font-medium shadow-2 transition-transform duration-150 hover:scale-110",
+            m.active
+              ? "ring-out border-signal bg-signal text-ground"
+              : m.state === "todo"
+                ? "border-signal/60 bg-signal/90 text-ground"
+                : m.state === "deferred"
+                  ? "border-dashed border-ink-3 bg-raised text-ink-3"
+                  : m.state === "resolved"
+                    ? "border-line-strong bg-raised/60 text-ink-3 opacity-60"
+                    : "border-ink-2/40 bg-raised text-ink",
           )}
           style={{ left: x(m.at) }}
         >

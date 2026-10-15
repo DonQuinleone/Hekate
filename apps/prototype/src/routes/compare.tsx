@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Icon } from "~/components/icons";
 import { Kbd, Label } from "~/components/label";
+import { Page } from "~/components/page";
 import { usePageHeader } from "~/components/page-header";
 import { usePlayback } from "~/components/player/playback";
 import { Waveform } from "~/components/player/waveform";
@@ -74,7 +75,7 @@ export function ComparePage({
     return `${(t * 200).toFixed(1)},${((1 - Math.min(1, Math.max(0, t + warp))) * 100).toFixed(1)}`;
   }).join(" ");
   return (
-    <div className="fade-in mx-auto flex w-full max-w-[1120px] flex-col gap-6 px-4 py-6 @3xl/app:px-8">
+    <Page className="gap-6">
       <div className="flex flex-wrap items-center gap-3">
         {(["a", "b"] as const).map((which) => (
           <label key={which} className="flex items-center gap-2 text-[13px] text-ink-2">
@@ -268,7 +269,7 @@ export function ComparePage({
           </section>
         </aside>
       </div>
-    </div>
+    </Page>
   );
 }
 

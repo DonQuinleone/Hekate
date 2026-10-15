@@ -1,6 +1,7 @@
 import { Avatar } from "~/components/avatar";
 import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
+import { Page } from "~/components/page";
 import { usePageHeader } from "~/components/page-header";
 import { Button } from "~/components/ui/button";
 import { ActionMenu } from "~/components/ui/menu";
@@ -25,7 +26,7 @@ export function MembersPage() {
     ) : undefined,
   });
   return (
-    <div className="fade-in mx-auto flex max-w-[900px] flex-col gap-8 px-4 py-6 @3xl/app:px-8">
+    <Page>
       <StateGate
         empty={
           <Empty
@@ -158,6 +159,6 @@ export function MembersPage() {
           </ul>
         </section>
       </StateGate>
-    </div>
+    </Page>
   );
 }

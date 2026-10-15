@@ -1,9 +1,10 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
-import { usePageHeader } from "~/components/page-header";
+import { Page } from "~/components/page";
+import { PageTitle, usePageHeader } from "~/components/page-header";
 import { Dot } from "~/components/status";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -12,6 +13,7 @@ import {
   comments,
   fileById,
   personById,
+  primaryFile,
   projectById,
   reviews,
   trackById,
@@ -270,10 +272,7 @@ function VersionRow({
                         ? "failed"
                         : [
                             file?.media.layout,
-                            qa?.loudness !== null && qa?.loudness !== undefined
-                              ? `${qa.loudness.toFixed(1)} LUFS`
-                              : "",
-                            qa && qa.issues > 0 ? plural(qa.issues, "issue") : "",
+                            qa && qa.issues > 0 ? plural(qa.issues, "QA issue") : "",
                             open > 0 ? plural(open, "comment") : "",
                           ]
                             .filter(Boolean)
@@ -289,7 +288,7 @@ function VersionRow({
   );
 }
 
-export function TrackPage({ trackId }: { trackId: string }) {
+export function TrackPage({ trackId, view }: { trackId: string; view?: string }) {
   const viewer = useViewer();
   const navigate = useNavigate();
   const track = trackById(trackId);
@@ -299,12 +298,19 @@ export function TrackPage({ trackId }: { trackId: string }) {
   const state = useScreenState();
   const versions = track ? [...track.versions].sort((a, b) => b.number - a.number) : [];
   const latest = versions[0];
+  // A track opens on its latest version in the player; this page is reached from there.
+  const playable = view !== "versions" && latest && visible ? primaryFile(latest) : undefined;
+  useEffect(() => {
+    if (playable)
+      navigate({ to: "/files/$fileId", params: { fileId: playable.id }, replace: true });
+  }, [playable, navigate]);
   usePageHeader({
     crumbs: [
       { label: "Projects", to: "/projects" },
       ...(project && visible ? [{ label: project.name, to: `/projects/${project.id}` }] : []),
     ],
-    title: track && visible ? track.name : "Not found",
+    title: track && visible ? `${track.name}: versions` : "Not found",
+    heading: "page",
     actions: visible ? (
       <>
         {viewer.can(project.id, "request_reviews") && latest && (
@@ -336,6 +342,7 @@ export function TrackPage({ trackId }: { trackId: string }) {
     ) : undefined,
   });
   if (!track || !project || !visible) return <Refused />;
+  if (playable) return null;
   const workflow = workflows.find((w) => w.id === project.workflowId);
   const stage = workflow?.stages.find((s) => s.status === latest?.status);
   const next = workflow?.stages.find((s) => s.after.includes(stage?.id ?? ""));
@@ -349,7 +356,28 @@ export function TrackPage({ trackId }: { trackId: string }) {
     );
   const empty = state === "empty" || versions.length === 0;
   return (
-    <div className="fade-in mx-auto flex max-w-[1000px] flex-col gap-6 px-4 py-6 @3xl/app:px-8">
+    <Page className="gap-6">
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-0 flex-1">
+          <PageTitle>{track.name}</PageTitle>
+          <p className="mt-1 text-[13px] text-ink-3">
+            {track.composer && `${track.composer} · `}
+            {plural(versions.length, "version")}
+            {latest && (
+              <>
+                {" · "}
+                <Link
+                  to="/files/$fileId"
+                  params={{ fileId: primaryFile(latest)?.id ?? "" }}
+                  className="text-ink-2 hover:text-ink"
+                >
+                  open V{latest.number} in the player
+                </Link>
+              </>
+            )}
+          </p>
+        </div>
+      </div>
       {adding && (
         <NewVersion
           next={(latest?.number ?? 0) + 1}
@@ -424,6 +452,6 @@ export function TrackPage({ trackId }: { trackId: string }) {
           </>
         )}
       </StateGate>
-    </div>
+    </Page>
   );
 }

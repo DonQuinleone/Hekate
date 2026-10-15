@@ -111,7 +111,7 @@ function Row({ item, active, onOpen }: { item: Item; active: boolean; onOpen: ()
   );
 }
 
-export function HomePage({ item: selectedId }: { item?: string }) {
+export function InboxPage({ item: selectedId }: { item?: string }) {
   const viewer = useViewer();
   const navigate = useNavigate();
   const [filter, setFilter] = useState<Filter>("needs");
@@ -231,7 +231,7 @@ export function HomePage({ item: selectedId }: { item?: string }) {
 
   const phone = viewer.settings.width === "phone";
   usePageHeader({
-    crumbs: chosenReview && !phone ? [{ label: "Inbox", to: "/" }] : undefined,
+    crumbs: chosenReview && !phone ? [{ label: "Inbox", to: "/inbox" }] : undefined,
     title: chosenReview && !phone ? chosenReview.title : "Inbox",
     heading: chosenReview && !phone ? "page" : "bar",
   });
@@ -241,7 +241,7 @@ export function HomePage({ item: selectedId }: { item?: string }) {
       navigate({ to: item.href.to, params: item.href.params, search: item.href.search });
       return;
     }
-    if (item.reviewId) navigate({ to: "/", search: { item: item.reviewId } });
+    if (item.reviewId) navigate({ to: "/inbox", search: { item: item.reviewId } });
   };
 
   const filters: { id: Filter; label: string; count: number }[] = [

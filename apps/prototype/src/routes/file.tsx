@@ -20,7 +20,9 @@ import {
 } from "~/components/player/transport";
 import { type Marker, Ruler, Waveform } from "~/components/player/waveform";
 import { QaView } from "~/components/qa";
+import { VideoQaView } from "~/components/qa-video";
 import { Dot } from "~/components/status";
+import { TakeManager } from "~/components/take-manager";
 import { Button } from "~/components/ui/button";
 import { ActionMenu, Dropdown, MenuList, usePopover } from "~/components/ui/menu";
 import { Filmstrip, Frame } from "~/components/video";
@@ -35,6 +37,7 @@ import {
 } from "~/components/video-tools";
 import {
   comments as allComments,
+  takes as allTakes,
   type Comment,
   fileById,
   findingsFor,
@@ -87,8 +90,15 @@ interface Layout {
   width: number;
   score: boolean;
   scoreHeight: number;
+  takes: boolean;
 }
-const defaultLayout: Layout = { comments: "right", width: 400, score: false, scoreHeight: 360 };
+const defaultLayout: Layout = {
+  comments: "right",
+  width: 400,
+  score: false,
+  scoreHeight: 360,
+  takes: false,
+};
 
 function useLayout(): [Layout, (patch: Partial<Layout>) => void] {
   const [layout, setLayout] = useState<Layout>(() => remembered(LAYOUT_KEY, defaultLayout));
@@ -348,6 +358,7 @@ export function FilePage({
             end: c.anchor.kind === "time" ? c.anchor.end : undefined,
             number: i + 1,
             active: selected === c.id,
+            state: c.assigneeId || c.todo ? "todo" : c.deferredToStage ? "deferred" : "open",
           };
     })
     .filter((m): m is Marker => m !== null);
@@ -381,7 +392,9 @@ export function FilePage({
       : project && viewer.canSee(project.id)
         ? [
             { label: project.name, to: `/projects/${project.id}` },
-            ...(inTrack ? [{ label: inTrack.track.name, to: `/tracks/${inTrack.track.id}` }] : []),
+            ...(inTrack
+              ? [{ label: inTrack.track.name, to: `/tracks/${inTrack.track.id}?view=versions` }]
+              : []),
           ]
         : review
           ? [{ label: review.title, to: `/reviews/${review.id}` }]
@@ -539,6 +552,11 @@ export function FilePage({
   const latestNumber = inTrack ? Math.max(...inTrack.track.versions.map((x) => x.number)) : 0;
   const decisionStrip =
     review && viewer.reviewerIn(review) ? <DecisionStrip reviewId={review.id} /> : null;
+  const hasTakes =
+    isAudio &&
+    inTrack !== null &&
+    tools.has("takes") &&
+    allTakes.some((t) => t.trackId === inTrack.track.id && t.coverage);
 
   const versionMenu = inTrack && (access.history || inTrack.track.versions.length === 1) && (
     <Dropdown
@@ -550,28 +568,45 @@ export function FilePage({
           )}
         </span>
       }
-      actions={[...inTrack.track.versions]
-        .sort((a, b) => b.number - a.number)
-        .map((v) => {
-          const target =
-            v.variations.find((x) => x.name === inTrack.variationName) ??
-            v.variations.find((x) => x.primary) ??
-            v.variations[0];
-          return {
-            label: `V${v.number}`,
-            hint:
-              v.state === "pending"
-                ? "analysing"
-                : v.state === "failed"
-                  ? "failed"
-                  : v.number === latestNumber
-                    ? "latest"
-                    : v.status,
-            checked: v.number === inTrack.version.number,
-            onSelect: () =>
-              target && navigate({ to: base, params: { fileId: target.fileId }, search: (s) => s }),
-          };
-        })}
+      actions={[
+        ...[...inTrack.track.versions]
+          .sort((a, b) => b.number - a.number)
+          .map((v) => {
+            const target =
+              v.variations.find((x) => x.name === inTrack.variationName) ??
+              v.variations.find((x) => x.primary) ??
+              v.variations[0];
+            return {
+              label: `V${v.number}`,
+              hint:
+                v.state === "pending"
+                  ? "analysing"
+                  : v.state === "failed"
+                    ? "failed"
+                    : v.number === latestNumber
+                      ? "latest"
+                      : v.status,
+              checked: v.number === inTrack.version.number,
+              onSelect: () =>
+                target &&
+                navigate({ to: base, params: { fileId: target.fileId }, search: (s) => s }),
+            };
+          }),
+        ...(viewer.isGuest
+          ? []
+          : [
+              "divider" as const,
+              {
+                label: "All versions and notes",
+                onSelect: () =>
+                  navigate({
+                    to: "/tracks/$trackId",
+                    params: { trackId: inTrack.track.id },
+                    search: { view: "versions" },
+                  }),
+              },
+            ]),
+      ]}
     />
   );
   const variationSeg = inTrack && inTrack.version.variations.length > 1 && (
@@ -596,26 +631,6 @@ export function FilePage({
         <span className="text-[13px] text-ink-3">V{inTrack.version.number} is under review</span>
       )}
       <div className="ml-auto flex items-center gap-1">
-        {summary &&
-          (summary.loudness !== null || summary.issues > 0) &&
-          qaAllowed &&
-          tab === "review" && (
-            <Link
-              to={base}
-              params={{ fileId }}
-              search={(s) => ({ ...s, view: "qa" })}
-              className="tabular flex h-8 items-center gap-2 rounded-control px-2.5 text-[13px] text-ink-2 transition-colors hover:bg-raised hover:text-ink"
-            >
-              {summary.issues > 0 ? (
-                <span className="size-[7px] rounded-full border-[1.5px] border-signal" />
-              ) : (
-                <span className="size-[5px] rounded-full bg-ink-3" />
-              )}
-              {summary.loudness !== null && `${summary.loudness.toFixed(1)} LUFS`}
-              {summary.issues > 0 &&
-                ` · ${summary.issues} ${summary.issues === 1 ? "issue" : "issues"}`}
-            </Link>
-          )}
         {score && isAudio && tools.has("score") && (
           <button
             type="button"
@@ -630,6 +645,22 @@ export function FilePage({
           >
             <Icon name="score" size={14} />
             Score
+          </button>
+        )}
+        {hasTakes && (
+          <button
+            type="button"
+            aria-pressed={layout.takes}
+            onClick={() => setLayout({ takes: !layout.takes })}
+            className={cn(
+              "flex h-8 items-center gap-1.5 rounded-control px-2.5 text-[13px] transition-colors",
+              layout.takes
+                ? "bg-raised text-ink shadow-1"
+                : "text-ink-2 hover:bg-raised hover:text-ink",
+            )}
+          >
+            <Icon name="take" size={14} />
+            Takes
           </button>
         )}
         {isVideo && !pending && !failed && (
@@ -824,6 +855,9 @@ export function FilePage({
           playback={playback}
           split={view.split}
           markers={markers}
+          colour={view.wave.colour}
+          opacity={view.wave.opacity}
+          amplitude={view.wave.height}
           findings={tools.has("qa") ? findingsFor(file.id) : undefined}
           onMarker={(id) => setSelected(id)}
           height={view.spectrogram === "below" ? waveHeight - spectroHeight - 8 : waveHeight}
@@ -947,6 +981,20 @@ export function FilePage({
     </section>
   );
 
+  const takesPane = hasTakes && inTrack && layout.takes && (
+    <div
+      className="flex min-h-0 shrink-0 flex-col border-t border-line"
+      style={{ height: layout.scoreHeight }}
+    >
+      <TakeManager
+        track={inTrack.track}
+        versionNumber={inTrack.version.number}
+        canEdit={viewer.can(project.id, "upload")}
+        onClose={() => setLayout({ takes: false })}
+      />
+    </div>
+  );
+
   const commentsColumn = (
     <CommentsColumn
       file={file}
@@ -1034,9 +1082,54 @@ export function FilePage({
         </div>
       )}
       {scorePane}
+      {takesPane}
     </div>
   );
 
+  if (tab === "qa" && isVideo)
+    return (
+      <div className="fade-in flex min-h-full flex-col @3xl/app:h-full @3xl/app:min-h-0">
+        <div className="flex shrink-0 flex-col border-b border-line">
+          {strip}
+          <div className="flex items-stretch gap-4 px-4 pb-2">
+            <Frame
+              file={file}
+              time={playback.time}
+              className="w-[300px] shrink-0 rounded-panel shadow-3"
+            />
+            <div className="flex min-w-0 flex-1 flex-col justify-end">
+              <Filmstrip file={file} playback={playback} markers={openThreads} />
+              <Ruler duration={duration} video className="mt-1" />
+            </div>
+          </div>
+          <div className="border-t border-line">
+            <Transport
+              playback={playback}
+              duration={duration}
+              video
+              fps={file.media.fps}
+              loopsAllowed={tools.has("loops")}
+              compareAllowed={false}
+              compareOpen={false}
+              onCompare={() => {}}
+            />
+            <LoopBar playback={playback} />
+          </div>
+        </div>
+        <div className="scroll-quiet min-h-0 flex-1 overflow-auto p-4 @3xl/app:p-6">
+          <VideoQaView
+            file={file}
+            playback={playback}
+            previous={previousFile}
+            canChooseProfile={viewer.can(project.id, "edit_workflows")}
+            canComment={access.comment}
+            onComment={() =>
+              navigate({ to: base, params: { fileId }, search: (s) => ({ ...s, view: undefined }) })
+            }
+          />
+        </div>
+      </div>
+    );
   if (tab === "qa")
     return (
       <div className="fade-in flex min-h-full flex-col @3xl/app:h-full @3xl/app:min-h-0">
@@ -1044,7 +1137,7 @@ export function FilePage({
           {strip}
           {player}
         </div>
-        <div className="scroll-quiet min-h-0 flex-1 overflow-auto p-4 @3xl/app:p-5">
+        <div className="scroll-quiet min-h-0 flex-1 overflow-auto p-4 @3xl/app:p-6">
           <QaView
             file={file}
             playback={playback}

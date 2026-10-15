@@ -1,85 +1,105 @@
 import { Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Icon, type IconName } from "~/components/icons";
 import { Label } from "~/components/label";
 import { usePageHeader } from "~/components/page-header";
 import { Dot } from "~/components/status";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
-import { Input, Select } from "~/components/ui/input";
+import { Input, Select, Textarea } from "~/components/ui/input";
 import { Dropdown } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
-import { type Project, projectById, type Stage, type StageKind, tracks, workflows } from "~/data";
+import {
+  type Graph,
+  type GraphEdge,
+  type GraphNode,
+  graphFor,
+  type NodeKind,
+  type Project,
+  projectById,
+  tracks,
+  workflows,
+} from "~/data";
 import { cn } from "~/lib/cn";
 import { useViewer } from "~/viewer/context";
 import { Refused } from "~/viewer/state-gate";
 
-const kindIcon: Record<StageKind, IconName> = {
-  approval: "check",
-  feedback: "comment",
-  task: "edit",
+/* ---------- Geometry ---------- */
+
+const COL = 236;
+const ROW = 112;
+const NODE_W = 188;
+const NODE_H = 56;
+const PAD_X = 48;
+const PAD_Y = 40;
+
+const posOf = (n: GraphNode) => ({ x: PAD_X + n.col * COL, y: PAD_Y + n.row * ROW });
+const outputAt = (n: GraphNode, outputId: string) => {
+  const p = posOf(n);
+  const i = Math.max(
+    0,
+    n.outputs.findIndex((o) => o.id === outputId),
+  );
+  const k = n.outputs.length || 1;
+  return { x: p.x + NODE_W, y: p.y + (NODE_H * (i + 1)) / (k + 1) };
 };
-const kindCopy: Record<StageKind, string> = {
-  approval: "Approval",
-  feedback: "Feedback",
-  task: "Task",
+const inputAt = (n: GraphNode) => {
+  const p = posOf(n);
+  return { x: p.x, y: p.y + NODE_H / 2 };
 };
 
-const NODE_W = 196;
-const NODE_H = 60;
-const COL = 244;
-const ROW = 88;
-
-/** Stages in layers by what they come after; the start node sits before the first layer. */
-function layout(stages: Stage[]) {
-  const depth = new Map<string, number>();
-  const d = (s: Stage): number => {
-    const known = depth.get(s.id);
-    if (known !== undefined) return known;
-    const v =
-      s.after.length === 0
-        ? 0
-        : 1 + Math.max(...s.after.map((a) => d(stages.find((x) => x.id === a) as Stage)));
-    depth.set(s.id, v);
-    return v;
-  };
-  for (const s of stages) d(s);
-  const byDepth = new Map<number, Stage[]>();
-  for (const s of stages) {
-    const list = byDepth.get(depth.get(s.id) ?? 0) ?? [];
-    list.push(s);
-    byDepth.set(depth.get(s.id) ?? 0, list);
+/** Forward edges curve; an edge that goes back loops under the rows it crosses. */
+function edgePath(from: { x: number; y: number }, to: { x: number; y: number }, floor: number) {
+  if (to.x > from.x + 30) {
+    const c = Math.max(48, (to.x - from.x) / 2);
+    return `M${from.x},${from.y} C${from.x + c},${from.y} ${to.x - c},${to.y} ${to.x},${to.y}`;
   }
-  const maxRows = Math.max(1, ...[...byDepth.values()].map((l) => l.length));
-  const pos = new Map<string, { x: number; y: number }>();
-  for (const [dep, list] of byDepth) {
-    const offset = ((maxRows - list.length) * ROW) / 2;
-    list.forEach((s, i) => {
-      pos.set(s.id, { x: 120 + dep * COL, y: 40 + offset + i * ROW });
-    });
-  }
-  const cols = Math.max(...[...byDepth.keys()]) + 2;
-  return {
-    pos,
-    width: 60 + cols * COL + NODE_W,
-    height: 80 + maxRows * ROW,
-    start: { x: 60, y: 40 + ((maxRows - 1) * ROW) / 2 },
-  };
+  const r = 12;
+  return [
+    `M${from.x},${from.y}`,
+    `H${from.x + 24 - r}`,
+    `q${r},0 ${r},${r}`,
+    `V${floor - r}`,
+    `q0,${r} -${r},${r}`,
+    `H${to.x - 28 + r}`,
+    `q-${r},0 -${r},-${r}`,
+    `V${to.y + r}`,
+    `q0,-${r} ${r},-${r}`,
+    `H${to.x}`,
+  ].join(" ");
 }
 
-/** A curve from one point to another, leaving and arriving horizontally. */
-const edgePath = (x1: number, y1: number, x2: number, y2: number) => {
-  const c = Math.max(40, (x2 - x1) / 2);
-  return `M${x1},${y1} C${x1 + c},${y1} ${x2 - c},${y2} ${x2},${y2}`;
+/* ---------- Kinds ---------- */
+
+const kindMeta: Record<NodeKind, { icon: IconName; label: string; hint: string }> = {
+  start: { icon: "bolt", label: "Start", hint: "What begins the workflow" },
+  approval: { icon: "review", label: "Approval", hint: "Each reviewer records a decision" },
+  feedback: { icon: "comment", label: "Feedback", hint: "Comments, then submitted" },
+  task: { icon: "task", label: "Task", hint: "Someone does the work" },
+  condition: { icon: "split", label: "Condition", hint: "Branch on what happened" },
+  notify: { icon: "bell", label: "Notify", hint: "Tell someone, then carry on" },
+  status: { icon: "flag", label: "Set status", hint: "Mark the item and stop" },
+  end: { icon: "stop", label: "End", hint: "Stop here" },
 };
 
+const picker: { group: string; kinds: NodeKind[] }[] = [
+  { group: "Review", kinds: ["approval", "feedback"] },
+  { group: "Work", kinds: ["task"] },
+  { group: "Flow", kinds: ["condition", "notify"] },
+  { group: "Finish", kinds: ["status"] },
+];
+
 const templates = [
-  { id: "simple", name: "Simple approval", hint: "One approval stage, everyone approves" },
-  { id: "conductor", name: "Conductor first", hint: "Feedback, triage, edit, approval" },
+  { id: "simple", name: "Simple approval", hint: "One approval, then approved or back to editing" },
+  {
+    id: "conductor",
+    name: "Conductor first",
+    hint: "Feedback, triage, edit, approval, with a loop",
+  },
   {
     id: "parallel",
     name: "Parallel stakeholders",
-    hint: "Several feedback stages at once, then lock",
+    hint: "Several feedback rounds at once, then lock",
   },
 ];
 
@@ -98,6 +118,12 @@ const uploadChecks = [
     action: "warn",
   },
   {
+    id: "name",
+    name: "File name follows the pattern",
+    hint: "Title - Vn variation.wav",
+    action: "off",
+  },
+  {
     id: "edl",
     name: "Edit decision list attached",
     hint: "For versions after the first",
@@ -105,35 +131,266 @@ const uploadChecks = [
   },
 ];
 
-/** The canvas: stages, their transitions, the inspector, simulation and the upload rules. */
+/* ---------- Simulation ---------- */
+
+interface Run {
+  current: string | null;
+  nodes: string[];
+  edges: string[];
+  decision: "all" | "some" | "none" | null;
+  log: string[];
+}
+
+function Node({
+  node,
+  selected,
+  ran,
+  current,
+  onSelect,
+}: {
+  node: GraphNode;
+  selected: boolean;
+  ran: boolean;
+  current: boolean;
+  onSelect: () => void;
+}) {
+  const p = posOf(node);
+  const meta = kindMeta[node.kind];
+  const start = node.kind === "start";
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-label={`${node.name}, ${meta.label}`}
+      className={cn(
+        "absolute flex h-14 w-[188px] items-center gap-2.5 border px-3 text-left transition-[border-color,box-shadow,background-color] duration-150",
+        start ? "rounded-l-full rounded-r-panel" : "rounded-panel",
+        current
+          ? "border-signal bg-[color-mix(in_oklab,var(--hk-signal)_14%,var(--hk-raised))] shadow-[0_0_0_4px_var(--hk-signal-line)]"
+          : ran
+            ? "border-signal/50 bg-raised shadow-2"
+            : selected
+              ? "border-ink-3 bg-overlay shadow-3"
+              : "border-line-strong bg-raised shadow-2 hover:border-edge-strong",
+      )}
+      style={{ left: p.x, top: p.y }}
+    >
+      <span
+        className={cn(
+          "flex size-7 shrink-0 items-center justify-center rounded-full",
+          current || start ? "bg-signal text-ground" : "bg-ground/60 text-ink-2",
+        )}
+      >
+        <Icon name={meta.icon} size={13} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] font-medium text-ink">{node.name}</span>
+        <span className="block truncate text-[11px] text-ink-3">
+          {meta.label}
+          {node.detail ? ` · ${node.detail}` : ""}
+        </span>
+      </span>
+      {ran && (
+        <span className="absolute -right-1.5 -bottom-1.5 flex size-4 items-center justify-center rounded-full bg-signal text-ground shadow-2">
+          <Icon name="check" size={9} />
+        </span>
+      )}
+      {!start && (
+        <span
+          aria-hidden="true"
+          className="absolute top-1/2 -left-[5px] h-3 w-[5px] -translate-y-1/2 rounded-l-[2px] bg-edge-strong"
+        />
+      )}
+    </button>
+  );
+}
+
+/** The canvas: stages joined by edges, conditions that branch, loops that go back. */
 export function WorkflowPage({ project }: { project: Project }) {
   const viewer = useViewer();
   const canEdit = viewer.can(project.id, "edit_workflows");
   const workflow = workflows.find((w) => w.id === project.workflowId);
-  const [stages, setStages] = useState<Stage[]>(workflow?.stages ?? []);
-  const [selected, setSelected] = useState<string | null>(stages[0]?.id ?? null);
-  const [tab, setTab] = useState<"stages" | "upload" | "overrides">("stages");
-  const [simulating, setSimulating] = useState<string | null>(null);
+  const initial = graphFor(project.workflowId);
+  const [graph, setGraph] = useState<Graph>(
+    initial ?? { workflowId: project.workflowId, nodes: [], edges: [] },
+  );
+  const [statuses, setStatuses] = useState(workflow?.statuses ?? []);
+  const [selected, setSelected] = useState<string | null>(graph.nodes[1]?.id ?? null);
+  const [adding, setAdding] = useState<{ from: string; output: string } | null>(null);
+  const [tab, setTab] = useState<"builder" | "statuses" | "upload" | "overrides">("builder");
+  const [run, setRun] = useState<Run | null>(null);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [activated, setActivated] = useState(false);
-  const { pos, width, height, start } = useMemo(() => layout(stages), [stages]);
   const [zoom, setZoom] = useState<number | null>(null);
   const canvas = useRef<HTMLDivElement>(null);
-  const [canvasWidth, setCanvasWidth] = useState(900);
+  const [canvasSize, setCanvasSize] = useState({ w: 900, h: 500 });
   useEffect(() => {
     const el = canvas.current;
     if (!el) return;
     const ro = new ResizeObserver((entries) => {
-      for (const e of entries) setCanvasWidth(Math.floor(e.contentRect.width));
+      for (const e of entries)
+        setCanvasSize({ w: Math.floor(e.contentRect.width), h: Math.floor(e.contentRect.height) });
     });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const fit = Math.min(1, Math.max(0.72, (canvasWidth - 32) / width));
+
+  const byId = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph.nodes]);
+  const cols = Math.max(0, ...graph.nodes.map((n) => n.col)) + 1;
+  const rows = Math.max(0, ...graph.nodes.map((n) => n.row)) + 1;
+  const width = PAD_X * 2 + (cols - 1) * COL + NODE_W + 80;
+  const floor = PAD_Y + (rows - 1) * ROW + NODE_H + 36;
+  const height = floor + 48;
+  const fit = Math.min(
+    1,
+    Math.max(0.62, Math.min((canvasSize.w - 24) / width, (canvasSize.h - 24) / height)),
+  );
   const scale = zoom ?? fit;
-  const current = stages.find((s) => s.id === selected) ?? null;
-  const invalid = stages.filter((s) => s.after.some((a) => !stages.some((x) => x.id === a)));
+  const current = selected ? byId.get(selected) : undefined;
+  const dangling = graph.nodes.flatMap((n) =>
+    n.outputs
+      .filter((o) => !graph.edges.some((e) => e.from === n.id && e.output === o.id))
+      .map((o) => ({ node: n, output: o })),
+  );
+  const unreachable = graph.nodes.filter(
+    (n) => n.kind !== "start" && !graph.edges.some((e) => e.to === n.id),
+  );
   const name = workflow?.name ?? "Workflow";
+
+  const update = (id: string, patch: Partial<GraphNode>) =>
+    setGraph((g) => ({ ...g, nodes: g.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)) }));
+  const removeNode = (id: string) => {
+    setGraph((g) => ({
+      nodes: g.nodes.filter((n) => n.id !== id),
+      edges: g.edges.filter((e) => e.from !== id && e.to !== id),
+      workflowId: g.workflowId,
+    }));
+    setSelected(null);
+  };
+  const addNode = (kind: NodeKind) => {
+    const from = adding ? byId.get(adding.from) : current;
+    const id = `n-${Date.now().toString(36)}`;
+    const col = from ? from.col + 1 : 0;
+    const row = from
+      ? from.row +
+        (adding && from.outputs.length > 1
+          ? from.outputs.findIndex((o) => o.id === adding.output) - 1
+          : 0)
+      : 0;
+    const taken = graph.nodes.some((n) => n.col === col && n.row === row);
+    const node: GraphNode = {
+      id,
+      kind,
+      name: kindMeta[kind].label,
+      detail:
+        kind === "task"
+          ? "Choose who"
+          : kind === "approval" || kind === "feedback"
+            ? "Choose reviewers"
+            : undefined,
+      col,
+      row: taken ? rows : Math.max(0, row),
+      outputs:
+        kind === "condition"
+          ? [
+              { id: "a", label: "all approved" },
+              { id: "b", label: "else" },
+            ]
+          : kind === "status"
+            ? []
+            : [{ id: "out" }],
+      config: {},
+    };
+    setGraph((g) => ({
+      ...g,
+      nodes: [...g.nodes, node],
+      edges:
+        from && adding
+          ? [...g.edges, { id: `e-${id}`, from: from.id, output: adding.output, to: id }]
+          : g.edges,
+    }));
+    setAdding(null);
+    setSelected(id);
+  };
+  const connect = (from: string, output: string, to: string) =>
+    setGraph((g) => ({
+      ...g,
+      edges: [
+        ...g.edges.filter((e) => !(e.from === from && e.output === output)),
+        { id: `e-${from}-${output}-${to}`, from, output, to },
+      ],
+    }));
+
+  /* The run: one item through the workflow, the person choosing each outcome. */
+  const startRun = () => {
+    const start = graph.nodes.find((n) => n.kind === "start");
+    if (!start) return;
+    setRun({
+      current: start.id,
+      nodes: [start.id],
+      edges: [],
+      decision: null,
+      log: ["A version arrives"],
+    });
+    setSelected(start.id);
+  };
+  const advance = (r: Run, output: string, note: string): Run => {
+    const node = r.current ? byId.get(r.current) : undefined;
+    if (!node) return r;
+    const edge = graph.edges.find((e) => e.from === node.id && e.output === output);
+    if (!edge)
+      return {
+        ...r,
+        current: null,
+        log: [...r.log, note, "Nothing follows: the workflow ends here"],
+      };
+    const next = byId.get(edge.to);
+    let out: Run = {
+      ...r,
+      current: edge.to,
+      nodes: [...r.nodes, edge.to],
+      edges: [...r.edges, edge.id],
+      log: [...r.log, note],
+    };
+    if (next?.kind === "condition") {
+      const pick =
+        next.outputs.find((o) =>
+          (o.label ?? "").includes(
+            r.decision === "all" ? "all" : r.decision === "some" ? "some" : "else",
+          ),
+        ) ?? next.outputs.at(-1);
+      if (pick)
+        out = advance(
+          { ...out, log: [...out.log, `${next.name}: took “${pick.label}”`] },
+          pick.id,
+          "",
+        );
+    } else if (next?.kind === "notify") {
+      out = advance(
+        { ...out, log: [...out.log, `${next.name}: sent to ${next.config?.to ?? "them"}`] },
+        "out",
+        "",
+      );
+    } else if (next?.kind === "status") {
+      out = { ...out, current: null, log: [...out.log, `Status set to ${next.name}; finished`] };
+    }
+    return out;
+  };
+  const runNode = run?.current ? byId.get(run.current) : undefined;
+  const outcomes = (
+    n: GraphNode,
+  ): { label: string; output: string; decision?: Run["decision"] }[] => {
+    if (n.kind === "start") return [{ label: "A version arrives", output: "out" }];
+    if (n.kind === "approval")
+      return [
+        { label: "Everyone approves", output: "out", decision: "all" },
+        { label: "Some approve", output: "out", decision: "some" },
+        { label: "Changes requested", output: "out", decision: "none" },
+      ];
+    if (n.kind === "feedback") return [{ label: "Feedback submitted", output: "out" }];
+    if (n.kind === "task") return [{ label: "Done", output: "out" }];
+    return n.outputs.map((o) => ({ label: o.label ?? "Next", output: o.id }));
+  };
 
   usePageHeader({
     crumbs: [
@@ -143,57 +400,485 @@ export function WorkflowPage({ project }: { project: Project }) {
     title: name,
     actions: canEdit ? (
       <>
-        <Button
-          variant="ghost"
-          onClick={() => setSimulating(simulating ? null : (stages[0]?.id ?? null))}
-        >
+        <Button variant="ghost" onClick={() => (run ? setRun(null) : startRun())}>
           <Icon name="play" size={12} fill="currentColor" strokeWidth={0} />
-          {simulating ? "Stop simulating" : "Simulate"}
+          {run ? "Stop the run" : "Run it"}
         </Button>
-        <Button variant="primary" onClick={() => setActivated(true)} disabled={invalid.length > 0}>
+        <Button
+          variant="primary"
+          onClick={() => setActivated(true)}
+          disabled={unreachable.length > 0}
+        >
           {activated ? "Active" : "Activate"}
         </Button>
       </>
     ) : undefined,
-    revision: `${simulating}-${activated}-${invalid.length}`,
+    revision: `${run ? "run" : ""}-${activated}-${unreachable.length}`,
   });
   if (!workflow) return <Refused />;
 
-  const update = (patch: Partial<Stage>) =>
-    setStages((list) => list.map((s) => (s.id === selected ? { ...s, ...patch } : s)));
-  const addStage = () => {
-    const id = `st-new-${stages.length}`;
-    setStages((list) => [
-      ...list,
-      {
-        id,
-        kind: "feedback",
-        name: "New stage",
-        participants: "Choose people",
-        after: selected ? [selected] : [],
-        status: workflow.statuses[0]?.name ?? "",
-      },
-    ]);
-    setSelected(id);
-  };
-  const removeStage = () => {
-    setStages((list) =>
-      list
-        .filter((s) => s.id !== selected)
-        .map((s) => ({ ...s, after: s.after.filter((a) => a !== selected) })),
-    );
-    setSelected(null);
-  };
-  const successors = (id: string) => stages.filter((s) => s.after.includes(id));
-  const simStage = simulating ? stages.find((s) => s.id === simulating) : null;
+  const field = (label: string, control: ReactNode, hint?: string) => (
+    <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+      {label}
+      {control}
+      {hint && <span className="text-[12px] text-ink-3">{hint}</span>}
+    </label>
+  );
+
+  const inspector = run ? (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <Label>Running one item</Label>
+        <button
+          type="button"
+          onClick={() => setRun(null)}
+          className="ml-auto text-[12px] text-ink-3 hover:text-ink"
+        >
+          Stop
+        </button>
+      </div>
+      {runNode ? (
+        <>
+          <p className="text-[14px] text-ink">
+            <span className="font-medium">{runNode.name}</span>
+            <span className="block text-[13px] text-ink-3">
+              {runNode.kind === "task"
+                ? `${runNode.detail ?? "Someone"} works on it; status ${runNode.config?.status ?? "unchanged"}.`
+                : runNode.kind === "approval" || runNode.kind === "feedback"
+                  ? `${runNode.detail ?? "Reviewers"} are asked; status ${runNode.config?.status ?? "unchanged"}.`
+                  : kindMeta[runNode.kind].hint}
+            </span>
+          </p>
+          <div className="flex flex-col gap-1.5">
+            {outcomes(runNode).map((o) => {
+              const edge = graph.edges.find((e) => e.from === runNode.id && e.output === o.output);
+              const next = edge ? byId.get(edge.to) : undefined;
+              return (
+                <Button
+                  key={o.label}
+                  variant="secondary"
+                  size="md"
+                  className="justify-between"
+                  onClick={() =>
+                    setRun((r) =>
+                      r
+                        ? advance(
+                            { ...r, decision: o.decision ?? r.decision },
+                            o.output,
+                            `${runNode.name}: ${o.label.toLowerCase()}`,
+                          )
+                        : r,
+                    )
+                  }
+                >
+                  {o.label}
+                  <span className="text-[12px] text-ink-3">
+                    {next ? `→ ${next.name}` : "→ end"}
+                  </span>
+                </Button>
+              );
+            })}
+          </div>
+        </>
+      ) : (
+        <p className="flex items-center gap-2 text-[14px] text-ink">
+          <Dot state="approved" /> Finished.
+        </p>
+      )}
+      <div className="flex flex-col gap-1 border-t border-line pt-3">
+        <Label>What happened</Label>
+        <ol className="flex flex-col gap-1 text-[12px] text-ink-2">
+          {run.log.filter(Boolean).map((l, i) => (
+            <li key={`${String(i)}-${l}`} className="flex gap-2">
+              <span className="tabular text-ink-3">{i + 1}.</span>
+              {l}
+            </li>
+          ))}
+        </ol>
+      </div>
+      <p className="text-[12px] text-ink-3">
+        Nothing is sent while running. Conditions and notifications take their own course.
+      </p>
+    </div>
+  ) : adding ? (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <Label>What happens next?</Label>
+        <button
+          type="button"
+          onClick={() => setAdding(null)}
+          className="ml-auto text-[12px] text-ink-3 hover:text-ink"
+        >
+          Cancel
+        </button>
+      </div>
+      <p className="text-[12px] text-ink-3">
+        After {byId.get(adding.from)?.name}
+        {(byId.get(adding.from)?.outputs.length ?? 0 > 1)
+          ? ` (${byId.get(adding.from)?.outputs.find((o) => o.id === adding.output)?.label})`
+          : ""}
+        .
+      </p>
+      {picker.map((g) => (
+        <div key={g.group} className="flex flex-col gap-1">
+          <span className="eyebrow text-[12px]">{g.group}</span>
+          {g.kinds.map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => addNode(k)}
+              className="flex items-center gap-3 rounded-control px-2 py-2 text-left transition-colors hover:bg-raised"
+            >
+              <span className="flex size-7 items-center justify-center rounded-full bg-ground/60 text-ink-2">
+                <Icon name={kindMeta[k].icon} size={13} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] text-ink">{kindMeta[k].label}</span>
+                <span className="block text-[12px] text-ink-3">{kindMeta[k].hint}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      ))}
+      <div className="flex flex-col gap-1 border-t border-line pt-3">
+        <span className="eyebrow text-[12px]">Or join an existing stage</span>
+        <Select
+          defaultValue=""
+          onChange={(e) => {
+            if (e.target.value) {
+              connect(adding.from, adding.output, e.target.value);
+              setAdding(null);
+            }
+          }}
+        >
+          <option value="">Choose a stage</option>
+          {graph.nodes
+            .filter((n) => n.kind !== "start" && n.id !== adding.from)
+            .map((n) => (
+              <option key={n.id} value={n.id}>
+                {n.name}
+              </option>
+            ))}
+        </Select>
+        <span className="text-[12px] text-ink-3">Joining an earlier stage makes a loop.</span>
+      </div>
+    </div>
+  ) : current ? (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <span className="flex size-7 items-center justify-center rounded-full bg-ground/60 text-ink-2">
+          <Icon name={kindMeta[current.kind].icon} size={13} />
+        </span>
+        <Label>{kindMeta[current.kind].label}</Label>
+        {canEdit && current.kind !== "start" && (
+          <button
+            type="button"
+            onClick={() => removeNode(current.id)}
+            className="ml-auto text-[12px] text-ink-3 hover:text-signal"
+          >
+            Delete
+          </button>
+        )}
+      </div>
+      {current.kind === "start" ? (
+        <>
+          {field(
+            "Starts when",
+            <Select defaultValue="upload" disabled={!canEdit}>
+              <option value="upload">A version is uploaded</option>
+              <option value="manual">Started by hand</option>
+              <option value="review">A review is requested</option>
+            </Select>,
+          )}
+          {field(
+            "Applies to",
+            <Select defaultValue="all" disabled={!canEdit}>
+              <option value="all">Every track</option>
+              <option value="new">New tracks only</option>
+            </Select>,
+          )}
+        </>
+      ) : (
+        field(
+          "Name",
+          <Input
+            value={current.name}
+            onChange={(e) => update(current.id, { name: e.target.value })}
+            disabled={!canEdit}
+          />,
+        )
+      )}
+      {(current.kind === "approval" || current.kind === "feedback" || current.kind === "task") && (
+        <>
+          {field(
+            current.kind === "task" ? "Who does it" : "Who is asked",
+            <Input
+              value={current.detail ?? ""}
+              onChange={(e) => update(current.id, { detail: e.target.value })}
+              disabled={!canEdit}
+            />,
+            "A role, a group, people or guests.",
+          )}
+          {current.kind !== "task" &&
+            field(
+              "Order",
+              <Select
+                value={current.config?.order ?? "parallel"}
+                onChange={(e) =>
+                  update(current.id, { config: { ...current.config, order: e.target.value } })
+                }
+                disabled={!canEdit}
+              >
+                <option value="parallel">All at once</option>
+                <option value="sequence">In turn</option>
+              </Select>,
+            )}
+          {current.kind === "approval" &&
+            field(
+              "Approved when",
+              <Select
+                value={current.config?.rule ?? "all"}
+                onChange={(e) =>
+                  update(current.id, { config: { ...current.config, rule: e.target.value } })
+                }
+                disabled={!canEdit}
+              >
+                <option value="all">Everyone approves</option>
+                <option value="any">Any one approves</option>
+                <option value="quorum">A share approves</option>
+              </Select>,
+            )}
+          {field(
+            "Sets the status",
+            <Select
+              value={current.config?.status ?? ""}
+              onChange={(e) =>
+                update(current.id, { config: { ...current.config, status: e.target.value } })
+              }
+              disabled={!canEdit}
+            >
+              <option value="">Leave as is</option>
+              {statuses.map((s) => (
+                <option key={s.name} value={s.name}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>,
+          )}
+          {field(
+            "Due",
+            <span className="flex items-center gap-2">
+              <Input
+                value={current.config?.due ?? "5"}
+                onChange={(e) =>
+                  update(current.id, { config: { ...current.config, due: e.target.value } })
+                }
+                className="w-16 text-center"
+                disabled={!canEdit}
+              />
+              <span className="text-ink-3">days after it starts</span>
+            </span>,
+          )}
+          <div className="flex flex-col gap-2 text-[13px] text-ink-2">
+            On entering
+            {[
+              "Tell the participants in the app",
+              "Mail the participants",
+              "Tell the producer when it ends",
+            ].map((n, i) => (
+              <span key={n} className="flex items-center justify-between text-ink">
+                {n}
+                <Switch label={n} checked={i < 2} onChange={() => {}} />
+              </span>
+            ))}
+          </div>
+        </>
+      )}
+      {current.kind === "condition" && (
+        <>
+          {field(
+            "Based on",
+            <Select defaultValue="decisions" disabled={!canEdit}>
+              <option value="decisions">The decisions of the approval before</option>
+              <option value="qa">The QA result</option>
+              <option value="comments">Whether comments are open</option>
+            </Select>,
+          )}
+          <div className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+            Branches, tried in order
+            {current.outputs.map((o, i) => (
+              <span key={o.id} className="flex items-center gap-2">
+                <span className="tabular w-4 text-ink-3">{i + 1}</span>
+                <Input
+                  value={o.label ?? ""}
+                  onChange={(e) =>
+                    update(current.id, {
+                      outputs: current.outputs.map((x) =>
+                        x.id === o.id ? { ...x, label: e.target.value } : x,
+                      ),
+                    })
+                  }
+                  className="h-8"
+                  disabled={!canEdit}
+                />
+                <Select
+                  defaultValue={
+                    o.label?.includes("all") ? "all" : o.label?.includes("some") ? "some" : "else"
+                  }
+                  className="h-8 w-36 text-[12px]"
+                  disabled={!canEdit}
+                >
+                  <option value="all">all approved</option>
+                  <option value="some">some approved</option>
+                  <option value="none">none approved</option>
+                  <option value="else">otherwise</option>
+                </Select>
+                {canEdit && current.outputs.length > 2 && (
+                  <button
+                    type="button"
+                    aria-label="Remove branch"
+                    onClick={() =>
+                      update(current.id, { outputs: current.outputs.filter((x) => x.id !== o.id) })
+                    }
+                    className="text-ink-3 hover:text-signal"
+                  >
+                    <Icon name="close" size={12} />
+                  </button>
+                )}
+              </span>
+            ))}
+            {canEdit && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="self-start"
+                onClick={() =>
+                  update(current.id, {
+                    outputs: [
+                      ...current.outputs,
+                      { id: `o-${current.outputs.length}`, label: "another case" },
+                    ],
+                  })
+                }
+              >
+                <Icon name="plus" size={12} />
+                Add a branch
+              </Button>
+            )}
+            <span className="text-[12px] text-ink-3">
+              The last branch catches whatever the others do not.
+            </span>
+          </div>
+        </>
+      )}
+      {current.kind === "notify" && (
+        <>
+          {field(
+            "Who",
+            <Select
+              value={current.config?.to ?? "Producer"}
+              onChange={(e) =>
+                update(current.id, { config: { ...current.config, to: e.target.value } })
+              }
+              disabled={!canEdit}
+            >
+              {["Producer", "Engineer", "Editor", "The reviewers", "Everyone in the project"].map(
+                (w) => (
+                  <option key={w}>{w}</option>
+                ),
+              )}
+            </Select>,
+          )}
+          <div className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+            How
+            <div className="flex flex-wrap gap-1.5">
+              {["In the app", "Mail", "Slack"].map((c, i) => (
+                <button
+                  key={c}
+                  type="button"
+                  aria-pressed={i < 2}
+                  className={cn(
+                    "h-7 rounded-chip border px-2.5 text-[13px]",
+                    i < 2
+                      ? "border-edge bg-raised text-ink"
+                      : "border-line text-ink-3 hover:text-ink",
+                  )}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
+          {field(
+            "Message",
+            <Textarea
+              rows={3}
+              defaultValue="{{track}} came back from {{stage}}: {{decisions}}. Please decide how to proceed."
+              disabled={!canEdit}
+            />,
+            "Fields in braces are filled in when it is sent.",
+          )}
+        </>
+      )}
+      {current.kind === "status" && (
+        <>
+          {field(
+            "Status",
+            <Select
+              value={current.name}
+              onChange={(e) => update(current.id, { name: e.target.value })}
+              disabled={!canEdit}
+            >
+              {statuses.map((s) => (
+                <option key={s.name} value={s.name}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>,
+          )}
+          <span className="flex items-center justify-between text-[13px] text-ink">
+            Ends the workflow
+            <Switch label="Ends the workflow" checked onChange={() => {}} />
+          </span>
+        </>
+      )}
+      {current.outputs.length > 0 && (
+        <div className="flex flex-col gap-1 border-t border-line pt-3 text-[13px] text-ink-2">
+          Then
+          {current.outputs.map((o) => {
+            const edge = graph.edges.find((e) => e.from === current.id && e.output === o.id);
+            const next = edge ? byId.get(edge.to) : undefined;
+            return (
+              <span key={o.id} className="flex items-center gap-2 text-ink">
+                {o.label && <span className="text-[12px] text-ink-3">{o.label}:</span>}
+                <span className="min-w-0 flex-1 truncate">{next ? next.name : "nothing yet"}</span>
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => setAdding({ from: current.id, output: o.id })}
+                    className="text-[12px] text-ink-3 hover:text-ink"
+                  >
+                    {next ? "Change" : "Add"}
+                  </button>
+                )}
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  ) : (
+    <p className="text-[13px] text-ink-3">Choose a stage on the canvas, or press a + to add one.</p>
+  );
 
   return (
     <div className="fade-in flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2 @3xl/app:px-6">
         <div role="tablist" className="flex gap-1">
           {(
             [
-              ["stages", "Stages"],
+              ["builder", "Builder"],
+              ["statuses", "Statuses"],
               ["upload", "Upload rules"],
               ["overrides", "Per track"],
             ] as const
@@ -213,7 +898,7 @@ export function WorkflowPage({ project }: { project: Project }) {
             </button>
           ))}
         </div>
-        {tab === "stages" && canEdit && (
+        {tab === "builder" && canEdit && (
           <div className="ml-auto flex items-center gap-1">
             <Button variant="ghost" size="md" onClick={() => setTemplatesOpen(true)}>
               Templates
@@ -225,438 +910,359 @@ export function WorkflowPage({ project }: { project: Project }) {
                 .filter((w) => w.id !== workflow.id)
                 .map((w) => ({
                   label: `${projectById(w.projectId)?.name}: ${w.name}`,
-                  onSelect: () => setStages(w.stages),
+                  onSelect: () => setGraph(graphFor(w.id) ?? graph),
                 }))}
             />
-            <Button variant="secondary" size="md" onClick={addStage}>
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={() =>
+                setAdding({
+                  from: current?.id ?? graph.nodes[0]?.id ?? "",
+                  output: current?.outputs[0]?.id ?? "out",
+                })
+              }
+            >
               <Icon name="plus" size={14} />
               Stage
             </Button>
           </div>
         )}
       </div>
-      {tab === "stages" && (
+      {tab === "builder" && (
         <div className="flex min-h-0 flex-1 flex-col @3xl/app:flex-row">
           <div
             ref={canvas}
-            className="scroll-quiet relative flex min-h-[320px] flex-1 items-center overflow-auto bg-[radial-gradient(circle_at_1px_1px,var(--hk-line)_1px,transparent_0)] bg-[length:24px_24px] py-6"
+            className="scroll-quiet relative min-h-[360px] flex-1 overflow-auto bg-[radial-gradient(circle_at_1px_1px,var(--hk-line)_1px,transparent_0)] bg-[length:24px_24px]"
           >
-            <svg
-              width={Math.max(width * scale, 300)}
-              height={Math.max(height * scale, 300)}
-              viewBox={`0 0 ${Math.max(width, 300 / scale)} ${Math.max(height, 300 / scale)}`}
-              className="block"
-              role="img"
-              aria-label="Workflow diagram"
-            >
-              <defs>
-                <marker
-                  id="arrow"
-                  viewBox="0 0 10 10"
-                  refX="9"
-                  refY="5"
-                  markerWidth="8"
-                  markerHeight="8"
-                  orient="auto-start-reverse"
+            <div style={{ width: width * scale, height: height * scale }}>
+              <div
+                className="relative"
+                style={{ width, height, transform: `scale(${scale})`, transformOrigin: "0 0" }}
+              >
+                <svg
+                  width={width}
+                  height={height}
+                  className="absolute inset-0"
+                  role="img"
+                  aria-label="Workflow"
                 >
-                  <path d="M0,0 L10,5 L0,10 z" fill="var(--hk-edge-strong)" />
-                </marker>
-                <marker
-                  id="arrow-hot"
-                  viewBox="0 0 10 10"
-                  refX="9"
-                  refY="5"
-                  markerWidth="8"
-                  markerHeight="8"
-                  orient="auto-start-reverse"
-                >
-                  <path d="M0,0 L10,5 L0,10 z" fill="var(--hk-signal)" />
-                </marker>
-              </defs>
-              {stages.map((s) => {
-                const to = pos.get(s.id);
-                if (!to) return null;
-                const sources =
-                  s.after.length === 0
-                    ? [{ x: start.x + 56, y: start.y + 16 }]
-                    : s.after
-                        .map((a) => pos.get(a))
-                        .filter((p): p is { x: number; y: number } => Boolean(p))
-                        .map((p) => ({ x: p.x + NODE_W, y: p.y + NODE_H / 2 }));
-                return sources.map((from, i) => {
-                  const hot = simulating === s.id || s.after.some((a) => a === simulating);
-                  const active =
-                    selected === s.id || (s.after[i] !== undefined && s.after[i] === selected);
-                  return (
-                    <path
-                      key={`${s.id}-${String(i)}`}
-                      d={edgePath(from.x, from.y, to.x, to.y + NODE_H / 2)}
-                      fill="none"
-                      stroke={
-                        hot
-                          ? "var(--hk-signal)"
-                          : active
-                            ? "var(--hk-ink-3)"
-                            : "var(--hk-edge-strong)"
-                      }
-                      strokeWidth={hot || active ? 2 : 1.5}
-                      markerEnd={hot ? "url(#arrow-hot)" : "url(#arrow)"}
-                      className="transition-[stroke] duration-200"
-                    />
-                  );
-                });
-              })}
-              <g transform={`translate(${start.x}, ${start.y})`}>
-                <rect
-                  width={56}
-                  height={32}
-                  rx={16}
-                  fill="var(--hk-raised)"
-                  stroke="var(--hk-line-strong)"
-                />
-                <text
-                  x={28}
-                  y={20}
-                  textAnchor="middle"
-                  fill="var(--hk-ink-2)"
-                  fontSize={12}
-                  fontFamily="var(--hk-font-sans)"
-                  fontWeight={500}
-                >
-                  Start
-                </text>
-              </g>
-              {stages.map((s) => {
-                const p = pos.get(s.id);
-                if (!p) return null;
-                const isSel = selected === s.id;
-                const isSim = simulating === s.id;
-                const status = workflow.statuses.find((st) => st.name === s.status);
-                return (
-                  <g
-                    key={s.id}
-                    transform={`translate(${p.x}, ${p.y})`}
-                    onClick={() => setSelected(s.id)}
-                    className="cursor-pointer"
-                    role="button"
-                    aria-label={`${s.name}, ${kindCopy[s.kind]}`}
-                  >
-                    <rect
-                      width={NODE_W}
-                      height={NODE_H}
-                      rx={10}
-                      fill={
-                        isSim
-                          ? "color-mix(in oklab, var(--hk-signal) 14%, var(--hk-raised))"
-                          : isSel
-                            ? "var(--hk-overlay)"
-                            : "var(--hk-raised)"
-                      }
-                      stroke={
-                        isSim
-                          ? "var(--hk-signal)"
-                          : isSel
-                            ? "var(--hk-ink-3)"
-                            : "var(--hk-line-strong)"
-                      }
-                      strokeWidth={isSel || isSim ? 1.5 : 1}
-                      className="transition-[fill,stroke] duration-200"
-                      style={{
-                        filter: isSel
-                          ? "drop-shadow(0 8px 20px rgb(0 0 0 / 0.5))"
-                          : "drop-shadow(0 2px 6px rgb(0 0 0 / 0.35))",
-                      }}
-                    />
-                    <foreignObject x={0} y={0} width={NODE_W} height={NODE_H}>
-                      <div className="flex h-full items-center gap-3 px-3">
-                        <span
-                          className={cn(
-                            "flex size-7 shrink-0 items-center justify-center rounded-full",
-                            isSim ? "bg-signal text-ground" : "bg-ground/60 text-ink-2",
-                          )}
-                        >
-                          <Icon name={kindIcon[s.kind]} size={13} />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[13px] font-medium text-ink">
-                            {s.name}
-                          </span>
-                          <span className="block truncate text-[11px] text-ink-3">
-                            {kindCopy[s.kind]} · {s.participants}
-                          </span>
-                        </span>
-                      </div>
-                    </foreignObject>
-                    {status && (
-                      <g transform={`translate(${NODE_W - 10}, -8)`}>
-                        <circle
-                          r={5}
-                          fill={status.category === "done" ? "var(--hk-ink)" : "var(--hk-raised)"}
-                          stroke="var(--hk-ink-3)"
-                          strokeWidth={1.5}
-                        />
-                      </g>
-                    )}
-                  </g>
-                );
-              })}
-            </svg>
-            <div className="absolute right-3 bottom-3 flex items-center gap-0.5 rounded-control bg-overlay p-0.5 shadow-3">
-              <button
-                type="button"
-                aria-label="Zoom out"
-                onClick={() => setZoom(Math.max(0.4, scale - 0.1))}
-                className="flex size-7 items-center justify-center rounded-[4px] text-ink-2 hover:bg-raised hover:text-ink"
-              >
-                <Icon name="zoomOut" size={14} />
-              </button>
-              <button
-                type="button"
-                onClick={() => setZoom(null)}
-                className="tabular h-7 rounded-[4px] px-2 text-[12px] text-ink-2 hover:bg-raised hover:text-ink"
-              >
-                {zoom === null ? "Fit" : `${Math.round(scale * 100)}%`}
-              </button>
-              <button
-                type="button"
-                aria-label="Zoom in"
-                onClick={() => setZoom(Math.min(1.5, scale + 0.1))}
-                className="flex size-7 items-center justify-center rounded-[4px] text-ink-2 hover:bg-raised hover:text-ink"
-              >
-                <Icon name="zoomIn" size={14} />
-              </button>
-            </div>
-            <div className="absolute right-3 bottom-3 flex items-center gap-0.5 rounded-control bg-overlay p-0.5 shadow-3">
-              <button
-                type="button"
-                aria-label="Zoom out"
-                onClick={() => setZoom(Math.max(0.4, scale - 0.1))}
-                className="flex size-7 items-center justify-center rounded-[4px] text-ink-2 hover:bg-raised hover:text-ink"
-              >
-                <Icon name="zoomOut" size={14} />
-              </button>
-              <button
-                type="button"
-                onClick={() => setZoom(null)}
-                className="tabular h-7 rounded-[4px] px-2 text-[12px] text-ink-2 hover:bg-raised hover:text-ink"
-              >
-                {zoom === null ? "Fit" : `${Math.round(scale * 100)}%`}
-              </button>
-              <button
-                type="button"
-                aria-label="Zoom in"
-                onClick={() => setZoom(Math.min(1.5, scale + 0.1))}
-                className="flex size-7 items-center justify-center rounded-[4px] text-ink-2 hover:bg-raised hover:text-ink"
-              >
-                <Icon name="zoomIn" size={14} />
-              </button>
-            </div>
-            <div className="pointer-events-none absolute bottom-3 left-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-ink-3">
-              {(["todo", "in_progress", "done"] as const).map((cat) => (
-                <span key={cat} className="flex items-center gap-2">
-                  <Dot
-                    state={cat === "done" ? "approved" : cat === "todo" ? "invited" : "in_review"}
-                  />
-                  {cat === "todo" ? "To do" : cat === "in_progress" ? "In progress" : "Done"}:{" "}
-                  {workflow.statuses
-                    .filter((s) => s.category === cat)
-                    .map((s) => s.name)
-                    .join(", ") || "none"}
-                </span>
-              ))}
-              {invalid.length > 0 && (
-                <span className="flex items-center gap-1.5 text-signal">
-                  <Icon name="warning" size={12} /> {invalid.length} stage
-                  {invalid.length === 1 ? "" : "s"} point at nothing
-                </span>
-              )}
-            </div>
-          </div>
-          <aside className="scroll-quiet flex w-full shrink-0 flex-col gap-5 overflow-auto border-t border-line p-4 @3xl/app:w-[320px] @3xl/app:border-t-0 @3xl/app:border-l">
-            {simulating && simStage ? (
-              <div className="flex flex-col gap-3">
-                <Label>Simulating</Label>
-                <p className="text-[14px] text-ink">
-                  <span className="font-medium">{simStage.name}</span>
-                  <span className="block text-[13px] text-ink-3">
-                    The track is {simStage.status}; {simStage.participants}{" "}
-                    {simStage.kind === "task" ? "work on it" : "are asked"}.
-                  </span>
-                </p>
-                <div className="flex flex-col gap-1.5">
-                  {(simStage.kind === "approval"
-                    ? ["Approved", "Changes requested"]
-                    : simStage.kind === "feedback"
-                      ? ["Feedback submitted"]
-                      : ["Done"]
-                  ).map((outcome) => {
-                    const next =
-                      outcome === "Changes requested"
-                        ? stages.find((s) => s.kind === "task" && s.after.length > 0)
-                        : successors(simStage.id)[0];
+                  <defs>
+                    <marker
+                      id="arrow"
+                      viewBox="0 0 10 10"
+                      refX="9"
+                      refY="5"
+                      markerWidth="7"
+                      markerHeight="7"
+                      orient="auto-start-reverse"
+                    >
+                      <path d="M0,0 L10,5 L0,10 z" fill="var(--hk-edge-strong)" />
+                    </marker>
+                    <marker
+                      id="arrow-hot"
+                      viewBox="0 0 10 10"
+                      refX="9"
+                      refY="5"
+                      markerWidth="7"
+                      markerHeight="7"
+                      orient="auto-start-reverse"
+                    >
+                      <path d="M0,0 L10,5 L0,10 z" fill="var(--hk-signal)" />
+                    </marker>
+                    <marker
+                      id="arrow-sel"
+                      viewBox="0 0 10 10"
+                      refX="9"
+                      refY="5"
+                      markerWidth="7"
+                      markerHeight="7"
+                      orient="auto-start-reverse"
+                    >
+                      <path d="M0,0 L10,5 L0,10 z" fill="var(--hk-ink-3)" />
+                    </marker>
+                  </defs>
+                  {graph.edges.map((e: GraphEdge) => {
+                    const from = byId.get(e.from);
+                    const to = byId.get(e.to);
+                    if (!from || !to) return null;
+                    const a = outputAt(from, e.output);
+                    const b = inputAt(to);
+                    const hot = run?.edges.includes(e.id);
+                    const sel = selected === e.from || selected === e.to;
+                    const d = edgePath(a, b, floor + Math.max(0, from.row - to.row) * 0);
+                    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
                     return (
-                      <Button
-                        key={outcome}
-                        variant="secondary"
-                        size="md"
-                        className="justify-between"
-                        onClick={() => setSimulating(next?.id ?? null)}
-                      >
-                        {outcome}
-                        <span className="text-[12px] text-ink-3">
-                          {next ? `→ ${next.name}` : "→ end"}
-                        </span>
-                      </Button>
+                      <g key={e.id}>
+                        <path
+                          d={d}
+                          fill="none"
+                          stroke={
+                            hot
+                              ? "var(--hk-signal)"
+                              : sel
+                                ? "var(--hk-ink-3)"
+                                : "var(--hk-edge-strong)"
+                          }
+                          strokeWidth={hot ? 2 : 1.5}
+                          markerEnd={
+                            hot ? "url(#arrow-hot)" : sel ? "url(#arrow-sel)" : "url(#arrow)"
+                          }
+                          className="transition-[stroke] duration-200"
+                        />
+                        {hot && b.x > a.x + 30 && (
+                          <g transform={`translate(${mid.x}, ${mid.y - 10})`}>
+                            <rect
+                              x={-22}
+                              y={-9}
+                              width={44}
+                              height={18}
+                              rx={9}
+                              fill="var(--hk-overlay)"
+                              stroke="var(--hk-signal-line)"
+                            />
+                            <text
+                              x={0}
+                              y={4}
+                              textAnchor="middle"
+                              fontSize={10}
+                              fill="var(--hk-ink-2)"
+                              fontFamily="var(--hk-font-sans)"
+                            >
+                              1 item
+                            </text>
+                          </g>
+                        )}
+                      </g>
                     );
                   })}
-                </div>
-                <p className="text-[12px] text-ink-3">Nothing is sent while simulating.</p>
+                  {graph.nodes.map((n) =>
+                    n.outputs.map((o) => {
+                      const p = outputAt(n, o.id);
+                      return (
+                        <g key={`${n.id}-${o.id}`}>
+                          <circle
+                            cx={p.x}
+                            cy={p.y}
+                            r={4}
+                            fill="var(--hk-raised)"
+                            stroke="var(--hk-edge-strong)"
+                            strokeWidth={1.5}
+                          />
+                          {o.label && n.outputs.length > 1 && (
+                            <text
+                              x={p.x + 9}
+                              y={p.y + 3.5}
+                              fontSize={10}
+                              fill="var(--hk-ink-3)"
+                              fontFamily="var(--hk-font-sans)"
+                            >
+                              {o.label}
+                            </text>
+                          )}
+                        </g>
+                      );
+                    }),
+                  )}
+                </svg>
+                {graph.nodes.map((n) => (
+                  <Node
+                    key={n.id}
+                    node={n}
+                    selected={selected === n.id}
+                    ran={Boolean(run?.nodes.includes(n.id))}
+                    current={run?.current === n.id}
+                    onSelect={() => setSelected(n.id)}
+                  />
+                ))}
+                {canEdit &&
+                  !run &&
+                  dangling.map(({ node, output }) => {
+                    const p = outputAt(node, output.id);
+                    return (
+                      <button
+                        key={`${node.id}-${output.id}`}
+                        type="button"
+                        aria-label={`Add after ${node.name}`}
+                        onClick={() => {
+                          setSelected(node.id);
+                          setAdding({ from: node.id, output: output.id });
+                        }}
+                        className="absolute flex items-center text-ink-3 hover:text-ink"
+                        style={{ left: p.x + 4, top: p.y - 11 }}
+                      >
+                        <span className="h-px w-5 bg-edge-strong" />
+                        <span
+                          className={cn(
+                            "flex size-[22px] items-center justify-center rounded-[5px] border border-dashed border-edge-strong bg-raised transition-colors hover:border-ink-3",
+                            adding?.from === node.id &&
+                              adding.output === output.id &&
+                              "border-signal text-signal",
+                          )}
+                        >
+                          <Icon name="plus" size={11} />
+                        </span>
+                      </button>
+                    );
+                  })}
               </div>
-            ) : current ? (
-              <>
-                <div className="flex items-center gap-2">
-                  <Label>Stage</Label>
+            </div>
+            <div className="absolute bottom-3 left-3 flex items-center gap-0.5 rounded-control bg-overlay p-0.5 shadow-3">
+              <button
+                type="button"
+                aria-label="Zoom out"
+                onClick={() => setZoom(Math.max(0.4, scale - 0.1))}
+                className="flex size-7 items-center justify-center rounded-[4px] text-ink-2 hover:bg-raised hover:text-ink"
+              >
+                <Icon name="zoomOut" size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setZoom(null)}
+                className="tabular h-7 rounded-[4px] px-2 text-[12px] text-ink-2 hover:bg-raised hover:text-ink"
+              >
+                {zoom === null ? "Fit" : `${Math.round(scale * 100)}%`}
+              </button>
+              <button
+                type="button"
+                aria-label="Zoom in"
+                onClick={() => setZoom(Math.min(1.5, scale + 0.1))}
+                className="flex size-7 items-center justify-center rounded-[4px] text-ink-2 hover:bg-raised hover:text-ink"
+              >
+                <Icon name="zoomIn" size={14} />
+              </button>
+              <span className="mx-1 h-4 w-px bg-line" />
+              <button
+                type="button"
+                className="h-7 rounded-[4px] px-2 text-[12px] text-ink-2 hover:bg-raised hover:text-ink"
+              >
+                Tidy up
+              </button>
+            </div>
+            <div
+              className="pointer-events-none absolute right-3 bottom-3 hidden rounded-control border border-line bg-overlay/90 p-1.5 shadow-3 @3xl/app:block"
+              aria-hidden="true"
+            >
+              <svg
+                width={Math.round(width * 0.07)}
+                height={Math.round(height * 0.07)}
+                role="img"
+                aria-label="Map of the canvas"
+              >
+                {graph.nodes.map((n) => {
+                  const p = posOf(n);
+                  return (
+                    <rect
+                      key={n.id}
+                      x={p.x * 0.07}
+                      y={p.y * 0.07}
+                      width={NODE_W * 0.07}
+                      height={NODE_H * 0.07}
+                      rx={1.5}
+                      fill={run?.nodes.includes(n.id) ? "var(--hk-signal)" : "var(--hk-ink-3)"}
+                      opacity={0.8}
+                    />
+                  );
+                })}
+              </svg>
+            </div>
+            {unreachable.length > 0 && !run && (
+              <div className="absolute top-3 left-3 flex items-center gap-1.5 rounded-control bg-overlay px-2.5 py-1.5 text-[12px] text-signal shadow-3">
+                <Icon name="warning" size={12} /> {unreachable.length}{" "}
+                {unreachable.length === 1 ? "stage is" : "stages are"} not reached by anything
+              </div>
+            )}
+          </div>
+          <aside className="scroll-quiet flex w-full shrink-0 flex-col overflow-auto border-t border-line p-4 @3xl/app:w-[320px] @3xl/app:border-t-0 @3xl/app:border-l">
+            {inspector}
+          </aside>
+        </div>
+      )}
+      {tab === "statuses" && (
+        <div className="scroll-quiet min-h-0 flex-1 overflow-auto p-4 @3xl/app:p-6">
+          <div className="flex max-w-[720px] flex-col gap-4">
+            <p className="text-[14px] text-ink-2">
+              The statuses a track can be in. Stages set them; the board groups by them.
+            </p>
+            <ul className="flex flex-col divide-y divide-line rounded-panel-lg border border-line bg-raised/25">
+              {statuses.map((s, i) => (
+                <li key={s.name} className="flex items-center gap-4 px-4 py-2.5">
+                  <Dot
+                    state={
+                      s.category === "done"
+                        ? "approved"
+                        : s.category === "todo"
+                          ? "invited"
+                          : "in_review"
+                    }
+                  />
+                  <Input
+                    value={s.name}
+                    onChange={(e) =>
+                      setStatuses(
+                        statuses.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)),
+                      )
+                    }
+                    className="h-8 max-w-[260px]"
+                    disabled={!canEdit}
+                  />
+                  <Select
+                    value={s.category}
+                    onChange={(e) =>
+                      setStatuses(
+                        statuses.map((x, j) =>
+                          j === i ? { ...x, category: e.target.value as typeof s.category } : x,
+                        ),
+                      )
+                    }
+                    className="h-8 w-36 text-[13px]"
+                    disabled={!canEdit}
+                  >
+                    <option value="todo">To do</option>
+                    <option value="in_progress">In progress</option>
+                    <option value="done">Done</option>
+                  </Select>
+                  <span className="ml-auto text-[12px] text-ink-3">
+                    {
+                      graph.nodes.filter(
+                        (n) =>
+                          n.config?.status === s.name || (n.kind === "status" && n.name === s.name),
+                      ).length
+                    }{" "}
+                    stages set it
+                  </span>
                   {canEdit && (
                     <button
                       type="button"
-                      onClick={removeStage}
-                      className="ml-auto text-[12px] text-ink-3 hover:text-signal"
+                      aria-label={`Remove ${s.name}`}
+                      onClick={() => setStatuses(statuses.filter((_, j) => j !== i))}
+                      className="text-ink-3 hover:text-signal"
                     >
-                      Delete
+                      <Icon name="close" size={12} />
                     </button>
                   )}
-                </div>
-                <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-                  Name
-                  <Input
-                    value={current.name}
-                    onChange={(e) => update({ name: e.target.value })}
-                    disabled={!canEdit}
-                  />
-                </label>
-                <div className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-                  Kind
-                  <div className="flex gap-1">
-                    {(["approval", "feedback", "task"] as StageKind[]).map((k) => (
-                      <button
-                        key={k}
-                        type="button"
-                        aria-pressed={current.kind === k}
-                        disabled={!canEdit}
-                        onClick={() => update({ kind: k })}
-                        className={cn(
-                          "flex h-8 flex-1 items-center justify-center gap-1.5 rounded-control border text-[13px] transition-colors",
-                          current.kind === k
-                            ? "border-signal/60 bg-signal/10 text-ink"
-                            : "border-line text-ink-3 hover:border-edge hover:text-ink",
-                        )}
-                      >
-                        <Icon name={kindIcon[k]} size={12} />
-                        {kindCopy[k]}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-                  Participants
-                  <Input
-                    value={current.participants}
-                    onChange={(e) => update({ participants: e.target.value })}
-                    disabled={!canEdit}
-                  />
-                  <span className="text-[12px] text-ink-3">A role, a group, people or guests.</span>
-                </label>
-                {current.kind !== "task" && (
-                  <>
-                    <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-                      Order
-                      <Select defaultValue="parallel" disabled={!canEdit}>
-                        <option value="parallel">All at once</option>
-                        <option value="sequence">In turn</option>
-                      </Select>
-                    </label>
-                    {current.kind === "approval" && (
-                      <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-                        Approved when
-                        <Select
-                          defaultValue={current.participants.includes("any") ? "any" : "all"}
-                          disabled={!canEdit}
-                        >
-                          <option value="all">Everyone approves</option>
-                          <option value="any">Any one approves</option>
-                          <option value="quorum">A share approves</option>
-                        </Select>
-                      </label>
-                    )}
-                  </>
-                )}
-                <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-                  After
-                  <Select
-                    multiple
-                    value={current.after}
-                    disabled={!canEdit}
-                    onChange={(e) =>
-                      update({ after: [...e.target.selectedOptions].map((o) => o.value) })
-                    }
-                    className="h-auto py-1"
-                  >
-                    {stages
-                      .filter((s) => s.id !== current.id)
-                      .map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}
-                        </option>
-                      ))}
-                  </Select>
-                  <span className="text-[12px] text-ink-3">
-                    Nothing chosen means it starts the workflow.
-                  </span>
-                </label>
-                <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-                  Sets the status
-                  <Select
-                    value={current.status}
-                    onChange={(e) => update({ status: e.target.value })}
-                    disabled={!canEdit}
-                  >
-                    {workflow.statuses.map((s) => (
-                      <option key={s.name} value={s.name}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </Select>
-                </label>
-                <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-                  Due
-                  <span className="flex items-center gap-2">
-                    <Input defaultValue="5" className="w-16 text-center" disabled={!canEdit} />
-                    <span className="text-ink-3">days after the stage starts</span>
-                  </span>
-                </label>
-                <div className="flex flex-col gap-2 text-[13px] text-ink-2">
-                  Notify on entering
-                  {[
-                    "Participants, in the app",
-                    "Participants, by mail",
-                    "The producer, when it ends",
-                  ].map((n, i) => (
-                    <span key={n} className="flex items-center justify-between text-ink">
-                      {n}
-                      <Switch label={n} checked={i < 2} onChange={() => {}} />
-                    </span>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <p className="text-[13px] text-ink-3">Choose a stage on the canvas, or add one.</p>
+                </li>
+              ))}
+            </ul>
+            {canEdit && (
+              <Button
+                variant="secondary"
+                size="md"
+                className="self-start"
+                onClick={() =>
+                  setStatuses([...statuses, { name: "New status", category: "in_progress" }])
+                }
+              >
+                <Icon name="plus" size={14} />
+                Status
+              </Button>
             )}
-          </aside>
+          </div>
         </div>
       )}
       {tab === "upload" && (
         <div className="scroll-quiet min-h-0 flex-1 overflow-auto p-4 @3xl/app:p-6">
-          <div className="mx-auto flex max-w-[720px] flex-col gap-4">
+          <div className="flex max-w-[720px] flex-col gap-4">
             <p className="text-[14px] text-ink-2">
               Checks that run on every file as it arrives. A check can warn, refuse the upload, or
               stay off. A producer can let a refused file through.
@@ -685,7 +1291,7 @@ export function WorkflowPage({ project }: { project: Project }) {
       )}
       {tab === "overrides" && (
         <div className="scroll-quiet min-h-0 flex-1 overflow-auto p-4 @3xl/app:p-6">
-          <div className="mx-auto flex max-w-[720px] flex-col gap-4">
+          <div className="flex max-w-[720px] flex-col gap-4">
             <p className="text-[14px] text-ink-2">
               Every track follows the project's workflow unless it is given its own.
             </p>
@@ -697,6 +1303,7 @@ export function WorkflowPage({ project }: { project: Project }) {
                     <Link
                       to="/tracks/$trackId"
                       params={{ trackId: t.id }}
+                      search={{ view: "versions" }}
                       className="min-w-0 flex-1 truncate text-[14px] text-ink hover:text-signal"
                     >
                       {t.name}
@@ -729,53 +1336,68 @@ export function WorkflowPage({ project }: { project: Project }) {
                   type="button"
                   onClick={() => {
                     setTemplatesOpen(false);
+                    if (t.id === "conductor") setGraph(graphFor("wf-joplin") ?? graph);
+                    if (t.id === "parallel") setGraph(graphFor("wf-titles") ?? graph);
                     if (t.id === "simple")
-                      setStages([
-                        {
-                          id: "st-a",
-                          kind: "approval",
-                          name: "Approval",
-                          participants: "Producer, everyone",
-                          after: [],
-                          status: workflow.statuses.at(-1)?.name ?? "",
-                        },
-                      ]);
-                    if (t.id === "conductor") setStages(workflows[0]?.stages ?? []);
-                    if (t.id === "parallel")
-                      setStages([
-                        {
-                          id: "st-p1",
-                          kind: "feedback",
-                          name: "Director",
-                          participants: "Mira Solberg",
-                          after: [],
-                          status: workflow.statuses[1]?.name ?? "",
-                        },
-                        {
-                          id: "st-p2",
-                          kind: "feedback",
-                          name: "Composer",
-                          participants: "Guest",
-                          after: [],
-                          status: workflow.statuses[1]?.name ?? "",
-                        },
-                        {
-                          id: "st-p3",
-                          kind: "feedback",
-                          name: "Label",
-                          participants: "Label group",
-                          after: [],
-                          status: workflow.statuses[1]?.name ?? "",
-                        },
-                        {
-                          id: "st-p4",
-                          kind: "approval",
-                          name: "Lock",
-                          participants: "Producer, any one",
-                          after: ["st-p1", "st-p2", "st-p3"],
-                          status: workflow.statuses.at(-1)?.name ?? "",
-                        },
-                      ]);
+                      setGraph({
+                        workflowId: graph.workflowId,
+                        nodes: [
+                          {
+                            id: "s0",
+                            kind: "start",
+                            name: "A version is uploaded",
+                            col: 0,
+                            row: 0,
+                            outputs: [{ id: "out" }],
+                          },
+                          {
+                            id: "s1",
+                            kind: "approval",
+                            name: "Approval",
+                            detail: "Producer, everyone",
+                            col: 1,
+                            row: 0,
+                            outputs: [{ id: "out" }],
+                            config: { rule: "all", status: statuses.at(-1)?.name ?? "" },
+                          },
+                          {
+                            id: "s2",
+                            kind: "condition",
+                            name: "Decision",
+                            col: 2,
+                            row: 0,
+                            outputs: [
+                              { id: "a", label: "all approved" },
+                              { id: "b", label: "else" },
+                            ],
+                          },
+                          {
+                            id: "s3",
+                            kind: "status",
+                            name: statuses.at(-1)?.name ?? "Approved",
+                            col: 3,
+                            row: 0,
+                            outputs: [],
+                          },
+                          {
+                            id: "s4",
+                            kind: "task",
+                            name: "Back to editing",
+                            detail: "Engineer",
+                            col: 3,
+                            row: 1,
+                            outputs: [{ id: "out" }],
+                            config: { status: statuses[0]?.name ?? "" },
+                          },
+                        ],
+                        edges: [
+                          { id: "x1", from: "s0", output: "out", to: "s1" },
+                          { id: "x2", from: "s1", output: "out", to: "s2" },
+                          { id: "x3", from: "s2", output: "a", to: "s3" },
+                          { id: "x4", from: "s2", output: "b", to: "s4" },
+                          { id: "x5", from: "s4", output: "out", to: "s1" },
+                        ],
+                      });
                   }}
                   className="flex w-full flex-col rounded-panel px-3 py-2.5 text-left transition-colors hover:bg-raised"
                 >
