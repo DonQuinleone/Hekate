@@ -88,6 +88,15 @@ Unreleased material is the product's cargo. Read `docs/security.md` before touch
 - Files are encrypted at rest with per-file keys; storage holds ciphertext only.
 - Log every key issue, page render and download in the access log.
 
+## Design contract
+
+The clickable prototype in `apps/prototype` is the approved design of the whole application and the contract for everything built in `apps/web`: its navigation model, page layouts, copy, states (empty, loading, processing, failed, refused, expired), components and keyboard behaviour. Its screens are in `apps/prototype/docs/screens` and its inventory in `apps/prototype/docs/inventory.md`.
+
+- Build what the prototype shows. Where an issue and the prototype differ, the prototype wins unless the issue says why.
+- Where building shows the prototype must change, change the prototype in the same pull request (or first) and say so in the description; the prototype never falls behind the product.
+- Reuse the prototype's components and data shapes as the starting point (`apps/prototype/src/components`, `apps/prototype/src/data`) rather than redesigning them.
+- Reviewers compare a visual change with its prototype screen before anything else.
+
 ## Design system
 
 See `docs/brand.md` for the full system. In short: dark, modern, understated. Near-black ground, one signal colour used sparingly, hairlines over cards and shadows, type doing the work, no ornament. The mark is two stems and a point. Use the CSS tokens in `apps/web/src/styles/tokens.css`; do not hard-code colours.
