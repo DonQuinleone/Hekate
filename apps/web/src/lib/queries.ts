@@ -215,7 +215,10 @@ export function useCreateProject() {
   return useMutation({
     mutationFn: async (input: { name: string; profile: ProjectProfile }) =>
       (await json<{ project: Project }>(await api.projects.$post({ json: input }))).project,
-    onSuccess: () => client.invalidateQueries({ queryKey: ["projects"] }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["projects"] });
+      void client.invalidateQueries({ queryKey: homeQuery.queryKey });
+    },
   });
 }
 
@@ -1223,5 +1226,81 @@ export interface MyReview {
 export const myReviewsQuery = queryOptions({
   queryKey: ["reviews", "mine"],
   queryFn: async () => (await json<{ reviews: MyReview[] }>(await api.reviews.$get())).reviews,
+  refetchInterval: 60_000,
+});
+
+/** A project as the home page shows it: its figures and a few of its people. */
+export interface HomeProject {
+  id: string;
+  name: string;
+  profile: ProjectProfile;
+  createdAt: string;
+  updatedAt: string;
+  files: number;
+  tracks: number;
+  /** Tracks with at least one version, and of those, how many are approved at their latest. */
+  versionedTracks: number;
+  approvedTracks: number;
+  openComments: number;
+  openReviews: number;
+  members: number;
+  faces: { id: string; name: string }[];
+}
+
+type HomeWho = { id: string; name: string } | null;
+export type HomeActivity =
+  | {
+      kind: "comment";
+      id: string;
+      at: string;
+      who: HomeWho;
+      projectId: string;
+      fileId: string;
+      fileName: string;
+      /** Comments in a row by the same person on the same file. */
+      count: number;
+    }
+  | {
+      kind: "version";
+      id: string;
+      at: string;
+      who: HomeWho;
+      projectId: string;
+      trackId: string;
+      trackName: string;
+      number: number;
+    }
+  | {
+      kind: "review";
+      id: string;
+      at: string;
+      who: HomeWho;
+      projectId: string;
+      reviewId: string;
+      title: string;
+    }
+  | {
+      kind: "review_completed";
+      id: string;
+      at: string;
+      who: null;
+      projectId: string;
+      reviewId: string;
+      title: string;
+      outcome: string | null;
+    };
+
+export interface Home {
+  projects: HomeProject[];
+  openComments: number;
+  newVersions: number;
+  failed: { id: string; name: string; projectId: string }[];
+  activity: HomeActivity[];
+}
+
+/** The home page's figures across the projects the member can see. */
+export const homeQuery = queryOptions({
+  queryKey: ["home"],
+  queryFn: async () => json<Home>(await api.home.$get()),
   refetchInterval: 60_000,
 });

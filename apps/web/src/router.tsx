@@ -15,6 +15,7 @@ import { ViewerProvider } from "~/lib/viewer";
 import { SetupPage, SignInPage } from "~/routes/auth-pages";
 import { FilePage } from "~/routes/file";
 import { GuestHomePage, GuestLinkPage, GuestShell, GuestSignedOutPage } from "~/routes/guest";
+import { HomePage } from "~/routes/home";
 import { InvitePage } from "~/routes/invite";
 import { MyReviewsPage } from "~/routes/my-reviews";
 import { ProjectFilesPage, ProjectPeoplePage, ProjectReviewsPage } from "~/routes/project";
@@ -152,13 +153,10 @@ const app = createRoute({
   ),
 });
 
-// Home becomes the dashboard (#109); until then the projects list is where everyone starts.
 const home = createRoute({
   getParentRoute: () => app,
   path: "/",
-  beforeLoad: () => {
-    throw redirect({ to: "/projects" });
-  },
+  component: HomePage,
 });
 const projects = createRoute({
   getParentRoute: () => app,

@@ -45,6 +45,7 @@ const screens: Screen[] = [
     ready: "section[aria-label=Comments]",
     as: "guest",
   },
+  { name: "home", path: () => "/", ready: "main section[aria-label=Activity] li a" },
   { name: "projects", path: () => "/projects", ready: "main a:has-text('Joplin Rags')" },
   {
     name: "project-music",
