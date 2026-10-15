@@ -1,6 +1,7 @@
 import { type ProjectPermission, permissionNames, projectPermissions } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type CSSProperties, type FormEvent, useState } from "react";
+import { cn } from "~/lib/cn";
 import {
   membersQuery,
   type ProjectRole,
@@ -10,6 +11,7 @@ import {
   useProjectCan,
 } from "~/lib/queries";
 import { Button } from "./ui/button";
+import { Select } from "./ui/input";
 
 const control =
   "h-7 rounded-control border border-edge bg-ground px-2 text-xs text-ink outline-none focus:border-ink-3";
@@ -27,7 +29,7 @@ function Members({ projectId, manage }: { projectId: string; manage: boolean }) 
     <section aria-label="Members" className="flex flex-col gap-3">
       <h2 className="m-0 text-[15px] font-medium">Members</h2>
       <p className="m-0 text-[13px] text-ink-3">
-        Organisation owners and admins can do everything in every project. Everyone else sees this
+        Workspace owners and admins can do everything in every project. Everyone else sees this
         project only with a role in it.
       </p>
       {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
@@ -55,9 +57,7 @@ function Members({ projectId, manage }: { projectId: string; manage: boolean }) 
                       : remove.mutate(person.userId)
                   }
                 >
-                  <option value="">
-                    {everything ? "No role (organisation admin)" : "No access"}
-                  </option>
+                  <option value="">{everything ? "No role (workspace admin)" : "No access"}</option>
                   {roles.map((role) => (
                     <option key={role.id} value={role.id}>
                       {role.name}
@@ -67,7 +67,7 @@ function Members({ projectId, manage }: { projectId: string; manage: boolean }) 
               ) : (
                 <span className="text-xs text-ink-2">
                   {roles.find((r) => r.id === current)?.name ??
-                    (everything ? "Organisation admin" : "No access")}
+                    (everything ? "Workspace admin" : "No access")}
                 </span>
               )}
             </li>
@@ -112,8 +112,12 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
   const { data: roles } = useQuery(projectRolesQuery(projectId));
   const { createRole, updateRole, deleteRole } = useProjectAccessMutations(projectId);
   const [name, setName] = useState("");
+  // On a phone one role is shown at a time, chosen above the table; a wide screen shows them all.
+  const [shown, setShown] = useState<string | null>(null);
   const error = createRole.error ?? updateRole.error ?? deleteRole.error;
   if (!roles) return <p className="m-0 text-[13px] text-ink-3">Loading</p>;
+  const focus = roles.find((r) => r.id === shown)?.id ?? roles[0]?.id;
+  const column = (roleId: string) => (roleId === focus ? "" : "hidden @3xl/app:table-cell");
 
   const toggle = (role: ProjectRole, permission: ProjectPermission) => {
     const has = role.permissions.includes(permission);
@@ -151,15 +155,42 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
         )}
       </div>
       {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[560px] border-collapse text-[13px]">
+      {roles.length > 1 && (
+        <div className="flex items-center gap-2 text-[13px] text-ink-3 @3xl/app:hidden">
+          <label htmlFor="role-shown">Role</label>
+          <Select
+            id="role-shown"
+            value={focus}
+            onChange={(event) => setShown(event.target.value)}
+            className="h-8 w-auto flex-1"
+          >
+            {roles.map((role) => (
+              <option key={role.id} value={role.id}>
+                {role.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+      )}
+      <div className="@3xl/app:overflow-x-auto">
+        {/* Each role needs room for its name, its count and its actions. */}
+        <table
+          className="w-full border-collapse text-[13px] @3xl/app:min-w-[var(--roles-width)]"
+          style={{ "--roles-width": `${220 + roles.length * 112}px` } as CSSProperties}
+        >
           <thead>
             <tr>
               <th className="label border-b border-hairline py-2 text-left font-normal">
                 Permission
               </th>
               {roles.map((role) => (
-                <th key={role.id} className="border-b border-hairline px-1 py-2 font-normal">
+                <th
+                  key={role.id}
+                  className={cn(
+                    "w-[112px] border-b border-hairline px-1 py-2 font-normal",
+                    column(role.id),
+                  )}
+                >
                   <div className="flex flex-col items-center gap-0.5">
                     <RoleName
                       key={role.name}
@@ -205,7 +236,10 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
                 {roles.map((role) => {
                   const on = role.permissions.includes(permission);
                   return (
-                    <td key={role.id} className="border-b border-hairline text-center">
+                    <td
+                      key={role.id}
+                      className={cn("border-b border-hairline text-center", column(role.id))}
+                    >
                       {manage ? (
                         <input
                           type="checkbox"

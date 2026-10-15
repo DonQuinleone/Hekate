@@ -45,15 +45,25 @@ const screens: Screen[] = [
     ready: "section[aria-label=Comments]",
     as: "guest",
   },
-  { name: "projects", path: () => "/", ready: "main a:has-text('Joplin Rags')" },
+  { name: "projects", path: () => "/projects", ready: "main a:has-text('Joplin Rags')" },
   {
     name: "project-music",
-    path: (s) => `/projects/${s.musicProjectId}`,
+    path: (s) => `/projects/${s.musicProjectId}/files`,
     ready: "main a:has-text('Maple Leaf Rag - Score.pdf')",
   },
   {
+    name: "project-reviews",
+    path: (s) => `/projects/${s.musicProjectId}/reviews`,
+    ready: "main >> text=Album masters",
+  },
+  {
+    name: "project-people",
+    path: (s) => `/projects/${s.musicProjectId}/people`,
+    ready: "main >> text=Alex Rivera",
+  },
+  {
     name: "project-video",
-    path: (s) => `/projects/${s.videoProjectId}`,
+    path: (s) => `/projects/${s.videoProjectId}/files`,
     ready: "main a:has-text('Opening titles - Cut 3.mp4')",
   },
   { name: "track", path: (s) => `/tracks/${s.trackId}`, ready: "text=Bars 12 to 16" },
@@ -73,7 +83,7 @@ const screens: Screen[] = [
     ready: "section[aria-label=Comments] li",
   },
   { name: "review", path: (s) => `/reviews/${s.reviewId}`, ready: "h1:has-text('Album masters')" },
-  { name: "my-reviews", path: () => "/reviews", ready: "text=Album masters" },
+  { name: "my-reviews", path: () => "/reviews", ready: "main >> text=Album masters" },
   { name: "members", path: () => "/members", ready: "main >> text=Alex Rivera" },
 ];
 
@@ -112,8 +122,9 @@ function capture(screen: Screen) {
     await settle(page, screen.ready);
     await showWhole(page);
     await settle(page, screen.ready);
-    await checkScreen(page);
+    // Captured first, so a screen that fails its checks still leaves a picture to look at.
     await saveScreen(page, screen.name);
+    await checkScreen(page);
   });
 }
 

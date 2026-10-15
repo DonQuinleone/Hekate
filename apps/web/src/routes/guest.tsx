@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef } from "react";
+import { Avatar } from "~/components/avatar";
 import { Lockup } from "~/components/brand";
 import { reviewState } from "~/components/reviews";
+import { GuestFrame } from "~/components/shell";
 import { Button } from "~/components/ui/button";
 import { StatusPill } from "~/components/ui/status";
 import { accessNote } from "~/lib/permissions";
@@ -60,8 +62,8 @@ export function GuestSignedOutPage() {
     <Centred>
       <h1 className="m-0 text-[20px] font-medium">Open the link in your email</h1>
       <p className="m-0 text-[14px] text-ink-2">
-        Reviews from outside the organisation start from the link you were sent. Each link works
-        once, on one device; ask whoever invited you for a new one if it has expired.
+        Reviews from outside the workspace start from the link you were sent. Each link works once,
+        on one device; ask whoever invited you for a new one if it has expired.
       </p>
     </Centred>
   );
@@ -73,23 +75,17 @@ export function GuestShell({ children }: { children: ReactNode }) {
   const signOut = useGuestSignOut();
   const navigate = useNavigate();
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex h-[52px] shrink-0 items-center gap-4 border-b border-hairline px-4">
-        <Link to="/g" className="no-underline" aria-label="Your reviews">
-          <Lockup size={18} />
-        </Link>
-        {me?.organisation && (
-          <span className="hidden truncate text-[13px] text-ink-3 sm:inline">
-            for {me.organisation}
-          </span>
-        )}
-        <span className="ml-auto flex min-w-0 items-center gap-3">
-          <span className="flex min-w-0 flex-col items-end leading-tight">
+    <GuestFrame
+      account={
+        <>
+          <span className="hidden min-w-0 flex-col items-end leading-tight @3xl/app:flex">
             <span className="truncate text-[13px] text-ink">{me?.guest.name}</span>
-            <span className="truncate text-[11px] text-ink-3">
+            <span className="truncate text-[12px] text-ink-3">
               {me?.guest.label ? `${me.guest.label}, guest` : "Guest"}
+              {me?.organisation ? ` · ${me.organisation}` : ""}
             </span>
           </span>
+          {me && <Avatar id={me.guest.id} name={me.guest.name} size={28} />}
           <Button
             variant="ghost"
             size="sm"
@@ -99,10 +95,11 @@ export function GuestShell({ children }: { children: ReactNode }) {
           >
             Sign out
           </Button>
-        </span>
-      </header>
-      <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
-    </div>
+        </>
+      }
+    >
+      {children}
+    </GuestFrame>
   );
 }
 

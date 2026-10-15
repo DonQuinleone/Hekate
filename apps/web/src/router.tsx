@@ -17,7 +17,7 @@ import { FilePage } from "~/routes/file";
 import { GuestHomePage, GuestLinkPage, GuestShell, GuestSignedOutPage } from "~/routes/guest";
 import { InvitePage } from "~/routes/invite";
 import { MyReviewsPage } from "~/routes/my-reviews";
-import { ProjectPage } from "~/routes/project";
+import { ProjectFilesPage, ProjectPeoplePage, ProjectReviewsPage } from "~/routes/project";
 import { ProjectsPage } from "~/routes/projects";
 import { ReviewPage } from "~/routes/review";
 import { SettingsPage } from "~/routes/settings";
@@ -152,25 +152,63 @@ const app = createRoute({
   ),
 });
 
-const projects = createRoute({ getParentRoute: () => app, path: "/", component: ProjectsPage });
+// Home becomes the dashboard (#109); until then the projects list is where everyone starts.
+const home = createRoute({
+  getParentRoute: () => app,
+  path: "/",
+  beforeLoad: () => {
+    throw redirect({ to: "/projects" });
+  },
+});
+const projects = createRoute({
+  getParentRoute: () => app,
+  path: "/projects",
+  component: ProjectsPage,
+});
+const folderSearch = (search: Record<string, unknown>): { folder?: string } =>
+  typeof search.folder === "string" && /^[0-9a-f-]{36}$/i.test(search.folder)
+    ? { folder: search.folder }
+    : {};
+// A project opens on its files until its overview arrives (#113).
 const project = createRoute({
   getParentRoute: () => app,
   path: "/projects/$projectId",
+  validateSearch: folderSearch,
+  beforeLoad: ({ params, search }) => {
+    throw redirect({ to: "/projects/$projectId/files", params, search });
+  },
+});
+const projectFiles = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/files",
   // The open folder lives in the address, so it survives a reload and can be shared.
-  validateSearch: (search: Record<string, unknown>): { folder?: string } =>
-    typeof search.folder === "string" && /^[0-9a-f-]{36}$/i.test(search.folder)
-      ? { folder: search.folder }
-      : {},
-  component: function ProjectRoute() {
-    const { projectId } = project.useParams();
-    const { folder } = project.useSearch();
-    const navigate = project.useNavigate();
+  validateSearch: folderSearch,
+  component: function ProjectFilesRoute() {
+    const { projectId } = projectFiles.useParams();
+    const { folder } = projectFiles.useSearch();
+    const navigate = projectFiles.useNavigate();
     const open = useCallback(
       (next: string | null) =>
         void navigate({ search: next ? { folder: next } : {}, replace: false }),
       [navigate],
     );
-    return <ProjectPage projectId={projectId} folderId={folder ?? null} onOpenFolder={open} />;
+    return <ProjectFilesPage projectId={projectId} folderId={folder ?? null} onOpenFolder={open} />;
+  },
+});
+const projectReviews = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/reviews",
+  component: function ProjectReviewsRoute() {
+    const { projectId } = projectReviews.useParams();
+    return <ProjectReviewsPage projectId={projectId} />;
+  },
+});
+const projectPeople = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/people",
+  component: function ProjectPeopleRoute() {
+    const { projectId } = projectPeople.useParams();
+    return <ProjectPeoplePage projectId={projectId} />;
   },
 });
 const track = createRoute({
@@ -227,7 +265,19 @@ export const router = createRouter({
     guestLink,
     guestSignedOut,
     guestApp.addChildren([guestHome, guestReview, guestFile]),
-    app.addChildren([projects, project, track, file, myReviews, review, settings]),
+    app.addChildren([
+      home,
+      projects,
+      project,
+      projectFiles,
+      projectReviews,
+      projectPeople,
+      track,
+      file,
+      myReviews,
+      review,
+      settings,
+    ]),
   ]),
   context: { queryClient },
   defaultPreload: "intent",

@@ -266,11 +266,11 @@ export function ReviewPage({ reviewId }: { reviewId: string }) {
   const crumbs: Crumb[] = guest
     ? [{ key: "reviews", link: <Link to="/g">Your reviews</Link> }]
     : [
-        { key: "projects", link: <Link to="/">Projects</Link> },
+        { key: "projects", link: <Link to="/projects">Projects</Link> },
         {
           key: "project",
           link: (
-            <Link to="/projects/$projectId" params={{ projectId: review.projectId }}>
+            <Link to="/projects/$projectId/files" params={{ projectId: review.projectId }}>
               {project?.name ?? "Project"}
             </Link>
           ),
