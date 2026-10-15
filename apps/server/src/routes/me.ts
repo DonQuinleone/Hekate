@@ -28,7 +28,7 @@ export const meRoutes = (db: Database) =>
     .put("/organisation", zValidator("json", z.object({ organisationId: z.uuid() })), async (c) => {
       const { organisationId } = c.req.valid("json");
       if (!(await membershipOf(db, c.var.userId, organisationId))) {
-        throw new HTTPException(403, { message: "You are not a member of that organisation" });
+        throw new HTTPException(403, { message: "You are not a member of that workspace" });
       }
       await db
         .update(schema.authSessions)

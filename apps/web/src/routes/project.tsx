@@ -1,15 +1,59 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 import { FileBrowser } from "~/components/file-browser";
 import { UploadProvider } from "~/components/files";
 import { ReviewerGroups } from "~/components/groups";
 import { PageHeader } from "~/components/page-header";
 import { ProjectAccess } from "~/components/project-access";
 import { ProjectReviews } from "~/components/reviews";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
-import { projectFoldersQuery, projectQuery, useProjectCan } from "~/lib/queries";
+import { type Project, projectFoldersQuery, projectQuery, useProjectCan } from "~/lib/queries";
 
-export function ProjectPage({
+/**
+ * A project's pages share their frame: the trail back to the projects, the section's name as
+ * the title (the project itself is in the sidebar's switcher, decision 038), and the content.
+ */
+function ProjectFrame({
+  projectId,
+  title,
+  actions,
+  children,
+}: {
+  projectId: string;
+  title: string;
+  actions?: ReactNode;
+  children: (project: Project) => ReactNode;
+}) {
+  const { data: project, error } = useQuery(projectQuery(projectId));
+  if (error) return <p className="p-8 text-signal">{error.message}</p>;
+  if (!project) return <p className="p-8 text-ink-3">Loading</p>;
+  return (
+    <>
+      <PageHeader
+        crumbs={[
+          { key: "projects", link: <Link to="/projects">Projects</Link> },
+          {
+            key: "project",
+            link: (
+              <Link to="/projects/$projectId/files" params={{ projectId: project.id }}>
+                {project.name}
+              </Link>
+            ),
+          },
+        ]}
+        title={title}
+        actions={actions}
+      />
+      {children(project)}
+    </>
+  );
+}
+
+const body =
+  "fade-in mx-auto flex w-full max-w-[1360px] flex-col gap-8 px-5 py-6 @3xl/app:px-10 @3xl/app:py-8";
+
+/** The project's files: folders, tracks among them, and everything uploaded. */
+export function ProjectFilesPage({
   projectId,
   folderId = null,
   onOpenFolder = () => {},
@@ -19,47 +63,55 @@ export function ProjectPage({
   folderId?: string | null;
   onOpenFolder?: (folderId: string | null) => void;
 }) {
-  const { data: project, error } = useQuery(projectQuery(projectId));
   const { data: folders } = useQuery(projectFoldersQuery(projectId));
   const can = useProjectCan(projectId);
-  if (error) return <p className="p-8 text-signal">{error.message}</p>;
-  if (!project) return <p className="p-8 text-ink-3">Loading</p>;
   const folderName = folders?.find((f) => f.id === folderId)?.name;
   return (
-    <UploadProvider
-      projectId={project.id}
-      folderId={folderId}
-      folderName={folderName}
-      enabled={can("upload")}
-    >
-      <PageHeader
-        crumbs={[{ key: "projects", link: <Link to="/">Projects</Link> }]}
-        title={project.name}
-      />
-      <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-5 sm:px-6">
-        <Tabs defaultValue="media">
-          <TabsList>
-            <TabsTrigger value="media">Media</TabsTrigger>
-            <TabsTrigger value="reviews">Reviews</TabsTrigger>
-            <TabsTrigger value="roles">People</TabsTrigger>
-          </TabsList>
-          <TabsContent value="media" className="pt-5">
+    <ProjectFrame projectId={projectId} title="Files">
+      {(project) => (
+        <UploadProvider
+          projectId={project.id}
+          folderId={folderId}
+          folderName={folderName}
+          enabled={can("upload")}
+        >
+          <div className={body}>
             <FileBrowser
               projectId={project.id}
               folderId={folderId}
               onOpenFolder={onOpenFolder}
               tracks={project.profile === "music"}
             />
-          </TabsContent>
-          <TabsContent value="reviews" className="flex flex-col gap-10 pt-5">
-            <ProjectReviews projectId={project.id} />
-            <ReviewerGroups projectId={project.id} />
-          </TabsContent>
-          <TabsContent value="roles" className="pt-5">
-            <ProjectAccess projectId={project.id} />
-          </TabsContent>
-        </Tabs>
-      </div>
-    </UploadProvider>
+          </div>
+        </UploadProvider>
+      )}
+    </ProjectFrame>
+  );
+}
+
+/** The project's reviews, and the groups that can be asked. */
+export function ProjectReviewsPage({ projectId }: { projectId: string }) {
+  return (
+    <ProjectFrame projectId={projectId} title="Reviews">
+      {(project) => (
+        <div className={body}>
+          <ProjectReviews projectId={project.id} />
+          <ReviewerGroups projectId={project.id} />
+        </div>
+      )}
+    </ProjectFrame>
+  );
+}
+
+/** Who is in the project, and what each role may do. */
+export function ProjectPeoplePage({ projectId }: { projectId: string }) {
+  return (
+    <ProjectFrame projectId={projectId} title="People">
+      {(project) => (
+        <div className={body}>
+          <ProjectAccess projectId={project.id} />
+        </div>
+      )}
+    </ProjectFrame>
   );
 }

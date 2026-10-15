@@ -386,14 +386,14 @@ export function Compare({
                         : "border-hairline bg-transparent text-ink-2 hover:border-edge",
                     )}
                   >
-                    <span className="tabular font-mono text-xs text-ink-3">{key + 1}</span>
+                    <span className="tabular text-xs text-ink-3">{key + 1}</span>
                     <span className="min-w-0 flex-1 truncate text-[13px]">
                       {blind ? `Source ${blindLetter(key)}` : s.label}
                     </span>
                     {!blind && i > 0 && pointsOf(s.fileId) ? (
                       <span className="shrink-0 text-[11px] text-ink-3">aligned</span>
                     ) : !blind && shifts[s.fileId] ? (
-                      <span className="tabular shrink-0 font-mono text-[11px] text-ink-3">
+                      <span className="tabular shrink-0 text-[11px] text-ink-3">
                         {shiftLabel(shifts[s.fileId] ?? 0)}
                       </span>
                     ) : null}
@@ -402,7 +402,7 @@ export function Compare({
                     ) : (
                       !blind &&
                       matched && (
-                        <span className="tabular shrink-0 font-mono text-[11px] text-ink-3">
+                        <span className="tabular shrink-0 text-[11px] text-ink-3">
                           {gainLabel(gains[i] ?? 1)}
                         </span>
                       )
