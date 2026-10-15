@@ -1,12 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { argosScreenshot } from "@argos-ci/playwright";
 import { expect, type Page, test as setup } from "@playwright/test";
 import postgres from "postgres";
 import { samplePdf } from "../../server/src/media/sample-pdf.ts";
 import { checkScreen } from "./checks.ts";
-import { FIXED_TIME, type Seeded, state } from "./fixtures.ts";
+import { FIXED_TIME, type Seeded, saveScreen, state } from "./fixtures.ts";
 
 /**
  * Seeds one organisation as a studio would have it: a music project with a track in two
@@ -121,7 +120,7 @@ setup("seed", async ({ page, browser }) => {
   ] as const) {
     await page.setViewportSize(viewport);
     await checkScreen(page);
-    await argosScreenshot(page, name);
+    await saveScreen(page, name);
   }
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.fill("#organisation", "Endless Hall Records");

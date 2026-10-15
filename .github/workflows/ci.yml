@@ -98,7 +98,7 @@ jobs:
           category: trivy-repository
 
   # Every screen, seeded with known media, at desktop and phone width: layout and
-  # accessibility checked, then compared with master's in Argos when ARGOS_TOKEN is set.
+  # accessibility checked, with the captures kept as a build artefact.
   visual:
     runs-on: ubuntu-latest
     permissions:
@@ -115,7 +115,6 @@ jobs:
           --health-cmd "pg_isready -U hekate" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       E2E_DATABASE_URL: postgres://hekate:hekate@localhost:5432/hekate
-      ARGOS_TOKEN: ${{ secrets.ARGOS_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -130,6 +129,13 @@ jobs:
         run: pnpm --filter @hekate/e2e exec playwright install --with-deps chromium
       - run: pnpm --filter @hekate/web build
       - run: pnpm --filter @hekate/e2e e2e
+      - name: Keep the captures
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: screens
+          path: apps/e2e/test-results/screens
+          if-no-files-found: ignore
 
   image:
     runs-on: ubuntu-latest

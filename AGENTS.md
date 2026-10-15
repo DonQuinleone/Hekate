@@ -35,7 +35,7 @@ pnpm workspace.
 | --- | --- |
 | `apps/server` | Hono API. Also serves the built web app and runs job workers in production. |
 | `apps/web` | React single-page app. |
-| `apps/e2e` | The visual suite: Playwright captures of every screen, with layout and accessibility checks, compared in Argos. |
+| `apps/e2e` | The visual suite: Playwright captures of every screen, with layout and accessibility checks, kept as a CI artefact. |
 | `packages/shared` | Domain types and zod schemas shared by server and web. No runtime dependencies beyond zod. |
 | `packages/db` | Drizzle schema, migrations and client. Server-only. |
 | `packages/storage` | Storage backends (local disk, S3) behind one interface, with a shared conformance suite. Server-only. |
