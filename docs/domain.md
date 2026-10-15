@@ -6,7 +6,9 @@ The words in this document are used exactly as defined, in code, in the interfac
 
 | Term | Meaning |
 | --- | --- |
-| **Organisation** | The tenant. Owns members, guests, projects and storage. |
+| **Workspace** | The tenant, called *organisation* in code and the API. Owns members, guests, projects and storage. |
+| **Instance** | One install of Hekate, run by its **operators**. Holds one workspace or many. |
+| **Operator** | An account that runs the instance: workspaces, health, logs, support. Never acts inside a workspace's content as someone else. |
 | **Project** | The overall unit of work, for example an album, a film or a campaign. Contains folders, files, tracks and takes. A project's profile (Music, Video, General) only decides which tools appear; any kind of file can live in any project. |
 | **Folder** | Organises files inside a project. Folders nest. |
 | **File** | One uploaded object: audio, video, a PDF score, cover artwork, a document. Files are immutable; a changed file is a new file. |
@@ -39,17 +41,22 @@ The words in this document are used exactly as defined, in code, in the interfac
 | **Reviewer** | A person asked to take part in a review: a member or a guest. |
 | **Guest** | An external reviewer without an account (a conductor, a soloist, a composer). Guests reach material through signed links scoped to the reviews they are part of. |
 | **Group** | A named set of reviewers in a project, for example "Soloists". A review can be sent to groups as well as individuals. |
-| **Workflow** | A configurable sequence of stages, statuses and transitions, defined per project and overridable per track. Built in a Jira-style workflow builder. |
+| **Workflow** | A graph of nodes and connectors, defined per project and overridable per track (decision 040). Built in the workflow builder; readable and writable as YAML. |
+| **Node** | A step of a workflow: an **event** (something happens) or an **action** (something is done), each with named **outcomes**. |
+| **Connector** | Wires a node's outcome to the next node, optionally with a **condition**; one that runs back is a loop and needs an "until". |
 | **Stage** | A step in a workflow: an approval, a feedback round or a task (triage, editing). Stages have participants and run when their conditions are met. |
 | **Status** | Where a track (or other item) stands in its workflow, for example *Editing*, *With conductor*, *Triage*, *Approved*. Statuses are defined by the workflow, not fixed by Hekate. |
 | **Role** | A named set of permissions within a project, for example Producer, Engineer, Editor, Reviewer. Roles and their permissions are configurable per project. |
+| **Ticket** | A question to the people who run the instance, from a workspace: a thread with a generated reference, a type and a severity limited by the plan. Only with the support module. |
+| **Plan** | What a workspace pays for and is given: limits, features and the support severities it unlocks. Only with the billing module. |
+| **Error reference** | A short code (`HK-7F3A-2C`) shown with an error, by which an operator finds what happened. |
 
 Terms deliberately **not** used: *movement* (a track is the unit), *asset* (say file, track or version), *take* for anything other than a recording-session snippet.
 
 ## Content
 
 ```
-Organisation
+Workspace (organisation)
 └── Project (profile: music | video | general)
     ├── Folder (nested)
     │   └── File
@@ -242,7 +249,7 @@ Per-project roles carry permissions. Defaults ship with every project and can be
 | Edit workflows | ✓ | | | | |
 | Manage roles and members | ✓ | | | | |
 
-Organisation owners and admins can do everything in every project. Guests have no role: they can see and act only on the items in the reviews they are invited to.
+Workspace owners and admins can do everything in every project. Guests have no role: they can see and act only on the items in the reviews they are invited to.
 
 ## Settled questions
 

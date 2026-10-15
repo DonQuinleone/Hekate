@@ -137,3 +137,35 @@ On a document or picture, dragging on the page with a mouse or pen draws a recta
 ## 034. The score sits beside the recording; bars are named, never synced
 
 A track can link one PDF of its project as its score (`tracks.score_file_id`); the server refuses anything that is not a document. The recording's page then shows the score's pages, drawn and delivered like any document's, under the player, and links to the score's own page, where comments on it live. Recordings are not synced to their scores: in classical music, repeats, cuts, edits between takes and rubato make a bar map more trouble than help. Instead, in music projects only, a reviewer types the bars a comment is about ("25", "0" for an upbeat, or "9-12"); the comment keeps the moment of the recording they were listening to, so it plays from there, and reads "BAR 25" or "BARS 9–12". Other profiles have no bars, and the server refuses them there.
+
+## 036. The prototype is the design contract
+
+The clickable prototype in `apps/prototype`, approved in #105, is the design of the whole application: its navigation, layouts, copy, states, components and keyboard behaviour. `apps/web` builds what it shows; where building proves it wrong, the prototype changes in the same pull request. (Number 035 is held by the audio QA view in #103.)
+
+## 037. Organisations are called workspaces
+
+In every piece of copy (interface, email, documentation) the tenant is a **workspace**. The word "organisation" stays in code, the schema and the API (`organisation_id`, `organisationRole`, `/api/organisation`), so nothing is migrated. "Studio" was rejected because it reads as music-only.
+
+## 038. Navigation: the sidebar carries the project, sections share one secondary list
+
+Outside a project the sidebar holds Home, Inbox, Projects, what is waiting on you and recent items. Once a project is open, the sidebar shows a project switcher and the project's own navigation (Overview, Files, Board, Reviews, Tasks, People, Production, Settings), and the page header names the section; the project page has no tab row. Pages with sections (all settings, production) share one sticky secondary list at the left that holds its place on scroll. Tabs are kept for a third level. The player keeps its own layout. Members and workspace settings are reached from the account menu at the foot of the sidebar, not the sidebar itself. Home is a dashboard; the inbox is its own page with the bell's panel as its preview. A command palette (Ctrl or ⌘ K) replaces the search box, with a search page behind it. This supersedes the sidebar described in 028.
+
+## 039. The instance is the same shell
+
+Operators of an install work in the same application: the instance pages (overview, workspaces, operators, billing, support, health, queues, logs, debug tools, system information, settings, operations) appear as an Instance block in the sidebar, reached from the account menu or the fingerprint beside the bell, which is highlighted there. Operators are accounts with an instance role and always need a security key. They never sign in as someone else. A workspace owner sees only their own workspace on the instance side.
+
+## 040. Workflows are events, actions and connectors
+
+A workflow is a graph of **nodes** and **connectors**. A node is an **event** (something happens: a version arrives, a decision is recorded, a due date passes) or an **action** (something is done: ask for an approval or feedback, assign a task, notify, set a status, wait, finish); each has named **outcomes**. A connector wires an outcome to a node and may carry a **condition**; a connector that runs back is a loop and needs a way out (an "until"). **Groups** frame a stage. The rules, checked by the builder and the engine alike: an action never starts a flow, an event never ends one, an action follows an outcome, a loop needs a stop, and nothing follows a finish. A project's workflows share one canvas; a basic view edits the same flows as a list of steps; every workflow can be read and written as YAML. This refines the stage model in `docs/domain.md` and #25.
+
+## 041. Billing and support are modules, off by default
+
+`HEKATE_BILLING` (off, stripe, paddle, manual) and `HEKATE_SUPPORT` (off, app, or a link to an external desk) are set in the environment and default to off, so a self-hosted install shows neither. `HEKATE_DOCS_URL` (default `https://docs.hekate.studio`) and `HEKATE_STATUS_URL` point the help menu at the documentation and a status page. With support on, the help menu offers the documentation, a workspace's tickets and a new ticket; a ticket's severity is limited by the workspace's plan.
+
+## 042. Every visible error carries a reference
+
+Any error a person can see (a 5xx, or a refusal worth a support question) carries a short reference such as `HK-7F3A-2C`, written to the structured log with the request, person, job and stack. Operators look references up in the debug tools; a ticket that quotes one links to it.
+
+## 043. System information shows releases; the image stays immutable
+
+The instance shows the running version and build, the update channel and the releases available with their notes and upgrade instructions. For 1.0, nothing is patched in place: an upgrade is a new image. Signed hot patches applied as overlays may come later as an explicit opt-in (#158).
