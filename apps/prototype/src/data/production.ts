@@ -42,8 +42,18 @@ export interface Venue {
 }
 
 export const venues: Venue[] = [
-  { id: "v-stjohns", name: "St John's", address: ["Smith Square", "London SW1P 3HA"], notes: "Get-in by the north door; piano tuned on the morning of day 1." },
-  { id: "v-studio", name: "Endless Hall Studio 2", address: ["Unit 4, Mill Lane", "Bristol BS1 2AB"], notes: "Dead room; use the live chamber for the trio." },
+  {
+    id: "v-stjohns",
+    name: "St John's",
+    address: ["Smith Square", "London SW1P 3HA"],
+    notes: "Get-in by the north door; piano tuned on the morning of day 1.",
+  },
+  {
+    id: "v-studio",
+    name: "Endless Hall Studio 2",
+    address: ["Unit 4, Mill Lane", "Bristol BS1 2AB"],
+    notes: "Dead room; use the live chamber for the trio.",
+  },
 ];
 
 export interface Personnel {
@@ -60,10 +70,43 @@ export interface Personnel {
 }
 
 export const personnel: Personnel[] = [
-  { id: "pe-1", name: "Mira Solberg", kind: "artist", role: "Conductor", agreement: true, headphones: false, personId: "p-mira", guest: true },
-  { id: "pe-2", name: "Ines Arlow", kind: "artist", role: "Piano", agreement: true, headphones: true, personId: "p-ines" },
-  { id: "pe-3", name: "Tomas Varga", kind: "staff", role: "Engineer", agreement: true, headphones: true, personId: "p-tomas" },
-  { id: "pe-4", name: "Alex Rivera", kind: "staff", role: "Producer", agreement: true, headphones: true, personId: "p-alex" },
+  {
+    id: "pe-1",
+    name: "Mira Solberg",
+    kind: "artist",
+    role: "Conductor",
+    agreement: true,
+    headphones: false,
+    personId: "p-mira",
+    guest: true,
+  },
+  {
+    id: "pe-2",
+    name: "Ines Arlow",
+    kind: "artist",
+    role: "Piano",
+    agreement: true,
+    headphones: true,
+    personId: "p-ines",
+  },
+  {
+    id: "pe-3",
+    name: "Tomas Varga",
+    kind: "staff",
+    role: "Engineer",
+    agreement: true,
+    headphones: true,
+    personId: "p-tomas",
+  },
+  {
+    id: "pe-4",
+    name: "Alex Rivera",
+    kind: "staff",
+    role: "Producer",
+    agreement: true,
+    headphones: true,
+    personId: "p-alex",
+  },
   {
     id: "pe-5",
     name: "Endless Hall Strings",
@@ -80,7 +123,14 @@ export const personnel: Personnel[] = [
     ],
     seating: "Antiphonal violins; basses behind the cellos.",
   },
-  { id: "pe-6", name: "Piano technician", kind: "other", role: "Tuning", agreement: false, headphones: false },
+  {
+    id: "pe-6",
+    name: "Piano technician",
+    kind: "other",
+    role: "Tuning",
+    agreement: false,
+    headphones: false,
+  },
 ];
 
 export interface ScheduleRow {
@@ -110,12 +160,45 @@ export const schedule: ScheduleDay[] = [
     date: "2026-09-12",
     venueId: "v-stjohns",
     rows: [
-      { id: "r-1", kind: "get-in", start: "09:00", minutes: 60, label: "Get-in and rig", personnel: "Engineer, producer", done: true },
-      { id: "r-2", kind: "slot", start: "10:00", minutes: 90, trackId: "t-maple", personnel: "Trio", notes: "Sections A and B first.", done: true },
+      {
+        id: "r-1",
+        kind: "get-in",
+        start: "09:00",
+        minutes: 60,
+        label: "Get-in and rig",
+        personnel: "Engineer, producer",
+        done: true,
+      },
+      {
+        id: "r-2",
+        kind: "slot",
+        start: "10:00",
+        minutes: 90,
+        trackId: "t-maple",
+        personnel: "Trio",
+        notes: "Sections A and B first.",
+        done: true,
+      },
       { id: "r-3", kind: "break", start: "11:30", minutes: 20, label: "Coffee", done: true },
-      { id: "r-4", kind: "slot", start: "11:50", minutes: 70, trackId: "t-entertainer", personnel: "Trio", done: true },
+      {
+        id: "r-4",
+        kind: "slot",
+        start: "11:50",
+        minutes: 70,
+        trackId: "t-entertainer",
+        personnel: "Trio",
+        done: true,
+      },
       { id: "r-5", kind: "break", start: "13:00", minutes: 60, label: "Lunch", done: true },
-      { id: "r-6", kind: "slot", start: "14:00", minutes: 120, trackId: "t-solace", personnel: "Trio", notes: "Pick-ups for Maple at the end if time." },
+      {
+        id: "r-6",
+        kind: "slot",
+        start: "14:00",
+        minutes: 120,
+        trackId: "t-solace",
+        personnel: "Trio",
+        notes: "Pick-ups for Maple at the end if time.",
+      },
     ],
   },
   {
@@ -124,10 +207,25 @@ export const schedule: ScheduleDay[] = [
     date: "2026-09-13",
     venueId: "v-stjohns",
     rows: [
-      { id: "r-7", kind: "slot", start: "10:00", minutes: 120, trackId: "t-elite", personnel: "Trio" },
+      {
+        id: "r-7",
+        kind: "slot",
+        start: "10:00",
+        minutes: 120,
+        trackId: "t-elite",
+        personnel: "Trio",
+      },
       { id: "r-8", kind: "break", start: "12:00", minutes: 60, label: "Lunch" },
       { id: "r-9", kind: "venue", start: "13:00", minutes: 90, label: "Move to Studio 2" },
-      { id: "r-10", kind: "slot", start: "14:30", minutes: 90, trackId: "t-pineapple", personnel: "Trio", notes: "If the arrangement arrives." },
+      {
+        id: "r-10",
+        kind: "slot",
+        start: "14:30",
+        minutes: 90,
+        trackId: "t-pineapple",
+        personnel: "Trio",
+        notes: "If the arrangement arrives.",
+      },
     ],
   },
 ];
@@ -155,13 +253,47 @@ export const patchList: StageBox[] = [
     inputs: [
       { channel: 1, source: "Main L", device: "DPA 4006", cable: "A1", notes: "", micId: "m-1" },
       { channel: 2, source: "Main R", device: "DPA 4006", cable: "A2", notes: "", micId: "m-2" },
-      { channel: 3, source: "Spot piano L", device: "Schoeps MK4", cable: "A3", notes: "lid on short stick", micId: "m-3" },
-      { channel: 4, source: "Spot piano R", device: "Schoeps MK4", cable: "A4", notes: "", micId: "m-4" },
-      { channel: 5, source: "Room L", device: "Neumann KM 183", cable: "A5", notes: "", micId: "m-5" },
-      { channel: 6, source: "Room R", device: "Neumann KM 183", cable: "A6", notes: "", micId: "m-6" },
+      {
+        channel: 3,
+        source: "Spot piano L",
+        device: "Schoeps MK4",
+        cable: "A3",
+        notes: "lid on short stick",
+        micId: "m-3",
+      },
+      {
+        channel: 4,
+        source: "Spot piano R",
+        device: "Schoeps MK4",
+        cable: "A4",
+        notes: "",
+        micId: "m-4",
+      },
+      {
+        channel: 5,
+        source: "Room L",
+        device: "Neumann KM 183",
+        cable: "A5",
+        notes: "",
+        micId: "m-5",
+      },
+      {
+        channel: 6,
+        source: "Room R",
+        device: "Neumann KM 183",
+        cable: "A6",
+        notes: "",
+        micId: "m-6",
+      },
     ],
     outputs: [
-      { channel: 1, source: "Talkback", device: "Headphone amp", cable: "B1", notes: "to the piano" },
+      {
+        channel: 1,
+        source: "Talkback",
+        device: "Headphone amp",
+        cable: "B1",
+        notes: "to the piano",
+      },
       { channel: 2, source: "Cue mix", device: "Headphone amp", cable: "B2", notes: "" },
     ],
   },
@@ -184,7 +316,16 @@ export const stagePlan: { width: number; height: number; items: StageItem[] } = 
   width: 12,
   height: 8,
   items: [
-    { id: "s-1", kind: "instrument", label: "Piano", x: 4.5, y: 2.2, w: 2.8, h: 1.6, rotation: -20 },
+    {
+      id: "s-1",
+      kind: "instrument",
+      label: "Piano",
+      x: 4.5,
+      y: 2.2,
+      w: 2.8,
+      h: 1.6,
+      rotation: -20,
+    },
     { id: "s-2", kind: "performer", label: "Piano", x: 4.2, y: 3.9, w: 0.6, h: 0.6 },
     { id: "s-3", kind: "performer", label: "Violin", x: 7.6, y: 3.6, w: 0.6, h: 0.6 },
     { id: "s-4", kind: "performer", label: "Cello", x: 8.4, y: 2.4, w: 0.6, h: 0.6 },
@@ -205,7 +346,16 @@ export interface ScoreMark {
   page: number;
   bar: number;
   barTo?: number;
-  kind: "issue" | "edit" | "take-start" | "take-end" | "punch" | "wrong-note" | "dynamic" | "note" | "ink";
+  kind:
+    | "issue"
+    | "edit"
+    | "take-start"
+    | "take-end"
+    | "punch"
+    | "wrong-note"
+    | "dynamic"
+    | "note"
+    | "ink";
   category?: "intonation" | "ensemble" | "noise" | "wrong-note" | "balance";
   text: string;
   takeNumbers?: number[];
@@ -215,11 +365,68 @@ export interface ScoreMark {
 }
 
 export const scoreMarks: ScoreMark[] = [
-  { id: "sm-1", page: 1, bar: 5, kind: "issue", category: "noise", text: "Pedal noise", takeNumbers: [3, 7], fixedBy: 12, x: 0.22, y: 0.42 },
-  { id: "sm-2", page: 1, bar: 17, barTo: 18, kind: "edit", text: "3T12 into T7", takeNumbers: [12, 7], x: 0.3, y: 0.78 },
-  { id: "sm-3", page: 1, bar: 9, kind: "wrong-note", text: "LH F sharp", takeNumbers: [3], fixedBy: 9, x: 0.52, y: 0.56 },
+  {
+    id: "sm-1",
+    page: 1,
+    bar: 5,
+    kind: "issue",
+    category: "noise",
+    text: "Pedal noise",
+    takeNumbers: [3, 7],
+    fixedBy: 12,
+    x: 0.22,
+    y: 0.42,
+  },
+  {
+    id: "sm-2",
+    page: 1,
+    bar: 17,
+    barTo: 18,
+    kind: "edit",
+    text: "3T12 into T7",
+    takeNumbers: [12, 7],
+    x: 0.3,
+    y: 0.78,
+  },
+  {
+    id: "sm-3",
+    page: 1,
+    bar: 9,
+    kind: "wrong-note",
+    text: "LH F sharp",
+    takeNumbers: [3],
+    fixedBy: 9,
+    x: 0.52,
+    y: 0.56,
+  },
   { id: "sm-4", page: 1, bar: 13, kind: "dynamic", text: "mp, not mf", x: 0.71, y: 0.64 },
-  { id: "sm-5", page: 2, bar: 25, kind: "take-start", text: "T9 starts", takeNumbers: [9], x: 0.12, y: 0.2 },
-  { id: "sm-6", page: 2, bar: 36, kind: "punch", text: "punch in T13 at the upbeat", takeNumbers: [13], x: 0.6, y: 0.5 },
-  { id: "sm-7", page: 1, bar: 1, kind: "note", text: "Tempo settles by bar 3; keep T12's opening.", x: 0.8, y: 0.26 },
+  {
+    id: "sm-5",
+    page: 2,
+    bar: 25,
+    kind: "take-start",
+    text: "T9 starts",
+    takeNumbers: [9],
+    x: 0.12,
+    y: 0.2,
+  },
+  {
+    id: "sm-6",
+    page: 2,
+    bar: 36,
+    kind: "punch",
+    text: "punch in T13 at the upbeat",
+    takeNumbers: [13],
+    x: 0.6,
+    y: 0.5,
+  },
+  {
+    id: "sm-7",
+    page: 1,
+    bar: 1,
+    kind: "note",
+    text: "Tempo settles by bar 3; keep T12's opening.",
+    x: 0.8,
+    y: 0.26,
+  },
 ];

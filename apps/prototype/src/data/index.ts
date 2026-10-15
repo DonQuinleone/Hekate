@@ -22,7 +22,9 @@ export const reviewById = (id: string): Review | undefined => reviews.find((r) =
 export const folderById = (id: string) => folders.find((f) => f.id === id);
 
 /** The track and version a file is a variation of, if any. */
-export function variationOf(fileId: string): { track: Track; version: Version; variationName: string } | null {
+export function variationOf(
+  fileId: string,
+): { track: Track; version: Version; variationName: string } | null {
   for (const track of tracks) {
     for (const version of track.versions) {
       const v = version.variations.find((x) => x.fileId === fileId);

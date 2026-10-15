@@ -168,7 +168,15 @@ export type AnchorKind = "time" | "region" | "bar";
 
 export type Anchor =
   | { kind: "time"; start: number; end?: number; frame?: number }
-  | { kind: "region"; page?: number; at?: number; x: number; y: number; width: number; height: number }
+  | {
+      kind: "region";
+      page?: number;
+      at?: number;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }
   | { kind: "whole" };
 
 /** The reference a reviewer typed: a page, a bar or a range of bars, a beat. All optional. */
@@ -228,7 +236,13 @@ export type ReviewKind = "approval" | "feedback" | "share";
 export type ReviewOrder = "parallel" | "sequence";
 export type ApprovalRule = "all" | "any" | "quorum";
 export type ReviewStatus = "open" | "completed" | "cancelled";
-export type ReviewerState = "waiting" | "invited" | "viewed" | "in_progress" | "submitted" | "observing";
+export type ReviewerState =
+  | "waiting"
+  | "invited"
+  | "viewed"
+  | "in_progress"
+  | "submitted"
+  | "observing";
 export type Decision = "approved" | "changes_requested";
 
 export type CommentScope = "all" | "own_and_replies" | "own";

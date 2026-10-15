@@ -39,7 +39,12 @@ export const guests: Guest[] = [
 ];
 
 export const invitations = [
-  { email: "producer@endlesshall.example", role: "member" as const, sentAt: "2026-10-12T16:00:00Z", expiresAt: "2026-10-19T16:00:00Z" },
+  {
+    email: "producer@endlesshall.example",
+    role: "member" as const,
+    sentAt: "2026-10-12T16:00:00Z",
+    expiresAt: "2026-10-19T16:00:00Z",
+  },
 ];
 
 export const personById = (id: string): Person =>
