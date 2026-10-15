@@ -160,7 +160,7 @@ A workflow is a graph of **nodes** and **connectors**. A node is an **event** (s
 
 ## 041. Billing and support are modules, off by default
 
-`HEKATE_BILLING` (off, stripe, paddle, manual) and `HEKATE_SUPPORT` (off, app, or a link to an external desk) are set in the environment and default to off, so a self-hosted install shows neither. `HEKATE_DOCS_URL` (default `https://docs.hekate.studio`) and `HEKATE_STATUS_URL` point the help menu at the documentation and a status page. With support on, the help menu offers the documentation, a workspace's tickets and a new ticket; a ticket's severity is limited by the workspace's plan.
+`HEKATE_BILLING` (off, stripe, paddle, manual) and `HEKATE_SUPPORT` (off; app, tickets in the application; link, an external desk; or mail, tickets sent to an address) are set in the environment and default to off, so a self-hosted install shows neither. `HEKATE_DOCS_URL` (default `https://docs.hekate.studio`) and `HEKATE_STATUS_URL` point the help menu at the documentation and a status page. With support on, the help menu offers the documentation, a workspace's tickets and a new ticket; a ticket's severity is limited by the workspace's plan.
 
 ## 042. Every visible error carries a reference
 

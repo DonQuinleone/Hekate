@@ -140,7 +140,7 @@ export const tickets: Ticket[] = [
         from: "operator",
         name: "Ops on call",
         at: "1 d ago",
-        text: "The PDF has a damaged cross-reference table at page 7; pdf.js refuses it where Preview repairs it. Patch 0.2.1 repairs it too and is applied tonight. Re-exporting the PDF from the engraver fixes it now.",
+        text: "The PDF has a damaged cross-reference table at page 7; pdf.js refuses it where Preview repairs it. Release 0.2.1 repairs it too and goes out tonight. Re-exporting the PDF from the engraver fixes it now.",
       },
     ],
   },
