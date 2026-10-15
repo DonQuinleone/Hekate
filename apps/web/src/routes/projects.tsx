@@ -148,7 +148,7 @@ export function ProjectsPage() {
             {data.map((p) => (
               <li key={p.id}>
                 <Link
-                  to="/projects/$projectId"
+                  to="/projects/$projectId/files"
                   params={{ projectId: p.id }}
                   className="grid h-12 grid-cols-[1fr_auto] items-center sm:grid-cols-[1fr_120px_120px] gap-4 border-b border-hairline px-2 text-ink no-underline hover:bg-surface"
                 >

@@ -626,7 +626,7 @@ export function Player({
             >
               <Icon name={playing ? "pause" : "play"} size={14} />
             </Button>
-            <span className="tabular font-mono text-xs text-ink-2">
+            <span className="tabular text-xs text-ink-2">
               {formatDuration(time)}{" "}
               <span className="text-ink-3">/ {formatDuration(duration)}</span>
             </span>

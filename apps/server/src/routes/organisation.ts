@@ -78,7 +78,7 @@ export const organisationRoutes = (
           role !== "owner" &&
           (await ownerCount(db, c.var.organisationId)) <= 1
         ) {
-          throw new HTTPException(409, { message: "An organisation needs at least one owner" });
+          throw new HTTPException(409, { message: "A workspace needs at least one owner" });
         }
         const [updated] = await db
           .update(members)
@@ -103,7 +103,7 @@ export const organisationRoutes = (
         throw new HTTPException(403, { message: "Only an owner can remove an owner" });
       }
       if (member.role === "owner" && (await ownerCount(db, c.var.organisationId)) <= 1) {
-        throw new HTTPException(409, { message: "An organisation needs at least one owner" });
+        throw new HTTPException(409, { message: "A workspace needs at least one owner" });
       }
       // Their roles in the organisation's projects go with them.
       await db.transaction(async (tx) => {
@@ -204,7 +204,7 @@ export const organisationRoutes = (
       await mailer.send({
         to: email,
         subject: `${inviter?.name ?? "Someone"} invited you to ${organisation?.name ?? "Hekate"}`,
-        text: `${inviter?.name ?? "Someone"} invited you to join ${organisation?.name ?? "their organisation"} on Hekate.\n\nAccept the invitation: ${link}\n\nThe link works once and expires in 7 days.`,
+        text: `${inviter?.name ?? "Someone"} invited you to join ${organisation?.name ?? "their workspace"} on Hekate.\n\nAccept the invitation: ${link}\n\nThe link works once and expires in 7 days.`,
       });
       return c.json({ invitation, link }, 201);
     })

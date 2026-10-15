@@ -46,7 +46,7 @@ export async function organisationFor(db: Database, userId: string, sessionId: s
   const membership =
     memberships.find((m) => m.organisationId === session?.active) ?? memberships[0];
   if (!membership) {
-    throw new HTTPException(403, { message: "You are not a member of any organisation" });
+    throw new HTTPException(403, { message: "You are not a member of any workspace" });
   }
   if (membership.organisationId !== session?.active) {
     await db

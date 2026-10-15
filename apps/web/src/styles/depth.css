@@ -1,0 +1,51 @@
+/*
+ * Signal, with depth. Every token in tokens.css keeps its value; these sit between them.
+ * The app's surfaces climb one ladder: the canvas behind everything, the pane the page is
+ * drawn on, raised rows and cards, and what floats (menus, popovers, dialogs). Shadows
+ * belong only to what floats; `data-flat` on the root switches them off to compare with the
+ * brand's current rule.
+ */
+:root {
+  --hk-canvas: #050506;
+  --hk-sunken: #070708;
+  --hk-nav: var(--hk-ground);
+  --hk-pane: #0e0e10;
+  --hk-overlay: #1d1d21;
+
+  --hk-hairline-soft: #19191d;
+  --hk-edge-strong: #3a3a41;
+  --hk-line: rgb(255 255 255 / 0.06);
+  --hk-line-strong: rgb(255 255 255 / 0.1);
+
+  --hk-signal-hover: color-mix(in oklab, var(--hk-signal) 88%, var(--hk-ink));
+  --hk-signal-wash: color-mix(in oklab, var(--hk-signal) 13%, transparent);
+  --hk-signal-line: color-mix(in oklab, var(--hk-signal) 55%, transparent);
+  --hk-on-signal: var(--hk-ground);
+
+  --hk-highlight: inset 0 1px 0 rgb(255 255 255 / 0.035);
+  --hk-highlight-strong: inset 0 1px 0 rgb(255 255 255 / 0.06);
+
+  --hk-elevation-1: var(--hk-highlight);
+  --hk-elevation-2: var(--hk-highlight-strong), 0 1px 2px rgb(0 0 0 / 0.45);
+  --hk-elevation-3:
+    var(--hk-highlight-strong), 0 0 0 1px rgb(0 0 0 / 0.5), 0 4px 10px rgb(0 0 0 / 0.4),
+    0 20px 44px -12px rgb(0 0 0 / 0.75);
+  --hk-elevation-4:
+    var(--hk-highlight-strong), 0 0 0 1px rgb(0 0 0 / 0.6), 0 8px 20px rgb(0 0 0 / 0.5),
+    0 40px 80px -20px rgb(0 0 0 / 0.85);
+  --hk-elevation-sticky: var(--hk-highlight), 0 -12px 24px -12px rgb(0 0 0 / 0.6);
+  --hk-shadow-paper: 0 1px 2px rgb(0 0 0 / 0.5), 0 18px 48px -12px rgb(0 0 0 / 0.75);
+
+  --hk-focus-ring: 0 0 0 1px var(--hk-signal), 0 0 0 4px var(--hk-signal-wash);
+
+  --hk-radius-panel-lg: 10px;
+  --hk-radius-stage: 12px;
+}
+
+[data-flat] {
+  --hk-elevation-2: var(--hk-highlight-strong);
+  --hk-elevation-3: var(--hk-highlight-strong), 0 0 0 1px rgb(0 0 0 / 0.5);
+  --hk-elevation-4: var(--hk-highlight-strong), 0 0 0 1px rgb(0 0 0 / 0.6);
+  --hk-elevation-sticky: var(--hk-highlight);
+  --hk-shadow-paper: none;
+}

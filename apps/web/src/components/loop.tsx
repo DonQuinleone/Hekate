@@ -146,7 +146,7 @@ function Edge({
       <Button variant="ghost" size="sm" aria-label={`${name} earlier`} onClick={() => onNudge(-1)}>
         −
       </Button>
-      <span className="tabular font-mono text-xs text-ink">{preciseTime(at)}</span>
+      <span className="tabular text-xs text-ink">{preciseTime(at)}</span>
       <Button variant="ghost" size="sm" aria-label={`${name} later`} onClick={() => onNudge(1)}>
         +
       </Button>

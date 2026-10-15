@@ -236,7 +236,7 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
                   />
                   <span className="text-ink">{person.name}</span>
                   {order === "sequence" && at >= 0 && (
-                    <span className="tabular font-mono text-[11px] text-ink-3">{at + 1}</span>
+                    <span className="tabular text-[11px] text-ink-3">{at + 1}</span>
                   )}
                 </label>
               </li>
@@ -258,7 +258,7 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
                     group · {group.members.map((m) => m.name).join(", ")}
                   </span>
                   {order === "sequence" && at >= 0 && (
-                    <span className="tabular font-mono text-[11px] text-ink-3">{at + 1}</span>
+                    <span className="tabular text-[11px] text-ink-3">{at + 1}</span>
                   )}
                 </label>
               </li>
@@ -271,9 +271,7 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
                 {guest.label ? `${guest.label}, guest` : "Guest"} · {guest.email}
               </span>
               {order === "sequence" && (
-                <span className="tabular font-mono text-[11px] text-ink-3">
-                  {chosen.indexOf(guest) + 1}
-                </span>
+                <span className="tabular text-[11px] text-ink-3">{chosen.indexOf(guest) + 1}</span>
               )}
               <button
                 type="button"

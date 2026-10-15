@@ -77,7 +77,7 @@ interface SeededFile {
 }
 
 async function upload(page: Page, projectId: string, paths: string[]) {
-  await page.goto(`/projects/${projectId}`);
+  await page.goto(`/projects/${projectId}/files`);
   await page.setInputFiles("input[type=file]", paths);
   await expect(page.locator("ul[aria-label='Uploads in progress']")).toBeHidden({
     timeout: 120_000,
