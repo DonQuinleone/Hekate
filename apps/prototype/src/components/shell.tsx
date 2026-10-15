@@ -627,7 +627,10 @@ export function Shell({ children }: { children: ReactNode }) {
                 to="/instance"
                 aria-label="Instance management"
                 title="Instance management"
-                className="flex size-8 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink"
+                className={cn(
+                  "flex size-8 items-center justify-center rounded-control transition-colors hover:bg-raised/60 hover:text-ink",
+                  atInstance ? "bg-signal/15 text-signal" : "text-ink-3",
+                )}
               >
                 <Icon name="fingerprint" size={18} />
               </Link>

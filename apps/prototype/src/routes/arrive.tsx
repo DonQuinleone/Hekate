@@ -20,7 +20,9 @@ function Frame({
   return (
     <div className="flex min-h-full items-center justify-center px-4 py-12">
       <div className="flex w-full max-w-[380px] flex-col gap-8">
-        <Lockup size={22} />
+        <div className="flex justify-center">
+          <Lockup size={30} />
+        </div>
         <div>
           <h1 className="text-[24px] leading-[30px] font-medium tracking-[-0.015em]">{title}</h1>
           {intro && <p className="mt-2 text-ink-2">{intro}</p>}
@@ -58,15 +60,15 @@ function Field({
 }
 
 /** Sign in: what the organisation allows. Here: password, passkey and single sign-on. */
-type SignInView = "sign-in" | "forgot" | "sent" | "code" | "reset" | "link" | "sso";
+type SignInView = "sign-in" | "forgot" | "sent" | "code" | "reset" | "sso";
 
 const codeBoxes =
-  "size-11 rounded-control border border-edge bg-ground text-center text-[18px] text-ink shadow-1 focus:border-ink-3 focus:outline-none";
+  "h-14 w-full rounded-control border border-edge-strong bg-raised text-center text-[22px] tabular text-ink shadow-1 focus:border-ink-2 focus:outline-none focus-visible:shadow-none";
 
 /** Six boxes for a code; typing moves on, pasting fills them. */
 function CodeField({ length = 6 }: { length?: number }) {
   return (
-    <div role="group" className="flex gap-2" aria-label="Code">
+    <div role="group" className="grid grid-cols-6 gap-2" aria-label="Code">
       {Array.from({ length }, (_, i) => (
         <input
           key={i}
@@ -167,21 +169,17 @@ export function SignInPage({ view: initial }: { view?: string }) {
       </Frame>
     );
 
-  if (view === "sent" || view === "link")
+  if (view === "sent")
     return (
       <Frame
         title="Check your email"
-        intro={
-          view === "link"
-            ? "A sign-in link is on its way to alex@endlesshall.example. Open it on this device, or type the code under it here."
-            : "If that address has an account, a link to set a new password is on its way. Open it on this device, or type the code under it here."
-        }
+        intro="If that address has an account, a link to set a new password is on its way. Open it on this device, or type the code under it here."
       >
         <form
           className="flex flex-col gap-5"
           onSubmit={(e) => {
             e.preventDefault();
-            view === "link" ? done() : setView("reset");
+            setView("reset");
           }}
         >
           <CodeField />
@@ -255,7 +253,7 @@ export function SignInPage({ view: initial }: { view?: string }) {
                 id="sso-org"
                 placeholder="endlesshall"
                 autoComplete="organization"
-                className="h-10 min-w-0 flex-1 bg-transparent px-3 text-[14px] text-ink placeholder:text-ink-3 focus:outline-none"
+                className="h-10 min-w-0 flex-1 bg-transparent px-3 text-[14px] text-ink placeholder:text-ink-3 focus:outline-none focus-visible:shadow-none"
               />
               <span className="shrink-0 pr-3 text-[13px] text-ink-3">
                 .review.endlesshall.example
@@ -276,7 +274,7 @@ export function SignInPage({ view: initial }: { view?: string }) {
     );
 
   return (
-    <Frame title="Sign in" intro="Review for sound and picture.">
+    <Frame title="Sign in" intro="Listen, decide, release.">
       <form
         className="flex flex-col gap-4"
         onSubmit={(e) => {
@@ -324,13 +322,6 @@ export function SignInPage({ view: initial }: { view?: string }) {
             Single sign-on
           </Button>
         </div>
-        <button
-          type="button"
-          className="self-start text-[13px] text-ink-3 transition-colors hover:text-ink"
-          onClick={() => setView("link")}
-        >
-          Email me a sign-in link instead
-        </button>
       </form>
       <p className="border-t border-line pt-4 text-[13px] text-ink-3">
         Accounts are by invitation. Guests reviewing a file open the link in their email instead.
@@ -703,17 +694,16 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
                   i === step ? "text-ink" : i < step ? "text-ink-2" : "text-ink-3",
                 )}
               >
-                <span
-                  className={cn(
-                    "flex size-5 items-center justify-center rounded-full text-[11px]",
-                    i < step
-                      ? "bg-ink text-ground"
-                      : i === step
-                        ? "bg-signal text-ground"
-                        : "border border-line-strong",
+                <span className="flex size-5 shrink-0 items-center justify-center">
+                  {i < step ? (
+                    <span className="flex size-5 items-center justify-center rounded-full bg-ok text-ground">
+                      <Icon name="check" size={12} />
+                    </span>
+                  ) : i === step ? (
+                    <span className="size-3.5 rounded-full bg-signal shadow-[0_0_0_3px_var(--hk-signal-line)]" />
+                  ) : (
+                    <span className="size-2 rounded-full bg-ink" />
                   )}
-                >
-                  {i < step ? "✓" : i + 1}
                 </span>
                 {s}
               </li>

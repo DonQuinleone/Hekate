@@ -40,6 +40,7 @@ const intros: Record<string, string> = {
   members: "Who has an account here, who is invited, and which guests hold a link.",
   security: "Who may sign in and how.",
   notifications: "Where events go: mail, Slack, Discord, webhooks.",
+  api: "Applications that connect on people's behalf, and tokens that act for the organisation itself.",
   storage: "Where files live and how much they take.",
   leaks: "Find which recipient a leaked file was watermarked for.",
   log: "Every key issue, page render and download.",
@@ -56,6 +57,7 @@ const sections = [
   { id: "members", label: "Members", group: "Access" },
   { id: "security", label: "Security", group: "Access" },
   { id: "notifications", label: "Notifications and integrations", group: "Access" },
+  { id: "api", label: "API and OAuth clients", group: "Access" },
   { id: "storage", label: "Storage", group: "Operations" },
   { id: "leaks", label: "Leak tracing", group: "Operations" },
   { id: "log", label: "Access log", group: "Operations" },
@@ -148,6 +150,126 @@ export function SettingsPage({ section }: { section: string }) {
       param="section"
     >
       {sec === "members" && <MembersSection />}
+      {sec === "api" && (
+        <>
+          <Section
+            title="OAuth clients"
+            intro="Applications registered here can ask people for access with OAuth 2.1 and PKCE. Each gets a client id; confidential clients get a secret shown once."
+            action={
+              <Button variant="primary" size="md" onClick={() => setAdding(true)}>
+                <Icon name="plus" size={14} />
+                Client
+              </Button>
+            }
+          >
+            {[
+              {
+                name: "Hekate for Slack",
+                id: "hk_cli_7f3a…",
+                kind: "Confidential",
+                redirect: "https://slack.endlesshall.example/oauth/callback",
+                scopes: "reviews:read, comments",
+                users: 4,
+                live: true,
+              },
+              {
+                name: "Hekate for Logic Pro",
+                id: "hk_cli_2c91…",
+                kind: "Public (PKCE)",
+                redirect: "hekate-logic://callback",
+                scopes: "files:write, comments",
+                users: 2,
+                live: true,
+              },
+              {
+                name: "Mastering handoff (test)",
+                id: "hk_cli_a0d4…",
+                kind: "Confidential",
+                redirect: "http://localhost:3000/callback",
+                scopes: "files:read",
+                users: 0,
+                live: false,
+              },
+            ].map((c) => (
+              <Row
+                key={c.id}
+                name={
+                  <span className="flex items-center gap-2">
+                    <Dot state={c.live ? "approved" : "invited"} />
+                    {c.name}
+                    <span className="tabular text-[12px] text-ink-3">{c.id}</span>
+                  </span>
+                }
+                hint={`${c.kind} · ${c.redirect} · ${c.scopes} · ${c.users} ${c.users === 1 ? "person" : "people"} connected`}
+              >
+                <ActionMenu
+                  always
+                  label={c.name}
+                  actions={[
+                    { label: "Edit", onSelect: () => {} },
+                    { label: "Rotate the secret", onSelect: () => {} },
+                    { label: "Who has connected", onSelect: () => {} },
+                    "divider",
+                    { label: "Delete", danger: true, onSelect: () => {} },
+                  ]}
+                />
+              </Row>
+            ))}
+          </Section>
+          <Section
+            title="Service tokens"
+            intro="Tokens that act as the organisation rather than a person, for the release pipeline and the like. Scoped and logged like any other."
+          >
+            {[
+              {
+                name: "Release pipeline",
+                scopes: "files:read, reviews:read",
+                used: "2 h ago",
+                expires: "2 Jan 2027",
+              },
+              { name: "Archive sync", scopes: "downloads", used: "last night", expires: "Never" },
+            ].map((t) => (
+              <Row
+                key={t.name}
+                name={t.name}
+                hint={`${t.scopes} · last used ${t.used} · expires ${t.expires.toLowerCase()}`}
+              >
+                <ActionMenu
+                  always
+                  label={t.name}
+                  actions={[
+                    { label: "Change scopes…", onSelect: () => {} },
+                    "divider",
+                    { label: "Revoke", danger: true, onSelect: () => {} },
+                  ]}
+                />
+              </Row>
+            ))}
+            <Row name="New service token" hint="Shown once; owners and admins only.">
+              <Button variant="secondary" size="md">
+                Create
+              </Button>
+            </Row>
+          </Section>
+          <Section
+            title="Scopes"
+            intro="What a client or token may ask for. People grant them one by one; a token holds the ones it was made with."
+          >
+            {[
+              ["files:read", "List and read files, versions and variations"],
+              ["files:write", "Upload versions and variations, make folders"],
+              ["reviews:read", "Read reviews, reviewers and decisions"],
+              ["reviews:write", "Request reviews and record decisions as the person"],
+              ["comments", "Read and write comments and their anchors"],
+              ["downloads", "Download originals, watermarked and logged"],
+              ["workflows", "Read and change workflows"],
+              ["org:read", "Members, roles and settings, read-only"],
+            ].map(([k, v]) => (
+              <Row key={k} name={<span className="tabular">{k}</span>} hint={v} />
+            ))}
+          </Section>
+        </>
+      )}
       {sec === "email" && <EmailSection />}
       {sec === "brand" && (
         <>
@@ -886,7 +1008,9 @@ export function SettingsPage({ section }: { section: string }) {
                 ? "New storage backend"
                 : sec === "notifications"
                   ? "New channel"
-                  : "New"
+                  : sec === "api"
+                    ? "New OAuth client"
+                    : "New"
           }
           onClose={() => setAdding(false)}
           footer={
@@ -900,7 +1024,29 @@ export function SettingsPage({ section }: { section: string }) {
             </>
           }
         >
-          {sec === "notifications" ? (
+          {sec === "api" ? (
+            <div className="flex flex-col gap-4">
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Name
+                <Input placeholder="Mastering handoff" autoFocus />
+              </label>
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Kind
+                <Select defaultValue="confidential">
+                  <option value="confidential">Confidential (server-side, gets a secret)</option>
+                  <option value="public">Public (desktop or mobile, PKCE only)</option>
+                </Select>
+              </label>
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Redirect addresses
+                <Textarea placeholder="https://app.example/oauth/callback" className="h-20" />
+              </label>
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Scopes it may ask for
+                <Input placeholder="files:read reviews:read comments" />
+              </label>
+            </div>
+          ) : sec === "notifications" ? (
             <div className="flex flex-col gap-4">
               <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
                 Kind

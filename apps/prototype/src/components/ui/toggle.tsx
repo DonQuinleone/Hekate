@@ -47,8 +47,8 @@ export function Switch({
       <span
         aria-hidden="true"
         className={cn(
-          "absolute top-[2px] left-[2px] size-[14px] rounded-full shadow-2 transition-transform duration-200 ease-out",
-          checked ? "translate-x-4 bg-ground" : "bg-ink-2",
+          "absolute top-[2px] size-[14px] rounded-full shadow-2 transition-[left] duration-200 ease-out",
+          checked ? "left-[18px] bg-ground" : "left-[2px] bg-ink-2",
         )}
       />
     </button>

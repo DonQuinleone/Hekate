@@ -98,6 +98,45 @@ export function Switcher() {
                 );
               })}
             </fieldset>
+            <div className="flex flex-col gap-2 border-t border-line p-4">
+              <label className="flex items-center justify-between gap-4 text-[14px] text-ink-2">
+                <span>Open a screen</span>
+                <select
+                  defaultValue=""
+                  onChange={(e) => {
+                    if (e.target.value) navigate({ to: e.target.value });
+                    e.target.value = "";
+                  }}
+                  className="h-8 w-44 rounded-control border border-edge bg-ground px-2 text-[13px] text-ink"
+                >
+                  <option value="">Pick one</option>
+                  <optgroup label="Arrival">
+                    <option value="/sign-in">Sign in</option>
+                    <option value="/sign-in?view=code">Sign in: second factor</option>
+                    <option value="/sign-in?view=sso">Sign in: single sign-on</option>
+                    <option value="/sign-in?view=forgot">Forgotten password</option>
+                    <option value="/sign-in?view=sent">Reset: check your email</option>
+                    <option value="/sign-in?view=reset">Reset: new password</option>
+                    <option value="/invite">Invitation</option>
+                    <option value="/guest/link">Guest link</option>
+                    <option value="/u/req-atmos">Upload request</option>
+                  </optgroup>
+                  <optgroup label="Installer">
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                      <option key={n} value={`/install?step=${n}`}>
+                        {n === 8 ? "Installer: ready" : `Installer: step ${n}`}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Elsewhere">
+                    <option value="/instance">Instance management</option>
+                    <option value="/settings/brand">Design system</option>
+                    <option value="/settings/email">Email templates</option>
+                    <option value="/projects/proj-joplin/workflow">Workflow builder</option>
+                  </optgroup>
+                </select>
+              </label>
+            </div>
             <div className="flex flex-col gap-3 border-t border-line p-4">
               <label className="flex items-center justify-between gap-4 text-[14px] text-ink-2">
                 <span>

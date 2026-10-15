@@ -16,8 +16,58 @@ import { useScreenState } from "~/viewer/state-gate";
 const sections = [
   { id: "account", label: "Account" },
   { id: "security", label: "Passkeys and sessions" },
+  { id: "tokens", label: "API tokens" },
+  { id: "apps", label: "Connected apps" },
   { id: "notifications", label: "Notifications" },
   { id: "appearance", label: "Appearance" },
+];
+
+const tokens = [
+  {
+    name: "Release pipeline",
+    scopes: "files:read, reviews:read",
+    made: "2 Oct",
+    used: "2 h ago",
+    expires: "2 Jan 2027",
+  },
+  {
+    name: "Logic Pro export",
+    scopes: "files:write",
+    made: "14 Sep",
+    used: "yesterday",
+    expires: "Never",
+  },
+  {
+    name: "Old laptop",
+    scopes: "everything",
+    made: "3 Jun",
+    used: "41 days ago",
+    expires: "Expired 1 Oct",
+  },
+];
+
+const connected = [
+  {
+    name: "Hekate for Slack",
+    by: "Hekate (official)",
+    scopes: "Read reviews, post on your behalf",
+    since: "19 Aug",
+    last: "2 h ago",
+  },
+  {
+    name: "Hekate for Logic Pro",
+    by: "Hekate (official)",
+    scopes: "Upload versions, read comments",
+    since: "14 Sep",
+    last: "yesterday",
+  },
+  {
+    name: "Lantern Deliveries",
+    by: "Lantern Pictures",
+    scopes: "Read files, download originals",
+    since: "4 Oct",
+    last: "3 d ago",
+  },
 ];
 
 export const themes = [
@@ -35,6 +85,7 @@ export const themes = [
 export function AccountPage({ section }: { section: string }) {
   const viewer = useViewer();
   const state = useScreenState();
+  const [tokenOpen, setTokenOpen] = useState(false);
   const person = personById(viewer.personId);
   const [adding, setAdding] = useState(false);
   const [theme, setTheme] = useState("signal-dark");
@@ -209,6 +260,161 @@ export function AccountPage({ section }: { section: string }) {
               </label>
             </Dialog>
           )}
+        </>
+      )}
+      {sec === "tokens" && (
+        <>
+          <Section
+            title="API tokens"
+            intro="For scripts and tools of your own, against the public API. A token can do no more than you can, and only what its scopes allow; it is shown once."
+            action={
+              <Button variant="primary" size="md" onClick={() => setTokenOpen(true)}>
+                <Icon name="plus" size={14} />
+                Token
+              </Button>
+            }
+          >
+            {tokens.map((t) => (
+              <Row
+                key={t.name}
+                name={
+                  <span className="flex items-center gap-2">
+                    <Dot state={t.expires.startsWith("Expired") ? "cancelled" : "approved"} />
+                    {t.name}
+                  </span>
+                }
+                hint={`${t.scopes} · made ${t.made} · last used ${t.used} · ${t.expires.startsWith("Expired") ? t.expires.toLowerCase() : `expires ${t.expires.toLowerCase()}`}`}
+              >
+                <ActionMenu
+                  always
+                  label={t.name}
+                  actions={[
+                    { label: "Rename", onSelect: () => {} },
+                    { label: "Change scopes…", onSelect: () => {} },
+                    "divider",
+                    { label: "Revoke", danger: true, onSelect: () => {} },
+                  ]}
+                />
+              </Row>
+            ))}
+          </Section>
+          <Section
+            title="Using the API"
+            intro="Every call is logged against the token; the organisation sees it in the API log."
+          >
+            <Row name="Base address">
+              <span className="tabular text-[13px] text-ink-2">
+                https://review.endlesshall.example/api/v1
+              </span>
+            </Row>
+            <Row name="Reference" hint="OpenAPI 3.1, with examples for every call.">
+              <Button variant="ghost" size="md">
+                Open the reference
+              </Button>
+            </Row>
+          </Section>
+          {tokenOpen && (
+            <Dialog
+              title="New API token"
+              description="Pick the least it needs. You will see the token once."
+              onClose={() => setTokenOpen(false)}
+              footer={
+                <>
+                  <Button variant="ghost" onClick={() => setTokenOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button variant="primary" onClick={() => setTokenOpen(false)}>
+                    Create token
+                  </Button>
+                </>
+              }
+            >
+              <div className="flex flex-col gap-4">
+                <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                  Name
+                  <Input placeholder="Release pipeline" autoFocus />
+                </label>
+                <fieldset className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                  <legend className="mb-1.5">Scopes</legend>
+                  {[
+                    ["files:read", "List and read files and versions"],
+                    ["files:write", "Upload versions and variations"],
+                    ["reviews:read", "Read reviews and their decisions"],
+                    ["reviews:write", "Request reviews and record decisions as you"],
+                    ["comments", "Read and write comments"],
+                    ["downloads", "Download originals (watermarked, logged)"],
+                  ].map(([k, v]) => (
+                    <label key={k} className="flex items-center gap-2">
+                      <input type="checkbox" defaultChecked={k === "files:read"} />
+                      <span className="tabular w-28 text-ink">{k}</span>
+                      <span className="text-ink-3">{v}</span>
+                    </label>
+                  ))}
+                </fieldset>
+                <div className="grid gap-3 @md/app:grid-cols-2">
+                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                    Expires
+                    <Select defaultValue="90">
+                      <option value="30">In 30 days</option>
+                      <option value="90">In 90 days</option>
+                      <option value="365">In a year</option>
+                      <option value="never">Never</option>
+                    </Select>
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                    Organisation
+                    <Select defaultValue="eh">
+                      <option value="eh">Endless Hall Records</option>
+                    </Select>
+                  </label>
+                </div>
+              </div>
+            </Dialog>
+          )}
+        </>
+      )}
+      {sec === "apps" && (
+        <>
+          <Section
+            title="Connected apps"
+            intro="Applications you have let in through OAuth. Each sees only what you granted, and only what you can see."
+          >
+            {connected.map((a) => (
+              <Row
+                key={a.name}
+                name={
+                  <span className="flex items-center gap-2">
+                    {a.name}
+                    {a.by.includes("official") && (
+                      <span className="rounded-chip border border-line px-1.5 text-[11px] text-ink-3">
+                        official
+                      </span>
+                    )}
+                  </span>
+                }
+                hint={`${a.by} · ${a.scopes} · connected ${a.since} · last used ${a.last}`}
+              >
+                <ActionMenu
+                  always
+                  label={a.name}
+                  actions={[
+                    { label: "What it may do…", onSelect: () => {} },
+                    "divider",
+                    { label: "Disconnect", danger: true, onSelect: () => {} },
+                  ]}
+                />
+              </Row>
+            ))}
+          </Section>
+          <Section
+            title="For developers"
+            intro="An application that connects to Hekate on people's behalf is registered by an organisation, under its settings."
+          >
+            <Row
+              name="Register an application"
+              hint="Client id and secret, redirect addresses, scopes; in Organisation settings under API and OAuth clients."
+            />
+          </Section>
         </>
       )}
       {sec === "notifications" && (

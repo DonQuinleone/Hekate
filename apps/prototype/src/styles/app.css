@@ -115,6 +115,22 @@
   ::after {
     border-color: var(--hk-line);
   }
+  /* The @property registrations do not reach a shadow root, so the transform variables need a floor. */
+  *,
+  ::before,
+  ::after {
+    --tw-translate-x: 0;
+    --tw-translate-y: 0;
+    --tw-translate-z: 0;
+    --tw-scale-x: 1;
+    --tw-scale-y: 1;
+    --tw-scale-z: 1;
+    --tw-rotate-x: initial;
+    --tw-rotate-y: initial;
+    --tw-rotate-z: initial;
+    --tw-skew-x: initial;
+    --tw-skew-y: initial;
+  }
   :focus-visible {
     outline: none;
     box-shadow: var(--hk-focus-ring);
