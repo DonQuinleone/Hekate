@@ -582,6 +582,29 @@ describe.runIf(url)("api", () => {
         expect((await storage.put(organisationId, Buffer.from("third"))).backend).toBe("local");
       });
 
+      it("lets only owners rename the workspace", async () => {
+        const owner = cookieOf(await setup());
+        const rename = (name: string, cookie: string) =>
+          app.request("/api/organisation", { ...json({ name }, cookie), method: "PATCH" });
+        const nameOf = async (cookie: string) => {
+          const me = (await (await app.request("/api/me", { headers: { cookie } })).json()) as {
+            activeOrganisationId: string;
+            organisations: { id: string; name: string }[];
+          };
+          return me.organisations.find((o) => o.id === me.activeOrganisationId)?.name;
+        };
+
+        expect((await rename("   ", owner)).status).toBe(400);
+        expect((await rename("Endless Hall Recordings", owner)).status).toBe(200);
+        expect(await nameOf(owner)).toBe("Endless Hall Recordings");
+
+        const admin = await joinAs(owner, "engineer@example.test", "admin");
+        expect((await rename("Taken over", admin)).status).toBe(403);
+        const member = await joinAs(owner, "player@example.test", "member");
+        expect((await rename("Taken over", member)).status).toBe(403);
+        expect(await nameOf(owner)).toBe("Endless Hall Recordings");
+      });
+
       it("keeps the blob record when removing its bytes fails, so removal can be retried", async () => {
         const owner = cookieOf(await setup());
         const organisationId = await organisationOf(owner);
@@ -2237,6 +2260,46 @@ describe.runIf(url)("api", () => {
               )
             ).status,
           ).toBe(403);
+        });
+
+        it("lists the workspace's guests for admins, and revokes a guest everywhere", async () => {
+          const s = await invited();
+          const list = async (cookie: string) => {
+            const res = await getAs("/api/organisation/guests", cookie);
+            return { status: res.status, body: (await res.json()) as { guests: GuestRow[] } };
+          };
+          type GuestRow = {
+            id: string;
+            name: string;
+            email: string;
+            label: string | null;
+            lastLinkAt: string | null;
+            live: boolean;
+          };
+          const before = await list(s.owner);
+          expect(before.status).toBe(200);
+          expect(before.body.guests).toHaveLength(1);
+          const [mira] = before.body.guests;
+          expect(mira).toMatchObject({
+            name: "Mira Solberg",
+            email: "conductor@example.test",
+            label: "Conductor",
+            live: true,
+          });
+          expect(mira?.lastLinkAt).not.toBeNull();
+
+          // A member sees no guest list and revokes nobody.
+          expect((await list(s.composer)).status).toBe(403);
+          const revoke = (id: string, cookie: string) =>
+            app.request(`/api/organisation/guests/${id}/revoke`, json({}, cookie));
+          expect((await revoke(mira?.id ?? "", s.composer)).status).toBe(403);
+          expect((await revoke("01a141dd-0000-7000-8000-000000000000", s.owner)).status).toBe(404);
+
+          expect((await revoke(mira?.id ?? "", s.owner)).status).toBe(204);
+          expect((await getAs("/api/guest/me", s.cookie)).status).toBe(401);
+          expect((await list(s.owner)).body.guests[0]?.live).toBe(false);
+          const logged = await audit.query(s.organisationId, { action: "guest.revoke", limit: 5 });
+          expect(logged.events.some((e) => e.details?.guestId === mira?.id)).toBe(true);
         });
 
         it("lets a guest comment and decide, all of it logged", async () => {

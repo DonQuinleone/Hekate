@@ -20,7 +20,13 @@ import {
   type ReviewKind,
   type UpdateCarryInput,
 } from "@hekate/shared";
-import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  infiniteQueryOptions,
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { api } from "./api";
 
 async function json<T>(res: Response): Promise<T> {
@@ -276,6 +282,106 @@ export function useOrganisationMutations() {
     }),
   };
 }
+
+/** Rename the workspace; only owners may. */
+export function useRenameWorkspace() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (name: string) =>
+      json<{ organisation: { id: string; name: string } }>(
+        await api.organisation.$patch({ json: { name } }),
+      ),
+    onSuccess: () => client.invalidateQueries({ queryKey: meQuery.queryKey }),
+  });
+}
+
+export interface WorkspaceStorage {
+  /** The workspace's choice; null follows the instance default. */
+  backend: string | null;
+  defaultBackend: string;
+  available: string[];
+}
+
+export const workspaceStorageQuery = queryOptions({
+  queryKey: ["organisation", "storage"],
+  queryFn: async () => json<WorkspaceStorage>(await api.organisation.storage.$get()),
+});
+
+export function useWorkspaceStorage() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (backend: string | null) =>
+      json(await api.organisation.storage.$put({ json: { backend } })),
+    onSuccess: () => client.invalidateQueries({ queryKey: workspaceStorageQuery.queryKey }),
+  });
+}
+
+/** A guest of the workspace: someone outside it who reviews through links. */
+export interface WorkspaceGuest {
+  id: string;
+  name: string;
+  email: string;
+  label: string | null;
+  lastLinkAt: string | null;
+  /** A link or a signed-in browser still works for them. */
+  live: boolean;
+}
+
+export const workspaceGuestsQuery = queryOptions({
+  queryKey: ["organisation", "guests"],
+  queryFn: async () =>
+    (await json<{ guests: WorkspaceGuest[] }>(await api.organisation.guests.$get())).guests,
+});
+
+/** End every link and signed-in browser a guest has. */
+export function useRevokeGuest() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await api.organisation.guests[":id"].revoke.$post({ param: { id } });
+      if (!res.ok) await json(res);
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: workspaceGuestsQuery.queryKey }),
+  });
+}
+
+/** One line of the access log, as the API returns it. */
+export interface AccessEvent {
+  id: string;
+  occurredAt: string;
+  action: string;
+  actorType: "member" | "guest" | "system";
+  userId: string | null;
+  actorLabel: string;
+  projectId: string | null;
+  fileId: string | null;
+  reviewId: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  details: Record<string, unknown> | null;
+}
+
+export interface AccessLogFilters {
+  action?: string;
+  projectId?: string;
+}
+
+/** The access log, newest first, a page at a time. */
+export const accessLogQuery = (filters: AccessLogFilters) =>
+  infiniteQueryOptions({
+    queryKey: ["organisation", "audit", filters],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
+      const query: Record<string, string> = { limit: "50" };
+      if (filters.action) query.action = filters.action;
+      if (filters.projectId) query.projectId = filters.projectId;
+      if (pageParam) query.before = pageParam;
+      return json<{ events: AccessEvent[]; nextBefore: string | null }>(
+        await api.organisation.audit.$get({ query }),
+      );
+    },
+    getNextPageParam: (page) => page.nextBefore ?? undefined,
+  });
 
 export function useSwitchOrganisation() {
   const client = useQueryClient();

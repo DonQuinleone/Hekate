@@ -5,20 +5,22 @@ import {
   inviteInput,
   organisationRole,
   organisationStorageInput,
+  organisationUpdateInput,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, asc, count, desc, eq, gt, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, isNull, max, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { type Audit, csvHeader, csvRow, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
+import { revokeGuest } from "../guests.ts";
 import { INVITATION_LIFETIME_MS, newInvitationToken } from "../invitation-token.ts";
 import type { Mailer } from "../mail.ts";
 import type { Storage } from "../storage.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";
 
-const { members, users, invitations, organisations } = schema;
+const { members, users, invitations, organisations, guests, guestLinks, guestSessions } = schema;
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
 async function ownerCount(db: Database, organisationId: string) {
@@ -38,6 +40,17 @@ export const organisationRoutes = (
   trustProxy: boolean,
 ) =>
   new Hono<{ Variables: TenantVariables }>()
+    // Only owners rename the workspace; the organisation comes from the session, never the body.
+    .patch("/", requireRole("owner"), zValidator("json", organisationUpdateInput), async (c) => {
+      const { name } = c.req.valid("json");
+      const [row] = await db
+        .update(organisations)
+        .set({ name })
+        .where(eq(organisations.id, c.var.organisationId))
+        .returning({ id: organisations.id, name: organisations.name });
+      if (!row) throw new NotFound("Workspace");
+      return c.json({ organisation: row });
+    })
     .get("/members", async (c) => {
       const rows = await db
         .select({
@@ -223,6 +236,64 @@ export const organisationRoutes = (
         )
         .returning({ id: invitations.id });
       if (!row) throw new NotFound("Invitation");
+      return c.body(null, 204);
+    })
+    // The workspace's guests: who they are, when they were last sent a link, and whether a
+    // link or a signed-in browser still works for them.
+    .get("/guests", requireRole("admin"), async (c) => {
+      const organisationId = c.var.organisationId;
+      // Raw SQL takes the time as text; PostgreSQL reads it as a timestamptz.
+      const now = new Date().toISOString();
+      const lastLink = db
+        .select({ guestId: guestLinks.guestId, at: max(guestLinks.createdAt).as("at") })
+        .from(guestLinks)
+        .where(eq(guestLinks.organisationId, organisationId))
+        .groupBy(guestLinks.guestId)
+        .as("last_link");
+      const rows = await db
+        .select({
+          id: guests.id,
+          name: guests.name,
+          email: guests.email,
+          label: guests.label,
+          lastLinkAt: lastLink.at,
+          live: sql<boolean>`exists (
+            select 1 from ${guestLinks} where ${guestLinks.guestId} = ${guests.id}
+              and ${guestLinks.organisationId} = ${organisationId}
+              and ${guestLinks.usedAt} is null and ${guestLinks.revokedAt} is null
+              and ${guestLinks.expiresAt} > ${now}
+          ) or exists (
+            select 1 from ${guestSessions} where ${guestSessions.guestId} = ${guests.id}
+              and ${guestSessions.organisationId} = ${organisationId}
+              and ${guestSessions.revokedAt} is null and ${guestSessions.expiresAt} > ${now}
+          )`,
+        })
+        .from(guests)
+        .leftJoin(lastLink, eq(lastLink.guestId, guests.id))
+        .where(inOrg(guests, organisationId))
+        .orderBy(asc(guests.name));
+      return c.json({ guests: rows });
+    })
+    // End every link and signed-in browser a guest has, across the workspace.
+    .post("/guests/:id/revoke", requireRole("admin"), idParam, async (c) => {
+      const { id } = c.req.valid("param");
+      const organisationId = c.var.organisationId;
+      const who = await audit.member(c.var.userId);
+      await db.transaction(async (tx) => {
+        const [guest] = await tx
+          .select({ id: guests.id })
+          .from(guests)
+          .where(inOrg(guests, organisationId, eq(guests.id, id)));
+        if (!guest) throw new NotFound("Guest");
+        await revokeGuest(tx, organisationId, guest.id);
+        await audit.record(
+          organisationId,
+          who,
+          { action: "guest.revoke", details: { guestId: guest.id } },
+          requestInfo(c, trustProxy),
+          tx,
+        );
+      });
       return c.body(null, 204);
     })
     .get("/storage", requireRole("admin"), async (c) => {

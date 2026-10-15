@@ -20,8 +20,8 @@ import { MyReviewsPage } from "~/routes/my-reviews";
 import { ProjectFilesPage, ProjectPeoplePage, ProjectReviewsPage } from "~/routes/project";
 import { ProjectsPage } from "~/routes/projects";
 import { ReviewPage } from "~/routes/review";
-import { SettingsPage } from "~/routes/settings";
 import { TrackPage } from "~/routes/track";
+import { WorkspaceSettingsPage } from "~/routes/workspace-settings";
 
 export const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 10_000 } } });
 
@@ -251,10 +251,28 @@ const myReviews = createRoute({
   path: "/reviews",
   component: MyReviewsPage,
 });
-const settings = createRoute({
+// Members live in the workspace's settings now (decision 038); the old address still works.
+const members = createRoute({
   getParentRoute: () => app,
   path: "/members",
-  component: SettingsPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/$section", params: { section: "members" } });
+  },
+});
+const settingsHome = createRoute({
+  getParentRoute: () => app,
+  path: "/settings",
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/$section", params: { section: "general" } });
+  },
+});
+const settings = createRoute({
+  getParentRoute: () => app,
+  path: "/settings/$section",
+  component: function SettingsRoute() {
+    const { section } = settings.useParams();
+    return <WorkspaceSettingsPage section={section} />;
+  },
 });
 
 export const router = createRouter({
@@ -276,6 +294,8 @@ export const router = createRouter({
       file,
       myReviews,
       review,
+      members,
+      settingsHome,
       settings,
     ]),
   ]),

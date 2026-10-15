@@ -84,7 +84,18 @@ const screens: Screen[] = [
   },
   { name: "review", path: (s) => `/reviews/${s.reviewId}`, ready: "h1:has-text('Album masters')" },
   { name: "my-reviews", path: () => "/reviews", ready: "main >> text=Album masters" },
-  { name: "members", path: () => "/members", ready: "main >> text=Alex Rivera" },
+  { name: "members", path: () => "/settings/members", ready: "main >> text=Alex Rivera" },
+  {
+    name: "settings-general",
+    path: () => "/settings/general",
+    ready: "main >> text=Workspaces you are in",
+  },
+  {
+    name: "settings-storage",
+    path: () => "/settings/storage",
+    ready: "main >> text=New files go to",
+  },
+  { name: "settings-log", path: () => "/settings/log", ready: "main [data-log-entry]" },
 ];
 
 /** Fonts in, pictures drawn, nothing still on its way. */

@@ -1,0 +1,559 @@
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { type FormEvent, useState } from "react";
+import { Avatar } from "~/components/avatar";
+import { Empty } from "~/components/empty";
+import { Icon } from "~/components/icons";
+import { PageHeader } from "~/components/page-header";
+import { Row, Section, SettingsLayout } from "~/components/settings";
+import { Button } from "~/components/ui/button";
+import { Dialog } from "~/components/ui/dialog";
+import { Input, Select } from "~/components/ui/input";
+import { ActionMenu } from "~/components/ui/menu";
+import {
+  accessLogQuery,
+  invitationsQuery,
+  type Member,
+  membersQuery,
+  meQuery,
+  useOrganisationMutations,
+  useRenameWorkspace,
+  useRevokeGuest,
+  useWorkspaceStorage,
+  workspaceGuestsQuery,
+  workspaceStorageQuery,
+} from "~/lib/queries";
+
+type Role = Member["role"];
+const roleLabel: Record<Role, string> = { owner: "Owner", admin: "Admin", member: "Member" };
+const roles: Role[] = ["owner", "admin", "member"];
+
+const dateFormat = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
+const timeFormat = new Intl.DateTimeFormat("en-GB", {
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+interface SectionSpec {
+  id: string;
+  label: string;
+  group: string;
+  /** The least role that sees the section. */
+  from: Role;
+  intro: string;
+}
+
+/** The workspace's settings, grouped as in the prototype; more sections arrive with their issues. */
+const allSections: SectionSpec[] = [
+  {
+    id: "general",
+    label: "General",
+    group: "Workspace",
+    from: "admin",
+    intro: "The workspace's name, and the other workspaces you are in.",
+  },
+  {
+    id: "members",
+    label: "Members",
+    group: "Access",
+    from: "member",
+    intro: "Who has an account here, who is invited, and which guests hold a link.",
+  },
+  {
+    id: "storage",
+    label: "Storage",
+    group: "Operations",
+    from: "admin",
+    intro: "Where new files are kept. Everything is encrypted before any backend sees it.",
+  },
+  {
+    id: "log",
+    label: "Access log",
+    group: "Operations",
+    from: "admin",
+    intro: "Every key issue, page render and download, and the changes that matter.",
+  },
+];
+
+const rank: Record<Role, number> = { owner: 3, admin: 2, member: 1 };
+
+/** The sections a role may open. Members see Members alone; the server checks every call again. */
+export const sectionsFor = (role: Role) => allSections.filter((s) => rank[role] >= rank[s.from]);
+
+function General({ role }: { role: Role }) {
+  const { data: me } = useQuery(meQuery);
+  const rename = useRenameWorkspace();
+  const workspace = me?.organisations.find((o) => o.id === me.activeOrganisationId);
+  const [name, setName] = useState<string | null>(null);
+  if (!me || !workspace) return null;
+  const value = name ?? workspace.name;
+  const save = (event: FormEvent) => {
+    event.preventDefault();
+    if (value.trim() && value !== workspace.name)
+      rename.mutate(value, { onSuccess: () => setName(null) });
+  };
+  return (
+    <>
+      <Section title="Workspace">
+        <Row
+          name="Name"
+          hint={
+            role === "owner"
+              ? "Shown to members, guests and in every email."
+              : "Only an owner can change it."
+          }
+        >
+          {role === "owner" ? (
+            <form onSubmit={save} className="flex items-center gap-2">
+              <Input
+                aria-label="Workspace name"
+                value={value}
+                onChange={(e) => setName(e.target.value)}
+                className="w-64"
+              />
+              <Button
+                type="submit"
+                variant="secondary"
+                disabled={rename.isPending || !value.trim() || value === workspace.name}
+              >
+                Save
+              </Button>
+            </form>
+          ) : (
+            <span className="text-[14px] text-ink-2">{workspace.name}</span>
+          )}
+        </Row>
+        {rename.error && (
+          <p className="px-4 py-2 text-[13px] text-signal">{rename.error.message}</p>
+        )}
+      </Section>
+      <Section
+        title="Workspaces you are in"
+        intro="Switch from the menu at the foot of the sidebar."
+      >
+        {me.organisations.map((o) => (
+          <Row
+            key={o.id}
+            name={o.name}
+            hint={`${roleLabel[o.role]}${o.id === me.activeOrganisationId ? " · open now" : ""}`}
+          />
+        ))}
+      </Section>
+    </>
+  );
+}
+
+function InviteDialog({ myRole, onClose }: { myRole: Role; onClose: () => void }) {
+  const { invite } = useOrganisationMutations();
+  const [role, setRole] = useState<Role>("member");
+  const [link, setLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const email = String(new FormData(form).get("email"));
+    invite.mutate(
+      { email, role },
+      {
+        onSuccess: (res) => {
+          setLink(res.link);
+          setCopied(false);
+          form.reset();
+        },
+      },
+    );
+  };
+  const allowed = roles.filter((r) => r !== "owner" || myRole === "owner");
+  return (
+    <Dialog
+      title="Invite to the workspace"
+      description="They get an email with a link that works once, for 7 days."
+      onClose={onClose}
+      width="sm"
+    >
+      <form onSubmit={submit} className="flex flex-col gap-3">
+        <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+          Email
+          <Input name="email" type="email" required placeholder="name@example.com" />
+        </label>
+        <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+          Role
+          <Select value={role} onChange={(e) => setRole(e.target.value as Role)}>
+            {allowed.map((r) => (
+              <option key={r} value={r}>
+                {roleLabel[r]}
+              </option>
+            ))}
+          </Select>
+        </label>
+        {invite.error && <p className="text-[13px] text-signal">{invite.error.message}</p>}
+        {link && (
+          <div className="flex items-center gap-2 rounded-control border border-line bg-ground/60 p-2 pl-3">
+            <span className="tabular min-w-0 flex-1 truncate text-[12px] text-ink-2">{link}</span>
+            <Button
+              size="sm"
+              onClick={async () => {
+                await navigator.clipboard?.writeText(link);
+                setCopied(true);
+              }}
+            >
+              {copied ? "Copied" : "Copy link"}
+            </Button>
+          </div>
+        )}
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="ghost" onClick={onClose}>
+            {link ? "Done" : "Cancel"}
+          </Button>
+          <Button variant="primary" type="submit" disabled={invite.isPending}>
+            {link ? "Invite another" : "Send invitation"}
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+function Members({ role: myRole }: { role: Role }) {
+  const { data: me } = useQuery(meQuery);
+  const { data: members } = useQuery(membersQuery);
+  const elevated = myRole === "owner" || myRole === "admin";
+  const { data: invitations } = useQuery({ ...invitationsQuery, enabled: elevated });
+  const { setRole, remove, revoke } = useOrganisationMutations();
+  const [inviting, setInviting] = useState(false);
+  const error = setRole.error ?? remove.error ?? revoke.error;
+  const owners = members?.filter((m) => m.role === "owner").length ?? 0;
+  return (
+    <>
+      {inviting && <InviteDialog myRole={myRole} onClose={() => setInviting(false)} />}
+      <Section
+        title={`Members${members ? ` · ${members.length}` : ""}`}
+        action={
+          elevated && (
+            <Button variant="primary" onClick={() => setInviting(true)}>
+              <Icon name="plus" size={14} />
+              Invite
+            </Button>
+          )
+        }
+      >
+        {error && <p className="px-4 py-2 text-[13px] text-signal">{error.message}</p>}
+        {members?.map((m) => {
+          const isSelf = m.userId === me?.user.id;
+          // Owners manage everyone; admins everyone but owners; the last owner stays an owner.
+          const canEdit =
+            elevated &&
+            (myRole === "owner" || m.role !== "owner") &&
+            !(m.role === "owner" && owners === 1);
+          return (
+            <div
+              key={m.id}
+              className="group flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-raised/30"
+            >
+              <Avatar id={m.userId} name={m.name} size={28} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[14px] text-ink">
+                  {m.name}
+                  {isSelf && <span className="text-ink-3"> · you</span>}
+                </span>
+                <span className="block truncate text-[13px] text-ink-3">{m.email}</span>
+              </span>
+              {canEdit ? (
+                <Select
+                  aria-label={`Role of ${m.name}`}
+                  value={m.role}
+                  onChange={(e) => setRole.mutate({ id: m.id, role: e.target.value as Role })}
+                  className="h-8 w-32 text-[13px]"
+                >
+                  {roles
+                    .filter((r) => r !== "owner" || myRole === "owner")
+                    .map((r) => (
+                      <option key={r} value={r}>
+                        {roleLabel[r]}
+                      </option>
+                    ))}
+                </Select>
+              ) : (
+                <span
+                  className="w-32 text-right text-[13px] text-ink-2"
+                  title={
+                    m.role === "owner" && owners === 1
+                      ? "The last owner cannot change role"
+                      : undefined
+                  }
+                >
+                  {roleLabel[m.role]}
+                </span>
+              )}
+              {canEdit || isSelf ? (
+                <ActionMenu
+                  label={m.name}
+                  actions={[
+                    {
+                      label: isSelf ? "Leave the workspace" : "Remove from the workspace",
+                      danger: true,
+                      onSelect: () => remove.mutate(m.id),
+                    },
+                  ]}
+                />
+              ) : (
+                <span className="size-7 shrink-0" />
+              )}
+            </div>
+          );
+        })}
+      </Section>
+      {elevated && invitations && invitations.length > 0 && (
+        <Section title={`Invited · ${invitations.length}`}>
+          {invitations.map((i) => (
+            <div key={i.id} className="group flex items-center gap-3 px-4 py-2.5">
+              <Icon name="mail" className="text-ink-3" />
+              <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{i.email}</span>
+              <span className="text-[13px] text-ink-3">
+                {roleLabel[i.role]} · until {dateFormat.format(new Date(i.expiresAt))}
+              </span>
+              <ActionMenu
+                label={i.email}
+                actions={[{ label: "Revoke", danger: true, onSelect: () => revoke.mutate(i.id) }]}
+              />
+            </div>
+          ))}
+        </Section>
+      )}
+      {elevated && <Guests />}
+    </>
+  );
+}
+
+/** People outside the workspace who review through links, and the way to cut them off. */
+function Guests() {
+  const { data: guests } = useQuery(workspaceGuestsQuery);
+  const revoke = useRevokeGuest();
+  if (!guests || guests.length === 0) return null;
+  return (
+    <Section
+      title={`Guests · ${guests.length}`}
+      intro="Guests are asked from a review and sign in with a link sent to them."
+    >
+      {revoke.error && <p className="px-4 py-2 text-[13px] text-signal">{revoke.error.message}</p>}
+      {guests.map((g) => (
+        <div key={g.id} className="group flex items-center gap-3 px-4 py-2.5">
+          <Avatar id={g.id} name={g.name} size={28} />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[14px] text-ink">
+              {g.name}
+              {g.label && <span className="text-ink-3"> · {g.label}</span>}
+            </span>
+            <span className="block truncate text-[13px] text-ink-3">{g.email}</span>
+          </span>
+          <span className="hidden text-[13px] text-ink-3 @3xl/app:inline">
+            {g.live
+              ? g.lastLinkAt
+                ? `link sent ${dateFormat.format(new Date(g.lastLinkAt))}`
+                : "signed in"
+              : "no working link"}
+          </span>
+          {g.live ? (
+            <ActionMenu
+              label={g.name}
+              actions={[
+                { label: "Revoke access", danger: true, onSelect: () => revoke.mutate(g.id) },
+              ]}
+            />
+          ) : (
+            <span className="size-7 shrink-0" />
+          )}
+        </div>
+      ))}
+    </Section>
+  );
+}
+
+function Storage({ role }: { role: Role }) {
+  const { data } = useQuery(workspaceStorageQuery);
+  const choose = useWorkspaceStorage();
+  if (!data) return null;
+  return (
+    <Section
+      title="Backends"
+      intro="Existing files stay where they are; the choice applies to new ones."
+    >
+      <Row
+        name="New files go to"
+        hint={
+          role === "owner"
+            ? "The instance default unless you choose another backend."
+            : "Only an owner can change it."
+        }
+      >
+        {role === "owner" ? (
+          <Select
+            aria-label="Backend for new files"
+            value={data.backend ?? ""}
+            onChange={(e) => choose.mutate(e.target.value || null)}
+            className="w-56"
+          >
+            <option value="">The default ({data.defaultBackend})</option>
+            {data.available.map((b) => (
+              <option key={b} value={b}>
+                {b}
+              </option>
+            ))}
+          </Select>
+        ) : (
+          <span className="text-[14px] text-ink-2">{data.backend ?? data.defaultBackend}</span>
+        )}
+      </Row>
+      {data.available.map((b) => (
+        <Row
+          key={b}
+          name={b}
+          hint={
+            b === (data.backend ?? data.defaultBackend)
+              ? "Receives new files"
+              : b === data.defaultBackend
+                ? "The instance default"
+                : undefined
+          }
+        />
+      ))}
+      {choose.error && <p className="px-4 py-2 text-[13px] text-signal">{choose.error.message}</p>}
+    </Section>
+  );
+}
+
+/** Plain words for what each entry records. */
+const actionCopy: Record<string, string> = {
+  "stream.key": "Key issued",
+  "stream.session": "Playback started",
+  "stream.segment": "Segment served",
+  "page.render": "Page rendered",
+  download: "Downloaded",
+  "file.upload": "Uploaded",
+  "file.delete": "Deleted",
+  "audit.export": "Log exported",
+  "storage.remove": "Storage tidied",
+  "storage.missing": "Bytes missing",
+  "review.create": "Review asked",
+  "review.cancel": "Review cancelled",
+  "review.decision": "Decision recorded",
+  "review.submit": "Feedback submitted",
+  "guest.link": "Guest link sent",
+  "guest.sign_in": "Guest signed in",
+  "guest.revoke": "Guest revoked",
+  "guest.view": "Guest opened a review",
+  "comment.create": "Comment",
+};
+
+function AccessLog() {
+  const [action, setAction] = useState("");
+  const log = useInfiniteQuery(accessLogQuery(action ? { action } : {}));
+  const events = log.data?.pages.flatMap((p) => p.events) ?? [];
+  const exportUrl = `/api/organisation/audit.csv${action ? `?action=${encodeURIComponent(action)}` : ""}`;
+  return (
+    <Section
+      title="Entries"
+      action={
+        <span className="flex items-center gap-1.5">
+          <Select
+            aria-label="Action"
+            value={action}
+            onChange={(e) => setAction(e.target.value)}
+            className="h-8 w-48 text-[13px]"
+          >
+            <option value="">Every action</option>
+            {Object.entries(actionCopy).map(([id, label]) => (
+              <option key={id} value={id}>
+                {label}
+              </option>
+            ))}
+          </Select>
+          <Button variant="secondary" asChild>
+            <a href={exportUrl} download>
+              <Icon name="download" size={14} />
+              Export CSV
+            </a>
+          </Button>
+        </span>
+      }
+    >
+      {log.isPending ? (
+        <p className="px-4 py-3 text-[13px] text-ink-3">Loading</p>
+      ) : events.length === 0 ? (
+        <div className="p-4">
+          <Empty
+            title="Nothing logged yet"
+            text="Entries appear as people play, render, download and decide."
+          />
+        </div>
+      ) : (
+        <>
+          {events.map((e) => (
+            <div
+              key={e.id}
+              data-log-entry
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-[13px] @3xl/app:grid-cols-[130px_170px_minmax(0,1fr)_130px]"
+            >
+              <span className="tabular text-ink-3">
+                {timeFormat.format(new Date(e.occurredAt))}
+              </span>
+              <span className="justify-self-end @3xl/app:justify-self-start">
+                <span className="rounded-chip bg-raised px-1.5 py-0.5 text-[12px] text-ink-2">
+                  {actionCopy[e.action] ?? e.action}
+                </span>
+              </span>
+              <span className="col-span-2 truncate text-ink-2 @3xl/app:col-span-1">
+                {e.actorLabel}
+              </span>
+              <span className="tabular hidden truncate text-ink-3 @3xl/app:block">
+                {e.ipAddress ?? ""}
+              </span>
+            </div>
+          ))}
+          {log.hasNextPage && (
+            <div className="px-4 py-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={log.isFetchingNextPage}
+                onClick={() => void log.fetchNextPage()}
+              >
+                Show older
+              </Button>
+            </div>
+          )}
+        </>
+      )}
+    </Section>
+  );
+}
+
+/** `/settings/$section`: the workspace's settings, reached from the account menu (decision 038). */
+export function WorkspaceSettingsPage({ section }: { section: string }) {
+  const { data: me } = useQuery(meQuery);
+  if (!me) return null;
+  const role = me.organisations.find((o) => o.id === me.activeOrganisationId)?.role ?? "member";
+  const sections = sectionsFor(role);
+  const current =
+    sections.find((s) => s.id === section) ?? sections.find((s) => s.id === "members");
+  if (!current) return null;
+  return (
+    <>
+      <PageHeader title="Workspace settings" />
+      <SettingsLayout
+        title={current.label}
+        intro={current.intro}
+        sections={sections}
+        current={current.id}
+        base="/settings/$section"
+        param="section"
+      >
+        {current.id === "general" && <General role={role} />}
+        {current.id === "members" && <Members role={role} />}
+        {current.id === "storage" && <Storage role={role} />}
+        {current.id === "log" && <AccessLog />}
+      </SettingsLayout>
+    </>
+  );
+}
