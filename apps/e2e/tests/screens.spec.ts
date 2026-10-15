@@ -1,12 +1,11 @@
 import { join } from "node:path";
-import { argosScreenshot } from "@argos-ci/playwright";
 import { expect, type Page, test } from "@playwright/test";
 import { checkScreen } from "./checks.ts";
-import { FIXED_TIME, type Seeded, seeded, state } from "./fixtures.ts";
+import { FIXED_TIME, type Seeded, saveScreen, seeded, state } from "./fixtures.ts";
 
 /**
  * Every screen, as the seeded studio sees it: checked for layout and accessibility, then
- * captured for Argos to compare with master's.
+ * captured to test-results/screens.
  */
 
 interface Screen {
@@ -114,7 +113,7 @@ function capture(screen: Screen) {
     await showWhole(page);
     await settle(page, screen.ready);
     await checkScreen(page);
-    await argosScreenshot(page, screen.name);
+    await saveScreen(page, screen.name);
   });
 }
 

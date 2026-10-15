@@ -1,5 +1,6 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { Page } from "@playwright/test";
 
 /** Where a run keeps its sign-in, its store and what it seeded. */
 export const state = join(import.meta.dirname, "../.state");
@@ -23,3 +24,11 @@ export interface Seeded {
 
 export const seeded = (): Seeded =>
   JSON.parse(readFileSync(join(state, "seeded.json"), "utf8")) as Seeded;
+
+const screens = join(import.meta.dirname, "../test-results/screens");
+
+/** Keeps a capture of the whole page, named for the screen, for people and CI to look at. */
+export async function saveScreen(page: Page, name: string) {
+  mkdirSync(screens, { recursive: true });
+  await page.screenshot({ path: join(screens, `${name}.png`), fullPage: true });
+}

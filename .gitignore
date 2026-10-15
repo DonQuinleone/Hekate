@@ -7,3 +7,7 @@ dist/
 coverage/
 data/
 .DS_Store
+artifact/
+
+# The prototype's sample data is source, not a volume.
+!apps/prototype/src/data/

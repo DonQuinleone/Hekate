@@ -1,0 +1,56 @@
+import { cn } from "~/lib/cn";
+
+/** A labelled on and off switch. */
+export function Toggle({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-6 text-[14px] text-ink">
+      <span>
+        {label}
+        {hint && <span className="block text-[13px] text-ink-3">{hint}</span>}
+      </span>
+      <Switch checked={checked} onChange={onChange} label={label} />
+    </label>
+  );
+}
+
+export function Switch({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        "relative h-5 w-9 shrink-0 rounded-full transition-colors duration-200",
+        checked ? "bg-signal" : "bg-edge hover:bg-edge-strong",
+      )}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "absolute top-[2px] size-4 rounded-full bg-ink shadow-[0_1px_2px_rgb(0_0_0/0.4)] transition-[left] duration-200 ease-out",
+          checked ? "left-[18px]" : "left-[2px]",
+        )}
+      />
+    </button>
+  );
+}

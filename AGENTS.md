@@ -35,7 +35,7 @@ pnpm workspace.
 | --- | --- |
 | `apps/server` | Hono API. Also serves the built web app and runs job workers in production. |
 | `apps/web` | React single-page app. |
-| `apps/e2e` | The visual suite: Playwright captures of every screen, with layout and accessibility checks, compared in Argos. |
+| `apps/e2e` | The visual suite: Playwright captures of every screen, with layout and accessibility checks, kept as a CI artefact. |
 | `packages/shared` | Domain types and zod schemas shared by server and web. No runtime dependencies beyond zod. |
 | `packages/db` | Drizzle schema, migrations and client. Server-only. |
 | `packages/storage` | Storage backends (local disk, S3) behind one interface, with a shared conformance suite. Server-only. |
@@ -87,6 +87,15 @@ Unreleased material is the product's cargo. Read `docs/security.md` before touch
 - Originals reach a browser only through the download permission, watermarked per recipient, and logged.
 - Files are encrypted at rest with per-file keys; storage holds ciphertext only.
 - Log every key issue, page render and download in the access log.
+
+## Design contract
+
+The clickable prototype in `apps/prototype` is the approved design of the whole application and the contract for everything built in `apps/web`: its navigation model, page layouts, copy, states (empty, loading, processing, failed, refused, expired), components and keyboard behaviour. Its screens are in `apps/prototype/docs/screens` and its inventory in `apps/prototype/docs/inventory.md`.
+
+- Build what the prototype shows. Where an issue and the prototype differ, the prototype wins unless the issue says why.
+- Where building shows the prototype must change, change the prototype in the same pull request (or first) and say so in the description; the prototype never falls behind the product.
+- Reuse the prototype's components and data shapes as the starting point (`apps/prototype/src/components`, `apps/prototype/src/data`) rather than redesigning them.
+- Reviewers compare a visual change with its prototype screen before anything else.
 
 ## Design system
 
