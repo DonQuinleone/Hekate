@@ -2154,6 +2154,7 @@ function CodeView({
                 a.download = `${(flow?.name ?? "workflow").toLowerCase().replace(/\s+/g, "-")}.workflow.yaml`;
                 a.click();
                 URL.revokeObjectURL(a.href);
+                onToast(`Saved ${a.download}.`);
               }}
             >
               <Icon name="download" size={13} />
