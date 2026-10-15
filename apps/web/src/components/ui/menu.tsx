@@ -42,15 +42,18 @@ export function MenuList({
   onClose,
   align = "right",
   className,
+  role = "menu",
 }: {
   actions: (MenuAction | "divider")[];
   onClose: () => void;
   align?: "left" | "right";
   className?: string;
+  /** "group" when the list sits inside a larger menu. */
+  role?: "menu" | "group";
 }) {
   return (
     <div
-      role="menu"
+      role={role}
       className={cn(
         "rise-in absolute z-30 mt-1 flex min-w-44 flex-col rounded-panel bg-overlay p-1 shadow-3",
         align === "right" ? "right-0" : "left-0",

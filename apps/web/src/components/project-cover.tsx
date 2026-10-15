@@ -8,12 +8,6 @@ export const profileIcon: Record<ProjectProfile, IconName> = {
   general: "file",
 };
 
-const hue: Record<ProjectProfile, [number, number]> = {
-  music: [40, 60],
-  video: [260, 290],
-  general: [150, 170],
-};
-
 /** A project's cover: its own hue, lit from a corner, with the profile's mark. */
 export function ProjectCover({
   profile,
@@ -24,7 +18,6 @@ export function ProjectCover({
   className?: string;
   size?: "xs" | "sm" | "md" | "lg";
 }) {
-  const [a, b] = hue[profile];
   return (
     <span
       aria-hidden="true"
@@ -37,10 +30,10 @@ export function ProjectCover({
         className,
       )}
       style={{
-        background: `radial-gradient(120% 90% at 20% 0%, oklch(0.46 0.08 ${a}), oklch(0.2 0.04 ${b}) 70%)`,
+        background: `radial-gradient(120% 90% at 20% 0%, var(--hk-cover-${profile}-lit), var(--hk-cover-${profile}-deep) 70%)`,
       }}
     >
-      <span className="absolute inset-0 bg-[radial-gradient(60%_60%_at_80%_100%,rgb(255_255_255/0.08),transparent)]" />
+      <span className="absolute inset-0 bg-[radial-gradient(60%_60%_at_80%_100%,var(--hk-cover-sheen),transparent)]" />
       <Icon
         name={profileIcon[profile]}
         size={size === "lg" ? 22 : size === "md" ? 18 : size === "sm" ? 15 : 12}

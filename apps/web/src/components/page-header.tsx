@@ -1,5 +1,6 @@
 import { createContext, type ReactNode, useContext, useState } from "react";
 import { createPortal } from "react-dom";
+import { Icon } from "~/components/icons";
 
 /** A step back up the trail: a link, made by the page so it can be typed for its route. */
 export interface Crumb {
@@ -35,6 +36,18 @@ export function HeaderSlotsProvider({ slots, children }: { slots: Slots; childre
 function Trail({ crumbs, title, meta }: { crumbs: Crumb[]; title: ReactNode; meta?: ReactNode }) {
   return (
     <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px]">
+      {/* On a phone the trail shrinks to its last step, as the way back. */}
+      {crumbs.length > 0 && (
+        <span className="flex min-w-0 max-w-[45%] shrink items-center gap-1 @3xl/app:hidden">
+          <Icon name="chevronLeft" size={14} className="shrink-0 text-ink-3" />
+          <span className="min-w-0 truncate text-ink-3 [&_a]:text-ink-3 [&_a:hover]:text-ink">
+            {crumbs.at(-1)?.link}
+          </span>
+          <span aria-hidden="true" className="text-edge">
+            /
+          </span>
+        </span>
+      )}
       {crumbs.map((c) => (
         <span key={c.key} className="hidden min-w-0 shrink items-center gap-1.5 @3xl/app:flex">
           <span className="min-w-0 truncate rounded-chip px-1 py-0.5 text-ink-3 transition-colors hover:bg-raised [&_a]:text-ink-3 [&_a:hover]:text-ink">

@@ -181,7 +181,11 @@ function ProjectSwitcher({
         )}
       </button>
       {open && (
-        <div className="rise-in absolute top-full left-0 z-40 mt-1 w-64 rounded-panel-lg bg-overlay p-1 shadow-4">
+        <div
+          role="menu"
+          aria-label="Switch project"
+          className="rise-in absolute top-full left-0 z-40 mt-1 w-64 rounded-panel-lg bg-overlay p-1 shadow-4"
+        >
           <div className="eyebrow px-2.5 pt-1.5 pb-1">Projects</div>
           {projects.map((p) => (
             <button
@@ -205,6 +209,7 @@ function ProjectSwitcher({
           ))}
           <div className="mx-2 my-1 h-px bg-line" />
           <MenuList
+            role="group"
             className="relative mt-0 min-w-0 bg-transparent p-0 shadow-none"
             onClose={() => setOpen(false)}
             actions={[
@@ -272,6 +277,8 @@ function WorkspaceMenu({ collapsed, tab = false }: { collapsed: boolean; tab?: b
       </button>
       {open && (
         <div
+          role="menu"
+          aria-label="Account and workspace"
           className={cn(
             "rise-in absolute bottom-full z-40 mb-1.5 w-64 rounded-panel-lg bg-overlay p-1 shadow-4",
             tab ? "right-2" : "left-0",
@@ -314,6 +321,7 @@ function WorkspaceMenu({ collapsed, tab = false }: { collapsed: boolean; tab?: b
             </button>
           ))}
           <MenuList
+            role="group"
             className="relative mt-0 min-w-0 bg-transparent p-0 shadow-none"
             onClose={() => setOpen(false)}
             actions={[

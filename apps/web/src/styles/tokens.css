@@ -19,6 +19,15 @@
   --hk-node-comm: #b08cff;
   --hk-node-flow: #4fc3c9;
 
+  /* Project covers: each profile has its own lit and deep tone, and one sheen for all. */
+  --hk-cover-music-lit: oklch(0.46 0.08 40);
+  --hk-cover-music-deep: oklch(0.2 0.04 60);
+  --hk-cover-video-lit: oklch(0.46 0.08 260);
+  --hk-cover-video-deep: oklch(0.2 0.04 290);
+  --hk-cover-general-lit: oklch(0.46 0.08 150);
+  --hk-cover-general-deep: oklch(0.2 0.04 170);
+  --hk-cover-sheen: rgb(255 255 255 / 0.08);
+
   --hk-font-sans:
     "Schibsted Grotesk Variable", "Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
 
