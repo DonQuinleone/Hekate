@@ -1,7 +1,8 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Lockup, Mark } from "~/components/brand";
+import { CommandPalette, paletteKey } from "~/components/command-palette";
 import { Icon, type IconName } from "~/components/icons";
 import { NotificationsMenu } from "~/components/notifications";
 import { Trail, useCurrentHeader } from "~/components/page-header";
@@ -271,19 +272,35 @@ export function Shell({ children }: { children: ReactNode }) {
   const waitingReviews = viewer.reviews().filter((r) => needsYou(r, viewer.reviewerIn(r)));
   const waiting = waitingReviews.length;
 
+  const [palette, setPalette] = useState(false);
+  const chord = useRef<number>(0);
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPalette((p) => !p);
+        return;
+      }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (inField(event)) return;
+      if (inField(event) || palette) return;
       if (event.key === "[") setCollapsed(!collapsed);
       if (event.key === "/") {
         event.preventDefault();
-        navigate({ to: "/search" });
+        setPalette(true);
+      }
+      // "g" then a letter jumps: the second key must follow within a second.
+      if (event.key === "g") chord.current = Date.now();
+      else if (Date.now() - chord.current < 1000) {
+        chord.current = 0;
+        if (event.key === "h") navigate({ to: "/" });
+        if (event.key === "i") navigate({ to: "/inbox" });
+        if (event.key === "p") navigate({ to: "/projects" });
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [collapsed, setCollapsed, navigate]);
+  }, [collapsed, setCollapsed, navigate, palette]);
 
   const projects = viewer.projects();
   const elevated =
@@ -299,7 +316,12 @@ export function Shell({ children }: { children: ReactNode }) {
   });
 
   return (
-    <div className="flex h-full flex-col @3xl/app:flex-row">
+    <div className="relative flex h-full flex-col @3xl/app:flex-row">
+      <CommandPalette
+        open={palette}
+        onClose={() => setPalette(false)}
+        onToggleSidebar={() => setCollapsed(!collapsed)}
+      />
       <nav
         aria-label="Main"
         className={cn(
@@ -317,9 +339,9 @@ export function Shell({ children }: { children: ReactNode }) {
           </Link>
           <button
             type="button"
-            aria-label="Search"
-            title="Search (/)"
-            onClick={() => navigate({ to: "/search" })}
+            aria-label="Search and commands"
+            title={`Search and commands (${paletteKey})`}
+            onClick={() => setPalette(true)}
             className="flex size-8 shrink-0 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink"
           >
             <Icon name="search" />
@@ -420,6 +442,14 @@ export function Shell({ children }: { children: ReactNode }) {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col @3xl/app:py-2.5 @3xl/app:pr-2.5">
         <Pane>
           <TopBar>
+            <button
+              type="button"
+              aria-label="Search and commands"
+              onClick={() => setPalette(true)}
+              className="flex size-8 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink @3xl/app:hidden"
+            >
+              <Icon name="search" size={18} />
+            </button>
             <NotificationsMenu waiting={waiting} />
           </TopBar>
           <main className="scroll-quiet min-h-0 min-w-0 flex-1 overflow-auto">{children}</main>

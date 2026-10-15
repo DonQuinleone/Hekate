@@ -101,9 +101,9 @@ export function NewProject({ onClose, bare = false }: { onClose: () => void; bar
   );
 }
 
-export function ProjectsPage() {
+export function ProjectsPage({ create = false }: { create?: boolean }) {
   const viewer = useViewer();
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(create);
   const [filter, setFilter] = useState<"active" | "archived">("active");
   const mine = viewer.projects();
   const canCreate = !viewer.isGuest;

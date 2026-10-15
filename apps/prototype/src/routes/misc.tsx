@@ -1,18 +1,18 @@
-import { Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
 import { Avatar } from "~/components/avatar";
+import { paletteKey, ResultRow } from "~/components/command-palette";
 import { Icon } from "~/components/icons";
 import { Kbd, Label } from "~/components/label";
 import { notificationIcon } from "~/components/notifications";
 import { Page } from "~/components/page";
 import { usePageHeader } from "~/components/page-header";
-import { Dot } from "~/components/status";
-import { Thumb } from "~/components/thumb";
 import { Button } from "~/components/ui/button";
-import { Input, Select } from "~/components/ui/input";
-import { comments, files, notifications, people, personById, projects, tracks } from "~/data";
+import { Select } from "~/components/ui/input";
+import { notifications, people, personById } from "~/data";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/format";
+import { everything, type Hit, type HitGroup, matches } from "~/lib/search";
 import { useViewer } from "~/viewer/context";
 import { Empty, StateGate } from "~/viewer/state-gate";
 
@@ -90,240 +90,129 @@ const saved = [
   { id: "s-2", name: "Comments about noise", query: "comment:noise category:Noise" },
 ];
 
-export function SearchPage() {
+export function SearchPage({ query: initial = "" }: { query?: string }) {
   const viewer = useViewer();
-  const [query, setQuery] = useState("");
-  const [advanced, setAdvanced] = useState(false);
+  const navigate = useNavigate();
+  const [query, setQuery] = useState(initial);
+  const [type, setType] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [personId, setPersonId] = useState("");
   usePageHeader({ title: "Search" });
-  const q = query.trim().toLowerCase();
-  const hit = (s: string) => q.length > 0 && s.toLowerCase().includes(q);
-  const results = {
-    projects: projects.filter((p) => viewer.canSee(p.id) && hit(p.name)),
-    tracks: tracks.filter((t) => viewer.canSee(t.projectId) && hit(t.name)),
-    files: files.filter((f) => viewer.canSee(f.projectId) && hit(f.name)),
-    comments: comments.filter((c) => hit(c.body)),
-    people: people.filter((p) => hit(p.name)),
+  const all = useMemo(() => everything(viewer), [viewer]);
+  const hits = useMemo(
+    () =>
+      matches(query, all, 8).filter((h) => {
+        if (type && (!h.file || h.file.kind !== type)) return false;
+        if (projectId && h.projectId !== projectId) return false;
+        if (personId && h.personId !== personId) return false;
+        return true;
+      }),
+    [query, all, type, projectId, personId],
+  );
+  const q = query.trim();
+  const filtered = Boolean(type || projectId || personId);
+  const go = (hit: Hit) => {
+    if (hit.run) hit.run();
+    else if (hit.destination)
+      navigate({
+        to: hit.destination.to,
+        params: hit.destination.params ?? {},
+        search: hit.destination.search ?? {},
+      });
   };
-  const total = Object.values(results).reduce((n, l) => n + l.length, 0);
+  let lastGroup: HitGroup | null = null;
   return (
     <Page width="narrow" className="gap-5">
       <div className="relative">
         <Icon
           name="search"
-          size={16}
-          className="absolute top-1/2 left-3.5 -translate-y-1/2 text-ink-3"
+          size={18}
+          className="absolute top-1/2 left-4 -translate-y-1/2 text-ink-3"
         />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Projects, files, tracks, comments and people"
+          placeholder="Projects, tracks, files, reviews, tasks, people and comments"
           aria-label="Search"
-          className="h-12 w-full rounded-panel-lg border border-line bg-raised/40 pr-24 pl-10 text-[16px] text-ink shadow-2 placeholder:text-ink-3 focus:border-edge-strong focus:outline-none"
+          className="h-12 w-full rounded-panel-lg border border-line bg-raised/40 pr-4 pl-12 text-[16px] text-ink shadow-1 placeholder:text-ink-3 focus:border-edge-strong focus:outline-none"
         />
-        <button
-          type="button"
-          onClick={() => setAdvanced((a) => !a)}
-          className={cn(
-            "absolute top-1/2 right-2 flex h-8 -translate-y-1/2 items-center gap-1.5 rounded-control px-2.5 text-[13px] transition-colors",
-            advanced ? "bg-raised text-ink" : "text-ink-3 hover:text-ink",
-          )}
-        >
-          <Icon name="filter" size={14} />
-          Fields
-        </button>
       </div>
-      {advanced && (
-        <div className="rise-in grid gap-3 rounded-panel-lg border border-line bg-raised/25 p-4 @3xl/app:grid-cols-3">
-          {[
-            [
-              "Type",
-              <Select key="t" defaultValue="">
-                <option value="">Any</option>
-                <option>Audio</option>
-                <option>Video</option>
-                <option>Document</option>
-                <option>Picture</option>
-              </Select>,
-            ],
-            [
-              "Duration",
-              <span key="d" className="flex items-center gap-2">
-                <Input placeholder="min" className="w-20" />
-                <span className="text-ink-3">to</span>
-                <Input placeholder="max" className="w-20" />
-              </span>,
-            ],
-            [
-              "Size",
-              <span key="s" className="flex items-center gap-2">
-                <Input placeholder="MB" className="w-20" />
-                <span className="text-ink-3">to</span>
-                <Input placeholder="MB" className="w-20" />
-              </span>,
-            ],
-            [
-              "Frame rate",
-              <Select key="f" defaultValue="">
-                <option value="">Any</option>
-                <option>24</option>
-                <option>25</option>
-                <option>29.97</option>
-                <option>50</option>
-              </Select>,
-            ],
-            ["Tags", <Input key="g" placeholder="master, approved" />],
-            [
-              "Uploaded by",
-              <Select key="u" defaultValue="">
-                <option value="">Anyone</option>
-                {people.map((p) => (
-                  <option key={p.id}>{p.name}</option>
-                ))}
-              </Select>,
-            ],
-            ["Comment text", <Input key="c" placeholder="words in a comment" />],
-            [
-              "Project",
-              <Select key="p" defaultValue="">
-                <option value="">Any</option>
-                {projects.map((p) => (
-                  <option key={p.id}>{p.name}</option>
-                ))}
-              </Select>,
-            ],
-          ].map(([label, control]) => (
-            <label key={String(label)} className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-              {label}
-              {control}
-            </label>
+      <div className="flex flex-wrap items-center gap-2">
+        <Select value={type} onChange={(e) => setType(e.target.value)} className="w-32">
+          <option value="">Any kind</option>
+          <option value="audio">Audio</option>
+          <option value="video">Video</option>
+          <option value="document">Documents</option>
+          <option value="image">Pictures</option>
+        </Select>
+        <Select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="w-40">
+          <option value="">Any project</option>
+          {viewer.projects().map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
           ))}
-          <div className="flex items-end justify-end gap-2 @3xl/app:col-span-3">
-            <Button variant="ghost">Save this search</Button>
-            <Button variant="primary">Search</Button>
-          </div>
-        </div>
-      )}
-      <div className="grid gap-8 @3xl/app:grid-cols-[minmax(0,1fr)_220px]">
-        <div className="flex min-w-0 flex-col gap-6">
-          {q.length === 0 ? (
-            <p className="text-[13px] text-ink-3">
-              Type to search. <Kbd>/</Kbd> opens this from anywhere.
-            </p>
-          ) : total === 0 ? (
-            <Empty title="No results" text={`Nothing matches “${query}” in what you can see.`} />
-          ) : (
-            <>
-              {results.projects.length > 0 && (
-                <section className="flex flex-col gap-1">
-                  <Label>Projects</Label>
-                  {results.projects.map((p) => (
-                    <Link
-                      key={p.id}
-                      to="/projects/$projectId"
-                      params={{ projectId: p.id }}
-                      className="flex items-center gap-3 rounded-panel px-2 py-2 hover:bg-raised/60"
-                    >
-                      <Icon name="folder" className="text-ink-3" />
-                      <span className="text-[14px] text-ink">{p.name}</span>
-                    </Link>
-                  ))}
-                </section>
-              )}
-              {results.tracks.length > 0 && (
-                <section className="flex flex-col gap-1">
-                  <Label>Tracks</Label>
-                  {results.tracks.map((t) => (
-                    <Link
-                      key={t.id}
-                      to="/tracks/$trackId"
-                      params={{ trackId: t.id }}
-                      className="flex items-center gap-3 rounded-panel px-2 py-2 hover:bg-raised/60"
-                    >
-                      <Icon name="track" className="text-ink-3" />
-                      <span className="text-[14px] text-ink">{t.name}</span>
-                      <span className="text-[13px] text-ink-3">{t.versions.length} versions</span>
-                    </Link>
-                  ))}
-                </section>
-              )}
-              {results.files.length > 0 && (
-                <section className="flex flex-col gap-1">
-                  <Label>Files</Label>
-                  {results.files.map((f) => (
-                    <Link
-                      key={f.id}
-                      to="/files/$fileId"
-                      params={{ fileId: f.id }}
-                      className="flex items-center gap-3 rounded-panel px-2 py-2 hover:bg-raised/60"
-                    >
-                      <Thumb file={f} width={40} height={26} />
-                      <span className="truncate text-[14px] text-ink">{f.name}</span>
-                    </Link>
-                  ))}
-                </section>
-              )}
-              {results.comments.length > 0 && (
-                <section className="flex flex-col gap-1">
-                  <Label>Comments</Label>
-                  {results.comments.map((c) => (
-                    <Link
-                      key={c.id}
-                      to="/files/$fileId"
-                      params={{ fileId: c.fileId }}
-                      search={{ comment: c.id }}
-                      className="flex items-start gap-3 rounded-panel px-2 py-2 hover:bg-raised/60"
-                    >
-                      <Avatar personId={c.authorId} size={22} />
-                      <span className="min-w-0">
-                        <span className="block truncate text-[14px] text-ink">{c.body}</span>
-                        <span className="block text-[12px] text-ink-3">
-                          {personById(c.authorId).name} · {ago(c.createdAt)}
-                        </span>
-                      </span>
-                    </Link>
-                  ))}
-                </section>
-              )}
-              {results.people.length > 0 && (
-                <section className="flex flex-col gap-1">
-                  <Label>People</Label>
-                  {results.people.map((p) => (
-                    <Link
-                      key={p.id}
-                      to="/members"
-                      className="flex items-center gap-3 rounded-panel px-2 py-2 hover:bg-raised/60"
-                    >
-                      <Avatar personId={p.id} size={22} />
-                      <span className="text-[14px] text-ink">{p.name}</span>
-                    </Link>
-                  ))}
-                </section>
-              )}
-            </>
-          )}
-        </div>
-        <aside className="flex flex-col gap-2">
-          <Label>Saved searches</Label>
+        </Select>
+        <Select value={personId} onChange={(e) => setPersonId(e.target.value)} className="w-40">
+          <option value="">Anyone</option>
+          {people.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </Select>
+        {filtered && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setType("");
+              setProjectId("");
+              setPersonId("");
+            }}
+          >
+            Clear
+          </Button>
+        )}
+        <span className="ml-auto flex items-center gap-1.5 text-[12px] text-ink-3">
+          <Kbd>{paletteKey}</Kbd> from anywhere
+        </span>
+      </div>
+      {!q && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-[12px] text-ink-3">Saved</span>
           {saved.map((s) => (
             <button
               key={s.id}
               type="button"
-              onClick={() => {
-                setQuery(s.query);
-                setAdvanced(true);
-              }}
-              className="flex flex-col rounded-panel px-2 py-1.5 text-left transition-colors hover:bg-raised/60"
+              onClick={() => setQuery(s.query)}
+              className="flex h-7 items-center rounded-chip border border-line px-2.5 text-[13px] text-ink-2 transition-colors hover:border-edge-strong hover:text-ink"
             >
-              <span className="text-[13px] text-ink">{s.name}</span>
-              <span className="tabular truncate text-[12px] text-ink-3">{s.query}</span>
+              {s.name}
             </button>
           ))}
-          <span className="mt-2 flex items-center gap-1.5 text-[12px] text-ink-3">
-            <Dot state="passed" />
-            Searches cover only what you may see.
-          </span>
-        </aside>
-      </div>
+        </div>
+      )}
+      {!q && !filtered ? (
+        <p className="text-[13px] text-ink-3">
+          Type to search what you may see, or narrow by kind, project and person.
+        </p>
+      ) : hits.length === 0 ? (
+        <Empty title="No results" text={`Nothing matches “${q}” in what you can see.`} />
+      ) : (
+        <div className="flex flex-col">
+          {hits.map((hit) => {
+            const head = hit.group !== lastGroup;
+            lastGroup = hit.group;
+            return (
+              <div key={`${hit.group}-${hit.id}`}>
+                {head && <Label className="mt-4 mb-1 block px-3 first:mt-0">{hit.group}</Label>}
+                <ResultRow hit={hit} onSelect={go} />
+              </div>
+            );
+          })}
+        </div>
+      )}
     </Page>
   );
 }

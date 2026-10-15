@@ -270,11 +270,19 @@ function TaskPanel({
   );
 }
 
-export function ProjectTasks({ project, taskId }: { project: Project; taskId?: string }) {
+export function ProjectTasks({
+  project,
+  taskId,
+  create = false,
+}: {
+  project: Project;
+  taskId?: string;
+  create?: boolean;
+}) {
   const viewer = useViewer();
   const navigate = useNavigate();
   const [filter, setFilter] = useState<"open" | "mine" | "unassigned" | "overdue" | "all">("open");
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(create);
   const list = tasks
     .filter((t) => t.projectId === project.id)
     .filter((t) =>

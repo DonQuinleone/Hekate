@@ -189,7 +189,11 @@ const review = createRoute({
 const projectsRoute = createRoute({
   getParentRoute: () => app,
   path: "/projects",
-  component: ProjectsPage,
+  validateSearch: (s: Record<string, unknown>) => pick(s, ["new"]),
+  component: function ProjectsRoute() {
+    const search = projectsRoute.useSearch();
+    return <ProjectsPage create={search.new === "1"} />;
+  },
 });
 const project = createRoute({
   getParentRoute: () => app,
@@ -213,7 +217,8 @@ const project = createRoute({
 const projectView = createRoute({
   getParentRoute: () => app,
   path: "/projects/$projectId/$view",
-  validateSearch: (s: Record<string, unknown>) => pick(s, ["folder", "section", "task", "month"]),
+  validateSearch: (s: Record<string, unknown>) =>
+    pick(s, ["folder", "section", "task", "month", "new"]),
   component: function ProjectViewRoute() {
     const { projectId, view } = projectView.useParams();
     const search = projectView.useSearch();
@@ -225,6 +230,7 @@ const projectView = createRoute({
         section={search.section}
         taskId={search.task}
         month={search.month}
+        create={search.new === "1"}
       />
     );
   },
@@ -320,7 +326,15 @@ const notifications = createRoute({
   path: "/notifications",
   component: NotificationsPage,
 });
-const search = createRoute({ getParentRoute: () => app, path: "/search", component: SearchPage });
+const search = createRoute({
+  getParentRoute: () => app,
+  path: "/search",
+  validateSearch: (s: Record<string, unknown>) => pick(s, ["q"]),
+  component: function SearchRoute() {
+    const s = search.useSearch();
+    return <SearchPage query={s.q} />;
+  },
+});
 
 const guestApp = createRoute({ getParentRoute: () => root, id: "guest-app", component: GuestApp });
 const guestHome = createRoute({

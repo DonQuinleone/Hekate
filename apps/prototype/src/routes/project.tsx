@@ -804,12 +804,14 @@ export function ProjectPage({
   section,
   taskId,
   month,
+  create,
 }: {
   projectId: string;
   view: string;
   folderId?: string;
   section?: string;
   taskId?: string;
+  create?: boolean;
   month?: string;
 }) {
   const viewer = useViewer();
@@ -855,7 +857,7 @@ export function ProjectPage({
         {view === "files" && <Files project={project} folderId={folderId ?? null} />}
         {view === "board" && <Board project={project} month={month} />}
         {view === "reviews" && <ProjectReviews project={project} />}
-        {view === "tasks" && <ProjectTasks project={project} taskId={taskId} />}
+        {view === "tasks" && <ProjectTasks project={project} taskId={taskId} create={create} />}
         {view === "people" && <People project={project} />}
         {view === "sessions" && <ProductionView project={project} section="sessions" />}
         {view === "coverage" && <CoverageView project={project} />}
