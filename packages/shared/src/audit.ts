@@ -37,6 +37,8 @@ export const auditActions = [
   /** A guest opened a review, or commented. */
   "guest.view",
   "comment.create",
+  /** An owner renamed the workspace. */
+  "organisation.rename",
 ] as const;
 export const auditAction = z.enum(auditActions);
 export type AuditAction = z.infer<typeof auditAction>;

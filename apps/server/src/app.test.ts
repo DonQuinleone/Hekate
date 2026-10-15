@@ -597,6 +597,17 @@ describe.runIf(url)("api", () => {
         expect((await rename("   ", owner)).status).toBe(400);
         expect((await rename("Endless Hall Recordings", owner)).status).toBe(200);
         expect(await nameOf(owner)).toBe("Endless Hall Recordings");
+        // The access log says who renamed it, from what.
+        const logged = (await (
+          await app.request("/api/organisation/audit?action=organisation.rename", {
+            headers: { cookie: owner },
+          })
+        ).json()) as { events: { actorLabel: string; details: unknown }[] };
+        expect(logged.events).toHaveLength(1);
+        expect(logged.events[0]?.details).toEqual({
+          from: "Studio",
+          to: "Endless Hall Recordings",
+        });
 
         const admin = await joinAs(owner, "engineer@example.test", "admin");
         expect((await rename("Taken over", admin)).status).toBe(403);
@@ -834,6 +845,39 @@ describe.runIf(url)("api", () => {
         ).json()) as Page;
         expect(forFile.events).toHaveLength(4);
         expect((await get("/api/organisation/audit?action=nonsense", owner)).status).toBe(400);
+      });
+
+      it("names the file each entry touched, and nothing for one it cannot find", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const me = await audit.member((await db.select().from(schema.users))[0]?.id ?? "");
+        const [project] = await db
+          .insert(schema.projects)
+          .values({ organisationId, name: "Rags", profile: "music" })
+          .returning();
+        const blob = await storage.put(organisationId, Buffer.from("not really audio"));
+        const [file] = await db
+          .insert(schema.files)
+          .values({
+            organisationId,
+            projectId: project?.id ?? "",
+            name: "Mix v3.wav",
+            kind: "audio",
+            blobId: blob.id,
+            contentType: "audio/wav",
+            byteSize: blob.byteSize,
+          })
+          .returning();
+        await audit.record(organisationId, me, {
+          action: "download",
+          fileId: "01999999-0000-7000-8000-00000000000a",
+        });
+        await audit.record(organisationId, me, { action: "download", fileId: file?.id ?? "" });
+        const page = (await (await get("/api/organisation/audit", owner)).json()) as {
+          events: { fileName: string | null; reviewTitle: string | null }[];
+        };
+        expect(page.events.map((e) => e.fileName)).toEqual(["Mix v3.wav", null]);
+        expect(page.events.every((e) => e.reviewTitle === null)).toBe(true);
       });
 
       it("is for admins and owners only", async () => {

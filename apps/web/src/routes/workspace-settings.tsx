@@ -9,7 +9,9 @@ import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
+import { shortAgent } from "~/lib/agent";
 import {
+  type AccessEvent,
   accessLogQuery,
   invitationsQuery,
   type Member,
@@ -444,7 +446,19 @@ const actionCopy: Record<string, string> = {
   "guest.revoke": "Guest revoked",
   "guest.view": "Guest opened a review",
   "comment.create": "Comment",
+  "organisation.rename": "Workspace renamed",
 };
+
+/** What an entry touched, by name: a file, a review, or a deleted one of either. */
+function targetOf(e: AccessEvent): string | null {
+  const file = e.fileId ? (e.fileName ?? "a deleted file") : null;
+  const review = e.reviewId ? (e.reviewTitle ?? "a deleted review") : null;
+  const named = [file, review].filter(Boolean).join(" · ");
+  if (named) return named;
+  if (e.action === "organisation.rename" && typeof e.details?.to === "string")
+    return `to ${e.details.to}`;
+  return null;
+}
 
 function AccessLog() {
   const [action, setAction] = useState("");
@@ -493,7 +507,7 @@ function AccessLog() {
             <div
               key={e.id}
               data-log-entry
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-[13px] @3xl/app:grid-cols-[130px_170px_minmax(0,1fr)_130px]"
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-[13px] @3xl/app:grid-cols-[130px_170px_minmax(0,1fr)_130px] @6xl/app:grid-cols-[130px_170px_minmax(0,1fr)_130px_140px]"
             >
               <span className="tabular text-ink-3">
                 {timeFormat.format(new Date(e.occurredAt))}
@@ -503,11 +517,20 @@ function AccessLog() {
                   {actionCopy[e.action] ?? e.action}
                 </span>
               </span>
-              <span className="col-span-2 truncate text-ink-2 @3xl/app:col-span-1">
-                {e.actorLabel}
+              <span className="col-span-2 flex min-w-0 flex-col @3xl/app:col-span-1">
+                <span className="truncate text-ink-2">{e.actorLabel}</span>
+                {targetOf(e) && (
+                  <span className="truncate text-[12px] text-ink-3">{targetOf(e)}</span>
+                )}
               </span>
               <span className="tabular hidden truncate text-ink-3 @3xl/app:block">
                 {e.ipAddress ?? ""}
+              </span>
+              <span
+                className="hidden truncate text-ink-3 @6xl/app:block"
+                title={e.userAgent ?? undefined}
+              >
+                {shortAgent(e.userAgent) ?? ""}
               </span>
             </div>
           ))}

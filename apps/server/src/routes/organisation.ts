@@ -8,7 +8,7 @@ import {
   organisationUpdateInput,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, asc, count, desc, eq, gt, isNull, max, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNull, max, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -20,7 +20,17 @@ import type { Mailer } from "../mail.ts";
 import type { Storage } from "../storage.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";
 
-const { members, users, invitations, organisations, guests, guestLinks, guestSessions } = schema;
+const {
+  members,
+  users,
+  invitations,
+  organisations,
+  guests,
+  guestLinks,
+  guestSessions,
+  files,
+  reviews,
+} = schema;
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
 async function ownerCount(db: Database, organisationId: string) {
@@ -43,12 +53,31 @@ export const organisationRoutes = (
     // Only owners rename the workspace; the organisation comes from the session, never the body.
     .patch("/", requireRole("owner"), zValidator("json", organisationUpdateInput), async (c) => {
       const { name } = c.req.valid("json");
-      const [row] = await db
-        .update(organisations)
-        .set({ name })
-        .where(eq(organisations.id, c.var.organisationId))
-        .returning({ id: organisations.id, name: organisations.name });
-      if (!row) throw new NotFound("Workspace");
+      const organisationId = c.var.organisationId;
+      const who = await audit.member(c.var.userId);
+      const row = await db.transaction(async (tx) => {
+        // Locked, so the old name in the log is the one this rename replaced.
+        const [before] = await tx
+          .select({ name: organisations.name })
+          .from(organisations)
+          .where(eq(organisations.id, organisationId))
+          .for("update");
+        if (!before) throw new NotFound("Workspace");
+        const [after] = await tx
+          .update(organisations)
+          .set({ name })
+          .where(eq(organisations.id, organisationId))
+          .returning({ id: organisations.id, name: organisations.name });
+        if (!after) throw new NotFound("Workspace");
+        await audit.record(
+          organisationId,
+          who,
+          { action: "organisation.rename", details: { from: before.name, to: after.name } },
+          requestInfo(c, trustProxy),
+          tx,
+        );
+        return after;
+      });
       return c.json({ organisation: row });
     })
     .get("/members", async (c) => {
@@ -280,10 +309,12 @@ export const organisationRoutes = (
       const organisationId = c.var.organisationId;
       const who = await audit.member(c.var.userId);
       await db.transaction(async (tx) => {
+        // The same lock a new link takes, so none can be issued while this revokes.
         const [guest] = await tx
           .select({ id: guests.id })
           .from(guests)
-          .where(inOrg(guests, organisationId, eq(guests.id, id)));
+          .where(inOrg(guests, organisationId, eq(guests.id, id)))
+          .for("update");
         if (!guest) throw new NotFound("Guest");
         await revokeGuest(tx, organisationId, guest.id);
         await audit.record(
@@ -328,7 +359,36 @@ export const organisationRoutes = (
       },
     )
     .get("/audit", requireRole("admin"), zValidator("query", auditQuery), async (c) => {
-      return c.json(await audit.query(c.var.organisationId, c.req.valid("query")));
+      const organisationId = c.var.organisationId;
+      const page = await audit.query(organisationId, c.req.valid("query"));
+      // What each entry touched, by name, so repeated renders or downloads tell apart. A
+      // file or review deleted since keeps its id and has no name.
+      const fileIds = [...new Set(page.events.flatMap((e) => (e.fileId ? [e.fileId] : [])))];
+      const reviewIds = [...new Set(page.events.flatMap((e) => (e.reviewId ? [e.reviewId] : [])))];
+      const [fileNames, reviewTitles] = await Promise.all([
+        fileIds.length
+          ? db
+              .select({ id: files.id, name: files.name })
+              .from(files)
+              .where(inOrg(files, organisationId, inArray(files.id, fileIds)))
+          : [],
+        reviewIds.length
+          ? db
+              .select({ id: reviews.id, name: reviews.title })
+              .from(reviews)
+              .where(inOrg(reviews, organisationId, inArray(reviews.id, reviewIds)))
+          : [],
+      ]);
+      const fileName = new Map(fileNames.map((f) => [f.id, f.name]));
+      const reviewTitle = new Map(reviewTitles.map((r) => [r.id, r.name]));
+      return c.json({
+        ...page,
+        events: page.events.map((e) => ({
+          ...e,
+          fileName: e.fileId ? (fileName.get(e.fileId) ?? null) : null,
+          reviewTitle: e.reviewId ? (reviewTitle.get(e.reviewId) ?? null) : null,
+        })),
+      });
     })
     .get(
       "/audit.csv",

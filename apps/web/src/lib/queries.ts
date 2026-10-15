@@ -356,6 +356,9 @@ export interface AccessEvent {
   projectId: string | null;
   fileId: string | null;
   reviewId: string | null;
+  /** What the entry touched, by name; null once it has been deleted. */
+  fileName: string | null;
+  reviewTitle: string | null;
   ipAddress: string | null;
   userAgent: string | null;
   details: Record<string, unknown> | null;
