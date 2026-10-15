@@ -15,9 +15,10 @@ import { ActionMenu } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
 import { env, severities, tickets } from "~/data";
 import { cn } from "~/lib/cn";
+import { useViewer } from "~/viewer/context";
 import { useScreenState } from "~/viewer/state-gate";
 
-/** The operator's side of the same application: the organisations and the machine, nothing of the content. */
+/** The operator's side of the same application: the workspaces and the machine, nothing of the content. */
 export const instanceSections: { id: string; label: string; icon: IconName; hint: string }[] = [
   {
     id: "overview",
@@ -77,7 +78,7 @@ export const instanceSections: { id: string; label: string; icon: IconName; hint
     id: "system",
     label: "System information",
     icon: "server",
-    hint: "Version, build, channel, patches and the environment",
+    hint: "Version, build, channel, releases and the environment",
   },
   {
     id: "settings",
@@ -693,8 +694,19 @@ function NewOrganisation({ onClose }: { onClose: () => void }) {
 
 type OrgTab = "overview" | "members" | "projects" | "storage" | "billing" | "settings" | "keys";
 
+/**
+ * What a viewer may open on the instance side. Operators see everything; a workspace owner who
+ * is not an operator sees only their own workspace (decision 039).
+ */
+export function instanceSectionsFor(operator: boolean) {
+  return operator ? instanceSections : instanceSections.filter((s) => s.id === "workspaces");
+}
+
 export function InstancePage({ section }: { section: string }) {
   const state = useScreenState();
+  const viewer = useViewer();
+  const operator = viewer.isInstance;
+  const sections = instanceSectionsFor(operator);
   const [creating, setCreating] = useState(false);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("");
@@ -712,13 +724,13 @@ export function InstancePage({ section }: { section: string }) {
   const [ticketQ, setTicketQ] = useState("");
   const [ticketState, setTicketState] = useState("open");
   const openTicket = tickets.find((t) => t.id === ticketId);
-  const sec = instanceSections.some((s) => s.id === section) ? section : "overview";
-  const meta = instanceSections.find((s) => s.id === sec) ?? instanceSections[0];
+  const sec = sections.some((s) => s.id === section) ? section : (sections[0]?.id ?? "overview");
+  const meta = sections.find((s) => s.id === sec) ?? sections[0];
   usePageHeader({
     crumbs: [{ label: "Instance", to: "/instance" }],
     title: meta?.label ?? "Instance",
     actions:
-      sec === "workspaces" ? (
+      sec === "workspaces" && operator ? (
         <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
           <Icon name="plus" size={14} />
           Workspace
@@ -731,12 +743,13 @@ export function InstancePage({ section }: { section: string }) {
       ) : undefined,
   });
   const workerDown = state === "failed";
-  const visibleOrgs = orgs.filter(
+  // An owner who is not an operator sees their own workspace and no other.
+  const visibleOrgs = (operator ? orgs : orgs.filter((o) => o.id === "t-1")).filter(
     (o) =>
       (!filter || o.state === filter) &&
       (!q || o.name.toLowerCase().includes(q.toLowerCase()) || o.host.includes(q.toLowerCase())),
   );
-  const org = orgs.find((o) => o.id === orgId) ?? orgs[0];
+  const org = visibleOrgs.find((o) => o.id === orgId) ?? orgs.find((o) => o.id === "t-1");
   const members = orgMembers[org?.id ?? ""] ?? [
     {
       name: "Owner",
@@ -826,7 +839,8 @@ export function InstancePage({ section }: { section: string }) {
               <p className="px-3 py-6 text-center text-[13px] text-ink-3">Nothing matches.</p>
             )}
             <p className="px-2.5 pt-2 pb-1 text-[11px] text-ink-3">
-              {visibleOrgs.length} of {orgs.length} · more load as you scroll
+              {visibleOrgs.length} of {operator ? orgs.length : 1}
+              {operator ? " · more load as you scroll" : ""}
             </p>
           </div>
         </div>
@@ -846,14 +860,17 @@ export function InstancePage({ section }: { section: string }) {
                 always
                 label={org.name}
                 actions={[
-                  { label: "Open as its owner (logged)", onSelect: () => {} },
                   { label: "Export everything", onSelect: () => {} },
-                  "divider",
-                  {
-                    label: org.state === "suspended" ? "Reinstate" : "Suspend",
-                    danger: org.state !== "suspended",
-                    onSelect: () => {},
-                  },
+                  ...(operator
+                    ? [
+                        "divider" as const,
+                        {
+                          label: org.state === "suspended" ? "Reinstate" : "Suspend",
+                          danger: org.state !== "suspended",
+                          onSelect: () => {},
+                        },
+                      ]
+                    : []),
                 ]}
               />
             </div>
@@ -1196,7 +1213,7 @@ export function InstancePage({ section }: { section: string }) {
               flag={workerDown}
             />
             <Tile label="Errors today" value="3" hint="2 jobs, 1 OAuth exchange" flag />
-            <Tile label="Patch available" value="0.2.1" hint="3 fixes, no migration" />
+            <Tile label="Release available" value="0.2.1" hint="3 fixes, no migration" />
           </div>
           <Section title="Needs an operator">
             <Row
@@ -1216,11 +1233,11 @@ export function InstancePage({ section }: { section: string }) {
               </Button>
             </Row>
             <Row
-              name="Patch 0.2.1 can be applied now"
-              hint="Three fixes, no migration, no restart of the worker."
+              name="Release 0.2.1 is out"
+              hint="Three fixes, no migration. Pull the new image and restart; nothing is patched in place."
             >
-              <Button variant="primary" size="md">
-                Apply
+              <Button variant="secondary" size="md">
+                How to upgrade
               </Button>
             </Row>
           </Section>
@@ -2204,22 +2221,22 @@ export function InstancePage({ section }: { section: string }) {
           </Section>
           <Section
             title="Available"
-            intro="A patch is a signed bundle of fixes for the running version: applied in place, no migration, the worker drains and restarts. A release is a new image."
+            intro="Every release is a new image: pull it and restart, and migrations run on start. Nothing is patched in place."
           >
             <Row
               name={
                 <span className="flex items-center gap-2">
                   <Dot state="working" />
-                  Patch 0.2.1
+                  Release 0.2.1
                 </span>
               }
-              hint="Fixes: PDF pages with a damaged xref (HK-7F3A-2C), webhook backoff after 429, a loudness rounding error. No migration; the worker restarts."
+              hint="Fixes: PDF pages with a damaged xref (HK-7F3A-2C), webhook backoff after 429, a loudness rounding error. No migration."
             >
               <Button variant="ghost" size="md">
                 Release notes
               </Button>
-              <Button variant="primary" size="md">
-                Apply
+              <Button variant="secondary" size="md">
+                How to upgrade
               </Button>
             </Row>
             <Row
@@ -2229,11 +2246,11 @@ export function InstancePage({ section }: { section: string }) {
               <span className="text-[13px] text-ink-3">Beta</span>
             </Row>
           </Section>
-          <Section title="Applied" intro="Every patch and release, with the way back.">
+          <Section title="History" intro="Every release this instance has run.">
             {[
               ["0.2.0", "release", "4 Sep 2026", "migrations 0041 to 0044"],
-              ["0.1.4", "patch", "22 Aug 2026", "signed URL clock skew"],
-              ["0.1.3", "patch", "15 Aug 2026", "S3 multipart retry"],
+              ["0.1.4", "release", "22 Aug 2026", "signed URL clock skew"],
+              ["0.1.3", "release", "15 Aug 2026", "S3 multipart retry"],
               ["0.1.0", "release", "2 Aug 2026", "first install"],
             ].map(([v, kind, when, what]) => (
               <Row
@@ -2247,13 +2264,7 @@ export function InstancePage({ section }: { section: string }) {
                   </span>
                 }
                 hint={`${when} · ${what}`}
-              >
-                {kind === "patch" && (
-                  <Button variant="ghost" size="md">
-                    Roll back
-                  </Button>
-                )}
-              </Row>
+              ></Row>
             ))}
           </Section>
           <Section title="Environment">

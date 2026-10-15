@@ -6,7 +6,9 @@ The words in this document are used exactly as defined, in code, in the interfac
 
 | Term | Meaning |
 | --- | --- |
-| **Organisation** | The tenant. Owns members, guests, projects and storage. |
+| **Workspace** | The tenant, called *organisation* in code and the API. Owns members, guests, projects and storage. |
+| **Instance** | One install of Hekate, run by its **operators**. Holds one workspace or many. |
+| **Operator** | An account that runs the instance: workspaces, health, logs, support. Never acts inside a workspace's content as someone else. |
 | **Project** | The overall unit of work, for example an album, a film or a campaign. Contains folders, files, tracks and takes. A project's profile (Music, Video, General) only decides which tools appear; any kind of file can live in any project. |
 | **Folder** | Organises files inside a project. Folders nest. |
 | **File** | One uploaded object: audio, video, a PDF score, cover artwork, a document. Files are immutable; a changed file is a new file. |
@@ -39,17 +41,22 @@ The words in this document are used exactly as defined, in code, in the interfac
 | **Reviewer** | A person asked to take part in a review: a member or a guest. |
 | **Guest** | An external reviewer without an account (a conductor, a soloist, a composer). Guests reach material through signed links scoped to the reviews they are part of. |
 | **Group** | A named set of reviewers in a project, for example "Soloists". A review can be sent to groups as well as individuals. |
-| **Workflow** | A configurable sequence of stages, statuses and transitions, defined per project and overridable per track. Built in a Jira-style workflow builder. |
+| **Workflow** | A graph of nodes and connectors, defined per project and overridable per track (decision 040). Built in the workflow builder; readable and writable as YAML. |
+| **Node** | A step of a workflow: an **event** (something happens) or an **action** (something is done), each with named **outcomes**. |
+| **Connector** | Wires a node's outcome to the next node, optionally with a **condition**; one that runs back is a loop and needs an "until". |
 | **Stage** | A step in a workflow: an approval, a feedback round or a task (triage, editing). Stages have participants and run when their conditions are met. |
 | **Status** | Where a track (or other item) stands in its workflow, for example *Editing*, *With conductor*, *Triage*, *Approved*. Statuses are defined by the workflow, not fixed by Hekate. |
 | **Role** | A named set of permissions within a project, for example Producer, Engineer, Editor, Reviewer. Roles and their permissions are configurable per project. |
+| **Ticket** | A question to the people who run the instance, from a workspace: a thread with a generated reference, a type and a severity limited by the plan. Only with the support module. |
+| **Plan** | What a workspace pays for and is given: limits, features and the support severities it unlocks. Only with the billing module. |
+| **Error reference** | A short code (`HK-7F3A-2C`) shown with an error, by which an operator finds what happened. |
 
 Terms deliberately **not** used: *movement* (a track is the unit), *asset* (say file, track or version), *take* for anything other than a recording-session snippet.
 
 ## Content
 
 ```
-Organisation
+Workspace (organisation)
 └── Project (profile: music | video | general)
     ├── Folder (nested)
     │   └── File
@@ -180,7 +187,7 @@ Triage (producer or whoever holds the permission) can change a comment's categor
 
 ### Reviewer permissions
 
-Every reviewer in a review has their own permission set. Defaults are set per organisation and per project, and any reviewer can be adjusted individually:
+Every reviewer in a review has their own permission set. Defaults are set per workspace and per project, and any reviewer can be adjusted individually:
 
 - **Items:** which tracks, deliverables, versions and files they can open
 - **History:** whether they can see previous versions, or only the one under review
@@ -206,24 +213,25 @@ Each reviewer's participation has its own state (invited, viewed, in progress, s
 
 ## Workflows
 
-A workflow is a directed graph of **stages** plus a set of **statuses**.
+A workflow is a graph of **nodes** joined by **connectors** (decision 040), plus a set of **statuses**.
 
-- **Stage kinds:** `approval`, `feedback`, or `task` (a human step such as "Producer triages feedback" or "Engineer edits").
-- **Start conditions:** a stage starts when the stages it depends on reach a given outcome. Examples: conductor round 2 starts after conductor round 1 is submitted; the accompanist round starts only after the composer's feedback.
-- **Participants:** members, guests, groups or roles.
-- **Transitions:** on completion (or on a specific outcome such as *Changes requested*), the item moves to a status and optionally starts other stages.
-- **Notifications:** on entering a stage or status, notify roles or people (the engineer when edits are needed, the producer when feedback needs triage).
-- **Scope:** a project has a default workflow; a track can override it. A new version can restart the workflow from a chosen stage.
+- **Events** are things that happen: a version arrives, an upload passes or fails its checks, a decision is recorded, feedback is submitted, a task is done, a due date passes, a production slot ends. An event can start a flow; it never ends one.
+- **Actions** are things Hekate does or asks for: ask for an approval or for feedback (members, guests, groups or roles; all at once or in order; everyone or any one), assign a task (triage, editing), notify people or roles, set a status, wait, and finish. An action never starts a flow, always follows an outcome, and nothing follows a finish.
+- **Outcomes** are the named ways a node ends: an approval ends *approved* or *changes requested*, a feedback round *submitted*, a task *done*, a check *passed* or *failed*.
+- **Connectors** wire an outcome to the next node and may carry a **condition** (on the item, the decision or who made it). A connector that runs back to an earlier node is a **loop**, and needs a way out: an *until* (for example, until approved, or at most three rounds).
+- **Groups** frame a stage on the canvas ("Conductor rounds"), so a long flow reads as a few steps.
+- **Statuses** are where an item stands (*Editing*, *With conductor*, *Triage*, *Approved*), set by actions and shown on the board.
+- **Scope:** a project's workflows share one canvas, each starting from its own event; a track can override them. A new version is itself an event, so a flow decides what happens when one arrives (for example, go back to the conductor's round).
+- **Text:** every workflow can be read and written as YAML, so it can be stored, shared and reviewed.
 
 Example, a choral album:
 
-1. Feedback · Conductor, round 1
-2. Task · Producer triages, then Engineer edits
-3. Feedback · Conductor, round 2
-4. Approval · Composer
-5. Approval · Accompanist (after the composer)
-6. Feedback · Soloist and Cellist (in parallel with 4 and 5)
-7. Status *Approved* when 4 and 5 approve
+1. Event · a version arrives on a track
+2. Action · ask the conductor for feedback; on *submitted*
+3. Action · assign triage to the producer, then editing to the engineer; on *done*
+4. Action · ask the conductor again, looping back to 3 until the conductor has nothing more (at most three rounds)
+5. Action · ask the composer for approval, then the accompanist, in order; alongside, ask the soloist and cellist for feedback
+6. On the composer's and accompanist's *approved*: set the status *Approved* and finish; on *changes requested*: back to 3
 
 ## Access
 
@@ -242,7 +250,7 @@ Per-project roles carry permissions. Defaults ship with every project and can be
 | Edit workflows | ✓ | | | | |
 | Manage roles and members | ✓ | | | | |
 
-Organisation owners and admins can do everything in every project. Guests have no role: they can see and act only on the items in the reviews they are invited to.
+Workspace owners and admins can do everything in every project. Guests have no role: they can see and act only on the items in the reviews they are invited to.
 
 ## Settled questions
 

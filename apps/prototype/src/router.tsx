@@ -122,6 +122,7 @@ function GuestApp() {
 
 function InstanceApp() {
   const viewer = useViewer();
+  // Operators see the whole instance; an owner sees only their own workspace there (decision 039).
   if (!viewer.isInstance && viewer.persona.organisationRole !== "owner") return <SignInPage />;
   return (
     <Shell>

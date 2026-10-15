@@ -118,7 +118,7 @@ For anyone reviewing a pull request, human or agent. Review against this file an
 
 ### Important: flag these too
 
-- **Vocabulary.** Names that contradict `docs/domain.md`: project, folder, file, track, version, variation, take, session, comment, anchor, review, workflow. There are no movements; takes are never versions.
+- **Vocabulary.** Names that contradict `docs/domain.md`: workspace, project, folder, file, track, version, variation, take, session, comment, anchor, review, workflow, node, connector. Copy says "workspace", never "organisation" (decision 037); code keeps `organisation`. There are no movements; takes are never versions.
 - **Tests.** New behaviour without a test, especially tenancy and permission rules (prove another organisation and a lesser role are refused). Domain logic that belongs in a pure, tested function.
 - **Runtime.** Non-erasable TypeScript in server code (`enum`, `namespace`, parameter properties) or relative imports without `.ts`; `any` without a comment.
 - **Design system.** Hard-coded colours instead of tokens; stock shadcn styling; copy or UI that makes Hekate read as a classical-music-only tool.
