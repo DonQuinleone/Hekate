@@ -11,6 +11,7 @@ export function SettingsLayout({
   current,
   base,
   param,
+  search,
   children,
   title,
   intro,
@@ -20,6 +21,8 @@ export function SettingsLayout({
   /** The route, with `$section` for the section. */
   base: string;
   param: string;
+  /** When the section is carried in the query string rather than the path. */
+  search?: boolean;
   children: ReactNode;
   title: string;
   intro?: string;
@@ -40,7 +43,8 @@ export function SettingsLayout({
                 <Link
                   key={s.id}
                   to={base}
-                  params={{ [param]: s.id }}
+                  params={search ? (p: Record<string, string>) => p : { [param]: s.id }}
+                  search={search ? { [param]: s.id } : undefined}
                   className={cn(
                     "flex h-8 shrink-0 items-center rounded-control px-2.5 text-[14px] whitespace-nowrap transition-colors",
                     s.id === current

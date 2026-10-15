@@ -237,6 +237,7 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
       current={sec}
       base="/projects/$projectId/$view"
       param="section"
+      search
     >
       {sec === "general" && (
         <>
