@@ -30,6 +30,7 @@ import {
 } from "~/data";
 import { cn } from "~/lib/cn";
 import { ago, dueIn, formatDate, plural } from "~/lib/format";
+import { viewLabel } from "~/lib/project-nav";
 import { kindCopy, needsYou, responded, reviewOutcome } from "~/lib/reviews";
 import { trackState } from "~/lib/tracks";
 import { useViewer } from "~/viewer/context";
@@ -42,55 +43,6 @@ import { ProjectSettingsRoute } from "./project-settings.tsx";
 import { ProjectTasks } from "./project-tasks.tsx";
 import { CoverageView } from "./takes.tsx";
 import { WorkflowRoute } from "./workflow.tsx";
-
-function Tabs({ project, view }: { project: Project; view: string }) {
-  const viewer = useViewer();
-  const tabs: { id: string; label: string; count?: number }[] = [
-    { id: "overview", label: "Overview" },
-    { id: "files", label: "Files" },
-    { id: "board", label: "Board" },
-    {
-      id: "reviews",
-      label: "Reviews",
-      count: reviews.filter((r) => r.projectId === project.id && r.status === "open").length,
-    },
-    {
-      id: "tasks",
-      label: "Tasks",
-      count: tasks.filter((t) => t.projectId === project.id && t.status !== "done").length,
-    },
-    { id: "people", label: "People" },
-  ];
-  if (project.profile === "music" && viewer.tools(project.id).has("production"))
-    tabs.push({ id: "production", label: "Production" });
-  if (viewer.can(project.id, "manage_roles") || viewer.can(project.id, "edit_workflows"))
-    tabs.push({ id: "settings", label: "Settings" });
-  return (
-    <div
-      role="tablist"
-      className="-mx-5 flex items-stretch gap-1 overflow-x-auto border-b border-line px-5 @3xl/app:-mx-10 @3xl/app:px-10"
-    >
-      {tabs.map((t) => (
-        <Link
-          key={t.id}
-          role="tab"
-          aria-selected={view === t.id || (t.id === "production" && view === "coverage")}
-          to={t.id === "overview" ? "/projects/$projectId" : "/projects/$projectId/$view"}
-          params={{ projectId: project.id, view: t.id }}
-          className={cn(
-            "-mb-px flex h-10 shrink-0 items-center gap-1.5 border-b-2 px-2.5 text-[14px] font-medium transition-colors",
-            view === t.id || (t.id === "production" && view === "coverage")
-              ? "border-ink text-ink"
-              : "border-transparent text-ink-3 hover:text-ink-2",
-          )}
-        >
-          {t.label}
-          {t.count ? <span className="tabular text-[12px] text-ink-3">{t.count}</span> : null}
-        </Link>
-      ))}
-    </div>
-  );
-}
 
 /* ---------- Overview ---------- */
 
@@ -819,12 +771,21 @@ export function ProjectPage({
   const project = projectById(projectId);
   const visible = project && viewer.canSee(projectId);
   const ownHeader = view === "settings" || view === "workflow";
+  const overview = view === "overview";
   usePageHeader(
     ownHeader
       ? null
       : {
-          crumbs: [{ label: "Projects", to: "/projects" }],
-          title: project && visible ? project.name : "Not found",
+          crumbs:
+            overview || !project || !visible
+              ? [{ label: "Projects", to: "/projects" }]
+              : [{ label: project.name, to: `/projects/${project.id}` }],
+          title:
+            project && visible
+              ? overview
+                ? project.name
+                : viewLabel(project, viewer, view)
+              : "Not found",
           actions: visible ? (
             <>
               {viewer.can(projectId, "request_reviews") && (
@@ -851,7 +812,6 @@ export function ProjectPage({
   if (view === "settings") return <ProjectSettingsRoute projectId={project.id} section={section} />;
   return (
     <Page className="gap-6">
-      <Tabs project={project} view={view} />
       <StateGate>
         {view === "overview" && <Overview project={project} />}
         {view === "files" && <Files project={project} folderId={folderId ?? null} />}

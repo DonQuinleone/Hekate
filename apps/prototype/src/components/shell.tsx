@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Lockup, Mark } from "~/components/brand";
@@ -6,11 +6,21 @@ import { CommandPalette, paletteKey } from "~/components/command-palette";
 import { Icon, type IconName } from "~/components/icons";
 import { NotificationsMenu } from "~/components/notifications";
 import { Trail, useCurrentHeader } from "~/components/page-header";
+import { ProjectCover } from "~/components/project-card";
 import { Dot, reviewDot } from "~/components/status";
 import { MenuList, usePopover } from "~/components/ui/menu";
-import { fileById, guests, organisation, personById, projectById, reviewById } from "~/data";
+import {
+  fileById,
+  guests,
+  organisation,
+  type Project,
+  personById,
+  projectById,
+  reviewById,
+} from "~/data";
 import { cn } from "~/lib/cn";
 import { inField } from "~/lib/dom";
+import { projectNav, useCurrentProject } from "~/lib/project-nav";
 import { needsYou, reviewOutcome } from "~/lib/reviews";
 import { useViewer } from "~/viewer/context";
 
@@ -177,6 +187,79 @@ function WorkspaceMenu({ collapsed }: { collapsed: boolean }) {
   );
 }
 
+/** The open project, and the way to any other: a menu of the viewer's projects with the way to all of them. */
+function ProjectSwitcher({ project, collapsed }: { project: Project; collapsed: boolean }) {
+  const viewer = useViewer();
+  const navigate = useNavigate();
+  const [open, setOpen, box] = usePopover();
+  const mine = viewer.projects();
+  return (
+    <div ref={box} className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Project: ${project.name}. Switch project`}
+        onClick={() => setOpen(!open)}
+        className={cn(
+          "flex h-10 w-full items-center gap-2.5 rounded-control px-2 text-left transition-colors hover:bg-raised/60",
+          open && "bg-raised/60",
+          collapsed && "justify-center px-0",
+        )}
+      >
+        <ProjectCover project={project} size="xs" />
+        {!collapsed && (
+          <>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[14px] font-medium text-ink">
+                {project.name}
+              </span>
+            </span>
+            <Icon name="chevronDown" size={12} className="text-ink-3" />
+          </>
+        )}
+      </button>
+      {open && (
+        <div className="rise-in absolute top-full left-0 z-40 mt-1 w-64 rounded-panel-lg bg-overlay p-1 shadow-4">
+          <div className="eyebrow px-2.5 pt-1.5 pb-1">Projects</div>
+          {mine.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              role="menuitemradio"
+              aria-checked={p.id === project.id}
+              onClick={() => {
+                setOpen(false);
+                navigate({ to: "/projects/$projectId", params: { projectId: p.id } });
+              }}
+              className={cn(
+                "flex w-full items-center gap-2.5 rounded-control px-2 py-1.5 text-left text-[13px] transition-colors hover:bg-raised",
+                p.id === project.id ? "text-ink" : "text-ink-2",
+              )}
+            >
+              <ProjectCover project={p} size="xs" />
+              <span className="flex-1 truncate">{p.name}</span>
+              {p.id === project.id && <Icon name="check" size={14} />}
+            </button>
+          ))}
+          <div className="mx-2 my-1 h-px bg-line" />
+          <MenuList
+            className="relative mt-0 min-w-0 bg-transparent p-0 shadow-none"
+            onClose={() => setOpen(false)}
+            actions={[
+              { label: "All projects", onSelect: () => navigate({ to: "/projects" }) },
+              {
+                label: "New project",
+                onSelect: () => navigate({ to: "/projects", search: { new: "1" } }),
+              },
+            ]}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** One bar: the trail and the page's actions. On a phone the actions take a row of their own. */
 function TopBar({ children }: { children?: ReactNode }) {
   const header = useCurrentHeader();
@@ -305,6 +388,17 @@ export function Shell({ children }: { children: ReactNode }) {
   const projects = viewer.projects();
   const elevated =
     viewer.persona.organisationRole === "owner" || viewer.persona.organisationRole === "admin";
+  const current = useCurrentProject();
+  const currentNav = current ? projectNav(current, viewer) : [];
+  const { pathname } = useLocation();
+  const currentView = (() => {
+    const [, head = "", , view = ""] = pathname.split("/");
+    if (head !== "projects") return "";
+    return view || "overview";
+  })();
+  const waitingHere = current
+    ? waitingReviews.filter((r) => r.projectId === current.id)
+    : waitingReviews;
   const recent = [
     { kind: "file", id: "file-maple-v2-dry", label: "Maple Leaf Rag · V2 Dry" },
     { kind: "review", id: "rev-masters", label: "Album masters" },
@@ -351,8 +445,38 @@ export function Shell({ children }: { children: ReactNode }) {
           <div className={cn("flex flex-col gap-0.5", collapsed && "items-stretch")}>
             <NavItem to="/" icon="dashboard" label="Home" collapsed={collapsed} exact />
             <NavItem to="/inbox" icon="inbox" label="Inbox" collapsed={collapsed} count={waiting} />
-            <NavItem to="/projects" icon="folder" label="Projects" collapsed={collapsed} />
-            {!collapsed && projects.length > 0 && (
+            {current ? (
+              <>
+                <div className="mt-4 mb-1">
+                  <ProjectSwitcher project={current} collapsed={collapsed} />
+                </div>
+                {currentNav.map((item) => (
+                  <Link
+                    key={item.id}
+                    to={
+                      item.id === "overview" ? "/projects/$projectId" : "/projects/$projectId/$view"
+                    }
+                    params={{ projectId: current.id, view: item.id }}
+                    activeOptions={{ exact: true, includeSearch: false }}
+                    title={collapsed ? item.label : undefined}
+                    aria-current={item.also?.includes(currentView) ? "page" : undefined}
+                    className={cn(
+                      "relative flex h-8 shrink-0 items-center gap-2.5 rounded-control px-2.5 text-[14px] text-ink-2 transition-colors duration-150 hover:bg-raised/60 hover:text-ink aria-[current=page]:bg-raised aria-[current=page]:text-ink aria-[current=page]:shadow-1",
+                      collapsed && "justify-center px-0",
+                    )}
+                  >
+                    <Icon name={item.icon} />
+                    {!collapsed && <span className="truncate">{item.label}</span>}
+                    {item.count && !collapsed ? (
+                      <span className="tabular ml-auto text-[12px] text-ink-3">{item.count}</span>
+                    ) : null}
+                  </Link>
+                ))}
+              </>
+            ) : (
+              <NavItem to="/projects" icon="folder" label="Projects" collapsed={collapsed} />
+            )}
+            {!current && !collapsed && projects.length > 0 && (
               <ul className="mb-1 ml-[21px] flex flex-col gap-px border-l border-line pl-2.5">
                 {projects.slice(0, 8).map((p) => (
                   <li key={p.id}>
@@ -367,26 +491,28 @@ export function Shell({ children }: { children: ReactNode }) {
                 ))}
               </ul>
             )}
-            <NavItem to="/members" icon="users" label="Members" collapsed={collapsed} />
-            {elevated && (
+            {!current && (
+              <NavItem to="/members" icon="users" label="Members" collapsed={collapsed} />
+            )}
+            {!current && elevated && (
               <NavItem to="/settings" icon="settings" label="Settings" collapsed={collapsed} />
             )}
           </div>
-          {waiting > 0 && (
-            <SideSection title="Waiting on you" count={waiting} collapsed={collapsed}>
-              {waitingReviews.slice(0, 4).map((r) => (
+          {waitingHere.length > 0 && (
+            <SideSection title="Waiting on you" count={waitingHere.length} collapsed={collapsed}>
+              {waitingHere.slice(0, 4).map((r) => (
                 <SideLink
                   key={r.id}
                   to="/reviews/$reviewId"
                   params={{ reviewId: r.id }}
                   lead={<Dot state={reviewDot(r.status, reviewOutcome(r))} />}
                   label={r.title}
-                  hint={projectById(r.projectId)?.name.split(" ")[0]}
+                  hint={current ? undefined : projectById(r.projectId)?.name.split(" ")[0]}
                 />
               ))}
-              {waiting > 4 && (
+              {waitingHere.length > 4 && (
                 <Link to="/inbox" className="px-2.5 text-[12px] text-ink-3 hover:text-ink">
-                  and {waiting - 4} more
+                  and {waitingHere.length - 4} more
                 </Link>
               )}
             </SideSection>
@@ -452,6 +578,27 @@ export function Shell({ children }: { children: ReactNode }) {
             </button>
             <NotificationsMenu waiting={waiting} />
           </TopBar>
+          {current && (
+            <nav
+              aria-label={current.name}
+              className="scroll-quiet flex shrink-0 gap-1 overflow-x-auto border-b border-line px-3 py-1.5 @3xl/app:hidden"
+            >
+              {currentNav.map((item) => (
+                <Link
+                  key={item.id}
+                  to={
+                    item.id === "overview" ? "/projects/$projectId" : "/projects/$projectId/$view"
+                  }
+                  params={{ projectId: current.id, view: item.id }}
+                  activeOptions={{ exact: true, includeSearch: false }}
+                  aria-current={item.also?.includes(currentView) ? "page" : undefined}
+                  className="h-7 shrink-0 rounded-control px-2.5 text-[13px] leading-7 whitespace-nowrap text-ink-3 transition-colors aria-[current=page]:bg-raised aria-[current=page]:text-ink"
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
+          )}
           <main className="scroll-quiet min-h-0 min-w-0 flex-1 overflow-auto">{children}</main>
           <nav
             aria-label="Main"

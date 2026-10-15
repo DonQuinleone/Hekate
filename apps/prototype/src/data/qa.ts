@@ -242,13 +242,13 @@ export const qaRules: QaRule[] = [
 /** Rule packs a project may switch on: a distributor's guide, as rules, each the project's to keep or drop. */
 export const rulePacks: QaRulePack[] = [
   {
-    id: "umg",
-    name: "Universal Music content guide",
-    source: "contentguide.universalmusic.com",
-    note: "What that distributor refuses or queries at delivery. Off until a project needs it; each rule has its own severity.",
+    id: "delivery",
+    name: "Distributor delivery checks",
+    source: "the delivery specifications of the major distributors and aggregators",
+    note: "What distributors refuse or query at delivery. Off until a project delivers through one; each rule has its own severity.",
     rules: [
       rule(
-        "umg-bwf",
+        "delivery-bwf",
         "audio",
         "Broadcast Wave container",
         "Masters as BWF with bext and iXML",
@@ -256,7 +256,7 @@ export const rulePacks: QaRulePack[] = [
         true,
       ),
       rule(
-        "umg-native",
+        "delivery-native",
         "audio",
         "Native resolution",
         "No up- or down-sampling from the approved mix",
@@ -264,7 +264,7 @@ export const rulePacks: QaRulePack[] = [
         true,
       ),
       rule(
-        "umg-tags",
+        "delivery-tags",
         "audio",
         "Channels tagged L and R",
         "Two non-identical channels, tagged",
@@ -272,7 +272,7 @@ export const rulePacks: QaRulePack[] = [
         true,
       ),
       rule(
-        "umg-clean",
+        "delivery-clean",
         "audio",
         "Clean version for explicit mixes",
         "A clean or edited mix, and clean stems",
@@ -280,7 +280,7 @@ export const rulePacks: QaRulePack[] = [
         true,
       ),
       rule(
-        "umg-stems",
+        "delivery-stems",
         "audio",
         "Stems and alternates of one length",
         "Main, instrumental, TV mix, a cappella; a bar of silence each end of a stem",
@@ -288,7 +288,7 @@ export const rulePacks: QaRulePack[] = [
         false,
       ),
       rule(
-        "umg-name",
+        "delivery-name",
         "naming",
         "File name pattern",
         "Letters, digits and underscores, 120 characters at most",
@@ -297,7 +297,7 @@ export const rulePacks: QaRulePack[] = [
         true,
       ),
       rule(
-        "umg-adm",
+        "delivery-adm",
         "immersive",
         "ADM BWF to the Atmos music spec",
         "24-bit, 48 kHz, 24 fps, up to 128 channels",
@@ -305,7 +305,7 @@ export const rulePacks: QaRulePack[] = [
         true,
       ),
       rule(
-        "umg-atmos-loud",
+        "delivery-atmos-loud",
         "immersive",
         "Atmos loudness and peak",
         "At or under −18 LKFS and −1 dBTP; downmix not below −31 LKFS",
@@ -313,7 +313,7 @@ export const rulePacks: QaRulePack[] = [
         true,
       ),
       rule(
-        "umg-ffoa",
+        "delivery-ffoa",
         "immersive",
         "No first frame of action",
         "Duration and fades match the stereo master",
@@ -321,7 +321,7 @@ export const rulePacks: QaRulePack[] = [
         true,
       ),
       rule(
-        "umg-binaural",
+        "delivery-binaural",
         "immersive",
         "Binaural metadata set",
         "All Off refused; all Mid queried",
@@ -329,7 +329,7 @@ export const rulePacks: QaRulePack[] = [
         true,
       ),
       rule(
-        "umg-lfe",
+        "delivery-lfe",
         "immersive",
         "LFE low-passed",
         "100 to 150 Hz, 18 to 24 dB per octave",
@@ -337,7 +337,7 @@ export const rulePacks: QaRulePack[] = [
         true,
       ),
       rule(
-        "umg-objects",
+        "delivery-objects",
         "immersive",
         "Empty or unused objects",
         "Empty objects queried, unused ones disabled",
@@ -345,7 +345,7 @@ export const rulePacks: QaRulePack[] = [
         true,
       ),
       rule(
-        "umg-prores",
+        "delivery-prores",
         "video",
         "ProRes 422 HQ, 4444 or 4444 XQ in a .mov",
         "Nothing ever through H.264; only video, audio and timecode tracks",
@@ -354,7 +354,7 @@ export const rulePacks: QaRulePack[] = [
         true,
       ),
       rule(
-        "umg-sizes",
+        "delivery-sizes",
         "video",
         "Standard frame sizes and native rate",
         "1920 × 1080, 3840 × 2160, 2048 × 1080 or 4096 × 2160; progressive; BT.709; SDR",
@@ -363,7 +363,7 @@ export const rulePacks: QaRulePack[] = [
         true,
       ),
       rule(
-        "umg-p2p",
+        "delivery-p2p",
         "video",
         "Head and tail",
         "At most 2 s of black and silence before and after the programme",
@@ -371,7 +371,7 @@ export const rulePacks: QaRulePack[] = [
         true,
       ),
       rule(
-        "umg-slates",
+        "delivery-slates",
         "video",
         "No slates, bars, bugs or burned-in titles",
         "Unless intended; a copyright card 3 to 5 s, centred",
@@ -379,16 +379,24 @@ export const rulePacks: QaRulePack[] = [
         true,
       ),
       rule(
-        "umg-captions",
+        "delivery-captions",
         "video",
         "Captions as a sidecar",
         ".scc or .ttml, never embedded; 12 frames in from either end",
         "warn",
         true,
       ),
-      rule("umg-md5", "video", "Checksum unlike any earlier submission", "", "info", true, true),
       rule(
-        "umg-motion",
+        "delivery-md5",
+        "video",
+        "Checksum unlike any earlier submission",
+        "",
+        "info",
+        true,
+        true,
+      ),
+      rule(
+        "delivery-motion",
         "video",
         "Motion cover art",
         "ProRes, 8 to 35 s, seamless loop, 3840 × 3840 and 2048 × 2732",
@@ -396,7 +404,7 @@ export const rulePacks: QaRulePack[] = [
         false,
       ),
       rule(
-        "umg-cover",
+        "delivery-cover",
         "artwork",
         "Cover art",
         "3000 to 6000 px square, flattened TIFF, no ICC profile, no alpha, 100 MB at most",
@@ -404,7 +412,7 @@ export const rulePacks: QaRulePack[] = [
         true,
       ),
       rule(
-        "umg-poster",
+        "delivery-poster",
         "artwork",
         "Poster art",
         "2:3, 2000 to 6000 wide, 3000 to 9000 high",
@@ -412,7 +420,7 @@ export const rulePacks: QaRulePack[] = [
         false,
       ),
       rule(
-        "umg-booklet",
+        "delivery-booklet",
         "artwork",
         "Digital booklet",
         "Landscape PDF, four pages or more, fonts embedded, no adverts",
@@ -420,7 +428,7 @@ export const rulePacks: QaRulePack[] = [
         false,
       ),
       rule(
-        "umg-ids",
+        "delivery-ids",
         "metadata",
         "Identifiers embedded",
         "UPC and ISRCs in the DDP; ISRC in the Atmos-for-video name",
@@ -506,8 +514,7 @@ export const measures = [
 
 /** Which packs each project has switched on. */
 export const projectPacks: Record<string, string[]> = {
-  "proj-joplin": ["umg"],
-  "proj-titles": ["umg"],
+  "proj-joplin": ["delivery"],
 };
 
 export const loudness: Record<string, Loudness> = {
@@ -906,7 +913,7 @@ const guideFindings: QaFinding[] = (
     ),
     pass("file-titles-c3", "Checksum", "MD5 unlike any earlier submission"),
   ] as QaFinding[]
-).map((f) => ({ ...f, pack: "umg" }));
+).map((f) => ({ ...f, pack: "delivery" }));
 
 export const findingsFor = (fileId: string) =>
   [...findings, ...guideFindings].filter((f) => f.fileId === fileId);

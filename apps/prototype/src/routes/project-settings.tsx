@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Icon } from "~/components/icons";
+import { Label } from "~/components/label";
 import { usePageHeader } from "~/components/page-header";
 import { Danger, Matrix, Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
 import { Dot } from "~/components/status";
@@ -16,9 +17,11 @@ import {
   measures,
   type Project,
   type ProjectPermission,
+  type ProjectRole,
   projectById,
   projectPacks,
   type QaRule,
+  type QaRuleKind,
   qaRules,
   rulePacks,
   type Tool,
@@ -26,20 +29,138 @@ import {
   workflows,
 } from "~/data";
 import { cn } from "~/lib/cn";
+import { plural } from "~/lib/format";
 import { useViewer } from "~/viewer/context";
 import { Refused } from "~/viewer/state-gate";
 
 const sections = [
-  { id: "general", label: "General" },
-  { id: "delivery", label: "Delivery profile" },
-  { id: "qa", label: "QA rules" },
-  { id: "comments", label: "Comments" },
-  { id: "tools", label: "Tool access" },
-  { id: "roles", label: "Roles" },
-  { id: "workflow", label: "Workflow" },
-  { id: "security", label: "Asset security" },
-  { id: "storage", label: "Storage" },
+  { id: "general", label: "General", group: "Project" },
+  { id: "comments", label: "Comments", group: "Project" },
+  { id: "roles", label: "Roles and access", group: "Project" },
+  { id: "workflow", label: "Workflow", group: "Project" },
+  { id: "security", label: "Asset security", group: "Protection" },
+  { id: "storage", label: "Storage", group: "Protection" },
+  { id: "delivery", label: "Delivery profile", group: "Quality assurance" },
+  { id: "qa", label: "QA rules", group: "Quality assurance" },
 ];
+
+const intros: Record<string, string> = {
+  general: "The project's name, what it is for, and what new projects copy from it.",
+  comments: "How comments are anchored, categorised and carried between versions.",
+  roles: "Who may do what: the roles, how far each one reaches, and the tools it is given.",
+  workflow: "The stages a track goes through, the statuses they set, and who is told.",
+  security: "How originals are protected on their way to a browser.",
+  storage: "Where this project's files live and how much they take.",
+  delivery: "The numbers the checks measure against: loudness, peaks, formats and lengths.",
+  qa: "Every check that runs on a file, by category: plain errors always on, delivery checks and your own rules as you choose.",
+};
+
+/** Access permissions: each area has levels, and a role holds one level per area. */
+export const accessAreas: { id: string; label: string; hint: string; levels: string[] }[] = [
+  {
+    id: "files",
+    label: "Files",
+    hint: "Folders, tracks, versions and variations",
+    levels: ["None", "View", "Upload", "Organise", "Delete"],
+  },
+  {
+    id: "comments",
+    label: "Comments",
+    hint: "Reading, writing, and triaging anyone's",
+    levels: ["None", "Read", "Write", "Triage"],
+  },
+  {
+    id: "reviews",
+    label: "Reviews",
+    hint: "Responding, requesting, inviting and revoking reviewers",
+    levels: ["None", "Respond", "Request", "Manage reviewers"],
+  },
+  {
+    id: "downloads",
+    label: "Downloads",
+    hint: "The proxy, or the original watermarked and logged",
+    levels: ["None", "Proxy", "Original"],
+  },
+  {
+    id: "takes",
+    label: "Sessions and takes",
+    hint: "Seeing the take manager, or editing it",
+    levels: ["None", "View", "Edit"],
+  },
+  {
+    id: "production",
+    label: "Production tools",
+    hint: "Schedule, take log, score marking, stage plan",
+    levels: ["None", "View", "Edit"],
+  },
+  {
+    id: "workflow",
+    label: "Workflow",
+    hint: "Stages, statuses, events and upload checks",
+    levels: ["None", "View", "Edit"],
+  },
+  {
+    id: "people",
+    label: "Roles and people",
+    hint: "Who is in the project and what they may do",
+    levels: ["None", "View", "Manage"],
+  },
+  {
+    id: "project",
+    label: "Project",
+    hint: "Settings, archiving and deletion",
+    levels: ["None", "Edit settings", "Archive and delete"],
+  },
+];
+
+/** The level a role starts at in each area, read off its permissions. */
+export function accessOf(role: ProjectRole): Record<string, string> {
+  const has = (p: ProjectPermission) => role.permissions.includes(p);
+  const tool = (t: Tool) => role.tools.includes(t);
+  return {
+    files: has("delete")
+      ? "Delete"
+      : has("organise")
+        ? "Organise"
+        : has("upload")
+          ? "Upload"
+          : "View",
+    comments: has("triage") ? "Triage" : has("comment") ? "Write" : "Read",
+    reviews: has("manage_reviewers")
+      ? "Manage reviewers"
+      : has("request_reviews")
+        ? "Request"
+        : has("decide")
+          ? "Respond"
+          : "None",
+    downloads: tool("download") ? "Original" : "Proxy",
+    takes: tool("takes") ? "Edit" : "View",
+    production: tool("production") ? "Edit" : "None",
+    workflow: has("edit_workflows") ? "Edit" : "View",
+    people: has("manage_roles") ? "Manage" : "View",
+    project: has("delete") ? "Archive and delete" : has("manage_roles") ? "Edit settings" : "None",
+  };
+}
+
+/** The player's tools are on or off per role; downloads, takes and production are access levels. */
+const playerTools: Tool[] = [
+  "qa",
+  "meters",
+  "spectrogram",
+  "score",
+  "compare",
+  "loops",
+  "normalise",
+];
+
+const kindCopy: Record<QaRuleKind, { label: string; hint: string }> = {
+  audio: { label: "Audio", hint: "Levels, format and content of stereo files" },
+  immersive: { label: "Immersive audio", hint: "Atmos and surround deliverables" },
+  video: { label: "Video", hint: "Picture, sync, and the audio in the container" },
+  artwork: { label: "Artwork and documents", hint: "Covers, scores and notes" },
+  naming: { label: "File names", hint: "What a name must carry" },
+  metadata: { label: "Metadata", hint: "What the file says about itself" },
+};
 
 export const permissionCopy: Record<ProjectPermission, { label: string; hint: string }> = {
   view: { label: "View", hint: "See the project and play its files" },
@@ -77,56 +198,63 @@ const severityLabel: Record<QaRule["severity"], string> = {
   info: "Advisory",
 };
 
-/** One rule: on or off, how hard it bites, whether it runs on upload. */
+/** One rule in a category: on or off, how hard it bites, whether it runs on upload. Dense on purpose. */
 function RuleRow({
   rule,
   fixed = false,
-  custom,
+  tag,
 }: {
   rule: QaRule;
   fixed?: boolean;
-  custom?: string;
+  /** Where the rule came from, when it is not built in. */
+  tag?: string;
 }) {
   const [on, setOn] = useState(rule.on);
   const [upload, setUpload] = useState(rule.onUpload);
   return (
-    <Row
-      name={
-        <span className={cn("flex items-center gap-2", !on && "text-ink-3")}>
-          {rule.name}
-          {custom && (
-            <span className="rounded-chip border border-line px-1.5 text-[11px] text-ink-3">
-              {custom}
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-2">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 text-[13px]">
+          <span className={cn("truncate", on ? "text-ink" : "text-ink-3")}>{rule.name}</span>
+          {tag && (
+            <span className="shrink-0 rounded-chip border border-line px-1.5 text-[11px] text-ink-3">
+              {tag}
             </span>
           )}
-        </span>
-      }
-      hint={rule.hint || undefined}
-    >
-      <Select defaultValue={rule.severity} className="h-8 w-32 text-[13px]" disabled={!on}>
-        {(Object.keys(severityLabel) as QaRule["severity"][]).map((s) => (
-          <option key={s} value={s}>
-            {severityLabel[s]}
-          </option>
-        ))}
-      </Select>
-      <label
-        className={cn("flex items-center gap-1.5 text-[13px]", on ? "text-ink-2" : "text-ink-3")}
-      >
-        <input
-          type="checkbox"
-          checked={upload}
+        </div>
+        {rule.hint && <div className="truncate text-[12px] text-ink-3">{rule.hint}</div>}
+      </div>
+      <div className="flex items-center gap-3">
+        <Select
+          defaultValue={rule.severity}
+          aria-label={`Severity of ${rule.name}`}
+          className="h-7 w-28 text-[12px]"
           disabled={!on}
-          onChange={(e) => setUpload(e.target.checked)}
-        />
-        On upload
-      </label>
-      {fixed ? (
-        <span className="w-9 text-right text-[12px] text-ink-3">always</span>
-      ) : (
-        <Switch label={rule.name} checked={on} onChange={setOn} />
-      )}
-    </Row>
+        >
+          {(Object.keys(severityLabel) as QaRule["severity"][]).map((sv) => (
+            <option key={sv} value={sv}>
+              {severityLabel[sv]}
+            </option>
+          ))}
+        </Select>
+        <label
+          className={cn("flex items-center gap-1.5 text-[12px]", on ? "text-ink-2" : "text-ink-3")}
+        >
+          <input
+            type="checkbox"
+            checked={upload}
+            disabled={!on}
+            onChange={(e) => setUpload(e.target.checked)}
+          />
+          On upload
+        </label>
+        {fixed ? (
+          <span className="w-9 text-right text-[12px] text-ink-3">always</span>
+        ) : (
+          <Switch label={rule.name} checked={on} onChange={setOn} />
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -208,10 +336,15 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
   usePageHeader({
     crumbs: [{ label: project.name, to: `/projects/${project.id}` }],
     title: "Settings",
-    heading: "page",
   });
-  const sec = sections.some((s) => s.id === section) ? section : "general";
-  const permissionOf = (role: string, p: string) =>
+  const sec =
+    section === "tools" ? "roles" : sections.some((s) => s.id === section) ? section : "general";
+  const [access, setAccess] = useState<Record<string, Record<string, string>>>(() =>
+    Object.fromEntries(project.roles.map((r) => [r.id, accessOf(r)])),
+  );
+  const setLevel = (roleId: string, area: string, level: string) =>
+    setAccess((a) => ({ ...a, [roleId]: { ...a[roleId], [area]: level } }));
+  const _permissionOf = (role: string, p: string) =>
     roles.find((r) => r.id === role)?.permissions.includes(p as ProjectPermission) ?? false;
   const toolOf = (role: string, t: string) =>
     roles.find((r) => r.id === role)?.tools.includes(t as Tool) ?? false;
@@ -231,8 +364,8 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
   const lastManager = roles.filter((r) => r.permissions.includes("manage_roles")).length === 1;
   return (
     <SettingsLayout
-      title={project.name}
-      intro="How this project works: what the checks measure against, how comments are anchored, who may do what, and the workflow."
+      title={sections.find((x) => x.id === sec)?.label ?? "Settings"}
+      intro={intros[sec]}
       sections={sections}
       current={sec}
       base="/projects/$projectId/$view"
@@ -440,47 +573,11 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
           </Section>
         </>
       )}
-      {sec === "tools" && (
-        <Section
-          title="Tool access"
-          intro="Which tools each role is given on the recording page. A person or a group can be given more or less than their role, and a review can lower this for its reviewers but never raise it."
-        >
-          <Matrix
-            heading="Tool"
-            columns={roles.map((r) => ({ id: r.id, label: r.name }))}
-            rows={(Object.keys(toolCopy) as Tool[]).map((t) => ({
-              id: t,
-              label: toolCopy[t].label,
-              hint: toolCopy[t].hint,
-            }))}
-            value={(row, col) => toolOf(col, row)}
-            onToggle={canRoles ? toggle("tools") : undefined}
-            locked={(row, col) =>
-              !canRoles
-                ? "Managed by whoever manages roles"
-                : row === "production" &&
-                    col !== "r-producer" &&
-                    col !== "r-engineer" &&
-                    project.profile !== "music"
-                  ? "Production tools are for music projects"
-                  : null
-            }
-          />
-          <Row
-            name="Exceptions"
-            hint="Mira Solberg (guest): score and loops only, through her reviews. Soloists group: takes off."
-          >
-            <Button variant="ghost" size="md">
-              Add an exception
-            </Button>
-          </Row>
-        </Section>
-      )}
       {sec === "roles" && (
         <>
           <Section
             title="Roles"
-            intro="Every project starts with Producer, Engineer, Editor, Reviewer and Viewer. Rename them, add your own, or take a permission away."
+            intro="Every project starts with Producer, Engineer, Editor, Reviewer and Viewer. Rename them or add your own; a person can be given more or less than their role, and a review can lower it for its reviewers but never raise it."
             action={
               canRoles ? (
                 <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
@@ -490,32 +587,15 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
               ) : undefined
             }
           >
-            <Matrix
-              columns={roles.map((r) => ({ id: r.id, label: r.name }))}
-              rows={(Object.keys(permissionCopy) as ProjectPermission[]).map((p) => ({
-                id: p,
-                label: permissionCopy[p].label,
-                hint: permissionCopy[p].hint,
-              }))}
-              value={(row, col) => permissionOf(col, row)}
-              onToggle={canRoles ? toggle("permissions") : undefined}
-              locked={(row, col) =>
-                !canRoles
-                  ? "Managed by whoever manages roles"
-                  : row === "manage_roles" && lastManager && permissionOf(col, row)
-                    ? "The last role that manages roles keeps it"
-                    : row === "view"
-                      ? "Every role sees the project"
-                      : null
-              }
-            />
-          </Section>
-          <Section title="Who has which role">
             {roles.map((r) => (
               <Row
                 key={r.id}
                 name={r.name}
-                hint={`${project.members.filter((m) => m.roleId === r.id).length} people`}
+                hint={plural(
+                  project.members.filter((m) => m.roleId === r.id).length,
+                  "person",
+                  "people",
+                )}
               >
                 {canRoles && (
                   <ActionMenu
@@ -537,6 +617,87 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
                 )}
               </Row>
             ))}
+          </Section>
+          <Section
+            title="Access permissions"
+            intro="How far each role reaches in each area. A level includes the ones before it."
+          >
+            <div className="scroll-quiet overflow-x-auto">
+              <table className="w-full border-collapse text-[13px]">
+                <thead>
+                  <tr>
+                    <th className="w-[34%] px-4 py-2 text-left">
+                      <Label>Area</Label>
+                    </th>
+                    {roles.map((r) => (
+                      <th key={r.id} className="px-2 py-2 text-left">
+                        <Label>{r.name}</Label>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {accessAreas.map((area) => (
+                    <tr key={area.id} className="border-t border-line">
+                      <td className="px-4 py-2">
+                        <div className="text-ink">{area.label}</div>
+                        <div className="text-[12px] text-ink-3">{area.hint}</div>
+                      </td>
+                      {roles.map((r) => {
+                        const level = access[r.id]?.[area.id] ?? "None";
+                        const locked =
+                          !canRoles ||
+                          (area.id === "people" && lastManager && level === "Manage") ||
+                          (area.id === "production" && project.profile !== "music");
+                        return (
+                          <td key={r.id} className="px-2 py-1.5">
+                            <Select
+                              value={level}
+                              aria-label={`${area.label} for ${r.name}`}
+                              disabled={locked}
+                              onChange={(e) => setLevel(r.id, area.id, e.target.value)}
+                              className={cn(
+                                "h-7 w-full min-w-[112px] text-[12px]",
+                                level === "None" && "text-ink-3",
+                              )}
+                            >
+                              {area.levels.map((l) => (
+                                <option key={l}>{l}</option>
+                              ))}
+                            </Select>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Section>
+          <Section
+            title="Player tools"
+            intro="Which tools each role sees on the recording page. Downloads, takes and the production tools are levels above."
+          >
+            <Matrix
+              heading="Tool"
+              columns={roles.map((r) => ({ id: r.id, label: r.name }))}
+              rows={playerTools.map((t) => ({
+                id: t,
+                label: toolCopy[t].label,
+                hint: toolCopy[t].hint,
+              }))}
+              value={(row, col) => toolOf(col, row)}
+              onToggle={canRoles ? toggle("tools") : undefined}
+              locked={() => (!canRoles ? "Managed by whoever manages roles" : null)}
+            />
+            <Row
+              name="Exceptions"
+              hint="Mira Solberg (guest): score and loops only, through her reviews. Soloists group: takes off."
+            >
+              <Button variant="ghost" size="md">
+                Add an exception
+              </Button>
+            </Row>
           </Section>
         </>
       )}
@@ -597,66 +758,69 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
       {sec === "qa" && (
         <>
           <Section
-            title="Errors"
-            intro="Plain faults every file is checked for, with the delivery profile supplying the numbers. Always on; choose how hard each one bites and whether it runs as the file arrives."
-          >
-            {qaRules.map((r) => (
-              <RuleRow key={r.id} rule={r} fixed />
-            ))}
-          </Section>
-          {rulePacks.map((pack) => (
-            <Section
-              key={pack.id}
-              title={pack.name}
-              intro={`${pack.note} From ${pack.source}.`}
-              action={
-                <span className="flex items-center gap-2 text-[13px] text-ink-2">
-                  {packsOn.has(pack.id) ? "On" : "Off"}
+            title="Checks"
+            intro="Errors are always on: choose how hard each bites and whether it runs as the file arrives. Delivery checks and your own rules sit in the same categories and switch off individually."
+            action={
+              <span className="flex items-center gap-3">
+                <label className="flex items-center gap-2 text-[13px] text-ink-2">
+                  Delivery checks
                   <Switch
-                    label={pack.name}
-                    checked={packsOn.has(pack.id)}
+                    label="Distributor delivery checks"
+                    checked={packsOn.has("delivery")}
                     onChange={(v) => {
                       const next = new Set(packsOn);
-                      if (v) next.add(pack.id);
-                      else next.delete(pack.id);
+                      if (v) next.add("delivery");
+                      else next.delete("delivery");
                       setPacksOn(next);
                     }}
                   />
-                </span>
-              }
-            >
-              {packsOn.has(pack.id) ? (
-                pack.rules.map((r) => <RuleRow key={r.id} rule={r} />)
-              ) : (
-                <Row
-                  name={`${pack.rules.length} rules`}
-                  hint="Switch the pack on to pick which apply here and how."
-                />
-              )}
-            </Section>
-          ))}
-          <Section
-            title="Custom rules"
-            intro="A measurement, a comparison and a value, in your own words. They run beside the rest."
-            action={
-              <Button variant="secondary" size="md" onClick={() => setRuleOpen(true)}>
-                <Icon name="plus" size={14} />
-                Rule
-              </Button>
+                </label>
+                <Button variant="secondary" size="md" onClick={() => setRuleOpen(true)}>
+                  <Icon name="plus" size={14} />
+                  Rule
+                </Button>
+              </span>
             }
           >
-            {customRules.map((r) => (
-              <RuleRow key={r.id} rule={r} custom={`${r.measure} ${r.operator} ${r.value}`} />
-            ))}
+            {(Object.keys(kindCopy) as QaRuleKind[]).map((kind) => {
+              const errors = qaRules.filter((r) => r.kind === kind);
+              const delivery = packsOn.has("delivery")
+                ? rulePacks.flatMap((pk) => pk.rules).filter((r) => r.kind === kind)
+                : [];
+              const custom = customRules.filter((r) => r.kind === kind);
+              const count = errors.length + delivery.length + custom.length;
+              if (count === 0) return null;
+              return (
+                <div key={kind} className="flex flex-col divide-y divide-line/60">
+                  <div className="flex items-baseline gap-2 bg-raised/30 px-4 py-1.5">
+                    <span className="text-[13px] font-medium text-ink">{kindCopy[kind].label}</span>
+                    <span className="text-[12px] text-ink-3">{kindCopy[kind].hint}</span>
+                    <span className="tabular ml-auto text-[12px] text-ink-3">{count}</span>
+                  </div>
+                  {errors.map((r) => (
+                    <RuleRow key={r.id} rule={r} fixed />
+                  ))}
+                  {delivery.map((r) => (
+                    <RuleRow key={r.id} rule={r} tag="delivery" />
+                  ))}
+                  {custom.map((r) => (
+                    <RuleRow key={r.id} rule={r} tag={`${r.measure} ${r.operator} ${r.value}`} />
+                  ))}
+                </div>
+              );
+            })}
           </Section>
           <p className="text-[13px] text-ink-3">
+            {packsOn.has("delivery")
+              ? "Delivery checks follow what distributors and aggregators refuse or query at delivery."
+              : `${rulePacks.flatMap((pk) => pk.rules).length} delivery checks are off: switch them on when this project delivers through a distributor.`}{" "}
             Rules marked “on upload” also run as a file arrives, from the workflow's{" "}
             <Link
               to="/projects/$projectId/$view"
               params={{ projectId: project.id, view: "workflow" }}
               className="text-ink-2 hover:text-ink"
             >
-              upload rules
+              upload event
             </Link>
             , where their action (warn or refuse) is set.
           </p>

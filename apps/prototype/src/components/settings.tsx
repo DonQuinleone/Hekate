@@ -5,7 +5,77 @@ import { cn } from "~/lib/cn";
 import { Label } from "./label";
 import { Switch } from "./ui/toggle";
 
-/** Settings pages share one shape: a quiet list of sections on the left, the sections on the right. */
+export interface NavSection {
+  id: string;
+  label: string;
+  group?: string;
+}
+
+/** The secondary navigation: a quiet list of sections at the left, grouped, that stays put while the page scrolls. */
+export function SideNav({
+  sections,
+  current,
+  link,
+  label = "Sections",
+}: {
+  sections: NavSection[];
+  current: string;
+  /** Where each section lives. */
+  link: (id: string) => {
+    to: string;
+    params?: Record<string, string> | ((p: Record<string, string>) => Record<string, string>);
+    search?: Record<string, string>;
+  };
+  label?: string;
+}) {
+  const groups = [...new Set(sections.map((s) => s.group ?? ""))];
+  return (
+    <nav
+      aria-label={label}
+      className="scroll-quiet flex shrink-0 gap-1 overflow-x-auto @3xl/app:sticky @3xl/app:top-0 @3xl/app:w-[200px] @3xl/app:flex-col @3xl/app:self-start @3xl/app:overflow-visible"
+    >
+      {groups.map((g) => (
+        <div key={g} className="flex shrink-0 gap-1 @3xl/app:mb-4 @3xl/app:flex-col">
+          {g && <span className="eyebrow hidden px-2 pb-1 @3xl/app:block">{g}</span>}
+          {sections
+            .filter((s) => (s.group ?? "") === g)
+            .map((s) => {
+              const l = link(s.id);
+              return (
+                <Link
+                  key={s.id}
+                  to={l.to}
+                  params={l.params}
+                  search={l.search}
+                  aria-current={s.id === current ? "page" : undefined}
+                  className={cn(
+                    "flex h-8 shrink-0 items-center rounded-control px-2.5 text-[14px] whitespace-nowrap transition-colors",
+                    s.id === current
+                      ? "bg-raised text-ink shadow-1"
+                      : "text-ink-2 hover:bg-raised/60 hover:text-ink",
+                  )}
+                >
+                  {s.label}
+                </Link>
+              );
+            })}
+        </div>
+      ))}
+    </nav>
+  );
+}
+
+/** The secondary nav beside the content; on a phone the nav is a row above it. */
+export function Split({ nav, children }: { nav: ReactNode; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-6 @3xl/app:flex-row @3xl/app:gap-12">
+      {nav}
+      <div className="flex min-w-0 flex-1 flex-col gap-10">{children}</div>
+    </div>
+  );
+}
+
+/** Settings pages share one shape: the sections at the left, the current one's heading and rows at the right. */
 export function SettingsLayout({
   sections,
   current,
@@ -16,7 +86,7 @@ export function SettingsLayout({
   title,
   intro,
 }: {
-  sections: { id: string; label: string; group?: string }[];
+  sections: NavSection[];
   current: string;
   /** The route, with `$section` for the section. */
   base: string;
@@ -27,37 +97,17 @@ export function SettingsLayout({
   title: string;
   intro?: string;
 }) {
-  const groups = [...new Set(sections.map((s) => s.group ?? ""))];
   return (
     <Page className="gap-6 @3xl/app:flex-row @3xl/app:gap-12">
-      <nav
-        aria-label="Sections"
-        className="flex shrink-0 gap-1 overflow-x-auto @3xl/app:w-[200px] @3xl/app:flex-col"
-      >
-        {groups.map((g) => (
-          <div key={g} className="flex shrink-0 gap-1 @3xl/app:mb-4 @3xl/app:flex-col">
-            {g && <span className="eyebrow hidden px-2 pb-1 @3xl/app:block">{g}</span>}
-            {sections
-              .filter((s) => (s.group ?? "") === g)
-              .map((s) => (
-                <Link
-                  key={s.id}
-                  to={base}
-                  params={search ? (p: Record<string, string>) => p : { [param]: s.id }}
-                  search={search ? { [param]: s.id } : undefined}
-                  className={cn(
-                    "flex h-8 shrink-0 items-center rounded-control px-2.5 text-[14px] whitespace-nowrap transition-colors",
-                    s.id === current
-                      ? "bg-raised text-ink shadow-1"
-                      : "text-ink-2 hover:bg-raised/60 hover:text-ink",
-                  )}
-                >
-                  {s.label}
-                </Link>
-              ))}
-          </div>
-        ))}
-      </nav>
+      <SideNav
+        sections={sections}
+        current={current}
+        link={(id) =>
+          search
+            ? { to: base, params: (p: Record<string, string>) => p, search: { [param]: id } }
+            : { to: base, params: { [param]: id } }
+        }
+      />
       <div className="flex min-w-0 flex-1 flex-col gap-10">
         <div>
           <h1 className="title">{title}</h1>

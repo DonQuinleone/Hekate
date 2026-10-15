@@ -1,1580 +1,2200 @@
-import { Link } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon, type IconName } from "~/components/icons";
-import { Label } from "~/components/label";
+import { Kbd, Label } from "~/components/label";
 import { usePageHeader } from "~/components/page-header";
-import { Dot } from "~/components/status";
 import { Button } from "~/components/ui/button";
-import { Dialog } from "~/components/ui/dialog";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { Dropdown } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
 import {
+  type ActionType,
+  actionTypes,
+  type Connector,
   customRules,
-  type Graph,
-  type GraphEdge,
-  type GraphNode,
-  graphFor,
-  type NodeKind,
+  type EventType,
+  eventTypes,
+  type Flow,
+  type FlowNode,
+  flowOrder,
+  flowProblems,
+  flowsFor,
+  isLoop,
+  NODE_H,
+  NODE_W,
+  type NodeType,
+  outcomesOf,
+  type Problem,
   type Project,
   projectById,
   projectPacks,
   qaRules,
   rulePacks,
-  tracks,
+  toYaml,
+  triggersOf,
+  typeMeta,
   workflows,
 } from "~/data";
 import { cn } from "~/lib/cn";
+import { inField } from "~/lib/dom";
 import { useViewer } from "~/viewer/context";
 import { Refused } from "~/viewer/state-gate";
 
 /* ---------- Geometry ---------- */
 
-const COL = 236;
-const ROW = 112;
-const NODE_W = 188;
-const NODE_H = 56;
-const PAD_X = 48;
-const PAD_Y = 40;
+const BAND_GAP = 180;
+const PORT_STEP = 18;
 
-const posOf = (n: GraphNode) => ({ x: PAD_X + n.col * COL, y: PAD_Y + n.row * ROW });
-const outputAt = (n: GraphNode, outputId: string) => {
-  const p = posOf(n);
+interface Pt {
+  x: number;
+  y: number;
+}
+
+const portY = (n: FlowNode, i: number, k: number) =>
+  n.y + NODE_H / 2 + (i - (k - 1) / 2) * PORT_STEP;
+
+function outPort(n: FlowNode, outcome: string): Pt {
+  const outs = outcomesOf(n);
   const i = Math.max(
     0,
-    n.outputs.findIndex((o) => o.id === outputId),
+    outs.findIndex((o) => o.id === outcome),
   );
-  const k = n.outputs.length || 1;
-  return { x: p.x + NODE_W, y: p.y + (NODE_H * (i + 1)) / (k + 1) };
-};
-const inputAt = (n: GraphNode) => {
-  const p = posOf(n);
-  return { x: p.x, y: p.y + NODE_H / 2 };
-};
+  return { x: n.x + NODE_W, y: portY(n, i, outs.length) };
+}
 
-/** Forward edges curve; an edge that goes back loops under the rows it crosses. */
-function edgePath(from: { x: number; y: number }, to: { x: number; y: number }, floor: number) {
-  if (to.x > from.x + 30) {
-    const c = Math.max(48, (to.x - from.x) / 2);
-    return `M${from.x},${from.y} C${from.x + c},${from.y} ${to.x - c},${to.y} ${to.x},${to.y}`;
+const inPort = (n: FlowNode): Pt => ({ x: n.x, y: n.y + NODE_H / 2 });
+
+/** A forward connector curves; a loop goes right, drops below the flow, and comes back in from the left. */
+function connectorPath(a: Pt, b: Pt, loop: boolean, floor: number): string {
+  if (!loop && b.x >= a.x + 48) {
+    const dx = Math.max(60, (b.x - a.x) / 2);
+    return `M${a.x},${a.y} C${a.x + dx},${a.y} ${b.x - dx},${b.y} ${b.x},${b.y}`;
   }
   const r = 12;
+  const x1 = a.x + 28;
+  const x2 = b.x - 28;
   return [
-    `M${from.x},${from.y}`,
-    `H${from.x + 24 - r}`,
-    `q${r},0 ${r},${r}`,
-    `V${floor - r}`,
-    `q0,${r} -${r},${r}`,
-    `H${to.x - 28 + r}`,
-    `q-${r},0 -${r},-${r}`,
-    `V${to.y + r}`,
-    `q0,-${r} ${r},-${r}`,
-    `H${to.x}`,
+    `M${a.x},${a.y}`,
+    `H${x1 - r} Q${x1},${a.y} ${x1},${a.y + r}`,
+    `V${floor - r} Q${x1},${floor} ${x1 - r},${floor}`,
+    `H${x2 + r} Q${x2},${floor} ${x2},${floor - r}`,
+    `V${b.y + r} Q${x2},${b.y} ${x2 + r},${b.y}`,
+    `H${b.x}`,
   ].join(" ");
 }
 
-/* ---------- Kinds ---------- */
-
-const kindMeta: Record<NodeKind, { icon: IconName; label: string; hint: string }> = {
-  event: {
-    icon: "bolt",
-    label: "Event",
-    hint: "Something that happens: a trigger at the start, or a wait in the flow",
-  },
-  approval: { icon: "review", label: "Approval", hint: "Each reviewer records a decision" },
-  feedback: { icon: "comment", label: "Feedback", hint: "Comments, then submitted" },
-  task: { icon: "task", label: "Task", hint: "Someone does the work" },
-  condition: { icon: "split", label: "Condition", hint: "Branch on what happened" },
-  notify: { icon: "bell", label: "Notify", hint: "Tell someone, then carry on" },
-  status: { icon: "flag", label: "Set status", hint: "Mark the item and stop" },
-  end: { icon: "stop", label: "End", hint: "Stop here" },
-};
-
-/** Everything a person can do, as something the workflow can start on or wait for. */
-const events: { id: string; label: string; hint: string }[] = [
-  { id: "upload", label: "A version is uploaded", hint: "Checked at the door by the upload rules" },
-  { id: "folder", label: "A file lands in a folder", hint: "Any file, or a chosen folder" },
-  { id: "manual", label: "Started by hand", hint: "From the track or the board" },
-  { id: "review", label: "A review is requested", hint: "Of any kind, or one kind" },
-  { id: "decision", label: "A decision is recorded", hint: "Approved or changes requested" },
-  { id: "feedback", label: "Feedback is submitted", hint: "By everyone, or anyone" },
-  { id: "comment", label: "A comment is posted", hint: "Any, or one category" },
-  { id: "resolved", label: "Every comment is resolved", hint: "On the version" },
-  { id: "task", label: "A task is done", hint: "Any task on the item" },
-  { id: "due", label: "A due date passes", hint: "Of the stage, or of a review" },
-  { id: "opened", label: "A share is opened", hint: "By anyone it was sent to" },
-  { id: "download", label: "A download happens", hint: "Of the proxy or the original" },
-  { id: "mention", label: "Someone is mentioned", hint: "In a comment" },
-];
-
-const picker: {
-  group: string;
-  items: { kind: NodeKind; event?: string; label: string; hint: string }[];
-}[] = [
-  {
-    group: "Review",
-    items: [
-      { kind: "approval", label: "Approval", hint: kindMeta.approval.hint },
-      { kind: "feedback", label: "Feedback", hint: kindMeta.feedback.hint },
-    ],
-  },
-  { group: "Work", items: [{ kind: "task", label: "Task", hint: kindMeta.task.hint }] },
-  {
-    group: "Flow",
-    items: [
-      { kind: "condition", label: "Condition", hint: kindMeta.condition.hint },
-      { kind: "notify", label: "Notify", hint: kindMeta.notify.hint },
-    ],
-  },
-  {
-    group: "Events: wait until",
-    items: events.map((e) => ({
-      kind: "event" as NodeKind,
-      event: e.id,
-      label: e.label,
-      hint: e.hint,
-    })),
-  },
-  { group: "Finish", items: [{ kind: "status", label: "Set status", hint: kindMeta.status.hint }] },
-];
-
-const templates = [
-  { id: "simple", name: "Simple approval", hint: "One approval, then approved or back to editing" },
-  {
-    id: "conductor",
-    name: "Conductor first",
-    hint: "Feedback, triage, edit, approval, with a loop",
-  },
-  {
-    id: "parallel",
-    name: "Parallel stakeholders",
-    hint: "Several feedback rounds at once, then lock",
-  },
-];
-
-interface UploadRule {
-  id: string;
-  name: string;
-  hint: string;
-  source?: string;
-  action: "off" | "warn" | "refuse";
+/** Where a connector's label sits: the middle of a curve, the bottom run of a loop. */
+function labelAt(a: Pt, b: Pt, loop: boolean, floor: number): Pt {
+  if (!loop && b.x >= a.x + 48) return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  return { x: (a.x + 28 + b.x - 28) / 2, y: floor };
 }
 
-/* ---------- Simulation ---------- */
+interface Bounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
 
-interface Run {
-  current: string | null;
+function boundsOf(nodes: { x: number; y: number }[]): Bounds {
+  if (nodes.length === 0) return { minX: 0, minY: 0, maxX: NODE_W, maxY: NODE_H };
+  return {
+    minX: Math.min(...nodes.map((n) => n.x)),
+    minY: Math.min(...nodes.map((n) => n.y)),
+    maxX: Math.max(...nodes.map((n) => n.x)) + NODE_W,
+    maxY: Math.max(...nodes.map((n) => n.y)) + NODE_H,
+  };
+}
+
+/* ---------- The picker ---------- */
+
+const picker: { group: string; items: { type: NodeType; label: string; hint: string }[] }[] = [
+  {
+    group: "Review",
+    items: (["approval", "feedback"] as ActionType[]).map((t) => ({
+      type: t,
+      label: actionTypes[t].label,
+      hint: actionTypes[t].hint,
+    })),
+  },
+  {
+    group: "Work",
+    items: (["task", "checks", "notify", "share", "move"] as ActionType[]).map((t) => ({
+      type: t,
+      label: actionTypes[t].label,
+      hint: actionTypes[t].hint,
+    })),
+  },
+  {
+    group: "Flow",
+    items: (["wait", "status", "finish"] as ActionType[]).map((t) => ({
+      type: t,
+      label: actionTypes[t].label,
+      hint: actionTypes[t].hint,
+    })),
+  },
+  {
+    group: "Events: start on, or wait for",
+    items: (Object.keys(eventTypes) as EventType[]).map((t) => ({
+      type: t,
+      label: eventTypes[t].label,
+      hint: eventTypes[t].hint,
+    })),
+  },
+];
+
+/* ---------- Pieces ---------- */
+
+type Selection = { kind: "node"; id: string } | { kind: "connector"; id: string } | null;
+
+interface Menu {
+  x: number;
+  y: number;
+  target:
+    | { kind: "canvas"; world: Pt; flowId: string }
+    | { kind: "node"; id: string }
+    | { kind: "connector"; id: string };
+}
+
+interface Linking {
+  from: string;
+  outcome: string;
+  at: Pt;
+}
+
+interface Walk {
+  flowId: string;
+  at: string | null;
   nodes: string[];
-  edges: string[];
-  decision: "all" | "some" | "none" | null;
+  connectors: string[];
   log: string[];
 }
 
 function Node({
   node,
   selected,
-  ran,
+  walked,
   current,
   trigger,
-  onSelect,
+  problem,
+  onPointerDown,
+  onPortDown,
+  onContextMenu,
 }: {
-  node: GraphNode;
+  node: FlowNode;
   selected: boolean;
-  ran: boolean;
+  walked: boolean;
   current: boolean;
   trigger: boolean;
-  onSelect: () => void;
+  problem?: Problem;
+  onPointerDown: (e: React.PointerEvent) => void;
+  onPortDown: (outcome: string, e: React.PointerEvent) => void;
+  onContextMenu: (e: React.MouseEvent) => void;
 }) {
-  const p = posOf(node);
-  const meta = kindMeta[node.kind];
-  const start = trigger;
+  const meta = typeMeta(node.type);
+  const outs = outcomesOf(node);
+  const subtitle =
+    node.kind === "event"
+      ? trigger
+        ? "Starts here"
+        : "Waits for it"
+      : [node.config.who ?? node.config.to, node.config.due ? `${node.config.due} d` : null]
+          .filter(Boolean)
+          .join(" · ") || meta.label;
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-label={`${node.name}, ${meta.label}`}
+    <div
+      data-node={node.id}
+      onPointerDown={onPointerDown}
+      onContextMenu={onContextMenu}
       className={cn(
-        "absolute flex h-14 w-[188px] items-center gap-2.5 border px-3 text-left transition-[border-color,box-shadow,background-color] duration-150",
-        start ? "rounded-l-full rounded-r-panel" : "rounded-panel",
-        current
-          ? "border-signal bg-[color-mix(in_oklab,var(--hk-signal)_14%,var(--hk-raised))] shadow-[0_0_0_4px_var(--hk-signal-line)]"
-          : ran
-            ? "border-signal/50 bg-raised shadow-2"
-            : selected
-              ? "border-ink-3 bg-overlay shadow-3"
-              : "border-line-strong bg-raised shadow-2 hover:border-edge-strong",
+        "absolute flex cursor-grab touch-none items-center gap-3 border bg-overlay px-3 shadow-3 transition-[box-shadow,border-color] select-none",
+        trigger ? "rounded-l-full rounded-r-panel pl-4" : "rounded-panel",
+        selected
+          ? "border-signal shadow-[0_0_0_3px_var(--hk-signal-line),var(--hk-shadow-3)]"
+          : walked
+            ? "border-ink-3"
+            : "border-line hover:border-line-strong",
+        current && "ring-2 ring-signal/60",
       )}
-      style={{ left: p.x, top: p.y }}
+      style={{ left: node.x, top: node.y, width: NODE_W, height: NODE_H }}
     >
       <span
         className={cn(
-          "flex size-7 shrink-0 items-center justify-center rounded-full",
-          current || node.kind === "event" ? "bg-signal text-ground" : "bg-ground/60 text-ink-2",
+          "flex size-8 shrink-0 items-center justify-center rounded-control",
+          node.kind === "event" ? "bg-signal/15 text-signal" : "bg-raised text-ink-2",
         )}
       >
-        <Icon name={meta.icon} size={13} />
+        <Icon name={meta.icon as IconName} size={16} />
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13px] font-medium text-ink">{node.name}</span>
-        <span className="block truncate text-[11px] text-ink-3">
-          {meta.label}
-          {node.detail ? ` · ${node.detail}` : ""}
-        </span>
+        <span className="block truncate text-[11px] text-ink-3">{subtitle}</span>
       </span>
-      {ran && (
-        <span className="absolute -right-1.5 -bottom-1.5 flex size-4 items-center justify-center rounded-full bg-signal text-ground shadow-2">
-          <Icon name="check" size={9} />
+      {problem && (
+        <span
+          title={problem.text}
+          className={cn(
+            "absolute -top-2 -right-2 flex size-5 items-center justify-center rounded-full border border-ground text-[11px]",
+            problem.level === "error" ? "bg-signal text-ground" : "bg-raised text-ink-2",
+          )}
+        >
+          !
         </span>
       )}
-      {!start && (
+      {outs.map((o, i) => (
         <span
-          aria-hidden="true"
-          className="absolute top-1/2 -left-[5px] h-3 w-[5px] -translate-y-1/2 rounded-l-[2px] bg-edge-strong"
+          key={o.id}
+          className="absolute flex items-center"
+          style={{ left: NODE_W - 7, top: portY(node, i, outs.length) - node.y - 7 }}
+        >
+          <button
+            type="button"
+            aria-label={`Connect from ${node.name}${o.label ? `: ${o.label}` : ""}`}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              onPortDown(o.id, e);
+            }}
+            className="size-3.5 cursor-crosshair rounded-full border-2 border-ink-3 bg-overlay transition-colors hover:border-signal hover:bg-signal"
+          />
+          {o.label && (
+            <span className="pointer-events-none ml-2 -translate-y-[10px] text-[11px] whitespace-nowrap text-ink-3">
+              {o.label}
+            </span>
+          )}
+        </span>
+      ))}
+      {node.kind === "action" && (
+        <span
+          className="absolute size-3.5 rounded-full border-2 border-ink-3 bg-overlay"
+          style={{ left: -7, top: NODE_H / 2 - 7 }}
         />
       )}
-    </button>
+    </div>
   );
 }
 
-/** The canvas: stages joined by edges, conditions that branch, loops that go back. */
-export function WorkflowPage({ project }: { project: Project }) {
-  const viewer = useViewer();
-  const canEdit = viewer.can(project.id, "edit_workflows");
-  const workflow = workflows.find((w) => w.id === project.workflowId);
-  const initial = graphFor(project.workflowId);
-  const [graph, setGraph] = useState<Graph>(
-    initial ?? { workflowId: project.workflowId, nodes: [], edges: [] },
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="flex flex-col gap-1.5 text-[12px] text-ink-3">
+      {label}
+      {children}
+    </label>
   );
-  const [statuses, setStatuses] = useState(workflow?.statuses ?? []);
-  const [selected, setSelected] = useState<string | null>(graph.nodes[1]?.id ?? null);
-  const [adding, setAdding] = useState<{ from: string; output: string } | null>(null);
-  const [tab, setTab] = useState<"builder" | "statuses" | "overrides">("builder");
-  const [run, setRun] = useState<Run | null>(null);
-  const [templatesOpen, setTemplatesOpen] = useState(false);
-  const [activated, setActivated] = useState(false);
-  const [zoom, setZoom] = useState<number | null>(null);
-  const allRules: Omit<UploadRule, "action">[] = [
-    ...qaRules.map((r) => ({
-      id: r.id,
-      name: r.name,
-      hint: r.hint,
-      source: undefined as string | undefined,
-    })),
-    ...rulePacks
-      .filter((pk) => (projectPacks[project.id] ?? []).includes(pk.id))
-      .flatMap((pk) =>
-        pk.rules.map((r) => ({ id: r.id, name: r.name, hint: r.hint, source: pk.name })),
-      ),
-    ...customRules.map((r) => ({ id: r.id, name: r.name, hint: r.hint, source: "Custom" })),
-  ];
-  const [uploadRules, setUploadRules] = useState<UploadRule[]>(() =>
-    allRules
-      .filter(
-        (r) =>
-          [...qaRules, ...rulePacks.flatMap((pk) => pk.rules), ...customRules].find(
-            (x) => x.id === r.id,
-          )?.onUpload,
-      )
-      .map((r) => ({
-        ...r,
-        action: r.id === "tp" || r.id === "corrupt" || r.id === "src" ? "refuse" : "warn",
-      })),
+}
+
+function PanelHead({
+  title,
+  hint,
+  onClose,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  onClose?: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="flex items-start gap-2 border-b border-line px-4 py-3">
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[14px] font-medium text-ink">{title}</div>
+        {hint && <div className="text-[12px] text-ink-3">{hint}</div>}
+      </div>
+      {children}
+      {onClose && (
+        <Button variant="quiet" size="iconSm" aria-label="Close" onClick={onClose}>
+          <Icon name="close" size={14} />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/* ---------- The page ---------- */
+
+type Mode = "basic" | "advanced" | "code";
+type Panel = "picker" | "statuses" | "walk" | null;
+
+export function WorkflowPage({ project }: { project: Project }) {
+  const [flows, setFlows] = useState<Flow[]>(() => flowsFor(project.id));
+  const [mode, setMode] = useState<Mode>("advanced");
+  const [selection, setSelection] = useState<Selection>(null);
+  const [panel, setPanel] = useState<Panel>(null);
+  const [menu, setMenu] = useState<Menu | null>(null);
+  const [linking, setLinking] = useState<Linking | null>(null);
+  const [walk, setWalk] = useState<Walk | null>(null);
+  const [pan, setPan] = useState<Pt>({ x: 80, y: 80 });
+  const [zoom, setZoom] = useState(0.85);
+  const [toast, setToast] = useState<string | null>(null);
+  const [addAt, setAddAt] = useState<{ flowId: string; world: Pt; from?: Selection } | null>(null);
+  const [statuses, setStatuses] = useState(
+    () => workflows.find((w) => w.projectId === project.id)?.statuses ?? [],
   );
   const canvas = useRef<HTMLDivElement>(null);
-  const [canvasSize, setCanvasSize] = useState({ w: 900, h: 500 });
+  const drag = useRef<
+    | { kind: "pan"; start: Pt; origin: Pt }
+    | { kind: "node"; id: string; flowId: string; start: Pt; origin: Pt; moved: boolean }
+    | null
+  >(null);
+
   useEffect(() => {
-    const el = canvas.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      for (const e of entries)
-        setCanvasSize({ w: Math.floor(e.contentRect.width), h: Math.floor(e.contentRect.height) });
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  const byId = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph.nodes]);
-  const cols = Math.max(0, ...graph.nodes.map((n) => n.col)) + 1;
-  const rows = Math.max(0, ...graph.nodes.map((n) => n.row)) + 1;
-  const width = PAD_X * 2 + (cols - 1) * COL + NODE_W + 80;
-  const floor = PAD_Y + (rows - 1) * ROW + NODE_H + 36;
-  const height = floor + 48;
-  const fit = Math.min(
-    1,
-    Math.max(0.62, Math.min((canvasSize.w - 24) / width, (canvasSize.h - 24) / height)),
-  );
-  const scale = zoom ?? fit;
-  const current = selected ? byId.get(selected) : undefined;
-  const dangling = graph.nodes.flatMap((n) =>
-    n.outputs
-      .filter((o) => !graph.edges.some((e) => e.from === n.id && e.output === o.id))
-      .map((o) => ({ node: n, output: o })),
-  );
-  const hasIncoming = (id: string) => graph.edges.some((e) => e.to === id);
-  const isTrigger = (n: GraphNode) => n.kind === "event" && !hasIncoming(n.id);
-  const unreachable = graph.nodes.filter((n) => !isTrigger(n) && !hasIncoming(n.id));
-  const name = workflow?.name ?? "Workflow";
-
-  const update = (id: string, patch: Partial<GraphNode>) =>
-    setGraph((g) => ({ ...g, nodes: g.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)) }));
-  const removeNode = (id: string) => {
-    setGraph((g) => ({
-      nodes: g.nodes.filter((n) => n.id !== id),
-      edges: g.edges.filter((e) => e.from !== id && e.to !== id),
-      workflowId: g.workflowId,
-    }));
-    setSelected(null);
-  };
-  const addNode = (kind: NodeKind, event?: string) => {
-    const from = adding ? byId.get(adding.from) : current;
-    const id = `n-${Date.now().toString(36)}`;
-    const col = from ? from.col + 1 : 0;
-    const row = from
-      ? from.row +
-        (adding && from.outputs.length > 1
-          ? from.outputs.findIndex((o) => o.id === adding.output) - 1
-          : 0)
-      : 0;
-    const taken = graph.nodes.some((n) => n.col === col && n.row === row);
-    const node: GraphNode = {
-      id,
-      kind,
-      name:
-        kind === "event"
-          ? (events.find((e) => e.id === event)?.label ?? "Event")
-          : kindMeta[kind].label,
-      detail:
-        kind === "task"
-          ? "Choose who"
-          : kind === "approval" || kind === "feedback"
-            ? "Choose reviewers"
-            : kind === "event"
-              ? "wait until it happens"
-              : undefined,
-      col,
-      row: taken ? rows : Math.max(0, row),
-      outputs:
-        kind === "condition"
-          ? [
-              { id: "a", label: "all approved" },
-              { id: "b", label: "else" },
-            ]
-          : kind === "status"
-            ? []
-            : [{ id: "out" }],
-      config: kind === "event" ? { event: event ?? "manual" } : {},
-    };
-    setGraph((g) => ({
-      ...g,
-      nodes: [...g.nodes, node],
-      edges:
-        from && adding
-          ? [...g.edges, { id: `e-${id}`, from: from.id, output: adding.output, to: id }]
-          : g.edges,
-    }));
-    setAdding(null);
-    setSelected(id);
-  };
-  const connect = (from: string, output: string, to: string) =>
-    setGraph((g) => ({
-      ...g,
-      edges: [
-        ...g.edges.filter((e) => !(e.from === from && e.output === output)),
-        { id: `e-${from}-${output}-${to}`, from, output, to },
-      ],
-    }));
-
-  /* The run: one item through the workflow, the person choosing each outcome. */
-  const startRun = () => {
-    const start = graph.nodes.find((n) => isTrigger(n));
-    if (!start) return;
-    setRun({
-      current: start.id,
-      nodes: [start.id],
-      edges: [],
-      decision: null,
-      log: ["A version arrives"],
-    });
-    setSelected(start.id);
-  };
-  const advance = (r: Run, output: string, note: string): Run => {
-    const node = r.current ? byId.get(r.current) : undefined;
-    if (!node) return r;
-    const edge = graph.edges.find((e) => e.from === node.id && e.output === output);
-    if (!edge)
-      return {
-        ...r,
-        current: null,
-        log: [...r.log, note, "Nothing follows: the workflow ends here"],
-      };
-    const next = byId.get(edge.to);
-    let out: Run = {
-      ...r,
-      current: edge.to,
-      nodes: [...r.nodes, edge.to],
-      edges: [...r.edges, edge.id],
-      log: [...r.log, note],
-    };
-    if (next?.kind === "condition") {
-      const pick =
-        next.outputs.find((o) =>
-          (o.label ?? "").includes(
-            r.decision === "all" ? "all" : r.decision === "some" ? "some" : "else",
-          ),
-        ) ?? next.outputs.at(-1);
-      if (pick)
-        out = advance(
-          { ...out, log: [...out.log, `${next.name}: took “${pick.label}”`] },
-          pick.id,
-          "",
-        );
-    } else if (next?.kind === "notify") {
-      out = advance(
-        { ...out, log: [...out.log, `${next.name}: sent to ${next.config?.to ?? "them"}`] },
-        "out",
-        "",
-      );
-    } else if (next?.kind === "status") {
-      out = { ...out, current: null, log: [...out.log, `Status set to ${next.name}; finished`] };
-    }
-    return out;
-  };
-  const runNode = run?.current ? byId.get(run.current) : undefined;
-  const outcomes = (
-    n: GraphNode,
-  ): { label: string; output: string; decision?: Run["decision"] }[] => {
-    if (n.kind === "event") return [{ label: "It happens", output: "out" }];
-    if (n.kind === "approval")
-      return [
-        { label: "Everyone approves", output: "out", decision: "all" },
-        { label: "Some approve", output: "out", decision: "some" },
-        { label: "Changes requested", output: "out", decision: "none" },
-      ];
-    if (n.kind === "feedback") return [{ label: "Feedback submitted", output: "out" }];
-    if (n.kind === "task") return [{ label: "Done", output: "out" }];
-    return n.outputs.map((o) => ({ label: o.label ?? "Next", output: o.id }));
-  };
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   usePageHeader({
     crumbs: [
       { label: project.name, to: `/projects/${project.id}` },
-      { label: "Settings", to: `/projects/${project.id}/settings` },
+      { label: "Settings", to: `/projects/${project.id}/settings?section=workflow` },
     ],
-    title: name,
-    actions: canEdit ? (
-      <>
-        <Button variant="ghost" onClick={() => (run ? setRun(null) : startRun())}>
-          <Icon name="play" size={12} fill="currentColor" strokeWidth={0} />
-          {run ? "Stop the run" : "Run it"}
-        </Button>
-        <Button
-          variant="primary"
-          onClick={() => setActivated(true)}
-          disabled={unreachable.length > 0}
-        >
-          {activated ? "Active" : "Activate"}
-        </Button>
-      </>
-    ) : undefined,
-    revision: `${run ? "run" : ""}-${activated}-${unreachable.length}`,
+    title: "Workflows",
+    actions: (
+      <div
+        role="tablist"
+        aria-label="View"
+        className="flex h-8 items-center rounded-control border border-line bg-raised/40 p-0.5"
+      >
+        {(
+          [
+            ["basic", "Basic"],
+            ["advanced", "Advanced"],
+            ["code", "Code"],
+          ] as [Mode, string][]
+        ).map(([m, label]) => (
+          <button
+            key={m}
+            type="button"
+            role="tab"
+            aria-selected={mode === m}
+            onClick={() => setMode(m)}
+            className={cn(
+              "h-7 rounded-[7px] px-2.5 text-[13px] transition-colors",
+              mode === m ? "bg-raised text-ink shadow-1" : "text-ink-3 hover:text-ink",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    ),
+    revision: mode,
   });
-  if (!workflow) return <Refused />;
 
-  const field = (label: string, control: ReactNode, hint?: string) => (
-    <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-      {label}
-      {control}
-      {hint && <span className="text-[12px] text-ink-3">{hint}</span>}
-    </label>
+  /* Bands: every workflow of the project on one canvas, one above the other. */
+  const bands = useMemo(() => {
+    let y = 0;
+    return flows.map((f) => {
+      const b = boundsOf(f.nodes);
+      const height = b.maxY - b.minY;
+      const band = { flow: f, offsetY: y - b.minY, bounds: b, top: y, height };
+      y += height + BAND_GAP;
+      return band;
+    });
+  }, [flows]);
+  const bandOf = (flowId: string) => bands.find((b) => b.flow.id === flowId);
+  const world = (flowId: string, n: FlowNode): FlowNode => ({
+    ...n,
+    y: n.y + (bandOf(flowId)?.offsetY ?? 0),
+  });
+  const everything = useMemo(
+    () =>
+      bands.flatMap((b) =>
+        b.flow.nodes.map((n) => ({ ...n, y: n.y + b.offsetY, flowId: b.flow.id })),
+      ),
+    [bands],
+  );
+  const worldBounds = useMemo(() => boundsOf(everything), [everything]);
+  const problemsByFlow = useMemo(
+    () => Object.fromEntries(flows.map((f) => [f.id, flowProblems(f)])),
+    [flows],
+  );
+  const allProblems = Object.values(problemsByFlow).flat();
+
+  /* Editing */
+  const updateFlow = (flowId: string, fn: (f: Flow) => Flow) =>
+    setFlows((list) => list.map((f) => (f.id === flowId ? fn(f) : f)));
+  const flowOfNode = (nodeId: string) => flows.find((f) => f.nodes.some((n) => n.id === nodeId));
+  const flowOfConnector = (id: string) => flows.find((f) => f.connectors.some((c) => c.id === id));
+  const selectedNode =
+    selection?.kind === "node"
+      ? flows.flatMap((f) => f.nodes).find((n) => n.id === selection.id)
+      : undefined;
+  const selectedConnector =
+    selection?.kind === "connector"
+      ? flows.flatMap((f) => f.connectors).find((c) => c.id === selection.id)
+      : undefined;
+
+  const uid = () => Math.random().toString(36).slice(2, 7);
+
+  const addNode = (flowId: string, type: NodeType, at: Pt, from?: Selection) => {
+    const meta = typeMeta(type);
+    const band = bandOf(flowId);
+    const id = `n-${uid()}`;
+    const node: FlowNode = {
+      id,
+      kind: meta.kind,
+      type,
+      name: meta.label,
+      x: Math.round(at.x / 10) * 10,
+      y: Math.round((at.y - (band?.offsetY ?? 0)) / 10) * 10,
+      config: {},
+    };
+    updateFlow(flowId, (f) => {
+      const connectors = [...f.connectors];
+      if (from?.kind === "node") {
+        const source = f.nodes.find((n) => n.id === from.id);
+        if (source) {
+          const outs = outcomesOf(source);
+          const free = outs.find(
+            (o) => !connectors.some((c) => c.from === source.id && c.outcome === o.id),
+          );
+          const outcome = free ?? outs[0];
+          if (outcome)
+            connectors.push({ id: `c-${uid()}`, from: source.id, outcome: outcome.id, to: id });
+        }
+      }
+      return { ...f, nodes: [...f.nodes, node], connectors };
+    });
+    setSelection({ kind: "node", id });
+    setPanel(null);
+    setAddAt(null);
+  };
+
+  const connect = (flowId: string, from: string, outcome: string, to: string) => {
+    if (from === to) return;
+    updateFlow(flowId, (f) =>
+      f.connectors.some((c) => c.from === from && c.outcome === outcome && c.to === to)
+        ? f
+        : { ...f, connectors: [...f.connectors, { id: `c-${uid()}`, from, outcome, to }] },
+    );
+  };
+
+  const removeNode = (id: string) => {
+    const f = flowOfNode(id);
+    if (!f) return;
+    updateFlow(f.id, (x) => ({
+      ...x,
+      nodes: x.nodes.filter((n) => n.id !== id),
+      connectors: x.connectors.filter((c) => c.from !== id && c.to !== id),
+    }));
+    setSelection(null);
+  };
+
+  const removeConnector = (id: string) => {
+    const f = flowOfConnector(id);
+    if (!f) return;
+    updateFlow(f.id, (x) => ({ ...x, connectors: x.connectors.filter((c) => c.id !== id) }));
+    setSelection(null);
+  };
+
+  const duplicateNode = (id: string) => {
+    const f = flowOfNode(id);
+    const n = f?.nodes.find((x) => x.id === id);
+    if (!f || !n) return;
+    const copy = { ...n, id: `n-${uid()}`, name: `${n.name} (copy)`, x: n.x + 40, y: n.y + 80 };
+    updateFlow(f.id, (x) => ({ ...x, nodes: [...x.nodes, copy] }));
+    setSelection({ kind: "node", id: copy.id });
+  };
+
+  const newFlow = () => {
+    const id = `wf-${uid()}`;
+    const flow: Flow = {
+      id,
+      projectId: project.id,
+      name: "New workflow",
+      active: false,
+      groups: [],
+      nodes: [
+        {
+          id: `${id}-start`,
+          kind: "event",
+          type: "upload",
+          name: "A version is uploaded",
+          x: 0,
+          y: 0,
+          config: {},
+        },
+        {
+          id: `${id}-end`,
+          kind: "action",
+          type: "finish",
+          name: "Finish",
+          x: 640,
+          y: 0,
+          config: {},
+        },
+      ],
+      connectors: [],
+    };
+    setFlows((list) => [...list, flow]);
+    setSelection({ kind: "node", id: `${id}-start` });
+    setToast("New workflow added below; wire its start to what should happen.");
+    requestAnimationFrame(() => jumpTo(id));
+  };
+
+  /* The view */
+  const toWorld = useCallback(
+    (client: Pt): Pt => {
+      const rect = canvas.current?.getBoundingClientRect();
+      if (!rect) return client;
+      return { x: (client.x - rect.left - pan.x) / zoom, y: (client.y - rect.top - pan.y) / zoom };
+    },
+    [pan, zoom],
   );
 
-  const inspector = run ? (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2">
-        <Label>Running one item</Label>
-        <button
-          type="button"
-          onClick={() => setRun(null)}
-          className="ml-auto text-[12px] text-ink-3 hover:text-ink"
-        >
-          Stop
-        </button>
-      </div>
-      {runNode ? (
-        <>
-          <p className="text-[14px] text-ink">
-            <span className="font-medium">{runNode.name}</span>
-            <span className="block text-[13px] text-ink-3">
-              {runNode.kind === "task"
-                ? `${runNode.detail ?? "Someone"} works on it; status ${runNode.config?.status ?? "unchanged"}.`
-                : runNode.kind === "approval" || runNode.kind === "feedback"
-                  ? `${runNode.detail ?? "Reviewers"} are asked; status ${runNode.config?.status ?? "unchanged"}.`
-                  : kindMeta[runNode.kind].hint}
-            </span>
-          </p>
-          <div className="flex flex-col gap-1.5">
-            {outcomes(runNode).map((o) => {
-              const edge = graph.edges.find((e) => e.from === runNode.id && e.output === o.output);
-              const next = edge ? byId.get(edge.to) : undefined;
-              return (
+  const fitTo = (b: Bounds, maxZoom = 1) => {
+    const rect = canvas.current?.getBoundingClientRect();
+    if (!rect) return;
+    const pad = 72;
+    const z = Math.min(
+      maxZoom,
+      (rect.width - pad * 2) / (b.maxX - b.minX + 240),
+      (rect.height - pad * 2) / (b.maxY - b.minY + 120),
+    );
+    const zz = Math.max(0.3, z);
+    setZoom(zz);
+    setPan({
+      x: (rect.width - (b.maxX - b.minX + 240) * zz) / 2 - (b.minX - 120) * zz,
+      y: (rect.height - (b.maxY - b.minY + 120) * zz) / 2 - (b.minY - 60) * zz,
+    });
+  };
+  const fitAll = () => fitTo(worldBounds, 1);
+  /** Lands on a workflow at a readable size, its start at the left; the rest is a pan away. */
+  const jumpTo = (flowId: string) => {
+    const b = bandOf(flowId);
+    const rect = canvas.current?.getBoundingClientRect();
+    if (!b || !rect) return;
+    const z = 0.8;
+    const height = (b.bounds.maxY - b.bounds.minY + 120) * z;
+    setZoom(z);
+    setPan({
+      x: 56 - b.bounds.minX * z,
+      y: Math.max(72, (rect.height - height) / 2 + 48) - (b.bounds.minY + b.offsetY) * z,
+    });
+  };
+  const zoomBy = (factor: number, around?: Pt) => {
+    const rect = canvas.current?.getBoundingClientRect();
+    const centre = around ?? (rect ? { x: rect.width / 2, y: rect.height / 2 } : { x: 0, y: 0 });
+    const next = Math.min(2, Math.max(0.25, zoom * factor));
+    const wx = (centre.x - pan.x) / zoom;
+    const wy = (centre.y - pan.y) / zoom;
+    setZoom(next);
+    setPan({ x: centre.x - wx * next, y: centre.y - wy * next });
+  };
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the first fit happens once the canvas has a size.
+  useEffect(() => {
+    if (mode === "advanced") requestAnimationFrame(() => jumpTo(flows[0]?.id ?? ""));
+  }, [mode]);
+
+  const onWheel = (e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      const rect = canvas.current?.getBoundingClientRect();
+      if (!rect) return;
+      zoomBy(e.deltaY < 0 ? 1.1 : 1 / 1.1, { x: e.clientX - rect.left, y: e.clientY - rect.top });
+    } else {
+      setPan((p) => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
+    }
+  };
+
+  const onCanvasPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    setMenu(null);
+    drag.current = { kind: "pan", start: { x: e.clientX, y: e.clientY }, origin: pan };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const onNodePointerDown = (flowId: string, id: string, e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    setMenu(null);
+    const n = flows.find((f) => f.id === flowId)?.nodes.find((x) => x.id === id);
+    if (!n) return;
+    drag.current = {
+      kind: "node",
+      id,
+      flowId,
+      start: { x: e.clientX, y: e.clientY },
+      origin: { x: n.x, y: n.y },
+      moved: false,
+    };
+    canvas.current?.setPointerCapture(e.pointerId);
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (linking) {
+      setLinking({ ...linking, at: toWorld({ x: e.clientX, y: e.clientY }) });
+      return;
+    }
+    const d = drag.current;
+    if (!d) return;
+    const dx = e.clientX - d.start.x;
+    const dy = e.clientY - d.start.y;
+    if (d.kind === "pan") setPan({ x: d.origin.x + dx, y: d.origin.y + dy });
+    else {
+      if (Math.abs(dx) + Math.abs(dy) > 3) d.moved = true;
+      updateFlow(d.flowId, (f) => ({
+        ...f,
+        nodes: f.nodes.map((n) =>
+          n.id === d.id ? { ...n, x: d.origin.x + dx / zoom, y: d.origin.y + dy / zoom } : n,
+        ),
+      }));
+    }
+  };
+  const onPointerUp = (e: React.PointerEvent) => {
+    if (linking) {
+      const el = (e.target as HTMLElement).closest?.("[data-node]") as HTMLElement | null;
+      const to = el?.dataset.node;
+      const f = flowOfNode(linking.from);
+      if (to && f?.nodes.some((n) => n.id === to)) connect(f.id, linking.from, linking.outcome, to);
+      else if (f) {
+        setAddAt({ flowId: f.id, world: linking.at, from: { kind: "node", id: linking.from } });
+        setPanel("picker");
+      }
+      setLinking(null);
+      return;
+    }
+    const d = drag.current;
+    drag.current = null;
+    if (d?.kind === "node") {
+      if (!d.moved) {
+        setSelection({ kind: "node", id: d.id });
+        setPanel(null);
+      } else
+        updateFlow(d.flowId, (f) => ({
+          ...f,
+          nodes: f.nodes.map((n) =>
+            n.id === d.id
+              ? { ...n, x: Math.round(n.x / 10) * 10, y: Math.round(n.y / 10) * 10 }
+              : n,
+          ),
+        }));
+    } else if (d?.kind === "pan") {
+      const moved = Math.abs(e.clientX - d.start.x) + Math.abs(e.clientY - d.start.y) > 3;
+      if (!moved) setSelection(null);
+    }
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (inField(e)) return;
+      if (e.key === "Escape") {
+        setMenu(null);
+        setLinking(null);
+        setPanel(null);
+        setSelection(null);
+      }
+      if ((e.key === "Delete" || e.key === "Backspace") && selection) {
+        e.preventDefault();
+        if (selection.kind === "node") removeNode(selection.id);
+        else removeConnector(selection.id);
+      }
+      if (e.key === "f") fitAll();
+      if (e.key === "+" || e.key === "=") zoomBy(1.15);
+      if (e.key === "-") zoomBy(1 / 1.15);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  /* The walk-through */
+  const startWalk = (flowId: string) => {
+    const f = flows.find((x) => x.id === flowId);
+    const t = f ? triggersOf(f)[0] : undefined;
+    if (!f || !t) return;
+    setWalk({ flowId, at: t.id, nodes: [t.id], connectors: [], log: [`${t.name}.`] });
+    setPanel("walk");
+    setSelection(null);
+  };
+  const advance = (outcome: string) => {
+    if (!walk?.at) return;
+    const f = flows.find((x) => x.id === walk.flowId);
+    const c = f?.connectors.find((x) => x.from === walk.at && x.outcome === outcome);
+    const nextNode = c ? f?.nodes.find((n) => n.id === c.to) : undefined;
+    const from = f?.nodes.find((n) => n.id === walk.at);
+    const o = from ? outcomesOf(from).find((x) => x.id === outcome) : undefined;
+    if (!c || !nextNode) {
+      setWalk({
+        ...walk,
+        at: null,
+        log: [...walk.log, `${o?.label || "Then"}: nothing follows, the item stops here.`],
+      });
+      return;
+    }
+    setWalk({
+      ...walk,
+      at: nextNode.id,
+      nodes: [...walk.nodes, nextNode.id],
+      connectors: [...walk.connectors, c.id],
+      log: [
+        ...walk.log,
+        `${o?.label ? `${o.label[0]?.toUpperCase()}${o.label.slice(1)}` : "Then"}: ${nextNode.name}${nextNode.config.status ? ` (status ${nextNode.config.status})` : ""}.`,
+      ],
+    });
+  };
+
+  /* Right-click menus */
+  const menuItems = (
+    m: Menu,
+  ): ({ label: string; danger?: boolean; onSelect: () => void } | "divider")[] => {
+    if (m.target.kind === "canvas") {
+      const t = m.target;
+      return [
+        {
+          label: "Add a node here",
+          onSelect: () => {
+            setAddAt({ flowId: t.flowId, world: t.world });
+            setPanel("picker");
+          },
+        },
+        { label: "Fit to window", onSelect: fitAll },
+        { label: "Zoom to 100%", onSelect: () => setZoom(1) },
+        "divider",
+        { label: "Walk an item through", onSelect: () => startWalk(t.flowId) },
+        { label: "New workflow", onSelect: newFlow },
+      ];
+    }
+    if (m.target.kind === "node") {
+      const id = m.target.id;
+      const f = flowOfNode(id);
+      const n = f?.nodes.find((x) => x.id === id);
+      return [
+        {
+          label: "Edit",
+          onSelect: () => {
+            setSelection({ kind: "node", id });
+            setPanel(null);
+          },
+        },
+        {
+          label: "Add what follows",
+          onSelect: () => {
+            if (!f || !n) return;
+            setAddAt({
+              flowId: f.id,
+              world: { x: n.x + NODE_W + 92, y: n.y + (bandOf(f.id)?.offsetY ?? 0) },
+              from: { kind: "node", id },
+            });
+            setPanel("picker");
+          },
+        },
+        { label: "Duplicate", onSelect: () => duplicateNode(id) },
+        "divider",
+        { label: "Delete", danger: true, onSelect: () => removeNode(id) },
+      ];
+    }
+    const id = m.target.id;
+    return [
+      {
+        label: "Edit the connector",
+        onSelect: () => {
+          setSelection({ kind: "connector", id });
+          setPanel(null);
+        },
+      },
+      {
+        label: "Add a condition",
+        onSelect: () => {
+          setSelection({ kind: "connector", id });
+          setPanel(null);
+        },
+      },
+      "divider",
+      { label: "Remove", danger: true, onSelect: () => removeConnector(id) },
+    ];
+  };
+
+  /* ---------- Render ---------- */
+
+  const inspectorOpen = panel !== null || selection !== null;
+
+  return (
+    <div className="relative flex h-full min-h-0 flex-col">
+      {mode === "basic" && (
+        <BasicView
+          flows={flows}
+          problems={problemsByFlow}
+          onChange={updateFlow}
+          onAdvanced={(id) => {
+            setMode("advanced");
+            requestAnimationFrame(() => jumpTo(id));
+          }}
+          onNew={newFlow}
+        />
+      )}
+      {mode === "code" && <CodeView flows={flows} projectName={project.name} onToast={setToast} />}
+      {mode === "advanced" && (
+        <div className="flex min-h-0 flex-1">
+          <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+            {/* Toolbar */}
+            <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-2 @3xl/app:px-4">
+              <div className="scroll-quiet flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+                {flows.map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => jumpTo(f.id)}
+                    className="flex h-7 shrink-0 items-center gap-1.5 rounded-control border border-line px-2.5 text-[13px] text-ink-2 transition-colors hover:border-edge hover:text-ink"
+                  >
+                    <span
+                      className={cn("size-1.5 rounded-full", f.active ? "bg-ok" : "bg-ink-3")}
+                    />
+                    {f.name}
+                    {problemsByFlow[f.id]?.some((p) => p.level === "error") && (
+                      <span className="text-signal">!</span>
+                    )}
+                  </button>
+                ))}
+                <Button variant="ghost" size="sm" onClick={newFlow} className="shrink-0">
+                  <Icon name="plus" size={13} />
+                  <span className="hidden @3xl/app:inline">Workflow</span>
+                </Button>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
                 <Button
-                  key={o.label}
-                  variant="secondary"
-                  size="md"
-                  className="justify-between"
+                  variant={panel === "statuses" ? "secondary" : "ghost"}
+                  size="sm"
+                  onClick={() => setPanel(panel === "statuses" ? null : "statuses")}
+                >
+                  Statuses
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() =>
-                    setRun((r) =>
-                      r
-                        ? advance(
-                            { ...r, decision: o.decision ?? r.decision },
-                            o.output,
-                            `${runNode.name}: ${o.label.toLowerCase()}`,
-                          )
-                        : r,
+                    startWalk(
+                      selectedNode
+                        ? (flowOfNode(selectedNode.id)?.id ?? flows[0]?.id ?? "")
+                        : (flows[0]?.id ?? ""),
                     )
                   }
                 >
-                  {o.label}
-                  <span className="text-[12px] text-ink-3">
-                    {next ? `→ ${next.name}` : "→ end"}
-                  </span>
+                  <Icon name="play" size={13} />
+                  <span className="hidden @3xl/app:inline">Walk through</span>
                 </Button>
-              );
-            })}
-          </div>
-        </>
-      ) : (
-        <p className="flex items-center gap-2 text-[14px] text-ink">
-          <Dot state="approved" /> Finished.
-        </p>
-      )}
-      <div className="flex flex-col gap-1 border-t border-line pt-3">
-        <Label>What happened</Label>
-        <ol className="flex flex-col gap-1 text-[12px] text-ink-2">
-          {run.log.filter(Boolean).map((l, i) => (
-            <li key={`${String(i)}-${l}`} className="flex gap-2">
-              <span className="tabular text-ink-3">{i + 1}.</span>
-              {l}
-            </li>
-          ))}
-        </ol>
-      </div>
-      <p className="text-[12px] text-ink-3">
-        Nothing is sent while running. Conditions and notifications take their own course.
-      </p>
-    </div>
-  ) : adding ? (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2">
-        <Label>What happens next?</Label>
-        <button
-          type="button"
-          onClick={() => setAdding(null)}
-          className="ml-auto text-[12px] text-ink-3 hover:text-ink"
-        >
-          Cancel
-        </button>
-      </div>
-      <p className="text-[12px] text-ink-3">
-        After {byId.get(adding.from)?.name}
-        {(byId.get(adding.from)?.outputs.length ?? 0) > 1
-          ? ` (${byId.get(adding.from)?.outputs.find((o) => o.id === adding.output)?.label})`
-          : ""}
-        .
-      </p>
-      {picker.map((g) => (
-        <div key={g.group} className="flex flex-col gap-1">
-          <span className="eyebrow text-[12px]">{g.group}</span>
-          {g.items.map((it) => (
-            <button
-              key={`${it.kind}-${it.event ?? ""}`}
-              type="button"
-              onClick={() => addNode(it.kind, it.event)}
-              className="flex items-center gap-3 rounded-control px-2 py-1.5 text-left transition-colors hover:bg-raised"
-            >
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-ground/60 text-ink-2">
-                <Icon name={kindMeta[it.kind].icon} size={13} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-[13px] text-ink">{it.label}</span>
-                <span className="block truncate text-[12px] text-ink-3">{it.hint}</span>
-              </span>
-            </button>
-          ))}
-        </div>
-      ))}
-      <div className="flex flex-col gap-1 border-t border-line pt-3">
-        <span className="eyebrow text-[12px]">Or join an existing stage</span>
-        <Select
-          defaultValue=""
-          onChange={(e) => {
-            if (e.target.value) {
-              connect(adding.from, adding.output, e.target.value);
-              setAdding(null);
-            }
-          }}
-        >
-          <option value="">Choose a stage</option>
-          {graph.nodes
-            .filter((n) => !isTrigger(n) && n.id !== adding.from)
-            .map((n) => (
-              <option key={n.id} value={n.id}>
-                {n.name}
-              </option>
-            ))}
-        </Select>
-        <span className="text-[12px] text-ink-3">Joining an earlier stage makes a loop.</span>
-      </div>
-    </div>
-  ) : current ? (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2">
-        <span className="flex size-7 items-center justify-center rounded-full bg-ground/60 text-ink-2">
-          <Icon name={kindMeta[current.kind].icon} size={13} />
-        </span>
-        <Label>{kindMeta[current.kind].label}</Label>
-        {canEdit && !isTrigger(current) && (
-          <button
-            type="button"
-            onClick={() => removeNode(current.id)}
-            className="ml-auto text-[12px] text-ink-3 hover:text-signal"
-          >
-            Delete
-          </button>
-        )}
-      </div>
-      {current.kind === "event" ? (
-        <>
-          {field(
-            isTrigger(current) ? "Starts when" : "Waits until",
-            <Select
-              value={current.config?.event ?? "manual"}
-              onChange={(e) =>
-                update(current.id, {
-                  config: { ...current.config, event: e.target.value },
-                  name: events.find((x) => x.id === e.target.value)?.label ?? current.name,
-                })
-              }
-              disabled={!canEdit}
-            >
-              {events.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.label}
-                </option>
-              ))}
-            </Select>,
-            isTrigger(current)
-              ? "A trigger: nothing comes before it."
-              : "The item holds here until it happens, then carries on.",
-          )}
-          {current.config?.event === "upload" && (
-            <div className="flex flex-col gap-2 text-[13px] text-ink-2">
-              At the door
-              <ul className="flex flex-col divide-y divide-line rounded-panel border border-line bg-ground/40">
-                {uploadRules.map((r) => (
-                  <li key={r.id} className="flex items-center gap-2 px-2.5 py-1.5">
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] text-ink">{r.name}</span>
-                      {r.source && (
-                        <span className="block truncate text-[11px] text-ink-3">{r.source}</span>
-                      )}
-                    </span>
-                    <Select
-                      value={r.action}
-                      onChange={(e) =>
-                        setUploadRules(
-                          uploadRules.map((x) =>
-                            x.id === r.id
-                              ? { ...x, action: e.target.value as UploadRule["action"] }
-                              : x,
-                          ),
-                        )
-                      }
-                      className="h-7 w-[108px] text-[12px]"
-                      disabled={!canEdit}
-                    >
-                      <option value="off">Off</option>
-                      <option value="warn">Warn</option>
-                      <option value="refuse">Refuse</option>
-                    </Select>
-                    {canEdit && (
-                      <button
-                        type="button"
-                        aria-label={`Remove ${r.name}`}
-                        onClick={() => setUploadRules(uploadRules.filter((x) => x.id !== r.id))}
-                        className="text-ink-3 hover:text-signal"
-                      >
-                        <Icon name="close" size={11} />
-                      </button>
-                    )}
-                  </li>
-                ))}
-                {uploadRules.length === 0 && (
-                  <li className="px-2.5 py-2 text-[12px] text-ink-3">
-                    Nothing is checked at the door.
-                  </li>
-                )}
-              </ul>
-              {canEdit && (
-                <Dropdown
-                  value={
-                    <span className="flex items-center gap-1.5">
-                      <Icon name="plus" size={12} />
-                      Add a rule
-                    </span>
-                  }
-                  actions={allRules
-                    .filter((r) => !uploadRules.some((u) => u.id === r.id))
-                    .map((r) => ({
-                      label: r.name,
-                      hint: r.source,
-                      onSelect: () => setUploadRules([...uploadRules, { ...r, action: "warn" }]),
-                    }))}
-                />
-              )}
-              <span className="text-[12px] text-ink-3">
-                A refused file never enters; a producer can let it through. The rules themselves
-                live in{" "}
-                <Link
-                  to="/projects/$projectId/$view"
-                  params={{ projectId: project.id, view: "settings" }}
-                  search={{ section: "qa" }}
-                  className="text-ink-2 hover:text-ink"
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => {
+                    const target = selectedNode ? flowOfNode(selectedNode.id) : flows[0];
+                    if (!target) return;
+                    const at = selectedNode
+                      ? {
+                          x: selectedNode.x + NODE_W + 92,
+                          y: selectedNode.y + (bandOf(target.id)?.offsetY ?? 0),
+                        }
+                      : toWorld({
+                          x:
+                            (canvas.current?.getBoundingClientRect().left ?? 0) +
+                            (canvas.current?.clientWidth ?? 0) / 2,
+                          y:
+                            (canvas.current?.getBoundingClientRect().top ?? 0) +
+                            (canvas.current?.clientHeight ?? 0) / 2,
+                        });
+                    setAddAt({
+                      flowId: target.id,
+                      world: at,
+                      from: selectedNode ? { kind: "node", id: selectedNode.id } : undefined,
+                    });
+                    setPanel("picker");
+                  }}
                 >
-                  QA rules
-                </Link>
-                .
-              </span>
+                  <Icon name="plus" size={13} />
+                  Node
+                </Button>
+              </div>
             </div>
-          )}
-          {current.config?.event === "due" &&
-            field(
-              "Days after the stage starts",
-              <Input defaultValue="5" className="w-16 text-center" disabled={!canEdit} />,
-            )}
-          {(current.config?.event === "comment" || current.config?.event === "review") &&
-            field(
-              "Of which kind",
-              <Select defaultValue="any" disabled={!canEdit}>
-                <option value="any">Any</option>
-                {current.config?.event === "comment" ? (
-                  <>
-                    <option value="noise">Noise</option>
-                    <option value="edit">Edit</option>
-                    <option value="balance">Balance</option>
-                  </>
-                ) : (
-                  <>
-                    <option value="approval">Approval</option>
-                    <option value="feedback">Feedback</option>
-                  </>
-                )}
-              </Select>,
-            )}
-          {isTrigger(current) &&
-            field(
-              "Applies to",
-              <Select defaultValue="all" disabled={!canEdit}>
-                <option value="all">Every track</option>
-                <option value="new">New tracks only</option>
-              </Select>,
-            )}
-        </>
-      ) : (
-        field(
-          "Name",
-          <Input
-            value={current.name}
-            onChange={(e) => update(current.id, { name: e.target.value })}
-            disabled={!canEdit}
-          />,
-        )
-      )}
-      {(current.kind === "approval" || current.kind === "feedback" || current.kind === "task") && (
-        <>
-          {field(
-            current.kind === "task" ? "Who does it" : "Who is asked",
-            <Input
-              value={current.detail ?? ""}
-              onChange={(e) => update(current.id, { detail: e.target.value })}
-              disabled={!canEdit}
-            />,
-            "A role, a group, people or guests.",
-          )}
-          {current.kind !== "task" &&
-            field(
-              "Order",
-              <Select
-                value={current.config?.order ?? "parallel"}
-                onChange={(e) =>
-                  update(current.id, { config: { ...current.config, order: e.target.value } })
-                }
-                disabled={!canEdit}
-              >
-                <option value="parallel">All at once</option>
-                <option value="sequence">In turn</option>
-              </Select>,
-            )}
-          {current.kind === "approval" &&
-            field(
-              "Approved when",
-              <Select
-                value={current.config?.rule ?? "all"}
-                onChange={(e) =>
-                  update(current.id, { config: { ...current.config, rule: e.target.value } })
-                }
-                disabled={!canEdit}
-              >
-                <option value="all">Everyone approves</option>
-                <option value="any">Any one approves</option>
-                <option value="quorum">A share approves</option>
-              </Select>,
-            )}
-          {field(
-            "Sets the status",
-            <Select
-              value={current.config?.status ?? ""}
-              onChange={(e) =>
-                update(current.id, { config: { ...current.config, status: e.target.value } })
-              }
-              disabled={!canEdit}
-            >
-              <option value="">Leave as is</option>
-              {statuses.map((s) => (
-                <option key={s.name} value={s.name}>
-                  {s.name}
-                </option>
-              ))}
-            </Select>,
-          )}
-          {field(
-            "Due",
-            <span className="flex items-center gap-2">
-              <Input
-                value={current.config?.due ?? "5"}
-                onChange={(e) =>
-                  update(current.id, { config: { ...current.config, due: e.target.value } })
-                }
-                className="w-16 text-center"
-                disabled={!canEdit}
-              />
-              <span className="text-ink-3">days after it starts</span>
-            </span>,
-          )}
-          <div className="flex flex-col gap-2 text-[13px] text-ink-2">
-            On entering
-            {[
-              "Tell the participants in the app",
-              "Mail the participants",
-              "Tell the producer when it ends",
-            ].map((n, i) => (
-              <span key={n} className="flex items-center justify-between text-ink">
-                {n}
-                <Switch label={n} checked={i < 2} onChange={() => {}} />
-              </span>
-            ))}
-          </div>
-        </>
-      )}
-      {current.kind === "condition" && (
-        <>
-          {field(
-            "Based on",
-            <Select defaultValue="decisions" disabled={!canEdit}>
-              <option value="decisions">The decisions of the approval before</option>
-              <option value="qa">The QA result</option>
-              <option value="comments">Whether comments are open</option>
-            </Select>,
-          )}
-          <div className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-            Branches, tried in order
-            {current.outputs.map((o, i) => (
-              <span key={o.id} className="flex items-center gap-2">
-                <span className="tabular w-4 text-ink-3">{i + 1}</span>
-                <Input
-                  value={o.label ?? ""}
-                  onChange={(e) =>
-                    update(current.id, {
-                      outputs: current.outputs.map((x) =>
-                        x.id === o.id ? { ...x, label: e.target.value } : x,
-                      ),
-                    })
-                  }
-                  className="h-8"
-                  disabled={!canEdit}
-                />
-                <Select
-                  defaultValue={
-                    o.label?.includes("all") ? "all" : o.label?.includes("some") ? "some" : "else"
-                  }
-                  className="h-8 w-36 text-[12px]"
-                  disabled={!canEdit}
-                >
-                  <option value="all">all approved</option>
-                  <option value="some">some approved</option>
-                  <option value="none">none approved</option>
-                  <option value="else">otherwise</option>
-                </Select>
-                {canEdit && current.outputs.length > 2 && (
-                  <button
-                    type="button"
-                    aria-label="Remove branch"
-                    onClick={() =>
-                      update(current.id, { outputs: current.outputs.filter((x) => x.id !== o.id) })
-                    }
-                    className="text-ink-3 hover:text-signal"
-                  >
-                    <Icon name="close" size={12} />
-                  </button>
-                )}
-              </span>
-            ))}
-            {canEdit && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="self-start"
-                onClick={() =>
-                  update(current.id, {
-                    outputs: [
-                      ...current.outputs,
-                      { id: `o-${current.outputs.length}`, label: "another case" },
-                    ],
-                  })
-                }
-              >
-                <Icon name="plus" size={12} />
-                Add a branch
-              </Button>
-            )}
-            <span className="text-[12px] text-ink-3">
-              The last branch catches whatever the others do not.
-            </span>
-          </div>
-        </>
-      )}
-      {current.kind === "notify" && (
-        <>
-          {field(
-            "Who",
-            <Select
-              value={current.config?.to ?? "Producer"}
-              onChange={(e) =>
-                update(current.id, { config: { ...current.config, to: e.target.value } })
-              }
-              disabled={!canEdit}
-            >
-              {["Producer", "Engineer", "Editor", "The reviewers", "Everyone in the project"].map(
-                (w) => (
-                  <option key={w}>{w}</option>
-                ),
-              )}
-            </Select>,
-          )}
-          <div className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-            How
-            <div className="flex flex-wrap gap-1.5">
-              {["In the app", "Mail", "Slack"].map((c, i) => (
-                <button
-                  key={c}
-                  type="button"
-                  aria-pressed={i < 2}
-                  className={cn(
-                    "h-7 rounded-chip border px-2.5 text-[13px]",
-                    i < 2
-                      ? "border-edge bg-raised text-ink"
-                      : "border-line text-ink-3 hover:text-ink",
-                  )}
-                >
-                  {c}
-                </button>
-              ))}
-            </div>
-          </div>
-          {field(
-            "Message",
-            <Textarea
-              rows={3}
-              defaultValue="{{track}} came back from {{stage}}: {{decisions}}. Please decide how to proceed."
-              disabled={!canEdit}
-            />,
-            "Fields in braces are filled in when it is sent.",
-          )}
-        </>
-      )}
-      {current.kind === "status" && (
-        <>
-          {field(
-            "Status",
-            <Select
-              value={current.name}
-              onChange={(e) => update(current.id, { name: e.target.value })}
-              disabled={!canEdit}
-            >
-              {statuses.map((s) => (
-                <option key={s.name} value={s.name}>
-                  {s.name}
-                </option>
-              ))}
-            </Select>,
-          )}
-          <span className="flex items-center justify-between text-[13px] text-ink">
-            Ends the workflow
-            <Switch label="Ends the workflow" checked onChange={() => {}} />
-          </span>
-        </>
-      )}
-      {current.outputs.length > 0 && (
-        <div className="flex flex-col gap-1 border-t border-line pt-3 text-[13px] text-ink-2">
-          Then
-          {current.outputs.map((o) => {
-            const edge = graph.edges.find((e) => e.from === current.id && e.output === o.id);
-            const next = edge ? byId.get(edge.to) : undefined;
-            return (
-              <span key={o.id} className="flex items-center gap-2 text-ink">
-                {o.label && <span className="text-[12px] text-ink-3">{o.label}:</span>}
-                <span className="min-w-0 flex-1 truncate">{next ? next.name : "nothing yet"}</span>
-                {canEdit && (
-                  <button
-                    type="button"
-                    onClick={() => setAdding({ from: current.id, output: o.id })}
-                    className="text-[12px] text-ink-3 hover:text-ink"
-                  >
-                    {next ? "Change" : "Add"}
-                  </button>
-                )}
-              </span>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  ) : (
-    <p className="text-[13px] text-ink-3">Choose a stage on the canvas, or press a + to add one.</p>
-  );
 
-  return (
-    <div className="fade-in flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2 @3xl/app:px-6">
-        <div role="tablist" className="flex gap-1">
-          {(
-            [
-              ["builder", "Builder"],
-              ["statuses", "Statuses"],
-              ["overrides", "Per track"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={tab === id}
-              onClick={() => setTab(id)}
+            {/* Canvas */}
+            <div
+              ref={canvas}
+              onPointerDown={onCanvasPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onWheel={onWheel}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                const rect = canvas.current?.getBoundingClientRect();
+                const w = toWorld({ x: e.clientX, y: e.clientY });
+                const band =
+                  bands.find((b) => w.y >= b.top - 80 && w.y <= b.top + b.height + 80) ?? bands[0];
+                if (!band) return;
+                setMenu({
+                  x: e.clientX - (rect?.left ?? 0),
+                  y: e.clientY - (rect?.top ?? 0),
+                  target: { kind: "canvas", world: w, flowId: band.flow.id },
+                });
+              }}
               className={cn(
-                "h-8 rounded-control px-2.5 text-[13px] transition-colors",
-                tab === id ? "bg-raised text-ink shadow-1" : "text-ink-3 hover:text-ink",
+                "relative min-h-0 flex-1 touch-none overflow-hidden bg-canvas/40",
+                drag.current?.kind === "pan" ? "cursor-grabbing" : "cursor-grab",
               )}
+              style={{
+                backgroundImage: "radial-gradient(var(--hk-line-strong) 1px, transparent 1px)",
+                backgroundSize: `${22 * zoom}px ${22 * zoom}px`,
+                backgroundPosition: `${pan.x}px ${pan.y}px`,
+              }}
             >
-              {label}
-            </button>
-          ))}
-        </div>
-        {tab === "builder" && canEdit && (
-          <div className="ml-auto flex items-center gap-1">
-            <Button variant="ghost" size="md" onClick={() => setTemplatesOpen(true)}>
-              Templates
-            </Button>
-            <Dropdown
-              value="Duplicate from"
-              align="right"
-              actions={workflows
-                .filter((w) => w.id !== workflow.id)
-                .map((w) => ({
-                  label: `${projectById(w.projectId)?.name}: ${w.name}`,
-                  onSelect: () => setGraph(graphFor(w.id) ?? graph),
-                }))}
-            />
-            <Button
-              variant="secondary"
-              size="md"
-              onClick={() =>
-                setAdding({
-                  from: current?.id ?? graph.nodes[0]?.id ?? "",
-                  output: current?.outputs[0]?.id ?? "out",
-                })
-              }
-            >
-              <Icon name="plus" size={14} />
-              Stage
-            </Button>
-          </div>
-        )}
-      </div>
-      {tab === "builder" && (
-        <div className="flex min-h-0 flex-1 flex-col @3xl/app:flex-row">
-          <div
-            ref={canvas}
-            className="scroll-quiet relative min-h-[360px] flex-1 overflow-auto bg-[radial-gradient(circle_at_1px_1px,var(--hk-line)_1px,transparent_0)] bg-[length:24px_24px]"
-          >
-            <div style={{ width: width * scale, height: height * scale }}>
               <div
-                className="relative"
-                style={{ width, height, transform: `scale(${scale})`, transformOrigin: "0 0" }}
+                className="absolute top-0 left-0"
+                style={{
+                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                  transformOrigin: "0 0",
+                }}
               >
-                <svg
-                  width={width}
-                  height={height}
-                  className="absolute inset-0"
-                  role="img"
-                  aria-label="Workflow"
-                >
-                  <defs>
-                    <marker
-                      id="arrow"
-                      viewBox="0 0 10 10"
-                      refX="9"
-                      refY="5"
-                      markerWidth="7"
-                      markerHeight="7"
-                      orient="auto-start-reverse"
+                {/* Band frames and headings */}
+                {bands.map((b) => (
+                  <div key={b.flow.id}>
+                    <div
+                      className="pointer-events-none absolute flex w-max items-end gap-2 whitespace-nowrap"
+                      style={{ left: b.bounds.minX, top: b.top - 48 }}
                     >
-                      <path d="M0,0 L10,5 L0,10 z" fill="var(--hk-edge-strong)" />
-                    </marker>
-                    <marker
-                      id="arrow-hot"
-                      viewBox="0 0 10 10"
-                      refX="9"
-                      refY="5"
-                      markerWidth="7"
-                      markerHeight="7"
-                      orient="auto-start-reverse"
-                    >
-                      <path d="M0,0 L10,5 L0,10 z" fill="var(--hk-signal)" />
-                    </marker>
-                    <marker
-                      id="arrow-sel"
-                      viewBox="0 0 10 10"
-                      refX="9"
-                      refY="5"
-                      markerWidth="7"
-                      markerHeight="7"
-                      orient="auto-start-reverse"
-                    >
-                      <path d="M0,0 L10,5 L0,10 z" fill="var(--hk-ink-3)" />
-                    </marker>
-                  </defs>
-                  {graph.edges.map((e: GraphEdge) => {
-                    const from = byId.get(e.from);
-                    const to = byId.get(e.to);
-                    if (!from || !to) return null;
-                    const a = outputAt(from, e.output);
-                    const b = inputAt(to);
-                    const hot = run?.edges.includes(e.id);
-                    const sel = selected === e.from || selected === e.to;
-                    const d = edgePath(a, b, floor + Math.max(0, from.row - to.row) * 0);
-                    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-                    return (
-                      <g key={e.id}>
-                        <path
-                          d={d}
-                          fill="none"
-                          stroke={
-                            hot
-                              ? "var(--hk-signal)"
-                              : sel
-                                ? "var(--hk-ink-3)"
-                                : "var(--hk-edge-strong)"
-                          }
-                          strokeWidth={hot ? 2 : 1.5}
-                          markerEnd={
-                            hot ? "url(#arrow-hot)" : sel ? "url(#arrow-sel)" : "url(#arrow)"
-                          }
-                          className="transition-[stroke] duration-200"
-                        />
-                        {hot && b.x > a.x + 30 && (
-                          <g transform={`translate(${mid.x}, ${mid.y - 10})`}>
-                            <rect
-                              x={-22}
-                              y={-9}
-                              width={44}
-                              height={18}
-                              rx={9}
-                              fill="var(--hk-overlay)"
-                              stroke="var(--hk-signal-line)"
-                            />
-                            <text
-                              x={0}
-                              y={4}
-                              textAnchor="middle"
-                              fontSize={10}
-                              fill="var(--hk-ink-2)"
-                              fontFamily="var(--hk-font-sans)"
-                            >
-                              1 item
-                            </text>
-                          </g>
-                        )}
-                      </g>
-                    );
-                  })}
-                  {graph.nodes.map((n) =>
-                    n.outputs.map((o) => {
-                      const p = outputAt(n, o.id);
+                      <span className="text-[18px] font-medium tracking-tight text-ink">
+                        {b.flow.name}
+                      </span>
+                      <span
+                        className={cn("mb-1 text-[12px]", b.flow.active ? "text-ok" : "text-ink-3")}
+                      >
+                        {b.flow.active ? "active" : "draft"}
+                      </span>
+                      {problemsByFlow[b.flow.id]?.length ? (
+                        <span className="mb-1 text-[12px] text-ink-3">
+                          · {problemsByFlow[b.flow.id]?.length} to look at
+                        </span>
+                      ) : null}
+                    </div>
+                    {b.flow.groups.map((g) => {
+                      const members = b.flow.nodes.filter((n) => n.groupId === g.id);
+                      if (members.length === 0) return null;
+                      const gb = boundsOf(members);
                       return (
-                        <g key={`${n.id}-${o.id}`}>
-                          <circle
-                            cx={p.x}
-                            cy={p.y}
-                            r={4}
-                            fill="var(--hk-raised)"
-                            stroke="var(--hk-edge-strong)"
-                            strokeWidth={1.5}
+                        <div
+                          key={g.id}
+                          className="pointer-events-none absolute rounded-panel-lg border border-dashed border-line"
+                          style={{
+                            left: gb.minX - 20,
+                            top: gb.minY + b.offsetY - 34,
+                            width: gb.maxX - gb.minX + 40 + 120,
+                            height: gb.maxY - gb.minY + 54,
+                          }}
+                        >
+                          <span className="absolute top-2 left-3 text-[11px] tracking-wide text-ink-3 uppercase">
+                            {g.name}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+
+                {/* Connectors */}
+                <svg
+                  aria-hidden="true"
+                  className="pointer-events-none absolute top-0 left-0 overflow-visible"
+                  width={1}
+                  height={1}
+                >
+                  {bands.map((b) => {
+                    const floorBase = b.bounds.maxY + b.offsetY + 36;
+                    let lane = 0;
+                    return b.flow.connectors.map((c) => {
+                      const from = b.flow.nodes.find((n) => n.id === c.from);
+                      const to = b.flow.nodes.find((n) => n.id === c.to);
+                      if (!from || !to) return null;
+                      const loop = isLoop(b.flow, c);
+                      const a = outPort(world(b.flow.id, from), c.outcome);
+                      const z = inPort(world(b.flow.id, to));
+                      const floor = floorBase + (loop ? lane++ * 18 : 0);
+                      const d = connectorPath(a, z, loop, floor);
+                      const selected = selection?.kind === "connector" && selection.id === c.id;
+                      const walked = walk?.connectors.includes(c.id);
+                      const label = c.condition || c.until;
+                      const lp = labelAt(a, z, loop, floor);
+                      return (
+                        <g key={c.id}>
+                          <path
+                            d={d}
+                            fill="none"
+                            strokeWidth={14}
+                            stroke="transparent"
+                            className="pointer-events-auto cursor-pointer"
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              setSelection({ kind: "connector", id: c.id });
+                              setPanel(null);
+                            }}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const rect = canvas.current?.getBoundingClientRect();
+                              setMenu({
+                                x: e.clientX - (rect?.left ?? 0),
+                                y: e.clientY - (rect?.top ?? 0),
+                                target: { kind: "connector", id: c.id },
+                              });
+                            }}
                           />
-                          {o.label && n.outputs.length > 1 && (
-                            <text
-                              x={p.x + 9}
-                              y={p.y + 3.5}
-                              fontSize={10}
-                              fill="var(--hk-ink-3)"
-                              fontFamily="var(--hk-font-sans)"
-                            >
-                              {o.label}
-                            </text>
+                          <path
+                            d={d}
+                            fill="none"
+                            strokeWidth={selected || walked ? 2.5 : 1.5}
+                            className={cn(
+                              "transition-[stroke]",
+                              selected
+                                ? "stroke-signal"
+                                : walked
+                                  ? "stroke-ink"
+                                  : loop
+                                    ? "stroke-ink-3/70"
+                                    : "stroke-ink-3",
+                            )}
+                            strokeDasharray={c.condition ? "6 4" : undefined}
+                          />
+                          <circle
+                            cx={z.x}
+                            cy={z.y}
+                            r={3}
+                            className={selected ? "fill-signal" : "fill-ink-3"}
+                          />
+                          {label && (
+                            <foreignObject x={lp.x - 90} y={lp.y - 11} width={180} height={22}>
+                              <div className="flex justify-center">
+                                <span className="max-w-full truncate rounded-chip border border-line bg-overlay px-1.5 text-[11px] leading-5 text-ink-2">
+                                  {label}
+                                </span>
+                              </div>
+                            </foreignObject>
                           )}
                         </g>
                       );
-                    }),
-                  )}
-                </svg>
-                {graph.nodes.map((n) => (
-                  <Node
-                    key={n.id}
-                    node={n}
-                    selected={selected === n.id}
-                    ran={Boolean(run?.nodes.includes(n.id))}
-                    current={run?.current === n.id}
-                    trigger={isTrigger(n)}
-                    onSelect={() => setSelected(n.id)}
-                  />
-                ))}
-                {canEdit &&
-                  !run &&
-                  dangling.map(({ node, output }) => {
-                    const p = outputAt(node, output.id);
-                    return (
-                      <button
-                        key={`${node.id}-${output.id}`}
-                        type="button"
-                        aria-label={`Add after ${node.name}`}
-                        onClick={() => {
-                          setSelected(node.id);
-                          setAdding({ from: node.id, output: output.id });
-                        }}
-                        className="absolute flex items-center text-ink-3 hover:text-ink"
-                        style={{ left: p.x + 4, top: p.y - 11 }}
-                      >
-                        <span className="h-px w-5 bg-edge-strong" />
-                        <span
-                          className={cn(
-                            "flex size-[22px] items-center justify-center rounded-[5px] border border-dashed border-edge-strong bg-raised transition-colors hover:border-ink-3",
-                            adding?.from === node.id &&
-                              adding.output === output.id &&
-                              "border-signal text-signal",
-                          )}
-                        >
-                          <Icon name="plus" size={11} />
-                        </span>
-                      </button>
-                    );
+                    });
                   })}
-              </div>
-            </div>
-            <div className="absolute bottom-3 left-3 flex items-center gap-0.5 rounded-control bg-overlay p-0.5 shadow-3">
-              <button
-                type="button"
-                aria-label="Zoom out"
-                onClick={() => setZoom(Math.max(0.4, scale - 0.1))}
-                className="flex size-7 items-center justify-center rounded-[4px] text-ink-2 hover:bg-raised hover:text-ink"
-              >
-                <Icon name="zoomOut" size={14} />
-              </button>
-              <button
-                type="button"
-                onClick={() => setZoom(null)}
-                className="tabular h-7 rounded-[4px] px-2 text-[12px] text-ink-2 hover:bg-raised hover:text-ink"
-              >
-                {zoom === null ? "Fit" : `${Math.round(scale * 100)}%`}
-              </button>
-              <button
-                type="button"
-                aria-label="Zoom in"
-                onClick={() => setZoom(Math.min(1.5, scale + 0.1))}
-                className="flex size-7 items-center justify-center rounded-[4px] text-ink-2 hover:bg-raised hover:text-ink"
-              >
-                <Icon name="zoomIn" size={14} />
-              </button>
-              <span className="mx-1 h-4 w-px bg-line" />
-              <button
-                type="button"
-                className="h-7 rounded-[4px] px-2 text-[12px] text-ink-2 hover:bg-raised hover:text-ink"
-              >
-                Tidy up
-              </button>
-            </div>
-            <div
-              className="pointer-events-none absolute right-3 bottom-3 hidden rounded-control border border-line bg-overlay/90 p-1.5 shadow-3 @3xl/app:block"
-              aria-hidden="true"
-            >
-              <svg
-                width={Math.round(width * 0.07)}
-                height={Math.round(height * 0.07)}
-                role="img"
-                aria-label="Map of the canvas"
-              >
-                {graph.nodes.map((n) => {
-                  const p = posOf(n);
-                  return (
-                    <rect
+                  {linking &&
+                    (() => {
+                      const f = flowOfNode(linking.from);
+                      const from = f?.nodes.find((n) => n.id === linking.from);
+                      if (!f || !from) return null;
+                      const a = outPort(world(f.id, from), linking.outcome);
+                      return (
+                        <path
+                          d={connectorPath(a, linking.at, false, 0)}
+                          fill="none"
+                          strokeWidth={1.5}
+                          strokeDasharray="4 4"
+                          className="stroke-signal"
+                        />
+                      );
+                    })()}
+                </svg>
+
+                {/* Nodes */}
+                {bands.map((b) =>
+                  b.flow.nodes.map((n) => (
+                    <Node
                       key={n.id}
-                      x={p.x * 0.07}
-                      y={p.y * 0.07}
-                      width={NODE_W * 0.07}
-                      height={NODE_H * 0.07}
-                      rx={1.5}
-                      fill={run?.nodes.includes(n.id) ? "var(--hk-signal)" : "var(--hk-ink-3)"}
-                      opacity={0.8}
+                      node={world(b.flow.id, n)}
+                      selected={selection?.kind === "node" && selection.id === n.id}
+                      walked={Boolean(walk?.nodes.includes(n.id))}
+                      current={walk?.at === n.id}
+                      trigger={n.kind === "event" && !b.flow.connectors.some((c) => c.to === n.id)}
+                      problem={problemsByFlow[b.flow.id]?.find((p) => p.nodeId === n.id)}
+                      onPointerDown={(e) => onNodePointerDown(b.flow.id, n.id, e)}
+                      onPortDown={(outcome, e) => {
+                        setLinking({
+                          from: n.id,
+                          outcome,
+                          at: toWorld({ x: e.clientX, y: e.clientY }),
+                        });
+                        canvas.current?.setPointerCapture(e.pointerId);
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const rect = canvas.current?.getBoundingClientRect();
+                        setMenu({
+                          x: e.clientX - (rect?.left ?? 0),
+                          y: e.clientY - (rect?.top ?? 0),
+                          target: { kind: "node", id: n.id },
+                        });
+                      }}
                     />
-                  );
-                })}
-              </svg>
-            </div>
-            {unreachable.length > 0 && !run && (
-              <div className="absolute top-3 left-3 flex items-center gap-1.5 rounded-control bg-overlay px-2.5 py-1.5 text-[12px] text-signal shadow-3">
-                <Icon name="warning" size={12} /> {unreachable.length}{" "}
-                {unreachable.length === 1 ? "stage is" : "stages are"} not reached by anything
+                  )),
+                )}
               </div>
-            )}
-          </div>
-          <aside className="scroll-quiet flex w-full shrink-0 flex-col overflow-auto border-t border-line p-4 @3xl/app:w-[320px] @3xl/app:border-t-0 @3xl/app:border-l">
-            {inspector}
-          </aside>
-        </div>
-      )}
-      {tab === "statuses" && (
-        <div className="scroll-quiet min-h-0 flex-1 overflow-auto p-4 @3xl/app:p-6">
-          <div className="flex max-w-[720px] flex-col gap-4">
-            <p className="text-[14px] text-ink-2">
-              The statuses a track can be in. Stages set them; the board groups by them.
-            </p>
-            <ul className="flex flex-col divide-y divide-line rounded-panel-lg border border-line bg-raised/25">
-              {statuses.map((s, i) => (
-                <li key={s.name} className="flex items-center gap-4 px-4 py-2.5">
-                  <Dot
-                    state={
-                      s.category === "done"
-                        ? "approved"
-                        : s.category === "todo"
-                          ? "invited"
-                          : "in_review"
-                    }
-                  />
-                  <Input
-                    value={s.name}
-                    onChange={(e) =>
-                      setStatuses(
-                        statuses.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)),
-                      )
-                    }
-                    className="h-8 max-w-[260px]"
-                    disabled={!canEdit}
-                  />
-                  <Select
-                    value={s.category}
-                    onChange={(e) =>
-                      setStatuses(
-                        statuses.map((x, j) =>
-                          j === i ? { ...x, category: e.target.value as typeof s.category } : x,
-                        ),
-                      )
-                    }
-                    className="h-8 w-36 text-[13px]"
-                    disabled={!canEdit}
-                  >
-                    <option value="todo">To do</option>
-                    <option value="in_progress">In progress</option>
-                    <option value="done">Done</option>
-                  </Select>
-                  <span className="ml-auto text-[12px] text-ink-3">
-                    {
-                      graph.nodes.filter(
-                        (n) =>
-                          n.config?.status === s.name || (n.kind === "status" && n.name === s.name),
-                      ).length
-                    }{" "}
-                    stages set it
-                  </span>
-                  {canEdit && (
-                    <button
-                      type="button"
-                      aria-label={`Remove ${s.name}`}
-                      onClick={() => setStatuses(statuses.filter((_, j) => j !== i))}
-                      className="text-ink-3 hover:text-signal"
-                    >
-                      <Icon name="close" size={12} />
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-            {canEdit && (
-              <Button
-                variant="secondary"
-                size="md"
-                className="self-start"
-                onClick={() =>
-                  setStatuses([...statuses, { name: "New status", category: "in_progress" }])
-                }
-              >
-                <Icon name="plus" size={14} />
-                Status
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
-      {tab === "overrides" && (
-        <div className="scroll-quiet min-h-0 flex-1 overflow-auto p-4 @3xl/app:p-6">
-          <div className="flex max-w-[720px] flex-col gap-4">
-            <p className="text-[14px] text-ink-2">
-              Every track follows the project's workflow unless it is given its own.
-            </p>
-            <ul className="flex flex-col divide-y divide-line rounded-panel-lg border border-line bg-raised/25">
-              {tracks
-                .filter((t) => t.projectId === project.id)
-                .map((t, i) => (
-                  <li key={t.id} className="flex items-center gap-4 px-4 py-3">
-                    <Link
-                      to="/tracks/$trackId"
-                      params={{ trackId: t.id }}
-                      search={{ view: "versions" }}
-                      className="min-w-0 flex-1 truncate text-[14px] text-ink hover:text-signal"
-                    >
-                      {t.name}
-                    </Link>
-                    <span className="text-[13px] text-ink-3">
-                      {i === 2 ? "Own workflow: Simple approval" : "Project workflow"}
-                    </span>
-                    {canEdit && (
-                      <Button variant="ghost" size="sm">
-                        {i === 2 ? "Edit" : "Override"}
-                      </Button>
-                    )}
-                  </li>
-                ))}
-            </ul>
-          </div>
-        </div>
-      )}
-      {templatesOpen && (
-        <Dialog
-          title="Start from a template"
-          description="Replaces the stages on the canvas; nothing is saved until you activate."
-          onClose={() => setTemplatesOpen(false)}
-          width="sm"
-        >
-          <ul className="flex flex-col gap-1">
-            {templates.map((t) => (
-              <li key={t.id}>
+
+              {/* Zoom controls */}
+              <div className="absolute bottom-3 left-3 flex items-center gap-0.5 rounded-control border border-line bg-overlay p-0.5 shadow-2">
+                <Button
+                  variant="quiet"
+                  size="iconSm"
+                  aria-label="Zoom out"
+                  onClick={() => zoomBy(1 / 1.15)}
+                >
+                  <Icon name="zoomOut" size={14} />
+                </Button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setTemplatesOpen(false);
-                    if (t.id === "conductor") setGraph(graphFor("wf-joplin") ?? graph);
-                    if (t.id === "parallel") setGraph(graphFor("wf-titles") ?? graph);
-                    if (t.id === "simple")
-                      setGraph({
-                        workflowId: graph.workflowId,
-                        nodes: [
-                          {
-                            id: "s0",
-                            kind: "event",
-                            name: "A version is uploaded",
-                            config: { event: "upload" },
-                            col: 0,
-                            row: 0,
-                            outputs: [{ id: "out" }],
-                          },
-                          {
-                            id: "s1",
-                            kind: "approval",
-                            name: "Approval",
-                            detail: "Producer, everyone",
-                            col: 1,
-                            row: 0,
-                            outputs: [{ id: "out" }],
-                            config: { rule: "all", status: statuses.at(-1)?.name ?? "" },
-                          },
-                          {
-                            id: "s2",
-                            kind: "condition",
-                            name: "Decision",
-                            col: 2,
-                            row: 0,
-                            outputs: [
-                              { id: "a", label: "all approved" },
-                              { id: "b", label: "else" },
-                            ],
-                          },
-                          {
-                            id: "s3",
-                            kind: "status",
-                            name: statuses.at(-1)?.name ?? "Approved",
-                            col: 3,
-                            row: 0,
-                            outputs: [],
-                          },
-                          {
-                            id: "s4",
-                            kind: "task",
-                            name: "Back to editing",
-                            detail: "Engineer",
-                            col: 3,
-                            row: 1,
-                            outputs: [{ id: "out" }],
-                            config: { status: statuses[0]?.name ?? "" },
-                          },
-                        ],
-                        edges: [
-                          { id: "x1", from: "s0", output: "out", to: "s1" },
-                          { id: "x2", from: "s1", output: "out", to: "s2" },
-                          { id: "x3", from: "s2", output: "a", to: "s3" },
-                          { id: "x4", from: "s2", output: "b", to: "s4" },
-                          { id: "x5", from: "s4", output: "out", to: "s1" },
-                        ],
-                      });
-                  }}
-                  className="flex w-full flex-col rounded-panel px-3 py-2.5 text-left transition-colors hover:bg-raised"
+                  onClick={() => setZoom(1)}
+                  className="tabular h-7 min-w-11 px-1 text-[12px] text-ink-2 hover:text-ink"
                 >
-                  <span className="text-[14px] text-ink">{t.name}</span>
-                  <span className="text-[13px] text-ink-3">{t.hint}</span>
+                  {Math.round(zoom * 100)}%
                 </button>
-              </li>
-            ))}
-          </ul>
-        </Dialog>
-      )}
-      {activated && (
-        <div className="rise-in absolute right-4 bottom-4 z-30 flex items-center gap-2 rounded-panel bg-overlay px-3 py-2 text-[13px] text-ink shadow-3">
-          <Dot state="approved" /> Workflow active for {project.name}
-          <button
-            type="button"
-            onClick={() => setActivated(false)}
-            className="ml-2 text-ink-3 hover:text-ink"
-          >
-            <Icon name="close" size={12} />
-          </button>
+                <Button
+                  variant="quiet"
+                  size="iconSm"
+                  aria-label="Zoom in"
+                  onClick={() => zoomBy(1.15)}
+                >
+                  <Icon name="zoomIn" size={14} />
+                </Button>
+                <span className="mx-0.5 h-4 w-px bg-line" />
+                <Button variant="quiet" size="sm" onClick={fitAll} title="Fit (f)">
+                  Fit
+                </Button>
+              </div>
+              <div className="pointer-events-none absolute bottom-3 left-1/2 hidden -translate-x-1/2 items-center gap-3 text-[11px] text-ink-3 @3xl/app:flex">
+                <span>Drag to pan</span>
+                <span className="flex items-center gap-1">
+                  <Kbd>ctrl</Kbd> scroll to zoom
+                </span>
+                <span>Right-click for more</span>
+                <span>Drag a port to connect</span>
+              </div>
+
+              {/* Minimap */}
+              <Minimap
+                bounds={worldBounds}
+                nodes={everything}
+                pan={pan}
+                zoom={zoom}
+                size={
+                  canvas.current
+                    ? { w: canvas.current.clientWidth, h: canvas.current.clientHeight }
+                    : null
+                }
+                onJump={(p) => setPan(p)}
+              />
+
+              {/* Context menu */}
+              {menu && (
+                <div
+                  role="menu"
+                  className="rise-in absolute z-30 flex min-w-48 flex-col rounded-panel bg-overlay p-1 shadow-4"
+                  style={{
+                    left: Math.min(menu.x, (canvas.current?.clientWidth ?? 400) - 200),
+                    top: Math.min(menu.y, (canvas.current?.clientHeight ?? 400) - 220),
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  {menuItems(menu).map((item, i) =>
+                    item === "divider" ? (
+                      <div key={`d${i}`} className="mx-2 my-1 h-px bg-line" />
+                    ) : (
+                      <button
+                        key={item.label}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMenu(null);
+                          item.onSelect();
+                        }}
+                        className={cn(
+                          "flex h-8 items-center rounded-control px-2.5 text-left text-[13px] transition-colors hover:bg-raised",
+                          item.danger ? "text-signal" : "text-ink",
+                        )}
+                      >
+                        {item.label}
+                      </button>
+                    ),
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Inspector */}
+          {inspectorOpen && (
+            <aside className="absolute inset-y-0 right-0 z-20 flex w-full flex-col border-l border-line bg-pane shadow-4 @3xl/app:static @3xl/app:w-[340px] @3xl/app:shadow-none">
+              {panel === "picker" && (
+                <Picker
+                  onPick={(type) => {
+                    const target = addAt ?? { flowId: flows[0]?.id ?? "", world: { x: 0, y: 0 } };
+                    addNode(target.flowId, type, target.world, target.from);
+                  }}
+                  onClose={() => {
+                    setPanel(null);
+                    setAddAt(null);
+                  }}
+                />
+              )}
+              {panel === "statuses" && (
+                <StatusesPanel
+                  statuses={statuses}
+                  onChange={setStatuses}
+                  onClose={() => setPanel(null)}
+                />
+              )}
+              {panel === "walk" && walk && (
+                <WalkPanel
+                  walk={walk}
+                  flow={flows.find((f) => f.id === walk.flowId)}
+                  onAdvance={advance}
+                  onRestart={() => startWalk(walk.flowId)}
+                  onClose={() => {
+                    setWalk(null);
+                    setPanel(null);
+                  }}
+                />
+              )}
+              {panel === null && selectedNode && (
+                <NodeInspector
+                  project={project}
+                  node={selectedNode}
+                  flow={flowOfNode(selectedNode.id)}
+                  statuses={statuses.map((s) => s.name)}
+                  problems={allProblems.filter((p) => p.nodeId === selectedNode.id)}
+                  onChange={(patch) => {
+                    const f = flowOfNode(selectedNode.id);
+                    if (f)
+                      updateFlow(f.id, (x) => ({
+                        ...x,
+                        nodes: x.nodes.map((n) =>
+                          n.id === selectedNode.id ? { ...n, ...patch } : n,
+                        ),
+                      }));
+                  }}
+                  onAddAfter={(outcome) => {
+                    const f = flowOfNode(selectedNode.id);
+                    if (!f) return;
+                    setAddAt({
+                      flowId: f.id,
+                      world: {
+                        x: selectedNode.x + NODE_W + 92,
+                        y:
+                          selectedNode.y +
+                          (bandOf(f.id)?.offsetY ?? 0) +
+                          (outcomesOf(selectedNode).findIndex((o) => o.id === outcome) - 1) * 100,
+                      },
+                      from: { kind: "node", id: selectedNode.id },
+                    });
+                    setPanel("picker");
+                  }}
+                  onConnect={(outcome, to) => {
+                    const f = flowOfNode(selectedNode.id);
+                    if (f) connect(f.id, selectedNode.id, outcome, to);
+                  }}
+                  onSelectConnector={(id) => setSelection({ kind: "connector", id })}
+                  onDelete={() => removeNode(selectedNode.id)}
+                  onClose={() => setSelection(null)}
+                />
+              )}
+              {panel === null && selectedConnector && (
+                <ConnectorInspector
+                  connector={selectedConnector}
+                  flow={flowOfConnector(selectedConnector.id)}
+                  onChange={(patch) => {
+                    const f = flowOfConnector(selectedConnector.id);
+                    if (f)
+                      updateFlow(f.id, (x) => ({
+                        ...x,
+                        connectors: x.connectors.map((c) =>
+                          c.id === selectedConnector.id ? { ...c, ...patch } : c,
+                        ),
+                      }));
+                  }}
+                  onDelete={() => removeConnector(selectedConnector.id)}
+                  onClose={() => setSelection(null)}
+                />
+              )}
+            </aside>
+          )}
         </div>
       )}
+
+      {toast && (
+        <div className="rise-in pointer-events-none absolute bottom-5 left-1/2 z-40 -translate-x-1/2 rounded-panel bg-overlay px-4 py-2 text-[13px] text-ink shadow-4">
+          {toast}
+        </div>
+      )}
+      {!inspectorOpen && mode === "advanced" && allProblems.length > 0 && (
+        <button
+          type="button"
+          onClick={() => {
+            const p = allProblems[0];
+            if (p?.nodeId) setSelection({ kind: "node", id: p.nodeId });
+            else if (p?.connectorId) setSelection({ kind: "connector", id: p.connectorId });
+          }}
+          className="absolute top-14 right-3 z-10 flex items-center gap-2 rounded-panel border border-line bg-overlay px-3 py-1.5 text-[12px] text-ink-2 shadow-3 transition-colors hover:text-ink"
+        >
+          <span
+            className={cn(
+              "size-1.5 rounded-full",
+              allProblems.some((p) => p.level === "error") ? "bg-signal" : "bg-ink-3",
+            )}
+          />
+          {allProblems.length} {allProblems.length === 1 ? "thing" : "things"} to look at
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Minimap ---------- */
+
+function Minimap({
+  bounds,
+  nodes,
+  pan,
+  zoom,
+  size,
+  onJump,
+}: {
+  bounds: Bounds;
+  nodes: { x: number; y: number; kind: "event" | "action" }[];
+  pan: Pt;
+  zoom: number;
+  size: { w: number; h: number } | null;
+  onJump: (p: Pt) => void;
+}) {
+  const W = 160;
+  const H = 96;
+  const bw = bounds.maxX - bounds.minX + 200;
+  const bh = bounds.maxY - bounds.minY + 200;
+  const s = Math.min(W / bw, H / bh);
+  const ox = (W - bw * s) / 2 - (bounds.minX - 100) * s;
+  const oy = (H - bh * s) / 2 - (bounds.minY - 100) * s;
+  const view = size
+    ? {
+        x: (-pan.x / zoom) * s + ox,
+        y: (-pan.y / zoom) * s + oy,
+        w: (size.w / zoom) * s,
+        h: (size.h / zoom) * s,
+      }
+    : null;
+  return (
+    <svg
+      role="img"
+      aria-label="Map of the canvas"
+      width={W}
+      height={H}
+      className="absolute right-3 bottom-3 hidden rounded-panel border border-line bg-overlay/90 shadow-2 @3xl/app:block"
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        if (!size) return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        const wx = (e.clientX - rect.left - ox) / s;
+        const wy = (e.clientY - rect.top - oy) / s;
+        onJump({ x: size.w / 2 - wx * zoom, y: size.h / 2 - wy * zoom });
+      }}
+    >
+      {nodes.map((n, i) => (
+        <rect
+          key={i}
+          x={n.x * s + ox}
+          y={n.y * s + oy}
+          width={NODE_W * s}
+          height={NODE_H * s}
+          rx={2}
+          className={n.kind === "event" ? "fill-signal/70" : "fill-ink-3/70"}
+        />
+      ))}
+      {view && (
+        <rect
+          x={view.x}
+          y={view.y}
+          width={view.w}
+          height={view.h}
+          className="fill-ink/5 stroke-ink/40"
+          strokeWidth={1}
+        />
+      )}
+    </svg>
+  );
+}
+
+/* ---------- Panels ---------- */
+
+function Picker({ onPick, onClose }: { onPick: (t: NodeType) => void; onClose: () => void }) {
+  const [q, setQ] = useState("");
+  const hit = (s: string) => s.toLowerCase().includes(q.trim().toLowerCase());
+  return (
+    <>
+      <PanelHead
+        title="What happens next?"
+        hint="Pick a node; it is wired from the selected one."
+        onClose={onClose}
+      />
+      <div className="px-3 pt-3">
+        <Input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search nodes"
+          autoFocus
+        />
+      </div>
+      <div className="scroll-quiet min-h-0 flex-1 overflow-y-auto p-2">
+        {picker.map((g) => {
+          const items = g.items.filter((i) => hit(i.label) || hit(i.hint));
+          if (items.length === 0) return null;
+          return (
+            <div key={g.group} className="mb-2">
+              <Label className="block px-2 pt-2 pb-1">{g.group}</Label>
+              {items.map((i) => {
+                const meta = typeMeta(i.type);
+                return (
+                  <button
+                    key={i.type}
+                    type="button"
+                    onClick={() => onPick(i.type)}
+                    className="flex w-full items-center gap-3 rounded-control px-2 py-1.5 text-left transition-colors hover:bg-raised"
+                  >
+                    <span
+                      className={cn(
+                        "flex size-7 shrink-0 items-center justify-center rounded-control",
+                        meta.kind === "event" ? "bg-signal/15 text-signal" : "bg-raised text-ink-2",
+                      )}
+                    >
+                      <Icon name={meta.icon as IconName} size={14} />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-[13px] text-ink">{i.label}</span>
+                      <span className="block truncate text-[12px] text-ink-3">{i.hint}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+function StatusesPanel({
+  statuses,
+  onChange,
+  onClose,
+}: {
+  statuses: { name: string; category: "todo" | "in_progress" | "done" }[];
+  onChange: (s: { name: string; category: "todo" | "in_progress" | "done" }[]) => void;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState("");
+  return (
+    <>
+      <PanelHead
+        title="Statuses"
+        hint="What the board's columns are; a node sets one."
+        onClose={onClose}
+      />
+      <div className="scroll-quiet flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-3">
+        {statuses.map((s, i) => (
+          <div
+            key={s.name}
+            className="flex items-center gap-2 rounded-control px-2 py-1.5 hover:bg-raised/60"
+          >
+            <span
+              className={cn(
+                "size-2 rounded-full",
+                s.category === "done"
+                  ? "bg-ok"
+                  : s.category === "in_progress"
+                    ? "bg-signal"
+                    : "bg-ink-3",
+              )}
+            />
+            <span className="flex-1 text-[13px] text-ink">{s.name}</span>
+            <Select
+              value={s.category}
+              aria-label={`Category of ${s.name}`}
+              className="h-7 w-28 text-[12px]"
+              onChange={(e) =>
+                onChange(
+                  statuses.map((x, j) =>
+                    j === i ? { ...x, category: e.target.value as typeof x.category } : x,
+                  ),
+                )
+              }
+            >
+              <option value="todo">To do</option>
+              <option value="in_progress">In progress</option>
+              <option value="done">Done</option>
+            </Select>
+            <Button
+              variant="quiet"
+              size="iconSm"
+              aria-label={`Remove ${s.name}`}
+              onClick={() => onChange(statuses.filter((_, j) => j !== i))}
+            >
+              <Icon name="close" size={12} />
+            </Button>
+          </div>
+        ))}
+        <form
+          className="mt-2 flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!name.trim()) return;
+            onChange([...statuses, { name: name.trim(), category: "in_progress" }]);
+            setName("");
+          }}
+        >
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="New status"
+            className="flex-1"
+          />
+          <Button type="submit" variant="secondary">
+            Add
+          </Button>
+        </form>
+      </div>
+    </>
+  );
+}
+
+function WalkPanel({
+  walk,
+  flow,
+  onAdvance,
+  onRestart,
+  onClose,
+}: {
+  walk: Walk;
+  flow?: Flow;
+  onAdvance: (outcome: string) => void;
+  onRestart: () => void;
+  onClose: () => void;
+}) {
+  const at = flow?.nodes.find((n) => n.id === walk.at);
+  const outs = at ? outcomesOf(at) : [];
+  return (
+    <>
+      <PanelHead title="Walk an item through" hint={flow?.name} onClose={onClose} />
+      <div className="scroll-quiet flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+        <ol className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+          {walk.log.map((l, i) => (
+            <li key={i} className="flex gap-2">
+              <span className="tabular w-4 shrink-0 text-ink-3">{i + 1}</span>
+              <span className={i === walk.log.length - 1 ? "text-ink" : undefined}>{l}</span>
+            </li>
+          ))}
+        </ol>
+        {at ? (
+          outs.length === 0 ? (
+            <p className="text-[13px] text-ink-3">The item is finished here.</p>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              <Label>What happens at “{at.name}”?</Label>
+              {outs.map((o) => (
+                <Button key={o.id} variant="secondary" onClick={() => onAdvance(o.id)}>
+                  {o.label
+                    ? o.label[0]?.toUpperCase() + o.label.slice(1)
+                    : at.kind === "event"
+                      ? "It happens"
+                      : "It is done"}
+                </Button>
+              ))}
+            </div>
+          )
+        ) : (
+          <p className="text-[13px] text-ink-3">The walk ended.</p>
+        )}
+        <Button variant="ghost" size="sm" onClick={onRestart} className="self-start">
+          Start again
+        </Button>
+      </div>
+    </>
+  );
+}
+
+function NodeInspector({
+  project,
+  node,
+  flow,
+  statuses,
+  problems,
+  onChange,
+  onAddAfter,
+  onConnect,
+  onSelectConnector,
+  onDelete,
+  onClose,
+}: {
+  project: Project;
+  node: FlowNode;
+  flow?: Flow;
+  statuses: string[];
+  problems: Problem[];
+  onChange: (patch: Partial<FlowNode>) => void;
+  onAddAfter: (outcome: string) => void;
+  onConnect: (outcome: string, to: string) => void;
+  onSelectConnector: (id: string) => void;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  const meta = typeMeta(node.type);
+  const outs = outcomesOf(node);
+  const isTrigger = node.kind === "event" && !flow?.connectors.some((c) => c.to === node.id);
+  const uploadRules = useMemo(
+    () =>
+      [
+        ...qaRules,
+        ...rulePacks
+          .filter((pk) => (projectPacks[project.id] ?? []).includes(pk.id))
+          .flatMap((pk) => pk.rules),
+        ...customRules,
+      ].filter((r) => r.onUpload && r.on),
+    [project.id],
+  );
+  const [doorRules, setDoorRules] = useState<Record<string, "warn" | "refuse" | "off">>(() =>
+    Object.fromEntries(uploadRules.map((r) => [r.id, r.severity === "fail" ? "refuse" : "warn"])),
+  );
+  return (
+    <>
+      <PanelHead
+        title={node.name}
+        hint={`${node.kind === "event" ? (isTrigger ? "Event, starts the workflow" : "Event, waited for") : "Action"} · ${meta.label}`}
+        onClose={onClose}
+      >
+        <Dropdown
+          size="sm"
+          align="right"
+          value={<Icon name="more" size={14} />}
+          actions={[{ label: "Delete", danger: true, onSelect: onDelete }]}
+        />
+      </PanelHead>
+      <div className="scroll-quiet flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+        {problems.map((p) => (
+          <p
+            key={p.text}
+            className={cn(
+              "rounded-panel border px-3 py-2 text-[12px]",
+              p.level === "error"
+                ? "border-signal/40 bg-signal/10 text-ink"
+                : "border-line bg-raised/40 text-ink-2",
+            )}
+          >
+            {p.text}
+          </p>
+        ))}
+        <Field label="Name">
+          <Input value={node.name} onChange={(e) => onChange({ name: e.target.value })} />
+        </Field>
+        {meta.fields.map((f) => (
+          <Field key={f.id} label={f.label}>
+            {f.id === "status" && statuses.length ? (
+              <Select
+                value={node.config[f.id] ?? ""}
+                onChange={(e) => onChange({ config: { ...node.config, [f.id]: e.target.value } })}
+              >
+                <option value="">None</option>
+                {statuses.map((s) => (
+                  <option key={s}>{s}</option>
+                ))}
+              </Select>
+            ) : f.options ? (
+              <Select
+                value={node.config[f.id] ?? f.options[0]}
+                onChange={(e) => onChange({ config: { ...node.config, [f.id]: e.target.value } })}
+              >
+                {f.options.map((o) => (
+                  <option key={o}>{o}</option>
+                ))}
+              </Select>
+            ) : (
+              <Input
+                value={node.config[f.id] ?? ""}
+                onChange={(e) => onChange({ config: { ...node.config, [f.id]: e.target.value } })}
+              />
+            )}
+          </Field>
+        ))}
+        {flow && flow.groups.length > 0 && (
+          <Field label="Stage">
+            <Select
+              value={node.groupId ?? ""}
+              onChange={(e) => onChange({ groupId: e.target.value || undefined })}
+            >
+              <option value="">None</option>
+              {flow.groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
+        {node.type === "upload" && (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-baseline justify-between">
+              <Label>At the door</Label>
+              <span className="text-[12px] text-ink-3">from the QA rules marked on upload</span>
+            </div>
+            <div className="flex flex-col divide-y divide-line rounded-panel border border-line">
+              {uploadRules.map((r) => (
+                <div key={r.id} className="flex items-center gap-2 px-2.5 py-1.5">
+                  <span className="min-w-0 flex-1 truncate text-[12px] text-ink">{r.name}</span>
+                  <Select
+                    value={doorRules[r.id] ?? "warn"}
+                    aria-label={`${r.name} on upload`}
+                    className="h-7 w-[92px] text-[12px]"
+                    onChange={(e) =>
+                      setDoorRules({
+                        ...doorRules,
+                        [r.id]: e.target.value as "warn" | "refuse" | "off",
+                      })
+                    }
+                  >
+                    <option value="off">Off</option>
+                    <option value="warn">Warn</option>
+                    <option value="refuse">Refuse</option>
+                  </Select>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {outs.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <Label>Then</Label>
+            <div className="flex flex-col gap-1.5">
+              {outs.map((o) => {
+                const links =
+                  flow?.connectors.filter((c) => c.from === node.id && c.outcome === o.id) ?? [];
+                const others = flow?.nodes.filter((n) => n.id !== node.id) ?? [];
+                return (
+                  <div key={o.id} className="rounded-panel border border-line px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[12px] text-ink-3">
+                        {o.label
+                          ? `When ${o.label}`
+                          : node.kind === "event"
+                            ? "When it happens"
+                            : "When done"}
+                      </span>
+                      <Dropdown
+                        size="sm"
+                        align="right"
+                        value={
+                          <span className="flex items-center gap-1">
+                            <Icon name="plus" size={12} />
+                            Add
+                          </span>
+                        }
+                        actions={[
+                          { label: "A new node…", onSelect: () => onAddAfter(o.id) },
+                          "divider",
+                          ...others.map((n) => ({
+                            label: n.name,
+                            onSelect: () => onConnect(o.id, n.id),
+                          })),
+                        ]}
+                      />
+                    </div>
+                    {links.length === 0 ? (
+                      <div className="mt-1 text-[13px] text-ink-3">Nothing yet</div>
+                    ) : (
+                      <ul className="mt-1 flex flex-col gap-1">
+                        {links.map((c) => {
+                          const to = flow?.nodes.find((n) => n.id === c.to);
+                          const loop = flow ? isLoop(flow, c) : false;
+                          return (
+                            <li key={c.id}>
+                              <button
+                                type="button"
+                                onClick={() => onSelectConnector(c.id)}
+                                className="flex w-full items-center gap-2 rounded-control px-1.5 py-1 text-left text-[13px] text-ink transition-colors hover:bg-raised"
+                              >
+                                <Icon
+                                  name={loop ? "repeat" : "arrowRight"}
+                                  size={13}
+                                  className="text-ink-3"
+                                />
+                                <span className="min-w-0 flex-1 truncate">{to?.name}</span>
+                                {(c.condition || c.until) && (
+                                  <span className="max-w-[45%] truncate text-[11px] text-ink-3">
+                                    {c.condition ?? c.until}
+                                  </span>
+                                )}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+function ConnectorInspector({
+  connector,
+  flow,
+  onChange,
+  onDelete,
+  onClose,
+}: {
+  connector: Connector;
+  flow?: Flow;
+  onChange: (patch: Partial<Connector>) => void;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  const from = flow?.nodes.find((n) => n.id === connector.from);
+  const to = flow?.nodes.find((n) => n.id === connector.to);
+  const loop = flow ? isLoop(flow, connector) : false;
+  const outs = from ? outcomesOf(from) : [];
+  return (
+    <>
+      <PanelHead
+        title={loop ? "Loop" : "Connector"}
+        hint={`${from?.name} → ${to?.name}`}
+        onClose={onClose}
+      >
+        <Dropdown
+          size="sm"
+          align="right"
+          value={<Icon name="more" size={14} />}
+          actions={[{ label: "Remove", danger: true, onSelect: onDelete }]}
+        />
+      </PanelHead>
+      <div className="flex flex-col gap-4 p-4">
+        {outs.length > 1 && (
+          <Field label={`Leaves “${from?.name}” when`}>
+            <Select
+              value={connector.outcome}
+              onChange={(e) => onChange({ outcome: e.target.value })}
+            >
+              {outs.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
+        <Field label="Only if">
+          <Input
+            value={connector.condition ?? ""}
+            placeholder="if the file is video"
+            onChange={(e) => onChange({ condition: e.target.value || undefined })}
+          />
+        </Field>
+        {loop && (
+          <Field label="Way out of the loop">
+            <Input
+              value={connector.until ?? ""}
+              placeholder="at most 3 rounds"
+              onChange={(e) => onChange({ until: e.target.value || undefined })}
+            />
+          </Field>
+        )}
+        <p className="text-[12px] text-ink-3">
+          {loop
+            ? "This connector goes back to an earlier node, so the item loops. Give it a bound or a condition that stops it."
+            : "A condition narrows when the item takes this connector; without one it always does, for this outcome."}
+        </p>
+      </div>
+    </>
+  );
+}
+
+/* ---------- The basic view ---------- */
+
+function BasicView({
+  flows,
+  problems,
+  onChange,
+  onAdvanced,
+  onNew,
+}: {
+  flows: Flow[];
+  problems: Record<string, Problem[]>;
+  onChange: (flowId: string, fn: (f: Flow) => Flow) => void;
+  onAdvanced: (flowId: string) => void;
+  onNew: () => void;
+}) {
+  return (
+    <div className="scroll-quiet min-h-0 flex-1 overflow-y-auto">
+      <div className="fade-in mx-auto flex w-full max-w-[860px] flex-col gap-8 px-5 py-6 @3xl/app:px-10 @3xl/app:py-8">
+        <p className="max-w-[620px] text-[14px] text-ink-2">
+          Each workflow as a list of steps. Change who, when and what happens on changes; the
+          advanced view holds the same workflow as a graph for anything beyond that.
+        </p>
+        {flows.map((f) => {
+          const ord = flowOrder(f);
+          const nodes = ord
+            .map((id) => f.nodes.find((n) => n.id === id))
+            .filter((n): n is FlowNode => Boolean(n));
+          const triggers = triggersOf(f);
+          const steps = nodes.filter((n) => n.kind === "action" && n.type !== "finish");
+          const finish = nodes.find((n) => n.type === "finish");
+          const patch = (id: string, config: Record<string, string>) =>
+            onChange(f.id, (x) => ({
+              ...x,
+              nodes: x.nodes.map((n) =>
+                n.id === id ? { ...n, config: { ...n.config, ...config } } : n,
+              ),
+            }));
+          return (
+            <section key={f.id} className="flex flex-col gap-3">
+              <div className="flex items-end gap-3">
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-[18px] font-medium tracking-tight text-ink">{f.name}</h2>
+                  <p className="text-[13px] text-ink-3">
+                    {f.active ? "Active" : "Draft"} · {steps.length} steps
+                    {problems[f.id]?.length ? ` · ${problems[f.id]?.length} to look at` : ""}
+                  </p>
+                </div>
+                <Switch
+                  label={`${f.name} active`}
+                  checked={f.active}
+                  onChange={(v) => onChange(f.id, (x) => ({ ...x, active: v }))}
+                />
+                <Button variant="secondary" size="md" onClick={() => onAdvanced(f.id)}>
+                  Open in the advanced view
+                </Button>
+              </div>
+              <div className="flex flex-col divide-y divide-line rounded-panel-lg border border-line bg-raised/25 shadow-1">
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <span className="flex size-7 items-center justify-center rounded-control bg-signal/15 text-signal">
+                    <Icon name="bolt" size={14} />
+                  </span>
+                  <span className="text-[14px] text-ink">
+                    When{" "}
+                    {triggers.map((t) => t.name.toLowerCase()).join(" or ") || "nothing happens"}
+                  </span>
+                </div>
+                {steps.map((n, i) => {
+                  const meta = typeMeta(n.type);
+                  const loops = f.connectors.filter((c) => c.from === n.id && isLoop(f, c));
+                  return (
+                    <div key={n.id} className="flex flex-col gap-2 px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <span className="tabular w-7 text-center text-[12px] text-ink-3">
+                          {i + 1}
+                        </span>
+                        <span className="flex size-7 items-center justify-center rounded-control bg-raised text-ink-2">
+                          <Icon name={meta.icon as IconName} size={14} />
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-[14px] text-ink">
+                          {n.name}
+                        </span>
+                        <span className="text-[12px] text-ink-3">{meta.label}</span>
+                      </div>
+                      <div className="ml-[68px] flex flex-wrap gap-2">
+                        {meta.fields
+                          .filter((fl) => fl.id !== "message")
+                          .map((fl) => (
+                            <label
+                              key={fl.id}
+                              className="flex items-center gap-1.5 text-[12px] text-ink-3"
+                            >
+                              {fl.label}
+                              {fl.options ? (
+                                <Select
+                                  value={n.config[fl.id] ?? fl.options[0]}
+                                  className="h-7 text-[12px]"
+                                  onChange={(e) => patch(n.id, { [fl.id]: e.target.value })}
+                                >
+                                  {fl.options.map((o) => (
+                                    <option key={o}>{o}</option>
+                                  ))}
+                                </Select>
+                              ) : (
+                                <Input
+                                  value={n.config[fl.id] ?? ""}
+                                  className="h-7 w-28 text-[12px]"
+                                  onChange={(e) => patch(n.id, { [fl.id]: e.target.value })}
+                                />
+                              )}
+                            </label>
+                          ))}
+                        {loops.map((c) => {
+                          const o = outcomesOf(n).find((x) => x.id === c.outcome);
+                          return (
+                            <label
+                              key={c.id}
+                              className="flex items-center gap-1.5 text-[12px] text-ink-3"
+                            >
+                              If {o?.label}, back to
+                              <Select
+                                value={c.to}
+                                className="h-7 text-[12px]"
+                                onChange={(e) =>
+                                  onChange(f.id, (x) => ({
+                                    ...x,
+                                    connectors: x.connectors.map((cc) =>
+                                      cc.id === c.id ? { ...cc, to: e.target.value } : cc,
+                                    ),
+                                  }))
+                                }
+                              >
+                                {steps.map((s) => (
+                                  <option key={s.id} value={s.id}>
+                                    {s.name}
+                                  </option>
+                                ))}
+                              </Select>
+                              <Input
+                                value={c.until ?? ""}
+                                placeholder="at most 3 times"
+                                className="h-7 w-32 text-[12px]"
+                                onChange={(e) =>
+                                  onChange(f.id, (x) => ({
+                                    ...x,
+                                    connectors: x.connectors.map((cc) =>
+                                      cc.id === c.id
+                                        ? { ...cc, until: e.target.value || undefined }
+                                        : cc,
+                                    ),
+                                  }))
+                                }
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <span className="flex size-7 items-center justify-center rounded-control bg-raised text-ink-2">
+                    <Icon name="stop" size={14} />
+                  </span>
+                  <span className="text-[14px] text-ink">
+                    {finish ? `Finish: ${finish.name}` : "No finish yet"}
+                  </span>
+                  {finish?.config.status && (
+                    <span className="text-[12px] text-ink-3">sets {finish.config.status}</span>
+                  )}
+                </div>
+              </div>
+            </section>
+          );
+        })}
+        <div>
+          <Button variant="secondary" onClick={onNew}>
+            <Icon name="plus" size={14} />
+            New workflow
+          </Button>
+        </div>
+        <p className="text-[12px] text-ink-3">
+          A track can follow a workflow of its own instead of the project's; that is set from the
+          track.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- As code ---------- */
+
+function CodeView({
+  flows,
+  projectName,
+  onToast,
+}: {
+  flows: Flow[];
+  projectName: string;
+  onToast: (t: string) => void;
+}) {
+  const [flowId, setFlowId] = useState(flows[0]?.id ?? "");
+  const flow = flows.find((f) => f.id === flowId) ?? flows[0];
+  const yaml = flow ? toYaml(flow, projectName) : "";
+  const [text, setText] = useState(yaml);
+  useEffect(() => setText(yaml), [yaml]);
+  const dirty = text !== yaml;
+  return (
+    <div className="scroll-quiet min-h-0 flex-1 overflow-y-auto">
+      <div className="fade-in mx-auto flex w-full max-w-[960px] flex-col gap-4 px-5 py-6 @3xl/app:px-10 @3xl/app:py-8">
+        <div className="flex flex-wrap items-center gap-2">
+          <div role="tablist" className="flex items-center gap-1">
+            {flows.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                role="tab"
+                aria-selected={f.id === flow?.id}
+                onClick={() => setFlowId(f.id)}
+                className={cn(
+                  "h-8 rounded-control px-2.5 text-[13px] transition-colors",
+                  f.id === flow?.id ? "bg-raised text-ink shadow-1" : "text-ink-3 hover:text-ink",
+                )}
+              >
+                {f.name}
+              </button>
+            ))}
+          </div>
+          <div className="ml-auto flex items-center gap-1.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                navigator.clipboard?.writeText(text).catch(() => {});
+                onToast("Copied.");
+              }}
+            >
+              <Icon name="copy" size={13} />
+              Copy
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                const blob = new Blob([text], { type: "text/yaml" });
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = `${(flow?.name ?? "workflow").toLowerCase().replace(/\s+/g, "-")}.workflow.yaml`;
+                a.click();
+                URL.revokeObjectURL(a.href);
+              }}
+            >
+              <Icon name="download" size={13} />
+              Download
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                onToast(
+                  "Paste a workflow file below and apply it; it is checked against the model first.",
+                )
+              }
+            >
+              <Icon name="upload" size={13} />
+              Import
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={!dirty}
+              onClick={() =>
+                onToast(`Applied to ${flow?.name}: ${text.split("\n").length} lines, no problems.`)
+              }
+            >
+              Apply
+            </Button>
+          </div>
+        </div>
+        <p className="text-[13px] text-ink-3">
+          The whole workflow as a file: keep it in a repository, share it between projects, or hand
+          it to another instance. Edits here apply to the canvas; the canvas writes back here.
+        </p>
+        <Textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          spellCheck={false}
+          aria-label="Workflow as code"
+          className="tabular min-h-[520px] rounded-panel-lg border border-line bg-canvas/60 px-4 py-3 font-mono text-[12.5px] leading-[1.55] text-ink"
+        />
+      </div>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { Avatar } from "~/components/avatar";
 import { Icon, type IconName } from "~/components/icons";
 import { Kbd, Label } from "~/components/label";
 import { Page } from "~/components/pages";
+import { SideNav, Split } from "~/components/settings";
 import { Dot } from "~/components/status";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
@@ -1703,26 +1704,20 @@ export function ProductionView({ project, section }: { project: Project; section
     );
   const sec = productionSections.some((s) => s.id === section) ? (section as string) : "repertoire";
   return (
-    <div className="flex flex-col gap-5">
-      <nav
-        aria-label="Production"
-        className="scroll-quiet -mx-4 flex gap-1 overflow-x-auto px-4 @3xl/app:mx-0 @3xl/app:px-0"
-      >
-        {productionSections.map((s) => (
-          <Link
-            key={s.id}
-            to="/projects/$projectId/$view"
-            params={{ projectId: project.id, view: "production" }}
-            search={{ section: s.id }}
-            className={cn(
-              "h-8 shrink-0 rounded-control px-2.5 text-[13px] leading-8 whitespace-nowrap transition-colors",
-              sec === s.id ? "bg-raised text-ink shadow-1" : "text-ink-3 hover:text-ink",
-            )}
-          >
-            {s.label}
-          </Link>
-        ))}
-      </nav>
+    <Split
+      nav={
+        <SideNav
+          label="Production"
+          sections={productionSections}
+          current={sec}
+          link={(id) => ({
+            to: "/projects/$projectId/$view",
+            params: { projectId: project.id, view: "production" },
+            search: { section: id },
+          })}
+        />
+      }
+    >
       {sec === "repertoire" && <Repertoire />}
       {sec === "schedule" && <Schedule />}
       {sec === "sessions" && <SessionsView project={project} />}
@@ -1733,6 +1728,6 @@ export function ProductionView({ project, section }: { project: Project; section
       {sec === "personnel" && <PersonnelView />}
       {sec === "venues" && <Venues />}
       {sec === "import" && <ImportView />}
-    </div>
+    </Split>
   );
 }
