@@ -35,6 +35,18 @@ export const instanceSections: { id: string; label: string; icon: IconName; hint
     hint: "The accounts that may manage the instance",
   },
   {
+    id: "billing",
+    label: "Billing",
+    icon: "chart",
+    hint: "Plans, trials, invoices and what each organisation pays",
+  },
+  {
+    id: "support",
+    label: "Support",
+    icon: "comment",
+    hint: "What organisations have asked, and the answers",
+  },
+  {
     id: "health",
     label: "System health",
     icon: "pulse",
@@ -609,9 +621,47 @@ function Table({
 
 const gb = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)} TB` : `${n} GB`);
 
+function NewOrganisation({ onClose }: { onClose: () => void }) {
+  return (
+    <Dialog
+      title="New organisation"
+      description="A tenant of its own: subdomain, members, projects, settings and keys."
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={onClose}>
+            Create
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+          Name
+          <Input placeholder="Lantern Pictures" autoFocus />
+        </label>
+        <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+          Subdomain
+          <span className="flex items-center gap-2">
+            <Input placeholder="lantern" className="w-40" />
+            <span className="text-[13px] text-ink-3">.review.endlesshall.example</span>
+          </span>
+        </label>
+        <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+          First owner's email
+          <Input placeholder="owner@lantern.example" />
+        </label>
+      </div>
+    </Dialog>
+  );
+}
+
 /* ---------- The page ---------- */
 
-type OrgTab = "overview" | "members" | "projects" | "storage" | "settings" | "keys";
+type OrgTab = "overview" | "members" | "projects" | "storage" | "billing" | "settings" | "keys";
 
 export function InstancePage({ section }: { section: string }) {
   const state = useScreenState();
@@ -674,84 +724,12 @@ export function InstancePage({ section }: { section: string }) {
       Math.max(0, base + Math.sin(i / 3 + seed) * swing + ((i * 7 + seed * 13) % 5) * (swing / 12)),
     );
 
-  return (
-    <Page className="gap-10">
-      <div>
-        <h1 className="title">{meta?.label}</h1>
-        <p className="mt-1.5 max-w-[620px] text-[14px] text-ink-2">{meta?.hint}.</p>
-      </div>
-
-      {sec === "overview" && (
-        <>
-          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-6">
-            <Tile
-              label="Organisations"
-              value={String(orgs.length)}
-              hint="1 suspended · 1 on trial"
-            />
-            <Tile label="People" value="47" hint="9 guests with live links" />
-            <Tile label="Storage" value="4.8 TB" hint="34% of the disk" />
-            <Tile
-              label="Queue"
-              value={workerDown ? "38" : "3"}
-              hint={workerDown ? "worker down" : "2 lanes busy"}
-              flag={workerDown}
-            />
-            <Tile label="Errors today" value="3" hint="2 jobs, 1 OAuth exchange" flag />
-            <Tile label="Patch available" value="0.2.1" hint="3 fixes, no migration" />
-          </div>
-          <Section title="Needs an operator">
-            <Row
-              name="HK-2B91-E0: Slack is rate-limiting North Choir Collective"
-              hint="The channel paused itself; 3 deliveries wait. Debug tools has the trace."
-            >
-              <Button variant="secondary" size="md">
-                Look up
-              </Button>
-            </Row>
-            <Row
-              name="Saltmarsh Films is at 95% of its quota"
-              hint="1.9 TB of 2 TB. Uploads refuse at 100%."
-            >
-              <Button variant="secondary" size="md">
-                Raise the quota
-              </Button>
-            </Row>
-            <Row
-              name="Patch 0.2.1 can be applied now"
-              hint="Three fixes, no migration, no restart of the worker."
-            >
-              <Button variant="primary" size="md">
-                Apply
-              </Button>
-            </Row>
-          </Section>
-          <Section title="Recently">
-            {[
-              ["North Choir Collective", "uploaded 41 files", "2h"],
-              ["Endless Hall Records", "rotated its keys", "3 Oct"],
-              ["Lantern Pictures", "was suspended for non-payment", "11 Oct"],
-              ["Instance", "upgraded to 0.2.0; migrations 0041 to 0044 applied", "4 Sep"],
-            ].map(([who, what, when]) => (
-              <Row
-                key={String(who) + String(what)}
-                name={
-                  <span>
-                    <span className="text-ink">{who}</span>{" "}
-                    <span className="text-ink-2">{what}</span>
-                  </span>
-                }
-              >
-                <span className="tabular text-[12px] text-ink-3">{when}</span>
-              </Row>
-            ))}
-          </Section>
-        </>
-      )}
-
-      {sec === "organisations" && org && (
-        <div className="flex flex-col gap-6 @3xl/app:flex-row @3xl/app:gap-8">
-          <div className="flex shrink-0 flex-col gap-2 @3xl/app:sticky @3xl/app:top-0 @3xl/app:w-[280px] @3xl/app:self-start">
+  if (sec === "organisations" && org)
+    return (
+      <div className="flex h-full min-h-0 flex-col @3xl/app:flex-row">
+        {creating && <NewOrganisation onClose={() => setCreating(false)} />}
+        <div className="flex w-full shrink-0 flex-col border-b border-line @3xl/app:w-[300px] @3xl/app:border-r @3xl/app:border-b-0">
+          <div className="flex flex-col gap-2 p-3">
             <Input
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -777,44 +755,46 @@ export function InstancePage({ section }: { section: string }) {
                 </button>
               ))}
             </div>
-            <div className="scroll-quiet flex max-h-[560px] flex-col gap-0.5 overflow-y-auto rounded-panel-lg border border-line bg-raised/25 p-1">
-              {visibleOrgs.map((o) => (
-                <button
-                  key={o.id}
-                  type="button"
-                  onClick={() => setOrgId(o.id)}
-                  aria-current={o.id === org.id ? "true" : undefined}
-                  className={cn(
-                    "flex items-center gap-2.5 rounded-control px-2.5 py-2 text-left transition-colors hover:bg-raised/60",
-                    o.id === org.id && "bg-raised shadow-1",
-                  )}
-                >
-                  <Dot
-                    state={
-                      o.state === "active"
-                        ? "approved"
-                        : o.state === "trial"
-                          ? "working"
-                          : "cancelled"
-                    }
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] text-ink">{o.name}</span>
-                    <span className="block truncate text-[12px] text-ink-3">
-                      {o.members} people · {gb(o.used)} of {gb(o.quota)}
-                    </span>
-                  </span>
-                </button>
-              ))}
-              {visibleOrgs.length === 0 && (
-                <p className="px-3 py-6 text-center text-[13px] text-ink-3">Nothing matches.</p>
-              )}
-              <p className="px-2.5 pt-2 pb-1 text-[11px] text-ink-3">
-                {visibleOrgs.length} of {orgs.length} · more load as you scroll
-              </p>
-            </div>
           </div>
-          <div className="flex min-w-0 flex-1 flex-col gap-6">
+          <div className="scroll-quiet flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2">
+            {visibleOrgs.map((o) => (
+              <button
+                key={o.id}
+                type="button"
+                onClick={() => setOrgId(o.id)}
+                aria-current={o.id === org.id ? "true" : undefined}
+                className={cn(
+                  "flex shrink-0 items-center gap-2.5 rounded-control px-2.5 py-2 text-left transition-colors hover:bg-raised/60",
+                  o.id === org.id && "bg-raised shadow-1",
+                )}
+              >
+                <Dot
+                  state={
+                    o.state === "active"
+                      ? "approved"
+                      : o.state === "trial"
+                        ? "working"
+                        : "cancelled"
+                  }
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] text-ink">{o.name}</span>
+                  <span className="block truncate text-[12px] text-ink-3">
+                    {o.members} people · {gb(o.used)} of {gb(o.quota)}
+                  </span>
+                </span>
+              </button>
+            ))}
+            {visibleOrgs.length === 0 && (
+              <p className="px-3 py-6 text-center text-[13px] text-ink-3">Nothing matches.</p>
+            )}
+            <p className="px-2.5 pt-2 pb-1 text-[11px] text-ink-3">
+              {visibleOrgs.length} of {orgs.length} · more load as you scroll
+            </p>
+          </div>
+        </div>
+        <div className="scroll-quiet min-h-0 min-w-0 flex-1 overflow-y-auto">
+          <div className="fade-in flex flex-col gap-6 px-5 py-6 @3xl/app:px-10 @3xl/app:py-8">
             <div className="flex items-end gap-3">
               <div className="min-w-0 flex-1">
                 <h2 className="truncate text-[20px] font-medium tracking-tight text-ink">
@@ -846,6 +826,7 @@ export function InstancePage({ section }: { section: string }) {
                 { id: "members", label: `Members · ${org.members}` },
                 { id: "projects", label: `Projects · ${org.projects}` },
                 { id: "storage", label: "Storage and quota" },
+                { id: "billing", label: "Billing" },
                 { id: "settings", label: "Settings" },
                 { id: "keys", label: "Keys" },
               ]}
@@ -999,6 +980,76 @@ export function InstancePage({ section }: { section: string }) {
                 </Section>
               </>
             )}
+            {orgTab === "billing" && (
+              <>
+                <Section
+                  title="Plan"
+                  intro="What this organisation is on, and when it next pays. Billing runs through the instance's Stripe account; turn it off in Settings for an instance that does not charge."
+                >
+                  <Row
+                    name="Plan"
+                    hint={
+                      org.state === "trial"
+                        ? "Studio, on trial until 29 October"
+                        : "Studio · 1 TB, 25 members, forensic marking"
+                    }
+                  >
+                    <Select defaultValue="studio" className="w-40">
+                      <option value="solo">Solo · £0</option>
+                      <option value="studio">Studio · £49 a month</option>
+                      <option value="label">Label · £190 a month</option>
+                      <option value="custom">Custom</option>
+                    </Select>
+                  </Row>
+                  <Row name="Next invoice" hint="1 November · £49 · card ending 4242">
+                    <span className="tabular text-[13px] text-ink-2">£49.00</span>
+                  </Row>
+                  <Row
+                    name="Trial"
+                    hint={
+                      org.state === "trial"
+                        ? "14 days, 12 left; converts to Studio unless cancelled."
+                        : "Not on trial."
+                    }
+                  >
+                    {org.state === "trial" && (
+                      <Button variant="secondary" size="md">
+                        Extend 7 days
+                      </Button>
+                    )}
+                  </Row>
+                  <Row
+                    name="Overdue"
+                    hint="Nothing overdue. An unpaid invoice warns at 7 days and suspends at 21."
+                  >
+                    <Dot state="approved" />
+                  </Row>
+                </Section>
+                <Section title="Invoices">
+                  {[
+                    ["1 Oct 2026", "INV-0412", "£49.00", "Paid"],
+                    ["1 Sep 2026", "INV-0388", "£49.00", "Paid"],
+                    ["1 Aug 2026", "INV-0361", "£0.00", "Trial"],
+                  ].map(([when, no, amt, st]) => (
+                    <Row
+                      key={no}
+                      name={
+                        <span className="flex items-center gap-2">
+                          <span className="tabular">{no}</span>
+                          <span className="text-[12px] text-ink-3">{when}</span>
+                        </span>
+                      }
+                      hint={st}
+                    >
+                      <span className="tabular text-[13px] text-ink-2">{amt}</span>
+                      <Button variant="ghost" size="md">
+                        PDF
+                      </Button>
+                    </Row>
+                  ))}
+                </Section>
+              </>
+            )}
             {orgTab === "settings" && (
               <>
                 <Section title="Limits">
@@ -1084,6 +1135,327 @@ export function InstancePage({ section }: { section: string }) {
             )}
           </div>
         </div>
+      </div>
+    );
+
+  return (
+    <Page className="gap-10">
+      {creating && <NewOrganisation onClose={() => setCreating(false)} />}
+      <div>
+        <h1 className="title">{meta?.label}</h1>
+        <p className="mt-1.5 max-w-[620px] text-[14px] text-ink-2">{meta?.hint}.</p>
+      </div>
+
+      {sec === "overview" && (
+        <>
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-6">
+            <Tile
+              label="Organisations"
+              value={String(orgs.length)}
+              hint="1 suspended · 1 on trial"
+            />
+            <Tile label="People" value="47" hint="9 guests with live links" />
+            <Tile label="Storage" value="4.8 TB" hint="34% of the disk" />
+            <Tile
+              label="Queue"
+              value={workerDown ? "38" : "3"}
+              hint={workerDown ? "worker down" : "2 lanes busy"}
+              flag={workerDown}
+            />
+            <Tile label="Errors today" value="3" hint="2 jobs, 1 OAuth exchange" flag />
+            <Tile label="Patch available" value="0.2.1" hint="3 fixes, no migration" />
+          </div>
+          <Section title="Needs an operator">
+            <Row
+              name="HK-2B91-E0: Slack is rate-limiting North Choir Collective"
+              hint="The channel paused itself; 3 deliveries wait. Debug tools has the trace."
+            >
+              <Button variant="secondary" size="md">
+                Look up
+              </Button>
+            </Row>
+            <Row
+              name="Saltmarsh Films is at 95% of its quota"
+              hint="1.9 TB of 2 TB. Uploads refuse at 100%."
+            >
+              <Button variant="secondary" size="md">
+                Raise the quota
+              </Button>
+            </Row>
+            <Row
+              name="Patch 0.2.1 can be applied now"
+              hint="Three fixes, no migration, no restart of the worker."
+            >
+              <Button variant="primary" size="md">
+                Apply
+              </Button>
+            </Row>
+          </Section>
+          <Section title="Recently">
+            {[
+              ["North Choir Collective", "uploaded 41 files", "2h"],
+              ["Endless Hall Records", "rotated its keys", "3 Oct"],
+              ["Lantern Pictures", "was suspended for non-payment", "11 Oct"],
+              ["Instance", "upgraded to 0.2.0; migrations 0041 to 0044 applied", "4 Sep"],
+            ].map(([who, what, when]) => (
+              <Row
+                key={String(who) + String(what)}
+                name={
+                  <span>
+                    <span className="text-ink">{who}</span>{" "}
+                    <span className="text-ink-2">{what}</span>
+                  </span>
+                }
+              >
+                <span className="tabular text-[12px] text-ink-3">{when}</span>
+              </Row>
+            ))}
+          </Section>
+        </>
+      )}
+
+      {sec === "billing" && (
+        <>
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-5">
+            <Tile label="Monthly revenue" value="£1,236" hint="8 organisations · 1 custom" />
+            <Tile label="On trial" value="1" hint="converts in 12 days" />
+            <Tile label="Overdue" value="1" hint="Lantern Pictures · 24 days" flag />
+            <Tile label="Failed payments" value="0" hint="this month" />
+            <Tile label="Next payout" value="£1,180" hint="21 Oct · Stripe" />
+          </div>
+          <Section
+            title="Plans"
+            intro="What organisations can be on. Prices and limits are the instance's to set; the hosted offering ships with these."
+          >
+            {[
+              ["Solo", "£0", "100 GB · 3 members · 1 project · no forensic marking"],
+              ["Studio", "£49 a month", "1 TB · 25 members · forensic marking · priority support"],
+              [
+                "Label",
+                "£190 a month",
+                "5 TB · no member limit · SSO · a dedicated operator contact",
+              ],
+              ["Custom", "by agreement", "Anything above, with its own invoice"],
+            ].map(([n, pr, h]) => (
+              <Row
+                key={n}
+                name={
+                  <span className="flex items-center gap-2">
+                    {n}
+                    <span className="tabular text-[12px] text-ink-3">{pr}</span>
+                  </span>
+                }
+                hint={h}
+              >
+                <Button variant="ghost" size="md">
+                  Edit
+                </Button>
+              </Row>
+            ))}
+          </Section>
+          <Section
+            title="Organisations"
+            intro="Each with its plan, its next invoice and anything overdue."
+          >
+            {orgs.map((o) => (
+              <Row
+                key={o.id}
+                name={
+                  <span className="flex items-center gap-2">
+                    <Dot
+                      state={
+                        o.state === "suspended"
+                          ? "changes_requested"
+                          : o.state === "trial"
+                            ? "working"
+                            : "approved"
+                      }
+                    />
+                    {o.name}
+                  </span>
+                }
+                hint={
+                  o.state === "suspended"
+                    ? "Studio · INV-0401 overdue 24 days · suspended at 21"
+                    : o.state === "trial"
+                      ? "Studio trial · converts 29 October · card on file"
+                      : `${o.quota >= 5000 ? "Label" : o.quota >= 2000 ? "Label" : o.quota >= 1000 ? "Studio" : "Solo"} · next invoice 1 November`
+                }
+              >
+                <span className="tabular text-[13px] text-ink-2">
+                  {o.quota >= 2000 ? "£190" : o.quota >= 1000 ? "£49" : "£0"}
+                </span>
+                <ActionMenu
+                  always
+                  label={o.name}
+                  actions={[
+                    { label: "Change plan…", onSelect: () => {} },
+                    { label: "Issue a credit…", onSelect: () => {} },
+                    { label: "Send the latest invoice", onSelect: () => {} },
+                    "divider",
+                    { label: "Waive and reinstate", onSelect: () => {} },
+                  ]}
+                />
+              </Row>
+            ))}
+          </Section>
+          <Section
+            title="Provider"
+            intro="Billing is a module: off for an instance that does not charge, or Stripe for one that does."
+          >
+            <Row name="Stripe" hint="Connected · acct_1Q…8f · webhooks healthy · test mode off">
+              <Dot state="approved" />
+              <Button variant="ghost" size="md">
+                Open Stripe
+              </Button>
+            </Row>
+            <Row
+              name="Dunning"
+              hint="An unpaid invoice warns at 7 days, warns again at 14, suspends at 21, deletes nothing."
+            >
+              <Button variant="ghost" size="md">
+                Edit
+              </Button>
+            </Row>
+            <Row
+              name="Tax"
+              hint="VAT by country from Stripe Tax; invoices carry the organisation's number."
+            >
+              <span className="text-[13px] text-ink-2">On</span>
+            </Row>
+          </Section>
+        </>
+      )}
+
+      {sec === "support" && (
+        <>
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-4">
+            <Tile label="Open" value="3" hint="1 waiting on you" flag />
+            <Tile label="First reply" value="1.8 h" hint="median this month · target 4 h" />
+            <Tile label="Resolved" value="14" hint="this month" />
+            <Tile label="Status page" value="Up" hint="no incidents in 41 days" />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input placeholder="Search tickets" className="w-64" />
+            <Select defaultValue="open" className="w-36">
+              <option value="open">Open</option>
+              <option value="waiting">Waiting on them</option>
+              <option value="all">All</option>
+            </Select>
+            <Select defaultValue="" className="w-48">
+              <option value="">Any organisation</option>
+              {orgs.map((o) => (
+                <option key={o.id}>{o.name}</option>
+              ))}
+            </Select>
+          </div>
+          <Section title="Tickets">
+            {[
+              [
+                "T-218",
+                "North Choir Collective",
+                "Slack messages stopped arriving",
+                "HK-2B91-E0 · waiting on you · 2 h",
+                "changes_requested",
+              ],
+              [
+                "T-217",
+                "Saltmarsh Films",
+                "Raise our quota before Friday's delivery",
+                "billing · waiting on you · 5 h",
+                "changes_requested",
+              ],
+              [
+                "T-216",
+                "Endless Hall Records",
+                "Score page 7 will not render",
+                "HK-7F3A-2C · answered: patch 0.2.1 fixes it · 1 d",
+                "working",
+              ],
+              [
+                "T-214",
+                "Hollow Reed Audio",
+                "Can guests see the take manager?",
+                "answered · resolved 3 d",
+                "approved",
+              ],
+            ].map(([id, org2, title, hint, dot]) => (
+              <Row
+                key={id}
+                name={
+                  <span className="flex items-center gap-2">
+                    <Dot state={dot as DotState} />
+                    <span className="tabular text-[12px] text-ink-3">{id}</span>
+                    {title}
+                  </span>
+                }
+                hint={`${org2} · ${hint}`}
+              >
+                <Button variant="ghost" size="md">
+                  Open
+                </Button>
+              </Row>
+            ))}
+          </Section>
+          <Section
+            title="T-218 · Slack messages stopped arriving"
+            intro="North Choir Collective · Priya Haldar · opened 2 h ago · error HK-2B91-E0 attached"
+          >
+            <div className="flex flex-col gap-3 px-4 py-3">
+              <div className="rounded-panel border border-line bg-raised/40 px-3 py-2 text-[13px] text-ink-2">
+                Our #masters channel has had nothing since this morning. The webhook page shows
+                429s. Is it us or Slack?
+              </div>
+              <div className="rounded-panel border border-line bg-canvas/40 px-3 py-2 text-[12px] text-ink-3">
+                From the error: Slack rate-limited the channel three times; the channel paused
+                itself for five minutes and will retry. Patch 0.2.1 lengthens the backoff.
+              </div>
+              <textarea
+                placeholder="Reply to Priya…"
+                className="h-24 rounded-control border border-edge bg-ground px-3 py-2 text-[13px] text-ink placeholder:text-ink-3 focus:border-ink-3 focus:outline-none"
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Select defaultValue="" className="w-48">
+                  <option value="">Canned reply</option>
+                  <option>Rate-limited channel</option>
+                  <option>Quota raised</option>
+                  <option>Fixed in the next patch</option>
+                </Select>
+                <span className="ml-auto flex gap-2">
+                  <Button variant="ghost" size="md">
+                    Resolve
+                  </Button>
+                  <Button variant="primary" size="md">
+                    Send
+                  </Button>
+                </span>
+              </div>
+            </div>
+          </Section>
+          <Section
+            title="Desk"
+            intro="Support is a module too: in the application, or a link to a desk of yours."
+          >
+            <Row
+              name="Where"
+              hint="In the application: organisations write from Settings, operators answer here. Or point Help at an address."
+            >
+              <Select defaultValue="app" className="w-48">
+                <option value="app">In the application</option>
+                <option value="link">A link to our desk</option>
+                <option value="mail">An email address</option>
+              </Select>
+            </Row>
+            <Row
+              name="Status page"
+              hint="status.review.endlesshall.example · incidents posted from here"
+            >
+              <Button variant="ghost" size="md">
+                Post an incident
+              </Button>
+            </Row>
+          </Section>
+        </>
       )}
 
       {sec === "operators" && (
@@ -1817,42 +2189,6 @@ export function InstancePage({ section }: { section: string }) {
             </Row>
           </Section>
         </>
-      )}
-
-      {creating && (
-        <Dialog
-          title="New organisation"
-          description="A tenant of its own: subdomain, members, projects, settings and keys."
-          onClose={() => setCreating(false)}
-          footer={
-            <>
-              <Button variant="ghost" onClick={() => setCreating(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" onClick={() => setCreating(false)}>
-                Create
-              </Button>
-            </>
-          }
-        >
-          <div className="flex flex-col gap-4">
-            <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-              Name
-              <Input placeholder="Lantern Pictures" autoFocus />
-            </label>
-            <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-              Subdomain
-              <span className="flex items-center gap-2">
-                <Input placeholder="lantern" className="w-40" />
-                <span className="text-[13px] text-ink-3">.review.endlesshall.example</span>
-              </span>
-            </label>
-            <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-              First owner's email
-              <Input placeholder="owner@lantern.example" />
-            </label>
-          </div>
-        </Dialog>
       )}
     </Page>
   );

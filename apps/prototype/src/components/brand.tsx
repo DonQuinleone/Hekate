@@ -64,13 +64,24 @@ export function Wordmark({ height = 16, ...props }: { height?: number } & SVGPro
   );
 }
 
-/** The mark and the wordmark on one line: the mark's stems run the height of the capitals, 0.4 em apart. */
+/**
+ * The mark and the wordmark on one line. The wordmark's box is 1600 units tall with the cap line
+ * 120 units down and the baseline 40 units up, so the mark (the height of the capitals) starts
+ * 7.5% down and ends 2.5% up: its top and bottom are the cap line and the baseline exactly. The
+ * wordmark sits a touch quieter so the two do not fight.
+ */
 export function Lockup({ size = 18 }: { size?: number }) {
-  const cap = Math.round(size * 0.9);
+  const cap = size * 0.9;
   return (
-    <span className="inline-flex items-center text-ink" style={{ gap: Math.round(size * 0.38) }}>
-      <Mark size={cap} tight aria-hidden="true" />
-      <Wordmark height={size} />
+    <span className="inline-flex items-start text-ink" style={{ gap: Math.round(size * 0.36) }}>
+      <Mark
+        size={cap}
+        tight
+        aria-hidden="true"
+        className="block shrink-0"
+        style={{ marginTop: size * 0.075 }}
+      />
+      <Wordmark height={size} className="block opacity-85" />
     </span>
   );
 }

@@ -4,7 +4,7 @@ import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
 import { usePageHeader } from "~/components/page-header";
 import { Danger, Matrix, Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
-import { Dot } from "~/components/status";
+import { Dot, type DotState } from "~/components/status";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select, Textarea } from "~/components/ui/input";
@@ -41,6 +41,8 @@ const intros: Record<string, string> = {
   security: "Who may sign in and how.",
   notifications: "Where events go: mail, Slack, Discord, webhooks.",
   api: "Applications that connect on people's behalf, and tokens that act for the organisation itself.",
+  billing: "The plan, what it includes, what it costs, and every invoice.",
+  support: "Ask the people who run this instance, with the error reference if there is one.",
   storage: "Where files live and how much they take.",
   leaks: "Find which recipient a leaked file was watermarked for.",
   log: "Every key issue, page render and download.",
@@ -58,6 +60,8 @@ const sections = [
   { id: "security", label: "Security", group: "Access" },
   { id: "notifications", label: "Notifications and integrations", group: "Access" },
   { id: "api", label: "API and OAuth clients", group: "Access" },
+  { id: "billing", label: "Billing", group: "Plan and help" },
+  { id: "support", label: "Support", group: "Plan and help" },
   { id: "storage", label: "Storage", group: "Operations" },
   { id: "leaks", label: "Leak tracing", group: "Operations" },
   { id: "log", label: "Access log", group: "Operations" },
@@ -150,6 +154,165 @@ export function SettingsPage({ section }: { section: string }) {
       param="section"
     >
       {sec === "members" && <MembersSection />}
+      {sec === "billing" && (
+        <>
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-4">
+            {[
+              ["Plan", "Studio", "£49 a month"],
+              ["Storage", "245 GB", "of 1 TB"],
+              ["Members", "4", "of 25"],
+              ["Next invoice", "1 Nov", "£49.00"],
+            ].map(([l, v, h]) => (
+              <div key={l} className="bg-raised/25 px-4 py-3">
+                <div className="text-[12px] text-ink-3">{l}</div>
+                <div className="tabular mt-1 text-[24px] leading-none font-medium text-ink">
+                  {v}
+                </div>
+                <div className="mt-1.5 text-[12px] text-ink-3">{h}</div>
+              </div>
+            ))}
+          </div>
+          <Section
+            title="Plan"
+            intro="Studio: 1 TB, 25 members, forensic marking, priority support. Change it any time; the difference is pro-rated."
+            action={
+              <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
+                Change plan
+              </Button>
+            }
+          >
+            <Row name="Payment" hint="Visa ending 4242 · expires 08/28">
+              <Button variant="ghost" size="md">
+                Update card
+              </Button>
+            </Row>
+            <Row
+              name="Billing details"
+              hint="Endless Hall Records Ltd · VAT GB 123 4567 89 · invoices to accounts@endlesshall.example"
+            >
+              <Button variant="ghost" size="md">
+                Edit
+              </Button>
+            </Row>
+            <Row
+              name="Usage this month"
+              hint="Storage counts at the month's peak; members at the month's end."
+            >
+              <span className="text-[13px] text-ink-2">Within the plan</span>
+            </Row>
+          </Section>
+          <Section title="Invoices">
+            {[
+              ["1 Oct 2026", "INV-0412", "£49.00", "Paid"],
+              ["1 Sep 2026", "INV-0388", "£49.00", "Paid"],
+              ["1 Aug 2026", "INV-0361", "£0.00", "Trial"],
+            ].map(([when, no, amt, st]) => (
+              <Row
+                key={no}
+                name={
+                  <span className="flex items-center gap-2">
+                    <span className="tabular">{no}</span>
+                    <span className="text-[12px] text-ink-3">{when}</span>
+                  </span>
+                }
+                hint={st}
+              >
+                <span className="tabular text-[13px] text-ink-2">{amt}</span>
+                <Button variant="ghost" size="md">
+                  PDF
+                </Button>
+              </Row>
+            ))}
+          </Section>
+          <Danger>
+            <Row
+              name="Cancel the plan"
+              hint="The organisation drops to Solo at the end of the period; nothing is deleted, but uploads stop above the limits."
+            >
+              <Button variant="ghost" size="md">
+                Cancel…
+              </Button>
+            </Row>
+          </Danger>
+        </>
+      )}
+      {sec === "support" && (
+        <>
+          <Section
+            title="Ask for help"
+            intro="The people who run this instance answer here. Attach the error reference from the message you saw, and they can see the whole story."
+          >
+            <div className="flex flex-col gap-3 px-4 py-3">
+              <div className="grid gap-3 @md/app:grid-cols-[minmax(0,1fr)_200px]">
+                <Input placeholder="What is wrong, in a line" />
+                <Input placeholder="Error reference (HK-…)" className="tabular" />
+              </div>
+              <Textarea
+                placeholder="What you did, what you expected, what happened. Links to the file or review help."
+                className="h-28"
+              />
+              <div className="flex items-center gap-2">
+                <Select defaultValue="problem" className="w-52">
+                  <option value="problem">Something is broken</option>
+                  <option value="question">A question</option>
+                  <option value="billing">Billing</option>
+                  <option value="idea">An idea</option>
+                </Select>
+                <label className="flex items-center gap-1.5 text-[13px] text-ink-2">
+                  <input type="checkbox" defaultChecked /> Let them open the file or review in
+                  question
+                </label>
+                <Button variant="primary" size="md" className="ml-auto">
+                  Send
+                </Button>
+              </div>
+            </div>
+          </Section>
+          <Section title="Your tickets">
+            {[
+              [
+                "T-216",
+                "Score page 7 will not render",
+                "answered: fixed by patch 0.2.1, applied tonight · 1 d",
+                "working",
+              ],
+              ["T-203", "Can we have a second delivery profile?", "resolved · 9 d", "approved"],
+            ].map(([id, title, hint, dot]) => (
+              <Row
+                key={id}
+                name={
+                  <span className="flex items-center gap-2">
+                    <Dot state={dot as DotState} />
+                    <span className="tabular text-[12px] text-ink-3">{id}</span>
+                    {title}
+                  </span>
+                }
+                hint={hint}
+              >
+                <Button variant="ghost" size="md">
+                  Open
+                </Button>
+              </Row>
+            ))}
+          </Section>
+          <Section title="Before you ask">
+            <Row name="The guide" hint="Reviews, workflows, QA, the player: how each part works.">
+              <Button variant="ghost" size="md">
+                Open
+              </Button>
+            </Row>
+            <Row name="Status" hint="status.review.endlesshall.example · no incidents in 41 days">
+              <Dot state="approved" />
+            </Row>
+            <Row
+              name="Your operator"
+              hint="Endless Hall Records runs this instance itself; the operators are Alex Rivera and Ops on call."
+            >
+              <span className="text-[13px] text-ink-2">ops@endlesshall.example</span>
+            </Row>
+          </Section>
+        </>
+      )}
       {sec === "api" && (
         <>
           <Section
@@ -1010,7 +1173,9 @@ export function SettingsPage({ section }: { section: string }) {
                   ? "New channel"
                   : sec === "api"
                     ? "New OAuth client"
-                    : "New"
+                    : sec === "billing"
+                      ? "Change plan"
+                      : "New"
           }
           onClose={() => setAdding(false)}
           footer={
@@ -1024,7 +1189,47 @@ export function SettingsPage({ section }: { section: string }) {
             </>
           }
         >
-          {sec === "api" ? (
+          {sec === "billing" ? (
+            <div className="flex flex-col gap-2">
+              {[
+                ["Solo", "£0", "100 GB · 3 members · 1 project", false],
+                [
+                  "Studio",
+                  "£49 a month",
+                  "1 TB · 25 members · forensic marking · priority support",
+                  true,
+                ],
+                [
+                  "Label",
+                  "£190 a month",
+                  "5 TB · no member limit · SSO · a dedicated contact",
+                  false,
+                ],
+              ].map(([n, pr, h, now]) => (
+                <label
+                  key={String(n)}
+                  className={cn(
+                    "flex cursor-pointer items-start gap-3 rounded-panel border px-3 py-2.5",
+                    now ? "border-edge bg-raised/60" : "border-line hover:bg-raised/40",
+                  )}
+                >
+                  <input type="radio" name="plan" defaultChecked={Boolean(now)} className="mt-1" />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-baseline gap-2 text-[14px] text-ink">
+                      {n}
+                      <span className="tabular text-[12px] text-ink-3">{pr}</span>
+                      {now && <span className="text-[11px] text-ink-3">current</span>}
+                    </span>
+                    <span className="block text-[12px] text-ink-3">{h}</span>
+                  </span>
+                </label>
+              ))}
+              <p className="text-[12px] text-ink-3">
+                The difference is pro-rated to the next invoice. Going down keeps everything;
+                uploads stop above the new limits.
+              </p>
+            </div>
+          ) : sec === "api" ? (
             <div className="flex flex-col gap-4">
               <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
                 Name
