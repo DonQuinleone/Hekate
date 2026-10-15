@@ -1,7 +1,368 @@
-import { Soon } from "./_soon.tsx";
+import { useState } from "react";
+import { Avatar } from "~/components/avatar";
+import { Icon } from "~/components/icons";
+import { usePageHeader } from "~/components/page-header";
+import { Danger, Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
+import { Dot } from "~/components/status";
+import { Button } from "~/components/ui/button";
+import { Dialog } from "~/components/ui/dialog";
+import { Input, Select } from "~/components/ui/input";
+import { ActionMenu } from "~/components/ui/menu";
+import { personById } from "~/data";
+import { cn } from "~/lib/cn";
+import { useViewer } from "~/viewer/context";
+import { useScreenState } from "~/viewer/state-gate";
+
+const sections = [
+  { id: "account", label: "Account" },
+  { id: "security", label: "Passkeys and sessions" },
+  { id: "notifications", label: "Notifications" },
+  { id: "appearance", label: "Appearance" },
+];
+
+export const themes = [
+  { id: "signal-dark", name: "Signal, dark", colours: ["#0a0a0b", "#f0762e", "#f4f4f5"] },
+  { id: "signal-light", name: "Signal, light", colours: ["#f4f4f2", "#d9601a", "#111113"] },
+  { id: "catppuccin", name: "Catppuccin", colours: ["#1e1e2e", "#f5c2e7", "#cdd6f4"] },
+  { id: "dracula", name: "Dracula", colours: ["#282a36", "#bd93f9", "#f8f8f2"] },
+  { id: "gruvbox", name: "Gruvbox", colours: ["#282828", "#fe8019", "#ebdbb2"] },
+  { id: "rose-pine", name: "Rosé Pine", colours: ["#191724", "#ebbcba", "#e0def4"] },
+  { id: "osaka-jade", name: "Osaka Jade", colours: ["#111c18", "#5fb39b", "#d6e8e0"] },
+  { id: "kanagawa", name: "Kanagawa", colours: ["#1f1f28", "#7e9cd8", "#dcd7ba"] },
+  { id: "solarized", name: "Solarized", colours: ["#002b36", "#b58900", "#93a1a1"] },
+];
 
 export function AccountPage({ section }: { section: string }) {
+  const viewer = useViewer();
+  const state = useScreenState();
+  const person = personById(viewer.personId);
+  const [adding, setAdding] = useState(false);
+  const [theme, setTheme] = useState("signal-dark");
+  const [digest, setDigest] = useState<"instant" | "digest">("instant");
+  usePageHeader({ title: "Account", heading: "page" });
+  const sec = sections.some((s) => s.id === section) ? section : "account";
+  const keys = [
+    { name: "MacBook Touch ID", kind: "Passkey", used: "today" },
+    { name: "YubiKey 5C", kind: "Security key", used: "3 Oct" },
+    { name: "iPhone", kind: "Passkey", used: "yesterday" },
+  ];
   return (
-    <Soon title={section === "appearance" ? "Appearance and preferences" : "Account"} round={3} />
+    <SettingsLayout
+      title={person.name}
+      intro="Who you are to Hekate, how you sign in, what reaches you, and how it looks."
+      sections={sections}
+      current={sec}
+      base="/account/$section"
+      param="section"
+    >
+      {sec === "account" && (
+        <>
+          <Section title="You">
+            <Row name="Picture">
+              <Avatar personId={viewer.personId} size={40} />
+              <Button variant="ghost" size="md">
+                Change
+              </Button>
+            </Row>
+            <Row name="Name">
+              <Input defaultValue={person.name} className="w-64" />
+            </Row>
+            <Row name="Email" hint="Sign-in mail and notifications go here.">
+              <Input defaultValue={person.email} className="w-72" />
+            </Row>
+            <Row
+              name="Organisations"
+              hint="Endless Hall Records (owner), North Choir Collective (member)"
+            />
+          </Section>
+          <Section title="Password">
+            <Row name="Change password" hint="12 characters or more. Passkeys keep working.">
+              <Button variant="secondary" size="md">
+                Change…
+              </Button>
+            </Row>
+          </Section>
+          <Danger>
+            <Row
+              name="Delete your account"
+              hint="Your comments stay, attributed to a former member."
+            >
+              <Button variant="secondary" size="md" className="text-signal">
+                Delete…
+              </Button>
+            </Row>
+          </Danger>
+        </>
+      )}
+      {sec === "security" && (
+        <>
+          <Section
+            title="Passkeys and security keys"
+            intro="Up to five. A passkey signs you in without a password; a security key can be required by the organisation."
+            action={
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={() => setAdding(true)}
+                disabled={state === "failed"}
+              >
+                <Icon name="plus" size={14} />
+                Add
+              </Button>
+            }
+          >
+            {keys.map((k) => (
+              <Row
+                key={k.name}
+                name={
+                  <span className="flex items-center gap-2">
+                    <Icon name="key" size={14} className="text-ink-3" />
+                    {k.name}
+                  </span>
+                }
+                hint={`${k.kind} · last used ${k.used}`}
+              >
+                <ActionMenu
+                  always
+                  label={k.name}
+                  actions={[
+                    { label: "Rename", onSelect: () => {} },
+                    "divider",
+                    { label: "Revoke", danger: true, onSelect: () => {} },
+                  ]}
+                />
+              </Row>
+            ))}
+            {state === "failed" && (
+              <Row
+                name="Limit reached"
+                hint="Five keys are registered; revoke one to add another."
+              />
+            )}
+            {state === "processing" && (
+              <Row
+                name={
+                  <span className="flex items-center gap-2 text-ink">
+                    <Dot state="approved" />
+                    Added: Work laptop
+                  </span>
+                }
+                hint="Just now"
+              />
+            )}
+          </Section>
+          <Section
+            title="Recovery codes"
+            intro="Ten single-use codes for when a key is lost. Keep them somewhere else."
+          >
+            <Row name="8 of 10 unused" hint="Generated 2 Oct">
+              <Button variant="secondary" size="md">
+                Show
+              </Button>
+              <Button variant="ghost" size="md">
+                Generate new ones
+              </Button>
+            </Row>
+          </Section>
+          <Section title="Sessions">
+            {[
+              ["This browser", "Chrome 142, macOS · 10.0.0.2 · now", true],
+              ["iPad", "Safari 26 · 81.2.69.142 · yesterday", false],
+              ["Studio machine", "Firefox 146, Linux · 10.0.0.31 · 3 Oct", false],
+            ].map(([name, hint, current]) => (
+              <Row key={String(name)} name={String(name)} hint={String(hint)}>
+                {current ? (
+                  <Dot state="approved" />
+                ) : (
+                  <Button variant="ghost" size="md">
+                    Sign out
+                  </Button>
+                )}
+              </Row>
+            ))}
+            <Row name="Everywhere else" hint="Signs out every other session.">
+              <Button variant="secondary" size="md">
+                Sign out all
+              </Button>
+            </Row>
+          </Section>
+          {adding && (
+            <Dialog
+              title="Add a passkey or security key"
+              description="Your browser asks you to touch the key or use the device's unlock."
+              onClose={() => setAdding(false)}
+              width="sm"
+              footer={
+                <>
+                  <Button variant="ghost" onClick={() => setAdding(false)}>
+                    Cancel
+                  </Button>
+                  <Button variant="primary" onClick={() => setAdding(false)}>
+                    Continue
+                  </Button>
+                </>
+              }
+            >
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Name
+                <Input defaultValue="Work laptop" />
+              </label>
+            </Dialog>
+          )}
+        </>
+      )}
+      {sec === "notifications" && (
+        <>
+          <Section title="How" intro="At once, or gathered into a digest.">
+            <Row name="By mail">
+              <div
+                role="radiogroup"
+                className="flex rounded-control border border-line bg-ground/60 p-0.5"
+              >
+                {(["instant", "digest"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    role="radio"
+                    aria-checked={digest === m}
+                    onClick={() => setDigest(m)}
+                    className={cn(
+                      "h-7 rounded-[4px] px-3 text-[13px]",
+                      digest === m ? "bg-overlay text-ink shadow-2" : "text-ink-3 hover:text-ink",
+                    )}
+                  >
+                    {m === "instant" ? "At once" : "Digest"}
+                  </button>
+                ))}
+              </div>
+              {digest === "digest" && (
+                <Select defaultValue="daily" className="w-36">
+                  <option value="hourly">Hourly</option>
+                  <option value="daily">Daily, 08:00</option>
+                </Select>
+              )}
+            </Row>
+            <SwitchRow name="In the app" checked />
+          </Section>
+          <Section
+            title="What"
+            intro="Per event. Mentions and reviews asked of you always reach you."
+          >
+            {[
+              ["A review is requested of you", true, true],
+              ["A decision is recorded on a review you asked for", true, true],
+              ["Someone replies to you", true, true],
+              ["Someone mentions you", true, true],
+              ["A new version of a track you follow", true, false],
+              ["A stage starts in a project you are in", false, false],
+              ["Processing fails on your upload", true, true],
+              ["A guest opens a review you asked for", false, false],
+            ].map(([e, app, mail]) => (
+              <Row key={String(e)} name={String(e)}>
+                <label className="flex items-center gap-1.5 text-[12px] text-ink-3">
+                  <input type="checkbox" defaultChecked={Boolean(app)} />
+                  app
+                </label>
+                <label className="flex items-center gap-1.5 text-[12px] text-ink-3">
+                  <input type="checkbox" defaultChecked={Boolean(mail)} />
+                  mail
+                </label>
+              </Row>
+            ))}
+          </Section>
+          <Section title="Following" intro="Tracks and reviews you get told about beyond your own.">
+            <Row name="Maple Leaf Rag" hint="Joplin Rags">
+              <Button variant="ghost" size="md">
+                Unfollow
+              </Button>
+            </Row>
+            <Row name="Album masters" hint="Joplin Rags">
+              <Button variant="ghost" size="md">
+                Unfollow
+              </Button>
+            </Row>
+          </Section>
+        </>
+      )}
+      {sec === "appearance" && (
+        <>
+          <Section
+            title="Theme"
+            intro="The brand in dark and light, and a few others people know. Yours alone."
+          >
+            <Row name="Theme" stacked>
+              <div className="grid w-full grid-cols-2 gap-2 @3xl/app:grid-cols-3">
+                {themes.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    aria-pressed={theme === t.id}
+                    onClick={() => setTheme(t.id)}
+                    className={cn(
+                      "flex items-center gap-3 rounded-panel border p-2.5 text-left transition-colors",
+                      theme === t.id
+                        ? "border-signal/60 bg-signal/[0.06]"
+                        : "border-line hover:border-edge",
+                    )}
+                  >
+                    <span
+                      className="flex h-9 w-14 shrink-0 overflow-hidden rounded-[5px] shadow-1"
+                      style={{ background: t.colours[0] }}
+                    >
+                      <span className="m-auto flex gap-1">
+                        <span
+                          className="size-2.5 rounded-full"
+                          style={{ background: t.colours[1] }}
+                        />
+                        <span
+                          className="size-2.5 rounded-full"
+                          style={{ background: t.colours[2] }}
+                        />
+                      </span>
+                    </span>
+                    <span className="text-[13px] text-ink">{t.name}</span>
+                  </button>
+                ))}
+              </div>
+            </Row>
+            <Row
+              name="Follow the system"
+              hint="Dark at night, light by day, when the theme has both."
+            >
+              <Select defaultValue="no" className="w-40">
+                <option value="no">Always dark</option>
+                <option value="yes">Follow the system</option>
+              </Select>
+            </Row>
+          </Section>
+          <Section
+            title="Tools shown"
+            intro="Of the tools your roles give you, which appear on the recording page. The project decides what you may have; this is what you want to see."
+          >
+            <SwitchRow name="Spectrogram view" checked />
+            <SwitchRow name="Split channels by default" checked={false} />
+            <SwitchRow name="Loudness monitoring under the transport" checked />
+            <SwitchRow name="Metadata editor in QA" checked={false} />
+            <SwitchRow name="Keyboard map on ?" checked />
+          </Section>
+          <Section title="Player">
+            <Row name="Skip by">
+              <Select defaultValue="5" className="w-32">
+                <option value="1">1 s</option>
+                <option value="5">5 s</option>
+                <option value="10">10 s</option>
+              </Select>
+            </Row>
+            <Row name="Pre-roll before a comment">
+              <Select defaultValue="1" className="w-32">
+                <option value="0">None</option>
+                <option value="1">1 s</option>
+                <option value="2">2 s</option>
+              </Select>
+            </Row>
+          </Section>
+        </>
+      )}
+    </SettingsLayout>
   );
 }

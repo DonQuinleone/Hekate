@@ -44,7 +44,7 @@ import { ago, dueIn, formatBytes, formatDate, plural } from "~/lib/format";
 import { kindCopy, responded, reviewOutcome } from "~/lib/reviews";
 import { useViewer } from "~/viewer/context";
 import { Empty, Refused, StateGate, useScreenState } from "~/viewer/state-gate";
-import { Soon } from "./_soon.tsx";
+import { ProductionView } from "./production.tsx";
 import { ProjectSettingsRoute } from "./project-settings.tsx";
 import { CoverageView, SessionsView } from "./takes.tsx";
 import { WorkflowRoute } from "./workflow.tsx";
@@ -860,7 +860,7 @@ function Timeline({ project }: { project: Project }) {
   const today = x("2026-10-14T21:00:00Z");
   return (
     <div className="scroll-quiet overflow-x-auto rounded-panel-lg border border-line bg-raised/20">
-      <div className="min-w-[760px]">
+      <div className="relative min-w-[760px]">
         <div className="relative ml-[180px] flex h-8 border-b border-line text-[11px] text-ink-3">
           {weeks.map((w) => (
             <span key={w.toISOString()} className="flex-1 border-l border-line pl-1.5 leading-8">
@@ -1484,7 +1484,7 @@ export function ProjectPage({
         {view === "people" && <People project={project} />}
         {view === "sessions" && <SessionsView project={project} />}
         {view === "coverage" && <CoverageView project={project} />}
-        {view === "production" && <Soon title="Production" round={3} />}
+        {view === "production" && <ProductionView project={project} section={section} />}
       </StateGate>
     </div>
   );

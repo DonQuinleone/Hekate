@@ -40,7 +40,10 @@
         "rules": {
           "a11y": {
             "useSemanticElements": "off",
-            "noLabelWithoutControl": "off", "noStaticElementInteractions": "off", "useKeyWithClickEvents": "off" },
+            "noLabelWithoutControl": "off",
+            "noStaticElementInteractions": "off",
+            "useKeyWithClickEvents": "off"
+          },
           "suspicious": {
             "noArrayIndexKey": "off"
           }
