@@ -3,7 +3,7 @@ import { Icon, type IconName } from "~/components/icons";
 import { Kbd, Label } from "~/components/label";
 import { usePageHeader } from "~/components/page-header";
 import { Button } from "~/components/ui/button";
-import { Input, Select, Textarea } from "~/components/ui/input";
+import { Input, Select } from "~/components/ui/input";
 import { Dropdown } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
 import {
@@ -103,6 +103,86 @@ function boundsOf(nodes: { x: number; y: number }[]): Bounds {
     maxX: Math.max(...nodes.map((n) => n.x)) + NODE_W,
     maxY: Math.max(...nodes.map((n) => n.y)) + NODE_H,
   };
+}
+
+/* ---------- Node families: a shape and a colour each ---------- */
+
+type Family = "event" | "review" | "work" | "comm" | "flow" | "finish";
+
+export const familyOf = (t: NodeType): Family =>
+  t in eventTypes
+    ? "event"
+    : t === "approval" || t === "feedback"
+      ? "review"
+      : t === "task" || t === "checks"
+        ? "work"
+        : t === "notify" || t === "share"
+          ? "comm"
+          : t === "finish"
+            ? "finish"
+            : "flow";
+
+export const families: Record<
+  Family,
+  { label: string; hint: string; shape: string; tile: string; swatch: string }
+> = {
+  event: {
+    label: "Event",
+    hint: "Something happens; a D-shape, in the signal colour",
+    shape: "rounded-l-full rounded-r-panel pl-4",
+    tile: "bg-node-event/15 text-node-event",
+    swatch: "rounded-l-full rounded-r-[3px] bg-node-event/70",
+  },
+  review: {
+    label: "Review",
+    hint: "People decide or comment; a card with a blue edge",
+    shape: "rounded-panel-lg border-l-[3px] border-l-node-review",
+    tile: "bg-node-review/15 text-node-review",
+    swatch: "rounded-[3px] border-l-[3px] border-l-node-review bg-node-review/30",
+  },
+  work: {
+    label: "Work",
+    hint: "Something gets done; a square-cornered card, green",
+    shape: "rounded-control",
+    tile: "bg-node-work/15 text-node-work",
+    swatch: "rounded-[2px] bg-node-work/60",
+  },
+  comm: {
+    label: "Message",
+    hint: "Someone is told or sent a link; a pill, violet",
+    shape: "rounded-full pl-4",
+    tile: "bg-node-comm/15 text-node-comm",
+    swatch: "rounded-full bg-node-comm/60",
+  },
+  flow: {
+    label: "Flow",
+    hint: "Wait, set a status, move; a slanted card, teal",
+    shape: "rounded-panel [clip-path:polygon(10px_0,100%_0,calc(100%-10px)_100%,0_100%)] pl-5",
+    tile: "bg-node-flow/15 text-node-flow",
+    swatch: "[clip-path:polygon(4px_0,100%_0,calc(100%-4px)_100%,0_100%)] bg-node-flow/60",
+  },
+  finish: {
+    label: "Finish",
+    hint: "The end; the mirror of the event, in ink",
+    shape: "rounded-r-full rounded-l-panel pr-4",
+    tile: "bg-ink text-ground",
+    swatch: "rounded-r-full rounded-l-[3px] bg-ink/70",
+  },
+};
+
+export function Legend({ compact = false }: { compact?: boolean }) {
+  return (
+    <div
+      className={cn("flex flex-wrap gap-x-4 gap-y-1.5", compact ? "text-[11px]" : "text-[12px]")}
+    >
+      {(Object.keys(families) as Family[]).map((f) => (
+        <span key={f} className="flex items-center gap-1.5 text-ink-3" title={families[f].hint}>
+          <span className={cn("inline-block h-2.5 w-4", families[f].swatch)} />
+          {families[f].label}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 /* ---------- The picker ---------- */
@@ -207,7 +287,7 @@ function Node({
       onContextMenu={onContextMenu}
       className={cn(
         "absolute flex cursor-grab touch-none items-center gap-3 border bg-overlay px-3 shadow-3 transition-[box-shadow,border-color] select-none",
-        trigger ? "rounded-l-full rounded-r-panel pl-4" : "rounded-panel",
+        families[familyOf(node.type)].shape,
         selected
           ? "border-signal shadow-[0_0_0_3px_var(--hk-signal-line),var(--hk-shadow-3)]"
           : walked
@@ -220,7 +300,7 @@ function Node({
       <span
         className={cn(
           "flex size-8 shrink-0 items-center justify-center rounded-control",
-          node.kind === "event" ? "bg-signal/15 text-signal" : "bg-raised text-ink-2",
+          families[familyOf(node.type)].tile,
         )}
       >
         <Icon name={meta.icon as IconName} size={16} />
@@ -1149,6 +1229,9 @@ export function WorkflowPage({ project }: { project: Project }) {
                   Fit
                 </Button>
               </div>
+              <div className="pointer-events-none absolute top-3 left-3 hidden rounded-control border border-line bg-overlay/90 px-2.5 py-1.5 @3xl/app:block">
+                <Legend compact />
+              </div>
               <div className="pointer-events-none absolute bottom-3 left-1/2 hidden -translate-x-1/2 items-center gap-3 text-[11px] text-ink-3 @3xl/app:flex">
                 <span>Drag to pan</span>
                 <span className="flex items-center gap-1">
@@ -1420,14 +1503,15 @@ function Picker({ onPick, onClose }: { onPick: (t: NodeType) => void; onClose: (
         title="What happens next?"
         hint="Pick a node; it is wired from the selected one."
         onClose={onClose}
-      />
-      <div className="px-3 pt-3">
+      />{" "}
+      <div className="flex flex-col gap-3 px-3 pt-3">
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search nodes"
           autoFocus
         />
+        <Legend compact />
       </div>
       <div className="scroll-quiet min-h-0 flex-1 overflow-y-auto p-2">
         {picker.map((g) => {
@@ -1448,7 +1532,7 @@ function Picker({ onPick, onClose }: { onPick: (t: NodeType) => void; onClose: (
                     <span
                       className={cn(
                         "flex size-7 shrink-0 items-center justify-center rounded-control",
-                        meta.kind === "event" ? "bg-signal/15 text-signal" : "bg-raised text-ink-2",
+                        families[familyOf(i.type)].tile,
                       )}
                     >
                       <Icon name={meta.icon as IconName} size={14} />
@@ -1980,7 +2064,12 @@ function BasicView({
                         <span className="tabular w-7 text-center text-[12px] text-ink-3">
                           {i + 1}
                         </span>
-                        <span className="flex size-7 items-center justify-center rounded-control bg-raised text-ink-2">
+                        <span
+                          className={cn(
+                            "flex size-7 items-center justify-center rounded-control",
+                            families[familyOf(n.type)].tile,
+                          )}
+                        >
                           <Icon name={meta.icon as IconName} size={14} />
                         </span>
                         <span className="min-w-0 flex-1 truncate text-[14px] text-ink">
@@ -2188,16 +2277,58 @@ function CodeView({
           The whole workflow as a file: keep it in a repository, share it between projects, or hand
           it to another instance. Edits here apply to the canvas; the canvas writes back here.
         </p>
-        <Textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          spellCheck={false}
-          aria-label="Workflow as code"
-          className="tabular min-h-[520px] rounded-panel-lg border border-line bg-canvas/60 px-4 py-3 font-mono text-[12.5px] leading-[1.55] text-ink"
-        />
+        <div className="relative rounded-panel-lg border border-line bg-canvas/60 font-mono text-[12.5px] leading-[1.6]">
+          <pre
+            aria-hidden="true"
+            className="pointer-events-none m-0 min-h-[520px] overflow-hidden px-4 py-3 font-mono break-words whitespace-pre-wrap"
+          >
+            {highlightYaml(text)}
+          </pre>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            spellCheck={false}
+            aria-label="Workflow as code"
+            className="absolute inset-0 h-full w-full resize-none bg-transparent px-4 py-3 font-mono text-[12.5px] leading-[1.6] break-words whitespace-pre-wrap text-transparent caret-ink focus:outline-none"
+          />
+        </div>
       </div>
     </div>
   );
+}
+
+/** YAML, coloured by what each piece is: keys in ink, strings violet, numbers green, booleans signal, comments quiet. */
+function highlightYaml(text: string): ReactNode[] {
+  const value = (v: string): ReactNode => {
+    const t = v.trim();
+    if (!t) return null;
+    if (t.startsWith("#")) return <span className="text-ink-3">{v}</span>;
+    if (/^(true|false|null)$/.test(t)) return <span className="text-node-event">{v}</span>;
+    if (/^-?\d+(\.\d+)?$/.test(t) || /^\[.*\]$/.test(t))
+      return <span className="text-node-work">{v}</span>;
+    if (/^["'].*["']$/.test(t)) return <span className="text-node-comm">{v}</span>;
+    return <span className="text-ink-2">{v}</span>;
+  };
+  return text.split("\n").map((line, i) => {
+    const m = line.match(/^(\s*-?\s*)([\w.-]+)(:)(\s.*|$)/);
+    const comment = line.trim().startsWith("#");
+    return (
+      <span key={`${i}-${line.length}`} className="block min-h-[1.6em]">
+        {comment ? (
+          <span className="text-ink-3">{line}</span>
+        ) : m ? (
+          <>
+            <span className="text-ink-3">{m[1]}</span>
+            <span className="text-ink">{m[2]}</span>
+            <span className="text-ink-3">{m[3]}</span>
+            {value(m[4] ?? "")}
+          </>
+        ) : (
+          <span className="text-ink-2">{line}</span>
+        )}
+      </span>
+    );
+  });
 }
 
 export function WorkflowRoute({ projectId }: { projectId: string }) {

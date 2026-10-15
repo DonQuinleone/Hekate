@@ -24,13 +24,36 @@ import { cn } from "~/lib/cn";
 import { formatDateTime } from "~/lib/format";
 import { useViewer } from "~/viewer/context";
 import { Empty, Refused, useScreenState } from "~/viewer/state-gate";
+import { BrandSection, ComponentsSection } from "./design-system.tsx";
+import { MembersSection } from "./members.tsx";
+import { EmailSection } from "./org-email.tsx";
 import { toolCopy } from "./project-settings.tsx";
+
+const intros: Record<string, string> = {
+  general: "The organisation's name, how guests sign in, and what every project starts from.",
+  defaults: "What a new project copies unless it says otherwise.",
+  categories: "The categories a comment can carry, and their colours.",
+  delivery: "The numbers the checks measure against, shared by every project that picks a profile.",
+  brand:
+    "The mark, the colours, the type, and every reusable component with the rule for using it.",
+  email: "What every message from Hekate looks like, and the words the organisation sends.",
+  members: "Who has an account here, who is invited, and which guests hold a link.",
+  security: "Who may sign in and how.",
+  notifications: "Where events go: mail, Slack, Discord, webhooks.",
+  storage: "Where files live and how much they take.",
+  leaks: "Find which recipient a leaked file was watermarked for.",
+  log: "Every key issue, page render and download.",
+  operations: "What the instance is doing for this organisation.",
+};
 
 const sections = [
   { id: "general", label: "General", group: "Organisation" },
   { id: "defaults", label: "Defaults", group: "Organisation" },
   { id: "categories", label: "Comment categories", group: "Organisation" },
   { id: "delivery", label: "Delivery profiles", group: "Organisation" },
+  { id: "brand", label: "Brand and design system", group: "Organisation" },
+  { id: "email", label: "Email templates", group: "Organisation" },
+  { id: "members", label: "Members", group: "Access" },
   { id: "security", label: "Security", group: "Access" },
   { id: "notifications", label: "Notifications and integrations", group: "Access" },
   { id: "storage", label: "Storage", group: "Operations" },
@@ -108,7 +131,7 @@ export function SettingsPage({ section }: { section: string }) {
   const [adding, setAdding] = useState(false);
   const [leak, setLeak] = useState<"idle" | "scanning" | "match" | "none">("idle");
   const [logFilter, setLogFilter] = useState("");
-  usePageHeader({ title: "Settings", heading: "page" });
+  usePageHeader({ title: "Organisation settings" });
   if (!elevated)
     return (
       <Refused title="Not for your role" text="Organisation settings are for owners and admins." />
@@ -117,13 +140,21 @@ export function SettingsPage({ section }: { section: string }) {
   const log = accessLog.filter((e) => !logFilter || e.action.includes(logFilter));
   return (
     <SettingsLayout
-      title={organisation.name}
-      intro="What applies to every project unless a project says otherwise, who may sign in and how, where things are kept, and what the instance is doing."
+      title={sections.find((x) => x.id === sec)?.label ?? organisation.name}
+      intro={intros[sec]}
       sections={sections}
       current={sec}
       base="/settings/$section"
       param="section"
     >
+      {sec === "members" && <MembersSection />}
+      {sec === "email" && <EmailSection />}
+      {sec === "brand" && (
+        <>
+          <BrandSection />
+          <ComponentsSection />
+        </>
+      )}
       {sec === "general" && (
         <>
           <Section title="Organisation">

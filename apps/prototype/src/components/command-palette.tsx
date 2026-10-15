@@ -37,6 +37,7 @@ export function CommandPalette({
   const project = projectId ? projectById(projectId) : undefined;
   const elevated =
     viewer.persona.organisationRole === "owner" || viewer.persona.organisationRole === "admin";
+  const owner = viewer.persona.organisationRole === "owner";
 
   const pages = useMemo<Hit[]>(
     () =>
@@ -50,7 +51,7 @@ export function CommandPalette({
           to: "/projects",
           shortcut: "G P",
         },
-        { id: "go-members", label: "Members", icon: "users" as const, to: "/members" },
+        { id: "go-members", label: "Members", icon: "users" as const, to: "/settings/members" },
         ...(elevated
           ? [
               {
@@ -62,6 +63,16 @@ export function CommandPalette({
             ]
           : []),
         { id: "go-account", label: "Your account", icon: "user" as const, to: "/account" },
+        ...(owner
+          ? [
+              {
+                id: "go-instance",
+                label: "Instance management",
+                icon: "fingerprint" as const,
+                to: "/instance",
+              },
+            ]
+          : []),
       ].map((p) => ({
         id: p.id,
         group: "Jump to" as HitGroup,
@@ -70,7 +81,7 @@ export function CommandPalette({
         shortcut: p.shortcut,
         destination: { to: p.to },
       })),
-    [elevated],
+    [elevated, owner],
   );
 
   const actions = useMemo<Hit[]>(() => {

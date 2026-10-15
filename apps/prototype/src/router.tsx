@@ -5,10 +5,11 @@ import {
   createRoute,
   createRouter,
   Outlet,
+  redirect,
 } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { PageHeaderProvider } from "~/components/page-header";
-import { GuestShell, InstanceShell, Shell } from "~/components/shell";
+import { GuestShell, Shell } from "~/components/shell";
 import { appRoot } from "~/lib/dom";
 import { AccountPage } from "~/routes/account";
 import {
@@ -25,7 +26,6 @@ import { FilePage } from "~/routes/file";
 import { GuestHomePage } from "~/routes/guest";
 import { InboxPage } from "~/routes/home";
 import { InstancePage } from "~/routes/instance";
-import { MembersPage } from "~/routes/members";
 import { NotificationsPage, SearchPage } from "~/routes/misc";
 import { ProjectPage } from "~/routes/project";
 import { ProjectsPage } from "~/routes/projects";
@@ -94,9 +94,9 @@ function App() {
   if (viewer.isGuest) return <GuestSignedOutPage />;
   if (viewer.isInstance)
     return (
-      <InstanceShell>
+      <Shell>
         <InstancePage section="overview" />
-      </InstanceShell>
+      </Shell>
     );
   return (
     <Shell>
@@ -119,16 +119,24 @@ function GuestApp() {
 
 function InstanceApp() {
   const viewer = useViewer();
-  if (!viewer.isInstance) return <SignInPage />;
+  if (!viewer.isInstance && viewer.persona.organisationRole !== "owner") return <SignInPage />;
   return (
-    <InstanceShell>
+    <Shell>
       <ScrollTop />
       <Outlet />
-    </InstanceShell>
+    </Shell>
   );
 }
 
-const signIn = createRoute({ getParentRoute: () => root, path: "/sign-in", component: SignInPage });
+const signIn = createRoute({
+  getParentRoute: () => root,
+  path: "/sign-in",
+  validateSearch: (s: Record<string, unknown>) => pick(s, ["view"]),
+  component: function SignInRoute() {
+    const search = signIn.useSearch();
+    return <SignInPage view={search.view} />;
+  },
+});
 const guestLink = createRoute({
   getParentRoute: () => root,
   path: "/guest/link",
@@ -143,7 +151,11 @@ const guestOut = createRoute({
 const install = createRoute({
   getParentRoute: () => root,
   path: "/install",
-  component: InstallerPage,
+  validateSearch: (s: Record<string, unknown>) => pick(s, ["step"]),
+  component: function InstallRoute() {
+    const search = install.useSearch();
+    return <InstallerPage step={search.step ? Number(search.step) - 1 : 0} />;
+  },
 });
 const invite = createRoute({
   getParentRoute: () => root,
@@ -293,7 +305,9 @@ const take = createRoute({
 const members = createRoute({
   getParentRoute: () => app,
   path: "/members",
-  component: MembersPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/$section", params: { section: "members" } });
+  },
 });
 const settings = createRoute({
   getParentRoute: () => app,

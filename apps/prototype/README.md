@@ -24,3 +24,7 @@ The builder has three views of the same workflows: basic (each workflow as a lis
 ## Navigation
 
 Once a project is open, the sidebar carries its primary navigation with a project switcher at the top of the block; pages with sections (settings, production) use the same secondary list at the left; tabs are kept for a third level. The player keeps its own layout.
+
+## Round six
+
+Members live in organisation settings under Access, and organisation settings are reached from the account menu; neither sits in the sidebar. The instance (the operator's side: overview, organisations, people, queues, logs, storage, debug tools, settings, operations) is the same shell with its own block in the sidebar, reached from the account menu or the fingerprint by the bell. Sign-in offers password, passkey and single sign-on side by side; single sign-on asks for the organisation unless the organisation's own subdomain already says which. The second factor, the forgotten password, the emailed link with its code and the new password are states of the same page (`?view=code|forgot|link|sent|reset|sso`); the installer's steps are addresses too (`?step=1` to `8`). Organisation settings gained the email templates and the brand and design system page, where every reusable component is shown with the rule for using it. In the workflow builder each node family has a shape and a colour, and the code view highlights its YAML.

@@ -17,6 +17,12 @@
   --hk-ink-3: #80808b;
   --hk-signal: #f0762e;
   --hk-paper: #e9e8e3;
+  --hk-ok: #58b98a;
+  --hk-node-event: var(--hk-signal);
+  --hk-node-review: #6fa8ff;
+  --hk-node-work: #58b98a;
+  --hk-node-comm: #b08cff;
+  --hk-node-flow: #4fc3c9;
   --hk-font-sans: "Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
   --hk-radius-chip: 4px;
   --hk-radius-control: 6px;
@@ -45,6 +51,12 @@
   --color-ink-3: var(--hk-ink-3);
   --color-signal: var(--hk-signal);
   --color-paper: var(--hk-paper);
+  --color-ok: var(--hk-ok);
+  --color-node-event: var(--hk-node-event);
+  --color-node-review: var(--hk-node-review);
+  --color-node-work: var(--hk-node-work);
+  --color-node-comm: var(--hk-node-comm);
+  --color-node-flow: var(--hk-node-flow);
   --color-transparent: transparent;
   --color-current: currentColor;
 

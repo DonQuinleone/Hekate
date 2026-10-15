@@ -22,6 +22,7 @@ import { cn } from "~/lib/cn";
 import { inField } from "~/lib/dom";
 import { projectNav, useCurrentProject } from "~/lib/project-nav";
 import { needsYou, reviewOutcome } from "~/lib/reviews";
+import { instanceSections } from "~/routes/instance";
 import { useViewer } from "~/viewer/context";
 
 function NavItem({
@@ -176,7 +177,14 @@ function WorkspaceMenu({ collapsed }: { collapsed: boolean }) {
                     },
                   ]
                 : []),
-              { label: "Invite people", onSelect: () => navigate({ to: "/members" }) },
+              {
+                label: "Members",
+                onSelect: () =>
+                  navigate({ to: "/settings/$section", params: { section: "members" } }),
+              },
+              ...(viewer.persona.organisationRole === "owner"
+                ? [{ label: "Instance management", onSelect: () => navigate({ to: "/instance" }) }]
+                : []),
               "divider",
               { label: "Sign out", onSelect: () => navigate({ to: "/sign-in" }) },
             ]}
@@ -386,19 +394,23 @@ export function Shell({ children }: { children: ReactNode }) {
   }, [collapsed, setCollapsed, navigate, palette]);
 
   const projects = viewer.projects();
-  const elevated =
+  const _elevated =
     viewer.persona.organisationRole === "owner" || viewer.persona.organisationRole === "admin";
   const current = useCurrentProject();
   const currentNav = current ? projectNav(current, viewer) : [];
   const { pathname } = useLocation();
+  const atInstance = pathname === "/instance" || pathname.startsWith("/instance/");
+  const instanceView = atInstance ? pathname.split("/")[2] || "overview" : "";
   const currentView = (() => {
     const [, head = "", , view = ""] = pathname.split("/");
     if (head !== "projects") return "";
     return view || "overview";
   })();
-  const waitingHere = current
-    ? waitingReviews.filter((r) => r.projectId === current.id)
-    : waitingReviews;
+  const waitingHere = atInstance
+    ? []
+    : current
+      ? waitingReviews.filter((r) => r.projectId === current.id)
+      : waitingReviews;
   const recent = [
     { kind: "file", id: "file-maple-v2-dry", label: "Maple Leaf Rag · V2 Dry" },
     { kind: "review", id: "rev-masters", label: "Album masters" },
@@ -473,10 +485,50 @@ export function Shell({ children }: { children: ReactNode }) {
                   </Link>
                 ))}
               </>
+            ) : atInstance ? (
+              <>
+                <div
+                  className={cn(
+                    "mt-4 mb-1 flex h-10 items-center gap-2.5 px-2",
+                    collapsed && "justify-center px-0",
+                  )}
+                >
+                  <span className="flex size-6 items-center justify-center rounded-[6px] bg-raised text-ink-2">
+                    <Icon name="fingerprint" size={14} />
+                  </span>
+                  {!collapsed && (
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[14px] font-medium text-ink">
+                        Instance
+                      </span>
+                      <span className="block truncate text-[11px] text-ink-3">
+                        review.endlesshall.example
+                      </span>
+                    </span>
+                  )}
+                </div>
+                {instanceSections.map((item) => (
+                  <Link
+                    key={item.id}
+                    to={item.id === "overview" ? "/instance" : "/instance/$section"}
+                    params={{ section: item.id }}
+                    activeOptions={{ exact: true, includeSearch: false }}
+                    title={collapsed ? item.label : undefined}
+                    aria-current={instanceView === item.id ? "page" : undefined}
+                    className={cn(
+                      "relative flex h-8 shrink-0 items-center gap-2.5 rounded-control px-2.5 text-[14px] text-ink-2 transition-colors duration-150 hover:bg-raised/60 hover:text-ink aria-[current=page]:bg-raised aria-[current=page]:text-ink aria-[current=page]:shadow-1",
+                      collapsed && "justify-center px-0",
+                    )}
+                  >
+                    <Icon name={item.icon} />
+                    {!collapsed && <span className="truncate">{item.label}</span>}
+                  </Link>
+                ))}
+              </>
             ) : (
               <NavItem to="/projects" icon="folder" label="Projects" collapsed={collapsed} />
             )}
-            {!current && !collapsed && projects.length > 0 && (
+            {!current && !atInstance && !collapsed && projects.length > 0 && (
               <ul className="mb-1 ml-[21px] flex flex-col gap-px border-l border-line pl-2.5">
                 {projects.slice(0, 8).map((p) => (
                   <li key={p.id}>
@@ -490,12 +542,6 @@ export function Shell({ children }: { children: ReactNode }) {
                   </li>
                 ))}
               </ul>
-            )}
-            {!current && (
-              <NavItem to="/members" icon="users" label="Members" collapsed={collapsed} />
-            )}
-            {!current && elevated && (
-              <NavItem to="/settings" icon="settings" label="Settings" collapsed={collapsed} />
             )}
           </div>
           {waitingHere.length > 0 && (
@@ -517,7 +563,7 @@ export function Shell({ children }: { children: ReactNode }) {
               )}
             </SideSection>
           )}
-          {recent.length > 0 && (
+          {!atInstance && recent.length > 0 && (
             <SideSection title="Recent" collapsed={collapsed}>
               {recent.map((r) =>
                 r.kind === "file" ? (
@@ -576,6 +622,16 @@ export function Shell({ children }: { children: ReactNode }) {
             >
               <Icon name="search" size={18} />
             </button>
+            {viewer.persona.organisationRole === "owner" && (
+              <Link
+                to="/instance"
+                aria-label="Instance management"
+                title="Instance management"
+                className="flex size-8 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink"
+              >
+                <Icon name="fingerprint" size={18} />
+              </Link>
+            )}
             <NotificationsMenu waiting={waiting} />
           </TopBar>
           {current && (
@@ -681,39 +737,6 @@ export function GuestShell({ children }: { children: ReactNode }) {
         )}
         <main className="scroll-quiet min-h-0 flex-1 overflow-auto">{children}</main>
       </Pane>
-    </div>
-  );
-}
-
-/** The operator's side: tenants and the instance, nothing of the content. */
-export function InstanceShell({ children }: { children: ReactNode }) {
-  const header = useCurrentHeader();
-  return (
-    <div className="flex h-full flex-col @3xl/app:flex-row">
-      <nav
-        aria-label="Instance"
-        className="hidden w-[240px] shrink-0 flex-col px-2.5 pt-3 pb-3 @3xl/app:flex"
-      >
-        <div className="flex h-9 items-center gap-2 px-2">
-          <Lockup size={20} />
-          <span className="eyebrow">Instance</span>
-        </div>
-        <div className="mt-5 flex flex-col gap-0.5">
-          <NavItem to="/instance" icon="dashboard" label="Overview" collapsed={false} exact />
-          <NavItem to="/instance/tenants" icon="building" label="Tenants" collapsed={false} />
-          <NavItem to="/instance/settings" icon="settings" label="Settings" collapsed={false} />
-          <NavItem to="/instance/operations" icon="pulse" label="Operations" collapsed={false} />
-        </div>
-      </nav>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col @3xl/app:py-2.5 @3xl/app:pr-2.5">
-        <Pane>
-          <header className="flex h-12 shrink-0 items-center gap-3 border-b border-line px-3 @3xl/app:px-6">
-            {header ? <Trail spec={header} /> : <div className="flex-1" />}
-            <div className="flex items-center gap-1.5">{header?.actions}</div>
-          </header>
-          <main className="scroll-quiet min-h-0 min-w-0 flex-1 overflow-auto">{children}</main>
-        </Pane>
-      </div>
     </div>
   );
 }

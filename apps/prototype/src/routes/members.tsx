@@ -1,8 +1,6 @@
 import { Avatar } from "~/components/avatar";
 import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
-import { Page } from "~/components/page";
-import { usePageHeader } from "~/components/page-header";
 import { Button } from "~/components/ui/button";
 import { ActionMenu } from "~/components/ui/menu";
 import { guests, invitations, members, personById } from "~/data";
@@ -12,21 +10,13 @@ import { Empty, StateGate } from "~/viewer/state-gate";
 
 const roleCopy = { owner: "Owner", admin: "Admin", member: "Member" };
 
-export function MembersPage() {
+/** Members, invitations and guests: a section of organisation settings under Access. */
+export function MembersSection() {
   const viewer = useViewer();
   const elevated =
     viewer.persona.organisationRole === "owner" || viewer.persona.organisationRole === "admin";
-  usePageHeader({
-    title: "Members",
-    actions: elevated ? (
-      <Button variant="primary" size="sm">
-        <Icon name="plus" size={14} />
-        Invite
-      </Button>
-    ) : undefined,
-  });
   return (
-    <Page>
+    <div className="flex flex-col gap-8">
       <StateGate
         empty={
           <Empty
@@ -37,7 +27,15 @@ export function MembersPage() {
         }
       >
         <section className="flex flex-col gap-2">
-          <Label>Members · {members.length}</Label>
+          <div className="flex items-center justify-between">
+            <Label>Members · {members.length}</Label>
+            {elevated && (
+              <Button variant="primary" size="sm">
+                <Icon name="plus" size={14} />
+                Invite
+              </Button>
+            )}
+          </div>
           <ul className="flex list-none flex-col rounded-panel-lg border border-line bg-raised/40 p-0 shadow-1">
             {members.map((m) => {
               const p = personById(m.personId);
@@ -159,6 +157,6 @@ export function MembersPage() {
           </ul>
         </section>
       </StateGate>
-    </Page>
+    </div>
   );
 }
