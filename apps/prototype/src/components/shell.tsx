@@ -23,7 +23,7 @@ import { cn } from "~/lib/cn";
 import { inField } from "~/lib/dom";
 import { projectNav, useCurrentProject } from "~/lib/project-nav";
 import { needsYou, reviewOutcome } from "~/lib/reviews";
-import { instanceSections } from "~/routes/instance";
+import { instanceSectionsFor } from "~/routes/instance";
 import { useViewer } from "~/viewer/context";
 
 function NavItem({
@@ -562,7 +562,7 @@ export function Shell({ children }: { children: ReactNode }) {
                     </span>
                   )}
                 </div>
-                {instanceSections.map((item) => (
+                {instanceSectionsFor(viewer.isInstance).map((item) => (
                   <Link
                     key={item.id}
                     to={item.id === "overview" ? "/instance" : "/instance/$section"}
@@ -678,7 +678,7 @@ export function Shell({ children }: { children: ReactNode }) {
               <Icon name="search" size={18} />
             </button>
             <HelpMenu />
-            {viewer.persona.organisationRole === "owner" && (
+            {(viewer.isInstance || viewer.persona.organisationRole === "owner") && (
               <Link
                 to="/instance"
                 aria-label="Instance management"
