@@ -914,7 +914,7 @@ export function FilePage({
 
   if (tab === "qa")
     return (
-      <div className="fade-in flex h-full min-h-0 flex-col">
+      <div className="fade-in flex min-h-full flex-col @3xl/app:h-full @3xl/app:min-h-0">
         <div className="flex shrink-0 flex-col border-b border-line">
           {strip}
           {player}
@@ -939,7 +939,7 @@ export function FilePage({
   return (
     <div
       className={cn(
-        "fade-in flex h-full min-h-0 flex-col @3xl/app:flex-row",
+        "fade-in flex min-h-full flex-col @3xl/app:h-full @3xl/app:min-h-0 @3xl/app:flex-row",
         below && "@3xl/app:flex-col",
       )}
     >
