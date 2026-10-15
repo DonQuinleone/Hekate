@@ -370,6 +370,30 @@ export interface QaFinding {
   fields: [string, string][];
   /** Compared with the previous version: new here, or fixed there. */
   change?: "new" | "fixed";
+  /** The rule pack it came from, when it is not one of the built-in error checks. */
+  pack?: string;
+}
+
+export type QaRuleKind = "audio" | "immersive" | "video" | "artwork" | "naming" | "metadata";
+
+export interface QaRule {
+  id: string;
+  kind: QaRuleKind;
+  name: string;
+  hint: string;
+  /** Errors are on in every project; a pack's rules are the project's to switch on. */
+  severity: "fail" | "warn" | "info";
+  on: boolean;
+  /** Also run as the file arrives, refusing or warning before it reaches anyone. */
+  onUpload: boolean;
+}
+
+export interface QaRulePack {
+  id: string;
+  name: string;
+  source: string;
+  note: string;
+  rules: QaRule[];
 }
 
 export interface Loudness {

@@ -20,11 +20,14 @@ export function TakeManager({
   versionNumber,
   canEdit,
   onClose,
+  page = false,
 }: {
   track: Track;
   versionNumber: number;
   canEdit: boolean;
-  onClose: () => void;
+  onClose?: () => void;
+  /** On its own page the manager fills the width and keeps its rows roomier. */
+  page?: boolean;
 }) {
   const list = takes
     .filter((t) => t.trackId === track.id && t.coverage)
@@ -45,10 +48,16 @@ export function TakeManager({
   const gaps = covered.filter((c) => !c).length;
   const sessionOf = (t: Take) => sessions.find((s) => s.id === t.sessionId);
   return (
-    <section aria-label="Takes" className="flex min-h-0 flex-1 flex-col">
+    <section
+      aria-label="Takes"
+      className={cn(
+        "flex min-h-0 flex-1 flex-col",
+        page && "rounded-panel-lg border border-line bg-raised/25 shadow-1",
+      )}
+    >
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-line px-4 text-[13px]">
         <Icon name="take" size={14} className="text-ink-3" />
-        <span className="font-medium text-ink">Takes</span>
+        {!page && <span className="font-medium text-ink">Takes</span>}
         <span className="text-ink-3">
           {list.length} cover this track
           {gaps > 0 ? ` · ${gaps} bars uncovered` : " · every bar covered"}
@@ -82,18 +91,25 @@ export function TakeManager({
           >
             Take log
           </Link>
-          <button
-            type="button"
-            aria-label="Hide takes"
-            onClick={onClose}
-            className="flex size-7 items-center justify-center rounded-control text-ink-3 hover:bg-raised hover:text-ink"
-          >
-            <Icon name="close" size={13} />
-          </button>
+          {onClose && (
+            <button
+              type="button"
+              aria-label="Hide takes"
+              onClick={onClose}
+              className="flex size-7 items-center justify-center rounded-control text-ink-3 hover:bg-raised hover:text-ink"
+            >
+              <Icon name="close" size={13} />
+            </button>
+          )}
         </div>
       </div>
       <div className="scroll-quiet min-h-0 flex-1 overflow-auto">
-        <div className="grid min-w-[760px] grid-cols-[220px_minmax(0,1fr)_32px]">
+        <div
+          className={cn(
+            "grid min-w-[760px]",
+            page ? "grid-cols-[280px_minmax(0,1fr)_40px]" : "grid-cols-[220px_minmax(0,1fr)_32px]",
+          )}
+        >
           <div className="sticky top-0 z-10 col-span-3 grid grid-cols-subgrid border-b border-line bg-pane/95 backdrop-blur">
             <span className="eyebrow px-4 py-1.5">Take</span>
             <div className="relative h-7">

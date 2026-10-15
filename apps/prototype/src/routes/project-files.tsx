@@ -21,6 +21,7 @@ import {
   primaryFile,
   sessions,
   type Track,
+  takes,
   type Version,
 } from "~/data";
 import { cn } from "~/lib/cn";
@@ -129,6 +130,20 @@ function TrackRow({ track, project }: { track: Track; project: Project }) {
       search={{ view: "versions" }}
     />,
   );
+  if (
+    takes.some((t) => t.trackId === track.id && t.coverage) &&
+    viewer.tools(project.id).has("takes")
+  )
+    quick.push(
+      <Quick
+        key="takes"
+        icon="take"
+        label="Takes"
+        to="/tracks/$trackId"
+        params={{ trackId: track.id }}
+        search={{ view: "takes" }}
+      />,
+    );
   if (!s.version && canUpload)
     quick.push(
       <Quick

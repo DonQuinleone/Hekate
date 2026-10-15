@@ -6,6 +6,7 @@ import { Label } from "~/components/label";
 import { Page } from "~/components/page";
 import { PageTitle, usePageHeader } from "~/components/page-header";
 import { Dot } from "~/components/status";
+import { TakeManager } from "~/components/take-manager";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
@@ -16,6 +17,7 @@ import {
   primaryFile,
   projectById,
   reviews,
+  takes,
   trackById,
   type Version,
   workflows,
@@ -299,7 +301,9 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: string })
   const versions = track ? [...track.versions].sort((a, b) => b.number - a.number) : [];
   const latest = versions[0];
   // A track opens on its latest version in the player; this page is reached from there.
-  const playable = view !== "versions" && latest && visible ? primaryFile(latest) : undefined;
+  const playable =
+    view !== "versions" && view !== "takes" && latest && visible ? primaryFile(latest) : undefined;
+  const hasTakes = Boolean(track && takes.some((t) => t.trackId === track.id && t.coverage));
   useEffect(() => {
     if (playable)
       navigate({ to: "/files/$fileId", params: { fileId: playable.id }, replace: true });
@@ -309,7 +313,8 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: string })
       { label: "Projects", to: "/projects" },
       ...(project && visible ? [{ label: project.name, to: `/projects/${project.id}` }] : []),
     ],
-    title: track && visible ? `${track.name}: versions` : "Not found",
+    title:
+      track && visible ? `${track.name}: ${view === "takes" ? "takes" : "versions"}` : "Not found",
     heading: "page",
     actions: visible ? (
       <>
@@ -377,81 +382,123 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: string })
             )}
           </p>
         </div>
+        {hasTakes && viewer.tools(project.id).has("takes") && (
+          <div
+            role="tablist"
+            className="flex rounded-control border border-line bg-raised/40 p-0.5"
+          >
+            {(
+              [
+                ["versions", "Versions"],
+                ["takes", "Takes"],
+              ] as const
+            ).map(([id, label]) => (
+              <Link
+                key={id}
+                role="tab"
+                aria-selected={(view ?? "versions") === id}
+                to="/tracks/$trackId"
+                params={{ trackId: track.id }}
+                search={{ view: id }}
+                className={cn(
+                  "h-7 rounded-[4px] px-3 text-[13px] leading-7",
+                  (view ?? "versions") === id
+                    ? "bg-overlay text-ink shadow-2"
+                    : "text-ink-3 hover:text-ink",
+                )}
+              >
+                {label}
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
-      {adding && (
+      {view === "takes" ? (
+        <div className="flex min-h-[560px] flex-col">
+          <TakeManager
+            track={track}
+            versionNumber={latest?.number ?? 0}
+            canEdit={viewer.can(project.id, "upload")}
+            page
+          />
+        </div>
+      ) : null}
+      {view !== "takes" && adding && (
         <NewVersion
           next={(latest?.number ?? 0) + 1}
           onClose={() => setAdding(false)}
           hasScore={Boolean(score)}
         />
       )}
-      <StateGate
-        empty={
-          <Empty
-            title="No versions yet"
-            text="Upload the first version of this track. Each later edit becomes the next version, and comments carry across."
-            action={
-              viewer.can(project.id, "upload") ? (
-                <Button variant="primary" onClick={() => setAdding(true)}>
-                  Add version 1
-                </Button>
-              ) : undefined
-            }
-          />
-        }
-      >
-        {empty ? (
-          <Empty
-            title="No versions yet"
-            text="Upload the first version of this track. Each later edit becomes the next version, and comments carry across."
-            action={
-              viewer.can(project.id, "upload") ? (
-                <Button variant="primary" onClick={() => setAdding(true)}>
-                  Add version 1
-                </Button>
-              ) : undefined
-            }
-          />
-        ) : (
-          <>
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px] text-ink-3">
-              <span className="flex items-center gap-2 text-ink">
-                <Dot state={latest?.status === "Approved" ? "approved" : "in_review"} />
-                {latest?.status}
-                {stage && <span className="text-ink-3">· {stage.name}</span>}
-              </span>
-              {next && <span>Next: {next.name}</span>}
-              {score ? (
-                <Link
-                  to="/files/$fileId"
-                  params={{ fileId: score.id }}
-                  className="flex items-center gap-1.5 text-ink-2 hover:text-ink"
-                >
-                  <Icon name="score" size={14} />
-                  {score.name}
-                </Link>
-              ) : viewer.can(project.id, "organise") ? (
-                <button type="button" className="flex items-center gap-1.5 hover:text-ink">
-                  <Icon name="plus" size={12} /> Link a score
-                </button>
-              ) : null}
-              <span>{plural(openComments, "open comment")}</span>
-              {track.deliveryProfile && <span>Delivery: {track.deliveryProfile}</span>}
-            </div>
-            <ul className="list-none rounded-panel-lg border border-line bg-raised/40 p-0 shadow-1">
-              {versions.map((v) => (
-                <VersionRow
-                  key={v.id}
-                  version={v}
-                  trackId={track.id}
-                  projectId={project.id}
-                  latest={v.id === latest?.id}
-                />
-              ))}
-            </ul>
-          </>
-        )}
-      </StateGate>
+      {view !== "takes" && (
+        <StateGate
+          empty={
+            <Empty
+              title="No versions yet"
+              text="Upload the first version of this track. Each later edit becomes the next version, and comments carry across."
+              action={
+                viewer.can(project.id, "upload") ? (
+                  <Button variant="primary" onClick={() => setAdding(true)}>
+                    Add version 1
+                  </Button>
+                ) : undefined
+              }
+            />
+          }
+        >
+          {empty ? (
+            <Empty
+              title="No versions yet"
+              text="Upload the first version of this track. Each later edit becomes the next version, and comments carry across."
+              action={
+                viewer.can(project.id, "upload") ? (
+                  <Button variant="primary" onClick={() => setAdding(true)}>
+                    Add version 1
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px] text-ink-3">
+                <span className="flex items-center gap-2 text-ink">
+                  <Dot state={latest?.status === "Approved" ? "approved" : "in_review"} />
+                  {latest?.status}
+                  {stage && <span className="text-ink-3">· {stage.name}</span>}
+                </span>
+                {next && <span>Next: {next.name}</span>}
+                {score ? (
+                  <Link
+                    to="/files/$fileId"
+                    params={{ fileId: score.id }}
+                    className="flex items-center gap-1.5 text-ink-2 hover:text-ink"
+                  >
+                    <Icon name="score" size={14} />
+                    {score.name}
+                  </Link>
+                ) : viewer.can(project.id, "organise") ? (
+                  <button type="button" className="flex items-center gap-1.5 hover:text-ink">
+                    <Icon name="plus" size={12} /> Link a score
+                  </button>
+                ) : null}
+                <span>{plural(openComments, "open comment")}</span>
+                {track.deliveryProfile && <span>Delivery: {track.deliveryProfile}</span>}
+              </div>
+              <ul className="list-none rounded-panel-lg border border-line bg-raised/40 p-0 shadow-1">
+                {versions.map((v) => (
+                  <VersionRow
+                    key={v.id}
+                    version={v}
+                    trackId={track.id}
+                    projectId={project.id}
+                    latest={v.id === latest?.id}
+                  />
+                ))}
+              </ul>
+            </>
+          )}
+        </StateGate>
+      )}
     </Page>
   );
 }

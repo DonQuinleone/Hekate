@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
 import { Button } from "~/components/ui/button";
+import { Dialog } from "~/components/ui/dialog";
 import { type Take, takeById, takesCovering } from "~/data";
 import { cn } from "~/lib/cn";
 import { formatDuration } from "~/lib/format";
@@ -207,62 +208,129 @@ export function OtherTakes({
   );
 }
 
-/** The takes a producer shared with a thread: the only takes a reviewer without the tool hears. */
-export function SharedTakes({ ids }: { ids: string[] }) {
-  const [auditioning, setAuditioning] = useState<string | null>(null);
+/** Takes attached to a thread: one line in the comment, and a modal to hear and compare them. */
+export function SharedTakes({ ids, bar }: { ids: string[]; bar?: number }) {
+  const [open, setOpen] = useState(false);
   const list = ids.map(takeById).filter((t): t is Take => Boolean(t));
   return (
-    <div className="mt-2 rounded-panel border border-line bg-ground">
-      <div className="flex items-center gap-2 border-b border-line px-3 py-1.5">
-        <Icon name="take" size={14} className="text-ink-3" />
-        <span className="text-[13px] text-ink-2">
-          {list.length} takes shared with you for this passage
-        </span>
-      </div>
-      <ul className="list-none p-0">
-        {list.map((t) => (
-          <li
-            key={t.id}
-            className={cn(
-              "flex items-center gap-3 border-b border-line px-3 py-2 last:border-b-0",
-              auditioning === t.id && "bg-signal/10",
-            )}
+    <>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(true);
+        }}
+        className="mt-1 flex h-7 items-center gap-2 self-start rounded-chip border border-line bg-raised/40 px-2.5 text-[12px] text-ink-2 transition-colors hover:border-edge hover:text-ink"
+      >
+        <Icon name="take" size={12} className="text-ink-3" />
+        {list.length} {list.length === 1 ? "take" : "takes"} attached
+        <span className="text-ink-3">· compare</span>
+      </button>
+      {open && <TakeCompareDialog takes={list} bar={bar} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+/** The attached takes beside the version: audition each, flip between them, loop the passage. */
+export function TakeCompareDialog({
+  takes: list,
+  bar,
+  onClose,
+}: {
+  takes: Take[];
+  bar?: number;
+  onClose: () => void;
+}) {
+  const [current, setCurrent] = useState<string>("version");
+  const [playing, setPlaying] = useState(false);
+  const [loop, setLoop] = useState(true);
+  const options = [
+    { id: "version", label: "The version" },
+    ...list.map((t) => ({ id: t.id, label: `Take ${t.number}` })),
+  ];
+  return (
+    <Dialog
+      title={bar !== undefined ? `Takes for bar ${bar}` : "Attached takes"}
+      description="Level-matched and aligned at the bar. Keys 1 to 9 flip between them while playing."
+      onClose={onClose}
+      width="md"
+      footer={
+        <Button variant="ghost" onClick={onClose}>
+          Close
+        </Button>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            aria-label={playing ? "Pause" : "Play"}
+            onClick={() => setPlaying((p) => !p)}
+            className="flex size-9 items-center justify-center rounded-full bg-ink text-ground"
           >
-            <button
-              type="button"
-              aria-label={`Play take ${t.number}`}
-              onClick={() => setAuditioning(auditioning === t.id ? null : t.id)}
+            <Icon name={playing ? "pause" : "play"} size={12} fill="currentColor" strokeWidth={0} />
+          </button>
+          <div
+            role="radiogroup"
+            aria-label="Listening to"
+            className="flex flex-wrap gap-1 rounded-control border border-line bg-ground/60 p-0.5"
+          >
+            {options.map((o, i) => (
+              <button
+                key={o.id}
+                type="button"
+                role="radio"
+                aria-checked={current === o.id}
+                onClick={() => setCurrent(o.id)}
+                className={cn(
+                  "flex h-7 items-center gap-1.5 rounded-[4px] px-2.5 text-[13px]",
+                  current === o.id ? "bg-overlay text-ink shadow-2" : "text-ink-3 hover:text-ink",
+                )}
+              >
+                <span className="tabular text-[11px] text-ink-3">{i + 1}</span>
+                {o.label}
+              </button>
+            ))}
+          </div>
+          <label className="ml-auto flex items-center gap-2 text-[13px] text-ink-2">
+            <input type="checkbox" checked={loop} onChange={(e) => setLoop(e.target.checked)} />
+            Loop the passage
+          </label>
+        </div>
+        <ul className="flex flex-col divide-y divide-line rounded-panel border border-line">
+          {list.map((t) => (
+            <li
+              key={t.id}
               className={cn(
-                "flex size-7 items-center justify-center rounded-full",
-                auditioning === t.id ? "bg-signal text-ground" : "bg-raised text-ink",
+                "flex items-center gap-3 px-3 py-2",
+                current === t.id && "bg-signal/10",
               )}
             >
-              <Icon
-                name={auditioning === t.id ? "pause" : "play"}
-                size={11}
-                fill="currentColor"
-                strokeWidth={0}
-              />
-            </button>
-            <span className="tabular text-[14px] text-ink">Take {t.number}</span>
-            <span className="truncate text-[13px] text-ink-3">{t.notes}</span>
-            <span className="tabular ml-auto text-[13px] text-ink-3">
-              {formatDuration(t.duration)}
-            </span>
-          </li>
-        ))}
-      </ul>
-      <p className="px-3 py-1.5 text-[12px] text-ink-3">
-        Those with the take manager see every take:{" "}
-        <Link
-          to="/sessions/$sessionId"
-          params={{ sessionId: "sess-2" }}
-          className="text-ink-2 hover:text-ink"
-        >
-          open the session
-        </Link>
-        .
-      </p>
-    </div>
+              <span className="tabular w-12 text-[14px] font-medium text-ink">T{t.number}</span>
+              <Rating value={t.rating} />
+              <span className="min-w-0 flex-1 truncate text-[13px] text-ink-2">
+                {t.notes || "No notes"}
+              </span>
+              <span className="text-[12px] text-ink-3">
+                bars {t.coverage?.barFrom}–{t.coverage?.barTo}
+              </span>
+              <span className="tabular text-[13px] text-ink-3">{formatDuration(t.duration)}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="text-[12px] text-ink-3">
+          Everything a take is here is in the{" "}
+          <Link
+            to="/tracks/$trackId"
+            params={{ trackId: list[0]?.trackId ?? "" }}
+            search={{ view: "takes" }}
+            className="text-ink-2 hover:text-ink"
+          >
+            take manager
+          </Link>
+          , for those with the tool.
+        </p>
+      </div>
+    </Dialog>
   );
 }

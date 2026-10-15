@@ -8,12 +8,19 @@ import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
+import { Switch } from "~/components/ui/toggle";
 import {
   categories,
+  customRules,
   deliveryProfiles,
+  measures,
   type Project,
   type ProjectPermission,
   projectById,
+  projectPacks,
+  type QaRule,
+  qaRules,
+  rulePacks,
   type Tool,
   tracks,
   workflows,
@@ -25,6 +32,7 @@ import { Refused } from "~/viewer/state-gate";
 const sections = [
   { id: "general", label: "General" },
   { id: "delivery", label: "Delivery profile" },
+  { id: "qa", label: "QA rules" },
   { id: "comments", label: "Comments" },
   { id: "tools", label: "Tool access" },
   { id: "roles", label: "Roles" },
@@ -62,6 +70,65 @@ export const toolCopy: Record<Tool, { label: string; hint: string }> = {
   download: { label: "Download", hint: "The proxy or the original, watermarked and logged" },
   production: { label: "Production", hint: "Schedule, take log, score marking, stage plan" },
 };
+
+const severityLabel: Record<QaRule["severity"], string> = {
+  fail: "Issue",
+  warn: "Warning",
+  info: "Advisory",
+};
+
+/** One rule: on or off, how hard it bites, whether it runs on upload. */
+function RuleRow({
+  rule,
+  fixed = false,
+  custom,
+}: {
+  rule: QaRule;
+  fixed?: boolean;
+  custom?: string;
+}) {
+  const [on, setOn] = useState(rule.on);
+  const [upload, setUpload] = useState(rule.onUpload);
+  return (
+    <Row
+      name={
+        <span className={cn("flex items-center gap-2", !on && "text-ink-3")}>
+          {rule.name}
+          {custom && (
+            <span className="rounded-chip border border-line px-1.5 text-[11px] text-ink-3">
+              {custom}
+            </span>
+          )}
+        </span>
+      }
+      hint={rule.hint || undefined}
+    >
+      <Select defaultValue={rule.severity} className="h-8 w-32 text-[13px]" disabled={!on}>
+        {(Object.keys(severityLabel) as QaRule["severity"][]).map((s) => (
+          <option key={s} value={s}>
+            {severityLabel[s]}
+          </option>
+        ))}
+      </Select>
+      <label
+        className={cn("flex items-center gap-1.5 text-[13px]", on ? "text-ink-2" : "text-ink-3")}
+      >
+        <input
+          type="checkbox"
+          checked={upload}
+          disabled={!on}
+          onChange={(e) => setUpload(e.target.checked)}
+        />
+        On upload
+      </label>
+      {fixed ? (
+        <span className="w-9 text-right text-[12px] text-ink-3">always</span>
+      ) : (
+        <Switch label={rule.name} checked={on} onChange={setOn} />
+      )}
+    </Row>
+  );
+}
 
 function ProfileEditor({ onClose }: { onClose: () => void }) {
   return (
@@ -130,6 +197,8 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
   const viewer = useViewer();
   const navigate = useNavigate();
   const [profileOpen, setProfileOpen] = useState(false);
+  const [ruleOpen, setRuleOpen] = useState(false);
+  const [packsOn, setPacksOn] = useState<Set<string>>(new Set(projectPacks[project.id] ?? []));
   const [confirm, setConfirm] = useState<"archive" | "delete" | null>(null);
   const [roles, setRoles] = useState(project.roles);
   const [adding, setAdding] = useState(false);
@@ -522,6 +591,154 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
             <SwitchRow name="Participants, by mail" checked />
             <SwitchRow name="Everyone in the project, on a status change" checked={false} />
           </Section>
+        </>
+      )}
+      {sec === "qa" && (
+        <>
+          <Section
+            title="Errors"
+            intro="Plain faults every file is checked for, with the delivery profile supplying the numbers. Always on; choose how hard each one bites and whether it runs as the file arrives."
+          >
+            {qaRules.map((r) => (
+              <RuleRow key={r.id} rule={r} fixed />
+            ))}
+          </Section>
+          {rulePacks.map((pack) => (
+            <Section
+              key={pack.id}
+              title={pack.name}
+              intro={`${pack.note} From ${pack.source}.`}
+              action={
+                <span className="flex items-center gap-2 text-[13px] text-ink-2">
+                  {packsOn.has(pack.id) ? "On" : "Off"}
+                  <Switch
+                    label={pack.name}
+                    checked={packsOn.has(pack.id)}
+                    onChange={(v) => {
+                      const next = new Set(packsOn);
+                      if (v) next.add(pack.id);
+                      else next.delete(pack.id);
+                      setPacksOn(next);
+                    }}
+                  />
+                </span>
+              }
+            >
+              {packsOn.has(pack.id) ? (
+                pack.rules.map((r) => <RuleRow key={r.id} rule={r} />)
+              ) : (
+                <Row
+                  name={`${pack.rules.length} rules`}
+                  hint="Switch the pack on to pick which apply here and how."
+                />
+              )}
+            </Section>
+          ))}
+          <Section
+            title="Custom rules"
+            intro="A measurement, a comparison and a value, in your own words. They run beside the rest."
+            action={
+              <Button variant="secondary" size="md" onClick={() => setRuleOpen(true)}>
+                <Icon name="plus" size={14} />
+                Rule
+              </Button>
+            }
+          >
+            {customRules.map((r) => (
+              <RuleRow key={r.id} rule={r} custom={`${r.measure} ${r.operator} ${r.value}`} />
+            ))}
+          </Section>
+          <p className="text-[13px] text-ink-3">
+            Rules marked “on upload” also run as a file arrives, from the workflow's{" "}
+            <Link
+              to="/projects/$projectId/$view"
+              params={{ projectId: project.id, view: "workflow" }}
+              className="text-ink-2 hover:text-ink"
+            >
+              upload rules
+            </Link>
+            , where their action (warn or refuse) is set.
+          </p>
+          {ruleOpen && (
+            <Dialog
+              title="New rule"
+              description="Measured on every file the rule applies to; the finding carries your name for it."
+              onClose={() => setRuleOpen(false)}
+              footer={
+                <>
+                  <Button variant="ghost" onClick={() => setRuleOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button variant="primary" onClick={() => setRuleOpen(false)}>
+                    Add rule
+                  </Button>
+                </>
+              }
+            >
+              <div className="flex flex-col gap-4">
+                <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                  Name
+                  <Input placeholder="Masters at 96 kHz" autoFocus />
+                </label>
+                <div className="grid gap-3 @md/app:grid-cols-[minmax(0,1fr)_140px_minmax(0,1fr)]">
+                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                    Measure
+                    <Select defaultValue="Sample rate">
+                      {measures.map((m) => (
+                        <option key={m}>{m}</option>
+                      ))}
+                    </Select>
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                    Comparison
+                    <Select defaultValue="is">
+                      {["is", "is not", "at least", "at most", "between", "one of", "matches"].map(
+                        (o) => (
+                          <option key={o}>{o}</option>
+                        ),
+                      )}
+                    </Select>
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                    Value
+                    <Input placeholder="96 kHz" />
+                  </label>
+                </div>
+                <div className="grid gap-3 @md/app:grid-cols-3">
+                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                    Applies to
+                    <Select defaultValue="audio">
+                      <option value="audio">Audio</option>
+                      <option value="immersive">Immersive audio</option>
+                      <option value="video">Video</option>
+                      <option value="artwork">Artwork and documents</option>
+                      <option value="any">Every file</option>
+                    </Select>
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                    When it fails
+                    <Select defaultValue="warn">
+                      <option value="fail">An issue</option>
+                      <option value="warn">A warning</option>
+                      <option value="info">An advisory</option>
+                    </Select>
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                    On upload
+                    <Select defaultValue="warn">
+                      <option value="off">Not checked</option>
+                      <option value="warn">Warn</option>
+                      <option value="refuse">Refuse the file</option>
+                    </Select>
+                  </label>
+                </div>
+                <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                  What the finding says
+                  <Input placeholder="The label archives at 96 kHz; re-export from the mix." />
+                </label>
+              </div>
+            </Dialog>
+          )}
         </>
       )}
       {sec === "security" && (

@@ -11,6 +11,7 @@ import {
   findingsFor,
   loudness as loudnessOf,
   type QaFinding,
+  rulePacks,
   severityRank,
 } from "~/data";
 import { cn } from "~/lib/cn";
@@ -222,6 +223,7 @@ function Finding({
             </button>
             <span className="text-[14px] text-ink-2">{f.summary}</span>
             {f.change === "new" && <Label className="text-signal">new in this version</Label>}
+            {f.pack && <Label>{rulePacks.find((p) => p.id === f.pack)?.name}</Label>}
             {f.change === "fixed" && <Label>fixed in the next</Label>}
           </div>
           {open && f.detail && (

@@ -3,7 +3,7 @@
  * A condition node has several outputs; an edge that leads back to an earlier node is a loop.
  */
 export type NodeKind =
-  | "start"
+  | "event"
   | "approval"
   | "feedback"
   | "task"
@@ -46,12 +46,13 @@ export const graphs: Graph[] = [
     nodes: [
       {
         id: "n-start",
-        kind: "start",
+        kind: "event",
         name: "A version is uploaded",
-        detail: "or restarted by hand",
+        detail: "checked at the door",
         col: 0,
         row: 1,
         outputs: one,
+        config: { event: "upload" },
       },
       {
         id: "n-c1",
@@ -197,7 +198,16 @@ export const graphs: Graph[] = [
   {
     workflowId: "wf-titles",
     nodes: [
-      { id: "t-start", kind: "start", name: "A cut is uploaded", col: 0, row: 0, outputs: one },
+      {
+        id: "t-start",
+        kind: "event",
+        name: "A cut is uploaded",
+        detail: "checked at the door",
+        col: 0,
+        row: 0,
+        outputs: one,
+        config: { event: "upload" },
+      },
       {
         id: "t-dir",
         kind: "feedback",

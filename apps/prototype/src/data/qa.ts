@@ -1,4 +1,4 @@
-import type { DeliveryProfile, Loudness, QaFinding } from "./types.ts";
+import type { DeliveryProfile, Loudness, QaFinding, QaRule, QaRulePack } from "./types.ts";
 
 export const deliveryProfiles: DeliveryProfile[] = [
   {
@@ -79,6 +79,436 @@ export const deliveryProfiles: DeliveryProfile[] = [
     lossless: true,
   },
 ];
+
+const rule = (
+  id: string,
+  kind: QaRule["kind"],
+  name: string,
+  hint: string,
+  severity: QaRule["severity"] = "fail",
+  on = true,
+  onUpload = false,
+): QaRule => ({ id, kind, name, hint, severity, on, onUpload });
+
+/**
+ * The checks every project runs: plain errors, not opinions. A delivery profile gives them
+ * their numbers.
+ */
+export const qaRules: QaRule[] = [
+  rule(
+    "clip",
+    "audio",
+    "Clipping",
+    "Samples at or over full scale, counted per channel",
+    "fail",
+    true,
+    true,
+  ),
+  rule(
+    "tp",
+    "audio",
+    "True peak over the ceiling",
+    "Against the delivery profile",
+    "fail",
+    true,
+    true,
+  ),
+  rule(
+    "lufs",
+    "audio",
+    "Loudness outside tolerance",
+    "Integrated, against the profile's target",
+    "warn",
+  ),
+  rule(
+    "rate",
+    "audio",
+    "Sample rate or depth off the profile",
+    "Rates and depths the profile allows",
+    "warn",
+    true,
+    true,
+  ),
+  rule(
+    "src",
+    "audio",
+    "Sample-rate conversion since the mix",
+    "The container says one rate, the content another",
+    "fail",
+    true,
+    true,
+  ),
+  rule(
+    "dualmono",
+    "audio",
+    "Dual mono or a missing channel",
+    "Two identical channels, or one silent",
+    "fail",
+  ),
+  rule(
+    "phase",
+    "audio",
+    "Inverse phase or imbalance",
+    "Correlation below zero, or a channel more than 3 dB down",
+    "warn",
+  ),
+  rule(
+    "lossy",
+    "audio",
+    "A lossy codec in the chain",
+    "Spectral ceiling or encoder traces in a PCM file",
+    "fail",
+    true,
+    true,
+  ),
+  rule(
+    "length",
+    "audio",
+    "Variations of different lengths",
+    "Dry, wet, surround and immersive mixes of one version",
+    "fail",
+  ),
+  rule(
+    "silence",
+    "audio",
+    "Silence or dropouts",
+    "Over a second of digital silence inside the programme",
+    "warn",
+  ),
+  rule(
+    "corrupt",
+    "audio",
+    "Unreadable file",
+    "A header that does not match the content",
+    "fail",
+    true,
+    true,
+  ),
+  rule(
+    "adm",
+    "immersive",
+    "Not a valid ADM BWF",
+    "The Atmos master must open as ADM with its bed and objects",
+    "fail",
+    true,
+    true,
+  ),
+  rule(
+    "atmos-length",
+    "immersive",
+    "Immersive and stereo lengths differ",
+    "Start, duration and fades",
+    "fail",
+  ),
+  rule(
+    "vcodec",
+    "video",
+    "Codec or container the profile refuses",
+    "Lossy ancestry, interlacing where progressive is asked",
+    "fail",
+    true,
+    true,
+  ),
+  rule(
+    "picture",
+    "video",
+    "Frame size, rate or colour off the profile",
+    "Including upscaling and pillarboxing",
+    "fail",
+    true,
+    true,
+  ),
+  rule(
+    "black",
+    "video",
+    "Black or frozen frames inside the programme",
+    "Beyond the head and tail allowance",
+    "warn",
+  ),
+  rule("sync", "video", "Audio and picture out of sync", "Drift or offset over one frame", "fail"),
+  rule("flash", "video", "Flashing risk", "Luminance flashes over three a second", "warn"),
+  rule(
+    "vaudio",
+    "video",
+    "Video audio off the profile",
+    "Rate, depth, channel count and tagging",
+    "fail",
+    true,
+    true,
+  ),
+  rule("art-corrupt", "artwork", "Unreadable image or document", "", "fail", true, true),
+];
+
+/** Rule packs a project may switch on: a distributor's guide, as rules, each the project's to keep or drop. */
+export const rulePacks: QaRulePack[] = [
+  {
+    id: "umg",
+    name: "Universal Music content guide",
+    source: "contentguide.universalmusic.com",
+    note: "What that distributor refuses or queries at delivery. Off until a project needs it; each rule has its own severity.",
+    rules: [
+      rule(
+        "umg-bwf",
+        "audio",
+        "Broadcast Wave container",
+        "Masters as BWF with bext and iXML",
+        "warn",
+        true,
+      ),
+      rule(
+        "umg-native",
+        "audio",
+        "Native resolution",
+        "No up- or down-sampling from the approved mix",
+        "warn",
+        true,
+      ),
+      rule(
+        "umg-tags",
+        "audio",
+        "Channels tagged L and R",
+        "Two non-identical channels, tagged",
+        "fail",
+        true,
+      ),
+      rule(
+        "umg-clean",
+        "audio",
+        "Clean version for explicit mixes",
+        "A clean or edited mix, and clean stems",
+        "info",
+        true,
+      ),
+      rule(
+        "umg-stems",
+        "audio",
+        "Stems and alternates of one length",
+        "Main, instrumental, TV mix, a cappella; a bar of silence each end of a stem",
+        "info",
+        false,
+      ),
+      rule(
+        "umg-name",
+        "naming",
+        "File name pattern",
+        "Letters, digits and underscores, 120 characters at most",
+        "warn",
+        true,
+        true,
+      ),
+      rule(
+        "umg-adm",
+        "immersive",
+        "ADM BWF to the Atmos music spec",
+        "24-bit, 48 kHz, 24 fps, up to 128 channels",
+        "fail",
+        true,
+      ),
+      rule(
+        "umg-atmos-loud",
+        "immersive",
+        "Atmos loudness and peak",
+        "At or under −18 LKFS and −1 dBTP; downmix not below −31 LKFS",
+        "fail",
+        true,
+      ),
+      rule(
+        "umg-ffoa",
+        "immersive",
+        "No first frame of action",
+        "Duration and fades match the stereo master",
+        "warn",
+        true,
+      ),
+      rule(
+        "umg-binaural",
+        "immersive",
+        "Binaural metadata set",
+        "All Off refused; all Mid queried",
+        "fail",
+        true,
+      ),
+      rule(
+        "umg-lfe",
+        "immersive",
+        "LFE low-passed",
+        "100 to 150 Hz, 18 to 24 dB per octave",
+        "warn",
+        true,
+      ),
+      rule(
+        "umg-objects",
+        "immersive",
+        "Empty or unused objects",
+        "Empty objects queried, unused ones disabled",
+        "info",
+        true,
+      ),
+      rule(
+        "umg-prores",
+        "video",
+        "ProRes 422 HQ, 4444 or 4444 XQ in a .mov",
+        "Nothing ever through H.264; only video, audio and timecode tracks",
+        "fail",
+        true,
+        true,
+      ),
+      rule(
+        "umg-sizes",
+        "video",
+        "Standard frame sizes and native rate",
+        "1920 × 1080, 3840 × 2160, 2048 × 1080 or 4096 × 2160; progressive; BT.709; SDR",
+        "fail",
+        true,
+        true,
+      ),
+      rule(
+        "umg-p2p",
+        "video",
+        "Head and tail",
+        "At most 2 s of black and silence before and after the programme",
+        "warn",
+        true,
+      ),
+      rule(
+        "umg-slates",
+        "video",
+        "No slates, bars, bugs or burned-in titles",
+        "Unless intended; a copyright card 3 to 5 s, centred",
+        "warn",
+        true,
+      ),
+      rule(
+        "umg-captions",
+        "video",
+        "Captions as a sidecar",
+        ".scc or .ttml, never embedded; 12 frames in from either end",
+        "warn",
+        true,
+      ),
+      rule("umg-md5", "video", "Checksum unlike any earlier submission", "", "info", true, true),
+      rule(
+        "umg-motion",
+        "video",
+        "Motion cover art",
+        "ProRes, 8 to 35 s, seamless loop, 3840 × 3840 and 2048 × 2732",
+        "info",
+        false,
+      ),
+      rule(
+        "umg-cover",
+        "artwork",
+        "Cover art",
+        "3000 to 6000 px square, flattened TIFF, no ICC profile, no alpha, 100 MB at most",
+        "fail",
+        true,
+      ),
+      rule(
+        "umg-poster",
+        "artwork",
+        "Poster art",
+        "2:3, 2000 to 6000 wide, 3000 to 9000 high",
+        "info",
+        false,
+      ),
+      rule(
+        "umg-booklet",
+        "artwork",
+        "Digital booklet",
+        "Landscape PDF, four pages or more, fonts embedded, no adverts",
+        "info",
+        false,
+      ),
+      rule(
+        "umg-ids",
+        "metadata",
+        "Identifiers embedded",
+        "UPC and ISRCs in the DDP; ISRC in the Atmos-for-video name",
+        "warn",
+        true,
+      ),
+    ],
+  },
+];
+
+/** Rules a project wrote itself: a measurement, a comparison, a value. */
+export interface CustomRule extends QaRule {
+  measure: string;
+  operator: string;
+  value: string;
+}
+
+export const customRules: CustomRule[] = [
+  {
+    ...rule(
+      "custom-96k",
+      "audio",
+      "Masters at 96 kHz",
+      "The label's own archive standard",
+      "warn",
+      true,
+      true,
+    ),
+    measure: "Sample rate",
+    operator: "is",
+    value: "96 kHz",
+  },
+  {
+    ...rule(
+      "custom-cat",
+      "naming",
+      "Name starts with the catalogue number",
+      "EHR-0xx at the front of every delivery file",
+      "warn",
+      true,
+      true,
+    ),
+    measure: "File name",
+    operator: "matches",
+    value: "^EHR-\\d{3}_",
+  },
+  {
+    ...rule(
+      "custom-tail",
+      "audio",
+      "Tail no longer than two seconds",
+      "Digital silence after the last sound",
+      "info",
+      true,
+      false,
+    ),
+    measure: "Trailing silence",
+    operator: "at most",
+    value: "2 s",
+  },
+];
+
+export const measures = [
+  "True peak",
+  "Integrated loudness",
+  "Loudness range",
+  "Sample rate",
+  "Bit depth",
+  "Channels",
+  "Duration",
+  "Leading silence",
+  "Trailing silence",
+  "File name",
+  "File size",
+  "Container",
+  "Codec",
+  "Frame size",
+  "Frame rate",
+  "Colour space",
+  "Image dimensions",
+  "Embedded metadata field",
+];
+
+/** Which packs each project has switched on. */
+export const projectPacks: Record<string, string[]> = {
+  "proj-joplin": ["umg"],
+  "proj-titles": ["umg"],
+};
 
 export const loudness: Record<string, Loudness> = {
   "file-maple-v1": {
@@ -369,7 +799,117 @@ export const findings: QaFinding[] = [
   },
 ];
 
-export const findingsFor = (fileId: string) => findings.filter((f) => f.fileId === fileId);
+const guideFindings: QaFinding[] = (
+  [
+    {
+      id: "qa-v2-name",
+      fileId: "file-maple-v2-dry",
+      check: "File name",
+      severity: "warn",
+      summary: "Spaces and a dash in the name",
+      detail:
+        "Delivery names use letters, digits and underscores only, 120 characters at most. Hekate renames on export; the master itself is unchanged.",
+      fields: [
+        ["Name", "Maple Leaf Rag - V2 dry.wav"],
+        ["On export", "MapleLeafRag_01_V2_dry_HRA_101426.wav"],
+      ],
+    },
+    pass("file-maple-v2-dry", "Container", "Broadcast Wave, bext and iXML present"),
+    pass(
+      "file-maple-v2-dry",
+      "Native resolution",
+      "96 kHz / 24-bit, no sample-rate conversion since the mix",
+    ),
+    pass(
+      "file-maple-v2-dry",
+      "Channels",
+      "Two channels tagged L and R; not dual mono; phase correlation +0.82",
+    ),
+    pass("file-maple-v2-dry", "Lossless chain", "PCM throughout; no lossy ancestor found"),
+    {
+      id: "qa-atmos-binaural",
+      fileId: "file-atmos",
+      check: "Binaural metadata",
+      severity: "fail",
+      summary: "Every object is set to Off",
+      detail:
+        "An Atmos master with all binaural render modes Off is refused by delivery. Set Near, Mid or Far per object in the renderer and export again.",
+      fields: [
+        ["Objects", "2 of 2 Off"],
+        ["Bed", "7.1.4"],
+      ],
+    },
+    {
+      id: "qa-atmos-ffoa",
+      fileId: "file-atmos",
+      check: "First frame of action",
+      severity: "warn",
+      summary: "FFOA is set at 00:00:02:00",
+      detail:
+        "Music masters carry no FFOA. Clear it in the export so the duration lines up with the stereo master.",
+      fields: [["FFOA", "00:00:02:00"]],
+    },
+    pass("file-atmos", "ADM BWF", "24-bit, 48 kHz, 24 fps, 14 channels, Dolby Atmos music profile"),
+    pass(
+      "file-atmos",
+      "Loudness",
+      "−18.4 LKFS integrated, true peak −1.4 dBTP; 5.1 downmix −20.1 LKFS",
+    ),
+    pass(
+      "file-atmos",
+      "Length against stereo",
+      "40.000 s, the same as the dry master, fades matching",
+    ),
+    pass("file-atmos", "LFE", "Low-passed at 120 Hz, 24 dB per octave"),
+    pass("file-atmos", "5.1 downmix", "Direct render, trims at 0 dB"),
+    {
+      id: "qa-cover-size",
+      fileId: "file-cover",
+      check: "Dimensions",
+      severity: "fail",
+      summary: "1500 × 1500 px; delivery needs 3000 to 6000 px square",
+      fields: [
+        ["Size", "1500 × 1500"],
+        ["Needs", "3000 to 6000, square"],
+      ],
+    },
+    {
+      id: "qa-cover-format",
+      fileId: "file-cover",
+      check: "Format",
+      severity: "warn",
+      summary: "PNG with an alpha channel",
+      detail:
+        "Covers are delivered as a flattened TIFF with no ICC profile and no alpha channel. The review copy is fine; export will need the TIFF.",
+      fields: [["Format", "PNG, RGBA, sRGB profile"]],
+    },
+    pass("file-cover", "Content", "No URLs, pricing or time-sensitive text"),
+    pass(
+      "file-titles-c3",
+      "Codec and container",
+      "ProRes 422 HQ in a .mov with video, audio and timecode only; no H.264 ancestry",
+    ),
+    pass(
+      "file-titles-c3",
+      "Head and tail",
+      "1.52 s black and silence at the head, 1.8 s at the tail; under the 2 s limit",
+    ),
+    pass(
+      "file-titles-c3",
+      "Captions",
+      "No embedded caption track; sidecar .ttml with 48 cues, first in-point 12 frames after picture",
+    ),
+    pass(
+      "file-titles-c3",
+      "Picture",
+      "SDR, BT.709, progressive, native 25 fps; no upscaling or pillarboxing",
+    ),
+    pass("file-titles-c3", "Checksum", "MD5 unlike any earlier submission"),
+  ] as QaFinding[]
+).map((f) => ({ ...f, pack: "umg" }));
+
+export const findingsFor = (fileId: string) =>
+  [...findings, ...guideFindings].filter((f) => f.fileId === fileId);
 
 export const severityRank: Record<QaFinding["severity"], number> = {
   fail: 0,

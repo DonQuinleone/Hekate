@@ -10,6 +10,7 @@ import { Input, Select, Textarea } from "~/components/ui/input";
 import { Dropdown } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
 import {
+  customRules,
   type Graph,
   type GraphEdge,
   type GraphNode,
@@ -17,6 +18,9 @@ import {
   type NodeKind,
   type Project,
   projectById,
+  projectPacks,
+  qaRules,
+  rulePacks,
   tracks,
   workflows,
 } from "~/data";
@@ -72,7 +76,11 @@ function edgePath(from: { x: number; y: number }, to: { x: number; y: number }, 
 /* ---------- Kinds ---------- */
 
 const kindMeta: Record<NodeKind, { icon: IconName; label: string; hint: string }> = {
-  start: { icon: "bolt", label: "Start", hint: "What begins the workflow" },
+  event: {
+    icon: "bolt",
+    label: "Event",
+    hint: "Something that happens: a trigger at the start, or a wait in the flow",
+  },
   approval: { icon: "review", label: "Approval", hint: "Each reviewer records a decision" },
   feedback: { icon: "comment", label: "Feedback", hint: "Comments, then submitted" },
   task: { icon: "task", label: "Task", hint: "Someone does the work" },
@@ -82,11 +90,52 @@ const kindMeta: Record<NodeKind, { icon: IconName; label: string; hint: string }
   end: { icon: "stop", label: "End", hint: "Stop here" },
 };
 
-const picker: { group: string; kinds: NodeKind[] }[] = [
-  { group: "Review", kinds: ["approval", "feedback"] },
-  { group: "Work", kinds: ["task"] },
-  { group: "Flow", kinds: ["condition", "notify"] },
-  { group: "Finish", kinds: ["status"] },
+/** Everything a person can do, as something the workflow can start on or wait for. */
+const events: { id: string; label: string; hint: string }[] = [
+  { id: "upload", label: "A version is uploaded", hint: "Checked at the door by the upload rules" },
+  { id: "folder", label: "A file lands in a folder", hint: "Any file, or a chosen folder" },
+  { id: "manual", label: "Started by hand", hint: "From the track or the board" },
+  { id: "review", label: "A review is requested", hint: "Of any kind, or one kind" },
+  { id: "decision", label: "A decision is recorded", hint: "Approved or changes requested" },
+  { id: "feedback", label: "Feedback is submitted", hint: "By everyone, or anyone" },
+  { id: "comment", label: "A comment is posted", hint: "Any, or one category" },
+  { id: "resolved", label: "Every comment is resolved", hint: "On the version" },
+  { id: "task", label: "A task is done", hint: "Any task on the item" },
+  { id: "due", label: "A due date passes", hint: "Of the stage, or of a review" },
+  { id: "opened", label: "A share is opened", hint: "By anyone it was sent to" },
+  { id: "download", label: "A download happens", hint: "Of the proxy or the original" },
+  { id: "mention", label: "Someone is mentioned", hint: "In a comment" },
+];
+
+const picker: {
+  group: string;
+  items: { kind: NodeKind; event?: string; label: string; hint: string }[];
+}[] = [
+  {
+    group: "Review",
+    items: [
+      { kind: "approval", label: "Approval", hint: kindMeta.approval.hint },
+      { kind: "feedback", label: "Feedback", hint: kindMeta.feedback.hint },
+    ],
+  },
+  { group: "Work", items: [{ kind: "task", label: "Task", hint: kindMeta.task.hint }] },
+  {
+    group: "Flow",
+    items: [
+      { kind: "condition", label: "Condition", hint: kindMeta.condition.hint },
+      { kind: "notify", label: "Notify", hint: kindMeta.notify.hint },
+    ],
+  },
+  {
+    group: "Events: wait until",
+    items: events.map((e) => ({
+      kind: "event" as NodeKind,
+      event: e.id,
+      label: e.label,
+      hint: e.hint,
+    })),
+  },
+  { group: "Finish", items: [{ kind: "status", label: "Set status", hint: kindMeta.status.hint }] },
 ];
 
 const templates = [
@@ -103,33 +152,13 @@ const templates = [
   },
 ];
 
-const uploadChecks = [
-  { id: "tp", name: "True peak ceiling", hint: "From the delivery profile", action: "refuse" },
-  {
-    id: "lufs",
-    name: "Loudness within tolerance",
-    hint: "From the delivery profile",
-    action: "warn",
-  },
-  {
-    id: "fmt",
-    name: "Format matches the profile",
-    hint: "Rate, bit depth and layout",
-    action: "warn",
-  },
-  {
-    id: "name",
-    name: "File name follows the pattern",
-    hint: "Title - Vn variation.wav",
-    action: "off",
-  },
-  {
-    id: "edl",
-    name: "Edit decision list attached",
-    hint: "For versions after the first",
-    action: "off",
-  },
-];
+interface UploadRule {
+  id: string;
+  name: string;
+  hint: string;
+  source?: string;
+  action: "off" | "warn" | "refuse";
+}
 
 /* ---------- Simulation ---------- */
 
@@ -146,17 +175,19 @@ function Node({
   selected,
   ran,
   current,
+  trigger,
   onSelect,
 }: {
   node: GraphNode;
   selected: boolean;
   ran: boolean;
   current: boolean;
+  trigger: boolean;
   onSelect: () => void;
 }) {
   const p = posOf(node);
   const meta = kindMeta[node.kind];
-  const start = node.kind === "start";
+  const start = trigger;
   return (
     <button
       type="button"
@@ -178,7 +209,7 @@ function Node({
       <span
         className={cn(
           "flex size-7 shrink-0 items-center justify-center rounded-full",
-          current || start ? "bg-signal text-ground" : "bg-ground/60 text-ink-2",
+          current || node.kind === "event" ? "bg-signal text-ground" : "bg-ground/60 text-ink-2",
         )}
       >
         <Icon name={meta.icon} size={13} />
@@ -217,11 +248,38 @@ export function WorkflowPage({ project }: { project: Project }) {
   const [statuses, setStatuses] = useState(workflow?.statuses ?? []);
   const [selected, setSelected] = useState<string | null>(graph.nodes[1]?.id ?? null);
   const [adding, setAdding] = useState<{ from: string; output: string } | null>(null);
-  const [tab, setTab] = useState<"builder" | "statuses" | "upload" | "overrides">("builder");
+  const [tab, setTab] = useState<"builder" | "statuses" | "overrides">("builder");
   const [run, setRun] = useState<Run | null>(null);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [activated, setActivated] = useState(false);
   const [zoom, setZoom] = useState<number | null>(null);
+  const allRules: Omit<UploadRule, "action">[] = [
+    ...qaRules.map((r) => ({
+      id: r.id,
+      name: r.name,
+      hint: r.hint,
+      source: undefined as string | undefined,
+    })),
+    ...rulePacks
+      .filter((pk) => (projectPacks[project.id] ?? []).includes(pk.id))
+      .flatMap((pk) =>
+        pk.rules.map((r) => ({ id: r.id, name: r.name, hint: r.hint, source: pk.name })),
+      ),
+    ...customRules.map((r) => ({ id: r.id, name: r.name, hint: r.hint, source: "Custom" })),
+  ];
+  const [uploadRules, setUploadRules] = useState<UploadRule[]>(() =>
+    allRules
+      .filter(
+        (r) =>
+          [...qaRules, ...rulePacks.flatMap((pk) => pk.rules), ...customRules].find(
+            (x) => x.id === r.id,
+          )?.onUpload,
+      )
+      .map((r) => ({
+        ...r,
+        action: r.id === "tp" || r.id === "corrupt" || r.id === "src" ? "refuse" : "warn",
+      })),
+  );
   const canvas = useRef<HTMLDivElement>(null);
   const [canvasSize, setCanvasSize] = useState({ w: 900, h: 500 });
   useEffect(() => {
@@ -252,9 +310,9 @@ export function WorkflowPage({ project }: { project: Project }) {
       .filter((o) => !graph.edges.some((e) => e.from === n.id && e.output === o.id))
       .map((o) => ({ node: n, output: o })),
   );
-  const unreachable = graph.nodes.filter(
-    (n) => n.kind !== "start" && !graph.edges.some((e) => e.to === n.id),
-  );
+  const hasIncoming = (id: string) => graph.edges.some((e) => e.to === id);
+  const isTrigger = (n: GraphNode) => n.kind === "event" && !hasIncoming(n.id);
+  const unreachable = graph.nodes.filter((n) => !isTrigger(n) && !hasIncoming(n.id));
   const name = workflow?.name ?? "Workflow";
 
   const update = (id: string, patch: Partial<GraphNode>) =>
@@ -267,7 +325,7 @@ export function WorkflowPage({ project }: { project: Project }) {
     }));
     setSelected(null);
   };
-  const addNode = (kind: NodeKind) => {
+  const addNode = (kind: NodeKind, event?: string) => {
     const from = adding ? byId.get(adding.from) : current;
     const id = `n-${Date.now().toString(36)}`;
     const col = from ? from.col + 1 : 0;
@@ -281,13 +339,18 @@ export function WorkflowPage({ project }: { project: Project }) {
     const node: GraphNode = {
       id,
       kind,
-      name: kindMeta[kind].label,
+      name:
+        kind === "event"
+          ? (events.find((e) => e.id === event)?.label ?? "Event")
+          : kindMeta[kind].label,
       detail:
         kind === "task"
           ? "Choose who"
           : kind === "approval" || kind === "feedback"
             ? "Choose reviewers"
-            : undefined,
+            : kind === "event"
+              ? "wait until it happens"
+              : undefined,
       col,
       row: taken ? rows : Math.max(0, row),
       outputs:
@@ -299,7 +362,7 @@ export function WorkflowPage({ project }: { project: Project }) {
           : kind === "status"
             ? []
             : [{ id: "out" }],
-      config: {},
+      config: kind === "event" ? { event: event ?? "manual" } : {},
     };
     setGraph((g) => ({
       ...g,
@@ -323,7 +386,7 @@ export function WorkflowPage({ project }: { project: Project }) {
 
   /* The run: one item through the workflow, the person choosing each outcome. */
   const startRun = () => {
-    const start = graph.nodes.find((n) => n.kind === "start");
+    const start = graph.nodes.find((n) => isTrigger(n));
     if (!start) return;
     setRun({
       current: start.id,
@@ -380,7 +443,7 @@ export function WorkflowPage({ project }: { project: Project }) {
   const outcomes = (
     n: GraphNode,
   ): { label: string; output: string; decision?: Run["decision"] }[] => {
-    if (n.kind === "start") return [{ label: "A version arrives", output: "out" }];
+    if (n.kind === "event") return [{ label: "It happens", output: "out" }];
     if (n.kind === "approval")
       return [
         { label: "Everyone approves", output: "out", decision: "all" },
@@ -514,7 +577,7 @@ export function WorkflowPage({ project }: { project: Project }) {
       </div>
       <p className="text-[12px] text-ink-3">
         After {byId.get(adding.from)?.name}
-        {(byId.get(adding.from)?.outputs.length ?? 0 > 1)
+        {(byId.get(adding.from)?.outputs.length ?? 0) > 1
           ? ` (${byId.get(adding.from)?.outputs.find((o) => o.id === adding.output)?.label})`
           : ""}
         .
@@ -522,19 +585,19 @@ export function WorkflowPage({ project }: { project: Project }) {
       {picker.map((g) => (
         <div key={g.group} className="flex flex-col gap-1">
           <span className="eyebrow text-[12px]">{g.group}</span>
-          {g.kinds.map((k) => (
+          {g.items.map((it) => (
             <button
-              key={k}
+              key={`${it.kind}-${it.event ?? ""}`}
               type="button"
-              onClick={() => addNode(k)}
-              className="flex items-center gap-3 rounded-control px-2 py-2 text-left transition-colors hover:bg-raised"
+              onClick={() => addNode(it.kind, it.event)}
+              className="flex items-center gap-3 rounded-control px-2 py-1.5 text-left transition-colors hover:bg-raised"
             >
-              <span className="flex size-7 items-center justify-center rounded-full bg-ground/60 text-ink-2">
-                <Icon name={kindMeta[k].icon} size={13} />
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-ground/60 text-ink-2">
+                <Icon name={kindMeta[it.kind].icon} size={13} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-[13px] text-ink">{kindMeta[k].label}</span>
-                <span className="block text-[12px] text-ink-3">{kindMeta[k].hint}</span>
+                <span className="block text-[13px] text-ink">{it.label}</span>
+                <span className="block truncate text-[12px] text-ink-3">{it.hint}</span>
               </span>
             </button>
           ))}
@@ -553,7 +616,7 @@ export function WorkflowPage({ project }: { project: Project }) {
         >
           <option value="">Choose a stage</option>
           {graph.nodes
-            .filter((n) => n.kind !== "start" && n.id !== adding.from)
+            .filter((n) => !isTrigger(n) && n.id !== adding.from)
             .map((n) => (
               <option key={n.id} value={n.id}>
                 {n.name}
@@ -570,7 +633,7 @@ export function WorkflowPage({ project }: { project: Project }) {
           <Icon name={kindMeta[current.kind].icon} size={13} />
         </span>
         <Label>{kindMeta[current.kind].label}</Label>
-        {canEdit && current.kind !== "start" && (
+        {canEdit && !isTrigger(current) && (
           <button
             type="button"
             onClick={() => removeNode(current.id)}
@@ -580,23 +643,142 @@ export function WorkflowPage({ project }: { project: Project }) {
           </button>
         )}
       </div>
-      {current.kind === "start" ? (
+      {current.kind === "event" ? (
         <>
           {field(
-            "Starts when",
-            <Select defaultValue="upload" disabled={!canEdit}>
-              <option value="upload">A version is uploaded</option>
-              <option value="manual">Started by hand</option>
-              <option value="review">A review is requested</option>
+            isTrigger(current) ? "Starts when" : "Waits until",
+            <Select
+              value={current.config?.event ?? "manual"}
+              onChange={(e) =>
+                update(current.id, {
+                  config: { ...current.config, event: e.target.value },
+                  name: events.find((x) => x.id === e.target.value)?.label ?? current.name,
+                })
+              }
+              disabled={!canEdit}
+            >
+              {events.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.label}
+                </option>
+              ))}
             </Select>,
+            isTrigger(current)
+              ? "A trigger: nothing comes before it."
+              : "The item holds here until it happens, then carries on.",
           )}
-          {field(
-            "Applies to",
-            <Select defaultValue="all" disabled={!canEdit}>
-              <option value="all">Every track</option>
-              <option value="new">New tracks only</option>
-            </Select>,
+          {current.config?.event === "upload" && (
+            <div className="flex flex-col gap-2 text-[13px] text-ink-2">
+              At the door
+              <ul className="flex flex-col divide-y divide-line rounded-panel border border-line bg-ground/40">
+                {uploadRules.map((r) => (
+                  <li key={r.id} className="flex items-center gap-2 px-2.5 py-1.5">
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] text-ink">{r.name}</span>
+                      {r.source && (
+                        <span className="block truncate text-[11px] text-ink-3">{r.source}</span>
+                      )}
+                    </span>
+                    <Select
+                      value={r.action}
+                      onChange={(e) =>
+                        setUploadRules(
+                          uploadRules.map((x) =>
+                            x.id === r.id
+                              ? { ...x, action: e.target.value as UploadRule["action"] }
+                              : x,
+                          ),
+                        )
+                      }
+                      className="h-7 w-[108px] text-[12px]"
+                      disabled={!canEdit}
+                    >
+                      <option value="off">Off</option>
+                      <option value="warn">Warn</option>
+                      <option value="refuse">Refuse</option>
+                    </Select>
+                    {canEdit && (
+                      <button
+                        type="button"
+                        aria-label={`Remove ${r.name}`}
+                        onClick={() => setUploadRules(uploadRules.filter((x) => x.id !== r.id))}
+                        className="text-ink-3 hover:text-signal"
+                      >
+                        <Icon name="close" size={11} />
+                      </button>
+                    )}
+                  </li>
+                ))}
+                {uploadRules.length === 0 && (
+                  <li className="px-2.5 py-2 text-[12px] text-ink-3">
+                    Nothing is checked at the door.
+                  </li>
+                )}
+              </ul>
+              {canEdit && (
+                <Dropdown
+                  value={
+                    <span className="flex items-center gap-1.5">
+                      <Icon name="plus" size={12} />
+                      Add a rule
+                    </span>
+                  }
+                  actions={allRules
+                    .filter((r) => !uploadRules.some((u) => u.id === r.id))
+                    .map((r) => ({
+                      label: r.name,
+                      hint: r.source,
+                      onSelect: () => setUploadRules([...uploadRules, { ...r, action: "warn" }]),
+                    }))}
+                />
+              )}
+              <span className="text-[12px] text-ink-3">
+                A refused file never enters; a producer can let it through. The rules themselves
+                live in{" "}
+                <Link
+                  to="/projects/$projectId/$view"
+                  params={{ projectId: project.id, view: "settings" }}
+                  search={{ section: "qa" }}
+                  className="text-ink-2 hover:text-ink"
+                >
+                  QA rules
+                </Link>
+                .
+              </span>
+            </div>
           )}
+          {current.config?.event === "due" &&
+            field(
+              "Days after the stage starts",
+              <Input defaultValue="5" className="w-16 text-center" disabled={!canEdit} />,
+            )}
+          {(current.config?.event === "comment" || current.config?.event === "review") &&
+            field(
+              "Of which kind",
+              <Select defaultValue="any" disabled={!canEdit}>
+                <option value="any">Any</option>
+                {current.config?.event === "comment" ? (
+                  <>
+                    <option value="noise">Noise</option>
+                    <option value="edit">Edit</option>
+                    <option value="balance">Balance</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="approval">Approval</option>
+                    <option value="feedback">Feedback</option>
+                  </>
+                )}
+              </Select>,
+            )}
+          {isTrigger(current) &&
+            field(
+              "Applies to",
+              <Select defaultValue="all" disabled={!canEdit}>
+                <option value="all">Every track</option>
+                <option value="new">New tracks only</option>
+              </Select>,
+            )}
         </>
       ) : (
         field(
@@ -879,7 +1061,6 @@ export function WorkflowPage({ project }: { project: Project }) {
             [
               ["builder", "Builder"],
               ["statuses", "Statuses"],
-              ["upload", "Upload rules"],
               ["overrides", "Per track"],
             ] as const
           ).map(([id, label]) => (
@@ -1072,6 +1253,7 @@ export function WorkflowPage({ project }: { project: Project }) {
                     selected={selected === n.id}
                     ran={Boolean(run?.nodes.includes(n.id))}
                     current={run?.current === n.id}
+                    trigger={isTrigger(n)}
                     onSelect={() => setSelected(n.id)}
                   />
                 ))}
@@ -1260,35 +1442,6 @@ export function WorkflowPage({ project }: { project: Project }) {
           </div>
         </div>
       )}
-      {tab === "upload" && (
-        <div className="scroll-quiet min-h-0 flex-1 overflow-auto p-4 @3xl/app:p-6">
-          <div className="flex max-w-[720px] flex-col gap-4">
-            <p className="text-[14px] text-ink-2">
-              Checks that run on every file as it arrives. A check can warn, refuse the upload, or
-              stay off. A producer can let a refused file through.
-            </p>
-            <ul className="flex flex-col divide-y divide-line rounded-panel-lg border border-line bg-raised/25">
-              {uploadChecks.map((c) => (
-                <li key={c.id} className="flex items-center gap-4 px-4 py-3">
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[14px] text-ink">{c.name}</span>
-                    <span className="block text-[13px] text-ink-3">{c.hint}</span>
-                  </span>
-                  <Select defaultValue={c.action} className="w-32" disabled={!canEdit}>
-                    <option value="off">Off</option>
-                    <option value="warn">Warn</option>
-                    <option value="refuse">Refuse</option>
-                  </Select>
-                </li>
-              ))}
-            </ul>
-            <p className="text-[13px] text-ink-3">
-              What arrives also sets the next stage: a new version restarts the workflow from the
-              stage chosen when it is uploaded.
-            </p>
-          </div>
-        </div>
-      )}
       {tab === "overrides" && (
         <div className="scroll-quiet min-h-0 flex-1 overflow-auto p-4 @3xl/app:p-6">
           <div className="flex max-w-[720px] flex-col gap-4">
@@ -1344,8 +1497,9 @@ export function WorkflowPage({ project }: { project: Project }) {
                         nodes: [
                           {
                             id: "s0",
-                            kind: "start",
+                            kind: "event",
                             name: "A version is uploaded",
+                            config: { event: "upload" },
                             col: 0,
                             row: 0,
                             outputs: [{ id: "out" }],

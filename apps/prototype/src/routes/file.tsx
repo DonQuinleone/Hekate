@@ -22,7 +22,6 @@ import { type Marker, Ruler, Waveform } from "~/components/player/waveform";
 import { QaView } from "~/components/qa";
 import { VideoQaView } from "~/components/qa-video";
 import { Dot } from "~/components/status";
-import { TakeManager } from "~/components/take-manager";
 import { Button } from "~/components/ui/button";
 import { ActionMenu, Dropdown, MenuList, usePopover } from "~/components/ui/menu";
 import { Filmstrip, Frame } from "~/components/video";
@@ -90,14 +89,12 @@ interface Layout {
   width: number;
   score: boolean;
   scoreHeight: number;
-  takes: boolean;
 }
 const defaultLayout: Layout = {
   comments: "right",
   width: 400,
   score: false,
   scoreHeight: 360,
-  takes: false,
 };
 
 function useLayout(): [Layout, (patch: Partial<Layout>) => void] {
@@ -605,6 +602,19 @@ export function FilePage({
                     search: { view: "versions" },
                   }),
               },
+              ...(hasTakes
+                ? [
+                    {
+                      label: "Takes",
+                      onSelect: () =>
+                        navigate({
+                          to: "/tracks/$trackId",
+                          params: { trackId: inTrack.track.id },
+                          search: { view: "takes" },
+                        }),
+                    },
+                  ]
+                : []),
             ]),
       ]}
     />
@@ -645,22 +655,6 @@ export function FilePage({
           >
             <Icon name="score" size={14} />
             Score
-          </button>
-        )}
-        {hasTakes && (
-          <button
-            type="button"
-            aria-pressed={layout.takes}
-            onClick={() => setLayout({ takes: !layout.takes })}
-            className={cn(
-              "flex h-8 items-center gap-1.5 rounded-control px-2.5 text-[13px] transition-colors",
-              layout.takes
-                ? "bg-raised text-ink shadow-1"
-                : "text-ink-2 hover:bg-raised hover:text-ink",
-            )}
-          >
-            <Icon name="take" size={14} />
-            Takes
           </button>
         )}
         {isVideo && !pending && !failed && (
@@ -981,20 +975,6 @@ export function FilePage({
     </section>
   );
 
-  const takesPane = hasTakes && inTrack && layout.takes && (
-    <div
-      className="flex min-h-0 shrink-0 flex-col border-t border-line"
-      style={{ height: layout.scoreHeight }}
-    >
-      <TakeManager
-        track={inTrack.track}
-        versionNumber={inTrack.version.number}
-        canEdit={viewer.can(project.id, "upload")}
-        onClose={() => setLayout({ takes: false })}
-      />
-    </div>
-  );
-
   const commentsColumn = (
     <CommentsColumn
       file={file}
@@ -1082,7 +1062,6 @@ export function FilePage({
         </div>
       )}
       {scorePane}
-      {takesPane}
     </div>
   );
 

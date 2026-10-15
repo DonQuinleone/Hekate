@@ -21,6 +21,7 @@ export const comments: Comment[] = [
     reference: { bar: 5, beat: 2 },
     categoryId: "cat-noise",
     channel: "L",
+    sharedTakeIds: ["take-3", "take-2"],
   },
   {
     id: "c-2",

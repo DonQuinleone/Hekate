@@ -158,9 +158,7 @@ export function Thread({
         )}
       </div>
       <p className="text-[14px] leading-[21px] text-ink">{comment.body}</p>
-      {comment.sharedTakeIds && !access.tools.has("takes") && (
-        <SharedTakes ids={comment.sharedTakeIds} />
-      )}
+      {comment.sharedTakeIds && <SharedTakes ids={comment.sharedTakeIds} bar={bar} />}
       {carry && canTriage && versionNumber !== null && (
         <div className="flex flex-wrap items-center gap-2 text-[12px] text-ink-3">
           <span>On V{versionNumber}</span>
@@ -291,7 +289,7 @@ export function Thread({
             }}
             className={action}
           >
-            Takes for bar {bar}
+            Attach takes
           </button>
         )}
         {(canTriage || mine) && (

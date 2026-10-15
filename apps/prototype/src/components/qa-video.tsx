@@ -14,6 +14,7 @@ import {
   findingsFor,
   loudness as loudnessOf,
   type QaFinding,
+  rulePacks,
   severityRank,
 } from "~/data";
 import { cn } from "~/lib/cn";
@@ -97,6 +98,7 @@ function Finding({
           </button>
           <span className="text-[14px] text-ink-2">{f.summary}</span>
           {f.change === "new" && <Label className="text-signal">new in this cut</Label>}
+          {f.pack && <Label>{rulePacks.find((p) => p.id === f.pack)?.name}</Label>}
         </div>
         {open && f.detail && (
           <p className="mt-1 text-[13px] leading-[18px] text-ink-3">{f.detail}</p>
@@ -172,12 +174,18 @@ export function VideoQaView({
   const m = file.media;
   const analysing = file.state === "pending";
   const delivery: { name: string; ok: boolean | null; note: string }[] = [
-    { name: "Slate and bars", ok: false, note: "No slate at the head; bars and tone absent" },
-    { name: "Head and tail leader", ok: true, note: "1.5 s black at the head, 2 s at the tail" },
-    { name: "Captions", ok: true, note: "Subtitled rendition present, 48 cues" },
-    { name: "Safe areas", ok: true, note: "Titles within the 90% title-safe area" },
-    { name: "Timecode", ok: true, note: "Continuous from 10:00:00:00" },
-    { name: "Audio layout", ok: true, note: "Stereo, M and E not required" },
+    {
+      name: "Codec and container",
+      ok: true,
+      note: "ProRes 422 HQ in a .mov; nothing ever through H.264",
+    },
+    { name: "Picture", ok: true, note: "1920 × 1080, progressive, BT.709, SDR, native 25 fps" },
+    { name: "Head and tail", ok: true, note: "1.52 s at the head, 1.8 s at the tail; 2 s allowed" },
+    { name: "Slates, bars and bugs", ok: true, note: "None; the copyright card runs 4 s, centred" },
+    { name: "Captions", ok: true, note: "Sidecar .ttml, 48 cues; nothing embedded" },
+    { name: "Audio", ok: true, note: "PCM 48 kHz 24-bit, one track, L and R tagged" },
+    { name: "Checksum", ok: true, note: "MD5 unlike any earlier submission" },
+    { name: "Atmos for video", ok: null, note: "No sidecar ADM supplied; stereo only" },
   ];
   return (
     <div className="flex flex-col gap-5">
