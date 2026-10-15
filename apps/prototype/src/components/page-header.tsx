@@ -31,19 +31,22 @@ export function PageHeaderProvider({ children }: { children: ReactNode }) {
 }
 
 /** A page declares its header: the trail back up, its name, and its actions. */
-export function usePageHeader(spec: PageHeaderSpec) {
+export function usePageHeader(spec: PageHeaderSpec | null) {
   const ctx = useContext(Ctx);
   const set = ctx?.set;
-  const key = JSON.stringify({
-    c: spec.crumbs,
-    t: spec.title,
-    h: spec.heading,
-    b: spec.back,
-    r: spec.revision,
-  });
+  const key = spec
+    ? JSON.stringify({
+        c: spec.crumbs,
+        t: spec.title,
+        h: spec.heading,
+        b: spec.back,
+        r: spec.revision,
+      })
+    : null;
   // The actions node changes identity every render; the header updates when the text parts, or the revision, change.
   // biome-ignore lint/correctness/useExhaustiveDependencies: spec is captured through its key on purpose.
   useLayoutEffect(() => {
+    if (!spec) return;
     set?.(spec);
     return () => set?.(null);
   }, [key, set]);

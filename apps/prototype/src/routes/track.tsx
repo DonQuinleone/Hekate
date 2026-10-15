@@ -318,10 +318,18 @@ export function TrackPage({ trackId }: { trackId: string }) {
             Request a review
           </Button>
         )}
+        {versions.length > 1 && viewer.tools(project.id).has("compare") && (
+          <Button variant="ghost" size="sm" asChild>
+            <Link to="/tracks/$trackId/compare" params={{ trackId: track.id }}>
+              <Icon name="compare" size={14} />
+              Compare
+            </Link>
+          </Button>
+        )}
         {viewer.can(project.id, "upload") && (
           <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
             <Icon name="upload" size={14} />
-            Add version
+            {project.profile === "video" ? "Add cut" : "Add version"}
           </Button>
         )}
       </>

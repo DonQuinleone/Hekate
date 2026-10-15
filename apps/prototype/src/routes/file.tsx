@@ -2,6 +2,8 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { CommentsColumn, orderThreads } from "~/components/comments/column";
+import { DownloadDialog, FileDetailsSheet } from "~/components/details";
+import { ExportCommentsDialog, ImportCommentsDialog } from "~/components/exports";
 import { Icon } from "~/components/icons";
 import { usePageHeader } from "~/components/page-header";
 import { markersFrom, PageViewer } from "~/components/pages";
@@ -23,6 +25,15 @@ import { Button } from "~/components/ui/button";
 import { ActionMenu, Dropdown, MenuList, usePopover } from "~/components/ui/menu";
 import { Filmstrip, Frame } from "~/components/video";
 import {
+  AudioLayoutMenu,
+  Captions,
+  CompareCuts,
+  type DrawTool,
+  DrawToolbar,
+  GoTo,
+  SafeAreas,
+} from "~/components/video-tools";
+import {
   comments as allComments,
   type Comment,
   fileById,
@@ -38,7 +49,7 @@ import { dueIn, formatDateTime, formatReference } from "~/lib/format";
 import { latestDecision, needsYou } from "~/lib/reviews";
 import { useViewer, visibleComments } from "~/viewer/context";
 import { Refused, useScreenState } from "~/viewer/state-gate";
-import { Soon } from "./_soon.tsx";
+import { TriagePage } from "./triage.tsx";
 
 const VIEW_KEY = "hekate.prototype.view";
 const LAYOUT_KEY = "hekate.prototype.layout";
@@ -286,6 +297,13 @@ export function FilePage({
   const [compareSource, setCompareSource] = useState("this");
   const [page, setPage] = useState(1);
   const [scorePage, setScorePage] = useState(1);
+  const [sheet, setSheet] = useState<"details" | "download" | "export" | "import" | null>(null);
+  const [drawing, setDrawing] = useState<DrawTool | null>(null);
+  const [colour, setColour] = useState("var(--hk-signal)");
+  const [matte, setMatte] = useState<"none" | "2.39" | "1.85">("none");
+  const [safe, setSafe] = useState(false);
+  const [captions, setCaptions] = useState(false);
+  const [cuts, setCuts] = useState<"wipe" | "side" | null>(null);
   const duration = file?.media.duration ?? 1;
   const playback = usePlayback(duration, 14.3);
   const tab = viewParam === "qa" ? "qa" : viewParam === "triage" ? "triage" : "review";
@@ -418,7 +436,8 @@ export function FilePage({
                 { label: "Copy link", onSelect: () => {} },
                 ...(access.triage
                   ? [
-                      { label: "Export comments…", onSelect: () => {} },
+                      { label: "Export comments…", onSelect: () => setSheet("export") },
+                      { label: "Import a marker list…", onSelect: () => setSheet("import") },
                       {
                         label: "Triage comments",
                         onSelect: () =>
@@ -430,7 +449,7 @@ export function FilePage({
                       },
                     ]
                   : []),
-                { label: "Details", onSelect: () => {} },
+                { label: "Details", onSelect: () => setSheet("details") },
                 ...(project && viewer.can(project.id, "organise")
                   ? [
                       "divider" as const,
@@ -457,7 +476,7 @@ export function FilePage({
         text="The window for this review closed on 31 October 2026. Ask the organisation to open it again."
       />
     );
-  if (tab === "triage") return <Soon title="Triage" round={2} />;
+  if (tab === "triage") return <TriagePage file={file} />;
 
   const pending = file.state === "pending" || state === "processing";
   const failed = file.state === "failed" || state === "failed";
@@ -613,6 +632,60 @@ export function FilePage({
             Score
           </button>
         )}
+        {isVideo && !pending && !failed && (
+          <>
+            <button
+              type="button"
+              aria-pressed={drawing !== null}
+              onClick={() => setDrawing(drawing ? null : "arrow")}
+              className={cn(
+                "flex h-8 items-center gap-1.5 rounded-control px-2.5 text-[13px] transition-colors",
+                drawing
+                  ? "bg-raised text-ink shadow-1"
+                  : "text-ink-2 hover:bg-raised hover:text-ink",
+              )}
+            >
+              <Icon name="edit" size={14} />
+              Draw
+            </button>
+            <Dropdown
+              value={
+                <span className="flex items-center gap-1.5">
+                  <Icon name="grid" size={14} />
+                  Frame
+                </span>
+              }
+              align="right"
+              actions={[
+                { label: "Safe areas", checked: safe, onSelect: () => setSafe((v) => !v) },
+                {
+                  label: "Matte 2.39:1",
+                  checked: matte === "2.39",
+                  onSelect: () => setMatte(matte === "2.39" ? "none" : "2.39"),
+                },
+                {
+                  label: "Matte 1.85:1",
+                  checked: matte === "1.85",
+                  onSelect: () => setMatte(matte === "1.85" ? "none" : "1.85"),
+                },
+                { label: "Captions", checked: captions, onSelect: () => setCaptions((v) => !v) },
+                "divider",
+                {
+                  label: "Compare cuts: wipe",
+                  checked: cuts === "wipe",
+                  onSelect: () => setCuts("wipe"),
+                },
+                {
+                  label: "Compare cuts: side by side",
+                  checked: cuts === "side",
+                  onSelect: () => setCuts("side"),
+                },
+              ]}
+            />
+            <GoTo onGo={(t) => playback.seek(t)} />
+            <AudioLayoutMenu layout={file.media.layout ?? "stereo"} />
+          </>
+        )}
         {isAudio && !pending && !failed && (
           <ViewMenu
             view={view}
@@ -668,23 +741,75 @@ export function FilePage({
       )}
     </div>
   ) : isVideo ? (
-    <div className="flex min-h-0 flex-1 flex-col px-3 pb-1 @3xl/app:px-4">
-      <Frame
-        file={file}
-        time={playback.time}
-        watermark={
-          guestWatermark ??
-          (project.id === "proj-titles"
-            ? `${personById(viewer.personId).name} · 14 Oct 2026`
-            : undefined)
-        }
-        className="mx-auto max-h-full rounded-panel shadow-3"
-        portrait={
-          file.media.height !== undefined &&
-          file.media.width !== undefined &&
-          file.media.height > file.media.width
-        }
-      />
+    <div className="flex min-h-0 flex-1 flex-col justify-center px-3 pb-1 @3xl/app:px-4">
+      {cuts && previousFile ? (
+        <CompareCuts
+          a={previousFile}
+          b={file}
+          time={playback.time}
+          mode={cuts}
+          onMode={setCuts}
+          onClose={() => setCuts(null)}
+        />
+      ) : (
+        <div
+          className="relative mx-auto w-full shrink-0"
+          style={{
+            maxWidth: Math.max(
+              240,
+              (stageHeight - 110) *
+                (file.media.height && file.media.width && file.media.height > file.media.width
+                  ? 9 / 16
+                  : 16 / 9),
+            ),
+          }}
+        >
+          <Frame
+            file={file}
+            time={playback.time}
+            watermark={
+              guestWatermark ??
+              (project.id === "proj-titles"
+                ? `${personById(viewer.personId).name} · 14 Oct 2026`
+                : undefined)
+            }
+            className="rounded-panel shadow-3"
+            portrait={
+              file.media.height !== undefined &&
+              file.media.width !== undefined &&
+              file.media.height > file.media.width
+            }
+          />
+          <SafeAreas matte={matte} safe={safe} />
+          {captions && <Captions time={playback.time} />}
+          {drawing && (
+            <>
+              <svg
+                className="pointer-events-none absolute inset-0 h-full w-full"
+                aria-hidden="true"
+              >
+                <ellipse
+                  cx="62%"
+                  cy="30%"
+                  rx="9%"
+                  ry="14%"
+                  fill="none"
+                  stroke={colour}
+                  strokeWidth={2}
+                />
+                <line x1="72%" y1="22%" x2="86%" y2="14%" stroke={colour} strokeWidth={2} />
+              </svg>
+              <DrawToolbar
+                tool={drawing}
+                onTool={setDrawing}
+                colour={colour}
+                onColour={setColour}
+                onClose={() => setDrawing(null)}
+              />
+            </>
+          )}
+        </div>
+      )}
       <Filmstrip file={file} playback={playback} markers={openThreads} />
       <Ruler duration={duration} video className="mt-1" />
     </div>
@@ -935,6 +1060,18 @@ export function FilePage({
       </div>
     );
 
+  const dialogs = (
+    <>
+      {sheet === "details" && <FileDetailsSheet file={file} onClose={() => setSheet(null)} />}
+      {sheet === "download" && access.download !== "none" && (
+        <DownloadDialog file={file} allowed={access.download} onClose={() => setSheet(null)} />
+      )}
+      {sheet === "export" && (
+        <ExportCommentsDialog file={file} comments={all} onClose={() => setSheet(null)} />
+      )}
+      {sheet === "import" && <ImportCommentsDialog onClose={() => setSheet(null)} />}
+    </>
+  );
   const below = layout.comments === "below";
   return (
     <div
@@ -973,6 +1110,7 @@ export function FilePage({
           </div>
         </>
       )}
+      {dialogs}
     </div>
   );
 }

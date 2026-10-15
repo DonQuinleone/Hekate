@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { QaReportDialog } from "~/components/exports";
 import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
 import { SeverityDot } from "~/components/status";
@@ -294,6 +295,7 @@ export function QaView({
   const advisories = findings.filter((f) => f.severity === "info");
   const passed = findings.filter((f) => f.severity === "pass");
   const [showPassed, setShowPassed] = useState(false);
+  const [report, setReport] = useState(false);
   const l = loudnessOf[file.id];
   const profile = deliveryProfiles.find(
     (p) => p.id === (file.projectId === "proj-titles" ? "broadcast" : "apple-digital-masters"),
@@ -335,9 +337,7 @@ export function QaView({
             <ActionMenu
               label="report"
               actions={[
-                { label: "Report as PDF", onSelect: () => {} },
-                { label: "Findings as CSV", onSelect: () => {} },
-                { label: "Findings as JSON", onSelect: () => {} },
+                { label: "Report…", onSelect: () => setReport(true) },
                 { label: "Run the checks again", onSelect: () => {} },
               ]}
             />
@@ -536,6 +536,7 @@ export function QaView({
           QA report
         </Button>
       </div>
+      {report && <QaReportDialog file={file} onClose={() => setReport(false)} />}
     </div>
   );
 }

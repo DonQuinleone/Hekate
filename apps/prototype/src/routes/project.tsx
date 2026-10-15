@@ -8,6 +8,8 @@ import { Property } from "~/components/property";
 import { Dot, reviewDot } from "~/components/status";
 import { Thumb } from "~/components/thumb";
 import { Button } from "~/components/ui/button";
+import { Dialog } from "~/components/ui/dialog";
+import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import {
   activity,
@@ -43,6 +45,9 @@ import { kindCopy, responded, reviewOutcome } from "~/lib/reviews";
 import { useViewer } from "~/viewer/context";
 import { Empty, Refused, StateGate, useScreenState } from "~/viewer/state-gate";
 import { Soon } from "./_soon.tsx";
+import { ProjectSettingsRoute } from "./project-settings.tsx";
+import { CoverageView, SessionsView } from "./takes.tsx";
+import { WorkflowRoute } from "./workflow.tsx";
 
 const Panel = ({ children, className }: { children: ReactNode; className?: string }) => (
   <div className={cn("rounded-panel-lg border border-line bg-raised/25 shadow-1", className)}>
@@ -414,6 +419,7 @@ function Files({ project, folderId }: { project: Project; folderId: string | nul
   );
   const canUpload = viewer.can(project.id, "upload");
   const uploading = state === "processing";
+  const [requesting, setRequesting] = useState(false);
   const empty =
     state === "empty" || (subfolders.length === 0 && here.length === 0 && loose.length === 0);
   return (
@@ -491,8 +497,83 @@ function Files({ project, folderId }: { project: Project; folderId: string | nul
               Upload
             </Button>
           )}
+          {viewer.can(project.id, "organise") && (
+            <ActionMenu
+              always
+              label="more"
+              actions={[
+                { label: "Upload request…", onSelect: () => setRequesting(true) },
+                { label: "Columns…", onSelect: () => {} },
+                { label: "Select all", onSelect: () => {} },
+              ]}
+            />
+          )}
         </div>
       </div>
+      {requesting && (
+        <Dialog
+          title="Upload request"
+          description="A link for someone outside the project to upload into a folder. They need no account."
+          onClose={() => setRequesting(false)}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setRequesting(false)}>
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={() => setRequesting(false)}>
+                Create the link
+              </Button>
+            </>
+          }
+        >
+          <div className="flex flex-col gap-4">
+            <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+              Name
+              <Input defaultValue="String stems" />
+            </label>
+            <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+              What you want
+              <Textarea
+                rows={2}
+                defaultValue="The string stems of Maple Leaf Rag, 96 kHz, one file per section."
+              />
+            </label>
+            <div className="grid gap-4 @md/app:grid-cols-3">
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Into
+                <Select defaultValue="f-day2">
+                  {folders
+                    .filter((f) => f.projectId === project.id)
+                    .map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.name}
+                      </option>
+                    ))}
+                </Select>
+              </label>
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                File limit
+                <Input defaultValue="5" />
+              </label>
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Expires
+                <Input type="date" defaultValue="2026-10-20" />
+              </label>
+            </div>
+            <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+              Password (optional)
+              <Input type="password" />
+            </label>
+            <p className="text-[12px] text-ink-3">
+              The visitor's page:{" "}
+              <Link to="/u/$code" params={{ code: "r-7f3a" }} className="text-ink-2 hover:text-ink">
+                open it as they would see it
+              </Link>
+              . What arrives is listed here with who sent it.
+            </p>
+          </div>
+        </Dialog>
+      )}
       {uploading && (
         <Panel className="p-3">
           <div className="eyebrow mb-2">Uploading · 2 of 3</div>
@@ -675,7 +756,7 @@ function Board({ project }: { project: Project }) {
         </div>
       </div>
       {mode === "timeline" ? (
-        <Soon title="Timeline" round={2} />
+        <Timeline project={project} />
       ) : (
         <div className="-mx-4 overflow-x-auto px-4 @3xl/app:-mx-6 @3xl/app:px-6">
           <div className="flex min-w-max gap-3 pb-2">
@@ -760,6 +841,96 @@ function Board({ project }: { project: Project }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** A Gantt-like view from the schedule and the due dates: one row per track, its stages across the weeks. */
+function Timeline({ project }: { project: Project }) {
+  const workflow = workflows.find((w) => w.id === project.workflowId);
+  const projectTracks = tracks.filter((t) => t.projectId === project.id);
+  const days = 42;
+  const start = new Date("2026-09-28T00:00:00Z");
+  const x = (iso: string) =>
+    ((new Date(iso).getTime() - start.getTime()) / 86_400_000 / days) * 100;
+  const weeks = Array.from(
+    { length: days / 7 },
+    (_, i) => new Date(start.getTime() + i * 7 * 86_400_000),
+  );
+  const today = x("2026-10-14T21:00:00Z");
+  return (
+    <div className="scroll-quiet overflow-x-auto rounded-panel-lg border border-line bg-raised/20">
+      <div className="min-w-[760px]">
+        <div className="relative ml-[180px] flex h-8 border-b border-line text-[11px] text-ink-3">
+          {weeks.map((w) => (
+            <span key={w.toISOString()} className="flex-1 border-l border-line pl-1.5 leading-8">
+              {formatDate(w.toISOString())}
+            </span>
+          ))}
+        </div>
+        {projectTracks.map((t, i) => {
+          const v = latestVersion(t);
+          const stage = workflow?.stages.find((s) => s.status === v?.status);
+          const open = reviews.find(
+            (r) =>
+              r.projectId === project.id &&
+              r.status === "open" &&
+              r.items.some((x) => x.trackId === t.id),
+          );
+          const from = v?.uploadedAt ?? t.versions[0]?.uploadedAt;
+          const to =
+            open?.dueAt ??
+            (from ? new Date(new Date(from).getTime() + 7 * 86_400_000).toISOString() : null);
+          return (
+            <div
+              key={t.id}
+              className="relative flex h-11 items-center border-b border-line last:border-b-0"
+            >
+              <Link
+                to="/tracks/$trackId"
+                params={{ trackId: t.id }}
+                className="w-[180px] shrink-0 truncate px-3 text-[13px] text-ink hover:text-signal"
+              >
+                {t.name}
+              </Link>
+              <div className="relative h-full flex-1">
+                {weeks.map((w, j) => (
+                  <span
+                    key={w.toISOString()}
+                    className="absolute top-0 bottom-0 border-l border-line"
+                    style={{ left: `${(j / weeks.length) * 100}%` }}
+                  />
+                ))}
+                {from && to && (
+                  <span
+                    className={cn(
+                      "absolute top-2.5 h-6 rounded-[5px] px-2 text-[12px] leading-6 text-ground",
+                      v?.status === "Approved" ? "bg-ink" : i % 2 ? "bg-ink-2" : "bg-ink-3",
+                    )}
+                    style={{
+                      left: `${Math.max(0, x(from))}%`,
+                      width: `${Math.max(4, x(to) - x(from))}%`,
+                    }}
+                  >
+                    <span className="block truncate">
+                      {stage?.name ?? v?.status ?? "No version"}
+                    </span>
+                  </span>
+                )}
+                {!from && (
+                  <span className="absolute top-3 left-2 text-[12px] text-ink-3">
+                    Nothing scheduled
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        <span
+          className="pointer-events-none absolute top-0 bottom-0 w-px bg-signal"
+          style={{ left: `calc(180px + ${today}% * (100% - 180px) / 100)` }}
+        />
+      </div>
     </div>
   );
 }
@@ -853,64 +1024,209 @@ function ProjectReviews({ project }: { project: Project }) {
 }
 
 function ProjectTasks({ project }: { project: Project }) {
-  const list = tasks.filter((t) => t.projectId === project.id);
+  const viewer = useViewer();
+  const [filter, setFilter] = useState<"all" | "mine" | "unassigned" | "overdue" | "done">("all");
+  const [creating, setCreating] = useState(false);
   const statusCopy = {
     pending: "To do",
     in_progress: "In progress",
     needs_approval: "Needs approval",
     done: "Done",
   };
+  const list = tasks
+    .filter((t) => t.projectId === project.id)
+    .filter((t) =>
+      filter === "mine"
+        ? t.assigneeId === viewer.personId
+        : filter === "unassigned"
+          ? !t.assigneeId
+          : filter === "overdue"
+            ? Boolean(t.dueAt && t.status !== "done" && dueIn(`${t.dueAt}T23:59:00Z`).days < 0)
+            : filter === "done"
+              ? t.status === "done"
+              : true,
+    );
   return (
-    <ul className="list-none rounded-panel-lg border border-line bg-raised/25 p-0 shadow-1">
-      {list.map((t) => (
-        <li
-          key={t.id}
-          className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-line px-4 py-2.5 last:border-b-0 @3xl/app:grid-cols-[auto_minmax(0,1fr)_140px_130px_90px]"
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-1">
+        {(
+          [
+            ["all", "All"],
+            ["mine", "Mine"],
+            ["unassigned", "Unassigned"],
+            ["overdue", "Overdue"],
+            ["done", "Done"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={filter === id}
+            onClick={() => setFilter(id)}
+            className={cn(
+              "h-7 rounded-control px-2.5 text-[13px] transition-colors",
+              filter === id ? "bg-raised text-ink shadow-1" : "text-ink-3 hover:text-ink",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+        <span className="ml-auto flex gap-1">
+          <Button variant="ghost" size="md">
+            Export
+          </Button>
+          {viewer.can(project.id, "comment") && (
+            <Button variant="secondary" size="md" onClick={() => setCreating(true)}>
+              <Icon name="plus" size={14} />
+              Task
+            </Button>
+          )}
+        </span>
+      </div>
+      {list.length === 0 ? (
+        <Empty
+          title={filter === "all" ? "No tasks yet" : "Nothing here"}
+          text="Tasks come from a comment's menu, or by hand. Each has an owner, a priority and a date."
+        />
+      ) : (
+        <ul className="-mx-2 flex flex-col">
+          {list.map((t) => {
+            const overdue =
+              t.dueAt && t.status !== "done" && dueIn(`${t.dueAt}T23:59:00Z`).days < 0;
+            const file = t.fileId ? allFiles.find((f) => f.id === t.fileId) : undefined;
+            return (
+              <li
+                key={t.id}
+                className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3.5 rounded-panel px-2 py-2 transition-colors hover:bg-raised/60 @3xl/app:grid-cols-[auto_minmax(0,1fr)_150px_130px_90px]"
+              >
+                <Dot
+                  state={
+                    t.status === "done"
+                      ? "approved"
+                      : t.priority === "high"
+                        ? "changes_requested"
+                        : "invited"
+                  }
+                />
+                <span className="min-w-0">
+                  <span
+                    className={cn(
+                      "block truncate text-[14px]",
+                      t.status === "done" ? "text-ink-3 line-through" : "text-ink",
+                    )}
+                  >
+                    {t.title}
+                  </span>
+                  <span className="block truncate text-[13px] text-ink-3">
+                    {statusCopy[t.status]}
+                    {t.priority === "high" && " · high priority"}
+                    {file && (
+                      <>
+                        {" · "}
+                        <Link
+                          to="/files/$fileId"
+                          params={{ fileId: file.id }}
+                          search={t.commentId ? { comment: t.commentId } : {}}
+                          className="hover:text-ink"
+                        >
+                          {file.name}
+                        </Link>
+                      </>
+                    )}
+                  </span>
+                </span>
+                <span className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
+                  {t.assigneeId ? (
+                    <>
+                      <Avatar personId={t.assigneeId} size={18} />
+                      {personById(t.assigneeId).name}
+                    </>
+                  ) : (
+                    <span className="text-ink-3">Unassigned</span>
+                  )}
+                </span>
+                <span className="hidden text-[13px] text-ink-3 @3xl/app:block">
+                  {statusCopy[t.status]}
+                </span>
+                <span
+                  className={cn(
+                    "tabular text-right text-[13px]",
+                    overdue ? "text-signal" : "text-ink-3",
+                  )}
+                >
+                  {t.dueAt ? formatDate(`${t.dueAt}T12:00:00Z`) : ""}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {creating && (
+        <Dialog
+          title="New task"
+          onClose={() => setCreating(false)}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setCreating(false)}>
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={() => setCreating(false)}>
+                Add task
+              </Button>
+            </>
+          }
         >
-          <span
-            className={cn(
-              "size-[8px] rounded-full",
-              t.status === "done"
-                ? "bg-ink"
-                : t.priority === "high"
-                  ? "border-[1.5px] border-signal"
-                  : "border-[1.5px] border-ink-3",
-            )}
-          />
-          <span
-            className={cn(
-              "min-w-0 truncate text-[14px]",
-              t.status === "done" ? "text-ink-3 line-through" : "text-ink",
-            )}
-          >
-            {t.title}
-          </span>
-          <span className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
-            {t.assigneeId ? (
-              <>
-                <Avatar personId={t.assigneeId} size={18} />
-                {personById(t.assigneeId).name}
-              </>
-            ) : (
-              <span className="text-ink-3">Unassigned</span>
-            )}
-          </span>
-          <span className="hidden text-[13px] text-ink-3 @3xl/app:block">
-            {statusCopy[t.status]}
-          </span>
-          <span
-            className={cn(
-              "tabular text-[13px]",
-              t.dueAt && t.status !== "done" && dueIn(`${t.dueAt}T23:59:00Z`).days < 0
-                ? "text-signal"
-                : "text-ink-3",
-            )}
-          >
-            {t.dueAt ? formatDate(`${t.dueAt}T12:00:00Z`) : ""}
-          </span>
-        </li>
-      ))}
-    </ul>
+          <div className="flex flex-col gap-4">
+            <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+              Title
+              <Input placeholder="What needs doing" />
+            </label>
+            <div className="grid gap-4 @md/app:grid-cols-3">
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Owner
+                <Select defaultValue="">
+                  {[
+                    { id: "", name: "Unassigned" },
+                    ...project.members.map((m) => personById(m.personId)),
+                  ].map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Priority
+                <Select defaultValue="normal">
+                  <option value="low">Low</option>
+                  <option value="normal">Normal</option>
+                  <option value="high">High</option>
+                </Select>
+              </label>
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Due
+                <Input type="date" defaultValue="2026-10-21" />
+              </label>
+            </div>
+            <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+              Related to
+              <Select defaultValue="">
+                <option value="">Nothing in particular</option>
+                {tracks
+                  .filter((t) => t.projectId === project.id)
+                  .map((t) => (
+                    <option key={t.id}>{t.name}</option>
+                  ))}
+              </Select>
+            </label>
+            <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+              Notes
+              <Textarea rows={2} />
+            </label>
+          </div>
+        </Dialog>
+      )}
+    </div>
   );
 }
 
@@ -918,13 +1234,20 @@ function People({ project }: { project: Project }) {
   const viewer = useViewer();
   const manage = viewer.can(project.id, "manage_roles");
   const projectGroups = groups.filter((g) => g.projectId === project.id);
+  const [dialog, setDialog] = useState<"member" | "group" | null>(null);
+  const [groupId, setGroupId] = useState<string | null>(null);
   return (
     <div className="grid gap-8 @5xl/app:grid-cols-[minmax(0,1fr)_320px]">
       <section className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <Label>Members</Label>
           {manage && (
-            <Button variant="secondary" size="sm" className="ml-auto">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="ml-auto"
+              onClick={() => setDialog("member")}
+            >
               Add member
             </Button>
           )}
@@ -972,7 +1295,15 @@ function People({ project }: { project: Project }) {
         <div className="flex items-center gap-2">
           <Label>Groups</Label>
           {viewer.can(project.id, "manage_reviewers") && (
-            <Button variant="secondary" size="sm" className="ml-auto">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="ml-auto"
+              onClick={() => {
+                setGroupId(null);
+                setDialog("group");
+              }}
+            >
               New group
             </Button>
           )}
@@ -990,10 +1321,105 @@ function People({ project }: { project: Project }) {
                 </span>
               </span>
               <AvatarRow personIds={g.personIds} size={20} />
+              {viewer.can(project.id, "manage_reviewers") && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setGroupId(g.id);
+                    setDialog("group");
+                  }}
+                >
+                  Edit
+                </Button>
+              )}
             </li>
           ))}
         </ul>
       </section>
+      {dialog === "member" && (
+        <Dialog
+          title="Add a member to the project"
+          onClose={() => setDialog(null)}
+          width="sm"
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setDialog(null)}>
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={() => setDialog(null)}>
+                Add
+              </Button>
+            </>
+          }
+        >
+          <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+            Who
+            <Select defaultValue="">
+              <option value="">Choose a member of the organisation</option>
+              {personById("p-tomas").name}
+            </Select>
+          </label>
+          <label className="mt-3 flex flex-col gap-1.5 text-[13px] text-ink-2">
+            Role
+            <Select defaultValue="r-reviewer">
+              {project.roles.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <p className="mt-3 text-[12px] text-ink-3">
+            Someone not in the organisation yet is invited from Members first; guests join through
+            reviews.
+          </p>
+        </Dialog>
+      )}
+      {dialog === "group" && (
+        <Dialog
+          title={groupId ? "Edit group" : "New group"}
+          description="A group is one step of a review: everyone in it is asked together."
+          onClose={() => setDialog(null)}
+          width="sm"
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setDialog(null)}>
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={() => setDialog(null)}>
+                Save
+              </Button>
+            </>
+          }
+        >
+          <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+            Name
+            <Input
+              defaultValue={projectGroups.find((g) => g.id === groupId)?.name ?? ""}
+              placeholder="Soloists"
+            />
+          </label>
+          <div className="mt-3 flex flex-col gap-1.5 text-[13px] text-ink-2">
+            People, in order
+            {[...project.members.map((m) => m.personId), "p-mira"]
+              .filter((v, i, a) => a.indexOf(v) === i)
+              .map((id) => (
+                <label key={id} className="flex items-center gap-2 text-[14px] text-ink">
+                  <input
+                    type="checkbox"
+                    defaultChecked={projectGroups
+                      .find((g) => g.id === groupId)
+                      ?.personIds.includes(id)}
+                  />
+                  <Avatar personId={id} size={20} />
+                  {personById(id).name}
+                  {id === "p-mira" && <span className="text-[12px] text-ink-3">guest</span>}
+                </label>
+              ))}
+          </div>
+        </Dialog>
+      )}
     </div>
   );
 }
@@ -1015,31 +1441,37 @@ export function ProjectPage({
   const navigate = useNavigate();
   const project = projectById(projectId);
   const visible = project && viewer.canSee(projectId);
-  usePageHeader({
-    crumbs: [{ label: "Projects", to: "/projects" }],
-    title: project && visible ? project.name : "Not found",
-    actions: visible ? (
-      <>
-        {viewer.can(projectId, "request_reviews") && (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => navigate({ to: "/reviews/new", search: { project: projectId } })}
-          >
-            Request a review
-          </Button>
-        )}
-        {viewer.can(projectId, "upload") && (
-          <Button variant="primary" size="sm">
-            <Icon name="upload" size={14} />
-            Upload
-          </Button>
-        )}
-      </>
-    ) : undefined,
-  });
+  const ownHeader = view === "settings" || view === "workflow";
+  usePageHeader(
+    ownHeader
+      ? null
+      : {
+          crumbs: [{ label: "Projects", to: "/projects" }],
+          title: project && visible ? project.name : "Not found",
+          actions: visible ? (
+            <>
+              {viewer.can(projectId, "request_reviews") && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => navigate({ to: "/reviews/new", search: { project: projectId } })}
+                >
+                  Request a review
+                </Button>
+              )}
+              {viewer.can(projectId, "upload") && (
+                <Button variant="primary" size="sm">
+                  <Icon name="upload" size={14} />
+                  Upload
+                </Button>
+              )}
+            </>
+          ) : undefined,
+        },
+  );
   if (!project || !visible) return <Refused />;
-  void section;
+  if (view === "workflow") return <WorkflowRoute projectId={project.id} />;
+  if (view === "settings") return <ProjectSettingsRoute projectId={project.id} section={section} />;
   return (
     <div className="fade-in mx-auto flex max-w-[1120px] flex-col gap-6 px-4 pb-10 @3xl/app:px-6">
       <Tabs project={project} view={view} />
@@ -1050,9 +1482,9 @@ export function ProjectPage({
         {view === "reviews" && <ProjectReviews project={project} />}
         {view === "tasks" && <ProjectTasks project={project} />}
         {view === "people" && <People project={project} />}
-        {view === "sessions" && <Soon title="Sessions and takes" round={2} />}
+        {view === "sessions" && <SessionsView project={project} />}
+        {view === "coverage" && <CoverageView project={project} />}
         {view === "production" && <Soon title="Production" round={3} />}
-        {view === "settings" && <Soon title="Project settings" round={2} />}
       </StateGate>
     </div>
   );

@@ -11,7 +11,15 @@ import { PageHeaderProvider } from "~/components/page-header";
 import { GuestShell, InstanceShell, Shell } from "~/components/shell";
 import { appRoot } from "~/lib/dom";
 import { AccountPage } from "~/routes/account";
-import { GuestLinkPage, GuestSignedOutPage, SignInPage } from "~/routes/arrive";
+import {
+  GuestLinkPage,
+  GuestSignedOutPage,
+  InstallerPage,
+  InvitationPage,
+  SignInPage,
+  UploadRequestPage,
+} from "~/routes/arrive";
+import { ComparePage } from "~/routes/compare";
 import { FilePage } from "~/routes/file";
 import { GuestHomePage } from "~/routes/guest";
 import { HomePage } from "~/routes/home";
@@ -131,6 +139,24 @@ const guestOut = createRoute({
   component: GuestSignedOutPage,
 });
 
+const install = createRoute({
+  getParentRoute: () => root,
+  path: "/install",
+  component: InstallerPage,
+});
+const invite = createRoute({
+  getParentRoute: () => root,
+  path: "/invite",
+  component: InvitationPage,
+});
+const uploadRequest = createRoute({
+  getParentRoute: () => root,
+  path: "/u/$code",
+  component: function UploadRequestRoute() {
+    const { code } = uploadRequest.useParams();
+    return <UploadRequestPage code={code} />;
+  },
+});
 const app = createRoute({ getParentRoute: () => root, id: "app", component: App });
 const home = createRoute({
   getParentRoute: () => app,
@@ -203,6 +229,16 @@ const track = createRoute({
   component: function TrackRoute() {
     const { trackId } = track.useParams();
     return <TrackPage trackId={trackId} />;
+  },
+});
+const compare = createRoute({
+  getParentRoute: () => app,
+  path: "/tracks/$trackId/compare",
+  validateSearch: (s: Record<string, unknown>) => pick(s, ["a", "b"]),
+  component: function CompareRoute() {
+    const { trackId } = compare.useParams();
+    const search = compare.useSearch();
+    return <ComparePage trackId={trackId} a={search.a} b={search.b} />;
   },
 });
 const fileSearch = (s: Record<string, unknown>) =>
@@ -334,6 +370,9 @@ export const router = createRouter({
     signIn,
     guestLink,
     guestOut,
+    install,
+    invite,
+    uploadRequest,
     app.addChildren([
       home,
       requestReview,
@@ -342,6 +381,7 @@ export const router = createRouter({
       project,
       projectView,
       track,
+      compare,
       file,
       session,
       take,
