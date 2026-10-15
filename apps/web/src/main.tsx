@@ -11,7 +11,10 @@ if (!root) throw new Error("Missing #root");
 createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      {/* Screens size themselves to this container (@3xl/app and so on), as in the prototype. */}
+      <div className="@container/app relative h-full bg-canvas">
+        <RouterProvider router={router} />
+      </div>
     </QueryClientProvider>
   </StrictMode>,
 );

@@ -1,4 +1,4 @@
-/* Signal: the Hekate design tokens. Source of truth: docs/brand.md. */
+/* Signal: the Hekate design tokens. Source of truth: docs/brand.md and the prototype. */
 :root {
   --hk-ground: #0a0a0b;
   --hk-surface: #111113;
@@ -10,9 +10,17 @@
   --hk-ink-3: #80808b;
   --hk-signal: #f0762e;
   --hk-paper: #e9e8e3;
+  --hk-ok: #58b98a;
 
-  --hk-font-sans: "Schibsted Grotesk Variable", "Helvetica Neue", Arial, sans-serif;
-  --hk-font-mono: "DM Mono", "SF Mono", Menlo, monospace;
+  /* Workflow node families, each told apart by shape as well as colour. */
+  --hk-node-event: var(--hk-signal);
+  --hk-node-review: #6fa8ff;
+  --hk-node-work: #58b98a;
+  --hk-node-comm: #b08cff;
+  --hk-node-flow: #4fc3c9;
+
+  --hk-font-sans:
+    "Schibsted Grotesk Variable", "Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
 
   --hk-radius-chip: 4px;
   --hk-radius-control: 6px;

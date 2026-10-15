@@ -96,7 +96,7 @@ function Plane({
       {ticks.map((t) => (
         <span
           key={t.hz}
-          className="tabular pointer-events-none absolute right-1 -translate-y-1/2 font-mono text-[9px] text-ink/70"
+          className="tabular pointer-events-none absolute right-1 -translate-y-1/2 text-[9px] text-ink/70"
           style={{ top: `${(1 - t.at) * 100}%` }}
           aria-hidden="true"
         >

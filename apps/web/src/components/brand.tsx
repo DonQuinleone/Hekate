@@ -4,14 +4,19 @@ import type { SVGProps } from "react";
 export function Mark({
   size = 24,
   mono = false,
+  tight = false,
   ...props
-}: { size?: number; mono?: boolean } & SVGProps<SVGSVGElement>) {
+}: { size?: number; mono?: boolean; tight?: boolean } & SVGProps<SVGSVGElement>) {
   const small = size < 24;
   const [stem, gap, r] = small ? [3.6, 6.0, 2.2] : [3.4, 6.2, 2.0];
   const left = 12 - gap / 2 - stem;
   const right = 12 + gap / 2;
+  const inner = gap + stem * 2;
+  // Tight: the box is the stems themselves, so the mark sits flush against what follows it.
+  const box = tight ? `${left} 3 ${inner} 18` : "0 0 24 24";
+  const width = tight ? (size * inner) / 18 : size;
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" role="img" aria-label="Hekate" {...props}>
+    <svg width={width} height={size} viewBox={box} role="img" aria-label="Hekate" {...props}>
       <rect x={left} y={3} width={stem} height={18} fill="currentColor" />
       <rect x={right} y={3} width={stem} height={18} fill="currentColor" />
       <circle cx={12} cy={11.82} r={r} fill={mono ? "currentColor" : "var(--hk-signal)"} />
@@ -59,11 +64,24 @@ export function Wordmark({ height = 16, ...props }: { height?: number } & SVGPro
   );
 }
 
+/**
+ * The mark and the wordmark on one line. The wordmark's box is 1600 units tall with the cap line
+ * 120 units down and the baseline 40 units up, so the mark (the height of the capitals) starts
+ * 7.5% down and ends 2.5% up: its top and bottom are the cap line and the baseline exactly. The
+ * wordmark sits a touch quieter so the two do not fight.
+ */
 export function Lockup({ size = 18 }: { size?: number }) {
+  const cap = size * 0.9;
   return (
-    <span className="inline-flex items-center gap-[7px] text-ink">
-      <Mark size={size} aria-hidden="true" />
-      <Wordmark height={Math.round(size * 0.85)} />
+    <span className="inline-flex items-start text-ink" style={{ gap: Math.round(size * 0.36) }}>
+      <Mark
+        size={cap}
+        tight
+        aria-hidden="true"
+        className="block shrink-0"
+        style={{ marginTop: size * 0.075 }}
+      />
+      <Wordmark height={size} className="block opacity-85" />
     </span>
   );
 }

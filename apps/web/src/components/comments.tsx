@@ -62,7 +62,7 @@ function Target({
       onClick={onClick}
       className={cn(
         "h-6 cursor-pointer rounded-chip border px-2 text-[11px]",
-        mono && "tabular font-mono",
+        mono && "tabular",
         pressed ? "border-edge bg-raised text-ink" : "border-transparent bg-transparent text-ink-3",
       )}
     >
@@ -266,7 +266,7 @@ function ThreadView({
             <button
               type="button"
               onClick={() => onSeek(anchor.start)}
-              className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 font-mono text-[11px] text-ink hover:border-signal"
+              className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 text-[11px] text-ink hover:border-signal"
               aria-label={`Play from ${anchorLabel(anchor)}`}
             >
               {anchorLabel(anchor)}
@@ -275,7 +275,7 @@ function ThreadView({
             <button
               type="button"
               onClick={() => onSeek(anchor.at ?? 0)}
-              className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 font-mono text-[11px] text-ink hover:border-signal"
+              className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 text-[11px] text-ink hover:border-signal"
               aria-label={`Play ${anchorLabel(anchor).toLowerCase()} from ${anchorLabel({ kind: "time", start: anchor.at, end: anchor.at })}`}
             >
               {anchorLabel(anchor)}
@@ -292,7 +292,7 @@ function ThreadView({
               }
               aria-pressed={picked}
               className={cn(
-                "tabular flex h-6 cursor-pointer items-center gap-1.5 rounded-chip border bg-transparent px-2 font-mono text-[11px] text-ink hover:border-signal",
+                "tabular flex h-6 cursor-pointer items-center gap-1.5 rounded-chip border bg-transparent px-2 text-[11px] text-ink hover:border-signal",
                 picked ? "border-signal" : "border-edge",
               )}
               aria-label={`Show ${marker ? `thread ${marker.n}, ` : ""}${anchorLabel(anchor)}`}
@@ -657,7 +657,7 @@ export function Comments({
                   placeholder="25 or 9-12"
                   inputMode="numeric"
                   aria-invalid={bars.trim() !== "" && parseBars(bars) === null}
-                  className="tabular h-6 w-24 rounded-chip border border-hairline bg-transparent px-2 font-mono text-[11px] text-ink outline-none placeholder:text-ink-3 hover:border-edge focus:border-ink-3 aria-invalid:border-signal"
+                  className="tabular h-6 w-24 rounded-chip border border-hairline bg-transparent px-2 text-[11px] text-ink outline-none placeholder:text-ink-3 hover:border-edge focus:border-ink-3 aria-invalid:border-signal"
                 />
               </span>
             )}
@@ -673,7 +673,7 @@ export function Comments({
                     setAt(Math.round(media.currentTime * 1000) / 1000);
                   }}
                   className={cn(
-                    "tabular h-6 cursor-pointer rounded-chip border px-2 font-mono text-[11px]",
+                    "tabular h-6 cursor-pointer rounded-chip border px-2 text-[11px]",
                     !barsOn && !wholeFile && !(loop && onPassage)
                       ? "border-edge bg-raised text-ink"
                       : "border-transparent bg-transparent text-ink-3",
@@ -691,7 +691,7 @@ export function Comments({
                       setOnPassage(true);
                     }}
                     className={cn(
-                      "tabular h-6 cursor-pointer rounded-chip border px-2 font-mono text-[11px]",
+                      "tabular h-6 cursor-pointer rounded-chip border px-2 text-[11px]",
                       !barsOn && !wholeFile && onPassage
                         ? "border-edge bg-raised text-ink"
                         : "border-transparent bg-transparent text-ink-3",
