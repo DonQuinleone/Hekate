@@ -122,7 +122,7 @@ export function AccountPage({ section }: { section: string }) {
               <Input defaultValue={person.email} className="w-72" />
             </Row>
             <Row
-              name="Organisations"
+              name="Workspaces"
               hint="Endless Hall Records (owner), North Choir Collective (member)"
             />
           </Section>
@@ -149,7 +149,7 @@ export function AccountPage({ section }: { section: string }) {
         <>
           <Section
             title="Passkeys and security keys"
-            intro="Up to five. A passkey signs you in without a password; a security key can be required by the organisation."
+            intro="Up to five. A passkey signs you in without a password; a security key can be required by the workspace."
             action={
               <Button
                 variant="secondary"
@@ -300,7 +300,7 @@ export function AccountPage({ section }: { section: string }) {
           </Section>
           <Section
             title="Using the API"
-            intro="Every call is logged against the token; the organisation sees it in the API log."
+            intro="Every call is logged against the token; the workspace sees it in the API log."
           >
             <Row name="Base address">
               <span className="tabular text-[13px] text-ink-2">
@@ -362,7 +362,7 @@ export function AccountPage({ section }: { section: string }) {
                     </Select>
                   </label>
                   <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-                    Organisation
+                    Workspace
                     <Select defaultValue="eh">
                       <option value="eh">Endless Hall Records</option>
                     </Select>
@@ -408,11 +408,11 @@ export function AccountPage({ section }: { section: string }) {
           </Section>
           <Section
             title="For developers"
-            intro="An application that connects to Hekate on people's behalf is registered by an organisation, under its settings."
+            intro="An application that connects to Hekate on people's behalf is registered by a workspace, under its settings."
           >
             <Row
               name="Register an application"
-              hint="Client id and secret, redirect addresses, scopes; in Organisation settings under API and OAuth clients."
+              hint="Client id and secret, redirect addresses, scopes; in Workspace settings under API and OAuth clients."
             />
           </Section>
         </>

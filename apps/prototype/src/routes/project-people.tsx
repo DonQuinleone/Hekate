@@ -255,7 +255,7 @@ export function People({ project }: { project: Project }) {
           <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
             Who
             <Select defaultValue="">
-              <option value="">Choose a member of the organisation</option>
+              <option value="">Choose a member of the workspace</option>
               <option value="p-tomas">{personById("p-tomas").name}</option>
             </Select>
           </label>
@@ -270,7 +270,7 @@ export function People({ project }: { project: Project }) {
             </Select>
           </label>
           <p className="mt-3 text-[12px] text-ink-3">
-            Someone not in the organisation yet is invited from Members first.
+            Someone not in the workspace yet is invited from Members first.
           </p>
         </Dialog>
       )}

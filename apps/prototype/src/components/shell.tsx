@@ -10,6 +10,7 @@ import { ProjectCover } from "~/components/project-card";
 import { Dot, reviewDot } from "~/components/status";
 import { MenuList, usePopover } from "~/components/ui/menu";
 import {
+  env,
   fileById,
   guests,
   organisation,
@@ -142,7 +143,7 @@ function WorkspaceMenu({ collapsed }: { collapsed: boolean }) {
             ]}
           />
           <div className="mx-2 my-1 h-px bg-line" />
-          <div className="eyebrow px-2.5 pt-1 pb-1">Organisation</div>
+          <div className="eyebrow px-2.5 pt-1 pb-1">Workspace</div>
           {[
             { label: organisation.name, code: "EH", current: true },
             { label: "North Choir Collective", code: "NC", current: false },
@@ -172,7 +173,7 @@ function WorkspaceMenu({ collapsed }: { collapsed: boolean }) {
               ...(elevated
                 ? [
                     {
-                      label: "Organisation settings",
+                      label: "Workspace settings",
                       onSelect: () => navigate({ to: "/settings" }),
                     },
                   ]
@@ -263,6 +264,60 @@ function ProjectSwitcher({ project, collapsed }: { project: Project; collapsed: 
             ]}
           />
         </div>
+      )}
+    </div>
+  );
+}
+
+/** Help, beside the bell: the documentation, your tickets, and a new ticket. */
+function HelpMenu() {
+  const [open, setOpen, box] = usePopover();
+  const navigate = useNavigate();
+  return (
+    <div ref={box} className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Help"
+        title="Help"
+        onClick={() => setOpen(!open)}
+        className={cn(
+          "flex size-8 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink",
+          open && "bg-raised/60 text-ink",
+        )}
+      >
+        <Icon name="help" size={18} />
+      </button>
+      {open && (
+        <MenuList
+          onClose={() => setOpen(false)}
+          actions={[
+            {
+              label: "View documentation",
+              hint: env.docsUrl.replace(/^https?:\/\//, ""),
+              onSelect: () => window.open(env.docsUrl, "_blank", "noopener"),
+            },
+            ...(env.support === "off"
+              ? []
+              : [
+                  {
+                    label: "My tickets",
+                    onSelect: () =>
+                      navigate({ to: "/settings/$section", params: { section: "support" } }),
+                  },
+                  {
+                    label: "Contact support",
+                    onSelect: () =>
+                      navigate({
+                        to: "/settings/$section",
+                        params: { section: "support" },
+                        search: { new: "1" },
+                      }),
+                  },
+                ]),
+          ]}
+        />
       )}
     </div>
   );
@@ -622,6 +677,7 @@ export function Shell({ children }: { children: ReactNode }) {
             >
               <Icon name="search" size={18} />
             </button>
+            <HelpMenu />
             {viewer.persona.organisationRole === "owner" && (
               <Link
                 to="/instance"
@@ -632,7 +688,7 @@ export function Shell({ children }: { children: ReactNode }) {
                   atInstance ? "bg-signal/15 text-signal" : "text-ink-3",
                 )}
               >
-                <Icon name="fingerprint" size={18} />
+                <Icon name="fingerprint" size={18} className="sparkle" />
               </Link>
             )}
             <NotificationsMenu waiting={waiting} />

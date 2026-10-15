@@ -156,10 +156,10 @@ export function Switcher() {
                 <span
                   aria-hidden="true"
                   className={cn(
-                    "relative h-[18px] w-8 shrink-0 rounded-full border transition-colors after:absolute after:top-[2px] after:left-[2px] after:size-3 after:rounded-full after:transition-transform",
+                    "relative h-[18px] w-8 shrink-0 rounded-full transition-colors after:absolute after:top-[2px] after:size-[14px] after:rounded-full after:bg-ink after:transition-[left]",
                     viewer.settings.shadows
-                      ? "border-signal bg-signal/80 after:translate-x-[14px] after:bg-ground"
-                      : "border-edge bg-ground after:bg-ink-2",
+                      ? "bg-signal after:left-[16px]"
+                      : "bg-edge after:left-[2px]",
                   )}
                 />
               </label>

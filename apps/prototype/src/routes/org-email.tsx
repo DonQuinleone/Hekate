@@ -31,7 +31,7 @@ const templates: Template[] = [
     name: "Invitation",
     subject: "Join Endless Hall Records on Hekate",
     heading: "Ines invited you to Endless Hall Records",
-    body: "Create your account to review and approve the organisation's recordings and cuts. The invitation is for this address and works once.",
+    body: "Create your account to review and approve the workspace's recordings and cuts. The invitation is for this address and works once.",
     action: "Accept the invitation",
     foot: "If you were not expecting this, ignore it; nothing happens until you accept.",
   },
@@ -74,7 +74,7 @@ export function EmailSection() {
     <>
       <Section
         title="Templates"
-        intro="Every message is the same shape: who, what, one action, and a line about why you got it. The words below are the organisation's to change."
+        intro="Every message is the same shape: who, what, one action, and a line about why you got it. The words below are the workspace's to change."
         action={
           <span className="flex items-center gap-2">
             <Select value={id} onChange={(e) => setId(e.target.value)} className="w-44">

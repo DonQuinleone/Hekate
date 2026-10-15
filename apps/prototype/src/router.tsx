@@ -41,7 +41,10 @@ import { Switcher } from "~/viewer/switcher";
 /** The named search parameters, each kept only when it is a string, so every one is optional. */
 function pick<K extends string>(s: Record<string, unknown>, keys: K[]): Partial<Record<K, string>> {
   const out: Partial<Record<K, string>> = {};
-  for (const k of keys) if (typeof s[k] === "string") out[k] = s[k] as string;
+  for (const k of keys) {
+    const v = s[k];
+    if (typeof v === "string" || typeof v === "number") out[k] = String(v);
+  }
   return out;
 }
 
@@ -317,9 +320,13 @@ const settings = createRoute({
 const settingsSection = createRoute({
   getParentRoute: () => app,
   path: "/settings/$section",
-  component: function SettingsRoute() {
+  validateSearch: (s: Record<string, unknown>) => pick(s, ["new", "ticket"]),
+  component: function SettingsSectionRoute() {
     const { section } = settingsSection.useParams();
-    return <SettingsPage section={section} />;
+    const search = settingsSection.useSearch();
+    return (
+      <SettingsPage section={section} newTicket={search.new === "1"} ticketId={search.ticket} />
+    );
   },
 });
 const account = createRoute({

@@ -56,7 +56,7 @@ export function CommandPalette({
           ? [
               {
                 id: "go-settings",
-                label: "Organisation settings",
+                label: "Workspace settings",
                 icon: "settings" as const,
                 to: "/settings",
               },

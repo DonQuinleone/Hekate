@@ -309,6 +309,26 @@
 }
 
 /* Menus and popovers arrive from just below their control. */
+@keyframes hk-sparkle {
+  0%,
+  92%,
+  100% {
+    filter: none;
+    transform: none;
+  }
+  95% {
+    filter: drop-shadow(0 0 3px var(--hk-signal)) brightness(1.5);
+    transform: scale(1.08) rotate(-3deg);
+  }
+  98% {
+    filter: drop-shadow(0 0 1px var(--hk-signal));
+    transform: scale(1.02) rotate(2deg);
+  }
+}
+/* A glint every seven seconds; nothing more. */
+@utility sparkle {
+  animation: hk-sparkle 7s ease-in-out infinite;
+}
 @utility rise-in {
   animation: hk-rise 150ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
@@ -327,6 +347,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .lamp,
+  .sparkle,
   .rise-in,
   .fade-in,
   .breathe,

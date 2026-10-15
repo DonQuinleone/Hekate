@@ -44,7 +44,7 @@ export const personas: Persona[] = [
   {
     id: "owner",
     label: "Owner",
-    summary: "Alex Rivera, organisation owner: everything in every project.",
+    summary: "Alex Rivera, workspace owner: everything in every project.",
     personId: "p-alex",
     kind: "member",
     organisationRole: "owner",
@@ -54,7 +54,7 @@ export const personas: Persona[] = [
   {
     id: "admin",
     label: "Admin",
-    summary: "Ines Arlow, organisation admin: everything, bar removing the last owner.",
+    summary: "Ines Arlow, workspace admin: everything, bar removing the last owner.",
     personId: "p-ines",
     kind: "member",
     organisationRole: "admin",

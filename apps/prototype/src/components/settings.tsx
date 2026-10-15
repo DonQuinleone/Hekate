@@ -32,7 +32,7 @@ export function SideNav({
   return (
     <nav
       aria-label={label}
-      className="scroll-quiet flex shrink-0 gap-1 overflow-x-auto @3xl/app:sticky @3xl/app:top-0 @3xl/app:w-[200px] @3xl/app:flex-col @3xl/app:self-start @3xl/app:overflow-visible"
+      className="scroll-quiet flex shrink-0 gap-1 overflow-x-auto @3xl/app:sticky @3xl/app:top-8 @3xl/app:w-[200px] @3xl/app:flex-col @3xl/app:self-start @3xl/app:overflow-visible"
     >
       {groups.map((g) => (
         <div key={g} className="flex shrink-0 gap-1 @3xl/app:mb-4 @3xl/app:flex-col">

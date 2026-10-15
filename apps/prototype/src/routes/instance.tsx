@@ -7,10 +7,13 @@ import { Page } from "~/components/page";
 import { usePageHeader } from "~/components/page-header";
 import { Danger, Row, Section, SwitchRow } from "~/components/settings";
 import { Dot, type DotState } from "~/components/status";
+import { TicketDialog, TicketRow } from "~/components/tickets";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
+import { Switch } from "~/components/ui/toggle";
+import { env, severities, tickets } from "~/data";
 import { cn } from "~/lib/cn";
 import { useScreenState } from "~/viewer/state-gate";
 
@@ -23,8 +26,8 @@ export const instanceSections: { id: string; label: string; icon: IconName; hint
     hint: "What needs an operator, and what moved",
   },
   {
-    id: "organisations",
-    label: "Organisations",
+    id: "workspaces",
+    label: "Workspaces",
     icon: "building",
     hint: "Every tenant, with its people, projects, storage, settings and keys",
   },
@@ -38,13 +41,13 @@ export const instanceSections: { id: string; label: string; icon: IconName; hint
     id: "billing",
     label: "Billing",
     icon: "chart",
-    hint: "Plans, trials, invoices and what each organisation pays",
+    hint: "Plans, trials, invoices and what each workspace pays",
   },
   {
     id: "support",
     label: "Support",
     icon: "comment",
-    hint: "What organisations have asked, and the answers",
+    hint: "What workspaces have asked, and the answers",
   },
   {
     id: "health",
@@ -62,7 +65,7 @@ export const instanceSections: { id: string; label: string; icon: IconName; hint
     id: "logs",
     label: "Logs",
     icon: "list",
-    hint: "What happened, by who, through what: audit, authentication, API, mail, webhooks",
+    hint: "What happened, by who, through what: audit, authentication, API, mail, webhooks, gateway",
   },
   {
     id: "debug",
@@ -347,13 +350,14 @@ const jobs = [
   },
 ];
 
-type LogKind = "audit" | "auth" | "api" | "mail" | "webhooks";
+type LogKind = "audit" | "auth" | "api" | "mail" | "webhooks" | "gateway";
 const logKinds: { id: LogKind; label: string; columns: string[] }[] = [
-  { id: "audit", label: "Audit", columns: ["When", "Who", "Organisation", "Action", "On"] },
+  { id: "audit", label: "Audit", columns: ["When", "Who", "Workspace", "Action", "On"] },
   { id: "auth", label: "Authentication", columns: ["When", "Who", "Method", "Result", "From"] },
   { id: "api", label: "API", columns: ["When", "Token or client", "Call", "Status", "Time"] },
   { id: "mail", label: "Email", columns: ["When", "To", "Template", "Result", "Provider"] },
   { id: "webhooks", label: "Webhooks", columns: ["When", "Channel", "Event", "Result", "Attempt"] },
+  { id: "gateway", label: "Gateway", columns: ["When", "Workspace", "Event", "Amount", "Result"] },
 ];
 const logRows: Record<LogKind, string[][]> = {
   audit: [
@@ -366,13 +370,7 @@ const logRows: Record<LogKind, string[][]> = {
       "Changed a role",
       "Tomas Varga → Engineer",
     ],
-    [
-      "19:58:30",
-      "Operator: Alex Rivera",
-      "Instance",
-      "Suspended an organisation",
-      "Lantern Pictures",
-    ],
+    ["19:58:30", "Operator: Alex Rivera", "Instance", "Suspended a workspace", "Lantern Pictures"],
     [
       "19:40:11",
       "Alex Rivera",
@@ -409,7 +407,7 @@ const logRows: Record<LogKind, string[][]> = {
       "19:12:00",
       "owen@lantern.example",
       "Password",
-      "Refused: organisation suspended",
+      "Refused: workspace suspended",
       "198.51.100.9 · Safari",
     ],
     [
@@ -434,7 +432,7 @@ const logRows: Record<LogKind, string[][]> = {
       "20:30:45",
       "Lantern Deliveries (client)",
       "GET /v1/projects",
-      "403 organisation suspended",
+      "403 workspace suspended",
       "9 ms",
     ],
     ["20:11:02", "Release pipeline (token)", "GET /v1/reviews/rev-masters", "200", "22 ms"],
@@ -443,9 +441,41 @@ const logRows: Record<LogKind, string[][]> = {
   mail: [
     ["20:41:13", "mira@solberg.example", "Review requested", "Delivered", "SMTP"],
     ["20:12:04", "tomas@endlesshall.example", "Role changed", "Delivered", "SMTP"],
-    ["19:58:31", "owen@lantern.example", "Organisation suspended", "Delivered", "SMTP"],
+    ["19:58:31", "owen@lantern.example", "Workspace suspended", "Delivered", "SMTP"],
     ["18:00:00", "priya@northchoir.example", "Due soon", "Bounced: mailbox full", "SMTP"],
     ["17:30:12", "producer@endlesshall.example", "Invitation", "Delivered", "SMTP"],
+  ],
+  gateway: [
+    ["20:52:10", "Endless Hall Records", "invoice.paid · INV-0412", "£49.00", "200 · Stripe"],
+    [
+      "20:12:44",
+      "Saltmarsh Films",
+      "customer.subscription.updated · Label",
+      "£190.00",
+      "200 · Stripe",
+    ],
+    [
+      "19:58:30",
+      "Lantern Pictures",
+      "invoice.payment_failed · INV-0401 · attempt 3",
+      "£49.00",
+      "card_declined",
+    ],
+    [
+      "18:40:02",
+      "Ninefold Choir",
+      "customer.subscription.trial_will_end",
+      "£49.00",
+      "200 · Stripe",
+    ],
+    [
+      "17:11:19",
+      "Hollow Reed Audio",
+      "promotion_code.applied · LAUNCH50",
+      "−£24.50",
+      "200 · Stripe",
+    ],
+    ["16:02:55", "Instance", "payout.paid", "£1,180.00", "200 · Stripe"],
   ],
   webhooks: [
     [
@@ -456,7 +486,7 @@ const logRows: Record<LogKind, string[][]> = {
       "3 of 3 · paused",
     ],
     ["20:12:05", "Discord #review (Endless Hall)", "role.changed", "204", "1"],
-    ["19:58:32", "https://ops.example/hekate", "organisation.suspended", "200", "1"],
+    ["19:58:32", "https://ops.example/hekate", "workspace.suspended", "200", "1"],
     ["19:40:12", "Slack #masters (Endless Hall)", "download.original", "200", "1"],
   ],
 };
@@ -624,7 +654,7 @@ const gb = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)} TB` : `${n} GB`
 function NewOrganisation({ onClose }: { onClose: () => void }) {
   return (
     <Dialog
-      title="New organisation"
+      title="New workspace"
       description="A tenant of its own: subdomain, members, projects, settings and keys."
       onClose={onClose}
       footer={
@@ -675,16 +705,23 @@ export function InstancePage({ section }: { section: string }) {
   const [ref, setRef] = useState("");
   const [found, setFound] = useState<Err | null>(null);
   const [channel, setChannel] = useState("stable");
+  const [billingTab, setBillingTab] = useState<
+    "overview" | "plans" | "promos" | "gateways" | "reports"
+  >("overview");
+  const [ticketId, setTicketId] = useState<string | null>(null);
+  const [ticketQ, setTicketQ] = useState("");
+  const [ticketState, setTicketState] = useState("open");
+  const openTicket = tickets.find((t) => t.id === ticketId);
   const sec = instanceSections.some((s) => s.id === section) ? section : "overview";
   const meta = instanceSections.find((s) => s.id === sec) ?? instanceSections[0];
   usePageHeader({
     crumbs: [{ label: "Instance", to: "/instance" }],
     title: meta?.label ?? "Instance",
     actions:
-      sec === "organisations" ? (
+      sec === "workspaces" ? (
         <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
           <Icon name="plus" size={14} />
-          Organisation
+          Workspace
         </Button>
       ) : sec === "debug" ? (
         <Button variant="secondary" size="sm">
@@ -724,7 +761,7 @@ export function InstancePage({ section }: { section: string }) {
       Math.max(0, base + Math.sin(i / 3 + seed) * swing + ((i * 7 + seed * 13) % 5) * (swing / 12)),
     );
 
-  if (sec === "organisations" && org)
+  if (sec === "workspaces" && org)
     return (
       <div className="flex h-full min-h-0 flex-col @3xl/app:flex-row">
         {creating && <NewOrganisation onClose={() => setCreating(false)} />}
@@ -850,7 +887,7 @@ export function InstancePage({ section }: { section: string }) {
                     hint={org.factor ? "second factor required" : "no second factor"}
                   />
                 </div>
-                <Section title="Recently in this organisation">
+                <Section title="Recently in this workspace">
                   {[
                     ["Alex Rivera", "requested a review of Album masters", "2 min"],
                     ["Tomas Varga", "uploaded Maple Leaf Rag V3", "19 min"],
@@ -874,7 +911,7 @@ export function InstancePage({ section }: { section: string }) {
             {orgTab === "members" && (
               <Section
                 title="People"
-                intro="Members and guests of this organisation. What you do here is logged against your name."
+                intro="Members and guests of this workspace. What you do here is logged against your name."
               >
                 {members.map((m) => (
                   <Row
@@ -906,7 +943,7 @@ export function InstancePage({ section }: { section: string }) {
             {orgTab === "projects" && (
               <Section
                 title="Projects"
-                intro="Names and sizes only; the content stays the organisation's."
+                intro="Names and sizes only; the content stays the workspace's."
               >
                 {[
                   ["Joplin Rags", "music · 5 tracks · 182 GB · 2 open reviews"],
@@ -930,7 +967,7 @@ export function InstancePage({ section }: { section: string }) {
               <>
                 <Section
                   title="Quota"
-                  intro="Uploads refuse at the quota; the organisation is warned at 90%."
+                  intro="Uploads refuse at the quota; the workspace is warned at 90%."
                 >
                   <Row
                     name="Used"
@@ -957,7 +994,7 @@ export function InstancePage({ section }: { section: string }) {
                       <option value="0">No limit</option>
                     </Select>
                   </Row>
-                  <Row name="Backends" hint="Where this organisation's objects go.">
+                  <Row name="Backends" hint="Where this workspace's objects go.">
                     <span className="text-[13px] text-ink-2">
                       Local disk · S3: archive for cold projects
                     </span>
@@ -984,7 +1021,7 @@ export function InstancePage({ section }: { section: string }) {
               <>
                 <Section
                   title="Plan"
-                  intro="What this organisation is on, and when it next pays. Billing runs through the instance's Stripe account; turn it off in Settings for an instance that does not charge."
+                  intro="What this workspace is on, and when it next pays. Billing runs through the instance's Stripe account; turn it off in Settings for an instance that does not charge."
                 >
                   <Row
                     name="Plan"
@@ -1079,7 +1116,7 @@ export function InstancePage({ section }: { section: string }) {
                     hint={
                       org.sso === "None"
                         ? "Not set up; passwords and passkeys."
-                        : `${org.sso} · set by the organisation`
+                        : `${org.sso} · set by the workspace`
                     }
                   >
                     <span className="text-[13px] text-ink-2">{org.sso}</span>
@@ -1110,10 +1147,10 @@ export function InstancePage({ section }: { section: string }) {
             {orgTab === "keys" && (
               <Section
                 title="Keys"
-                intro="The organisation's key wraps its file keys and is itself wrapped by the master key. Rotating it rewraps in the background."
+                intro="The workspace's key wraps its file keys and is itself wrapped by the master key. Rotating it rewraps in the background."
               >
                 <Row
-                  name="Organisation key"
+                  name="Workspace key"
                   hint="Rotated 3 Oct · previous key kept until every file is rewrapped (done)"
                 >
                   <Button variant="secondary" size="md">
@@ -1125,7 +1162,7 @@ export function InstancePage({ section }: { section: string }) {
                 </Row>
                 <Row
                   name="Export"
-                  hint="Everything the organisation owns, encrypted to a key of theirs, for leaving or for audit."
+                  hint="Everything the workspace owns, encrypted to a key of theirs, for leaving or for audit."
                 >
                   <Button variant="ghost" size="md">
                     Start an export
@@ -1149,11 +1186,7 @@ export function InstancePage({ section }: { section: string }) {
       {sec === "overview" && (
         <>
           <div className="grid grid-cols-2 gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-6">
-            <Tile
-              label="Organisations"
-              value={String(orgs.length)}
-              hint="1 suspended · 1 on trial"
-            />
+            <Tile label="Workspaces" value={String(orgs.length)} hint="1 suspended · 1 on trial" />
             <Tile label="People" value="47" hint="9 guests with live links" />
             <Tile label="Storage" value="4.8 TB" hint="34% of the disk" />
             <Tile
@@ -1216,235 +1249,387 @@ export function InstancePage({ section }: { section: string }) {
 
       {sec === "billing" && (
         <>
-          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-5">
-            <Tile label="Monthly revenue" value="£1,236" hint="8 organisations · 1 custom" />
-            <Tile label="On trial" value="1" hint="converts in 12 days" />
-            <Tile label="Overdue" value="1" hint="Lantern Pictures · 24 days" flag />
-            <Tile label="Failed payments" value="0" hint="this month" />
-            <Tile label="Next payout" value="£1,180" hint="21 Oct · Stripe" />
-          </div>
-          <Section
-            title="Plans"
-            intro="What organisations can be on. Prices and limits are the instance's to set; the hosted offering ships with these."
-          >
-            {[
-              ["Solo", "£0", "100 GB · 3 members · 1 project · no forensic marking"],
-              ["Studio", "£49 a month", "1 TB · 25 members · forensic marking · priority support"],
-              [
-                "Label",
-                "£190 a month",
-                "5 TB · no member limit · SSO · a dedicated operator contact",
-              ],
-              ["Custom", "by agreement", "Anything above, with its own invoice"],
-            ].map(([n, pr, h]) => (
-              <Row
-                key={n}
-                name={
-                  <span className="flex items-center gap-2">
-                    {n}
-                    <span className="tabular text-[12px] text-ink-3">{pr}</span>
-                  </span>
-                }
-                hint={h}
+          <Tabs
+            tabs={[
+              { id: "overview", label: "Overview" },
+              { id: "plans", label: "Plans" },
+              { id: "promos", label: "Promo codes" },
+              { id: "gateways", label: "Gateways" },
+              { id: "reports", label: "Reports" },
+            ]}
+            value={billingTab}
+            onChange={setBillingTab}
+          />
+          {billingTab === "overview" && (
+            <>
+              <div className="grid grid-cols-2 gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-5">
+                <Tile label="Monthly revenue" value="£1,236" hint="8 workspaces · 1 custom" />
+                <Tile label="On trial" value="1" hint="converts in 12 days" />
+                <Tile label="Overdue" value="1" hint="Lantern Pictures · 24 days" flag />
+                <Tile label="Failed payments" value="0" hint="this month" />
+                <Tile label="Next payout" value="£1,180" hint="21 Oct · Stripe" />
+              </div>
+              <Section
+                title="Workspaces"
+                intro="Each with its plan, its next invoice and anything overdue."
               >
-                <Button variant="ghost" size="md">
-                  Edit
-                </Button>
-              </Row>
-            ))}
-          </Section>
-          <Section
-            title="Organisations"
-            intro="Each with its plan, its next invoice and anything overdue."
-          >
-            {orgs.map((o) => (
-              <Row
-                key={o.id}
-                name={
-                  <span className="flex items-center gap-2">
-                    <Dot
-                      state={
-                        o.state === "suspended"
-                          ? "changes_requested"
-                          : o.state === "trial"
-                            ? "working"
-                            : "approved"
-                      }
+                {orgs.map((o) => (
+                  <Row
+                    key={o.id}
+                    name={
+                      <span className="flex items-center gap-2">
+                        <Dot
+                          state={
+                            o.state === "suspended"
+                              ? "changes_requested"
+                              : o.state === "trial"
+                                ? "working"
+                                : "approved"
+                          }
+                        />
+                        {o.name}
+                      </span>
+                    }
+                    hint={
+                      o.state === "suspended"
+                        ? "Studio · INV-0401 overdue 24 days · suspended at 21"
+                        : o.state === "trial"
+                          ? "Studio trial · converts 29 October · card on file"
+                          : `${o.quota >= 2000 ? "Label" : o.quota >= 1000 ? "Studio" : "Solo"} · next invoice 1 November`
+                    }
+                  >
+                    <span className="tabular text-[13px] text-ink-2">
+                      {o.quota >= 2000 ? "£190" : o.quota >= 1000 ? "£49" : "£0"}
+                    </span>
+                    <ActionMenu
+                      always
+                      label={o.name}
+                      actions={[
+                        { label: "Change plan…", onSelect: () => {} },
+                        { label: "Apply a promo code…", onSelect: () => {} },
+                        { label: "Issue a credit…", onSelect: () => {} },
+                        { label: "Send the latest invoice", onSelect: () => {} },
+                        "divider",
+                        { label: "Waive and reinstate", onSelect: () => {} },
+                      ]}
                     />
-                    {o.name}
-                  </span>
-                }
-                hint={
-                  o.state === "suspended"
-                    ? "Studio · INV-0401 overdue 24 days · suspended at 21"
-                    : o.state === "trial"
-                      ? "Studio trial · converts 29 October · card on file"
-                      : `${o.quota >= 5000 ? "Label" : o.quota >= 2000 ? "Label" : o.quota >= 1000 ? "Studio" : "Solo"} · next invoice 1 November`
-                }
+                  </Row>
+                ))}
+              </Section>
+            </>
+          )}
+          {billingTab === "plans" && (
+            <Section
+              title="Plans"
+              intro="What workspaces can be on. Prices, limits and which support severities each unlocks are the instance's to set."
+              action={
+                <Button variant="primary" size="md">
+                  <Icon name="plus" size={14} />
+                  Plan
+                </Button>
+              }
+            >
+              {(
+                [
+                  [
+                    "Solo",
+                    "£0",
+                    "100 GB · 3 members · 1 project · support: Low, Normal",
+                    "5 workspaces",
+                  ],
+                  [
+                    "Studio",
+                    "£49 a month",
+                    "1 TB · 25 members · forensic marking · support up to High",
+                    "2 workspaces",
+                  ],
+                  [
+                    "Label",
+                    "£190 a month",
+                    "5 TB · no member limit · SSO · support up to Emergency · a named operator",
+                    "1 workspace",
+                  ],
+                  [
+                    "Custom",
+                    "by agreement",
+                    "Anything above, with its own invoice",
+                    "no workspaces yet",
+                  ],
+                ] as [string, string, string, string][]
+              ).map(([n, pr, h, on]) => (
+                <Row
+                  key={n}
+                  name={
+                    <span className="flex items-center gap-2">
+                      {n}
+                      <span className="tabular text-[12px] text-ink-3">{pr}</span>
+                    </span>
+                  }
+                  hint={`${h} · ${on}`}
+                >
+                  <ActionMenu
+                    always
+                    label={n}
+                    actions={[
+                      { label: "Edit limits and price…", onSelect: () => {} },
+                      { label: "Duplicate", onSelect: () => {} },
+                      { label: "Hide from new sign-ups", onSelect: () => {} },
+                      "divider",
+                      { label: "Retire", danger: true, onSelect: () => {} },
+                    ]}
+                  />
+                </Row>
+              ))}
+            </Section>
+          )}
+          {billingTab === "promos" && (
+            <Section
+              title="Promo codes"
+              intro="A percentage or an amount off, for a number of months, for the first so many who use it, until a date."
+              action={
+                <Button variant="primary" size="md">
+                  <Icon name="plus" size={14} />
+                  Code
+                </Button>
+              }
+            >
+              {(
+                [
+                  [
+                    "LAUNCH50",
+                    "50% off 3 months · Studio and Label",
+                    "used 4 of 50 · until 31 Dec 2026",
+                    "approved",
+                  ],
+                  [
+                    "CHOIR2026",
+                    "£20 off the first invoice · any plan",
+                    "used 2 of 20 · until 30 Nov 2026",
+                    "approved",
+                  ],
+                  ["BETA", "100% off 6 months · Studio", "used 3 of 3 · ended", "cancelled"],
+                ] as [string, string, string, string][]
+              ).map(([code, what, use, dot]) => (
+                <Row
+                  key={code}
+                  name={
+                    <span className="flex items-center gap-2">
+                      <Dot state={dot as DotState} />
+                      <span className="tabular">{code}</span>
+                    </span>
+                  }
+                  hint={`${what} · ${use}`}
+                >
+                  <ActionMenu
+                    always
+                    label={code}
+                    actions={[
+                      { label: "Copy the code", onSelect: () => {} },
+                      { label: "Edit…", onSelect: () => {} },
+                      { label: "Who used it", onSelect: () => {} },
+                      "divider",
+                      { label: "End now", danger: true, onSelect: () => {} },
+                    ]}
+                  />
+                </Row>
+              ))}
+            </Section>
+          )}
+          {billingTab === "gateways" && (
+            <>
+              <Section
+                title="Gateways"
+                intro="Billing is a module: on because the instance runs with HEKATE_BILLING=stripe. One gateway takes payment; others can be kept for history."
               >
-                <span className="tabular text-[13px] text-ink-2">
-                  {o.quota >= 2000 ? "£190" : o.quota >= 1000 ? "£49" : "£0"}
-                </span>
-                <ActionMenu
-                  always
-                  label={o.name}
-                  actions={[
-                    { label: "Change plan…", onSelect: () => {} },
-                    { label: "Issue a credit…", onSelect: () => {} },
-                    { label: "Send the latest invoice", onSelect: () => {} },
-                    "divider",
-                    { label: "Waive and reinstate", onSelect: () => {} },
-                  ]}
+                <Row
+                  name="Stripe"
+                  hint="acct_1Q…8f · live · webhooks healthy · last event 4 min ago · Stripe Tax on"
+                >
+                  <Dot state="approved" />
+                  <Button variant="ghost" size="md">
+                    Open Stripe
+                  </Button>
+                </Row>
+                <Row
+                  name="Paddle"
+                  hint="Not connected. Merchant of record for VAT in every country."
+                >
+                  <Button variant="ghost" size="md">
+                    Connect
+                  </Button>
+                </Row>
+                <Row
+                  name="Manual invoicing"
+                  hint="For custom plans: invoices by email, marked paid by hand."
+                >
+                  <Switch label="Manual invoicing" checked onChange={() => {}} />
+                </Row>
+              </Section>
+              <Section title="Rules">
+                <Row
+                  name="Dunning"
+                  hint="An unpaid invoice warns at 7 days, warns again at 14, suspends at 21, deletes nothing."
+                >
+                  <Button variant="ghost" size="md">
+                    Edit
+                  </Button>
+                </Row>
+                <Row name="Currency" hint="Invoices in the instance's currency; Stripe converts.">
+                  <Select defaultValue="GBP" className="w-28">
+                    <option>GBP</option>
+                    <option>EUR</option>
+                    <option>USD</option>
+                  </Select>
+                </Row>
+                <Row name="Trials" hint="14 days, card required, converts to the chosen plan.">
+                  <Button variant="ghost" size="md">
+                    Edit
+                  </Button>
+                </Row>
+              </Section>
+            </>
+          )}
+          {billingTab === "reports" && (
+            <>
+              <div className="grid grid-cols-2 gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-4">
+                <Tile label="MRR" value="£1,236" hint="+£98 this month" />
+                <Tile label="ARR" value="£14.8k" hint="annualised" />
+                <Tile label="Churn" value="0.8%" hint="last 90 days" />
+                <Tile label="Average per workspace" value="£154" hint="paying workspaces" />
+              </div>
+              <div className="grid gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-2">
+                <Spark
+                  label="Monthly revenue"
+                  points={[410, 460, 520, 590, 640, 720, 790, 860, 940, 1010, 1138, 1236]}
+                  hint="£ per month, the last twelve"
                 />
-              </Row>
-            ))}
-          </Section>
-          <Section
-            title="Provider"
-            intro="Billing is a module: off for an instance that does not charge, or Stripe for one that does."
-          >
-            <Row name="Stripe" hint="Connected · acct_1Q…8f · webhooks healthy · test mode off">
-              <Dot state="approved" />
-              <Button variant="ghost" size="md">
-                Open Stripe
-              </Button>
-            </Row>
-            <Row
-              name="Dunning"
-              hint="An unpaid invoice warns at 7 days, warns again at 14, suspends at 21, deletes nothing."
-            >
-              <Button variant="ghost" size="md">
-                Edit
-              </Button>
-            </Row>
-            <Row
-              name="Tax"
-              hint="VAT by country from Stripe Tax; invoices carry the organisation's number."
-            >
-              <span className="text-[13px] text-ink-2">On</span>
-            </Row>
-          </Section>
+                <Spark
+                  label="Paying workspaces"
+                  points={[2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7]}
+                  hint="the last twelve months"
+                />
+              </div>
+              <Section title="By plan" intro="Where the revenue comes from.">
+                {[
+                  ["Label", 2, 380, 0.31],
+                  ["Studio", 5, 245, 0.2],
+                  ["Custom", 1, 611, 0.49],
+                  ["Solo", 0, 0, 0],
+                ].map(([n, c, amt, share]) => (
+                  <Row
+                    key={String(n)}
+                    name={String(n)}
+                    hint={`${c} ${c === 1 ? "workspace" : "workspaces"}`}
+                  >
+                    <span className="flex w-64 items-center gap-3">
+                      <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-raised">
+                        <span
+                          className="block h-full rounded-full bg-node-review"
+                          style={{ width: `${Number(share) * 100}%` }}
+                        />
+                      </span>
+                      <span className="tabular w-12 text-right text-[13px] text-ink-2">£{amt}</span>
+                    </span>
+                  </Row>
+                ))}
+              </Section>
+              <Section title="Exports">
+                <Row
+                  name="Invoices"
+                  hint="Every invoice in the period, as CSV, for the accountant."
+                >
+                  <Button variant="secondary" size="md">
+                    <Icon name="download" size={14} />
+                    CSV
+                  </Button>
+                </Row>
+                <Row name="Revenue recognition" hint="Monthly, by workspace and plan.">
+                  <Button variant="secondary" size="md">
+                    <Icon name="download" size={14} />
+                    CSV
+                  </Button>
+                </Row>
+              </Section>
+            </>
+          )}
         </>
       )}
-
       {sec === "support" && (
         <>
+          {openTicket && (
+            <TicketDialog ticket={openTicket} operator onClose={() => setTicketId(null)} />
+          )}
           <div className="grid grid-cols-2 gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-4">
-            <Tile label="Open" value="3" hint="1 waiting on you" flag />
+            <Tile
+              label="Open"
+              value={String(tickets.filter((t) => t.state !== "resolved").length)}
+              hint={`${tickets.filter((t) => t.state === "waiting").length} waiting on you`}
+              flag
+            />
             <Tile label="First reply" value="1.8 h" hint="median this month · target 4 h" />
             <Tile label="Resolved" value="14" hint="this month" />
             <Tile label="Status page" value="Up" hint="no incidents in 41 days" />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Input placeholder="Search tickets" className="w-64" />
-            <Select defaultValue="open" className="w-36">
+            <Input
+              value={ticketQ}
+              onChange={(e) => setTicketQ(e.target.value)}
+              placeholder="Search tickets"
+              className="w-64"
+            />
+            <Select
+              value={ticketState}
+              onChange={(e) => setTicketState(e.target.value)}
+              className="w-44"
+            >
               <option value="open">Open</option>
-              <option value="waiting">Waiting on them</option>
+              <option value="waiting">Waiting on you</option>
               <option value="all">All</option>
             </Select>
             <Select defaultValue="" className="w-48">
-              <option value="">Any organisation</option>
+              <option value="">Any workspace</option>
               {orgs.map((o) => (
                 <option key={o.id}>{o.name}</option>
               ))}
             </Select>
+            <Select defaultValue="" className="w-36">
+              <option value="">Any severity</option>
+              {severities.map((sv) => (
+                <option key={sv.id}>{sv.label}</option>
+              ))}
+            </Select>
           </div>
-          <Section title="Tickets">
-            {[
-              [
-                "T-218",
-                "North Choir Collective",
-                "Slack messages stopped arriving",
-                "HK-2B91-E0 · waiting on you · 2 h",
-                "changes_requested",
-              ],
-              [
-                "T-217",
-                "Saltmarsh Films",
-                "Raise our quota before Friday's delivery",
-                "billing · waiting on you · 5 h",
-                "changes_requested",
-              ],
-              [
-                "T-216",
-                "Endless Hall Records",
-                "Score page 7 will not render",
-                "HK-7F3A-2C · answered: patch 0.2.1 fixes it · 1 d",
-                "working",
-              ],
-              [
-                "T-214",
-                "Hollow Reed Audio",
-                "Can guests see the take manager?",
-                "answered · resolved 3 d",
-                "approved",
-              ],
-            ].map(([id, org2, title, hint, dot]) => (
-              <Row
-                key={id}
-                name={
-                  <span className="flex items-center gap-2">
-                    <Dot state={dot as DotState} />
-                    <span className="tabular text-[12px] text-ink-3">{id}</span>
-                    {title}
-                  </span>
-                }
-                hint={`${org2} · ${hint}`}
-              >
-                <Button variant="ghost" size="md">
-                  Open
-                </Button>
-              </Row>
-            ))}
-          </Section>
-          <Section
-            title="T-218 · Slack messages stopped arriving"
-            intro="North Choir Collective · Priya Haldar · opened 2 h ago · error HK-2B91-E0 attached"
-          >
-            <div className="flex flex-col gap-3 px-4 py-3">
-              <div className="rounded-panel border border-line bg-raised/40 px-3 py-2 text-[13px] text-ink-2">
-                Our #masters channel has had nothing since this morning. The webhook page shows
-                429s. Is it us or Slack?
-              </div>
-              <div className="rounded-panel border border-line bg-canvas/40 px-3 py-2 text-[12px] text-ink-3">
-                From the error: Slack rate-limited the channel three times; the channel paused
-                itself for five minutes and will retry. Patch 0.2.1 lengthens the backoff.
-              </div>
-              <textarea
-                placeholder="Reply to Priya…"
-                className="h-24 rounded-control border border-edge bg-ground px-3 py-2 text-[13px] text-ink placeholder:text-ink-3 focus:border-ink-3 focus:outline-none"
-              />
-              <div className="flex flex-wrap items-center gap-2">
-                <Select defaultValue="" className="w-48">
-                  <option value="">Canned reply</option>
-                  <option>Rate-limited channel</option>
-                  <option>Quota raised</option>
-                  <option>Fixed in the next patch</option>
-                </Select>
-                <span className="ml-auto flex gap-2">
-                  <Button variant="ghost" size="md">
-                    Resolve
-                  </Button>
-                  <Button variant="primary" size="md">
-                    Send
-                  </Button>
-                </span>
-              </div>
-            </div>
-          </Section>
+          <div className="flex flex-col divide-y divide-line rounded-panel-lg border border-line bg-raised/25 shadow-1">
+            {tickets
+              .filter((t) =>
+                ticketState === "all"
+                  ? true
+                  : ticketState === "waiting"
+                    ? t.state === "waiting"
+                    : t.state !== "resolved",
+              )
+              .filter(
+                (t) =>
+                  !ticketQ ||
+                  `${t.subject} ${t.workspace} ${t.requester.name} ${t.reference}`
+                    .toLowerCase()
+                    .includes(ticketQ.toLowerCase()),
+              )
+              .map((t) => (
+                <TicketRow key={t.id} ticket={t} operator onOpen={() => setTicketId(t.id)} />
+              ))}
+          </div>
           <Section
             title="Desk"
-            intro="Support is a module too: in the application, or a link to a desk of yours."
+            intro="Support is a module: on because the instance runs with HEKATE_SUPPORT=app. Set it to link or mail to answer elsewhere, or off."
           >
             <Row
-              name="Where"
-              hint="In the application: organisations write from Settings, operators answer here. Or point Help at an address."
+              name="Severities by plan"
+              hint="Low and Normal on every plan; High from Studio; Urgent and Emergency on Label. Emergency pages the operator on call."
             >
-              <Select defaultValue="app" className="w-48">
-                <option value="app">In the application</option>
-                <option value="link">A link to our desk</option>
-                <option value="mail">An email address</option>
-              </Select>
+              <Button variant="ghost" size="md">
+                Edit
+              </Button>
             </Row>
             <Row
               name="Status page"
@@ -1457,7 +1642,6 @@ export function InstancePage({ section }: { section: string }) {
           </Section>
         </>
       )}
-
       {sec === "operators" && (
         <>
           <Section
@@ -1514,38 +1698,59 @@ export function InstancePage({ section }: { section: string }) {
 
       {sec === "health" && (
         <>
-          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-4">
-            <Gauge label="CPU" value={0.38} text="38%" hint="8 cores · 2 lanes transcoding" />
-            <Gauge label="Memory" value={0.61} text="61%" hint="9.8 of 16 GB" />
-            <Gauge label="Disk" value={0.34} text="34%" hint="1.4 of 4 TB" />
-            <Gauge label="Database connections" value={0.12} text="12" hint="of 100" />
+          <div className="flex flex-col gap-3">
+            <div className="flex items-baseline justify-between">
+              <Label>Now</Label>
+              <span className="text-[12px] text-ink-3">refreshed 14 s ago</span>
+            </div>
+            <div className="grid grid-cols-2 gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-4">
+              <Gauge label="CPU" value={0.38} text="38%" hint="8 cores · 2 lanes transcoding" />
+              <Gauge label="Memory" value={0.61} text="61%" hint="9.8 of 16 GB" />
+              <Gauge label="Disk" value={0.34} text="34%" hint="1.4 of 4 TB" />
+              <Gauge label="Database connections" value={0.12} text="12" hint="of 100" />
+            </div>
           </div>
-          <div className="grid gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-3">
-            <Spark
-              label="Requests per minute"
-              points={series(1, 420, 160)}
-              hint="the last 24 hours"
-            />
-            <Spark
-              label="p95 latency"
-              points={series(2, 140, 40)}
-              unit=" ms"
-              hint="API, every route"
-            />
-            <Spark
-              label="Error rate"
-              points={series(3, 0.2, 0.15)}
-              unit="%"
-              hint="5xx over all requests"
-            />
-            <Spark label="Queue depth" points={series(4, 3, 4)} hint="jobs waiting" />
-            <Spark label="Worker lanes busy" points={series(5, 2, 1.6)} max={4} hint="of 4" />
-            <Spark
-              label="Uploads"
-              points={series(6, 1.1, 0.9)}
-              unit=" GB/h"
-              hint="checked at the door"
-            />
+          <div className="flex flex-col gap-3">
+            <div className="flex items-baseline justify-between">
+              <Label>The last 24 hours</Label>
+              <Select defaultValue="24h" className="h-7 w-36 text-[12px]">
+                <option value="1h">Last hour</option>
+                <option value="24h">Last 24 hours</option>
+                <option value="7d">Last 7 days</option>
+              </Select>
+            </div>
+            <div className="grid gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-3">
+              <Spark
+                label="Requests per minute"
+                points={series(1, 420, 160)}
+                hint="hekate_http_requests_total"
+              />
+              <Spark
+                label="p95 latency"
+                points={series(2, 140, 40)}
+                unit=" ms"
+                hint="hekate_http_request_duration_seconds"
+              />
+              <Spark
+                label="Error rate"
+                points={series(3, 0.2, 0.15)}
+                unit="%"
+                hint="hekate_http_errors_total / requests"
+              />
+              <Spark label="Queue depth" points={series(4, 3, 4)} hint="hekate_jobs_waiting" />
+              <Spark
+                label="Worker lanes busy"
+                points={series(5, 2, 1.6)}
+                max={4}
+                hint="hekate_worker_lanes_busy of 4"
+              />
+              <Spark
+                label="Uploads"
+                points={series(6, 1.1, 0.9)}
+                unit=" GB/h"
+                hint="hekate_uploads_bytes_total"
+              />
+            </div>
           </div>
           <Section title="Services" intro="Every part of the machine, checked every 15 seconds.">
             {(
@@ -1563,7 +1768,7 @@ export function InstancePage({ section }: { section: string }) {
                 ],
                 ["Mail", "SMTP · last message 2 h ago · 1 bounce today", "approved"],
                 ["Proxy", "Caddy · TLS renewed · HTTP/3 on", "approved"],
-                ["Metrics", "/metrics scraped 14 s ago · OpenTelemetry on", "approved"],
+                ["Billing gateway", "Stripe · webhooks healthy · last event 4 min ago", "approved"],
               ] as [string, string, DotState][]
             ).map(([name, hint, dot]) => (
               <Row key={name} name={name} hint={hint}>
@@ -1596,7 +1801,7 @@ export function InstancePage({ section }: { section: string }) {
                 <span className="flex w-56 items-center gap-3">
                   <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-raised">
                     <span
-                      className="block h-full rounded-full bg-ink-2"
+                      className="block h-full rounded-full bg-node-review"
                       style={{ width: `${b.used * 100}%` }}
                     />
                   </span>
@@ -1609,7 +1814,7 @@ export function InstancePage({ section }: { section: string }) {
             ))}
             <Row
               name="Master key"
-              hint="In the environment; wraps every organisation key. Rotated 2 Oct."
+              hint="In the environment; wraps every workspace key. Rotated 2 Oct."
             >
               <Button variant="secondary" size="md">
                 Rotate
@@ -1623,18 +1828,39 @@ export function InstancePage({ section }: { section: string }) {
                 Run a slice now
               </Button>
             </Row>
-            <Row
-              name="Add a backend"
-              hint="Local disk or anything S3-compatible; organisations and projects pick from these."
-            >
-              <Button variant="secondary" size="md">
-                Add
-              </Button>
-            </Row>
+          </Section>
+          <Section
+            title="Metrics"
+            intro="Everything above, and everything below, is exported for Prometheus at /metrics (bearer token in the environment). Grafana dashboards ship in the repository."
+          >
+            {[
+              ["hekate_http_requests_total", "counter · route, method, status"],
+              ["hekate_http_request_duration_seconds", "histogram · route"],
+              ["hekate_http_errors_total", "counter · route, reference"],
+              [
+                "hekate_jobs_waiting · hekate_jobs_active · hekate_jobs_failed_total",
+                "gauge, gauge, counter · queue",
+              ],
+              ["hekate_job_duration_seconds", "histogram · queue"],
+              ["hekate_worker_lanes_busy", "gauge"],
+              [
+                "hekate_uploads_bytes_total · hekate_uploads_refused_total",
+                "counter · workspace, rule",
+              ],
+              ["hekate_storage_bytes", "gauge · backend, workspace"],
+              ["hekate_media_keys_issued_total · hekate_downloads_total", "counter · workspace"],
+              ["hekate_db_connections · hekate_db_query_duration_seconds", "gauge, histogram"],
+              ["hekate_mail_sent_total · hekate_mail_bounced_total", "counter · template"],
+              ["hekate_webhook_deliveries_total", "counter · channel, status"],
+              ["hekate_signins_total · hekate_signins_refused_total", "counter · method"],
+              ["hekate_billing_events_total", "counter · gateway, event"],
+              ["hekate_build_info", "gauge · version, build, channel"],
+            ].map(([m, k]) => (
+              <Row key={m} name={<span className="tabular text-[13px]">{m}</span>} hint={k} />
+            ))}
           </Section>
         </>
       )}
-
       {sec === "queues" && (
         <>
           <Section
@@ -1739,14 +1965,14 @@ export function InstancePage({ section }: { section: string }) {
               placeholder="Search"
               className="w-64"
             />
-            <Select defaultValue="24h" className="w-36">
+            <Select defaultValue="24h" className="w-40">
               <option value="1h">Last hour</option>
               <option value="24h">Last 24 hours</option>
               <option value="7d">Last 7 days</option>
               <option value="30d">Last 30 days</option>
             </Select>
             <Select defaultValue="" className="w-48">
-              <option value="">Any organisation</option>
+              <option value="">Any workspace</option>
               {orgs.map((o) => (
                 <option key={o.id}>{o.name}</option>
               ))}
@@ -1768,13 +1994,15 @@ export function InstancePage({ section }: { section: string }) {
           />
           <p className="text-[12px] text-ink-3">
             {logKind === "audit" &&
-              "Every action a person or operator took, kept for a year; organisations see their own in Settings."}
+              "Every action a person or operator took, kept for a year; workspaces see their own in Settings."}
             {logKind === "auth" &&
               "Every sign-in, refusal and second factor, with the address and the browser. Five refusals in a minute lock the address for ten."}
             {logKind === "api" &&
-              "Every call through a token or an OAuth client, with its status and time. Organisations see their own."}
+              "Every call through a token or an OAuth client, with its status and time. Workspaces see their own."}
             {logKind === "mail" &&
               "Every message handed to the provider, and what came back. Bounces pause the address."}
+            {logKind === "gateway" &&
+              "Every event from the billing gateway, with what it meant here: invoices, subscriptions, trials, codes and payouts."}
             {logKind === "webhooks" &&
               "Every delivery and its attempts. A channel that keeps failing pauses itself for five minutes."}
           </p>
@@ -1824,7 +2052,7 @@ export function InstancePage({ section }: { section: string }) {
                       <span className="text-ink-2">{found.who}</span>
                     </span>
                     <span>
-                      <span className="text-ink-3">Organisation </span>
+                      <span className="text-ink-3">Workspace </span>
                       <span className="text-ink-2">{found.org}</span>
                     </span>
                     <span>
@@ -2048,8 +2276,30 @@ export function InstancePage({ section }: { section: string }) {
 
       {sec === "settings" && (
         <>
+          <Section
+            title="Modules"
+            intro="Set in the environment at start; shown here so an operator can see what is on."
+          >
+            <Row
+              name="Billing"
+              hint="HEKATE_BILLING · off, stripe, paddle or manual · off by default"
+            >
+              <span className="tabular text-[13px] text-ink-2">{env.billing}</span>
+              <Dot state={env.billing === "off" ? "cancelled" : "approved"} />
+            </Row>
+            <Row
+              name="Support desk"
+              hint="HEKATE_SUPPORT · off, app, link or mail · off by default"
+            >
+              <span className="tabular text-[13px] text-ink-2">{env.support}</span>
+              <Dot state={env.support === "off" ? "cancelled" : "approved"} />
+            </Row>
+            <Row name="Documentation" hint="HEKATE_DOCS_URL · where Help goes">
+              <span className="tabular text-[13px] text-ink-2">{env.docsUrl}</span>
+            </Row>
+          </Section>
           <Section title="Registration">
-            <Row name="New organisations" hint="Who may create one.">
+            <Row name="New workspaces" hint="Who may create one.">
               <Select defaultValue="admin" className="w-56">
                 <option value="admin">Operators only</option>
                 <option value="invite">Anyone invited</option>
@@ -2060,7 +2310,7 @@ export function InstancePage({ section }: { section: string }) {
           </Section>
           <Section
             title="Security"
-            intro="What every organisation must do, whatever its own settings say."
+            intro="What every workspace must do, whatever its own settings say."
           >
             <SwitchRow
               name="Require a second factor for every account"
@@ -2082,7 +2332,7 @@ export function InstancePage({ section }: { section: string }) {
               <span className="text-[13px] text-ink-2">12+ · leak check</span>
             </Row>
           </Section>
-          <Section title="Defaults for new organisations">
+          <Section title="Defaults for new workspaces">
             <Row name="Storage quota">
               <Select defaultValue="1000" className="w-40">
                 <option value="250">250 GB</option>
@@ -2113,12 +2363,12 @@ export function InstancePage({ section }: { section: string }) {
               />
             </Row>
             <Row
-              name="Organisation subdomains"
-              hint="Each organisation answers at its own name under the address; single sign-on picks the organisation from it."
+              name="Workspace subdomains"
+              hint="Each workspace answers at its own name under the address; single sign-on picks the workspace from it."
             >
               <span className="tabular text-[13px] text-ink-2">*.review.endlesshall.example</span>
             </Row>
-            <Row name="Instance mail" hint="Used when an organisation sets no channel of its own">
+            <Row name="Instance mail" hint="Used when a workspace sets no channel of its own">
               <span className="text-[13px] text-ink-2">SMTP · mail.endlesshall.example</span>
               <Button variant="secondary" size="md">
                 Test

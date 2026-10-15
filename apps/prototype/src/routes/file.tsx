@@ -483,7 +483,7 @@ export function FilePage({
     return (
       <Refused
         title="Your access has ended"
-        text="The window for this review closed on 31 October 2026. Ask the organisation to open it again."
+        text="The window for this review closed on 31 October 2026. Ask the workspace to open it again."
       />
     );
   if (tab === "triage") return <TriagePage file={file} />;

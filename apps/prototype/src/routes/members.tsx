@@ -86,7 +86,7 @@ export function MembersSection() {
                         label={p.name}
                         actions={[
                           { label: "Change role…", onSelect: () => {} },
-                          { label: "Remove from organisation…", danger: true, onSelect: () => {} },
+                          { label: "Remove from workspace…", danger: true, onSelect: () => {} },
                         ]}
                       />
                     )}

@@ -40,15 +40,15 @@ export function Switch({
       aria-label={label}
       onClick={() => onChange(!checked)}
       className={cn(
-        "relative h-5 w-9 shrink-0 rounded-full border transition-colors duration-200",
-        checked ? "border-signal bg-signal" : "border-line-strong bg-raised",
+        "relative h-5 w-9 shrink-0 rounded-full transition-colors duration-200",
+        checked ? "bg-signal" : "bg-edge hover:bg-edge-strong",
       )}
     >
       <span
         aria-hidden="true"
         className={cn(
-          "absolute top-[2px] size-[14px] rounded-full shadow-2 transition-[left] duration-200 ease-out",
-          checked ? "left-[18px] bg-ground" : "left-[2px] bg-ink-2",
+          "absolute top-[2px] size-4 rounded-full bg-ink shadow-[0_1px_2px_rgb(0_0_0/0.4)] transition-[left] duration-200 ease-out",
+          checked ? "left-[18px]" : "left-[2px]",
         )}
       />
     </button>

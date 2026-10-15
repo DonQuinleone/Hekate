@@ -1,4 +1,5 @@
 export * from "./comments.ts";
+export * from "./env.ts";
 export * from "./flows.ts";
 export * from "./notifications.ts";
 export * from "./people.ts";
@@ -6,6 +7,7 @@ export * from "./production.ts";
 export * from "./projects.ts";
 export * from "./qa.ts";
 export * from "./reviews.ts";
+export * from "./support.ts";
 export * from "./takes.ts";
 export * from "./types.ts";
 export * from "./workflows.ts";

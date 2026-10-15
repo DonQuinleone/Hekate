@@ -237,7 +237,7 @@ export function SignInPage({ view: initial }: { view?: string }) {
     return (
       <Frame
         title="Single sign-on"
-        intro="Which organisation are you signing in to? On your organisation's own address this step is skipped."
+        intro="Which workspace are you signing in to? On your workspace's own address this step is skipped."
       >
         <form
           className="flex flex-col gap-4"
@@ -247,7 +247,7 @@ export function SignInPage({ view: initial }: { view?: string }) {
           }}
         >
           <label htmlFor="sso-org" className="flex flex-col gap-1.5 text-[14px] text-ink-2">
-            Organisation
+            Workspace
             <span className="flex items-center overflow-hidden rounded-control border border-edge bg-ground shadow-1 focus-within:border-ink-3">
               <input
                 id="sso-org"
@@ -266,7 +266,7 @@ export function SignInPage({ view: initial }: { view?: string }) {
           <p className="text-[13px] text-ink-3">
             Or open{" "}
             <span className="tabular text-ink-2">endlesshall.review.endlesshall.example</span> and
-            the organisation is known from the address.
+            the workspace is known from the address.
           </p>
         </form>
         {back}
@@ -347,7 +347,7 @@ export function GuestLinkPage() {
       ],
       failed: [
         "This review is closed to you",
-        "Your access window has ended, or the review was cancelled. The organisation can open it again.",
+        "Your access window has ended, or the review was cancelled. The workspace can open it again.",
       ],
     }[state];
     return (
@@ -424,7 +424,7 @@ const installSteps = [
   "Master key",
   "Mail",
   "Address",
-  "First organisation",
+  "First workspace",
 ];
 
 /** The full installer, one step per address: requirements, database, storage, the master key and its backup, mail, the public address, the first organisation, then ready. */
@@ -650,9 +650,9 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
       <label className="flex items-start gap-2 text-[14px] text-ink">
         <input type="checkbox" defaultChecked className="mt-1" />
         <span>
-          Give each organisation its own subdomain
+          Give each workspace its own subdomain
           <span className="block text-[12px] text-ink-3">
-            *.review.endlesshall.example · single sign-on knows the organisation from the address.
+            *.review.endlesshall.example · single sign-on knows the workspace from the address.
             Needs a wildcard record and certificate.
           </span>
         </span>
@@ -665,7 +665,7 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
     </div>,
     <div key="org" className="flex flex-col gap-4">
       <div className="grid gap-4 @md/app:grid-cols-[minmax(0,1fr)_200px]">
-        {field("Organisation", "Endless Hall Records")}
+        {field("Workspace", "Endless Hall Records")}
         {field("Subdomain", "endlesshall")}
       </div>
       {field("Your name", "Alex Rivera")}
@@ -726,7 +726,7 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
                 {check("Database migrated", "0044", true)}
                 {check("Master key in the environment", "wrapped copy in tonight's backup", true)}
                 {check("Worker", "4 lanes", true)}
-                {check("First organisation", "endlesshall.review.endlesshall.example", true)}
+                {check("First workspace", "endlesshall.review.endlesshall.example", true)}
               </ul>
               <div className="flex items-center gap-2">
                 <Button variant="primary" size="lg" onClick={() => navigate({ to: "/" })}>

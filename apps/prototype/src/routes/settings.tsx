@@ -1,10 +1,12 @@
+import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
 import { usePageHeader } from "~/components/page-header";
 import { Danger, Matrix, Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
-import { Dot, type DotState } from "~/components/status";
+import { Dot } from "~/components/status";
+import { TicketDialog, TicketRow } from "~/components/tickets";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select, Textarea } from "~/components/ui/input";
@@ -13,12 +15,17 @@ import {
   accessLog,
   categories,
   deliveryProfiles,
+  env,
   fileById,
+  newReference,
   organisation,
   personById,
   projects,
   reviewById,
+  severities,
+  type TicketSeverity,
   type Tool,
+  tickets,
 } from "~/data";
 import { cn } from "~/lib/cn";
 import { formatDateTime } from "~/lib/format";
@@ -30,32 +37,32 @@ import { EmailSection } from "./org-email.tsx";
 import { toolCopy } from "./project-settings.tsx";
 
 const intros: Record<string, string> = {
-  general: "The organisation's name, how guests sign in, and what every project starts from.",
+  general: "The workspace's name, how guests sign in, and what every project starts from.",
   defaults: "What a new project copies unless it says otherwise.",
   categories: "The categories a comment can carry, and their colours.",
   delivery: "The numbers the checks measure against, shared by every project that picks a profile.",
   brand:
     "The mark, the colours, the type, and every reusable component with the rule for using it.",
-  email: "What every message from Hekate looks like, and the words the organisation sends.",
+  email: "What every message from Hekate looks like, and the words the workspace sends.",
   members: "Who has an account here, who is invited, and which guests hold a link.",
   security: "Who may sign in and how.",
   notifications: "Where events go: mail, Slack, Discord, webhooks.",
-  api: "Applications that connect on people's behalf, and tokens that act for the organisation itself.",
+  api: "Applications that connect on people's behalf, and tokens that act for the workspace itself.",
   billing: "The plan, what it includes, what it costs, and every invoice.",
   support: "Ask the people who run this instance, with the error reference if there is one.",
   storage: "Where files live and how much they take.",
   leaks: "Find which recipient a leaked file was watermarked for.",
   log: "Every key issue, page render and download.",
-  operations: "What the instance is doing for this organisation.",
+  operations: "What the instance is doing for this workspace.",
 };
 
 const sections = [
-  { id: "general", label: "General", group: "Organisation" },
-  { id: "defaults", label: "Defaults", group: "Organisation" },
-  { id: "categories", label: "Comment categories", group: "Organisation" },
-  { id: "delivery", label: "Delivery profiles", group: "Organisation" },
-  { id: "brand", label: "Brand and design system", group: "Organisation" },
-  { id: "email", label: "Email templates", group: "Organisation" },
+  { id: "general", label: "General", group: "Workspace" },
+  { id: "defaults", label: "Defaults", group: "Workspace" },
+  { id: "categories", label: "Comment categories", group: "Workspace" },
+  { id: "delivery", label: "Delivery profiles", group: "Workspace" },
+  { id: "brand", label: "Brand and design system", group: "Workspace" },
+  { id: "email", label: "Email templates", group: "Workspace" },
   { id: "members", label: "Members", group: "Access" },
   { id: "security", label: "Security", group: "Access" },
   { id: "notifications", label: "Notifications and integrations", group: "Access" },
@@ -129,7 +136,19 @@ function Test({ state }: { state: "idle" | "ok" | "failed" }) {
   );
 }
 
-export function SettingsPage({ section }: { section: string }) {
+export function SettingsPage({
+  section,
+  newTicket = false,
+  ticketId,
+}: {
+  section: string;
+  newTicket?: boolean;
+  ticketId?: string;
+}) {
+  const navigate = useNavigate();
+  const [sent, setSent] = useState<string | null>(null);
+  const [severity, setSeverity] = useState<TicketSeverity>("normal");
+  const openTicket = tickets.find((t) => t.id === ticketId);
   const viewer = useViewer();
   const state = useScreenState();
   const elevated =
@@ -137,10 +156,10 @@ export function SettingsPage({ section }: { section: string }) {
   const [adding, setAdding] = useState(false);
   const [leak, setLeak] = useState<"idle" | "scanning" | "match" | "none">("idle");
   const [logFilter, setLogFilter] = useState("");
-  usePageHeader({ title: "Organisation settings" });
+  usePageHeader({ title: "Workspace settings" });
   if (!elevated)
     return (
-      <Refused title="Not for your role" text="Organisation settings are for owners and admins." />
+      <Refused title="Not for your role" text="Workspace settings are for owners and admins." />
     );
   const sec = sections.some((s) => s.id === section) ? section : "general";
   const log = accessLog.filter((e) => !logFilter || e.action.includes(logFilter));
@@ -174,7 +193,7 @@ export function SettingsPage({ section }: { section: string }) {
           </div>
           <Section
             title="Plan"
-            intro="Studio: 1 TB, 25 members, forensic marking, priority support. Change it any time; the difference is pro-rated."
+            intro="Studio: 1 TB, 25 members, forensic marking, priority support. Change it any time; the difference is pro-rated. Billing is on because the instance runs with HEKATE_BILLING=stripe."
             action={
               <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
                 Change plan
@@ -227,7 +246,7 @@ export function SettingsPage({ section }: { section: string }) {
           <Danger>
             <Row
               name="Cancel the plan"
-              hint="The organisation drops to Solo at the end of the period; nothing is deleted, but uploads stop above the limits."
+              hint="The workspace drops to Solo at the end of the period; nothing is deleted, but uploads stop above the limits."
             >
               <Button variant="ghost" size="md">
                 Cancel…
@@ -236,83 +255,243 @@ export function SettingsPage({ section }: { section: string }) {
           </Danger>
         </>
       )}
-      {sec === "support" && (
+      {sec === "support" && openTicket && (
+        <TicketDialog
+          ticket={openTicket}
+          onClose={() => navigate({ to: "/settings/$section", params: { section: "support" } })}
+        />
+      )}
+      {sec === "support" && env.support !== "app" && (
+        <Section title="Support" intro="This instance answers elsewhere.">
+          <Row
+            name="Where"
+            hint={
+              env.support === "off"
+                ? "Support is not turned on here (HEKATE_SUPPORT is off). Ask whoever runs the instance."
+                : env.support === "link"
+                  ? "A desk of the operator's own."
+                  : "By email."
+            }
+          >
+            {env.support !== "off" && (
+              <Button variant="secondary" size="md">
+                Open it
+              </Button>
+            )}
+          </Row>
+        </Section>
+      )}
+      {sec === "support" && env.support === "app" && !newTicket && (
         <>
           <Section
-            title="Ask for help"
-            intro="The people who run this instance answer here. Attach the error reference from the message you saw, and they can see the whole story."
-          >
-            <div className="flex flex-col gap-3 px-4 py-3">
-              <div className="grid gap-3 @md/app:grid-cols-[minmax(0,1fr)_200px]">
-                <Input placeholder="What is wrong, in a line" />
-                <Input placeholder="Error reference (HK-…)" className="tabular" />
-              </div>
-              <Textarea
-                placeholder="What you did, what you expected, what happened. Links to the file or review help."
-                className="h-28"
-              />
-              <div className="flex items-center gap-2">
-                <Select defaultValue="problem" className="w-52">
-                  <option value="problem">Something is broken</option>
-                  <option value="question">A question</option>
-                  <option value="billing">Billing</option>
-                  <option value="idea">An idea</option>
-                </Select>
-                <label className="flex items-center gap-1.5 text-[13px] text-ink-2">
-                  <input type="checkbox" defaultChecked /> Let them open the file or review in
-                  question
-                </label>
-                <Button variant="primary" size="md" className="ml-auto">
-                  Send
-                </Button>
-              </div>
-            </div>
-          </Section>
-          <Section title="Your tickets">
-            {[
-              [
-                "T-216",
-                "Score page 7 will not render",
-                "answered: fixed by patch 0.2.1, applied tonight · 1 d",
-                "working",
-              ],
-              ["T-203", "Can we have a second delivery profile?", "resolved · 9 d", "approved"],
-            ].map(([id, title, hint, dot]) => (
-              <Row
-                key={id}
-                name={
-                  <span className="flex items-center gap-2">
-                    <Dot state={dot as DotState} />
-                    <span className="tabular text-[12px] text-ink-3">{id}</span>
-                    {title}
-                  </span>
+            title="Your tickets"
+            intro="What this workspace has asked the people who run the instance, and their answers."
+            action={
+              <Button
+                variant="primary"
+                size="md"
+                onClick={() =>
+                  navigate({
+                    to: "/settings/$section",
+                    params: { section: "support" },
+                    search: { new: "1" },
+                  })
                 }
-                hint={hint}
               >
-                <Button variant="ghost" size="md">
-                  Open
-                </Button>
-              </Row>
-            ))}
+                <Icon name="plus" size={14} />
+                New ticket
+              </Button>
+            }
+          >
+            {tickets
+              .filter((t) => t.workspace === organisation.name)
+              .map((t) => (
+                <TicketRow
+                  key={t.id}
+                  ticket={t}
+                  onOpen={() =>
+                    navigate({
+                      to: "/settings/$section",
+                      params: { section: "support" },
+                      search: { ticket: t.id },
+                    })
+                  }
+                />
+              ))}
           </Section>
-          <Section title="Before you ask">
-            <Row name="The guide" hint="Reviews, workflows, QA, the player: how each part works.">
-              <Button variant="ghost" size="md">
+          <Section title="Help yourself" intro="Most answers are already written down.">
+            <Row name="Documentation" hint={env.docsUrl.replace(/^https?:\/\//, "")}>
+              <Button
+                variant="ghost"
+                size="md"
+                onClick={() => window.open(env.docsUrl, "_blank", "noopener")}
+              >
                 Open
               </Button>
             </Row>
-            <Row name="Status" hint="status.review.endlesshall.example · no incidents in 41 days">
+            <Row name="Status" hint="No incidents in 41 days">
               <Dot state="approved" />
-            </Row>
-            <Row
-              name="Your operator"
-              hint="Endless Hall Records runs this instance itself; the operators are Alex Rivera and Ops on call."
-            >
-              <span className="text-[13px] text-ink-2">ops@endlesshall.example</span>
+              <Button
+                variant="ghost"
+                size="md"
+                onClick={() => window.open(env.statusUrl, "_blank", "noopener")}
+              >
+                Open
+              </Button>
             </Row>
           </Section>
         </>
       )}
+      {sec === "support" &&
+        env.support === "app" &&
+        newTicket &&
+        (sent ? (
+          <Section
+            title="Sent"
+            intro="You will hear back by email and in the inbox; the thread lives here."
+          >
+            <Row
+              name={`Ticket ${sent}`}
+              hint="Normal severity answers within a working day; higher ones faster."
+            >
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={() => {
+                  setSent(null);
+                  navigate({ to: "/settings/$section", params: { section: "support" } });
+                }}
+              >
+                Back to your tickets
+              </Button>
+            </Row>
+          </Section>
+        ) : (
+          <>
+            <Section title="Before you ask" intro="A minute here often saves a day.">
+              <div className="flex flex-col gap-3 px-4 py-3">
+                <div className="relative">
+                  <Icon
+                    name="search"
+                    size={16}
+                    className="absolute top-1/2 left-3 -translate-y-1/2 text-ink-3"
+                  />
+                  <Input placeholder="Search the documentation" className="w-full pl-9" />
+                </div>
+                <div className="grid gap-2 @3xl/app:grid-cols-3">
+                  {[
+                    ["A file will not play", "Checks, renditions and what the player needs"],
+                    ["Reviewers cannot see a file", "Permissions, groups and per-review overrides"],
+                    [
+                      "Loudness reads differently elsewhere",
+                      "Integrated loudness, true peak and the delivery profile",
+                    ],
+                  ].map(([t, h]) => (
+                    <button
+                      key={t}
+                      type="button"
+                      className="rounded-panel border border-line px-3 py-2.5 text-left transition-colors hover:border-edge hover:bg-raised/40"
+                    >
+                      <span className="block text-[13px] text-ink">{t}</span>
+                      <span className="block text-[12px] text-ink-3">{h}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <Row
+                name="Status"
+                hint="No incidents in 41 days. Something down for everyone is posted here first."
+              >
+                <Dot state="approved" />
+                <Button
+                  variant="ghost"
+                  size="md"
+                  onClick={() => window.open(env.statusUrl, "_blank", "noopener")}
+                >
+                  Open
+                </Button>
+              </Row>
+            </Section>
+            <Section
+              title="New ticket"
+              intro="The reference is made for you when you send. Operators see the error's whole story if you include its reference in the message."
+            >
+              <div className="flex flex-col gap-4 px-4 py-4">
+                <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                  Subject
+                  <Input placeholder="What is wrong, in a line" autoFocus />
+                </label>
+                <div className="grid gap-4 @md/app:grid-cols-2">
+                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                    Type
+                    <Select defaultValue="problem">
+                      <option value="problem">Something is broken</option>
+                      <option value="question">A question</option>
+                      <option value="billing">Billing</option>
+                      <option value="idea">An idea</option>
+                    </Select>
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                    Severity
+                    <Select
+                      value={severity}
+                      onChange={(e) => setSeverity(e.target.value as TicketSeverity)}
+                    >
+                      {severities.map((sv) => (
+                        <option key={sv.id} value={sv.id} disabled={sv.from === "Label"}>
+                          {sv.label}
+                          {sv.from === "Label" ? " (Label plan)" : ""}
+                        </option>
+                      ))}
+                    </Select>
+                    <span className="text-[12px] text-ink-3">
+                      {severities.find((sv) => sv.id === severity)?.hint}. Urgent and Emergency come
+                      with the Label plan.
+                    </span>
+                  </label>
+                </div>
+                <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                  Message
+                  <Textarea
+                    placeholder="What you did, what you expected, what happened. Paste the error reference if you saw one."
+                    className="h-32"
+                  />
+                </label>
+                <div className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                  Attachments
+                  <div className="flex items-center gap-3 rounded-panel border border-dashed border-line px-3 py-3 text-[12px] text-ink-3">
+                    <Icon name="upload" size={14} />
+                    Drop screenshots or files here, or
+                    <Button variant="ghost" size="sm">
+                      choose
+                    </Button>
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 text-[13px] text-ink-2">
+                  <input type="checkbox" defaultChecked /> Let the operators open the file or review
+                  in question
+                </label>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    onClick={() =>
+                      navigate({ to: "/settings/$section", params: { section: "support" } })
+                    }
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="primary"
+                    className="ml-auto"
+                    onClick={() => setSent(newReference("T"))}
+                  >
+                    Send
+                  </Button>
+                </div>
+              </div>
+            </Section>
+          </>
+        ))}
       {sec === "api" && (
         <>
           <Section
@@ -381,7 +560,7 @@ export function SettingsPage({ section }: { section: string }) {
           </Section>
           <Section
             title="Service tokens"
-            intro="Tokens that act as the organisation rather than a person, for the release pipeline and the like. Scoped and logged like any other."
+            intro="Tokens that act as the workspace rather than a person, for the release pipeline and the like. Scoped and logged like any other."
           >
             {[
               {
@@ -442,7 +621,7 @@ export function SettingsPage({ section }: { section: string }) {
       )}
       {sec === "general" && (
         <>
-          <Section title="Organisation">
+          <Section title="Workspace">
             <Row name="Name">
               <Input defaultValue={organisation.name} className="w-64" />
             </Row>
@@ -471,7 +650,7 @@ export function SettingsPage({ section }: { section: string }) {
             </Row>
           </Section>
           <Section
-            title="Organisations you are in"
+            title="Workspaces you are in"
             intro="Switch from the menu at the top of the sidebar."
           >
             <Row name={organisation.name} hint="Owner">
@@ -481,7 +660,7 @@ export function SettingsPage({ section }: { section: string }) {
           </Section>
           <Danger>
             <Row
-              name="Delete this organisation"
+              name="Delete this workspace"
               hint="Every project, file and review. Only an owner, with a second owner confirming."
             >
               <Button variant="secondary" size="md" className="text-signal">
@@ -695,7 +874,7 @@ export function SettingsPage({ section }: { section: string }) {
             </Row>
             <Row
               name="Attributes"
-              hint="Email, name, and the group claim that becomes an organisation role."
+              hint="Email, name, and the group claim that becomes a workspace role."
             >
               <Input defaultValue="email · name · groups" className="w-64" />
             </Row>
@@ -855,7 +1034,7 @@ export function SettingsPage({ section }: { section: string }) {
             />
           </Section>
           <Section title="API and MCP">
-            <Row name="API keys" hint="Scoped to an organisation; shown once.">
+            <Row name="API keys" hint="Scoped to a workspace; shown once.">
               <Button variant="secondary" size="md">
                 New key
               </Button>

@@ -964,7 +964,7 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
             </Row>
             <Row name="Who may delete">
               <Select defaultValue="role" className="w-56">
-                <option value="owners">Organisation owners</option>
+                <option value="owners">Workspace owners</option>
                 <option value="role">Roles with delete</option>
               </Select>
             </Row>

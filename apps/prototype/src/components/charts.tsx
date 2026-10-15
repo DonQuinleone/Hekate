@@ -33,7 +33,7 @@ export function Spark({
   const i = hover ?? points.length - 1;
   const value = points[i] ?? 0;
   return (
-    <div className="flex flex-col gap-2 bg-raised/25 px-4 py-3">
+    <div className="flex flex-col gap-2 bg-pane px-4 py-3">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-[12px] text-ink-3">{label}</span>
         <span className={cn("tabular text-[14px]", flag ? "text-signal" : "text-ink")}>
@@ -70,11 +70,11 @@ export function Spark({
             vectorEffect="non-scaling-stroke"
           />
         ))}
-        <path d={area} className={flag ? "fill-signal/10" : "fill-ink/5"} />
+        <path d={area} className={flag ? "fill-signal/10" : "fill-node-review/10"} />
         <path
           d={d}
           fill="none"
-          className={flag ? "stroke-signal" : "stroke-ink-2"}
+          className={flag ? "stroke-signal" : "stroke-node-review"}
           strokeWidth={2}
           vectorEffect="non-scaling-stroke"
           strokeLinejoin="round"
@@ -95,7 +95,7 @@ export function Spark({
           cx={x(i)}
           cy={y(value)}
           r={3}
-          className={cn(flag ? "fill-signal" : "fill-ink", "stroke-raised")}
+          className={cn(flag ? "fill-signal" : "fill-node-review", "stroke-pane")}
           strokeWidth={2}
           vectorEffect="non-scaling-stroke"
         />
@@ -119,39 +119,39 @@ export function Gauge({
   hint?: string;
   warnAt?: number;
 }) {
-  const r = 34;
+  const r = 44;
   const c = Math.PI * r;
   const v = Math.min(1, Math.max(0, value));
   const flag = v >= warnAt;
   return (
-    <div className="flex flex-col items-center gap-1 bg-raised/25 px-4 py-3">
+    <div className="flex flex-col items-center gap-1 bg-pane px-4 py-3">
       <span className="self-start text-[12px] text-ink-3">{label}</span>
       <svg
         role="img"
         aria-label={`${label}: ${text}`}
-        viewBox="0 0 88 50"
-        className="h-[50px] w-[88px]"
+        viewBox="0 0 112 64"
+        className="h-[64px] w-[112px]"
       >
         <path
-          d={`M6,46 A${r},${r} 0 0 1 82,46`}
+          d={`M8,58 A${r},${r} 0 0 1 104,58`}
           fill="none"
           className="stroke-raised"
-          strokeWidth={6}
+          strokeWidth={7}
           strokeLinecap="round"
         />
         <path
-          d={`M6,46 A${r},${r} 0 0 1 82,46`}
+          d={`M8,58 A${r},${r} 0 0 1 104,58`}
           fill="none"
-          className={flag ? "stroke-signal" : "stroke-ink-2"}
-          strokeWidth={6}
+          className={flag ? "stroke-signal" : "stroke-node-review"}
+          strokeWidth={7}
           strokeLinecap="round"
           strokeDasharray={`${c * v} ${c}`}
         />
         <text
-          x={44}
-          y={44}
+          x={56}
+          y={56}
           textAnchor="middle"
-          className={cn("tabular text-[16px] font-medium", flag ? "fill-signal" : "fill-ink")}
+          className={cn("tabular text-[20px] font-medium", flag ? "fill-signal" : "fill-ink")}
         >
           {text}
         </text>

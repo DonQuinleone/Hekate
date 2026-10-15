@@ -574,7 +574,7 @@ function Overview({ project }: { project: Project }) {
           <Property name="People">
             <AvatarRow personIds={project.members.map((m) => m.personId)} size={20} />
           </Property>
-          <Property name="Your role">{viewer.roleName(project.id) ?? "Organisation"}</Property>
+          <Property name="Your role">{viewer.roleName(project.id) ?? "Workspace"}</Property>
           <Property name="Created">{formatDate(project.createdAt)}</Property>
         </Card>
       </section>
