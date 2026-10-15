@@ -1,14 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { createArgosReporterOptions } from "@argos-ci/playwright/reporter";
 import { defineConfig } from "@playwright/test";
 
 /**
  * The visual suite: the real app, seeded with known music, captured screen by screen at
  * desktop and phone width. Every capture also has its layout and accessibility checked
- * (tests/checks.ts), and goes to Argos, which compares it with master's and asks for
- * approval on any change. Without an Argos token the checks still run; nothing is compared.
+ * (tests/checks.ts) and is saved under test-results/screens for anyone to look at.
  */
 const PORT = 3990;
 const state = join(import.meta.dirname, ".state");
@@ -27,13 +25,7 @@ export default defineConfig({
   timeout: 180_000,
   expect: { timeout: 15_000 },
   forbidOnly: Boolean(process.env.CI),
-  reporter: [
-    [process.env.CI ? "github" : "list"],
-    [
-      "@argos-ci/playwright/reporter",
-      createArgosReporterOptions({ uploadToArgos: Boolean(process.env.ARGOS_TOKEN) }),
-    ],
-  ],
+  reporter: [[process.env.CI ? "github" : "list"]],
   use: {
     baseURL: `http://localhost:${PORT}`,
     locale: "en-GB",

@@ -9,7 +9,6 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
-    "@argos-ci/playwright": "^7.7.1",
     "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.64.0",
     "postgres": "^3.4.9"
