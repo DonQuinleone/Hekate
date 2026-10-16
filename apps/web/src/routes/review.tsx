@@ -241,7 +241,25 @@ function Reviewers({ review }: { review: ReviewDetail }) {
   );
 }
 
+/** A review on its own page, with the trail and its status in the top bar. */
 export function ReviewPage({ reviewId }: { reviewId: string }) {
+  return <ReviewBody reviewId={reviewId} />;
+}
+
+/**
+ * A review's contents. On its own page the title and status go to the top bar; embedded (the
+ * inbox's reading pane) they head the pane instead.
+ */
+export function ReviewBody({
+  reviewId,
+  embedded = false,
+  titled = false,
+}: {
+  reviewId: string;
+  embedded?: boolean;
+  /** Embedded, with the title already in the top bar: the pane leaves it out. */
+  titled?: boolean;
+}) {
   const { data: review, error } = useQuery(reviewQuery(reviewId));
   const { guest } = useViewer();
   const { data: project } = useQuery({
@@ -278,12 +296,34 @@ export function ReviewPage({ reviewId }: { reviewId: string }) {
       ];
   return (
     <>
-      <PageHeader
-        crumbs={crumbs}
-        title={review.title}
-        actions={<StatusPill state={reviewState(review)} />}
-      />
-      <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-5 sm:px-6">
+      {embedded ? null : (
+        <PageHeader
+          crumbs={crumbs}
+          title={review.title}
+          actions={<StatusPill state={reviewState(review)} />}
+        />
+      )}
+      <div
+        className={cn(
+          "flex flex-col gap-6",
+          embedded ? "px-6 py-5" : "mx-auto max-w-5xl px-4 py-5 sm:px-6",
+        )}
+      >
+        {embedded && (
+          <div className="flex items-start gap-3">
+            {titled ? (
+              <span className="flex-1" />
+            ) : (
+              <h2 className="title m-0 min-w-0 flex-1">{review.title}</h2>
+            )}
+            <StatusPill state={reviewState(review)} />
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/reviews/$reviewId" params={{ reviewId: review.id }}>
+                Open
+              </Link>
+            </Button>
+          </div>
+        )}
         <p className="tabular m-0 text-[13px] text-ink-2">
           {review.kind === "approval"
             ? `Approval, ${review.rule === "any" ? "anyone approves" : "everyone approves"}`

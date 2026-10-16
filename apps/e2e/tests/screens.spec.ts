@@ -84,7 +84,12 @@ const screens: Screen[] = [
     ready: "section[aria-label=Comments] li",
   },
   { name: "review", path: (s) => `/reviews/${s.reviewId}`, ready: "h1:has-text('Album masters')" },
-  { name: "my-reviews", path: () => "/reviews", ready: "main >> text=Album masters" },
+  { name: "inbox", path: () => "/inbox", ready: "main a:has-text('Album masters')" },
+  {
+    name: "inbox-review",
+    path: (s) => `/inbox?item=${s.reviewId}`,
+    ready: "section[aria-label=Review] >> text=Your decision",
+  },
   { name: "members", path: () => "/settings/members", ready: "main >> text=Alex Rivera" },
   {
     name: "settings-general",

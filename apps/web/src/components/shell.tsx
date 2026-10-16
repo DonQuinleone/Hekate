@@ -61,7 +61,7 @@ function NavItem({
   count,
   exact = false,
 }: {
-  to: "/" | "/reviews" | "/projects";
+  to: "/" | "/inbox" | "/projects";
   icon: IconName;
   label: string;
   collapsed: boolean;
@@ -477,9 +477,9 @@ export function Shell({ children }: { children: ReactNode }) {
           <div className="flex flex-col gap-0.5">
             <NavItem to="/" icon="dashboard" label="Home" collapsed={collapsed} exact />
             <NavItem
-              to="/reviews"
+              to="/inbox"
               icon="inbox"
-              label="Reviews"
+              label="Inbox"
               collapsed={collapsed}
               count={waitingAll.length}
               exact
@@ -554,7 +554,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 </Link>
               ))}
               {waitingHere.length > 4 && (
-                <Link to="/reviews" className="px-2.5 text-[12px] text-ink-3 hover:text-ink">
+                <Link to="/inbox" className="px-2.5 text-[12px] text-ink-3 hover:text-ink">
                   and {waitingHere.length - 4} more
                 </Link>
               )}
@@ -611,9 +611,9 @@ export function Shell({ children }: { children: ReactNode }) {
               [
                 { to: "/", icon: "dashboard", label: "Home", count: 0, exact: true },
                 {
-                  to: "/reviews",
+                  to: "/inbox",
                   icon: "inbox",
-                  label: "Reviews",
+                  label: "Inbox",
                   count: waitingAll.length,
                   exact: true,
                 },

@@ -381,7 +381,7 @@ export function HomePage() {
           hint={attention.length ? String(attention.length) : undefined}
           action={
             <Button variant="ghost" size="sm" asChild>
-              <Link to="/reviews">All reviews</Link>
+              <Link to="/inbox">Open the inbox</Link>
             </Button>
           }
         >
@@ -399,10 +399,10 @@ export function HomePage() {
               </ul>
               {attention.length > ATTENTION_SHOWN && (
                 <Link
-                  to="/reviews"
+                  to="/inbox"
                   className="block border-t border-line px-4 py-2.5 text-[13px] text-ink-3 hover:text-ink"
                 >
-                  {attention.length - ATTENTION_SHOWN} more in your reviews
+                  {attention.length - ATTENTION_SHOWN} more in the inbox
                 </Link>
               )}
             </Card>
