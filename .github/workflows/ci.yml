@@ -164,6 +164,21 @@ jobs:
           path: apps/e2e/test-results/screens
           if-no-files-found: ignore
 
+  # The documentation site builds, with the operator pages copied in from docs/.
+  docs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @hekate/docs build
+
   # Added or updated dependencies: no known vulnerability at any severity, and only licences
   # that can be combined with AGPL-3.0.
   dependencies:
@@ -178,12 +193,14 @@ jobs:
           fail-on-severity: low
           # Build and test dependencies run on our machines and in CI too.
           fail-on-scopes: runtime, development, unknown
+          # OFL-1.1 is for fonts (Schibsted Grotesk, in the app and the docs site): a font is
+          # shipped beside the code, not combined with it.
           allow-licenses: >-
             0BSD, AGPL-3.0, AGPL-3.0-only, AGPL-3.0-or-later, Apache-2.0, BlueOak-1.0.0,
             BSD-2-Clause, BSD-3-Clause, CC-BY-3.0, CC-BY-4.0, CC0-1.0, GPL-3.0, GPL-3.0-only,
             GPL-3.0-or-later, ISC, LGPL-2.1, LGPL-2.1-only, LGPL-2.1-or-later, LGPL-3.0,
-            LGPL-3.0-only, LGPL-3.0-or-later, MIT, MIT-0, MPL-2.0, Python-2.0, Unlicense,
-            Zlib
+            LGPL-3.0-only, LGPL-3.0-or-later, MIT, MIT-0, MPL-2.0, OFL-1.1, Python-2.0,
+            Unlicense, Zlib
           comment-summary-in-pr: never
 
   image:

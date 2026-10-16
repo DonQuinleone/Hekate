@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { Page } from "~/components/page";
 import { cn } from "~/lib/cn";
+import { docsUrl } from "~/lib/links";
 import { Switch } from "./ui/toggle";
 
 export interface NavSection {
@@ -84,6 +85,7 @@ export function SettingsLayout({
   children,
   title,
   intro,
+  docs,
 }: {
   sections: NavSection[];
   current: string;
@@ -95,6 +97,8 @@ export function SettingsLayout({
   children: ReactNode;
   title: string;
   intro?: string;
+  /** Where the documentation explains this section, as a path on the docs site. */
+  docs?: string;
 }) {
   return (
     <Page className="gap-6 @3xl/app:flex-row @3xl/app:gap-12">
@@ -110,7 +114,24 @@ export function SettingsLayout({
       <div className="flex min-w-0 flex-1 flex-col gap-10">
         <div>
           <h1 className="title">{title}</h1>
-          {intro && <p className="mt-1.5 max-w-[620px] text-[14px] text-ink-2">{intro}</p>}
+          {(intro || docs) && (
+            <p className="mt-1.5 max-w-[620px] text-[14px] text-ink-2">
+              {intro}
+              {docs && (
+                <>
+                  {intro && " "}
+                  <a
+                    href={`${docsUrl}${docs}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-ink-2 underline decoration-edge underline-offset-2 transition-colors hover:text-ink hover:decoration-ink-3"
+                  >
+                    How this works
+                  </a>
+                </>
+              )}
+            </p>
+          )}
         </div>
         {children}
       </div>

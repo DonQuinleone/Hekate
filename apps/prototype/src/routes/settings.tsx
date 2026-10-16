@@ -136,6 +136,14 @@ function Test({ state }: { state: "idle" | "ok" | "failed" }) {
   );
 }
 
+/** Each section's page on the documentation site, where there is one. */
+const docPages: Record<string, string> = {
+  members: "/use/guests/",
+  security: "/security/model/",
+  storage: "/install/storage/",
+  log: "/security/model/#audit",
+};
+
 export function SettingsPage({
   section,
   newTicket = false,
@@ -167,6 +175,7 @@ export function SettingsPage({
     <SettingsLayout
       title={sections.find((x) => x.id === sec)?.label ?? organisation.name}
       intro={intros[sec]}
+      docs={docPages[sec]}
       sections={sections}
       current={sec}
       base="/settings/$section"

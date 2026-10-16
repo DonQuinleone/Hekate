@@ -16,6 +16,8 @@ services:
       # Caddy sets X-Forwarded-For to the real client address.
       TRUST_PROXY: "true"
       PUBLIC_URL: https://${HEKATE_DOMAIN:-localhost}
+      # The media volume, whatever .env says for development.
+      STORAGE_LOCAL_PATH: /data/storage
       AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET to at least 32 random characters}
       MASTER_KEY: ${MASTER_KEY:?set MASTER_KEY (openssl rand -base64 32) and back it up}
     volumes:

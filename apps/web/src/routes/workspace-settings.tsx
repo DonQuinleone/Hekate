@@ -63,6 +63,8 @@ interface SectionSpec {
   /** The least role that sees the section. */
   from: Role;
   intro: string;
+  /** Its page on the documentation site. */
+  docs?: string;
 }
 
 /** The workspace's settings, grouped as in the prototype; more sections arrive with their issues. */
@@ -94,6 +96,7 @@ const allSections: SectionSpec[] = [
     group: "Access",
     from: "member",
     intro: "Who has an account here, who is invited, and which guests hold a link.",
+    docs: "/use/guests/",
   },
   {
     id: "security",
@@ -101,6 +104,7 @@ const allSections: SectionSpec[] = [
     group: "Access",
     from: "admin",
     intro: "How members sign in to this workspace.",
+    docs: "/security/model/",
   },
   {
     id: "storage",
@@ -108,6 +112,7 @@ const allSections: SectionSpec[] = [
     group: "Operations",
     from: "admin",
     intro: "Where new files are kept. Everything is encrypted before any backend sees it.",
+    docs: "/install/storage/",
   },
   {
     id: "log",
@@ -115,6 +120,7 @@ const allSections: SectionSpec[] = [
     group: "Operations",
     from: "admin",
     intro: "Every key issue, page render and download, and the changes that matter.",
+    docs: "/security/model/#audit",
   },
 ];
 
@@ -801,6 +807,7 @@ export function WorkspaceSettingsPage({ section }: { section: string }) {
       <SettingsLayout
         title={current.label}
         intro={current.intro}
+        docs={current.docs}
         sections={sections}
         current={current.id}
         base="/settings/$section"
