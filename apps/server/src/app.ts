@@ -76,6 +76,7 @@ export function createApi(deps: AppDeps) {
     audit: deps.audit,
     secret: deps.playbackSecret,
     trustProxy: deps.trustProxy ?? false,
+    secondFactor: rule,
   };
   const reviewDeps = {
     db: deps.db,

@@ -6002,6 +6002,23 @@ describe.runIf(url)("api", () => {
           });
           expect((await get(`/api/play/${expired}/master.m3u8`, owner)).status).toBe(403);
 
+          // A workspace that comes to ask for a second factor ends playback without one at once.
+          const { url: ownUrl } = await start(owner, fileId);
+          expect((await get(ownUrl, owner)).status).toBe(200);
+          await db
+            .update(schema.organisations)
+            .set({ settings: { secondFactor: "everyone" } })
+            .where(eq(schema.organisations.id, organisationId));
+          const held = await get(ownUrl, owner);
+          expect(held.status).toBe(403);
+          expect(((await held.json()) as { error: { code: string } }).error.code).toBe(
+            "second_factor_required",
+          );
+          await db
+            .update(schema.organisations)
+            .set({ settings: {} })
+            .where(eq(schema.organisations.id, organisationId));
+
           // Removing someone from the organisation ends their playback at once.
           const { url: colleagueUrl } = await start(colleague, fileId);
           await db.execute(sql`delete from ${schema.members} where role = 'member'`);

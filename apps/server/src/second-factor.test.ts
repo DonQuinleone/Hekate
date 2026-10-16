@@ -35,6 +35,15 @@ describe("recovery codes", () => {
     expect(recoveryCodesLeft(left)).toBe(1);
   });
 
+  it("never takes a stored hash as a code", async () => {
+    const store = hashedRecoveryCodes(secret);
+    const stored = JSON.parse(await store.encrypt(JSON.stringify(["k7m2p-x9q4t"]))) as string[];
+    const [hash] = stored;
+    // Typed in, a stored hash is hashed again, and is not in the list.
+    expect(stored).not.toContain(hashRecoveryCode(secret, hash ?? ""));
+    expect(stored).toContain(hashRecoveryCode(secret, "k7m2p-x9q4t"));
+  });
+
   it("depends on the secret", () => {
     expect(hashRecoveryCode(secret, "k7m2p-x9q4t")).not.toBe(
       hashRecoveryCode(`${secret}!`, "k7m2p-x9q4t"),

@@ -507,7 +507,7 @@ test("second-factor-required", async ({ page }) => {
       where id = ${before?.id ?? ""}`;
     await page.goto("/");
     await expect(page).toHaveURL(/\/second-factor$/);
-    await settle(page, "text=asks everyone to sign in with a second factor");
+    await settle(page, "text=asks you to sign in with a second factor");
     await saveScreen(page, "second-factor-required");
     await checkScreen(page);
   } finally {

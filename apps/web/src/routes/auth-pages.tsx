@@ -631,7 +631,7 @@ export function SecondFactorPage() {
   return (
     <CodeAppSetup
       page
-      reason={`${workspace?.name ?? "This workspace"} asks everyone to sign in with a second factor.`}
+      reason={`${workspace?.name ?? "This workspace"} asks you to sign in with a second factor.`}
       onDone={() => void navigate({ to: "/" })}
       shell={({ title, intro, body }) => (
         <Frame title={title} intro={intro}>

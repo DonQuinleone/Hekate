@@ -19,23 +19,26 @@ export function newRecoveryCodes(count = recoveryCodeCount): string[] {
 /** A code as typed: any case, with or without the dash or spaces. */
 export const normaliseRecoveryCode = (code: string) => code.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-const hashed = /^[0-9a-f]{64}$/;
+/** A stored code: a keyed hash, tagged so it is never mistaken for a code someone typed. */
+const STORED = "h1:";
 
+/** The stored form of a code as typed: always hashed, whatever was typed. */
 export const hashRecoveryCode = (secret: string, code: string) =>
-  hashed.test(code)
-    ? code
-    : createHmac("sha256", secret).update(normaliseRecoveryCode(code)).digest("hex");
+  `${STORED}${createHmac("sha256", secret).update(normaliseRecoveryCode(code)).digest("hex")}`;
 
 /**
  * Better Auth stores the codes through `encrypt` and reads them back through `decrypt`, then
- * looks for the one typed in the list. Here `encrypt` hashes each code (and leaves those already
- * hashed, as the list is stored again without the one used), `decrypt` returns the hashes, and
- * the typed code is hashed before the lookup (auth.ts).
+ * looks for the one typed in the list. Here `encrypt` hashes each new code (and keeps those
+ * already stored, tagged, as the list is stored again without the one used), `decrypt` returns
+ * the stored hashes, and the typed code is always hashed before the lookup (auth.ts): a stored
+ * hash sent as if it were a code is hashed again, and matches nothing.
  */
 export const hashedRecoveryCodes = (secret: string) => ({
   encrypt: async (json: string) => {
     const codes = JSON.parse(json) as string[];
-    return JSON.stringify(codes.map((code) => hashRecoveryCode(secret, code)));
+    return JSON.stringify(
+      codes.map((code) => (code.startsWith(STORED) ? code : hashRecoveryCode(secret, code))),
+    );
   },
   decrypt: async (stored: string) => stored,
 });
