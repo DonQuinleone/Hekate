@@ -1,9 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Lockup, Mark } from "~/components/brand";
+import { CommandPalette } from "~/components/command-palette";
 import { Icon, type IconName } from "~/components/icons";
+import { paletteKey } from "~/components/kbd";
 import { NotificationsMenu } from "~/components/notifications";
 import { HeaderSlotsProvider, useHeaderSlots } from "~/components/page-header";
 import { ProjectCover } from "~/components/project-cover";
@@ -418,9 +420,11 @@ function SideSection({
 function TopBar({
   onTrail,
   onActions,
+  onSearch,
 }: {
   onTrail: (el: HTMLElement | null) => void;
   onActions: (el: HTMLElement | null) => void;
+  onSearch: () => void;
 }) {
   return (
     <header className="relative flex min-h-12 shrink-0 flex-wrap items-center gap-x-3 border-b border-line px-3 @3xl/app:flex-nowrap @3xl/app:px-6">
@@ -431,6 +435,15 @@ function TopBar({
         className="order-last flex w-full items-center gap-1.5 overflow-x-auto pb-2 empty:hidden @3xl/app:order-none @3xl/app:w-auto @3xl/app:overflow-visible @3xl/app:pb-0"
       />
       <div className="flex shrink-0 items-center gap-1.5">
+        {/* On a phone there is no sidebar, so search sits beside the bell. */}
+        <button
+          type="button"
+          aria-label="Search and commands"
+          onClick={onSearch}
+          className="flex size-8 items-center justify-center rounded-control text-ink-2 transition-colors hover:bg-raised hover:text-ink @3xl/app:hidden"
+        >
+          <Icon name="search" />
+        </button>
         <NotificationsMenu />
         <HelpMenu />
       </div>
@@ -450,20 +463,50 @@ export function Shell({ children }: { children: ReactNode }) {
   const waitingAll = reviews?.filter((r) => r.yourTurn) ?? [];
   const waitingHere = current ? waitingAll.filter((r) => r.projectId === current.id) : waitingAll;
 
-  // "[" shows or hides the labels, as in Linear; never while typing.
+  const navigate = useNavigate();
+  const [palette, setPalette] = useState(false);
+  const chord = useRef(0);
+  const toggleSidebar = useCallback(() => setCollapsed(!collapsed), [collapsed, setCollapsed]);
+
+  // Ctrl or ⌘ K opens the palette anywhere, "/" outside a field; "[" shows or hides the
+  // labels, as in Linear; "g" then h, i or p jumps. Never while typing.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "[" || event.metaKey || event.ctrlKey || event.altKey) return;
-      if (inField(event)) return;
-      setCollapsed(!collapsed);
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPalette((open) => !open);
+        return;
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey || inField(event) || palette) return;
+      if (event.key === "[") toggleSidebar();
+      if (event.key === "/") {
+        event.preventDefault();
+        setPalette(true);
+      }
+      // The second key of a "g" chord must follow within a second.
+      if (event.key === "g") {
+        chord.current = Date.now();
+        return;
+      }
+      if (Date.now() - chord.current < 1000) {
+        chord.current = 0;
+        if (event.key === "h") void navigate({ to: "/" });
+        if (event.key === "i") void navigate({ to: "/inbox" });
+        if (event.key === "p") void navigate({ to: "/projects" });
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [collapsed, setCollapsed]);
+  }, [palette, toggleSidebar, navigate]);
 
   return (
     <div className="relative flex h-full flex-col @3xl/app:flex-row">
       <Ambient />
+      <CommandPalette
+        open={palette}
+        onClose={() => setPalette(false)}
+        onToggleSidebar={toggleSidebar}
+      />
       <nav
         aria-label="Main"
         className={cn(
@@ -479,6 +522,17 @@ export function Shell({ children }: { children: ReactNode }) {
           >
             {collapsed ? <Mark size={22} /> : <Lockup size={20} />}
           </Link>
+          {!collapsed && (
+            <button
+              type="button"
+              aria-label="Search and commands"
+              title={`Search and commands (${paletteKey})`}
+              onClick={() => setPalette(true)}
+              className="flex size-8 shrink-0 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink"
+            >
+              <Icon name="search" />
+            </button>
+          )}
         </div>
         <div className="scroll-quiet mt-5 flex min-h-0 flex-1 flex-col overflow-y-auto">
           <div className="flex flex-col gap-0.5">
@@ -589,7 +643,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <div className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col @3xl/app:py-2.5 @3xl/app:pr-2.5">
         <Pane>
           <HeaderSlotsProvider slots={slots}>
-            <TopBar onTrail={onTrail} onActions={onActions} />
+            <TopBar onTrail={onTrail} onActions={onActions} onSearch={() => setPalette(true)} />
             {current && (
               <nav
                 aria-label={current.name}
