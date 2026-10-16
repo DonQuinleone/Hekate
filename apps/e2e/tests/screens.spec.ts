@@ -420,6 +420,25 @@ test("shortcuts", async ({ page }, info) => {
   await expect(page).toHaveURL(/\/$/);
 });
 
+// On a phone the composer is a sheet, opened from a button, so the comments stay in view.
+test("file-comment-sheet", async ({ page }, info) => {
+  test.skip(info.project.name !== "phone", "A sheet on phones only");
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page.getByRole("button", { name: "Comment at the playhead" }).click();
+  const sheet = page.getByRole("dialog", { name: "Comment at the playhead" });
+  await expect(sheet.getByRole("textbox", { name: "Comment at the playhead" })).toBeVisible();
+  await saveScreen(page, "file-comment-sheet");
+  await checkScreen(page);
+  // With a keyboard, c opens the same sheet, ready to type in.
+  await sheet.getByRole("button", { name: "Close" }).click();
+  await expect(sheet).toBeHidden();
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press("c");
+  await expect(sheet.getByRole("textbox", { name: "Comment at the playhead" })).toBeFocused();
+});
+
 // A file whose preparation failed says so, with a way to try again; put back as seeded after.
 test("project-files-failed", async ({ page }, info) => {
   const sql = postgres(process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL ?? "", { max: 1 });
