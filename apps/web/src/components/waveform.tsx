@@ -87,6 +87,7 @@ export function Waveform({
   );
   const names = level ? channelNames(level.channels, layout) : [];
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the tokens it reads change with the theme.
   useEffect(() => {
     const element = container.current;
     if (!element || !shown) return;

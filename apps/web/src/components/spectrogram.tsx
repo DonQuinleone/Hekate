@@ -54,6 +54,7 @@ function Plane({
     return () => observer.disconnect();
   }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the tokens it reads change with the theme.
   useEffect(() => {
     const element = canvas.current;
     const context = element?.getContext("2d");
