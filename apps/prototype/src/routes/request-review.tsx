@@ -473,8 +473,8 @@ export function RequestReviewPage({
               </Card>
               <Card>
                 <div className="flex h-9 items-center gap-2 border-b border-line px-3">
-                  <Label>Reviewers</Label>
-                  <span className="text-[12px] text-ink-3">guests, by link</span>
+                  <Label>Guests</Label>
+                  <span className="text-[12px] text-ink-3">by link</span>
                   <button
                     type="button"
                     onClick={() => setInviting(!inviting)}
@@ -651,8 +651,8 @@ export function RequestReviewPage({
                 </Chip>
               ))}
               <label className="ml-auto flex items-center gap-2 text-[13px] text-ink-2">
-                Remind two days before
-                <Switch label="Remind" checked={remind} onChange={setRemind} />
+                Remind the day before
+                <Switch label="Remind the day before" checked={remind} onChange={setRemind} />
               </label>
             </div>
             <Textarea

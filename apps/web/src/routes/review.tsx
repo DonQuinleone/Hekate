@@ -64,7 +64,9 @@ const ruleCopy = (review: ReviewDetail) =>
   review.kind === "approval"
     ? review.rule === "any"
       ? "anyone approves"
-      : "everyone approves"
+      : review.rule === "share"
+        ? `${review.share ?? 100}% approve`
+        : "everyone approves"
     : "everyone submits";
 
 function reviewerDot(r: Reviewer): ReviewerDotState {

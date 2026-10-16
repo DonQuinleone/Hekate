@@ -207,8 +207,10 @@ A review is created by someone whose role allows it. It names:
 - **Items:** one or more tracks (a specific version, or the latest), and/or files.
 - **Kind:** approval or feedback.
 - **Reviewers:** members, guests and groups.
-- **Order:** all at once, or in sequence (each reviewer or group starts when the previous one finishes).
-- **Rule** (approvals only): everyone must approve, or any one approval is enough. Any *Changes requested* decision is logged regardless.
+- **Order:** all at once, or in sequence: a series of steps, each holding one or more reviewers or groups asked together, each starting when the one before finishes.
+- **Rule** (approvals only): everyone must approve, any one approval is enough, or a share of them (a percentage, rounded up to whole people; changes are requested as soon as it can no longer be reached). Any *Changes requested* decision is logged regardless.
+- **Title:** optional; a request without one is named after what it asks about ("Maple Leaf Rag and 2 more").
+- **Reminder:** the day before it is due, unless the requester turns it off.
 - **Due date** and a message.
 
 Each reviewer's participation has its own state (invited, viewed, in progress, submitted) and, for approvals, a decision with a timestamp. Decisions are append-only: a later decision supersedes an earlier one but never erases it.

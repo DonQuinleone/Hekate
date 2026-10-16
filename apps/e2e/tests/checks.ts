@@ -167,6 +167,21 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
       }
     }
 
+    // Whether a target's centre shows: one scrolled out of a box that hides its overflow (the
+    // page's scrolling pane) cannot be hit, so it crowds nothing.
+    const inView = (el: Element) => {
+      const box = el.getBoundingClientRect();
+      const x = box.left + box.width / 2;
+      const y = box.top + box.height / 2;
+      for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+        const style = getComputedStyle(a);
+        if (style.overflowX === "visible" && style.overflowY === "visible") continue;
+        const clip = a.getBoundingClientRect();
+        if (x < clip.left || x > clip.right || y < clip.top || y > clip.bottom) return false;
+      }
+      return true;
+    };
+
     // Targets big enough to hit, or far enough apart (WCAG 2.5.8): a smaller target passes
     // when a 24 px circle on its centre touches no other target nor another such circle.
     // Links inside running text are exempt, as WCAG allows.
@@ -175,7 +190,7 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
         "a[href], button, input:not([type=hidden]), select, textarea, [role=button], [role=tab], [role=link], [role=checkbox], [role=radio], [role=switch], [role=slider]",
       ),
     ]
-      .filter((el) => shown(el) && !covered(el, el.getBoundingClientRect()))
+      .filter((el) => shown(el) && !covered(el, el.getBoundingClientRect()) && inView(el))
       // While a modal is open, only its own targets: the page and the layer that closes the
       // modal when clicked lie behind it.
       .filter((el) => !modal || modal.contains(el))
