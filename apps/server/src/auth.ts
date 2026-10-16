@@ -4,9 +4,9 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware, isAPIError } from "better-auth/api";
 import { emailOTP, haveIBeenPwned } from "better-auth/plugins";
 import type { Audit } from "./audit.ts";
-import { waitFor, waitMessage } from "./lockout.ts";
+import { waitMessage } from "./lockout.ts";
 import { type Mailer, sendEmail } from "./mail.ts";
-import { attemptsFor, clearAttempts, isLocked, logToWorkspaces, recordFailure } from "./sign-in.ts";
+import { admitAttempt, clearAttempts, logLockout, logToWorkspaces } from "./sign-in.ts";
 
 export interface AuthOptions {
   db: Database;
@@ -35,6 +35,8 @@ const appBase = (baseURL: string) => baseURL.replace(/\/$/, "");
  * (issues 37, 38, 39, 24). See docs/security.md (Authentication).
  */
 export function createAuth(options: AuthOptions) {
+  /** Sign-in requests whose attempt reached the lock, to log once they have failed. */
+  const locking = new WeakSet<Request>();
   return betterAuth({
     appName: "Hekate",
     secret: options.secret,
@@ -98,17 +100,18 @@ export function createAuth(options: AuthOptions) {
         ) {
           throw new APIError("FORBIDDEN", { message: "Sign in with your password." });
         }
-        // Repeated guesses wait longer each time, then the account locks for a while.
+        // Repeated guesses wait longer each time, then the account locks for a while. Each
+        // attempt is counted as it is let in, so a burst cannot slip through together.
         if (ctx.path === "/sign-in/email" && typeof ctx.body?.email === "string") {
-          const attempts = await attemptsFor(options.db, ctx.body.email);
-          const wait = waitFor(attempts, new Date());
-          if (wait > 0) {
+          const admitted = await admitAttempt(options.db, ctx.body.email);
+          if (admitted.wait > 0) {
             throw new APIError(
               "TOO_MANY_REQUESTS",
-              { message: waitMessage(wait, isLocked(attempts)) },
-              { "Retry-After": String(Math.ceil(wait / 1000)) },
+              { message: waitMessage(admitted.wait, admitted.locked) },
+              { "Retry-After": String(Math.ceil(admitted.wait / 1000)) },
             );
           }
+          if (admitted.locks && ctx.request) locking.add(ctx.request);
         }
       }),
       after: createAuthMiddleware(async (ctx) => {
@@ -117,9 +120,10 @@ export function createAuth(options: AuthOptions) {
         const returned = ctx.context.returned;
         const failed = isAPIError(returned);
         if (ctx.path === "/sign-in/email") {
-          if (failed && returned.statusCode === 401)
-            await recordFailure(options.db, email, options.audit);
-          else if (!failed) await clearAttempts(options.db, email);
+          // Counted when let in; a success clears it, and a failure that locked is told.
+          if (!failed) await clearAttempts(options.db, email);
+          else if (ctx.request && locking.has(ctx.request) && options.audit)
+            await logLockout(options.db, options.audit, email);
         }
         if (ctx.path === "/email-otp/reset-password" && !failed) {
           await clearAttempts(options.db, email);

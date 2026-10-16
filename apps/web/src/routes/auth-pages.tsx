@@ -264,7 +264,7 @@ function Sent({
   back: () => void;
 }) {
   const [code, setCode] = useState("");
-  const [again, setAgain] = useState<"idle" | "sending" | "sent">("idle");
+  const [again, setAgain] = useState<"idle" | "sending" | "sent" | "failed">("idle");
   return (
     <Frame
       title="Check your email"
@@ -288,8 +288,8 @@ function Sent({
             disabled={again === "sending" || !email}
             onClick={async () => {
               setAgain("sending");
-              await authClient.emailOtp.requestPasswordReset({ email });
-              setAgain("sent");
+              const { error } = await authClient.emailOtp.requestPasswordReset({ email });
+              setAgain(error ? "failed" : "sent");
             }}
             className="text-ink-2 underline-offset-2 hover:text-ink hover:underline"
           >
@@ -297,6 +297,9 @@ function Sent({
           </button>
           . The code works once, for ten minutes.
         </p>
+        {again === "failed" && (
+          <ErrorLine message="That did not go through: too many requests, or the mail could not be sent. Wait a few minutes and try again." />
+        )}
       </form>
       <Back onClick={back} />
     </Frame>
@@ -322,6 +325,7 @@ function Reset({
   const [error, setError] = useState<string | null>(null);
   const [expired, setExpired] = useState(false);
   const [pending, setPending] = useState(false);
+  const [done, setDone] = useState(false);
   const strength = passwordStrength(password);
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -344,11 +348,28 @@ function Reset({
       );
       return;
     }
-    // Every session ended with the old password; this one starts the new.
-    await authClient.signIn.email({ email, password });
+    // Every session ended with the old password; this one starts the new. If signing in does
+    // not go straight through (a limit, or a further step), the password is still set: say so.
+    const signedIn = await authClient.signIn.email({ email, password });
+    setPending(false);
+    if (signedIn.error || !signedIn.data || "twoFactorRedirect" in signedIn.data) {
+      setDone(true);
+      return;
+    }
     await client.invalidateQueries({ queryKey: ["me"] });
     await arrive(redirect, navigate);
   };
+  if (done)
+    return (
+      <Frame
+        title="Your new password is set"
+        intro="Every session has ended. Sign in with the new password to carry on."
+      >
+        <Button variant="primary" size="lg" onClick={back}>
+          Sign in
+        </Button>
+      </Frame>
+    );
   return (
     <Frame
       title="Set a new password"

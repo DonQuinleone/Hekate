@@ -1,6 +1,7 @@
 import { type Database, schema } from "@hekate/db";
 import { zValidator } from "@hono/zod-validator";
 import { isAPIError } from "better-auth/api";
+import { isPasswordCompromised } from "better-auth/plugins";
 import { asc, count } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -31,7 +32,7 @@ async function hasUsers(db: Database) {
  * pre-authentication install created) and makes the account its owner. Closed once any account exists.
  * Setup is serialised in-process; the unique email constraint is the backstop across processes.
  */
-export const setupRoutes = (db: Database, auth: Auth) => {
+export const setupRoutes = (db: Database, auth: Auth, leakCheck: boolean) => {
   let running: Promise<unknown> = Promise.resolve();
   return new Hono()
     .get("/", async (c) => c.json({ needed: !(await hasUsers(db)) }))
@@ -42,7 +43,19 @@ export const setupRoutes = (db: Database, auth: Auth) => {
           throw new HTTPException(409, { message: "Hekate is already set up" });
         const ctx = await auth.$context;
         // The password first: one refused (a known breach, or the check unreachable) must
-        // leave no account behind, or setup could never run again.
+        // leave no account behind, or setup could never run again. Setup creates the account
+        // itself, outside the sign-up route the breach check watches, so it asks directly.
+        if (leakCheck) {
+          const compromised = await isPasswordCompromised(input.password).catch(() => {
+            throw new HTTPException(503, {
+              message: "The password could not be checked against known breaches. Try again.",
+            });
+          });
+          if (compromised)
+            throw new HTTPException(400, {
+              message: "That password appears in known data breaches. Choose another one.",
+            });
+        }
         const password = await ctx.password.hash(input.password).catch((error: unknown) => {
           if (isAPIError(error))
             throw new HTTPException(error.statusCode === 400 ? 400 : 503, {

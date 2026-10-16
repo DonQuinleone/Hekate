@@ -390,6 +390,41 @@ describe.runIf(url)("api", () => {
     ).toBe(401);
   });
 
+  it("lets a burst of guesses through only as the policy would one at a time", async () => {
+    await setup();
+    const tries = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        app.request(
+          "/api/auth/sign-in/email",
+          json({ email: owner.email, password: "wrong password here" }),
+        ),
+      ),
+    );
+    const statuses = tries.map((r) => r.status).sort();
+    // The four free tries are heard; the rest, sent at the same moment, wait.
+    expect(statuses).toEqual([401, 401, 401, 401, 429, 429, 429, 429]);
+  });
+
+  it("forgets attempts a day old that hold no lock", async () => {
+    const { purgeAttempts } = await import("./sign-in.ts");
+    const now = new Date();
+    const old = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+    await db.delete(schema.signInAttempts);
+    await db.insert(schema.signInAttempts).values([
+      { key: "stale", failures: 1, updatedAt: old },
+      { key: "recent", failures: 1, updatedAt: now },
+      {
+        key: "locked",
+        failures: 10,
+        updatedAt: old,
+        lockedUntil: new Date(now.getTime() + 60_000),
+      },
+    ]);
+    await purgeAttempts(db, now);
+    const left = await db.select({ key: schema.signInAttempts.key }).from(schema.signInAttempts);
+    expect(left.map((r) => r.key).sort()).toEqual(["locked", "recent"]);
+  });
+
   it("sets a new password with an emailed code, ending every session", async () => {
     const cookie = cookieOf(await setup());
     mailer.sent.length = 0;
