@@ -1,11 +1,14 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  applyWorkspaceSettings,
   atLeast,
   auditQuery,
   inviteInput,
   organisationRole,
   organisationStorageInput,
   organisationUpdateInput,
+  workspaceSettingsInput,
+  workspaceSettingsOf,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, count, desc, eq, gt, inArray, isNull, max, sql } from "drizzle-orm";
@@ -80,6 +83,48 @@ export const organisationRoutes = (
       });
       return c.json({ organisation: row });
     })
+    // Every member reads the settings: they decide how dates read and what a review grants.
+    .get("/settings", async (c) => {
+      const [row] = await db
+        .select({ settings: organisations.settings })
+        .from(organisations)
+        .where(eq(organisations.id, c.var.organisationId));
+      if (!row) throw new NotFound("Workspace");
+      return c.json({ settings: workspaceSettingsOf(row.settings) });
+    })
+    .patch(
+      "/settings",
+      requireRole("admin"),
+      zValidator("json", workspaceSettingsInput),
+      async (c) => {
+        const change = c.req.valid("json");
+        const organisationId = c.var.organisationId;
+        const who = await audit.member(c.var.userId);
+        const settings = await db.transaction(async (tx) => {
+          // Locked, so two admins changing different settings at once both keep their change.
+          const [row] = await tx
+            .select({ settings: organisations.settings })
+            .from(organisations)
+            .where(eq(organisations.id, organisationId))
+            .for("update");
+          if (!row) throw new NotFound("Workspace");
+          const next = applyWorkspaceSettings(workspaceSettingsOf(row.settings), change);
+          await tx
+            .update(organisations)
+            .set({ settings: next, updatedAt: new Date() })
+            .where(eq(organisations.id, organisationId));
+          await audit.record(
+            organisationId,
+            who,
+            { action: "organisation.settings", details: { change } },
+            requestInfo(c, trustProxy),
+            tx,
+          );
+          return next;
+        });
+        return c.json({ settings });
+      },
+    )
     .get("/members", async (c) => {
       const rows = await db
         .select({

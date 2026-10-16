@@ -456,8 +456,10 @@ function TopBar({
 
 export function Shell({ children }: { children: ReactNode }) {
   const { data: signedIn } = useQuery(meQuery);
-  // Dates and numbers in the member's language and time zone; the page redraws if they change.
-  setLocale(signedIn?.user.locale, signedIn?.user.timeZone);
+  // Dates and numbers in the member's language (else the workspace's) and time zone; the page
+  // redraws if they change.
+  const workspace = signedIn?.organisations.find((o) => o.id === signedIn.activeOrganisationId);
+  setLocale(signedIn?.user.locale ?? workspace?.locale, signedIn?.user.timeZone);
   const page = <Fragment key={localeKey()}>{children}</Fragment>;
   useThemeSync(signedIn?.user.preferences?.theme);
   const [collapsed, setCollapsed] = useCollapsed();

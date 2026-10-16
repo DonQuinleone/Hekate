@@ -29,6 +29,7 @@ import {
   projectsQuery,
   useArchiveProject,
   useCreateProject,
+  workspaceSettingsQuery,
 } from "~/lib/queries";
 
 export { profileIcon };
@@ -55,7 +56,10 @@ export function NewProject({
 }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [profile, setProfile] = useState<ProjectProfile>("music");
+  const { data: settings } = useQuery(workspaceSettingsQuery);
+  const [chosen, setProfile] = useState<ProjectProfile | null>(null);
+  // The workspace's default profile until someone picks one.
+  const profile = chosen ?? settings?.defaultProfile ?? "music";
   const [templateId, setTemplateId] = useState("");
   const { data: templates = [] } = useQuery(projectsQuery);
   const create = useCreateProject();

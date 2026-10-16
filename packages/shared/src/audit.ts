@@ -39,6 +39,8 @@ export const auditActions = [
   "comment.create",
   /** An owner renamed the workspace. */
   "organisation.rename",
+  /** An admin changed the workspace's settings. */
+  "organisation.settings",
   /** A project was archived (its open reviews closing), or brought back. */
   "project.archive",
   "project.unarchive",

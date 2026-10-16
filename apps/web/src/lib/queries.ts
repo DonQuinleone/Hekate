@@ -36,6 +36,8 @@ import {
   searchResponse,
   type TrackState,
   type UpdateCarryInput,
+  type WorkspaceSettings,
+  type WorkspaceSettingsInput,
 } from "@hekate/shared";
 import {
   infiniteQueryOptions,
@@ -77,7 +79,13 @@ export interface Me {
     timeZone?: string | null;
     preferences?: Preferences;
   };
-  organisations: { id: string; name: string; role: "owner" | "admin" | "member" }[];
+  organisations: {
+    id: string;
+    name: string;
+    role: "owner" | "admin" | "member";
+    /** The workspace's language, for members without their own. */
+    locale?: string | null;
+  }[];
   activeOrganisationId: string;
 }
 
@@ -377,6 +385,31 @@ export function useRenameWorkspace() {
         await api.organisation.$patch({ json: { name } }),
       ),
     onSuccess: () => client.invalidateQueries({ queryKey: meQuery.queryKey }),
+  });
+}
+
+/** The workspace's settings; every member reads them. */
+export const workspaceSettingsQuery = queryOptions({
+  queryKey: ["organisation", "settings"],
+  queryFn: async () =>
+    (await json<{ settings: WorkspaceSettings }>(await api.organisation.settings.$get())).settings,
+});
+
+/** Change some workspace settings (admins). The language reaches every member, so `me` too. */
+export function useSaveWorkspaceSettings() {
+  const client = useQueryClient();
+  return useMutation({
+    scope: { id: "workspace-settings" },
+    mutationFn: async (change: WorkspaceSettingsInput) =>
+      (
+        await json<{ settings: WorkspaceSettings }>(
+          await api.organisation.settings.$patch({ json: change }),
+        )
+      ).settings,
+    onSuccess: (settings, change) => {
+      client.setQueryData(workspaceSettingsQuery.queryKey, settings);
+      if (change.locale !== undefined) client.invalidateQueries({ queryKey: meQuery.queryKey });
+    },
   });
 }
 

@@ -1,0 +1,2 @@
+ALTER TYPE "public"."audit_action" ADD VALUE 'organisation.settings' BEFORE 'project.archive';--> statement-breakpoint
+ALTER TABLE "organisations" ADD COLUMN "settings" jsonb DEFAULT '{}'::jsonb NOT NULL;
