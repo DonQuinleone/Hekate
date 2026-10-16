@@ -131,6 +131,11 @@ export const users = pgTable("users", {
   preferences: jsonb("preferences"),
   /** Whether a second factor guards their sign-in (Better Auth's two-factor plugin). */
   twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
+  /**
+   * When they deleted their account. The row stays, so their comments and decisions keep an
+   * author, but holds no name, address or preference of theirs any more.
+   */
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
   ...timestamps,
 });
 

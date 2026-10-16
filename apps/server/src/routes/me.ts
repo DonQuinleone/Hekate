@@ -1,5 +1,6 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  deleteAccountInput,
   fileColumnsInput,
   preferencesInput,
   preferencesOf,
@@ -12,8 +13,24 @@ import { and, asc, desc, eq, gt, ne } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
+import { deleteAccount } from "../account-deletion.ts";
+import { type Audit, requestInfo } from "../audit.ts";
+import type { Auth } from "../auth.ts";
+import { CodedException } from "../errors.ts";
 import { recoveryCodesLeft } from "../second-factor.ts";
-import { membershipOf, type SecondFactorRule, type TenantVariables } from "../tenancy.ts";
+import {
+  membershipOf,
+  requireSession,
+  type SecondFactorRule,
+  type SessionVariables,
+  type TenantVariables,
+} from "../tenancy.ts";
+
+export interface MeDeps {
+  auth: Auth;
+  audit: Audit;
+  trustProxy: boolean;
+}
 
 export const meRoutes = (db: Database, rule: SecondFactorRule) =>
   new Hono<{ Variables: TenantVariables }>()
@@ -189,3 +206,35 @@ export const meRoutes = (db: Database, rule: SecondFactorRule) =>
         );
       return c.json({ columns });
     });
+
+/**
+ * `DELETE /api/me`: the account itself, which belongs to no workspace. It needs a session
+ * only, so someone removed from their last workspace can still delete theirs. The address and
+ * the password confirm it; what they did stays, as a former member's (decision 047), and a
+ * sole owner hands the workspace on first.
+ */
+export const accountRoutes = (db: Database, deps: MeDeps) =>
+  new Hono<{ Variables: SessionVariables }>().delete(
+    "/",
+    requireSession(deps.auth),
+    zValidator("json", deleteAccountInput),
+    async (c) => {
+      const result = await deleteAccount(
+        db,
+        deps.auth,
+        deps.audit,
+        c.var.userId,
+        c.req.valid("json"),
+        requestInfo(c, deps.trustProxy),
+      );
+      if (result.status === "refused")
+        throw new CodedException(403, "confirm_refused", "That address or password is not right.");
+      if (result.status === "sole_owner")
+        throw new CodedException(
+          409,
+          "sole_owner",
+          `You are the only owner of ${result.workspaces.join(", ")}. Make someone else an owner first.`,
+        );
+      return c.body(null, 204);
+    },
+  );
