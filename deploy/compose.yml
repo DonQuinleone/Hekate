@@ -1,11 +1,13 @@
 # Self-hosted Hekate: the app, PostgreSQL and Caddy (automatic HTTPS).
 # Usage: cp .env.example .env, edit it, then: docker compose -f deploy/compose.yml up -d
+# The app is the released, signed image. To build it from this checkout instead:
+#   docker compose -f deploy/compose.yml -f deploy/compose.build.yml up -d --build
 name: hekate
 
 services:
   app:
-    build: { context: .., dockerfile: Dockerfile }
-    image: hekate:latest
+    # The release this file came with; HEKATE_VERSION picks another.
+    image: ghcr.io/donquinleone/hekate:${HEKATE_VERSION:-0.1.0} # x-release-please-version
     restart: unless-stopped
     env_file: ../.env
     environment:

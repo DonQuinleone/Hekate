@@ -78,6 +78,16 @@ cp .env.example .env    # set HEKATE_DOMAIN, secrets, MASTER_KEY and storage
 docker compose -f deploy/compose.yml up -d
 ```
 
+The Compose file runs the released image, `ghcr.io/donquinleone/hekate`, for amd64 and arm64. Each release's image is scanned before it is published, carries an SBOM and SLSA provenance, and is signed with cosign; check the signature before you run it:
+
+```sh
+cosign verify ghcr.io/donquinleone/hekate:<version> \
+  --certificate-identity-regexp '^https://github.com/DonQuinleone/Hekate/\.github/workflows/release-please\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+To build the image from a checkout instead, add `-f deploy/compose.build.yml` and `--build`.
+
 ## Storage
 
 Media can live in several named backends at once. Each stored object records which backend holds it, so you can add a backend or change the default without moving or breaking anything already stored. Workspace owners can choose which backend their new uploads use; otherwise `STORAGE_DEFAULT` applies.
