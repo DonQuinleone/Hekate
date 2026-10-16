@@ -113,6 +113,12 @@ An append-only access log records who accessed what, when, through which review,
 - **Client addresses** come from the socket, or from `X-Forwarded-For` only when `TRUST_PROXY` is set (the Compose file sets it, because Caddy replaces that header with the real client address). A client cannot claim another address otherwise.
 - **Reading and export** are for workspace admins and owners: filters by project, file, review, person, action and time, newest first with cursor paging, and a CSV export. Exports are themselves logged, and cells that a spreadsheet would run as formulas are neutralised.
 
+## Headers and limits
+
+- **Headers:** the app sets them on every response, so they hold behind any proxy. The Content Security Policy allows this origin alone: no inline or evaluated script, no style, font, image or request from elsewhere, `blob:` only where hls.js feeds MediaSource and runs its worker, and `frame-ancestors 'none'` (with `X-Frame-Options: DENY`), so no page can be framed. Also `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, a `Permissions-Policy` that grants passkeys, full screen and autoplay to this origin and nothing else, `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy: same-origin`, and HSTS when the public address is HTTPS (Caddy, terminating TLS, adds it too). The visual suite loads every screen under the policy and fails on any violation.
+- **Request size:** a body is at most 2 MB, except an upload chunk, which has its own limit (Uploads); larger requests get 413.
+- **Rate limits:** kept in PostgreSQL, so every replica counts the same requests (decision 051). Sign-in, reset codes and second-factor codes use Better Auth's limits, now stored in the database; opening guest links and trying their codes are limited to 30 per address in ten minutes; starting uploads to 120 a minute per member; content keys to 30 a minute per session. A refusal is 429 with `Retry-After`. Counts older than a day are purged hourly.
+
 ## Settled questions
 
 - Commercial DRM is not needed yet; segments can be repackaged as CENC `cbcs` without re-encoding if it ever is (decision 022).

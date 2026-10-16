@@ -16,7 +16,7 @@ import {
 import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
 import { and, eq, ne, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createApp } from "./app.ts";
+import { createApp, MAX_BODY_BYTES } from "./app.ts";
 import { createAudit, csvCell } from "./audit.ts";
 import { createAuth } from "./auth.ts";
 import { createClient } from "./client.ts";
@@ -34,6 +34,7 @@ import {
 } from "./media/workers.ts";
 import { deliverDigests, deliverInstant, tellProcessingFailed } from "./notifications.ts";
 import { playbackSecret, signPlayback } from "./playback.ts";
+import { admit } from "./rate-limit.ts";
 import { remindDue } from "./reminders.ts";
 import { createStorage } from "./storage.ts";
 import { expireUploads } from "./uploads.ts";
@@ -168,6 +169,8 @@ describe.runIf(url)("api", () => {
     await withAuditPurge(db, (tx) =>
       tx.execute(sql`truncate ${schema.organisations}, ${schema.users} cascade`),
     );
+    // Rate limit counts belong to no workspace; each test starts with none.
+    await db.execute(sql`truncate ${schema.requestLimits}`);
   });
   afterAll(async () => {
     await withAuditPurge(db, (tx) =>
@@ -1151,6 +1154,72 @@ describe.runIf(url)("api", () => {
         const refused = await signIn("tomas", "tomas-directory-pass");
         expect(refused.status).toBe(403);
         expect(((await refused.json()) as { message: string }).message).toMatch(/already exists/);
+      });
+    });
+
+    describe("protection", () => {
+      it("sends the security headers with every response, pages and errors alike", async () => {
+        for (const res of [
+          await app.request("/api/health"),
+          await app.request("/api/no-such-thing"),
+          await app.request("/api/me"),
+        ]) {
+          const csp = res.headers.get("content-security-policy") ?? "";
+          expect(csp).toContain("default-src 'self'");
+          expect(csp).toContain("script-src 'self'");
+          expect(csp).not.toContain("unsafe-eval");
+          expect(csp).toContain("frame-ancestors 'none'");
+          expect(res.headers.get("x-frame-options")).toBe("DENY");
+          expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+          expect(res.headers.get("cross-origin-opener-policy")).toBe("same-origin");
+          expect(res.headers.get("permissions-policy")).toContain("camera=()");
+          // Not over plain HTTP, where it would lock browsers out of the instance.
+          expect(res.headers.get("strict-transport-security")).toBeNull();
+        }
+      });
+
+      it("refuses bodies past the limit, outside the upload chunks", async () => {
+        const huge = JSON.stringify({ name: "x".repeat(MAX_BODY_BYTES + 10) });
+        const res = await app.request("/api/setup", {
+          method: "POST",
+          headers: { "content-type": "application/json", "content-length": String(huge.length) },
+          body: huge,
+        });
+        expect(res.status).toBe(413);
+        expect(((await res.json()) as { error: { code: string } }).error.code).toBe("too_large");
+      });
+
+      it("limits guest links and codes per address, in the database every replica shares", async () => {
+        const open = (address: string) =>
+          app.request("/api/guest/sessions", {
+            ...json({ token: "x".repeat(32) }),
+            headers: {
+              "content-type": "application/json",
+              "x-forwarded-for": address,
+            },
+          });
+        for (let i = 0; i < 30; i++) expect((await open("198.51.100.7")).status).toBe(410);
+        const refused = await open("198.51.100.7");
+        expect(refused.status).toBe(429);
+        expect(Number(refused.headers.get("retry-after"))).toBeGreaterThan(0);
+        // Someone else is not held back by them.
+        expect((await open("198.51.100.8")).status).toBe(410);
+        const [row] = await db
+          .select()
+          .from(schema.requestLimits)
+          .where(eq(schema.requestLimits.key, "guest:198.51.100.7"));
+        expect(row?.count).toBe(31);
+      });
+
+      it("counts each window afresh, and counts at once under a burst", async () => {
+        const rule = { max: 3, windowMs: 60_000 };
+        const at = new Date("2026-10-16T12:00:00Z");
+        const burst = await Promise.all(
+          Array.from({ length: 6 }, () => admit(db, "test:burst", rule, at)),
+        );
+        expect(burst.filter((r) => r.allowed)).toHaveLength(3);
+        const later = new Date(at.getTime() + 61_000);
+        expect((await admit(db, "test:burst", rule, later)).allowed).toBe(true);
       });
     });
 
@@ -6882,9 +6951,16 @@ describe.runIf(url)("api", () => {
           const variant = master.split("\n").find((l) => l.startsWith("r/")) ?? "";
           const keyUrl = url.replace(/master\.m3u8$/, "") + variant.replace(/index\.m3u8$/, "key");
           const statuses: number[] = [];
-          for (let i = 0; i < 32; i++) statuses.push((await get(keyUrl, owner)).status);
+          let refused: Response | undefined;
+          for (let i = 0; i < 32; i++) {
+            const res = await get(keyUrl, owner);
+            statuses.push(res.status);
+            if (res.status === 429) refused = res;
+          }
           expect(statuses.slice(0, 30).every((s) => s === 200)).toBe(true);
           expect(statuses.slice(30)).toEqual([429, 429]);
+          // A refusal says when to try again, as every rate limit's does.
+          expect(Number(refused?.headers.get("retry-after"))).toBeGreaterThan(0);
           const keys = await audit.query(organisationId, { action: "stream.key", limit: 200 });
           expect(keys.events).toHaveLength(30);
         }, 120_000);

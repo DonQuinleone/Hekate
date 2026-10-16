@@ -77,23 +77,3 @@ export function verifyPlayback(
     expiresAt: raw.e,
   };
 }
-
-/**
- * A small per-session limit on content key requests. Players fetch a key once per
- * rendition; a burst means something is harvesting keys.
- */
-export function keyRateLimiter(limit = 30, windowMs = 60_000) {
-  const windows = new Map<string, { start: number; count: number }>();
-  return (sessionId: string, now = Date.now()): boolean => {
-    const current = windows.get(sessionId);
-    if (!current || now - current.start >= windowMs) {
-      windows.set(sessionId, { start: now, count: 1 });
-      if (windows.size > 10_000) {
-        for (const [id, w] of windows) if (now - w.start >= windowMs) windows.delete(id);
-      }
-      return true;
-    }
-    current.count += 1;
-    return current.count <= limit;
-  };
-}

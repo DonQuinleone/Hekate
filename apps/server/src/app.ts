@@ -1,5 +1,6 @@
 import type { Database } from "@hekate/db";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { logger } from "hono/logger";
 import type { Audit } from "./audit.ts";
@@ -9,6 +10,7 @@ import { requirePlaySession, requireViewer } from "./guests.ts";
 import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
 import type { Mailer } from "./mail.ts";
+import { rateLimit } from "./rate-limit.ts";
 import { carryRoutes, commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
 import { directoryRoutes } from "./routes/directory.ts";
 import { fileDetailRoutes } from "./routes/file-details.ts";
@@ -41,6 +43,7 @@ import {
   versionRoutes,
 } from "./routes/tracks.ts";
 import { uploadRoutes } from "./routes/uploads.ts";
+import { securityHeaders } from "./security-headers.ts";
 import type { Storage } from "./storage.ts";
 import { requireOrganisation, requireSession } from "./tenancy.ts";
 
@@ -170,6 +173,19 @@ export function createApi(deps: AppDeps) {
       .route("/variations", variationRoutes(deps.db))
       .use("/uploads/*", ...member)
       .use("/uploads", ...member)
+      // Starting uploads, per member: a client in a loop is stopped before storage is.
+      .post(
+        "/uploads",
+        rateLimit(
+          deps.db,
+          "uploads",
+          { max: 120, windowMs: 60_000 },
+          {
+            trustProxy: deps.trustProxy ?? false,
+            by: (c) => (c.var as { userId?: string }).userId,
+          },
+        ),
+      )
       .route(
         "/uploads",
         uploadRoutes(deps.db, deps.storage, deps.jobs, deps.audit, deps.trustProxy ?? false),
@@ -191,6 +207,18 @@ export function createApi(deps: AppDeps) {
       .route("/files", fileDetailRoutes(deps.db))
       .use("/reviews/*", viewer)
       .route("/reviews", reviewRoutes(reviewDeps))
+      // Opening links and trying codes, per address: few people need many in ten minutes.
+      .use(
+        "/guest/sessions/*",
+        rateLimit(
+          deps.db,
+          "guest",
+          { max: 30, windowMs: 10 * 60_000 },
+          {
+            trustProxy: deps.trustProxy ?? false,
+          },
+        ),
+      )
       .route("/guest", guestRoutes(reviewDeps))
       .use("/comments/*", ...member)
       .route("/comments", commentRoutes(deps.db))
@@ -204,9 +232,23 @@ export function createApi(deps: AppDeps) {
 
 export type Api = ReturnType<typeof createApi>;
 
+/** The largest request body outside the upload chunks, which carry their own limit. */
+export const MAX_BODY_BYTES = 2 * 1024 * 1024;
+
 export function createApp(deps: AppDeps) {
   const app = new Hono();
+  app.use("*", securityHeaders({ https: deps.publicUrl.startsWith("https://") }));
   if (deps.log !== false) app.use("/api/*", logger());
+  // Every other body is small: settings, comments, sign-in. A chunk's limit is its own.
+  app.use("/api/*", async (c, next) =>
+    /^\/api\/uploads\/[^/]+\/chunks\//.test(c.req.path)
+      ? next()
+      : bodyLimit({
+          maxSize: MAX_BODY_BYTES,
+          onError: (c) =>
+            c.json({ error: { code: "too_large", message: "That request is too large." } }, 413),
+        })(c, next),
+  );
   // Public sign-up is closed: accounts come from setup and, later, invitations.
   app.all("/api/auth/sign-up/*", () => {
     throw new HTTPException(403, { message: "Sign-up is by invitation" });

@@ -15,12 +15,12 @@ import type { PlaySessionVariables, ViewerVariables } from "../guests.ts";
 import type { Keyring } from "../keyring.ts";
 import { watermark, watermarkText } from "../media/watermark.ts";
 import {
-  keyRateLimiter,
   PLAYBACK_LIFETIME_SECONDS,
   type PlaybackClaims,
   signPlayback,
   verifyPlayback,
 } from "../playback.ts";
+import { admit, tooMany } from "../rate-limit.ts";
 import type { Storage } from "../storage.ts";
 import {
   assertSecondFactor,
@@ -444,8 +444,6 @@ type PlayVariables = PlaySessionVariables & { playback: PlaybackClaims; actor: A
  * comes only from the key route, which is rate-limited and logged.
  */
 export const playRoutes = (deps: PlaybackDeps) => {
-  const allowKey = keyRateLimiter();
-
   const authorise = createMiddleware<{ Variables: PlayVariables }>(async (c, next) => {
     const claims = verifyPlayback(deps.secret, c.req.param("token") ?? "");
     // One answer for forged, expired and someone else's tokens: nothing to learn from it.
@@ -716,9 +714,12 @@ export const playRoutes = (deps: PlaybackDeps) => {
 
     .get("/:token/r/:rid/key", ridParam, async (c) => {
       const claims = c.var.playback;
-      if (!allowKey(c.var.sessionId)) {
-        throw new HTTPException(429, { message: "Too many key requests; wait a minute" });
-      }
+      // Thirty a minute per session, counted where every replica sees it.
+      const { allowed, retryAfter } = await admit(deps.db, `key:${c.var.sessionId}`, {
+        max: 30,
+        windowMs: 60_000,
+      });
+      if (!allowed) return tooMany(c, retryAfter, "Too many key requests; wait a minute");
       const rendition = await renditionOf(claims, c.req.valid("param").rid);
       const [file] = await deps.db
         .select({ projectId: files.projectId })

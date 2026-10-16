@@ -327,6 +327,25 @@ export const signInAttempts = pgTable("sign_in_attempts", {
   ...timestamps,
 });
 
+/**
+ * Requests counted per key in a fixed window, for rate limits every replica shares (#172):
+ * guest links and codes, uploads, key issues. Keyed by what is limited and who asks (an
+ * address or a session), never an account's details; rows older than a day are purged.
+ */
+export const requestLimits = pgTable("request_limits", {
+  key: text("key").primaryKey(),
+  count: integer("count").notNull(),
+  windowStartedAt: timestamp("window_started_at", { withTimezone: true }).notNull(),
+});
+
+/** Better Auth's own rate limits (sign-in, codes), kept here so every replica shares them. */
+export const authRateLimits = pgTable("auth_rate_limits", {
+  id: text("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  count: integer("count").notNull(),
+  lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+});
+
 export const members = pgTable(
   "members",
   {
