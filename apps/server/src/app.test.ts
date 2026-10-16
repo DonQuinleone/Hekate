@@ -3115,6 +3115,11 @@ describe.runIf(url)("api", () => {
             (c) => app.request(`/api/comments/${threadId}/resolve`, json({ resolved: false }, c)),
           ],
           [
+            "triage",
+            "export the comments",
+            (c) => getAs(`/api/files/${fileId}/comments/export?target=csv`, c),
+          ],
+          [
             "upload",
             "start an upload",
             (c) =>
@@ -6330,6 +6335,99 @@ describe.runIf(url)("api", () => {
           ).status,
         ).toBe(404);
         expect((await app.request(`/api/files/${fileId}/comments`)).status).toBe(401);
+      });
+      it("exports a file's threads as a marker list for those who triage, and logs it", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const fileId = await recording(organisationId);
+        const path = `/api/files/${fileId}/comments`;
+        const post = async (body: unknown) =>
+          (
+            (await (await app.request(path, json(body, owner))).json()) as {
+              comment: { id: string };
+            }
+          ).comment.id;
+        const late = await post({
+          body: "Pedal, again",
+          anchor: { kind: "time", start: 30, end: 30 },
+        });
+        await post({ body: "Fixed now", parentId: late });
+        const early = await post({ body: "Too loud", anchor: { kind: "time", start: 5, end: 8 } });
+        await app.request(`/api/comments/${early}/resolve`, json({ resolved: true }, owner));
+        await post({ body: "Lovely overall" });
+
+        const exported = (query: string, cookie = owner) =>
+          app.request(`${path}/export?${query}`, { headers: { cookie } });
+
+        const edl = await exported("target=resolve&time=timecode-hour");
+        expect(edl.status).toBe(200);
+        expect(edl.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+        expect(edl.headers.get("content-disposition")).toBe(
+          `attachment; filename="Mix v3 comments.edl"; filename*=UTF-8''Mix%20v3%20comments.edl`,
+        );
+        expect(edl.headers.get("cache-control")).toBe("no-store");
+        const text = await edl.text();
+        // Open threads only, by default: the resolved one and the untimed one stay out.
+        expect(text).toContain("01:00:30:00 01:00:30:01");
+        expect(text).toContain("|M:Producer: Pedal, again |D:1");
+        expect(text).not.toContain("Too loud");
+
+        const csv = await (
+          await exported("target=csv&threads=all&replies=true&time=seconds")
+        ).text();
+        expect(csv).toContain(
+          "5.000,8.000,Producer: Too loud,Too loud,Producer,00:05.000 – 00:08.000,Resolved",
+        );
+        expect(csv).toContain('"Pedal, again\nReply from Producer: Fixed now"');
+        expect(csv).toContain(",,Producer: Lovely overall,Lovely overall,Producer,Whole file,Open");
+
+        const midi = await exported("target=pro-tools");
+        expect(midi.headers.get("content-type")).toBe("audio/midi");
+        expect(
+          Buffer.from(await midi.arrayBuffer())
+            .subarray(0, 4)
+            .toString(),
+        ).toBe("MThd");
+
+        // Choices are checked; another workspace's file does not exist from here.
+        expect((await exported("target=garageband")).status).toBe(400);
+        expect((await exported("target=csv&rate=17")).status).toBe(400);
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-export" })
+          .returning();
+        const foreign = await recording(other?.id ?? "");
+        expect(
+          (
+            await app.request(`/api/files/${foreign}/comments/export?target=csv`, {
+              headers: { cookie: owner },
+            })
+          ).status,
+        ).toBe(404);
+        expect((await app.request(`${path}/export?target=csv`)).status).toBe(401);
+
+        // A Reviewer comments but does not triage, so the export is refused.
+        const reviewer = await joinAs(owner, "reviewer-export@example.test", "member");
+        await grantRole(owner, await projectOfFile(fileId), reviewer, "Reviewer");
+        expect(
+          (await app.request(`${path}/export?target=csv`, { headers: { cookie: reviewer } }))
+            .status,
+        ).toBe(403);
+
+        const logged = await db
+          .select({ details: schema.accessEvents.details })
+          .from(schema.accessEvents)
+          .where(
+            and(
+              eq(schema.accessEvents.organisationId, organisationId),
+              eq(schema.accessEvents.action, "comment.export"),
+            ),
+          );
+        expect(logged.map((e) => e.details)).toEqual([
+          { target: "resolve", threads: 1 },
+          { target: "csv", threads: 3 },
+          { target: "pro-tools", threads: 1 },
+        ]);
       });
       it("shows a document only as pages, each one logged, through links bound to the viewer", async () => {
         const owner = cookieOf(await setup());

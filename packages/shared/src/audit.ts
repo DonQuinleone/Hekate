@@ -41,6 +41,8 @@ export const auditActions = [
   /** A guest opened a review, or commented. */
   "guest.view",
   "comment.create",
+  /** Someone exported a file's comments as a marker list. */
+  "comment.export",
   /** Too many failed sign-ins locked a member's account for a while. */
   "account.lockout",
   /** A member set a new password with a code sent to their address. */

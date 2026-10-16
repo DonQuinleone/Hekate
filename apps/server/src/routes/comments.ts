@@ -4,10 +4,13 @@ import {
   anchorProblem,
   type CarryStatus,
   carrySettles,
+  commentExportQuery,
   createCommentInput,
   editCommentInput,
+  exportComments,
   mentionedIn,
   resolveCommentInput,
+  threadsForExport,
   updateCarryInput,
   visibleComments,
 } from "@hekate/shared";
@@ -76,6 +79,106 @@ async function commentOf(db: Database, organisationId: string, id: string) {
 }
 
 /**
+ * A file's threads as its comments column shows them: its own and those carried to it from
+ * earlier versions (pointing where they were mapped), with their replies, oldest first.
+ * Hidden carries reach only those who triage; a guest sees what their review lets them.
+ */
+async function threadsOn(
+  db: Database,
+  organisationId: string,
+  actor: ViewerVariables["actor"],
+  access: Awaited<ReturnType<typeof canOnFile>>,
+  fileId: string,
+) {
+  const [file] = await db
+    .select({ id: files.id })
+    .from(files)
+    .where(inOrg(files, organisationId, eq(files.id, fileId)));
+  if (!file) throw new NotFound("File");
+  // Threads carried here from earlier versions; hidden ones only for those who triage.
+  const triage = access.permissions.has("triage");
+  const carriedHere = await db
+    .select({
+      id: commentCarries.id,
+      commentId: commentCarries.commentId,
+      anchor: commentCarries.anchor,
+      visible: commentCarries.visible,
+      status: commentCarries.status,
+    })
+    .from(commentCarries)
+    .where(
+      inOrg(
+        commentCarries,
+        organisationId,
+        eq(commentCarries.fileId, file.id),
+        triage ? undefined : eq(commentCarries.visible, true),
+      ),
+    );
+  const carriedIds = carriedHere.map((k) => k.commentId);
+  const all = await selectComments(
+    db,
+    organisationId,
+    carriedIds.length > 0
+      ? or(
+          eq(comments.fileId, file.id),
+          inArray(comments.id, carriedIds),
+          inArray(comments.parentId, carriedIds),
+        )
+      : eq(comments.fileId, file.id),
+  ).orderBy(asc(comments.createdAt), asc(comments.id));
+  // A guest reviewer sees the comments their review lets them (docs/domain.md).
+  const rows =
+    actor.kind === "guest" && access.grant
+      ? visibleComments(
+          all.map((r) => ({ ...r, author: r.guestAuthorId })),
+          access.grant.comments,
+          actor.guestId,
+        ).map(({ author: _, ...r }) => r)
+      : all;
+
+  // Each thread's history: where it began and every version it was carried to.
+  const roots = rows.filter((r) => !r.parentId);
+  const hops = await hopsOf(
+    db,
+    organisationId,
+    roots.map((r) => r.id),
+  );
+  const origins = await versionNumbersOf(db, organisationId, [
+    ...new Set(roots.map((r) => r.fileId)),
+  ]);
+  const here = new Map(carriedHere.map((k) => [k.commentId, k]));
+  return rows.map((row) => {
+    if (row.parentId) return { ...publicComment(row), carry: null, history: null };
+    const carry = here.get(row.id);
+    const history = {
+      versionNumber: origins.get(row.fileId) ?? null,
+      hops: hops
+        .filter((h) => h.commentId === row.id)
+        .map((h) => ({ fileId: h.fileId, versionNumber: h.versionNumber, status: h.status })),
+    };
+    if (!carry) return { ...publicComment(row), carry: null, history };
+    // On this version the thread points where it was mapped; where it began stays known.
+    return {
+      ...publicComment(row),
+      anchor: carry.anchor,
+      carry: {
+        id: carry.id,
+        status: carry.status,
+        visible: carry.visible,
+        from: { fileId: row.fileId, anchor: row.anchor as Anchor | null },
+      },
+      history,
+    };
+  });
+}
+
+/** A download's name for Content-Disposition: plain ASCII, and the real name in UTF-8. */
+function attachment(filename: string): string {
+  const ascii = filename.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
+
+/**
  * `/api/files/:id/comments`: a file's comment threads, and starting or replying to one.
  * Guest reviewers use these too, on the files of their reviews.
  */
@@ -87,90 +190,62 @@ export const fileCommentRoutes = (
 ) =>
   new Hono<{ Variables: ViewerVariables }>()
     .get("/:id/comments", idParam, async (c) => {
-      const organisationId = c.var.organisationId;
-      const access = await canOnFile(db, c.var.actor, "view", c.req.valid("param").id);
-      const [file] = await db
-        .select({ id: files.id })
-        .from(files)
-        .where(inOrg(files, organisationId, eq(files.id, c.req.valid("param").id)));
-      if (!file) throw new NotFound("File");
-      // Threads carried here from earlier versions; hidden ones only for those who triage.
-      const triage = access.permissions.has("triage");
-      const carriedHere = await db
-        .select({
-          id: commentCarries.id,
-          commentId: commentCarries.commentId,
-          anchor: commentCarries.anchor,
-          visible: commentCarries.visible,
-          status: commentCarries.status,
-        })
-        .from(commentCarries)
-        .where(
-          inOrg(
-            commentCarries,
-            organisationId,
-            eq(commentCarries.fileId, file.id),
-            triage ? undefined : eq(commentCarries.visible, true),
-          ),
-        );
-      const carriedIds = carriedHere.map((k) => k.commentId);
-      const all = await selectComments(
-        db,
-        organisationId,
-        carriedIds.length > 0
-          ? or(
-              eq(comments.fileId, file.id),
-              inArray(comments.id, carriedIds),
-              inArray(comments.parentId, carriedIds),
-            )
-          : eq(comments.fileId, file.id),
-      ).orderBy(asc(comments.createdAt), asc(comments.id));
-      // A guest reviewer sees the comments their review lets them (docs/domain.md).
-      const actor = c.var.actor;
-      const rows =
-        actor.kind === "guest" && access.grant
-          ? visibleComments(
-              all.map((r) => ({ ...r, author: r.guestAuthorId })),
-              access.grant.comments,
-              actor.guestId,
-            ).map(({ author: _, ...r }) => r)
-          : all;
-
-      // Each thread's history: where it began and every version it was carried to.
-      const roots = rows.filter((r) => !r.parentId);
-      const hops = await hopsOf(
-        db,
-        organisationId,
-        roots.map((r) => r.id),
-      );
-      const origins = await versionNumbersOf(db, organisationId, [
-        ...new Set(roots.map((r) => r.fileId)),
-      ]);
-      const here = new Map(carriedHere.map((k) => [k.commentId, k]));
+      const fileId = c.req.valid("param").id;
+      const access = await canOnFile(db, c.var.actor, "view", fileId);
       return c.json({
-        comments: rows.map((row) => {
-          if (row.parentId) return { ...publicComment(row), carry: null, history: null };
-          const carry = here.get(row.id);
-          const history = {
-            versionNumber: origins.get(row.fileId) ?? null,
-            hops: hops
-              .filter((h) => h.commentId === row.id)
-              .map((h) => ({ fileId: h.fileId, versionNumber: h.versionNumber, status: h.status })),
-          };
-          if (!carry) return { ...publicComment(row), carry: null, history };
-          // On this version the thread points where it was mapped; where it began stays known.
-          return {
-            ...publicComment(row),
-            anchor: carry.anchor,
-            carry: {
-              id: carry.id,
-              status: carry.status,
-              visible: carry.visible,
-              from: { fileId: row.fileId, anchor: row.anchor as Anchor | null },
-            },
-            history,
-          };
-        }),
+        comments: await threadsOn(db, c.var.organisationId, c.var.actor, access, fileId),
+      });
+    })
+    /**
+     * The threads as a marker list for another application (#99), for those who triage:
+     * the people who carry feedback into an edit. Each export is in the access log.
+     */
+    .get("/:id/comments/export", idParam, zValidator("query", commentExportQuery), async (c) => {
+      const organisationId = c.var.organisationId;
+      const fileId = c.req.valid("param").id;
+      const actor = c.var.actor;
+      const access = await canOnFile(db, actor, "triage", fileId);
+      const [file] = await db
+        .select({
+          name: files.name,
+          kind: files.kind,
+          mediaInfo: files.mediaInfo,
+          projectId: files.projectId,
+        })
+        .from(files)
+        .where(inOrg(files, organisationId, eq(files.id, fileId)));
+      if (!file) throw new NotFound("File");
+      const options = c.req.valid("query");
+      const out = exportComments(
+        threadsForExport(await threadsOn(db, organisationId, actor, access, fileId)),
+        {
+          name: file.name,
+          duration: file.mediaInfo?.duration ?? null,
+          sampleRate: file.mediaInfo?.audio?.sampleRate ?? null,
+          fps: file.mediaInfo?.video?.fps ?? null,
+          video: file.kind === "video",
+        },
+        options,
+      );
+      await audit.record(
+        organisationId,
+        await audit.actor(
+          actor.kind === "guest"
+            ? { kind: "guest", guestId: actor.guestId }
+            : { userId: actor.userId },
+        ),
+        {
+          action: "comment.export",
+          projectId: file.projectId,
+          fileId,
+          details: { target: options.target, threads: out.written },
+        },
+        requestInfo(c, trustProxy),
+      );
+      return c.body(out.bytes as Uint8Array<ArrayBuffer>, 200, {
+        "content-type": out.contentType,
+        "content-disposition": attachment(out.filename),
+        "cache-control": "no-store",
       });
     })
     .post("/:id/comments", idParam, zValidator("json", createCommentInput), async (c) => {

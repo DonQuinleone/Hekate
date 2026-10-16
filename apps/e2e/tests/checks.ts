@@ -128,7 +128,8 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
 
     // Lines through text: a thin, painted element over someone else's text.
     for (const el of document.body.querySelectorAll("*")) {
-      if (!shown(el) || exempt(el)) continue;
+      // Behind an open modal, a line (a player's playhead) lies under it, as its text does.
+      if (!shown(el) || exempt(el) || (modal && !modal.contains(el))) continue;
       const box = el.getBoundingClientRect();
       const thin = (box.width <= 2 && box.height >= 6) || (box.height <= 2 && box.width >= 6);
       if (!thin || covered(el, box)) continue;

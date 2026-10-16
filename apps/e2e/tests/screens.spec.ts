@@ -651,6 +651,42 @@ test("file-details", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Comment export (#99): the file's threads as a marker list, previewed, then downloaded.
+test("file-export-comments", async ({ page }) => {
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page.getByRole("button", { name: "Actions for file" }).click();
+  await page.getByRole("menuitem", { name: "Export comments…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Export comments" });
+  // Each application by its own mark, in a list a native select could not draw.
+  await dialog.getByRole("button", { name: "For" }).click();
+  await expect(dialog.getByRole("menuitemradio", { name: "Avid Media Composer" })).toBeVisible();
+  await saveScreen(page, "file-export-comments-for");
+  await checkScreen(page);
+  await dialog.getByRole("menuitemradio", { name: "DaVinci Resolve" }).click();
+  await dialog.getByLabel("Time base").selectOption("timecode-hour");
+  await expect(dialog.getByText("FCM: NON-DROP FRAME")).toBeVisible();
+  await saveScreen(page, "file-export-comments");
+  await checkScreen(page);
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    dialog.getByRole("link", { name: "Export" }).click(),
+  ]);
+  expect(download.suggestedFilename()).toMatch(/ comments\.edl$/);
+  const body = await new Promise<string>((resolve, reject) => {
+    void download.createReadStream().then((stream) => {
+      let text = "";
+      stream.on("data", (chunk) => {
+        text += chunk;
+      });
+      stream.on("end", () => resolve(text));
+      stream.on("error", reject);
+    });
+  });
+  expect(body).toContain("FCM: NON-DROP FRAME");
+  expect(body).toMatch(/\|C:ResolveColor\w+ \|M:/);
+});
+
 // Themes (#117): sign-in and the player in light (the system's choice) and in one palette.
 test.describe("themes", () => {
   test.describe("signed out", () => {
