@@ -10,7 +10,8 @@
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         { "type": "json", "path": "apps/server/package.json", "jsonpath": "$.version" },
-        { "type": "json", "path": "apps/web/package.json", "jsonpath": "$.version" }
+        { "type": "json", "path": "apps/web/package.json", "jsonpath": "$.version" },
+        { "type": "generic", "path": "deploy/compose.yml" }
       ],
       "changelog-sections": [
         { "type": "feat", "section": "Features" },

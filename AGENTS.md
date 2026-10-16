@@ -63,7 +63,7 @@ pnpm --filter @hekate/e2e e2e   # the visual suite: needs E2E_DATABASE_URL (an e
 - GitHub Actions are pinned to commit SHAs with the version in a comment.
 - Trivy scans the repository and the image in CI and fails on any fixable finding, whatever its severity; unfixed ones go to code scanning. An exception goes in `.trivyignore` with an expiry and the issue that tracks it, or CI refuses it.
 - CodeQL (`security-extended`) checks the TypeScript and the workflows on every pull request and weekly. Dependency review refuses an added or updated dependency with a known vulnerability, or with a licence that cannot be combined with AGPL-3.0.
-- Releases: Conventional Commits drive Release Please, which writes `CHANGELOG.md`. It runs by hand when a release is due (Actions, Release Please, Run workflow) and opens the release PR; merging that PR tags the release.
+- Releases: Conventional Commits drive Release Please, which writes `CHANGELOG.md`. It runs by hand when a release is due (Actions, Release Please, Run workflow) and opens the release PR; merging that PR tags the release and publishes the image to GHCR. The first time, the owner makes the package public (Package settings, Change visibility); the release fails until then, as no token can.
 
 ## Conventions
 
