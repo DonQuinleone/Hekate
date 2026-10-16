@@ -64,7 +64,9 @@ export const projectMarkRoutes = (db: Database) =>
             .from(table)
             .where(
               inOrg(table, organisationId, eq(table.projectId, projectId), inArray(table.id, ids)),
-            );
+            )
+            // Held until the marks are in, so a delete meanwhile cannot leave them dangling.
+            .for("share");
           if (found.length !== ids.length) {
             throw new HTTPException(422, { message: `That ${kind} is not in this project` });
           }

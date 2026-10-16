@@ -426,7 +426,8 @@ export function FileBrowser({
         label: marks.favourite.has(key) ? "Remove from favourites" : "Add to favourites",
         onSelect: () => setMarks.mutate({ items: self, favourite: !marks.favourite.has(key) }),
       },
-      ...(seen
+      // What someone uploaded they have seen: only others' files can be unseen again.
+      ...(seen && (isNew(item) || seen.uploadedById !== myId)
         ? [
             {
               label: isNew(item) ? "Mark as viewed" : "Mark as not viewed",
@@ -721,7 +722,7 @@ export function FileBrowser({
 
   const openItem = (item: Item): Item[] | null =>
     item.kind === "folder"
-      ? itemsIn(all, allTracks, allFiles, item.folder.id)
+      ? pinnedFirst(itemsIn(all, allTracks, allFiles, item.folder.id), marks)
       : item.kind === "track" && item.track.versions.length
         ? versionsOf(item.track)
         : null;

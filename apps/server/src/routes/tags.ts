@@ -5,12 +5,12 @@ import { and, asc, count, eq, inArray, notInArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { canOnFile } from "../access.ts";
+import { canOnFile, lockLiveProject } from "../access.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";
 
-const { tags, fileTags } = schema;
+const { tags, fileTags, files } = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
@@ -94,10 +94,18 @@ export const fileTagRoutes = (db: Database) =>
         throw new HTTPException(403, { message: "Guests cannot tag files" });
       }
       const fileId = c.req.valid("param").id;
-      await canOnFile(db, actor, "organise", fileId);
+      const { projectId } = await canOnFile(db, actor, "organise", fileId);
       const { tagIds } = c.req.valid("json");
       const organisationId = actor.organisationId;
       const ids = await db.transaction(async (tx) => {
+        // The project stays live and the file stays put until the tags are in.
+        await lockLiveProject(tx, organisationId, projectId);
+        const [file] = await tx
+          .select({ id: files.id })
+          .from(files)
+          .where(inOrg(files, organisationId, eq(files.id, fileId)))
+          .for("share");
+        if (!file) throw new NotFound("File");
         if (tagIds.length) {
           // Taken FOR SHARE, so a tag cannot be deleted between this check and the insert.
           const known = await tx
