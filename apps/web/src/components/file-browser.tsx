@@ -3,12 +3,19 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import {
+  type BrowserFilters,
   columnsFor,
+  filtering,
+  filterProject,
   folderCount,
   freshPath,
   type Item,
+  indexMarks,
   itemsIn,
   latestFile,
+  markKey,
+  pinnedFirst,
+  unviewed,
   versionSummary,
   versionsOf,
 } from "~/lib/browser";
@@ -17,17 +24,24 @@ import { ago } from "~/lib/comments";
 import { trackStateCopy } from "~/lib/overview";
 import {
   type Folder,
+  meQuery,
   type ProjectFile,
   projectFilesQuery,
   projectFoldersQuery,
+  projectMarksQuery,
   projectTracksQuery,
+  type Tag,
   type Track,
+  tagsQuery,
+  useMarks,
   useOrganise,
   useProjectCan,
+  useTagMutations,
   useTrackMutations,
 } from "~/lib/queries";
 import { Avatar, AvatarRow } from "./avatar";
 import { Empty } from "./empty";
+import { FilterChips, FilterMenu, TagEditor } from "./file-filters";
 import { kindIcon, mediaSummary, UploadButton, UploadList } from "./files";
 import { Icon, type IconName } from "./icons";
 import { Card } from "./page";
@@ -69,8 +83,11 @@ const itemIcon = (item: Item): IconName =>
       ? "track"
       : kindIcon[item.file.kind];
 
-/** What is being done to one item: renaming it, choosing where it goes, or confirming its removal. */
-type Editing = { id: string; mode: "rename" | "move" | "delete" } | null;
+/**
+ * What is being done to one item: renaming it, choosing where it goes, tagging it, or
+ * confirming its removal.
+ */
+type Editing = { id: string; mode: "rename" | "move" | "tags" | "delete" } | null;
 
 /** Every folder as a path ("Mixes / Stems"), for choosing where something goes. */
 function destinations(folders: Folder[], exclude: Set<string>) {
@@ -214,6 +231,25 @@ function FileStatus({ file }: { file: ProjectFile }) {
 const details = (file: ProjectFile) =>
   mediaSummary(file.kind, file.mediaInfo, file.streamStatus) ?? file.contentType;
 
+/** A file's first tags, and how many more. */
+function TagPills({ ids, tags }: { ids: string[]; tags: Map<string, Tag> }) {
+  const names = ids.flatMap((id) => tags.get(id)?.name ?? []);
+  if (names.length === 0) return null;
+  return (
+    <span className="hidden shrink-0 items-center gap-1 @3xl/app:flex">
+      {names.slice(0, 2).map((n) => (
+        <span
+          key={n}
+          className="max-w-24 truncate rounded-full border border-line px-1.5 text-[11px] leading-[18px] text-ink-2"
+        >
+          {n}
+        </span>
+      ))}
+      {names.length > 2 && <span className="text-[11px] text-ink-3">+{names.length - 2}</span>}
+    </span>
+  );
+}
+
 function Comments({ n }: { n: number }) {
   return n > 0 ? (
     <span className="flex items-center gap-0.5" title={`${n} open comments`}>
@@ -226,18 +262,24 @@ function Comments({ n }: { n: number }) {
  * A project's folders, tracks and files, one folder at a time: as a list, as columns that open
  * one into the next (as the Finder does), or as a grid. A track is a special kind of folder:
  * it sits among them, and the files in its versions live in it rather than loose beside it.
- * Those who can organise make folders and tracks, and rename, move and delete what is here;
- * files dropped anywhere on the page land in the open folder.
+ * Those who can organise make folders and tracks, and rename, move, tag and delete what is
+ * here; files dropped anywhere on the page land in the open folder. Everyone pins things to
+ * the top of their folder, keeps favourites and sees what they have not opened, for
+ * themselves; filters look across the whole project.
  */
 export function FileBrowser({
   projectId,
   folderId,
   onOpenFolder,
+  filters,
+  onFilter,
   tracks: withTracks,
 }: {
   projectId: string;
   folderId: string | null;
   onOpenFolder: (folderId: string | null) => void;
+  filters: BrowserFilters;
+  onFilter: (filters: BrowserFilters) => void;
   /** Music projects hold tracks. */
   tracks: boolean;
 }) {
@@ -247,9 +289,14 @@ export function FileBrowser({
     ...projectTracksQuery(projectId),
     enabled: withTracks,
   });
+  const { data: markList } = useQuery(projectMarksQuery(projectId));
+  const { data: tagList } = useQuery(tagsQuery);
+  const { data: me } = useQuery(meQuery);
   const can = useProjectCan(projectId);
   const organise = useOrganise(projectId);
   const trackMutations = useTrackMutations(projectId);
+  const setMarks = useMarks(projectId);
+  const tagging = useTagMutations(projectId);
   const [view, setView] = useState<View>(storedView);
   const [naming, setNaming] = useState<"folder" | "track" | null>(null);
   const [newName, setNewName] = useState("");
@@ -278,9 +325,40 @@ export function FileBrowser({
   const all = folders ?? [];
   const allTracks = trackList ?? [];
   const allFiles = files ?? [];
-  const path = folderPath(all, folderId);
-  const items = itemsIn(all, allTracks, allFiles, folderId);
+  const marks = indexMarks(markList ?? []);
+  const tags = tagList ?? [];
+  const tagById = new Map(tags.map((t) => [t.id, t]));
+  const myId = me?.user.id;
+  const filtered = filtering(filters);
+  const path = filtered ? [] : folderPath(all, folderId);
+  const items = filtered
+    ? filterProject(all, allTracks, allFiles, filters, myId, marks)
+    : pinnedFirst(itemsIn(all, allTracks, allFiles, folderId), marks);
   const fileById = new Map(allFiles.map((f) => [f.id, f]));
+  /** The file that stands for an item when it comes to being seen: a track's latest. */
+  const seenFile = (item: Item) =>
+    item.kind === "file"
+      ? item.file
+      : item.kind === "track"
+        ? fileById.get(latestFile(item.track) ?? "")
+        : undefined;
+  const isNew = (item: Item) => {
+    const f = seenFile(item);
+    return f !== undefined && unviewed(f, myId, marks);
+  };
+  /** Where something lives, for results gathered from across the project. */
+  const where = (item: Item) => {
+    const at =
+      item.kind === "folder"
+        ? item.folder.parentId
+        : item.kind === "track"
+          ? item.track.folderId
+          : item.kind === "file"
+            ? item.file.folderId
+            : null;
+    const names = folderPath(all, at).map((f) => f.name);
+    return names.length ? `In ${names.join(" / ")}` : "At the top of the project";
+  };
   const trackComments = (t: Track) =>
     (t.versions.at(-1)?.variations ?? []).reduce(
       (n, v) => n + (fileById.get(v.fileId)?.openComments ?? 0),
@@ -288,6 +366,7 @@ export function FileBrowser({
     );
   const parentName = path.at(-2)?.name ?? "the top of the project";
   const failure =
+    setMarks.error ??
     organise.createFolder.error ??
     organise.updateFolder.error ??
     organise.deleteFolder.error ??
@@ -334,22 +413,55 @@ export function FileBrowser({
     trackMutations.updateTrack.isPending;
 
   const menu = (item: Item, always = false) => {
-    if (!manage || item.kind === "version") return null;
-    const actions: (MenuAction | "divider")[] = [
-      { label: "Rename", onSelect: () => setEditing({ id: item.id, mode: "rename" }) },
-      { label: "Move to…", onSelect: () => setEditing({ id: item.id, mode: "move" }) },
-      ...(item.kind === "track"
-        ? []
-        : [
-            "divider" as const,
+    if (item.kind === "version") return null;
+    const key = markKey(item);
+    const self = [{ kind: item.kind, id: item.id }];
+    const seen = seenFile(item);
+    const personal: (MenuAction | "divider")[] = [
+      {
+        label: marks.pinned.has(key) ? "Unpin" : "Pin to the top",
+        onSelect: () => setMarks.mutate({ items: self, pinned: !marks.pinned.has(key) }),
+      },
+      {
+        label: marks.favourite.has(key) ? "Remove from favourites" : "Add to favourites",
+        onSelect: () => setMarks.mutate({ items: self, favourite: !marks.favourite.has(key) }),
+      },
+      ...(seen
+        ? [
             {
-              label: "Delete…",
-              danger: true,
-              onSelect: () => setEditing({ id: item.id, mode: "delete" as const }),
+              label: isNew(item) ? "Mark as viewed" : "Mark as not viewed",
+              onSelect: () =>
+                setMarks.mutate({
+                  items: [{ kind: "file" as const, id: seen.id }],
+                  viewed: isNew(item),
+                }),
             },
-          ]),
+          ]
+        : []),
     ];
-    return <ActionMenu label={itemName(item)} actions={actions} always={always} />;
+    const organising: (MenuAction | "divider")[] = manage
+      ? [
+          "divider",
+          { label: "Rename", onSelect: () => setEditing({ id: item.id, mode: "rename" }) },
+          { label: "Move to…", onSelect: () => setEditing({ id: item.id, mode: "move" }) },
+          ...(item.kind === "file"
+            ? [{ label: "Tags…", onSelect: () => setEditing({ id: item.id, mode: "tags" }) }]
+            : []),
+          ...(item.kind === "track"
+            ? []
+            : [
+                "divider" as const,
+                {
+                  label: "Delete…",
+                  danger: true,
+                  onSelect: () => setEditing({ id: item.id, mode: "delete" as const }),
+                },
+              ]),
+        ]
+      : [];
+    return (
+      <ActionMenu label={itemName(item)} actions={[...personal, ...organising]} always={always} />
+    );
   };
 
   /** The open editor for an item, in place of its menu. */
@@ -361,6 +473,24 @@ export function FileBrowser({
           initial={itemName(item)}
           pending={pending}
           onSave={(name) => rename(item, name)}
+          onCancel={() => setEditing(null)}
+        />
+      );
+    }
+    if (editing.mode === "tags" && item.kind === "file") {
+      return (
+        <TagEditor
+          tags={tags}
+          initial={item.file.tagIds ?? []}
+          pending={tagging.setOnFile.isPending}
+          error={(tagging.setOnFile.error ?? tagging.create.error)?.message}
+          onCreate={(name) => tagging.create.mutateAsync(name)}
+          onSave={(tagIds) =>
+            tagging.setOnFile.mutate(
+              { fileId: item.file.id, tagIds },
+              { onSuccess: () => setEditing(null) },
+            )
+          }
           onCancel={() => setEditing(null)}
         />
       );
@@ -406,18 +536,45 @@ export function FileBrowser({
   /** A row's name, opening what it is: a folder here, a track or a file on its page. */
   const nameOf = (item: Item, sub?: ReactNode, compact = false) => {
     const pad = compact ? "min-w-0 text-left" : "min-w-0 py-3 text-left";
+    const key = markKey(item);
     const inner = (
       <>
-        <span
-          className={cn(
-            "block truncate text-[14px] text-ink",
-            item.kind !== "file" && "font-medium",
+        <span className="flex min-w-0 items-center gap-1.5">
+          {isNew(item) && (
+            <span className="size-1.5 shrink-0 rounded-full bg-signal" title="Not yet viewed">
+              <span className="sr-only">Not yet viewed: </span>
+            </span>
           )}
-        >
-          {itemName(item)}
+          <span
+            className={cn(
+              "min-w-0 truncate text-[14px] text-ink",
+              item.kind !== "file" && "font-medium",
+            )}
+          >
+            {itemName(item)}
+          </span>
+          {marks.pinned.has(key) && (
+            <span title="Pinned" className="flex shrink-0 text-ink-3">
+              <Icon name="pin" size={12} aria-hidden="true" />
+              <span className="sr-only">, pinned</span>
+            </span>
+          )}
+          {marks.favourite.has(key) && (
+            <span title="Favourite" className="flex shrink-0 text-ink-3">
+              <Icon name="star" size={12} aria-hidden="true" />
+              <span className="sr-only">, a favourite</span>
+            </span>
+          )}
+          {!compact && item.kind === "file" && (
+            <TagPills ids={item.file.tagIds ?? []} tags={tagById} />
+          )}
         </span>
-        {sub && (
-          <span className="block truncate text-[12px] text-ink-3 @3xl/app:hidden">{sub}</span>
+        {filtered && !compact ? (
+          <span className="block truncate text-[12px] text-ink-3">{where(item)}</span>
+        ) : (
+          sub && (
+            <span className="block truncate text-[12px] text-ink-3 @3xl/app:hidden">{sub}</span>
+          )
         )}
       </>
     );
@@ -573,7 +730,19 @@ export function FileBrowser({
     <section aria-label="Files" className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
         <nav aria-label="Folder path" className="flex min-w-0 items-center gap-1 text-[14px]">
-          {path.length === 0 ? (
+          {filtered ? (
+            <>
+              <button
+                type="button"
+                className="text-ink-3 hover:text-ink"
+                onClick={() => onOpenFolder(null)}
+              >
+                All files
+              </button>
+              <span className="text-edge">/</span>
+              <span className="font-medium text-ink">Filtered</span>
+            </>
+          ) : path.length === 0 ? (
             <span className="font-medium text-ink">All files</span>
           ) : (
             <button
@@ -605,6 +774,7 @@ export function FileBrowser({
           </span>
         </nav>
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          <FilterMenu filters={filters} tags={tags} onChange={onFilter} />
           <fieldset className="m-0 flex rounded-control border border-line bg-raised/40 p-0.5">
             <legend className="sr-only">View</legend>
             {views.map(([v, icon, label]) => (
@@ -669,11 +839,22 @@ export function FileBrowser({
           </Button>
         </form>
       )}
+      {filtered && <FilterChips filters={filters} tags={tags} onChange={onFilter} />}
       {failure && <p className="m-0 text-[13px] text-signal">{failure.message}</p>}
 
       <UploadList />
 
-      {items.length === 0 ? (
+      {items.length === 0 && filtered ? (
+        <Empty
+          title="Nothing matches these filters"
+          text="They look across the whole project. Try fewer, or clear them."
+          action={
+            <Button size="sm" variant="ghost" onClick={() => onFilter({ show: [], tags: [] })}>
+              Clear filters
+            </Button>
+          }
+        />
+      ) : items.length === 0 ? (
         <Empty
           title={folderId ? "This folder is empty" : "Nothing here yet"}
           text={
@@ -682,7 +863,7 @@ export function FileBrowser({
               : "Files appear here once someone uploads them."
           }
         />
-      ) : view === "columns" ? (
+      ) : view === "columns" && !filtered ? (
         <ColumnBrowser
           root={items}
           path={columnPath}
@@ -694,7 +875,7 @@ export function FileBrowser({
           menu={(item) => menu(item, true)}
           editor={editor}
         />
-      ) : view === "list" ? (
+      ) : view !== "grid" ? (
         <Card>
           <div
             aria-hidden="true"

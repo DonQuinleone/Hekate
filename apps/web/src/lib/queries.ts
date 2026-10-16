@@ -12,6 +12,8 @@ import {
   type GroupInput,
   type GuestInput,
   type LoudnessSummary,
+  type Mark,
+  type MarkInput,
   type MediaInfo,
   type NotificationKind,
   type NotificationPreferences,
@@ -485,6 +487,8 @@ export interface ProjectFile {
   createdAt: string;
   /** Threads on it not yet resolved (in a project's file list). */
   openComments?: number;
+  /** The workspace tags on it (in a project's file list). */
+  tagIds?: string[];
 }
 
 export type StreamStatus = "none" | "pending" | "ready" | "failed";
@@ -1629,4 +1633,85 @@ export function useSavedSearchMutations() {
     onSuccess: refresh,
   });
   return { save, remove };
+}
+
+export interface Tag {
+  id: string;
+  name: string;
+  /** How many files carry it, across the workspace. */
+  files: number;
+}
+
+export const tagsQuery = queryOptions({
+  queryKey: ["tags"],
+  queryFn: async () => (await json<{ tags: Tag[] }>(await api.tags.$get())).tags,
+  staleTime: 60_000,
+});
+
+/** Make a workspace tag, and set the tags on a file. */
+export function useTagMutations(projectId: string) {
+  const client = useQueryClient();
+  const create = useMutation({
+    mutationFn: async (name: string) =>
+      (await json<{ tag: Tag }>(await api.tags.$post({ json: { name } }))).tag,
+    onSuccess: () => client.invalidateQueries({ queryKey: tagsQuery.queryKey }),
+  });
+  const setOnFile = useMutation({
+    mutationFn: async ({ fileId, tagIds }: { fileId: string; tagIds: string[] }) => {
+      const res = await api.files[":id"].tags.$put({ param: { id: fileId }, json: { tagIds } });
+      if (!res.ok) await json(res);
+    },
+    onSuccess: () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: projectFilesQuery(projectId).queryKey }),
+        client.invalidateQueries({ queryKey: tagsQuery.queryKey }),
+      ]),
+  });
+  return { create, setOnFile };
+}
+
+export const projectMarksQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "marks"],
+    queryFn: async () =>
+      (
+        await json<{ marks: Mark[] }>(
+          await api.projects[":id"].marks.$get({ param: { id: projectId } }),
+        )
+      ).marks,
+  });
+
+/** Pin, keep as a favourite, or mark as seen: shown at once, put back if refused. */
+export function useMarks(projectId: string) {
+  const client = useQueryClient();
+  const key = projectMarksQuery(projectId).queryKey;
+  return useMutation({
+    mutationFn: async (input: MarkInput) => {
+      const res = await api.projects[":id"].marks.$post({ param: { id: projectId }, json: input });
+      if (!res.ok) await json(res);
+    },
+    onMutate: async (input) => {
+      await client.cancelQueries({ queryKey: key });
+      const before = client.getQueryData(key);
+      client.setQueryData(key, (marks = []) => {
+        const next = [...marks];
+        for (const item of input.items) {
+          const at = next.findIndex((m) => m.kind === item.kind && m.id === item.id);
+          const was = next[at] ?? { ...item, pinned: false, favourite: false, viewed: false };
+          const mark = {
+            ...was,
+            pinned: input.pinned ?? was.pinned,
+            favourite: input.favourite ?? was.favourite,
+            viewed: input.viewed ?? was.viewed,
+          };
+          if (at >= 0) next[at] = mark;
+          else next.push(mark);
+        }
+        return next;
+      });
+      return { before };
+    },
+    onError: (_e, _i, ctx) => client.setQueryData(key, ctx?.before),
+    onSettled: () => client.invalidateQueries({ queryKey: key }),
+  });
 }

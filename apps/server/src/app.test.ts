@@ -2298,6 +2298,174 @@ describe.runIf(url)("api", () => {
         expect((await layout(outsider, ["stats"])).status).toBe(404);
       });
 
+      it("tags files for the whole workspace, and only with its own tags", async () => {
+        const s = await studio();
+        const put = (cookie: string, fileId: string, tagIds: string[]) =>
+          app.request(`/api/files/${fileId}/tags`, { ...json({ tagIds }, cookie), method: "PUT" });
+        const made = await app.request("/api/tags", json({ name: "  Masters " }, s.engineer));
+        expect(made.status).toBe(201);
+        const masters = ((await made.json()) as { tag: { id: string; name: string } }).tag;
+        expect(masters.name).toBe("Masters");
+        // One "Masters" however it is written.
+        expect((await app.request("/api/tags", json({ name: "masters" }, s.owner))).status).toBe(
+          409,
+        );
+
+        // Tagging is organising: an Engineer may, a Reviewer may not.
+        expect((await put(s.engineer, s.mix, [masters.id])).status).toBe(200);
+        expect((await put(s.composer, s.mix, [])).status).toBe(403);
+        const listed = (await (
+          await getAs(`/api/projects/${s.projectId}/files`, s.composer)
+        ).json()) as { files: { id: string; tagIds: string[] }[] };
+        expect(listed.files.find((f) => f.id === s.mix)?.tagIds).toEqual([masters.id]);
+        expect(listed.files.find((f) => f.id === s.artwork)?.tagIds).toEqual([]);
+
+        // Another workspace's tag is not one to use, nor one to see.
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-tags" })
+          .returning();
+        const [foreign] = await db
+          .insert(schema.tags)
+          .values({ organisationId: other?.id ?? "", name: "Theirs" })
+          .returning();
+        expect((await put(s.engineer, s.mix, [masters.id, foreign?.id ?? ""])).status).toBe(422);
+        const tags = (await (await getAs("/api/tags", s.composer)).json()) as {
+          tags: { name: string; files: number }[];
+        };
+        expect(tags.tags).toEqual([expect.objectContaining({ name: "Masters", files: 1 })]);
+
+        // Search finds a file by its tag's name, and narrows to a tag.
+        const search = async (query: string) =>
+          (
+            (await (await getAs(`/api/search?${query}`, s.owner)).json()) as {
+              results: { kind: string; id: string }[];
+            }
+          ).results;
+        expect((await search("q=masters")).map((r) => r.id)).toContain(s.mix);
+        expect((await search(`tagId=${masters.id}`)).map((r) => [r.kind, r.id])).toEqual([
+          ["files", s.mix],
+        ]);
+
+        // Renaming and deleting change every project's files: owners and admins only.
+        const rename = (cookie: string) =>
+          app.request(`/api/tags/${masters.id}`, {
+            ...json({ name: "Finals" }, cookie),
+            method: "PATCH",
+          });
+        expect((await rename(s.engineer)).status).toBe(403);
+        expect((await rename(s.owner)).status).toBe(200);
+        const remove = (cookie: string, id = masters.id) =>
+          app.request(`/api/tags/${id}`, { method: "DELETE", headers: { cookie } });
+        expect((await remove(s.engineer)).status).toBe(403);
+        expect((await remove(s.owner, foreign?.id)).status).toBe(404);
+        expect((await remove(s.owner)).status).toBe(204);
+        const after = (await (
+          await getAs(`/api/projects/${s.projectId}/files`, s.owner)
+        ).json()) as { files: { id: string; tagIds: string[] }[] };
+        expect(after.files.find((f) => f.id === s.mix)?.tagIds).toEqual([]);
+      });
+
+      it("keeps each person's pins, favourites and seen files to themselves", async () => {
+        const s = await studio();
+        const mark = (cookie: string, body: Record<string, unknown>, projectId = s.projectId) =>
+          app.request(`/api/projects/${projectId}/marks`, json(body, cookie));
+        const marksOf = async (cookie: string) =>
+          (
+            (await (await getAs(`/api/projects/${s.projectId}/marks`, cookie)).json()) as {
+              marks: {
+                kind: string;
+                id: string;
+                pinned: boolean;
+                favourite: boolean;
+                viewed: boolean;
+              }[];
+            }
+          ).marks;
+
+        // A Reviewer marks what they can see, for themselves.
+        expect(
+          (await mark(s.composer, { items: [{ kind: "track", id: s.trackId }], pinned: true }))
+            .status,
+        ).toBe(204);
+        expect(
+          (
+            await mark(s.composer, {
+              items: [
+                { kind: "file", id: s.mix },
+                { kind: "file", id: s.artwork },
+              ],
+              viewed: true,
+            })
+          ).status,
+        ).toBe(204);
+        expect(
+          (await mark(s.composer, { items: [{ kind: "file", id: s.mix }], favourite: true }))
+            .status,
+        ).toBe(204);
+        const mine = await marksOf(s.composer);
+        expect(mine).toHaveLength(3);
+        expect(mine).toEqual(
+          expect.arrayContaining([
+            { kind: "track", id: s.trackId, pinned: true, favourite: false, viewed: false },
+            { kind: "file", id: s.mix, pinned: false, favourite: true, viewed: true },
+            { kind: "file", id: s.artwork, pinned: false, favourite: false, viewed: true },
+          ]),
+        );
+        expect(await marksOf(s.owner)).toEqual([]);
+
+        // Taking every mark off leaves nothing behind.
+        await mark(s.composer, { items: [{ kind: "track", id: s.trackId }], pinned: false });
+        expect((await marksOf(s.composer)).map((m) => m.id).sort()).toEqual(
+          [s.mix, s.artwork].sort(),
+        );
+
+        // Only files are seen; something to mark must be said; ids from elsewhere are refused.
+        const folder = await app.request(
+          `/api/projects/${s.projectId}/folders`,
+          json({ name: "Mixes" }, s.owner),
+        );
+        const folderId = ((await folder.json()) as { folder: { id: string } }).folder.id;
+        expect(
+          (await mark(s.composer, { items: [{ kind: "folder", id: folderId }], viewed: true }))
+            .status,
+        ).toBe(400);
+        expect((await mark(s.composer, { items: [{ kind: "folder", id: folderId }] })).status).toBe(
+          400,
+        );
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-marks" })
+          .returning();
+        const [project] = await db
+          .insert(schema.projects)
+          .values({ organisationId: other?.id ?? "", name: "Not yours", profile: "music" })
+          .returning();
+        const [foreign] = await db
+          .insert(schema.folders)
+          .values({ organisationId: other?.id ?? "", projectId: project?.id ?? "", name: "X" })
+          .returning();
+        expect(
+          (await mark(s.composer, { items: [{ kind: "folder", id: foreign?.id }], pinned: true }))
+            .status,
+        ).toBe(422);
+        expect(
+          (
+            await mark(
+              s.owner,
+              { items: [{ kind: "folder", id: foreign?.id }], pinned: true },
+              project?.id,
+            )
+          ).status,
+        ).toBe(404);
+
+        // Someone outside the project cannot mark in it.
+        const outsider = await joinAs(s.owner, "outsider-marks@example.test");
+        expect(
+          (await mark(outsider, { items: [{ kind: "file", id: s.mix }], pinned: true })).status,
+        ).toBe(404);
+      });
+
       it("sums up the projects a member can see for the home page, and nothing else", async () => {
         const s = await studio();
         type Home = {

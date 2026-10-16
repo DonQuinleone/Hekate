@@ -1234,7 +1234,6 @@ export const follows = pgTable(
   ],
 );
 
-/** A search someone kept, to run again from the search page. Theirs alone, per workspace. */
 /** How someone arranges a project's overview: which sections, in what order. */
 export const overviewLayouts = pgTable(
   "overview_layouts",
@@ -1255,6 +1254,7 @@ export const overviewLayouts = pgTable(
   ],
 );
 
+/** A search someone kept, to run again from the search page. Theirs alone, per workspace. */
 export const savedSearches = pgTable(
   "saved_searches",
   {
@@ -1268,4 +1268,66 @@ export const savedSearches = pgTable(
     ...timestamps,
   },
   (t) => [index("saved_searches_user_idx").on(t.organisationId, t.userId)],
+);
+
+/** A label for files, shared by every project in the workspace, for example "Masters". */
+export const tags = pgTable(
+  "tags",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    name: text("name").notNull(),
+    ...timestamps,
+  },
+  // One "Masters" per workspace, however it is capitalised.
+  (t) => [uniqueIndex("tags_name_idx").on(t.organisationId, sql`lower(${t.name})`)],
+);
+
+export const fileTags = pgTable(
+  "file_tags",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => files.id, { onDelete: "cascade" }),
+    tagId: uuid("tag_id")
+      .notNull()
+      .references(() => tags.id, { onDelete: "cascade" }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("file_tags_file_tag_idx").on(t.organisationId, t.fileId, t.tagId),
+    index("file_tags_tag_idx").on(t.organisationId, t.tagId),
+  ],
+);
+
+/**
+ * Someone's own marks on a folder, track or file: pinned to the top of its folder, kept as a
+ * favourite, or (files only) seen. Nobody else sees them.
+ */
+export const marks = pgTable(
+  "marks",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    projectId: projectId(),
+    folderId: uuid("folder_id").references(() => folders.id, { onDelete: "cascade" }),
+    trackId: uuid("track_id").references(() => tracks.id, { onDelete: "cascade" }),
+    fileId: uuid("file_id").references(() => files.id, { onDelete: "cascade" }),
+    pinnedAt: timestamp("pinned_at", { withTimezone: true }),
+    favouriteAt: timestamp("favourite_at", { withTimezone: true }),
+    viewedAt: timestamp("viewed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    index("marks_user_project_idx").on(t.organisationId, t.userId, t.projectId),
+    uniqueIndex("marks_folder_idx").on(t.organisationId, t.userId, t.folderId),
+    uniqueIndex("marks_track_idx").on(t.organisationId, t.userId, t.trackId),
+    uniqueIndex("marks_file_idx").on(t.organisationId, t.userId, t.fileId),
+    check("marks_one_thing", sql`num_nonnulls(${t.folderId}, ${t.trackId}, ${t.fileId}) = 1`),
+  ],
 );

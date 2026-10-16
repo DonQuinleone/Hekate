@@ -1,11 +1,19 @@
+import type { Mark } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
 import type { Item } from "./browser";
 import {
+  type BrowserFilters,
   columnsFor,
+  filterProject,
+  filtersFrom,
+  filtersTo,
   folderCount,
   freshPath,
+  indexMarks,
   itemsIn,
   latestFile,
+  noFilters,
+  pinnedFirst,
   versionSummary,
   versionsOf,
 } from "./browser";
@@ -109,5 +117,56 @@ describe("freshPath", () => {
     expect(freshPath(root, [mixes, { ...stems, id: "Gone" }], open).map((i) => i.id)).toEqual([
       "Mixes",
     ]);
+  });
+});
+
+describe("marks and filters", () => {
+  const me = "me";
+  const mine = { ...file("Mine.wav", null), uploadedById: me, tagIds: ["t1"] };
+  const theirs = { ...file("Theirs.wav", "Mixes"), uploadedById: "them", openComments: 2 };
+  const v1 = { ...file("Maple v1.wav", null), uploadedById: me };
+  const v2 = { ...file("Maple v2.wav", null), uploadedById: "them", tagIds: ["t2"] };
+  const maple = track("Maple", "Mixes", [
+    [1, ["Maple v1.wav"]],
+    [2, ["Maple v2.wav"]],
+  ]);
+  const all = [mine, theirs, v1, v2];
+  const run = (show: BrowserFilters["show"], tags: string[] = [], marks: Mark[] = []) =>
+    filterProject(folders, [maple], all, { show, tags }, me, indexMarks(marks)).map((i) => i.id);
+
+  it("reads and writes filters in the address, dropping what it does not know", () => {
+    const id = "0192f1a0-0000-7000-8000-000000000001";
+    const f = filtersFrom({ show: "unviewed,fly,comments", tags: `${id},nope,${id}` });
+    expect(f).toEqual({ show: ["comments", "unviewed"], tags: [id] });
+    expect(filtersTo(f)).toEqual({ show: "comments,unviewed", tags: id });
+    expect(filtersTo(noFilters)).toEqual({});
+  });
+
+  it("puts pinned things first", () => {
+    const items = itemsIn(folders, [], [mine, theirs], null);
+    const marks = indexMarks([
+      { kind: "file", id: "Mine.wav", pinned: true, favourite: false, viewed: false },
+    ]);
+    expect(pinnedFirst(items, marks).map((i) => i.id)).toEqual(["Mine.wav", "Mixes"]);
+  });
+
+  it("finds what is unseen, with comments, mine, a favourite or tagged, anywhere", () => {
+    // Nothing seen yet: what others uploaded, a track by its latest version.
+    expect(run(["unviewed"])).toEqual(["Maple", "Theirs.wav"]);
+    const seen: Mark[] = [
+      { kind: "file", id: "Maple v2.wav", pinned: false, favourite: false, viewed: true },
+    ];
+    expect(run(["unviewed"], [], seen)).toEqual(["Theirs.wav"]);
+    expect(run(["comments"])).toEqual(["Theirs.wav"]);
+    // A track is someone's if they uploaded any of it.
+    expect(run(["mine"])).toEqual(["Maple", "Mine.wav"]);
+    expect(run(["mine", "unviewed"])).toEqual(["Maple"]);
+    expect(run([], ["t2"])).toEqual(["Maple"]);
+    expect(run([], ["t1", "t2"])).toEqual(["Maple", "Mine.wav"]);
+    const favourite: Mark[] = [
+      { kind: "folder", id: "Stems", pinned: false, favourite: true, viewed: false },
+      { kind: "file", id: "Mine.wav", pinned: true, favourite: true, viewed: false },
+    ];
+    expect(run(["favourites"], [], favourite)).toEqual(["Mine.wav", "Stems"]);
   });
 });

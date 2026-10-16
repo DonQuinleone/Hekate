@@ -199,7 +199,27 @@ setup("seed", async ({ page, browser }) => {
       { fileId: named("Wet v2"), name: "Wet" },
     ],
   });
-  await api(page, "POST", `/api/projects/${music.id}/tracks`, { name: "The Entertainer" });
+  const { track: entertainer } = await api<{ track: { id: string } }>(
+    page,
+    "POST",
+    `/api/projects/${music.id}/tracks`,
+    { name: "The Entertainer" },
+  );
+
+  // Workspace tags on two files, and the owner's own pin and favourite.
+  type Made = { tag: { id: string } };
+  const { tag: masters } = await api<Made>(page, "POST", "/api/tags", { name: "Masters" });
+  const { tag: print } = await api<Made>(page, "POST", "/api/tags", { name: "For print" });
+  await api<Made>(page, "POST", "/api/tags", { name: "Reference" });
+  await api(page, "PUT", `/api/files/${dry}/tags`, { tagIds: [masters.id] });
+  await api(page, "PUT", `/api/files/${score}/tags`, { tagIds: [print.id, masters.id] });
+  for (const body of [
+    { items: [{ kind: "track", id: entertainer.id }], pinned: true },
+    { items: [{ kind: "file", id: score }], favourite: true },
+  ]) {
+    const marked = await page.request.post(`/api/projects/${music.id}/marks`, { data: body });
+    expect(marked.status()).toBe(204);
+  }
 
   // Comments of every kind.
   type Created = { comment: { id: string } };
