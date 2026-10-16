@@ -1,3 +1,9 @@
+import {
+  type InstanceSection,
+  instanceSections,
+  instanceSectionsFor,
+  reachesInstance,
+} from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { Fragment, type ReactNode, useCallback, useState } from "react";
@@ -18,6 +24,7 @@ import { docsUrl } from "~/lib/links";
 import { localeKey, setLocale } from "~/lib/locale";
 import {
   fileQuery,
+  instanceAccessQuery,
   type MyReview,
   meQuery,
   myReviewsQuery,
@@ -32,6 +39,13 @@ import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
 import { useThemeSync } from "~/lib/theme";
 import { mayOpenSettings } from "~/routes/project-settings";
 import { openShortcutMap } from "./shortcut-map";
+
+/** Each instance section's mark in the navigation, as in the prototype. */
+const instanceIcons: Record<InstanceSection, IconName> = {
+  overview: "dashboard",
+  workspaces: "building",
+  operators: "fingerprint",
+};
 
 /** The lamps in the room: slow, warm and cool, behind the chrome. */
 export function Ambient() {
@@ -240,6 +254,7 @@ function WorkspaceMenu({ collapsed, tab = false }: { collapsed: boolean; tab?: b
   const navigate = useNavigate();
   const switchTo = useSwitchOrganisation();
   const [open, setOpen, box] = usePopover();
+  const { data: instanceAccess } = useQuery(instanceAccessQuery);
   if (!me) return null;
   const workspace = me.organisations.find((o) => o.id === me.activeOrganisationId);
   const role = workspace?.role ?? "member";
@@ -356,6 +371,14 @@ function WorkspaceMenu({ collapsed, tab = false }: { collapsed: boolean; tab?: b
                 onSelect: () =>
                   void navigate({ to: "/account/$section", params: { section: "notifications" } }),
               },
+              ...(instanceAccess && reachesInstance(instanceAccess)
+                ? [
+                    {
+                      label: "Instance management",
+                      onSelect: () => void navigate({ to: "/instance" }),
+                    },
+                  ]
+                : []),
               "divider",
               { label: "Sign out", onSelect: () => void signOut() },
             ]}
@@ -425,6 +448,28 @@ function SideSection({
   );
 }
 
+/** The way to the instance side, beside the bell, for operators and workspace owners (#155). */
+function InstanceLink() {
+  const { data: access } = useQuery(instanceAccessQuery);
+  const { pathname } = useLocation();
+  if (!access || !reachesInstance(access)) return null;
+  const here = pathname === "/instance" || pathname.startsWith("/instance/");
+  return (
+    <Link
+      to="/instance"
+      aria-label="Instance management"
+      title="Instance management"
+      aria-current={here ? "page" : undefined}
+      className={cn(
+        "flex size-8 items-center justify-center rounded-control transition-colors hover:bg-raised/60 hover:text-ink",
+        here ? "bg-signal/15 text-signal" : "text-ink-3",
+      )}
+    >
+      <Icon name="fingerprint" size={18} />
+    </Link>
+  );
+}
+
 /** The top bar: the page's trail and actions (drawn in by the page), then the shell's own. */
 function TopBar({
   onTrail,
@@ -453,6 +498,7 @@ function TopBar({
         >
           <Icon name="search" />
         </button>
+        <InstanceLink />
         <NotificationsMenu />
         <HelpMenu />
       </div>
@@ -477,6 +523,13 @@ export function Shell({ children }: { children: ReactNode }) {
   const current = projects.find((p) => p.id === projectId);
   const { pathname } = useLocation();
   const section = pathname.split("/")[3] ?? "";
+  const { data: instanceAccess } = useQuery(instanceAccessQuery);
+  const atInstance = pathname === "/instance" || pathname.startsWith("/instance/");
+  const instanceView = atInstance ? pathname.split("/")[2] || "overview" : "";
+  const instanceNav =
+    atInstance && instanceAccess && reachesInstance(instanceAccess)
+      ? instanceSectionsFor(instanceAccess)
+      : [];
   const can = useProjectCan(current?.id);
   // Settings appear to whoever may change something there.
   const sectionsHere = projectSections.filter(
@@ -582,6 +635,47 @@ export function Shell({ children }: { children: ReactNode }) {
                   </Link>
                 ))}
               </>
+            ) : instanceNav.length > 0 ? (
+              <>
+                <div
+                  className={cn(
+                    "mt-4 mb-1 flex h-10 items-center gap-2.5 px-2",
+                    collapsed && "justify-center px-0",
+                  )}
+                >
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-[6px] bg-raised text-ink-2">
+                    <Icon name="fingerprint" size={14} />
+                  </span>
+                  {!collapsed && (
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[14px] font-medium text-ink">
+                        Instance
+                      </span>
+                      <span className="block truncate text-[11px] text-ink-3">
+                        {window.location.host}
+                      </span>
+                    </span>
+                  )}
+                </div>
+                {instanceNav.map((id) => (
+                  <Link
+                    key={id}
+                    to={id === "overview" ? "/instance" : "/instance/$section"}
+                    params={{ section: id }}
+                    activeOptions={{ exact: true }}
+                    title={collapsed ? instanceSections[id].label : undefined}
+                    aria-current={instanceView === id ? "page" : undefined}
+                    className={cn(
+                      navClass,
+                      "aria-[current=page]:bg-raised aria-[current=page]:text-ink aria-[current=page]:shadow-1",
+                      collapsed && "justify-center px-0",
+                    )}
+                  >
+                    <Icon name={instanceIcons[id]} />
+                    {!collapsed && <span className="truncate">{instanceSections[id].label}</span>}
+                  </Link>
+                ))}
+              </>
             ) : (
               <>
                 <NavItem to="/projects" icon="folder" label="Projects" collapsed={collapsed} />
@@ -670,6 +764,25 @@ export function Shell({ children }: { children: ReactNode }) {
                     className="h-7 shrink-0 rounded-control px-2.5 text-[13px] leading-7 whitespace-nowrap text-ink-3 transition-colors aria-[current=page]:bg-raised aria-[current=page]:text-ink"
                   >
                     {item.label}
+                  </Link>
+                ))}
+              </nav>
+            )}
+            {instanceNav.length > 1 && (
+              <nav
+                aria-label="Instance"
+                className="scroll-quiet flex shrink-0 gap-1 overflow-x-auto border-b border-line px-3 py-1.5 @3xl/app:hidden"
+              >
+                {instanceNav.map((id) => (
+                  <Link
+                    key={id}
+                    to={id === "overview" ? "/instance" : "/instance/$section"}
+                    params={{ section: id }}
+                    activeOptions={{ exact: true }}
+                    aria-current={instanceView === id ? "page" : undefined}
+                    className="h-7 shrink-0 rounded-control px-2.5 text-[13px] leading-7 whitespace-nowrap text-ink-3 transition-colors aria-[current=page]:bg-raised aria-[current=page]:text-ink"
+                  >
+                    {instanceSections[id].label}
                   </Link>
                 ))}
               </nav>

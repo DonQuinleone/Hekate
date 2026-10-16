@@ -40,6 +40,7 @@ A setting marked as secret may instead name a file that holds it, with `_FILE` a
 | --- | --- | --- |
 | `PASSWORD_LEAK_CHECK` | `true` | Check new passwords against Have I Been Pwned, sending only the first five characters of a hash. Turn off on an instance without internet access. |
 | `REQUIRE_SECOND_FACTOR` | `false` | Ask every account for a second factor, whatever its workspaces say. People without one are asked at their next sign-in. |
+| `OPERATOR_SECURITY_KEY` | `true` | Operators reach the instance side only from a session signed in with a passkey or hardware security key. Turn off only for testing. |
 | `MAX_PASSKEYS` | `5` | How many passkeys and hardware security keys one account may hold. |
 | `SSO_TRUSTED_ORIGINS` | unset | Origins of identity providers on a private network (an internal Keycloak, say), comma separated, that single sign-on may reach. Public ones need nothing. Example: `https://login.internal.example`. |
 

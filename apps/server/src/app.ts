@@ -22,6 +22,7 @@ import { guestRoutes } from "./routes/guest.ts";
 import { health } from "./routes/health.ts";
 import { homeRoutes } from "./routes/home.ts";
 import { installRoutes } from "./routes/install.ts";
+import { instanceRoutes } from "./routes/instance.ts";
 import { invitationRoutes } from "./routes/invitations.ts";
 import { projectMarkRoutes } from "./routes/marks.ts";
 import { accountRoutes, meRoutes } from "./routes/me.ts";
@@ -79,6 +80,8 @@ export interface AppDeps {
   requireSecondFactor?: boolean;
   /** Guards creating the first owner with the code from the server's log (decision 061). */
   setupGate?: SetupGate;
+  /** Operators act only from a session signed in with a key (OPERATOR_SECURITY_KEY). */
+  operatorSecurityKey?: boolean;
 }
 
 export function createApi(deps: AppDeps) {
@@ -119,6 +122,16 @@ export function createApi(deps: AppDeps) {
         setupRoutes(deps.db, deps.auth, deps.passwordLeakCheck ?? false, deps.setupGate),
       )
       .route("/install", installRoutes(null))
+      .route(
+        "/instance",
+        instanceRoutes({
+          db: deps.db,
+          auth: deps.auth,
+          rule,
+          operatorSecurityKey: deps.operatorSecurityKey ?? true,
+          trustProxy: deps.trustProxy ?? false,
+        }),
+      )
       .route("/sign-in-methods", signInMethodRoutes(deps.db))
       // Deleting the account needs no workspace; it answers before the workspace check below.
       .route(
