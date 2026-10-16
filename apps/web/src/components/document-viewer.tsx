@@ -93,13 +93,18 @@ export function DocumentViewer({
   }, [focus.selected]);
 
   // The viewer takes these itself, once it has focus; the map shows them while it is here.
-  useShortcuts("document", "Document", [
-    { keys: ["ArrowRight", "PageDown"], label: "Next page", where: "In the document" },
-    { keys: ["ArrowLeft", "PageUp"], label: "Previous page", where: "In the document" },
-    { keys: ["Home"], label: "First page", where: "In the document" },
-    { keys: ["End"], label: "Last page", where: "In the document" },
-    { keys: ["+", "-", "0"], label: "Zoom in, out, or back to fit", where: "In the document" },
-  ]);
+  useShortcuts(
+    "document",
+    "Document",
+    [
+      { keys: ["ArrowRight", "PageDown"], label: "Next page", where: "In the document" },
+      { keys: ["ArrowLeft", "PageUp"], label: "Previous page", where: "In the document" },
+      { keys: ["Home"], label: "First page", where: "In the document" },
+      { keys: ["End"], label: "Last page", where: "In the document" },
+      { keys: ["+", "-", "0"], label: "Zoom in, out, or back to fit", where: "In the document" },
+    ],
+    Boolean(data && !error),
+  );
 
   if (error) return <p className="m-0 text-sm text-signal">{error.message}</p>;
   if (!data) return <p className="m-0 text-sm text-ink-3">Loading the pages</p>;

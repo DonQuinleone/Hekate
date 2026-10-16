@@ -9,7 +9,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { inField, targetOf } from "./dom";
+import { targetOf } from "./dom";
 import { isMac, matchBinding, SEQUENCE_MS } from "./keys";
 
 /**
@@ -53,6 +53,24 @@ function publish(store: Store) {
 const activates = new Set(["Space", " ", "Enter"]);
 const interactive =
   "button, a[href], summary, [role=button], [role=switch], [role=tab], [role=checkbox], [role=menuitem], [role=option]";
+/** Arrow keys move within these controls, so a shortcut must leave them alone there. */
+const arrows = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
+const composite =
+  "[role=tab], [role=tablist], [role=menu], [role=menubar], [role=listbox], [role=radiogroup], [role=slider], [role=grid], [role=tree]";
+
+/** Whether the key belongs to the focused element rather than to the page. */
+export function ownedByTarget(key: string, target: Element | null): boolean {
+  if (!target) return false;
+  if (activates.has(key) && target.closest(interactive)) return true;
+  return arrows.has(key) && Boolean(target.closest(composite));
+}
+
+/** Whether the target takes typing: a range input takes the arrows, but not Space. */
+export function typingIn(key: string, target: Element | null): boolean {
+  if (!target?.closest("input, textarea, select, [contenteditable=true]")) return false;
+  const range = target instanceof HTMLInputElement && target.type === "range";
+  return !(range && (key === " " || key === "Space"));
+}
 
 export function ShortcutsProvider({ children }: { children: ReactNode }) {
   const store = useMemo<Store>(
@@ -73,8 +91,9 @@ export function ShortcutsProvider({ children }: { children: ReactNode }) {
       if (event.defaultPrevented || event.isComposing) return;
       const target = targetOf(event);
       // Typing, and an open dialog, keep keys for themselves: the page's wait behind them.
-      const held = inField(event) || Boolean(document.querySelector("[aria-modal=true]"));
-      if (activates.has(event.key) && target?.closest(interactive)) return;
+      const held =
+        typingIn(event.key, target) || Boolean(document.querySelector("[aria-modal=true]"));
+      if (ownedByTarget(event.key, target)) return;
       const pending = waiting && Date.now() - waiting.at < SEQUENCE_MS ? waiting.stroke : null;
       waiting = null;
       // The most recently mounted group first: the innermost place wins.
