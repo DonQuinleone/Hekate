@@ -129,7 +129,17 @@ setup("seed", async ({ page, browser }) => {
   await page.fill("#password", "correct horse battery");
   await page.fill("#confirm", "correct horse battery");
   await page.click("button[type=submit]");
-  await expect(page.getByText("No projects yet")).toBeVisible();
+  // A new workspace lands on an empty home that says what to do first.
+  await expect(page.getByText("Nothing here yet")).toBeVisible();
+  for (const [name, viewport] of [
+    ["home-empty", { width: 1440, height: 900 }],
+    ["home-empty-phone", { width: 390, height: 844 }],
+  ] as const) {
+    await page.setViewportSize(viewport);
+    await checkScreen(page);
+    await saveScreen(page, name);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
   const { user } = await api<{ user: { id: string } }>(page, "GET", "/api/me");
 
   const { project: music } = await api<{ project: { id: string } }>(page, "POST", "/api/projects", {

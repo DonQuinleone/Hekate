@@ -15,8 +15,9 @@ import { ViewerProvider } from "~/lib/viewer";
 import { SetupPage, SignInPage } from "~/routes/auth-pages";
 import { FilePage } from "~/routes/file";
 import { GuestHomePage, GuestLinkPage, GuestShell, GuestSignedOutPage } from "~/routes/guest";
+import { HomePage } from "~/routes/home";
+import { InboxPage } from "~/routes/inbox";
 import { InvitePage } from "~/routes/invite";
-import { MyReviewsPage } from "~/routes/my-reviews";
 import { ProjectFilesPage, ProjectPeoplePage, ProjectReviewsPage } from "~/routes/project";
 import { ProjectsPage } from "~/routes/projects";
 import { ReviewPage } from "~/routes/review";
@@ -152,13 +153,10 @@ const app = createRoute({
   ),
 });
 
-// Home becomes the dashboard (#109); until then the projects list is where everyone starts.
 const home = createRoute({
   getParentRoute: () => app,
   path: "/",
-  beforeLoad: () => {
-    throw redirect({ to: "/projects" });
-  },
+  component: HomePage,
 });
 const projects = createRoute({
   getParentRoute: () => app,
@@ -246,10 +244,26 @@ const review = createRoute({
     return <ReviewPage reviewId={reviewId} />;
   },
 });
+const inboxSearch = z.object({
+  item: z.string().uuid().optional().catch(undefined),
+  show: z.enum(["needs", "following", "done"]).optional().catch(undefined),
+});
+const inbox = createRoute({
+  getParentRoute: () => app,
+  path: "/inbox",
+  validateSearch: (search: Record<string, unknown>) => inboxSearch.parse(search),
+  component: function InboxRoute() {
+    const { item, show } = inbox.useSearch();
+    return <InboxPage item={item} show={show} />;
+  },
+});
+// The reviews list became the inbox; the old address still works.
 const myReviews = createRoute({
   getParentRoute: () => app,
   path: "/reviews",
-  component: MyReviewsPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/inbox", search: {} });
+  },
 });
 // Members live in the workspace's settings now (decision 038); the old address still works.
 const members = createRoute({
@@ -293,6 +307,7 @@ export const router = createRouter({
       track,
       file,
       myReviews,
+      inbox,
       review,
       members,
       settingsHome,
