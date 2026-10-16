@@ -76,7 +76,7 @@ export function NotificationItem({
             n.text.charAt(0).toUpperCase() + n.text.slice(1)
           )}
         </span>
-        <span className="tabular block text-[12px] text-ink-3">{ago(n.createdAt)}</span>
+        <span className="tabular block text-[12px] text-ink-2">{ago(n.createdAt)}</span>
       </span>
       {!n.readAt && (
         <span className="mt-2 size-1.5 shrink-0 rounded-full bg-signal">
@@ -131,19 +131,19 @@ export function NotificationsMenu() {
         >
           <div className="flex h-11 items-center gap-2 border-b border-line px-4">
             <span className="text-[14px] font-medium text-ink">Notifications</span>
-            {unread > 0 && <span className="tabular text-[12px] text-ink-3">{unread} unread</span>}
+            {unread > 0 && <span className="tabular text-[12px] text-ink-2">{unread} unread</span>}
             {unread > 0 && (
               <button
                 type="button"
                 onClick={() => readAll.mutate()}
-                className="ml-auto h-8 rounded-control px-2 text-[12px] text-ink-3 hover:text-ink"
+                className="ml-auto h-8 rounded-control px-2 text-[12px] text-ink-2 hover:text-ink"
               >
                 Mark all read
               </button>
             )}
           </div>
           {list.length === 0 ? (
-            <p className="m-0 px-4 py-8 text-center text-[13px] text-ink-3">
+            <p className="m-0 px-4 py-8 text-center text-[13px] text-ink-2">
               Nothing yet. Decisions, replies, mentions and new versions arrive here.
             </p>
           ) : (

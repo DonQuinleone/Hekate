@@ -183,3 +183,26 @@ test("bell", async ({ page }) => {
   await saveScreen(page, "bell");
   await checkScreen(page);
 });
+
+// The command palette, as it opens and with results from the server.
+for (const [name, typed, ready] of [
+  ["palette", "", "[role=option]:has-text('Inbox')"],
+  ["palette-search", "maple", "[role=option]:has-text('Maple Leaf Rag - Dry v2.wav')"],
+] as const) {
+  test(name, async ({ page }) => {
+    await page.clock.setFixedTime(FIXED_TIME);
+    await page.goto("/projects");
+    await settle(page, "main a:has-text('Joplin Rags')");
+    await page.keyboard.press("ControlOrMeta+k");
+    const box = page.getByRole("combobox", { name: "Search and commands" });
+    await expect(box).toBeFocused();
+    if (typed) await box.fill(typed);
+    await settle(page, `[role=dialog][aria-label='Search and commands'] ${ready}`);
+    // The panel rises in; checked half-faded, its text would read as low contrast.
+    await page.waitForFunction(() =>
+      document.getAnimations().every((a) => a.playState !== "running"),
+    );
+    await saveScreen(page, name);
+    await checkScreen(page);
+  });
+}

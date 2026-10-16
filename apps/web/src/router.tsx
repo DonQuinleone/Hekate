@@ -174,7 +174,13 @@ const home = createRoute({
 const projects = createRoute({
   getParentRoute: () => app,
   path: "/projects",
-  component: ProjectsPage,
+  // `?new=1` opens the form for a new project, as the palette's action does.
+  validateSearch: (search: Record<string, unknown>): { new?: 1 } =>
+    search.new === 1 || search.new === "1" ? { new: 1 } : {},
+  component: function ProjectsRoute() {
+    const search = projects.useSearch();
+    return <ProjectsPage creatingFirst={search.new === 1} />;
+  },
 });
 const folderSearch = (search: Record<string, unknown>): { folder?: string } =>
   typeof search.folder === "string" && /^[0-9a-f-]{36}$/i.test(search.folder)

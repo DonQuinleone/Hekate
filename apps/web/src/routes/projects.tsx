@@ -135,9 +135,9 @@ function Empty({ onCreate }: { onCreate: () => void }) {
   );
 }
 
-export function ProjectsPage() {
+export function ProjectsPage({ creatingFirst = false }: { creatingFirst?: boolean }) {
   const { data, isPending, error } = useQuery(projectsQuery);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(creatingFirst);
   return (
     <>
       <PageHeader
