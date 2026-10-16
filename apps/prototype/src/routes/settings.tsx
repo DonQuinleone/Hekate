@@ -874,62 +874,65 @@ export function SettingsPage({
           </Section>
           <Section
             title="Single sign-on"
-            intro="OIDC or SAML. Enforcing it turns passwords off for members; one break-glass owner keeps a password."
+            intro="One identity provider, by OIDC or SAML. Members sign in through it, and their first sign-in makes their account."
           >
+            <SwitchRow
+              name="Sign in with single sign-on"
+              hint="Turned off, nobody new can join through it, and its members sign in with a password or passkey."
+              checked
+            />
             <Row name="Provider">
               <Select defaultValue="oidc" className="w-40">
                 <option value="oidc">OIDC</option>
                 <option value="saml">SAML</option>
               </Select>
             </Row>
-            <Row name="Issuer">
+            <Row name="Issuer" hint="Its discovery document is read when you save.">
               <Input
                 defaultValue="https://login.endlesshall.example/realms/hekate"
                 className="w-full @3xl/app:w-96"
               />
             </Row>
-            <Row name="Client">
-              <Input defaultValue="hekate" className="w-64" />
+            <Row name="Client" hint="The client secret is never shown again.">
+              <span className="flex flex-wrap gap-2">
+                <Input defaultValue="hekate" className="w-48" aria-label="Client ID" />
+                <Input
+                  type="password"
+                  placeholder="Kept"
+                  className="w-40"
+                  aria-label="Client secret"
+                />
+              </span>
+            </Row>
+            <Row name="Redirect URI">
               <Input
-                type="password"
-                defaultValue="••••••••••••"
-                className="w-40"
-                aria-label="Client secret"
+                readOnly
+                defaultValue="https://review.endlesshall.example/api/auth/sso/callback/workspace-endless-hall"
+                className="w-full font-mono text-[12px] @3xl/app:w-96"
               />
             </Row>
+            <Row name="Groups" hint="The claim that lists a person's groups.">
+              <Input defaultValue="groups" className="w-40" />
+            </Row>
             <Row
-              name="Attributes"
-              hint="Email, name, and the group claim that becomes a workspace role."
+              name="Admins"
+              hint="Groups whose people are admins here, separated by commas. Everyone else is a member; owners stay owners."
             >
-              <Input defaultValue="email · name · groups" className="w-64" />
-            </Row>
-            <Row name="Group to role" stacked>
-              <div className="flex w-full flex-col gap-1.5">
-                {[
-                  ["hekate-owners", "Owner"],
-                  ["hekate-admins", "Admin"],
-                  ["*", "Member"],
-                ].map(([g, r]) => (
-                  <span key={g} className="flex items-center gap-2">
-                    <Input defaultValue={g} className="w-56" />
-                    <span className="text-ink-3">→</span>
-                    <Select defaultValue={r} className="w-40">
-                      <option>Owner</option>
-                      <option>Admin</option>
-                      <option>Member</option>
-                    </Select>
-                  </span>
-                ))}
-              </div>
-            </Row>
-            <Row name="Test">
-              <Test state={state === "failed" ? "failed" : "idle"} />
+              <Input defaultValue="hekate-admins" className="w-full @3xl/app:w-96" />
             </Row>
             <SwitchRow
               name="Enforce single sign-on"
-              hint="Break-glass: alex@endlesshall.example keeps a password."
+              hint="Members sign in only through it. Owners keep their password, so a broken provider never locks the workspace out."
               checked={false}
             />
+            <Row name="Save" hint="Saving an OIDC issuer checks that it answers.">
+              <span className="flex gap-2">
+                <Test state={state === "failed" ? "failed" : "idle"} />
+                <Button variant="primary" size="md">
+                  Save
+                </Button>
+              </span>
+            </Row>
           </Section>
           <Section
             title="Directory (LDAP)"

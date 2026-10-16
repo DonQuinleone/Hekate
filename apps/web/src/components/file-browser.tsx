@@ -457,11 +457,14 @@ export function FileBrowser({
         // A long list draws only what is near the view: bring the row in, then focus it.
         cursor.current = next;
         reveal.current?.(next);
+        // Until it is drawn (a second at most), unless a later key has moved on: focus never
+        // lands on a row behind the one asked for.
         const settle = (tries: number) =>
           requestAnimationFrame(() => {
+            if (cursor.current !== next) return;
             if (!focus() && tries > 0) settle(tries - 1);
           });
-        settle(5);
+        settle(60);
       }
       if (event.shiftKey) {
         const from = anchor ?? current ?? key;

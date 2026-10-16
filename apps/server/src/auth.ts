@@ -1,4 +1,5 @@
 import { passkey } from "@better-auth/passkey";
+import { sso } from "@better-auth/sso";
 import { type Database, schema } from "@hekate/db";
 import type { SessionFactor } from "@hekate/shared";
 import { betterAuth } from "better-auth";
@@ -24,6 +25,7 @@ import {
   logLockout,
   logToWorkspaces,
 } from "./sign-in.ts";
+import { providerState, provision } from "./sso.ts";
 
 export interface AuthOptions {
   db: Database;
@@ -45,7 +47,37 @@ export interface AuthOptions {
   keyring?: Keyring;
   /** How many passkeys and hardware security keys one account may hold (MAX_PASSKEYS). */
   maxPasskeys?: number;
+  /**
+   * Identity providers on a private network the server may reach (SSO_TRUSTED_ORIGINS); public
+   * ones need nothing.
+   */
+  ssoTrustedOrigins?: string[];
 }
+
+/** Better Auth's SSO routes Hekate does not use: providers are set in workspace settings. */
+const ssoDisabledPaths = [
+  "/sso/register",
+  "/sso/update-provider",
+  "/sso/delete-provider",
+  "/sso/providers",
+  "/sso/get-provider",
+  "/sso/request-domain-verification",
+  "/sso/verify-domain",
+  "/sso/callback",
+];
+
+/** The provider a single sign-on request names, from its address or its body. */
+const ssoProviderIn = (ctx: { path: string; params?: unknown; body?: unknown }) => {
+  if (
+    ctx.path === "/sso/callback/:providerId" ||
+    ctx.path === "/sso/saml2/sp/acs/:providerId" ||
+    ctx.path === "/sso/saml2/sp/metadata"
+  ) {
+    const params = ctx.params as { providerId?: unknown } | undefined;
+    if (typeof params?.providerId === "string") return params.providerId;
+  }
+  return undefined;
+};
 
 /** The base of the app's own links, for those in emails. */
 const appBase = (baseURL: string) => baseURL.replace(/\/$/, "");
@@ -65,7 +97,8 @@ export function createAuth(options: AuthOptions) {
     secret: options.secret,
     baseURL: options.baseURL,
     basePath: "/api/auth",
-    trustedOrigins: options.trustedOrigins ?? [],
+    trustedOrigins: [...(options.trustedOrigins ?? []), ...(options.ssoTrustedOrigins ?? [])],
+    disabledPaths: ssoDisabledPaths,
     telemetry: { enabled: false },
     database: drizzleAdapter(options.db, {
       provider: "pg",
@@ -76,6 +109,7 @@ export function createAuth(options: AuthOptions) {
         verification: schema.authVerifications,
         twoFactor: schema.twoFactors,
         passkey: schema.passkeys,
+        ssoProvider: schema.ssoProviders,
       },
     }),
     emailAndPassword: {
@@ -86,7 +120,22 @@ export function createAuth(options: AuthOptions) {
       // A new password ends every session, wherever it was: whoever knew the old one is out.
       revokeSessionsOnPasswordReset: true,
     },
+    // Signing in through a provider never joins an account that exists already (see sso.ts).
+    account: { accountLinking: { disableImplicitLinking: true } },
     plugins: [
+      // A workspace's single sign-on (OIDC or SAML): set by its admins, found by workspace.
+      sso({
+        fields: { organizationId: "organisationId" },
+        providersLimit: 0,
+        organizationProvisioning: { disabled: true },
+        provisionUserOnEveryLogin: true,
+        provisionUser: async ({ user, userInfo, provider }) =>
+          provision(options.db, options.audit, {
+            userId: user.id,
+            providerId: provider.providerId,
+            groups: userInfo.groups,
+          }),
+      }),
       // A workspace's directory (LDAP): its username and password sign in.
       directorySignIn({ db: options.db, keyring: options.keyring, audit: options.audit }),
       // Passkeys and hardware security keys (WebAuthn): sign in on their own, or confirm a
@@ -140,6 +189,33 @@ export function createAuth(options: AuthOptions) {
     ],
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
+        // Single sign-on starts from a workspace's provider, named, and only while it is on;
+        // never from the domain of an address, which any workspace could claim.
+        if (ctx.path === "/sign-in/sso") {
+          const body = (ctx.body ?? {}) as { providerId?: unknown };
+          const provider =
+            typeof body.providerId === "string"
+              ? await providerState(options.db, body.providerId)
+              : null;
+          if (!provider?.enabled)
+            throw new APIError("BAD_REQUEST", {
+              message: "That workspace does not sign in with single sign-on.",
+            });
+          return {
+            context: {
+              body: {
+                providerId: body.providerId,
+                callbackURL: (ctx.body as { callbackURL?: unknown }).callbackURL,
+                errorCallbackURL: (ctx.body as { errorCallbackURL?: unknown }).errorCallbackURL,
+              },
+            },
+          };
+        }
+        const via = ssoProviderIn(ctx);
+        if (via && !(await providerState(options.db, via))?.enabled)
+          throw new APIError("BAD_REQUEST", {
+            message: "That workspace does not sign in with single sign-on.",
+          });
         // Up to the instance's limit of keys per account: asked when registration starts, and
         // again when the key is saved, so options fetched ahead of time cannot pass it.
         if (
@@ -283,17 +359,19 @@ export function createAuth(options: AuthOptions) {
               .select({ twoFactorEnabled: schema.users.twoFactorEnabled })
               .from(schema.users)
               .where(eq(schema.users.id, session.userId));
-            const previous = (
-              ctx?.context.session?.session as { factor?: SessionFactor } | undefined
-            )?.factor;
+            const current = ctx?.context.session?.session as
+              | { factor?: SessionFactor; ssoProviderId?: string | null }
+              | undefined;
             return {
               data: {
                 ...session,
                 factor: factorFor(
                   ctx?.path,
                   { twoFactorEnabled: account?.twoFactorEnabled ?? false },
-                  previous,
+                  current?.factor,
                 ),
+                // Which single sign-on made it, for a workspace that takes members only so.
+                ssoProviderId: (ctx && ssoProviderIn(ctx)) ?? current?.ssoProviderId ?? null,
               },
             };
           },
@@ -328,6 +406,7 @@ export function createAuth(options: AuthOptions) {
       additionalFields: {
         activeOrganisationId: { type: "string", required: false, input: false },
         factor: { type: "string", required: false, input: false, defaultValue: "password" },
+        ssoProviderId: { type: "string", required: false, input: false },
       },
     },
     advanced: {

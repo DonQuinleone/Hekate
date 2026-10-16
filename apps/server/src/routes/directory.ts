@@ -53,19 +53,3 @@ export const directoryRoutes = (
       const problem = await testDirectory(config);
       return c.json({ ok: problem === null, problem });
     });
-
-/**
- * `/api/sign-in-methods`: whether the sign-in page offers a directory at all. One yes or no for
- * the whole instance, read before anyone is signed in, so it names no workspace and nothing in
- * one; which workspace's directory is used is asked on the page.
- */
-export const signInMethodRoutes = (db: Database) =>
-  new Hono().get("/", async (c) => {
-    // Deliberately across workspaces: an instance-wide yes or no, never a workspace's data.
-    const [row] = await db
-      .select({ id: schema.directories.id })
-      .from(schema.directories)
-      .where(eq(schema.directories.enabled, true))
-      .limit(1);
-    return c.json({ directory: Boolean(row) });
-  });

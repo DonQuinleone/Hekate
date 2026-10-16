@@ -383,10 +383,7 @@ export function SignInPage({ view: initial }: { view?: string }) {
 
   if (view === "sso")
     return (
-      <Frame
-        title="Single sign-on"
-        intro="Which workspace are you signing in to? On your workspace's own address this step is skipped."
-      >
+      <Frame title="Single sign-on" intro="Which workspace are you signing in to?">
         <form
           className="flex flex-col gap-4"
           onSubmit={(e) => {
@@ -394,28 +391,10 @@ export function SignInPage({ view: initial }: { view?: string }) {
             done();
           }}
         >
-          <label htmlFor="sso-org" className="flex flex-col gap-1.5 text-[14px] text-ink-2">
-            Workspace
-            <span className="flex items-center overflow-hidden rounded-control border border-edge bg-ground shadow-1 focus-within:border-ink-3">
-              <input
-                id="sso-org"
-                placeholder="endlesshall"
-                autoComplete="organization"
-                className="h-10 min-w-0 flex-1 bg-transparent px-3 text-[14px] text-ink placeholder:text-ink-3 focus:outline-none focus-visible:shadow-none"
-              />
-              <span className="shrink-0 pr-3 text-[13px] text-ink-3">
-                .review.endlesshall.example
-              </span>
-            </span>
-          </label>
+          <Field label="Workspace" autoComplete="organization" placeholder="endless-hall-records" />
           <Button type="submit" variant="primary" size="lg">
             Continue to the identity provider
           </Button>
-          <p className="text-[13px] text-ink-3">
-            Or open{" "}
-            <span className="tabular text-ink-2">endlesshall.review.endlesshall.example</span> and
-            the workspace is known from the address.
-          </p>
         </form>
         {back}
       </Frame>

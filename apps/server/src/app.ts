@@ -10,7 +10,7 @@ import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
 import type { Mailer } from "./mail.ts";
 import { carryRoutes, commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
-import { directoryRoutes, signInMethodRoutes } from "./routes/directory.ts";
+import { directoryRoutes } from "./routes/directory.ts";
 import { fileDetailRoutes } from "./routes/file-details.ts";
 import { fileManageRoutes, folderRoutes, projectFolderRoutes } from "./routes/folders.ts";
 import { projectGroupRoutes } from "./routes/groups.ts";
@@ -31,6 +31,8 @@ import { fileRetryRoutes } from "./routes/retry.ts";
 import { projectReviewRoutes, reviewRoutes } from "./routes/reviews.ts";
 import { searchRoutes } from "./routes/search.ts";
 import { setupRoutes } from "./routes/setup.ts";
+import { signInMethodRoutes } from "./routes/sign-in-methods.ts";
+import { ssoRoutes } from "./routes/sso.ts";
 import { fileTagRoutes, tagRoutes } from "./routes/tags.ts";
 import {
   projectTrackRoutes,
@@ -59,6 +61,8 @@ export interface AppDeps {
   log?: boolean;
   /** How many passkeys one account may hold (MAX_PASSKEYS). */
   maxPasskeys?: number;
+  /** Identity providers on a private network the server may reach (SSO_TRUSTED_ORIGINS). */
+  ssoTrustedOrigins?: string[];
   /** Check the first owner's password against known breaches (PASSWORD_LEAK_CHECK). */
   passwordLeakCheck?: boolean;
   /** The instance asks every account for a second factor (REQUIRE_SECOND_FACTOR). */
@@ -112,6 +116,14 @@ export function createApi(deps: AppDeps) {
       .route(
         "/organisation/directory",
         directoryRoutes(deps.db, deps.keyring, deps.audit, deps.trustProxy ?? false),
+      )
+      .route(
+        "/organisation/sso",
+        ssoRoutes(deps.db, deps.audit, {
+          baseURL: deps.publicUrl,
+          trusted: deps.ssoTrustedOrigins ?? [],
+          trustProxy: deps.trustProxy ?? false,
+        }),
       )
       .route(
         "/organisation",

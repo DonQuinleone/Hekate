@@ -59,6 +59,18 @@ const screens: Screen[] = [
     as: "signed-out",
   },
   {
+    name: "sign-in-sso",
+    path: () => "/sign-in?view=sso&reason=sso",
+    ready: "text=Continue to the identity provider",
+    as: "signed-out",
+  },
+  {
+    name: "sign-in-sso-refused",
+    path: () => "/sign-in?view=sso&error=account_not_linked",
+    ready: "text=An account with this address already exists",
+    as: "signed-out",
+  },
+  {
     name: "sign-in-directory",
     path: () => "/sign-in?view=directory",
     ready: "text=Sign in with a directory",

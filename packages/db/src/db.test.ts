@@ -67,6 +67,7 @@ describe("tenancy", () => {
       "saved_searches",
       "sessions",
       "spectrograms",
+      "sso_providers",
       "tags",
       "takes",
       "tracks",

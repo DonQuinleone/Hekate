@@ -57,6 +57,10 @@ jobs:
           sudo systemctl stop slapd || true
           sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.slapd 2>/dev/null || true
           echo "LDAP_TEST_URL=$(sudo LDAP_TEST_DIR=/var/lib/ldap/hekate-test apps/server/test/ldap/start.sh)" >> "$GITHUB_ENV"
+      # The single sign-on tests run against Keycloak (OIDC and SAML), from Docker Hub pinned by
+      # digest, with the realm in apps/server/test/keycloak.
+      - name: Start an identity provider
+        run: echo "KEYCLOAK_URL=$(apps/server/test/keycloak/start.sh)" >> "$GITHUB_ENV"
       - name: Start an S3-compatible server
         run: |
           archive="versitygw_${VERSITYGW_VERSION}_Linux_x86_64.tar.gz"
