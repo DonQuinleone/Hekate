@@ -1,21 +1,9 @@
 import { createDb, runMigrations } from "@hekate/db";
-import {
-  createBackends,
-  type StorageConfig,
-  StorageConfigError,
-  storageConfigFromEnv,
-} from "@hekate/storage";
+import { createBackends, StorageConfigError } from "@hekate/storage";
 import { serve } from "@hono/node-server";
 import { createApp } from "./app.ts";
 import { createAudit } from "./audit.ts";
 import { createAuth } from "./auth.ts";
-import {
-  type Config,
-  ConfigError,
-  type ConfigProblem,
-  formatProblems,
-  loadConfig,
-} from "./config.ts";
 import { createJobs } from "./jobs.ts";
 import { createKeyring, UnknownMasterKeyError } from "./keyring.ts";
 import { createMailer } from "./mail.ts";
@@ -26,40 +14,12 @@ import { purgeRequestLimits } from "./rate-limit.ts";
 import { reconcileStorage } from "./reconcile.ts";
 import { remindDue } from "./reminders.ts";
 import { purgeAttempts } from "./sign-in.ts";
+import { settingsOrExit } from "./startup.ts";
 import { serveWeb } from "./static.ts";
 import { createStorage } from "./storage.ts";
 import { version } from "./version.ts";
 
-// Every setting is checked before anything starts, and every problem is reported at once.
-const { config, storageConfig } = (() => {
-  const problems: ConfigProblem[] = [];
-  let config: Config | undefined;
-  let storageConfig: StorageConfig | undefined;
-  try {
-    config = loadConfig();
-  } catch (error) {
-    if (!(error instanceof ConfigError)) throw error;
-    problems.push(...error.problems);
-  }
-  try {
-    storageConfig = storageConfigFromEnv();
-  } catch (error) {
-    if (!(error instanceof StorageConfigError)) throw error;
-    for (const problem of error.problems) {
-      const at = problem.indexOf(": ");
-      problems.push(
-        at > 0
-          ? { name: problem.slice(0, at), message: problem.slice(at + 2) }
-          : { name: "STORAGE", message: problem },
-      );
-    }
-  }
-  if (problems.length > 0 || !config || !storageConfig) {
-    console.error(formatProblems(problems));
-    process.exit(1);
-  }
-  return { config, storageConfig };
-})();
+const { config, storageConfig } = settingsOrExit();
 if (config.MIGRATE_ON_START) await runMigrations(config.DATABASE_URL);
 
 // Refuse to start with storage that is unreachable or read-only.

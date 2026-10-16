@@ -150,7 +150,12 @@ jobs:
       - run: pnpm --filter @hekate/web build
         env:
           VITE_REFERENCE: "1"
+      # The key the suite's instance is encrypted with, kept for the restore drill.
+      - run: echo "E2E_MASTER_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
       - run: pnpm --filter @hekate/e2e e2e
+      # Back up the seeded instance, restore it somewhere new, and verify the restore.
+      - name: Restore drill
+        run: scripts/backup-drill.sh
       - name: Keep the captures
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0

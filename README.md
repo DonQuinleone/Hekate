@@ -88,6 +88,8 @@ cosign verify ghcr.io/donquinleone/hekate:<version> \
 
 To build the image from a checkout instead, add `-f deploy/compose.build.yml` and `--build`.
 
+Back up the database, the storage and the master key, and check a restore with `backup verify`: see [docs/backup.md](docs/backup.md).
+
 ## Storage
 
 Media can live in several named backends at once. Each stored object records which backend holds it, so you can add a backend or change the default without moving or breaking anything already stored. Workspace owners can choose which backend their new uploads use; otherwise `STORAGE_DEFAULT` applies.
