@@ -22,6 +22,7 @@ import {
   type ReviewerPermissionsChange,
   type ReviewerState,
   type ReviewKind,
+  searchResponse,
   type UpdateCarryInput,
 } from "@hekate/shared";
 import {
@@ -1457,3 +1458,14 @@ export function useUnfollow() {
     onSuccess: () => client.invalidateQueries({ queryKey: followsQuery.queryKey }),
   });
 }
+
+/** What matches a few typed words, across everything the member may see. */
+export const searchQuery = (q: string) =>
+  queryOptions({
+    queryKey: ["search", q],
+    queryFn: async () =>
+      // Read through the shared schema, so a change to the contract shows here at once.
+      searchResponse.parse(await json(await api.search.$get({ query: { q } }))).results,
+    enabled: q.trim().length > 0,
+    staleTime: 30_000,
+  });

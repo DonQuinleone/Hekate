@@ -26,7 +26,7 @@ import {
   reviewOrders,
   reviewStatuses,
 } from "@hekate/shared";
-import { sql } from "drizzle-orm";
+import { type SQL, sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
   bigint,
@@ -50,6 +50,12 @@ import {
 import { uuidv7 } from "./id.ts";
 
 // Vocabulary: docs/domain.md. Use those terms exactly.
+
+/**
+ * What search reads: words in the `simple` configuration (no stemming, so names in any
+ * language match as typed). Indexed as an expression, and queried with the same one.
+ */
+export const searchVector = (text: SQL) => sql`to_tsvector('simple', ${text})`;
 
 const id = () =>
   uuid("id")
@@ -217,7 +223,10 @@ export const projects = pgTable(
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     ...timestamps,
   },
-  (t) => [index("projects_org_idx").on(t.organisationId)],
+  (t) => [
+    index("projects_org_idx").on(t.organisationId),
+    index("projects_search_idx").using("gin", searchVector(sql`coalesce(${t.name}, '')`)),
+  ],
 );
 
 /**
@@ -414,6 +423,7 @@ export const files = pgTable(
     ...timestamps,
   },
   (t) => [
+    index("files_search_idx").using("gin", searchVector(sql`coalesce(${t.name}, '')`)),
     index("files_org_idx").on(t.organisationId),
     index("files_project_folder_idx").on(t.projectId, t.folderId),
     index("files_take_idx").on(t.takeId),
@@ -436,6 +446,7 @@ export const tracks = pgTable(
     ...timestamps,
   },
   (t) => [
+    index("tracks_search_idx").using("gin", searchVector(sql`coalesce(${t.name}, '')`)),
     index("tracks_org_idx").on(t.organisationId),
     index("tracks_project_idx").on(t.projectId),
   ],
@@ -509,7 +520,11 @@ export const comments = pgTable(
     editedAt: timestamp("edited_at", { withTimezone: true }),
     ...timestamps,
   },
-  (t) => [index("comments_org_idx").on(t.organisationId), index("comments_file_idx").on(t.fileId)],
+  (t) => [
+    index("comments_org_idx").on(t.organisationId),
+    index("comments_file_idx").on(t.fileId),
+    index("comments_search_idx").using("gin", searchVector(sql`coalesce(${t.body}, '')`)),
+  ],
 );
 
 /**
@@ -983,7 +998,13 @@ export const reviews = pgTable(
     completedAt: timestamp("completed_at", { withTimezone: true }),
     ...timestamps,
   },
-  (t) => [index("reviews_project_idx").on(t.organisationId, t.projectId, t.createdAt)],
+  (t) => [
+    index("reviews_project_idx").on(t.organisationId, t.projectId, t.createdAt),
+    index("reviews_search_idx").using(
+      "gin",
+      searchVector(sql`coalesce(${t.title}, '') || ' ' || coalesce(${t.message}, '')`),
+    ),
+  ],
 );
 
 /** What a review covers: a track (a specific version, or its latest) or a file. */

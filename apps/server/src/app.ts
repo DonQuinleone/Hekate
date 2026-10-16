@@ -24,6 +24,7 @@ import { projectAccessRoutes } from "./routes/project-access.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { fileQaRoutes } from "./routes/qa.ts";
 import { projectReviewRoutes, reviewRoutes } from "./routes/reviews.ts";
+import { searchRoutes } from "./routes/search.ts";
 import { setupRoutes } from "./routes/setup.ts";
 import {
   projectTrackRoutes,
@@ -93,6 +94,8 @@ export function createApi(deps: AppDeps) {
       .use("/notifications/*", ...member)
       .use("/notifications", ...member)
       .route("/notifications", notificationRoutes(deps.db))
+      .use("/search", ...member)
+      .route("/search", searchRoutes(deps.db))
       .use("/home", ...member)
       .route("/home", homeRoutes(deps.db))
       .use("/projects/*", ...member)
