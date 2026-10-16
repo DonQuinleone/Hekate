@@ -17,11 +17,11 @@ export function TrackPage({ trackId }: { trackId: string }) {
     <>
       <PageHeader
         crumbs={[
-          { key: "projects", link: <Link to="/">Projects</Link> },
+          { key: "projects", link: <Link to="/projects">Projects</Link> },
           {
             key: "project",
             link: (
-              <Link to="/projects/$projectId" params={{ projectId: track.projectId }}>
+              <Link to="/projects/$projectId/files" params={{ projectId: track.projectId }}>
                 {project?.name ?? "Project"}
               </Link>
             ),

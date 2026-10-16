@@ -1,12 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { argosScreenshot } from "@argos-ci/playwright";
 import { expect, type Page, test as setup } from "@playwright/test";
 import postgres from "postgres";
 import { samplePdf } from "../../server/src/media/sample-pdf.ts";
 import { checkScreen } from "./checks.ts";
-import { FIXED_TIME, type Seeded, state } from "./fixtures.ts";
+import { FIXED_TIME, type Seeded, saveScreen, state } from "./fixtures.ts";
 
 /**
  * Seeds one organisation as a studio would have it: a music project with a track in two
@@ -88,7 +87,7 @@ interface SeededFile {
 }
 
 async function upload(page: Page, projectId: string, paths: string[]) {
-  await page.goto(`/projects/${projectId}`);
+  await page.goto(`/projects/${projectId}/files`);
   await page.setInputFiles("input[type=file]", paths);
   await expect(page.locator("ul[aria-label='Uploads in progress']")).toBeHidden({
     timeout: 120_000,
@@ -131,7 +130,7 @@ setup("seed", async ({ page, browser }) => {
   ] as const) {
     await page.setViewportSize(viewport);
     await checkScreen(page);
-    await argosScreenshot(page, name);
+    await saveScreen(page, name);
   }
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.fill("#organisation", "Endless Hall Records");
@@ -140,7 +139,17 @@ setup("seed", async ({ page, browser }) => {
   await page.fill("#password", "correct horse battery");
   await page.fill("#confirm", "correct horse battery");
   await page.click("button[type=submit]");
-  await expect(page.getByText("No projects yet")).toBeVisible();
+  // A new workspace lands on an empty home that says what to do first.
+  await expect(page.getByText("Nothing here yet")).toBeVisible();
+  for (const [name, viewport] of [
+    ["home-empty", { width: 1440, height: 900 }],
+    ["home-empty-phone", { width: 390, height: 844 }],
+  ] as const) {
+    await page.setViewportSize(viewport);
+    await checkScreen(page);
+    await saveScreen(page, name);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
   const { user } = await api<{ user: { id: string } }>(page, "GET", "/api/me");
 
   const { project: music } = await api<{ project: { id: string } }>(page, "POST", "/api/projects", {

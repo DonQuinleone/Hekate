@@ -140,10 +140,10 @@ export function SetupPage() {
   return (
     <Frame
       title="Set up Hekate"
-      intro="Create the first account. It owns the organisation and can invite everyone else."
+      intro="Create the first account. It owns the workspace and can invite everyone else."
     >
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <Field id="organisation" label="Organisation" placeholder="Studio name" autoFocus />
+        <Field id="organisation" label="Workspace" placeholder="Studio or company name" autoFocus />
         <Field id="name" label="Your name" autoComplete="name" />
         <Field id="email" label="Email" type="email" autoComplete="username" />
         <Field

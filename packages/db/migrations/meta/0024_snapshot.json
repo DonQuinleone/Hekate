@@ -1,5 +1,5 @@
 {
-  "id": "2af4cb90-f7b5-45d3-9084-ba2d0e02a33a",
+  "id": "0354920e-74d7-47ae-904a-59a350249104",
   "prevId": "68e6e67e-a771-4530-be45-d59ac9febc87",
   "version": "7",
   "dialect": "postgresql",
@@ -3417,12 +3417,6 @@
           "notNull": true,
           "default": true
         },
-        "delivery_profile": {
-          "name": "delivery_profile",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "archived_at": {
           "name": "archived_at",
           "type": "timestamp with time zone",
@@ -3468,151 +3462,6 @@
           "tableTo": "organisations",
           "columnsFrom": [
             "organisation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.qa_findings": {
-      "name": "qa_findings",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "organisation_id": {
-          "name": "organisation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "file_id": {
-          "name": "file_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "check": {
-          "name": "check",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "severity": {
-          "name": "severity",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "summary": {
-          "name": "summary",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "channel": {
-          "name": "channel",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "start": {
-          "name": "start",
-          "type": "double precision",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "end": {
-          "name": "end",
-          "type": "double precision",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "details": {
-          "name": "details",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "qa_findings_org_idx": {
-          "name": "qa_findings_org_idx",
-          "columns": [
-            {
-              "expression": "organisation_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "qa_findings_file_idx": {
-          "name": "qa_findings_file_idx",
-          "columns": [
-            {
-              "expression": "file_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "qa_findings_organisation_id_organisations_id_fk": {
-          "name": "qa_findings_organisation_id_organisations_id_fk",
-          "tableFrom": "qa_findings",
-          "tableTo": "organisations",
-          "columnsFrom": [
-            "organisation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "qa_findings_file_id_files_id_fk": {
-          "name": "qa_findings_file_id_files_id_fk",
-          "tableFrom": "qa_findings",
-          "tableTo": "files",
-          "columnsFrom": [
-            "file_id"
           ],
           "columnsTo": [
             "id"
@@ -5961,7 +5810,8 @@
         "guest.sign_in",
         "guest.revoke",
         "guest.view",
-        "comment.create"
+        "comment.create",
+        "organisation.rename"
       ]
     },
     "public.audit_actor": {

@@ -15,13 +15,14 @@ import { ViewerProvider } from "~/lib/viewer";
 import { SetupPage, SignInPage } from "~/routes/auth-pages";
 import { FilePage } from "~/routes/file";
 import { GuestHomePage, GuestLinkPage, GuestShell, GuestSignedOutPage } from "~/routes/guest";
+import { HomePage } from "~/routes/home";
+import { InboxPage } from "~/routes/inbox";
 import { InvitePage } from "~/routes/invite";
-import { MyReviewsPage } from "~/routes/my-reviews";
-import { ProjectPage } from "~/routes/project";
+import { ProjectFilesPage, ProjectPeoplePage, ProjectReviewsPage } from "~/routes/project";
 import { ProjectsPage } from "~/routes/projects";
 import { ReviewPage } from "~/routes/review";
-import { SettingsPage } from "~/routes/settings";
 import { TrackPage } from "~/routes/track";
+import { WorkspaceSettingsPage } from "~/routes/workspace-settings";
 
 export const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 10_000 } } });
 
@@ -163,25 +164,60 @@ const app = createRoute({
   ),
 });
 
-const projects = createRoute({ getParentRoute: () => app, path: "/", component: ProjectsPage });
+const home = createRoute({
+  getParentRoute: () => app,
+  path: "/",
+  component: HomePage,
+});
+const projects = createRoute({
+  getParentRoute: () => app,
+  path: "/projects",
+  component: ProjectsPage,
+});
+const folderSearch = (search: Record<string, unknown>): { folder?: string } =>
+  typeof search.folder === "string" && /^[0-9a-f-]{36}$/i.test(search.folder)
+    ? { folder: search.folder }
+    : {};
+// A project opens on its files until its overview arrives (#113).
 const project = createRoute({
   getParentRoute: () => app,
   path: "/projects/$projectId",
+  validateSearch: folderSearch,
+  beforeLoad: ({ params, search }) => {
+    throw redirect({ to: "/projects/$projectId/files", params, search });
+  },
+});
+const projectFiles = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/files",
   // The open folder lives in the address, so it survives a reload and can be shared.
-  validateSearch: (search: Record<string, unknown>): { folder?: string } =>
-    typeof search.folder === "string" && /^[0-9a-f-]{36}$/i.test(search.folder)
-      ? { folder: search.folder }
-      : {},
-  component: function ProjectRoute() {
-    const { projectId } = project.useParams();
-    const { folder } = project.useSearch();
-    const navigate = project.useNavigate();
+  validateSearch: folderSearch,
+  component: function ProjectFilesRoute() {
+    const { projectId } = projectFiles.useParams();
+    const { folder } = projectFiles.useSearch();
+    const navigate = projectFiles.useNavigate();
     const open = useCallback(
       (next: string | null) =>
         void navigate({ search: next ? { folder: next } : {}, replace: false }),
       [navigate],
     );
-    return <ProjectPage projectId={projectId} folderId={folder ?? null} onOpenFolder={open} />;
+    return <ProjectFilesPage projectId={projectId} folderId={folder ?? null} onOpenFolder={open} />;
+  },
+});
+const projectReviews = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/reviews",
+  component: function ProjectReviewsRoute() {
+    const { projectId } = projectReviews.useParams();
+    return <ProjectReviewsPage projectId={projectId} />;
+  },
+});
+const projectPeople = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/people",
+  component: function ProjectPeopleRoute() {
+    const { projectId } = projectPeople.useParams();
+    return <ProjectPeoplePage projectId={projectId} />;
   },
 });
 const track = createRoute({
@@ -226,15 +262,49 @@ const review = createRoute({
     return <ReviewPage reviewId={reviewId} />;
   },
 });
+const inboxSearch = z.object({
+  item: z.string().uuid().optional().catch(undefined),
+  show: z.enum(["needs", "following", "done"]).optional().catch(undefined),
+});
+const inbox = createRoute({
+  getParentRoute: () => app,
+  path: "/inbox",
+  validateSearch: (search: Record<string, unknown>) => inboxSearch.parse(search),
+  component: function InboxRoute() {
+    const { item, show } = inbox.useSearch();
+    return <InboxPage item={item} show={show} />;
+  },
+});
+// The reviews list became the inbox; the old address still works.
 const myReviews = createRoute({
   getParentRoute: () => app,
   path: "/reviews",
-  component: MyReviewsPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/inbox", search: {} });
+  },
+});
+// Members live in the workspace's settings now (decision 038); the old address still works.
+const members = createRoute({
+  getParentRoute: () => app,
+  path: "/members",
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/$section", params: { section: "members" } });
+  },
+});
+const settingsHome = createRoute({
+  getParentRoute: () => app,
+  path: "/settings",
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/$section", params: { section: "general" } });
+  },
 });
 const settings = createRoute({
   getParentRoute: () => app,
-  path: "/members",
-  component: SettingsPage,
+  path: "/settings/$section",
+  component: function SettingsRoute() {
+    const { section } = settings.useParams();
+    return <WorkspaceSettingsPage section={section} />;
+  },
 });
 
 export const router = createRouter({
@@ -245,7 +315,22 @@ export const router = createRouter({
     guestLink,
     guestSignedOut,
     guestApp.addChildren([guestHome, guestReview, guestFile]),
-    app.addChildren([projects, project, track, file, myReviews, review, settings]),
+    app.addChildren([
+      home,
+      projects,
+      project,
+      projectFiles,
+      projectReviews,
+      projectPeople,
+      track,
+      file,
+      myReviews,
+      inbox,
+      review,
+      members,
+      settingsHome,
+      settings,
+    ]),
   ]),
   context: { queryClient },
   defaultPreload: "intent",

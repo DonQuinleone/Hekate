@@ -1,12 +1,11 @@
 import { join } from "node:path";
-import { argosScreenshot } from "@argos-ci/playwright";
 import { expect, type Page, test } from "@playwright/test";
 import { checkScreen } from "./checks.ts";
-import { FIXED_TIME, type Seeded, seeded, state } from "./fixtures.ts";
+import { FIXED_TIME, type Seeded, saveScreen, seeded, state } from "./fixtures.ts";
 
 /**
  * Every screen, as the seeded studio sees it: checked for layout and accessibility, then
- * captured for Argos to compare with master's.
+ * captured to test-results/screens.
  */
 
 interface Screen {
@@ -46,15 +45,26 @@ const screens: Screen[] = [
     ready: "section[aria-label=Comments]",
     as: "guest",
   },
-  { name: "projects", path: () => "/", ready: "main a:has-text('Joplin Rags')" },
+  { name: "home", path: () => "/", ready: "main section[aria-label=Activity] li a" },
+  { name: "projects", path: () => "/projects", ready: "main a:has-text('Joplin Rags')" },
   {
     name: "project-music",
-    path: (s) => `/projects/${s.musicProjectId}`,
+    path: (s) => `/projects/${s.musicProjectId}/files`,
     ready: "main a:has-text('Maple Leaf Rag - Score.pdf')",
   },
   {
+    name: "project-reviews",
+    path: (s) => `/projects/${s.musicProjectId}/reviews`,
+    ready: "main >> text=Album masters",
+  },
+  {
+    name: "project-people",
+    path: (s) => `/projects/${s.musicProjectId}/people`,
+    ready: "main >> text=Alex Rivera",
+  },
+  {
     name: "project-video",
-    path: (s) => `/projects/${s.videoProjectId}`,
+    path: (s) => `/projects/${s.videoProjectId}/files`,
     ready: "main a:has-text('Opening titles - Cut 3.mp4')",
   },
   { name: "track", path: (s) => `/tracks/${s.trackId}`, ready: "text=Bars 12 to 16" },
@@ -79,8 +89,24 @@ const screens: Screen[] = [
     ready: "section[aria-label=Comments] li",
   },
   { name: "review", path: (s) => `/reviews/${s.reviewId}`, ready: "h1:has-text('Album masters')" },
-  { name: "my-reviews", path: () => "/reviews", ready: "text=Album masters" },
-  { name: "members", path: () => "/members", ready: "main >> text=Alex Rivera" },
+  { name: "inbox", path: () => "/inbox", ready: "main a:has-text('Album masters')" },
+  {
+    name: "inbox-review",
+    path: (s) => `/inbox?item=${s.reviewId}`,
+    ready: "section[aria-label=Review] >> text=Your decision",
+  },
+  { name: "members", path: () => "/settings/members", ready: "main >> text=Alex Rivera" },
+  {
+    name: "settings-general",
+    path: () => "/settings/general",
+    ready: "main >> text=Workspaces you are in",
+  },
+  {
+    name: "settings-storage",
+    path: () => "/settings/storage",
+    ready: "main >> text=New files go to",
+  },
+  { name: "settings-log", path: () => "/settings/log", ready: "main [data-log-entry]" },
 ];
 
 /** Fonts in, pictures drawn, nothing still on its way. */
@@ -118,8 +144,9 @@ function capture(screen: Screen) {
     await settle(page, screen.ready);
     await showWhole(page);
     await settle(page, screen.ready);
+    // Captured first, so a screen that fails its checks still leaves a picture to look at.
+    await saveScreen(page, screen.name);
     await checkScreen(page);
-    await argosScreenshot(page, screen.name);
   });
 }
 

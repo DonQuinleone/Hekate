@@ -22,7 +22,13 @@ import {
   type ReviewKind,
   type UpdateCarryInput,
 } from "@hekate/shared";
-import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  infiniteQueryOptions,
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { api } from "./api";
 
 async function json<T>(res: Response): Promise<T> {
@@ -211,7 +217,10 @@ export function useCreateProject() {
   return useMutation({
     mutationFn: async (input: { name: string; profile: ProjectProfile }) =>
       (await json<{ project: Project }>(await api.projects.$post({ json: input }))).project,
-    onSuccess: () => client.invalidateQueries({ queryKey: ["projects"] }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["projects"] });
+      void client.invalidateQueries({ queryKey: homeQuery.queryKey });
+    },
   });
 }
 
@@ -278,6 +287,109 @@ export function useOrganisationMutations() {
     }),
   };
 }
+
+/** Rename the workspace; only owners may. */
+export function useRenameWorkspace() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (name: string) =>
+      json<{ organisation: { id: string; name: string } }>(
+        await api.organisation.$patch({ json: { name } }),
+      ),
+    onSuccess: () => client.invalidateQueries({ queryKey: meQuery.queryKey }),
+  });
+}
+
+export interface WorkspaceStorage {
+  /** The workspace's choice; null follows the instance default. */
+  backend: string | null;
+  defaultBackend: string;
+  available: string[];
+}
+
+export const workspaceStorageQuery = queryOptions({
+  queryKey: ["organisation", "storage"],
+  queryFn: async () => json<WorkspaceStorage>(await api.organisation.storage.$get()),
+});
+
+export function useWorkspaceStorage() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (backend: string | null) =>
+      json(await api.organisation.storage.$put({ json: { backend } })),
+    onSuccess: () => client.invalidateQueries({ queryKey: workspaceStorageQuery.queryKey }),
+  });
+}
+
+/** A guest of the workspace: someone outside it who reviews through links. */
+export interface WorkspaceGuest {
+  id: string;
+  name: string;
+  email: string;
+  label: string | null;
+  lastLinkAt: string | null;
+  /** A link or a signed-in browser still works for them. */
+  live: boolean;
+}
+
+export const workspaceGuestsQuery = queryOptions({
+  queryKey: ["organisation", "guests"],
+  queryFn: async () =>
+    (await json<{ guests: WorkspaceGuest[] }>(await api.organisation.guests.$get())).guests,
+});
+
+/** End every link and signed-in browser a guest has. */
+export function useRevokeGuest() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await api.organisation.guests[":id"].revoke.$post({ param: { id } });
+      if (!res.ok) await json(res);
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: workspaceGuestsQuery.queryKey }),
+  });
+}
+
+/** One line of the access log, as the API returns it. */
+export interface AccessEvent {
+  id: string;
+  occurredAt: string;
+  action: string;
+  actorType: "member" | "guest" | "system";
+  userId: string | null;
+  actorLabel: string;
+  projectId: string | null;
+  fileId: string | null;
+  reviewId: string | null;
+  /** What the entry touched, by name; null once it has been deleted. */
+  fileName: string | null;
+  reviewTitle: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  details: Record<string, unknown> | null;
+}
+
+export interface AccessLogFilters {
+  action?: string;
+  projectId?: string;
+}
+
+/** The access log, newest first, a page at a time. */
+export const accessLogQuery = (filters: AccessLogFilters) =>
+  infiniteQueryOptions({
+    queryKey: ["organisation", "audit", filters],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
+      const query: Record<string, string> = { limit: "50" };
+      if (filters.action) query.action = filters.action;
+      if (filters.projectId) query.projectId = filters.projectId;
+      if (pageParam) query.before = pageParam;
+      return json<{ events: AccessEvent[]; nextBefore: string | null }>(
+        await api.organisation.audit.$get({ query }),
+      );
+    },
+    getNextPageParam: (page) => page.nextBefore ?? undefined,
+  });
 
 export function useSwitchOrganisation() {
   const client = useQueryClient();
@@ -1145,5 +1257,81 @@ export interface MyReview {
 export const myReviewsQuery = queryOptions({
   queryKey: ["reviews", "mine"],
   queryFn: async () => (await json<{ reviews: MyReview[] }>(await api.reviews.$get())).reviews,
+  refetchInterval: 60_000,
+});
+
+/** A project as the home page shows it: its figures and a few of its people. */
+export interface HomeProject {
+  id: string;
+  name: string;
+  profile: ProjectProfile;
+  createdAt: string;
+  updatedAt: string;
+  files: number;
+  tracks: number;
+  /** Tracks with at least one version, and of those, how many are approved at their latest. */
+  versionedTracks: number;
+  approvedTracks: number;
+  openComments: number;
+  openReviews: number;
+  members: number;
+  faces: { id: string; name: string }[];
+}
+
+type HomeWho = { id: string; name: string } | null;
+export type HomeActivity =
+  | {
+      kind: "comment";
+      id: string;
+      at: string;
+      who: HomeWho;
+      projectId: string;
+      fileId: string;
+      fileName: string;
+      /** Comments in a row by the same person on the same file. */
+      count: number;
+    }
+  | {
+      kind: "version";
+      id: string;
+      at: string;
+      who: HomeWho;
+      projectId: string;
+      trackId: string;
+      trackName: string;
+      number: number;
+    }
+  | {
+      kind: "review";
+      id: string;
+      at: string;
+      who: HomeWho;
+      projectId: string;
+      reviewId: string;
+      title: string;
+    }
+  | {
+      kind: "review_completed";
+      id: string;
+      at: string;
+      who: null;
+      projectId: string;
+      reviewId: string;
+      title: string;
+      outcome: string | null;
+    };
+
+export interface Home {
+  projects: HomeProject[];
+  openComments: number;
+  newVersions: number;
+  failed: { id: string; name: string; projectId: string }[];
+  activity: HomeActivity[];
+}
+
+/** The home page's figures across the projects the member can see. */
+export const homeQuery = queryOptions({
+  queryKey: ["home"],
+  queryFn: async () => json<Home>(await api.home.$get()),
   refetchInterval: 60_000,
 });

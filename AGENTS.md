@@ -35,7 +35,7 @@ pnpm workspace.
 | --- | --- |
 | `apps/server` | Hono API. Also serves the built web app and runs job workers in production. |
 | `apps/web` | React single-page app. |
-| `apps/e2e` | The visual suite: Playwright captures of every screen, with layout and accessibility checks, compared in Argos. |
+| `apps/e2e` | The visual suite: Playwright captures of every screen, with layout and accessibility checks, kept as a CI artefact. |
 | `packages/shared` | Domain types and zod schemas shared by server and web. No runtime dependencies beyond zod. |
 | `packages/db` | Drizzle schema, migrations and client. Server-only. |
 | `packages/storage` | Storage backends (local disk, S3) behind one interface, with a shared conformance suite. Server-only. |
@@ -88,6 +88,15 @@ Unreleased material is the product's cargo. Read `docs/security.md` before touch
 - Files are encrypted at rest with per-file keys; storage holds ciphertext only.
 - Log every key issue, page render and download in the access log.
 
+## Design contract
+
+The clickable prototype in `apps/prototype` is the approved design of the whole application and the contract for everything built in `apps/web`: its navigation model, page layouts, copy, states (empty, loading, processing, failed, refused, expired), components and keyboard behaviour. Its screens are in `apps/prototype/docs/screens` and its inventory in `apps/prototype/docs/inventory.md`.
+
+- Build what the prototype shows. Where an issue and the prototype differ, the prototype wins unless the issue says why.
+- Where building shows the prototype must change, change the prototype in the same pull request (or first) and say so in the description; the prototype never falls behind the product.
+- Reuse the prototype's components and data shapes as the starting point (`apps/prototype/src/components`, `apps/prototype/src/data`) rather than redesigning them.
+- Reviewers compare a visual change with its prototype screen before anything else.
+
 ## Design system
 
 See `docs/brand.md` for the full system. In short: dark, modern, understated. Near-black ground, one signal colour used sparingly, hairlines over cards and shadows, type doing the work, no ornament. The mark is two stems and a point. Use the CSS tokens in `apps/web/src/styles/tokens.css`; do not hard-code colours.
@@ -109,7 +118,7 @@ For anyone reviewing a pull request, human or agent. Review against this file an
 
 ### Important: flag these too
 
-- **Vocabulary.** Names that contradict `docs/domain.md`: project, folder, file, track, version, variation, take, session, comment, anchor, review, workflow. There are no movements; takes are never versions.
+- **Vocabulary.** Names that contradict `docs/domain.md`: workspace, project, folder, file, track, version, variation, take, session, comment, anchor, review, workflow, node, connector. Copy says "workspace", never "organisation" (decision 037); code keeps `organisation`. There are no movements; takes are never versions.
 - **Tests.** New behaviour without a test, especially tenancy and permission rules (prove another organisation and a lesser role are refused). Domain logic that belongs in a pure, tested function.
 - **Runtime.** Non-erasable TypeScript in server code (`enum`, `namespace`, parameter properties) or relative imports without `.ts`; `any` without a comment.
 - **Design system.** Hard-coded colours instead of tokens; stock shadcn styling; copy or UI that makes Hekate read as a classical-music-only tool.

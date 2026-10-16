@@ -173,8 +173,15 @@
     {
       "idx": 24,
       "version": "7",
-      "when": 1792006530327,
-      "tag": "0024_qa_findings",
+      "when": 1792108315049,
+      "tag": "0024_workspace_rename_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1792111799137,
+      "tag": "0025_qa_findings",
       "breakpoints": true
     }
   ]

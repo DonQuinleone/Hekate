@@ -17,7 +17,7 @@ Classical music is a first-class citizen (tracks with versions and variations, b
 - **Project profiles.** A project picks a profile (Music, Video or General) which decides which tools appear. The model underneath is the same.
 - **Protected by design.** Reviewers get encrypted streams and rendered pages, never the original files. Every access is logged, and watermarks identify who was given a copy.
 - **Yours to run.** One app image, PostgreSQL and Caddy, deployed with Docker Compose. Store media on local disk, on any S3-compatible service, or on several at once.
-- **Multi-tenant from day one.** Every record belongs to an organisation, so a hosted offering can follow without a rewrite.
+- **Multi-tenant from day one.** Every record belongs to a workspace, so a hosted offering can follow without a rewrite.
 
 ## Stack
 
@@ -78,7 +78,7 @@ docker compose -f deploy/compose.yml up -d
 
 ## Storage
 
-Media can live in several named backends at once. Each stored object records which backend holds it, so you can add a backend or change the default without moving or breaking anything already stored. Organisation owners can choose which backend their new uploads use; otherwise `STORAGE_DEFAULT` applies.
+Media can live in several named backends at once. Each stored object records which backend holds it, so you can add a backend or change the default without moving or breaking anything already stored. Workspace owners can choose which backend their new uploads use; otherwise `STORAGE_DEFAULT` applies.
 
 ```sh
 STORAGE_BACKENDS=local,archive

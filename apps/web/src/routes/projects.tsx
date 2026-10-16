@@ -27,18 +27,38 @@ const dateFormat = new Intl.DateTimeFormat("en-GB", {
   year: "numeric",
 });
 
-function NewProject({ onDone }: { onDone: () => void }) {
+/** Name a project and pick its profile. Bare inside a dialog; a panel on a page. */
+export function NewProject({
+  onDone,
+  onCreated,
+  bare = false,
+}: {
+  onDone: () => void;
+  onCreated?: (project: { id: string }) => void;
+  bare?: boolean;
+}) {
   const [name, setName] = useState("");
   const [profile, setProfile] = useState<ProjectProfile>("music");
   const create = useCreateProject();
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    create.mutate({ name, profile }, { onSuccess: onDone });
+    create.mutate(
+      { name, profile },
+      {
+        onSuccess: (project) => {
+          onDone();
+          onCreated?.(project);
+        },
+      },
+    );
   };
   return (
     <form
       onSubmit={submit}
-      className="flex flex-col gap-4 rounded-panel border border-hairline bg-surface p-5"
+      className={cn(
+        "flex flex-col gap-4",
+        !bare && "rounded-panel border border-hairline bg-surface p-5",
+      )}
     >
       <div className="flex flex-col gap-1.5">
         <label htmlFor="project-name" className="label">
@@ -148,7 +168,7 @@ export function ProjectsPage() {
             {data.map((p) => (
               <li key={p.id}>
                 <Link
-                  to="/projects/$projectId"
+                  to="/projects/$projectId/files"
                   params={{ projectId: p.id }}
                   className="grid h-12 grid-cols-[1fr_auto] items-center sm:grid-cols-[1fr_120px_120px] gap-4 border-b border-hairline px-2 text-ink no-underline hover:bg-surface"
                 >

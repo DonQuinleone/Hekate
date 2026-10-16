@@ -14,6 +14,7 @@ import { fileManageRoutes, folderRoutes, projectFolderRoutes } from "./routes/fo
 import { projectGroupRoutes } from "./routes/groups.ts";
 import { guestRoutes } from "./routes/guest.ts";
 import { health } from "./routes/health.ts";
+import { homeRoutes } from "./routes/home.ts";
 import { invitationRoutes } from "./routes/invitations.ts";
 import { meRoutes } from "./routes/me.ts";
 import { organisationRoutes } from "./routes/organisation.ts";
@@ -88,6 +89,8 @@ export function createApi(deps: AppDeps) {
           deps.trustProxy ?? false,
         ),
       )
+      .use("/home", ...member)
+      .route("/home", homeRoutes(deps.db))
       .use("/projects/*", ...member)
       .use("/projects", ...member)
       .route("/projects", projectRoutes(deps.db))
