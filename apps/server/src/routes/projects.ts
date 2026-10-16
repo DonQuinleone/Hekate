@@ -137,17 +137,21 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
             permissions: projectRoles.permissions,
           });
         // The creator takes the Producer role, or failing that the first that may run the
-        // project; a template without one gains a Producer, so no project is left unmanaged.
-        let producer =
-          made.find((r) => r.name === creatorRole) ??
-          made.find((r) => r.permissions.includes("manage_roles"));
+        // project; a template without one (a renamed or reduced Producer, say) gains a
+        // Producer, so no project is left without someone who can see and run it.
+        const runs = (r: { permissions: string[] }) =>
+          r.permissions.includes("view") && r.permissions.includes("manage_roles");
+        let producer = made.find((r) => r.name === creatorRole && runs(r)) ?? made.find(runs);
         if (!producer) {
           [producer] = await tx
             .insert(projectRoles)
             .values({
               organisationId,
               projectId: created.id,
-              name: creatorRole,
+              // A template may already hold a role by that name that cannot run the project.
+              name: made.some((r) => r.name === creatorRole)
+                ? `${creatorRole} (creator)`
+                : creatorRole,
               permissions: [...projectPermissions],
               position: made.length,
             })
@@ -178,6 +182,13 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
       const who = await audit.member(c.var.userId);
       const now = new Date();
       await db.transaction(async (tx) => {
+        // Taken for update, so a review being requested meanwhile (which holds the row for
+        // share) either lands first and is closed here, or waits and is refused.
+        await tx
+          .select({ id: projects.id })
+          .from(projects)
+          .where(inOrg(projects, c.var.organisationId, eq(projects.id, project.projectId)))
+          .for("update");
         await tx
           .update(projects)
           .set({ archivedAt: now, updatedAt: now })

@@ -298,3 +298,21 @@ export function visibleProjects(actor: MemberActor, permission: ProjectPermissio
       and ${permission} = any(${projectRoles.permissions})
   )`;
 }
+
+/**
+ * Inside a transaction that adds to a project: holds the project against being archived
+ * meanwhile (archiving takes the row for update), and refuses one already archived.
+ */
+export async function lockLiveProject(
+  tx: Pick<Database, "select">,
+  organisationId: string,
+  projectId: string,
+) {
+  const [row] = await tx
+    .select({ archivedAt: projects.archivedAt })
+    .from(projects)
+    .where(inOrg(projects, organisationId, eq(projects.id, projectId)))
+    .for("share");
+  if (!row) throw new NotFound("Project");
+  if (row.archivedAt) throw new HTTPException(409, { message: "This project is archived" });
+}

@@ -1724,9 +1724,41 @@ describe.runIf(url)("api", () => {
         // The list's figures and who may archive.
         const engineer = await joinAs(owner, "engineer-archive@example.test");
         await grantRole(owner, projectId, engineer, "Engineer");
-        expect((await list(engineer)).map((p) => [p.name, p.mayArchive])).toEqual([
-          ["Rags", false],
-        ]);
+
+        // A template whose Producer can no longer run anything still leaves its creator able
+        // to see and run the copy.
+        const reduced = (
+          (await (
+            await app.request("/api/projects", json({ name: "Reduced", profile: "general" }, owner))
+          ).json()) as { project: { id: string } }
+        ).project.id;
+        const reducedRoles = (await (
+          await getAs(`/api/projects/${reduced}/roles`, owner)
+        ).json()) as {
+          roles: { id: string; name: string }[];
+        };
+        const producerRole = reducedRoles.roles.find((r) => r.name === "Producer");
+        expect(
+          (
+            await send(
+              "PATCH",
+              `/api/projects/${reduced}/roles/${producerRole?.id}`,
+              { name: "Producer", permissions: ["comment"] },
+              owner,
+            )
+          ).status,
+        ).toBe(200);
+        await grantRole(owner, reduced, engineer, "Engineer");
+        const fromReduced = await app.request(
+          "/api/projects",
+          json({ name: "Mine now", profile: "general", templateId: reduced }, engineer),
+        );
+        expect(fromReduced.status).toBe(201);
+        const ran = ((await fromReduced.json()) as { project: { permissions: string[] } }).project;
+        expect(ran.permissions).toEqual(expect.arrayContaining(["view", "manage_roles"]));
+        const engineerSees = new Map((await list(engineer)).map((p) => [p.name, p.mayArchive]));
+        expect(engineerSees.get("Rags")).toBe(false);
+        expect(engineerSees.get("Mine now")).toBe(true);
         expect(
           (await list(owner, "?figures=1")).find((p) => p.id === projectId)?.figures?.files,
         ).toBe(1);

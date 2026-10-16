@@ -238,95 +238,95 @@ export function ProjectsPage({
       />
       <Page>
         {error && <p className="m-0 text-signal">{error.message}</p>}
-        {data && data.length === 0 && show === "all" ? (
-          <Empty
-            title="No projects yet"
-            text="A project holds an album, a film or a campaign: its folders, files, tracks, takes and reviews."
-            action={
-              <Button variant="primary" onClick={() => setCreating(true)}>
-                New project
+
+        <div className="flex flex-wrap items-center gap-1">
+          {(Object.keys(showLabels) as ProjectShow[]).map((id) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={show === id}
+              onClick={() => onChange({ show: id })}
+              className={cn(
+                "h-8 rounded-control px-3 text-[13px] transition-colors",
+                show === id ? "bg-raised text-ink shadow-1" : "text-ink-3 hover:text-ink",
+              )}
+            >
+              {showLabels[id]}
+            </button>
+          ))}
+          <span className="tabular ml-auto hidden pr-2 text-[13px] text-ink-3 @3xl/app:inline">
+            {list.length} {list.length === 1 ? "project" : "projects"}
+          </span>
+          <span className="ml-auto @3xl/app:ml-0">
+            <Dropdown
+              align="right"
+              value={sortLabels[sort]}
+              actions={projectSorts.map((s) => ({
+                label: sortLabels[s],
+                checked: s === sort,
+                onSelect: () => onChange({ sort: s }),
+              }))}
+            />
+          </span>
+          <fieldset className="m-0 hidden items-center border-0 p-0 @3xl/app:flex">
+            <legend className="sr-only">View</legend>
+            {(
+              [
+                ["cards", "grid", "Cards"],
+                ["list", "list", "List"],
+              ] as const
+            ).map(([id, icon, label]) => (
+              <Button
+                key={id}
+                variant="ghost"
+                size="icon"
+                aria-label={label}
+                aria-pressed={view === id}
+                onClick={() => onChange({ view: id })}
+                className={cn(view === id && "bg-raised text-ink")}
+              >
+                <Icon name={icon} size={16} />
               </Button>
-            }
-          />
+            ))}
+          </fieldset>
+        </div>
+        {isPending ? (
+          <p className="m-0 text-ink-3">Loading</p>
+        ) : list.length === 0 ? (
+          // The filters stay above an empty list, so the archived are always a click away.
+          show === "all" ? (
+            <Empty
+              title="No projects yet"
+              text="A project holds an album, a film or a campaign: its folders, files, tracks, takes and reviews."
+              action={
+                <Button variant="primary" onClick={() => setCreating(true)}>
+                  New project
+                </Button>
+              }
+            />
+          ) : (
+            <Empty
+              title={archived ? "Nothing archived" : "None of yours"}
+              text={
+                archived
+                  ? "Archived projects keep everything, read-only."
+                  : "Projects you are a member of show here."
+              }
+            />
+          )
+        ) : view === "list" ? (
+          <ProjectList projects={list} menuFor={menuFor} />
         ) : (
-          <>
-            <div className="flex flex-wrap items-center gap-1">
-              {(Object.keys(showLabels) as ProjectShow[]).map((id) => (
-                <button
-                  key={id}
-                  type="button"
-                  aria-pressed={show === id}
-                  onClick={() => onChange({ show: id })}
-                  className={cn(
-                    "h-8 rounded-control px-3 text-[13px] transition-colors",
-                    show === id ? "bg-raised text-ink shadow-1" : "text-ink-3 hover:text-ink",
-                  )}
-                >
-                  {showLabels[id]}
-                </button>
-              ))}
-              <span className="tabular ml-auto hidden pr-2 text-[13px] text-ink-3 @3xl/app:inline">
-                {list.length} {list.length === 1 ? "project" : "projects"}
-              </span>
-              <span className="ml-auto @3xl/app:ml-0">
-                <Dropdown
-                  align="right"
-                  value={sortLabels[sort]}
-                  actions={projectSorts.map((s) => ({
-                    label: sortLabels[s],
-                    checked: s === sort,
-                    onSelect: () => onChange({ sort: s }),
-                  }))}
-                />
-              </span>
-              <fieldset className="m-0 hidden items-center border-0 p-0 @3xl/app:flex">
-                <legend className="sr-only">View</legend>
-                {(
-                  [
-                    ["cards", "grid", "Cards"],
-                    ["list", "list", "List"],
-                  ] as const
-                ).map(([id, icon, label]) => (
-                  <Button
-                    key={id}
-                    variant="ghost"
-                    size="icon"
-                    aria-label={label}
-                    aria-pressed={view === id}
-                    onClick={() => onChange({ view: id })}
-                    className={cn(view === id && "bg-raised text-ink")}
-                  >
-                    <Icon name={icon} size={16} />
-                  </Button>
-                ))}
-              </fieldset>
-            </div>
-            {isPending ? (
-              <p className="m-0 text-ink-3">Loading</p>
-            ) : list.length === 0 ? (
-              <Empty
-                title={archived ? "Nothing archived" : "None of yours"}
-                text={
-                  archived
-                    ? "Archived projects keep everything, read-only."
-                    : "Projects you are a member of show here."
-                }
+          <div className="grid gap-4 @3xl/app:grid-cols-2 @6xl/app:grid-cols-3">
+            {list.map((p) => (
+              <ProjectCard
+                key={p.id}
+                project={{ ...p, ...p.figures, updatedAt: p.figures.lastActiveAt }}
+                menu={menuFor(p)}
               />
-            ) : view === "list" ? (
-              <ProjectList projects={list} menuFor={menuFor} />
-            ) : (
-              <div className="grid gap-4 @3xl/app:grid-cols-2 @6xl/app:grid-cols-3">
-                {list.map((p) => (
-                  <ProjectCard
-                    key={p.id}
-                    project={{ ...p, ...p.figures, updatedAt: p.figures.lastActiveAt }}
-                    menu={menuFor(p)}
-                  />
-                ))}
-                {!archived && <NewProjectTile onClick={() => setCreating(true)} />}
-              </div>
-            )}
-          </>
+            ))}
+            {!archived && <NewProjectTile onClick={() => setCreating(true)} />}
+          </div>
         )}
       </Page>
       {creating && (
