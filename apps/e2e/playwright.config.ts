@@ -90,6 +90,8 @@ export default defineConfig({
         // The suite never depends on a service outside the machine.
         PASSWORD_LEAK_CHECK: "false",
         HEKATE_SETUP_CODE: SETUP_CODE,
+        // The suite cannot hold a security key, so its operator acts from a password session.
+        OPERATOR_SECURITY_KEY: "false",
         // Never a settings file left by a development install.
         HEKATE_SETTINGS_FILE: join(state, "hekate.env"),
         NO_PROXY: "localhost,127.0.0.1",

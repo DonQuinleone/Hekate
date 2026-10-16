@@ -1672,3 +1672,35 @@ export const marks = pgTable(
     check("marks_one_thing", sql`num_nonnulls(${t.folderId}, ${t.trackId}, ${t.fileId}) = 1`),
   ],
 );
+
+/**
+ * The accounts that may manage the instance (#155, decision 062). Global, not owned by any
+ * workspace: an operator acts across every one. The first is the installer's owner.
+ */
+export const instanceOperators = pgTable("instance_operators", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  /** Who made them an operator; null for the installer's owner. */
+  addedBy: text("added_by").references(() => users.id, { onDelete: "set null" }),
+  ...timestamps,
+});
+
+/**
+ * What operators did on the instance side, and when (#155): global, like the operators, since
+ * an operator's action is not any one workspace's. The audit tables (#157) will read it.
+ */
+export const instanceEvents = pgTable(
+  "instance_events",
+  {
+    id: id(),
+    actorId: text("actor_id").references(() => users.id, { onDelete: "set null" }),
+    action: text("action").notNull(),
+    /** What it was done to, in words: an account's address, a workspace's name. */
+    target: text("target"),
+    details: jsonb("details"),
+    ipAddress: text("ip_address"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("instance_events_created_idx").on(t.createdAt)],
+);

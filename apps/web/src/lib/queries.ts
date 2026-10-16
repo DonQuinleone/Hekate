@@ -25,6 +25,9 @@ import {
   type FileKind,
   type GroupInput,
   type GuestInput,
+  type InstanceAccess,
+  type InstanceOverview,
+  type InstanceWorkspace,
   type LoudnessSummary,
   type Mark,
   type MarkInput,
@@ -32,6 +35,7 @@ import {
   type NotificationKind,
   type NotificationPreferences,
   narrowed,
+  type OperatorRow,
   type OverviewSection,
   type Preferences,
   type ProfileInput,
@@ -2583,3 +2587,35 @@ export function useSavePreferences() {
     onError: (_e, _c, ctx) => client.setQueryData(key, ctx?.before),
   });
 }
+
+/**
+ * Who the viewer is on the instance side (#155): operator, owner of some workspaces, or
+ * neither (null), in which case the instance side is not offered.
+ */
+export const instanceAccessQuery = queryOptions({
+  queryKey: ["instance", "me"],
+  queryFn: async () => {
+    const res = await api.instance.me.$get();
+    if (res.status === 403) return null;
+    return json<InstanceAccess>(res);
+  },
+  staleTime: 60_000,
+});
+
+export const instanceOverviewQuery = queryOptions({
+  queryKey: ["instance", "overview"],
+  queryFn: async () => json<InstanceOverview>(await api.instance.overview.$get()),
+});
+
+export const instanceWorkspacesQuery = queryOptions({
+  queryKey: ["instance", "workspaces"],
+  queryFn: async () =>
+    (await json<{ workspaces: InstanceWorkspace[] }>(await api.instance.workspaces.$get()))
+      .workspaces,
+});
+
+export const instanceOperatorsQuery = queryOptions({
+  queryKey: ["instance", "operators"],
+  queryFn: async () =>
+    (await json<{ operators: OperatorRow[] }>(await api.instance.operators.$get())).operators,
+});

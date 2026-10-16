@@ -10,6 +10,7 @@ import type { Audit, RequestInfo } from "./audit.ts";
 import type { Auth } from "./auth.ts";
 import { directoryConfig, verifyPassword } from "./directory.ts";
 import type { Keyring } from "./keyring.ts";
+import { recordInstanceEvent } from "./routes/instance.ts";
 
 const {
   accessEvents,
@@ -36,7 +37,8 @@ export type DeletionResult =
   | { status: "deleted" }
   | { status: "refused" }
   | { status: "sign_in_again" }
-  | { status: "sole_owner"; workspaces: string[] };
+  | { status: "sole_owner"; workspaces: string[] }
+  | { status: "last_operator" };
 
 /**
  * How an account confirms its deletion: with its password here; with its directory password,
@@ -188,6 +190,27 @@ export async function deleteAccount(
       if (!owners.some((o) => o.userId !== userId)) sole.push(m.name);
     }
     if (sole.length > 0) return { status: "sole_owner" as const, workspaces: sole };
+    // The instance keeps an operator: the last one cannot leave by deleting their account, and
+    // any other stops being one with it. Locked, so two operators leaving at once cannot both go.
+    const operators = await tx
+      .select({ userId: schema.instanceOperators.userId })
+      .from(schema.instanceOperators)
+      .for("update");
+    if (operators.some((o) => o.userId === userId)) {
+      if (operators.length === 1) return { status: "last_operator" as const };
+      await tx.delete(schema.instanceOperators).where(eq(schema.instanceOperators.userId, userId));
+      await recordInstanceEvent(tx, {
+        actorId: null,
+        action: "operator.removed",
+        target: FORMER_MEMBER,
+        details: { reason: "account deleted" },
+      });
+    }
+    // What the instance's events say of them by address names no one now.
+    await tx
+      .update(schema.instanceEvents)
+      .set({ target: FORMER_MEMBER })
+      .where(eq(schema.instanceEvents.target, user.email));
 
     // Its trail is wherever it acted, including workspaces it has left.
     const workspaces = [...new Set([...memberships.map((m) => m.organisationId), ...logged])];

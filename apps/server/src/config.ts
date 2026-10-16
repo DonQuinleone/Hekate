@@ -227,6 +227,13 @@ const schema = z.object({
         "Ask every account for a second factor, whatever its workspaces say. People without one are asked at their next sign-in.",
     }),
   ),
+  OPERATOR_SECURITY_KEY: flag("true").meta(
+    info({
+      group: "Sign-in",
+      description:
+        "Operators reach the instance side only from a session signed in with a passkey or hardware security key. Turn off only for testing.",
+    }),
+  ),
   MAX_PASSKEYS: z.coerce
     .number({ error: "must be a number from 1 to 50" })
     .int()

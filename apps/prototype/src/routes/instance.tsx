@@ -1195,10 +1195,7 @@ export function InstancePage({ section }: { section: string }) {
   return (
     <Page className="gap-10">
       {creating && <NewOrganisation onClose={() => setCreating(false)} />}
-      <div>
-        <h1 className="title">{meta?.label}</h1>
-        <p className="mt-1.5 max-w-[620px] text-[14px] text-ink-2">{meta?.hint}.</p>
-      </div>
+      <p className="max-w-[620px] text-[14px] text-ink-2">{meta?.hint}.</p>
 
       {sec === "overview" && (
         <>

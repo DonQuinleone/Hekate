@@ -393,6 +393,13 @@
       "when": 1792179156043,
       "tag": "0055_qa_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1792185183664,
+      "tag": "0056_instance_operators",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,10 @@
-import { fileKinds, searchKinds, searchSince } from "@hekate/shared";
+import {
+  fileKinds,
+  type InstanceSection,
+  instanceSectionIds,
+  searchKinds,
+  searchSince,
+} from "@hekate/shared";
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import {
   createRootRouteWithContext,
@@ -31,6 +37,7 @@ import { GuestHomePage, GuestLinkPage, GuestShell, GuestSignedOutPage } from "~/
 import { HomePage } from "~/routes/home";
 import { InboxPage } from "~/routes/inbox";
 import { InstallerPage } from "~/routes/install";
+import { InstancePage } from "~/routes/instance";
 import { InvitePage } from "~/routes/invite";
 import { NotificationsPage } from "~/routes/notifications";
 import {
@@ -468,6 +475,28 @@ const inboxSearch = z.object({
   item: z.string().uuid().optional().catch(undefined),
   show: z.enum(["needs", "following", "done"]).optional().catch(undefined),
 });
+/** The instance side (#155): operators and workspace owners; the server decides who sees what. */
+const instanceHome = createRoute({
+  getParentRoute: () => app,
+  path: "/instance",
+  component: () => <InstancePage section="overview" />,
+});
+const instanceSection = createRoute({
+  getParentRoute: () => app,
+  path: "/instance/$section",
+  component: function InstanceRoute() {
+    const { section } = instanceSection.useParams();
+    return (
+      <InstancePage
+        section={
+          (instanceSectionIds as readonly string[]).includes(section)
+            ? (section as InstanceSection)
+            : "overview"
+        }
+      />
+    );
+  },
+});
 const inbox = createRoute({
   getParentRoute: () => app,
   path: "/inbox",
@@ -587,6 +616,8 @@ export const router = createRouter({
       file,
       myReviews,
       inbox,
+      instanceHome,
+      instanceSection,
       searchPage,
       notifications,
       account,

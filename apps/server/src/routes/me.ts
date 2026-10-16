@@ -268,6 +268,12 @@ export const accountRoutes = (db: Database, deps: MeDeps) =>
           "sign_in_again",
           "Sign in again to confirm, then delete your account within ten minutes.",
         );
+      if (result.status === "last_operator")
+        throw new CodedException(
+          409,
+          "last_operator",
+          "You are the instance's only operator. Make someone else one first.",
+        );
       if (result.status === "sole_owner")
         throw new CodedException(
           409,

@@ -593,6 +593,180 @@ describe.runIf(url)("api", () => {
       return { res, body: (await res.json()) as { link: string; invitation: { id: string } } };
     };
 
+    describe("the instance side", () => {
+      const asOperator = createApp({
+        db,
+        auth,
+        mailer,
+        storage,
+        audit,
+        jobs,
+        keyring,
+        playbackSecret: playbackSecret("test-secret-test-secret-test-secret-0"),
+        publicUrl: "http://localhost:3000",
+        log: false,
+        operatorSecurityKey: false,
+      });
+      const join = async (owner: string, email: string, role = "member") => {
+        const { body } = await invite(owner, email, role);
+        const res = await app.request(
+          `/api/invitations/${tokenFrom(body.link)}/accept`,
+          json({ name: email.split("@")[0], password: "correct horse battery" }),
+        );
+        expect(res.status).toBe(201);
+        return cookieOf(res);
+      };
+      const get = (path: string, cookie: string, via = asOperator) =>
+        via.request(path, { headers: { cookie } });
+      const send = (method: string, path: string, body: unknown, cookie: string) =>
+        asOperator.request(path, { ...json(body, cookie), method });
+
+      it("makes setup's owner the first operator, who needs a security key to act", async () => {
+        const first = cookieOf(await setup());
+        // Signed in with a password, the operator is known but may not act yet.
+        const me = await (await get("/api/instance/me", first, app)).json();
+        expect(me).toMatchObject({ operator: true, keyNeeded: true });
+        const refused = await get("/api/instance/overview", first, app);
+        expect(refused.status).toBe(403);
+        expect(await refused.json()).toMatchObject({ error: { code: "security_key_required" } });
+        // Where keys are not required (testing), the same session acts.
+        const overview = await get("/api/instance/overview", first);
+        expect(overview.status).toBe(200);
+        expect(await overview.json()).toMatchObject({
+          workspaces: 1,
+          people: 1,
+          recent: [{ action: "operator.added", target: owner.email, actor: null }],
+        });
+      });
+
+      it("refuses members, and shows an owner only their own workspace", async () => {
+        const operator = cookieOf(await setup());
+        const member = await join(operator, "member@example.test");
+        const refused = await get("/api/instance/me", member);
+        expect(refused.status).toBe(403);
+        expect(await refused.json()).toMatchObject({ error: { code: "not_instance" } });
+
+        // Someone who owns a workspace of their own, but does not operate the instance.
+        const owner = await join(operator, "label@example.test", "admin");
+        const [user] = await db
+          .select({ id: schema.users.id })
+          .from(schema.users)
+          .where(eq(schema.users.email, "label@example.test"));
+        const [label] = await db
+          .insert(schema.organisations)
+          .values({ name: "Saltmarsh Films", slug: "saltmarsh" })
+          .returning();
+        await db
+          .insert(schema.members)
+          .values({ organisationId: label?.id ?? "", userId: user?.id ?? "", role: "owner" });
+        expect(await (await get("/api/instance/me", owner)).json()).toMatchObject({
+          operator: false,
+          owned: [{ name: "Saltmarsh Films" }],
+        });
+        const theirs = (await (await get("/api/instance/workspaces", owner)).json()) as {
+          workspaces: { name: string }[];
+        };
+        expect(theirs.workspaces.map((w) => w.name)).toEqual(["Saltmarsh Films"]);
+        expect((await get("/api/instance/overview", owner)).status).toBe(403);
+        expect((await get("/api/instance/operators", owner)).status).toBe(403);
+        expect(
+          (await send("POST", "/api/instance/operators", { email: "label@example.test" }, owner))
+            .status,
+        ).toBe(403);
+
+        // The operator sees every workspace.
+        const all = (await (await get("/api/instance/workspaces", operator)).json()) as {
+          workspaces: { name: string; members: number }[];
+        };
+        expect(all.workspaces.map((w) => w.name)).toEqual(["Saltmarsh Films", "Studio"]);
+      });
+
+      it("adds and removes operators, but never the last", async () => {
+        const first = cookieOf(await setup());
+        await join(first, "ops@example.test");
+        const unknown = await send(
+          "POST",
+          "/api/instance/operators",
+          { email: "nobody@example.test" },
+          first,
+        );
+        expect(unknown.status).toBe(422);
+        const added = await send(
+          "POST",
+          "/api/instance/operators",
+          { email: "OPS@example.test" },
+          first,
+        );
+        expect(added.status).toBe(201);
+        const { added: opsId } = (await added.json()) as { added: string };
+        expect(
+          (await send("POST", "/api/instance/operators", { email: "ops@example.test" }, first))
+            .status,
+        ).toBe(409);
+
+        const { operators } = (await (await get("/api/instance/operators", first)).json()) as {
+          operators: { userId: string; email: string; addedBy: string | null }[];
+        };
+        expect(operators.map((o) => o.email)).toEqual([owner.email, "ops@example.test"]);
+        expect(operators[1]?.addedBy).toBe(owner.name);
+
+        const ended = await send(
+          "POST",
+          `/api/instance/operators/${opsId}/sessions/revoke`,
+          {},
+          first,
+        );
+        expect(await ended.json()).toEqual({ ended: 1 });
+
+        expect((await send("DELETE", `/api/instance/operators/${opsId}`, {}, first)).status).toBe(
+          204,
+        );
+        const [me] = operators;
+        const last = await send("DELETE", `/api/instance/operators/${me?.userId}`, {}, first);
+        expect(last.status).toBe(409);
+        expect(await last.json()).toMatchObject({ error: { code: "last_operator" } });
+      });
+
+      it("keeps an operator when one deletes their account, and forgets their address", async () => {
+        const first = cookieOf(await setup());
+        const ops = await join(first, "ops@example.test");
+        expect(
+          (await send("POST", "/api/instance/operators", { email: "ops@example.test" }, first))
+            .status,
+        ).toBe(201);
+        const [me] = await db
+          .select({ id: schema.users.id })
+          .from(schema.users)
+          .where(eq(schema.users.email, owner.email));
+        expect((await send("DELETE", `/api/instance/operators/${me?.id}`, {}, first)).status).toBe(
+          204,
+        );
+        expect(
+          (await send("DELETE", `/api/instance/operators/${"x".repeat(65)}`, {}, ops)).status,
+        ).toBe(400);
+        const leave = () =>
+          app.request("/api/me", {
+            ...json({ email: "ops@example.test", password: "correct horse battery" }, ops),
+            method: "DELETE",
+          });
+        // The only operator cannot leave by deleting their account.
+        const refused = await leave();
+        expect(refused.status).toBe(409);
+        expect(await refused.json()).toMatchObject({ error: { code: "last_operator" } });
+        expect(
+          (await send("POST", "/api/instance/operators", { email: owner.email }, ops)).status,
+        ).toBe(201);
+        expect((await leave()).status).toBe(204);
+        const operators = await db.select().from(schema.instanceOperators);
+        expect(operators.map((o) => o.userId)).toEqual([me?.id]);
+        const named = await db
+          .select({ target: schema.instanceEvents.target })
+          .from(schema.instanceEvents)
+          .where(eq(schema.instanceEvents.target, "ops@example.test"));
+        expect(named).toEqual([]);
+      });
+    });
+
     it("invites someone new, who joins with a name and password", async () => {
       mailer.sent.length = 0;
       const owner = cookieOf(await setup());
