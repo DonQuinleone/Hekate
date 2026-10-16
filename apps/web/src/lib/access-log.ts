@@ -16,6 +16,8 @@ export const actionCopy: Record<string, string> = {
   "review.submit": "Feedback submitted",
   "guest.link": "Guest link sent",
   "guest.sign_in": "Guest signed in",
+  "guest.code_sent": "Guest sent a code",
+  "guest.code_failed": "Guest code refused",
   "guest.revoke": "Guest revoked",
   "guest.view": "Guest opened a review",
   "comment.create": "Comment",

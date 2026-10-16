@@ -1,6 +1,7 @@
 import {
   accessWindowDays,
   type CommentScope,
+  type GuestVerification,
   guestLinkDays,
   locales,
   type ProjectProfile,
@@ -219,6 +220,21 @@ function WorkspaceRows() {
               {profiles[p].label}
             </option>
           ))}
+        </Select>
+      </Row>
+      <Row
+        name="Guests sign in with"
+        hint="The link alone, or the link plus a code sent to their email, so a forwarded link opens nothing."
+      >
+        <Select
+          aria-label="Guests sign in with"
+          className="w-56"
+          disabled={pending}
+          value={settings.guestVerification}
+          onChange={(e) => change({ guestVerification: e.target.value as GuestVerification })}
+        >
+          <option value="link">The link alone</option>
+          <option value="code">A code by email</option>
         </Select>
       </Row>
       <Row

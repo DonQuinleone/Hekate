@@ -1,15 +1,24 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Lockup } from "~/components/brand";
 import { reviewState } from "~/components/reviews";
 import { GuestFrame } from "~/components/shell";
 import { Button } from "~/components/ui/button";
+import { CodeField } from "~/components/ui/code-field";
 import { StatusPill } from "~/components/ui/status";
 import { formatDates } from "~/lib/locale";
 import { accessNote } from "~/lib/permissions";
-import { guestMeQuery, useGuestSignIn, useGuestSignOut } from "~/lib/queries";
+import {
+  ApiError,
+  type GuestSignedIn,
+  guestMeQuery,
+  useGuestCode,
+  useGuestSignIn,
+  useGuestSignOut,
+} from "~/lib/queries";
+import { ErrorLine, Frame } from "~/routes/auth-pages";
 
 const day = formatDates({ day: "numeric", month: "long" });
 
@@ -27,22 +36,24 @@ export function GuestLinkPage({ token }: { token: string }) {
   const signIn = useGuestSignIn();
   const navigate = useNavigate();
   const started = useRef(false);
+  // Straight to the review when there is one, otherwise to the list.
+  const arrive = (me: GuestSignedIn) => {
+    const [only] = me.reviews.filter((r) => r.status === "open");
+    if (only && me.reviews.length === 1) {
+      void navigate({ to: "/g/reviews/$reviewId", params: { reviewId: only.id }, replace: true });
+    } else void navigate({ to: "/g", replace: true });
+  };
   useEffect(() => {
     if (started.current) return;
     started.current = true;
     signIn.mutate(token, {
-      onSuccess: (me) => {
-        const [only] = me.reviews.filter((r) => r.status === "open");
-        if (only && me.reviews.length === 1) {
-          void navigate({
-            to: "/g/reviews/$reviewId",
-            params: { reviewId: only.id },
-            replace: true,
-          });
-        } else void navigate({ to: "/g", replace: true });
+      onSuccess: (data) => {
+        if (!("verify" in data)) arrive(data);
       },
     });
-  }, [token, signIn, navigate]);
+  });
+  if (signIn.data && "verify" in signIn.data)
+    return <GuestCode token={token} sentTo={signIn.data.sentTo} onOpened={arrive} />;
   return (
     <Centred>
       {signIn.error ? (
@@ -54,6 +65,84 @@ export function GuestLinkPage({ token }: { token: string }) {
         <p className="m-0 text-[14px] text-ink-3">Signing you in</p>
       )}
     </Centred>
+  );
+}
+
+/**
+ * Where the workspace asks for one, the code sent to the guest's address: the link alone opens
+ * nothing, so a forwarded mail is no use to whoever has it. Wrong, expired and spent codes each
+ * say what to do next.
+ */
+function GuestCode({
+  token,
+  sentTo,
+  onOpened,
+}: {
+  token: string;
+  sentTo: string;
+  onOpened: (me: GuestSignedIn) => void;
+}) {
+  const { resend, verify } = useGuestCode(token);
+  const [code, setCode] = useState("");
+  const failed = verify.error instanceof ApiError ? verify.error : null;
+  // A code that ran out, or was tried too often, is done with: only another will do.
+  const spent = failed?.code === "code_expired" || failed?.code === "code_tries";
+  if (
+    failed?.code === "link_gone" ||
+    (resend.error instanceof ApiError && resend.error.code === "link_gone")
+  )
+    return (
+      <Centred>
+        <h1 className="m-0 text-[20px] font-medium">This link no longer works</h1>
+        <p className="m-0 text-[14px] text-ink-2">
+          This link has been used or has expired. Ask whoever invited you to send a new one.
+        </p>
+      </Centred>
+    );
+  return (
+    <Frame
+      title="Check your email"
+      intro={`A six-digit code has gone to ${resend.data?.sentTo ?? sentTo}, the address the review was sent to. It lasts ten minutes.`}
+    >
+      <form
+        className="flex flex-col gap-5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (code.length === 6)
+            verify.mutate(code, { onSuccess: onOpened, onError: () => setCode("") });
+        }}
+      >
+        <CodeField value={code} onChange={setCode} invalid={Boolean(failed) && !spent} />
+        <ErrorLine message={verify.error?.message ?? resend.error?.message ?? null} />
+        <Button
+          variant="primary"
+          size="lg"
+          type="submit"
+          disabled={verify.isPending || code.length !== 6 || spent}
+        >
+          {verify.isPending ? "Checking" : "Open the review"}
+        </Button>
+        <p className="m-0 text-[13px] text-ink-3">
+          Nothing after a minute? Look in spam, then{" "}
+          <button
+            type="button"
+            disabled={resend.isPending}
+            onClick={() =>
+              resend.mutate(undefined, {
+                onSuccess: () => {
+                  verify.reset();
+                  setCode("");
+                },
+              })
+            }
+            className="text-ink-2 underline-offset-2 hover:text-ink hover:underline"
+          >
+            {resend.isSuccess ? "sent again" : "send another code"}
+          </button>
+          .
+        </p>
+      </form>
+    </Frame>
   );
 }
 

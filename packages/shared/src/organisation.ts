@@ -54,6 +54,10 @@ export const guestLinkDays = [3, 14, 30] as const;
 /** How long a review stays open to a reviewer unless the request says otherwise; null is while it runs. */
 export const accessWindowDays = [14, 30] as const;
 
+/** How a guest's link opens: by itself, or with a code sent to the guest's address as well. */
+export const guestVerifications = ["link", "code"] as const;
+export type GuestVerification = (typeof guestVerifications)[number];
+
 /** Who in a workspace must sign in with a second factor. */
 export const secondFactorPolicies = ["off", "admins", "everyone"] as const;
 export const secondFactorPolicy = z.enum(secondFactorPolicies);
@@ -81,6 +85,8 @@ export const workspaceSettingsSchema = z.object({
   /** The profile the new-project form starts on. */
   defaultProfile: projectProfile,
   guestLinkDays: z.literal(guestLinkDays),
+  /** Whether opening a guest link also asks for a code sent to the guest's address. */
+  guestVerification: z.enum(guestVerifications),
   /** Dates and numbers for members who have not chosen; null follows each browser. */
   locale: z.enum(locales).nullable(),
   /** Whether a new project shows threads carried to a new version (decision 029). */
@@ -102,6 +108,7 @@ export type WorkspaceSettings = z.infer<typeof workspaceSettingsSchema>;
 export const defaultWorkspaceSettings: WorkspaceSettings = {
   defaultProfile: "music",
   guestLinkDays: 3,
+  guestVerification: "link",
   locale: null,
   carriedCommentsShown: true,
   emailSubjects: {},
@@ -114,6 +121,7 @@ export const workspaceSettingsInput = z
   .object({
     defaultProfile: workspaceSettingsSchema.shape.defaultProfile.optional(),
     guestLinkDays: workspaceSettingsSchema.shape.guestLinkDays.optional(),
+    guestVerification: workspaceSettingsSchema.shape.guestVerification.optional(),
     locale: workspaceSettingsSchema.shape.locale.optional(),
     carriedCommentsShown: workspaceSettingsSchema.shape.carriedCommentsShown.optional(),
     emailSubjects: emailSubjectsChange.optional(),
@@ -145,6 +153,11 @@ export function workspaceSettingsOf(stored: unknown): WorkspaceSettings {
   return {
     defaultProfile: pick(shape.defaultProfile, read(stored, "defaultProfile"), d.defaultProfile),
     guestLinkDays: pick(shape.guestLinkDays, read(stored, "guestLinkDays"), d.guestLinkDays),
+    guestVerification: pick(
+      shape.guestVerification,
+      read(stored, "guestVerification"),
+      d.guestVerification,
+    ),
     locale: pick(shape.locale, read(stored, "locale"), d.locale),
     carriedCommentsShown: pick(
       shape.carriedCommentsShown,
@@ -180,6 +193,7 @@ export function applyWorkspaceSettings(
   return {
     defaultProfile: change.defaultProfile ?? current.defaultProfile,
     guestLinkDays: change.guestLinkDays ?? current.guestLinkDays,
+    guestVerification: change.guestVerification ?? current.guestVerification,
     locale: change.locale === undefined ? current.locale : change.locale,
     carriedCommentsShown: change.carriedCommentsShown ?? current.carriedCommentsShown,
     emailSubjects: Object.fromEntries(

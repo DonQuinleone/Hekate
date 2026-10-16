@@ -1005,6 +1005,16 @@ export const guestLinks = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     usedAt: timestamp("used_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    /**
+     * Where the workspace asks for one, the code sent to the guest on opening the link: only
+     * its hash, when it was sent and stops working, how often it has been tried, and how many
+     * have been sent for this link.
+     */
+    codeHash: text("code_hash"),
+    codeSentAt: timestamp("code_sent_at", { withTimezone: true }),
+    codeExpiresAt: timestamp("code_expires_at", { withTimezone: true }),
+    codeAttempts: integer("code_attempts").notNull().default(0),
+    codesSent: integer("codes_sent").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("guest_links_token_idx").on(t.tokenHash)],
