@@ -2366,6 +2366,30 @@ describe.runIf(url)("api", () => {
         expect(after.files.find((f) => f.id === s.mix)?.tagIds).toEqual([]);
       });
 
+      it("prepares a failed file again, once, for those who may upload", async () => {
+        const s = await studio();
+        await db
+          .update(schema.files)
+          .set({ streamStatus: "failed", analysisStatus: "failed" })
+          .where(eq(schema.files.id, s.mix));
+        const retry = (cookie: string) =>
+          app.request(`/api/files/${s.mix}/retry`, json({}, cookie));
+        expect((await retry(s.composer)).status).toBe(403);
+        sent.length = 0;
+        const res = await retry(s.engineer);
+        expect(res.status).toBe(202);
+        expect(sent.map((j) => j.name)).toEqual(["media-proxy", "media-analysis"]);
+        const [row] = await db
+          .select({ stream: schema.files.streamStatus, analysis: schema.files.analysisStatus })
+          .from(schema.files)
+          .where(eq(schema.files.id, s.mix));
+        expect(row).toEqual({ stream: "pending", analysis: "pending" });
+        // Already under way: nothing failed now.
+        expect((await retry(s.engineer)).status).toBe(409);
+        const outsider = await joinAs(s.owner, "outsider-retry@example.test");
+        expect((await retry(outsider)).status).toBe(404);
+      });
+
       it("keeps each member's file columns for this workspace", async () => {
         const s = await studio();
         const columnsOf = async (cookie: string) =>

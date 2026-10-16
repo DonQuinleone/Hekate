@@ -19,9 +19,11 @@ import {
   moveColumn,
   noFilters,
   pinnedFirst,
+  processingStage,
   rangeBetween,
   resizeColumn,
   toggleColumn,
+  variationNameFor,
   versionSummary,
   versionsOf,
 } from "./browser";
@@ -237,5 +239,33 @@ describe("selection", () => {
     expect(
       bulkTags(["masters", "draft", "own"], ["masters", "draft"], ["masters", "print"]),
     ).toEqual(["masters", "own", "print"]);
+  });
+});
+
+describe("processingStage", () => {
+  const f = (over: Partial<ProjectFile>) =>
+    ({
+      ...file("x", null),
+      mediaInfo: { duration: 1 },
+      streamStatus: "ready",
+      analysisStatus: "ready",
+      ...over,
+    }) as ProjectFile;
+
+  it("names each stage a file goes through", () => {
+    expect(processingStage(f({ mediaInfo: null, streamStatus: "pending" }))).toBe("Measuring");
+    expect(processingStage(f({ streamStatus: "pending" }))).toBe("Preparing playback");
+    expect(processingStage(f({ analysisStatus: "pending" }))).toBe("Analysing");
+    expect(processingStage(f({ kind: "document", streamStatus: "pending" }))).toBe("Drawing pages");
+    expect(processingStage(f({ analysisStatus: "failed" }))).toBe("Failed");
+    expect(processingStage(f({}))).toBeNull();
+  });
+});
+
+describe("variationNameFor", () => {
+  it("names a variation from its file, without the track's name", () => {
+    expect(variationNameFor("Maple Leaf Rag - Dry v3.wav", "Maple Leaf Rag")).toBe("Dry v3");
+    expect(variationNameFor("Stems.zip", "Maple Leaf Rag")).toBe("Stems");
+    expect(variationNameFor("Maple Leaf Rag.wav", "Maple Leaf Rag")).toBe("Maple Leaf Rag");
   });
 });

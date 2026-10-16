@@ -10,6 +10,7 @@ import {
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   type CSSProperties,
   type DragEvent,
@@ -17,6 +18,8 @@ import {
   type KeyboardEvent,
   type ReactNode,
   useEffect,
+  useLayoutEffect,
+  useRef,
   useState,
 } from "react";
 import {
@@ -36,8 +39,10 @@ import {
   markKey,
   movableTo,
   pinnedFirst,
+  processingStage,
   rangeBetween,
   unviewed,
+  variationNameFor,
   versionSummary,
   versionsOf,
 } from "~/lib/browser";
@@ -60,6 +65,7 @@ import {
   useMarks,
   useOrganise,
   useProjectCan,
+  useRetryFile,
   useTagMutations,
   useTrackMutations,
 } from "~/lib/queries";
@@ -112,7 +118,7 @@ const itemIcon = (item: Item): IconName =>
  * What is being done to one item: renaming it, choosing where it goes, tagging it, or
  * confirming its removal.
  */
-type Editing = { id: string; mode: "rename" | "move" | "tags" | "delete" } | null;
+type Editing = { id: string; mode: "rename" | "move" | "tags" | "attach" | "delete" } | null;
 
 /** Every folder as a path ("Mixes / Stems"), for choosing where something goes. */
 function destinations(folders: Folder[], exclude: Set<string>) {
@@ -156,6 +162,77 @@ function RenameForm({
       />
       <Button size="sm" type="submit" disabled={pending}>
         Save
+      </Button>
+      <Button size="sm" variant="ghost" onClick={onCancel}>
+        Cancel
+      </Button>
+    </form>
+  );
+}
+
+/**
+ * Put a loose file into a track: as its next version, or as another variation of its latest
+ * (a wet mix beside the dry one).
+ */
+function AttachForm({
+  file,
+  tracks,
+  pending,
+  onAttach,
+  onCancel,
+}: {
+  file: ProjectFile;
+  tracks: Track[];
+  pending: boolean;
+  onAttach: (track: Track, as: "version" | "variation", name: string) => void;
+  onCancel: () => void;
+}) {
+  const [trackId, setTrackId] = useState(tracks[0]?.id ?? "");
+  const track = tracks.find((t) => t.id === trackId);
+  const latest = track?.versions.at(-1);
+  const [as, setAs] = useState<"version" | "variation">("version");
+  const [name, setName] = useState("");
+  const shown = name || (track ? variationNameFor(file.name, track.name) : "");
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (track && shown.trim()) onAttach(track, latest ? as : "version", shown.trim());
+      }}
+      className="flex flex-wrap items-center gap-2"
+      aria-label="Attach to a track"
+    >
+      <Select
+        aria-label="Track"
+        className="max-w-60"
+        value={trackId}
+        onChange={(e) => setTrackId(e.target.value)}
+      >
+        {tracks.map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.name}
+          </option>
+        ))}
+      </Select>
+      <Select
+        aria-label="As"
+        className="max-w-60"
+        value={latest ? as : "version"}
+        onChange={(e) => setAs(e.target.value as "version" | "variation")}
+      >
+        <option value="version">As V{(latest?.number ?? 0) + 1}, a new version</option>
+        {latest && <option value="variation">As a variation of V{latest.number}</option>}
+      </Select>
+      <Input
+        aria-label="Variation name"
+        className="w-40"
+        maxLength={80}
+        value={shown}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => e.key === "Escape" && onCancel()}
+      />
+      <Button size="sm" type="submit" disabled={pending || !track || !shown.trim()}>
+        Attach
       </Button>
       <Button size="sm" variant="ghost" onClick={onCancel}>
         Cancel
@@ -238,20 +315,42 @@ const processing = (file: ProjectFile) =>
   file.streamStatus === "pending" ||
   file.analysisStatus === "pending";
 
-/** A file's state while it is prepared, or a dash once it is ready. */
-function FileStatus({ file }: { file: ProjectFile }) {
-  if (file.streamStatus === "failed" || file.analysisStatus === "failed")
+/**
+ * A file's state while it is prepared (measuring, preparing playback, analysing, drawing
+ * pages), or failed with a way to try again for those who may; a dash once it is ready.
+ */
+function FileStatus({
+  file,
+  onRetry,
+  retrying = false,
+}: {
+  file: ProjectFile;
+  onRetry?: () => void;
+  retrying?: boolean;
+}) {
+  const stage = processingStage(file);
+  if (stage === "Failed")
     return (
       <>
-        <Icon name="warning" size={14} className="text-signal" />
+        <Icon name="warning" size={14} className="shrink-0 text-signal" />
         <span className="text-ink-2">Failed</span>
+        {onRetry && (
+          <button
+            type="button"
+            disabled={retrying}
+            onClick={onRetry}
+            className="rounded-control px-1.5 text-[12px] text-ink-2 hover:bg-raised hover:text-ink disabled:opacity-50"
+          >
+            Retry
+          </button>
+        )}
       </>
     );
-  if (file.streamStatus === "pending" || file.analysisStatus === "pending")
+  if (stage)
     return (
       <>
         <StatusDot state="in_review" />
-        <span className="text-ink-2">Processing</span>
+        <span className="truncate text-ink-2">{stage}</span>
       </>
     );
   return <span className="text-ink-3">—</span>;
@@ -369,6 +468,7 @@ export function FileBrowser({
   const organise = useOrganise(projectId);
   const trackMutations = useTrackMutations(projectId);
   const setMarks = useMarks(projectId);
+  const retry = useRetryFile(projectId);
   const { data: savedColumns } = useQuery(fileColumnsQuery);
   const saveColumns = useFileColumns();
   /** Widths while a column edge is dragged; kept once it is let go. */
@@ -393,6 +493,10 @@ export function FileBrowser({
   const [bulkBusy, setBulkBusy] = useState(false);
   /** The folder (or "top") something is being dragged over. */
   const [dropOn, setDropOn] = useState<string | null>(null);
+  /** Scrolls a long list to a row it has not drawn yet; set by the list itself. */
+  const reveal = useRef<((index: number) => void) | null>(null);
+  /** The row the keys have reached while it is still being brought into view. */
+  const cursor = useRef<number | null>(null);
   const selecting = selectMode || selected.size > 0;
   // A new place or new filters start a new selection.
   const filterKey = `${filters.show.join()}|${filters.tags.join()}`;
@@ -467,7 +571,8 @@ export function FileBrowser({
     if (target.closest("input, select, textarea, form, [role=menu], [role=dialog]")) return;
     const rows = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("[data-key]"));
     const current = target.closest<HTMLElement>("[data-key]")?.dataset.key ?? null;
-    const at = current ? order.indexOf(current) : -1;
+    // While a row is being brought into view, keys count on from it, not from the old focus.
+    const at = cursor.current ?? (current ? order.indexOf(current) : -1);
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const next = Math.min(
@@ -476,10 +581,27 @@ export function FileBrowser({
       );
       const key = order[next];
       if (!key) return;
-      rows
-        .find((r) => r.dataset.key === key)
-        ?.querySelector<HTMLElement>("[data-name]")
-        ?.focus();
+      const list = event.currentTarget;
+      const focus = () => {
+        const name = list.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"] [data-name]`);
+        if (!name) return false;
+        name.focus();
+        if (cursor.current === next) cursor.current = null;
+        return true;
+      };
+      if (rows.some((r) => r.dataset.key === key)) {
+        cursor.current = null;
+        focus();
+      } else {
+        // A long list draws only what is near the view: bring the row in, then focus it.
+        cursor.current = next;
+        reveal.current?.(next);
+        const settle = (tries: number) =>
+          requestAnimationFrame(() => {
+            if (!focus() && tries > 0) settle(tries - 1);
+          });
+        settle(5);
+      }
       if (event.shiftKey) {
         const from = anchor ?? current ?? key;
         setSelected(new Set(rangeBetween(order, from, key)));
@@ -608,8 +730,11 @@ export function FileBrowser({
     organise.deleteFolder.error ??
     organise.updateFile.error ??
     organise.deleteFile.error ??
+    retry.error ??
     trackMutations.createTrack.error ??
-    trackMutations.updateTrack.error;
+    trackMutations.updateTrack.error ??
+    trackMutations.createVersion.error ??
+    trackMutations.addVariation.error;
 
   const create = (event: FormEvent) => {
     event.preventDefault();
@@ -676,6 +801,7 @@ export function FileBrowser({
           ]
         : []),
     ];
+    const failedFile = seen && processingStage(seen) === "Failed" && can("upload") ? seen : null;
     const organising: (MenuAction | "divider")[] = manage
       ? [
           "divider",
@@ -683,6 +809,15 @@ export function FileBrowser({
           { label: "Move to…", onSelect: () => setEditing({ id: item.id, mode: "move" }) },
           ...(item.kind === "file"
             ? [{ label: "Tags…", onSelect: () => setEditing({ id: item.id, mode: "tags" }) }]
+            : []),
+          // Downloads come with #136 (watermarked, logged); takes once sessions exist.
+          ...(item.kind === "file" && withTracks && allTracks.length > 0 && can("upload")
+            ? [
+                {
+                  label: "Attach to a track…",
+                  onSelect: () => setEditing({ id: item.id, mode: "attach" }),
+                },
+              ]
             : []),
           ...(item.kind === "track"
             ? []
@@ -696,8 +831,15 @@ export function FileBrowser({
               ]),
         ]
       : [];
+    const recovering: (MenuAction | "divider")[] = failedFile
+      ? ["divider", { label: "Try preparing again", onSelect: () => retry.mutate(failedFile.id) }]
+      : [];
     return (
-      <ActionMenu label={itemName(item)} actions={[...personal, ...organising]} always={always} />
+      <ActionMenu
+        label={itemName(item)}
+        actions={[...personal, ...recovering, ...organising]}
+        always={always}
+      />
     );
   };
 
@@ -728,6 +870,29 @@ export function FileBrowser({
               { onSuccess: () => setEditing(null) },
             )
           }
+          onCancel={() => setEditing(null)}
+        />
+      );
+    }
+    if (editing.mode === "attach" && item.kind === "file") {
+      return (
+        <AttachForm
+          file={item.file}
+          tracks={allTracks}
+          pending={trackMutations.createVersion.isPending || trackMutations.addVariation.isPending}
+          onAttach={(track, as, name) => {
+            const latest = track.versions.at(-1);
+            if (as === "variation" && latest)
+              trackMutations.addVariation.mutate(
+                { versionId: latest.id, fileId: item.file.id, name },
+                done,
+              );
+            else
+              trackMutations.createVersion.mutate(
+                { trackId: track.id, variations: [{ fileId: item.file.id, name }] },
+                done,
+              );
+          }}
           onCancel={() => setEditing(null)}
         />
       );
@@ -847,6 +1012,13 @@ export function FileBrowser({
     return null;
   };
 
+  const statusOf = (f: ProjectFile) => (
+    <FileStatus
+      file={f}
+      onRetry={can("upload") ? () => retry.mutate(f.id) : undefined}
+      retrying={retry.isPending}
+    />
+  );
   /** What one column says about one item. */
   const cell = (item: Item, id: FileColumn): ReactNode => {
     if (item.kind === "folder") {
@@ -861,7 +1033,7 @@ export function FileBrowser({
       switch (id) {
         case "status": {
           // While its latest file is prepared, or after that failed, that is what it says.
-          if (file && processing(file)) return <FileStatus file={file} />;
+          if (file && processing(file)) return statusOf(file);
           const copy =
             trackStateCopy[t.state ?? (t.versions.length ? "not_reviewed" : "no_version")];
           return (
@@ -890,7 +1062,7 @@ export function FileBrowser({
       const f = item.file;
       switch (id) {
         case "status":
-          return <FileStatus file={f} />;
+          return statusOf(f);
         case "versions":
           return (
             <span className="tabular truncate">
@@ -945,7 +1117,7 @@ export function FileBrowser({
     return item.kind === "file" ? details(item.file) : undefined;
   };
 
-  const row = (item: Item) => {
+  const row = (item: Item, place?: Place) => {
     const open = editing?.id === item.id;
     const cells = (
       <>
@@ -971,6 +1143,9 @@ export function FileBrowser({
     return (
       <li
         key={item.id}
+        ref={place?.ref}
+        data-index={place?.index}
+        style={place?.style}
         data-key={markKey(item)}
         draggable={manage && !open}
         onDragStart={(event) => dragStart(item, event)}
@@ -1208,9 +1383,7 @@ export function FileBrowser({
             ))}
             <ColumnsMenu columns={columns} names={names} onChange={saveColumns.mutate} />
           </div>
-          <ul className="m-0 list-none p-0" aria-label="Contents" onKeyDown={onListKey}>
-            {items.map(row)}
-          </ul>
+          <Rows items={items} row={row} onKeyDown={onListKey} reveal={reveal} />
         </Card>
       ) : (
         <ul
@@ -1495,6 +1668,90 @@ function SelectionBar({
         </button>
       </div>
     </div>
+  );
+}
+
+/** Where a row of a long list sits, drawn only while near the view. */
+interface Place {
+  index: number;
+  ref: (element: Element | null) => void;
+  style: CSSProperties;
+}
+
+/** From how many rows a list draws only those near the view. */
+const VIRTUAL_FROM = 200;
+
+/**
+ * The list's rows. A short list draws them all; a long one (thousands of files) draws only
+ * those in and near the view, measuring each as it appears, so it scrolls smoothly.
+ */
+function Rows({
+  items,
+  row,
+  onKeyDown,
+  reveal,
+}: {
+  items: Item[];
+  row: (item: Item, place?: Place) => ReactNode;
+  onKeyDown: (event: KeyboardEvent<HTMLUListElement>) => void;
+  reveal: { current: ((index: number) => void) | null };
+}) {
+  const list = useRef<HTMLUListElement>(null);
+  const many = items.length >= VIRTUAL_FROM;
+  /** How far down its scrolling area the list starts. */
+  const [margin, setMargin] = useState(0);
+  const scroller = () => list.current?.closest("main") ?? null;
+  useLayoutEffect(() => {
+    const area = list.current?.closest("main");
+    if (!many || !list.current || !area) return;
+    setMargin(
+      list.current.getBoundingClientRect().top - area.getBoundingClientRect().top + area.scrollTop,
+    );
+  }, [many]);
+  const virtual = useVirtualizer({
+    count: many ? items.length : 0,
+    getScrollElement: scroller,
+    estimateSize: () => 49,
+    overscan: 12,
+    scrollMargin: margin,
+  });
+  useEffect(() => {
+    reveal.current = many ? (index) => virtual.scrollToIndex(index, { align: "auto" }) : null;
+    return () => {
+      reveal.current = null;
+    };
+  }, [many, virtual, reveal]);
+  if (!many)
+    return (
+      <ul ref={list} className="m-0 list-none p-0" aria-label="Contents" onKeyDown={onKeyDown}>
+        {items.map((item) => row(item))}
+      </ul>
+    );
+  return (
+    <ul
+      ref={list}
+      className="relative m-0 list-none p-0"
+      aria-label="Contents"
+      onKeyDown={onKeyDown}
+      style={{ height: virtual.getTotalSize() }}
+    >
+      {virtual.getVirtualItems().map((v) => {
+        const item = items[v.index];
+        return item
+          ? row(item, {
+              index: v.index,
+              ref: virtual.measureElement,
+              style: {
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                transform: `translateY(${v.start - margin}px)`,
+              },
+            })
+          : null;
+      })}
+    </ul>
   );
 }
 

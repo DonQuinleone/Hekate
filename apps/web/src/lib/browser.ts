@@ -321,3 +321,25 @@ export function movableTo(folders: Folder[], moving: Item[]): Folder[] {
 export const bulkTags = (current: string[], common: string[], chosen: string[]) => [
   ...new Set([...current.filter((t) => !common.includes(t) || chosen.includes(t)), ...chosen]),
 ];
+
+/**
+ * Where a file is in its preparation, in words, or null once it is ready (or needs none):
+ * a recording is measured, made playable and analysed; a document's pages are drawn.
+ */
+export function processingStage(file: ProjectFile): string | null {
+  if (file.streamStatus === "failed" || file.analysisStatus === "failed") return "Failed";
+  const media = file.kind === "audio" || file.kind === "video";
+  if (media && file.mediaInfo === null && file.streamStatus === "pending") return "Measuring";
+  if (file.streamStatus === "pending") return media ? "Preparing playback" : "Drawing pages";
+  if (file.analysisStatus === "pending") return "Analysing";
+  return null;
+}
+
+/** A variation's name from its file's: the extension and the track's own name dropped. */
+export function variationNameFor(fileName: string, trackName: string): string {
+  const bare = fileName.replace(/\.[^.]+$/, "");
+  const rest = bare.toLowerCase().startsWith(trackName.toLowerCase())
+    ? bare.slice(trackName.length).replace(/^[\s\-–_:·]+/, "")
+    : bare;
+  return (rest || bare).slice(0, 80);
+}

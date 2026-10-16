@@ -943,6 +943,18 @@ export function useTrackMutations(projectId: string) {
         ).track,
       onSuccess: refresh,
     }),
+    addVariation: useMutation({
+      mutationFn: async (input: { versionId: string; fileId: string; name: string }) =>
+        (
+          await json<{ track: Track }>(
+            await api.versions[":id"].variations.$post({
+              param: { id: input.versionId },
+              json: { fileId: input.fileId, name: input.name },
+            }),
+          )
+        ).track,
+      onSuccess: refresh,
+    }),
     makePrimary: useMutation({
       mutationFn: async (variationId: string) =>
         (
@@ -1741,5 +1753,17 @@ export function useFileColumns() {
       return { before };
     },
     onError: (_e, _c, ctx) => client.setQueryData(key, ctx?.before),
+  });
+}
+
+/** Prepare a file again after its preparation failed. */
+export function useRetryFile(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (fileId: string) => {
+      const res = await api.files[":id"].retry.$post({ param: { id: fileId } });
+      if (!res.ok) await json(res);
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: projectFilesQuery(projectId).queryKey }),
   });
 }
