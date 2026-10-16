@@ -148,6 +148,19 @@ export function AccountPage({ section }: { section: string }) {
       {sec === "security" && (
         <>
           <Section
+            title="Second factor"
+            intro="A code from an app on your phone, asked for after your password."
+          >
+            <Row
+              name="Code app"
+              hint="On. Asked for at each sign-in, except in browsers you trust."
+            >
+              <Button variant="ghost" size="md">
+                Remove…
+              </Button>
+            </Row>
+          </Section>
+          <Section
             title="Passkeys and security keys"
             intro="Up to five. A passkey signs you in without a password; a security key can be required by the workspace."
             action={
@@ -204,14 +217,11 @@ export function AccountPage({ section }: { section: string }) {
           </Section>
           <Section
             title="Recovery codes"
-            intro="Ten single-use codes for when a key is lost. Keep them somewhere else."
+            intro="Ten single-use codes for when your phone or a key is lost. Keep them somewhere else."
           >
-            <Row name="8 of 10 unused" hint="Generated 2 Oct">
+            <Row name="8 of 10 unused" hint="Shown once, when made. New ones replace these.">
               <Button variant="secondary" size="md">
-                Show
-              </Button>
-              <Button variant="ghost" size="md">
-                Generate new ones
+                Generate new ones…
               </Button>
             </Row>
           </Section>

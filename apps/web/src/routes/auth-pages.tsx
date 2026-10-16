@@ -1,14 +1,17 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { Mark, Wordmark } from "~/components/brand";
+import { CodeAppSetup } from "~/components/second-factor";
 import { Button } from "~/components/ui/button";
+import { Choice } from "~/components/ui/choice";
 import { CodeField } from "~/components/ui/code-field";
 import { Input } from "~/components/ui/input";
 import { api } from "~/lib/api";
 import { authClient } from "~/lib/auth";
 import { cn } from "~/lib/cn";
 import { passwordStrength } from "~/lib/password";
+import { meQuery } from "~/lib/queries";
 
 export function Frame({
   title,
@@ -61,7 +64,7 @@ export function ErrorLine({ message }: { message: string | null }) {
   );
 }
 
-export type SignInView = "forgot" | "sent" | "reset";
+export type SignInView = "forgot" | "sent" | "reset" | "code" | "recovery";
 export interface SignInSearch {
   redirect?: string;
   view?: SignInView;
@@ -93,6 +96,15 @@ export function SignInPage() {
       <Sent
         email={search.email ?? ""}
         onCode={(code) => go({ view: "reset", email: search.email ?? "", code })}
+        back={() => go({})}
+      />
+    );
+  if (search.view === "code" || search.view === "recovery")
+    return (
+      <SecondFactor
+        recovery={search.view === "recovery"}
+        redirect={search.redirect}
+        toggle={() => go({ view: search.view === "code" ? "recovery" : "code" })}
         back={() => go({})}
       />
     );
@@ -144,7 +156,7 @@ function SignIn({ search, forgot }: { search: SignInSearch; forgot: (email: stri
     const form = new FormData(e.currentTarget);
     setPending(true);
     setError(null);
-    const { error } = await authClient.signIn.email({
+    const { data, error } = await authClient.signIn.email({
       email: String(form.get("email")),
       password: String(form.get("password")),
     });
@@ -156,6 +168,14 @@ function SignIn({ search, forgot }: { search: SignInSearch; forgot: (email: stri
           ? (error.message ?? "Too many attempts. Wait a minute and try again.")
           : "That email and password do not match.",
       );
+      return;
+    }
+    // A second factor is asked for: no session yet, until its code is given.
+    if (data && "twoFactorRedirect" in data && data.twoFactorRedirect) {
+      await navigate({
+        to: "/sign-in",
+        search: { ...(search.redirect ? { redirect: search.redirect } : {}), view: "code" },
+      });
       return;
     }
     await client.invalidateQueries({ queryKey: ["me"] });
@@ -198,6 +218,106 @@ function SignIn({ search, forgot }: { search: SignInSearch; forgot: (email: stri
       <p className="m-0 border-t border-hairline pt-4 text-xs leading-normal text-ink-3">
         Accounts are by invitation. Guests reviewing a file open the link in their email instead.
       </p>
+    </Frame>
+  );
+}
+
+/**
+ * The second step of signing in, for an account with a code app: its six digits, or one of
+ * the recovery codes. A browser can be trusted for 30 days, so it is not asked again there.
+ */
+function SecondFactor({
+  recovery,
+  redirect,
+  toggle,
+  back,
+}: {
+  recovery: boolean;
+  redirect?: string;
+  toggle: () => void;
+  back: () => void;
+}) {
+  const navigate = useNavigate();
+  const client = useQueryClient();
+  const [code, setCode] = useState("");
+  const [trust, setTrust] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const ready = recovery ? code.replace(/[^a-z0-9]/gi, "").length === 10 : code.length === 6;
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!ready) return;
+    setPending(true);
+    setError(null);
+    const { error } = recovery
+      ? await authClient.twoFactor.verifyBackupCode({ code, trustDevice: trust })
+      : await authClient.twoFactor.verifyTotp({ code, trustDevice: trust });
+    setPending(false);
+    if (error) {
+      setCode("");
+      setError(
+        error.status === 429 || error.status === 423
+          ? (error.message ?? "Too many wrong codes. Wait a while and try again.")
+          : error.status === 401 && /two.?factor|session/i.test(error.message ?? "")
+            ? "That took too long. Sign in again."
+            : recovery
+              ? "That recovery code is not right, or it has been used."
+              : "That code is not right. Codes change every 30 seconds.",
+      );
+      return;
+    }
+    await client.invalidateQueries({ queryKey: ["me"] });
+    await arrive(redirect, navigate);
+  };
+  return (
+    <Frame
+      title={recovery ? "Use a recovery code" : "Enter your code"}
+      intro={
+        recovery
+          ? "One of the codes you kept when you added your code app. Each works once."
+          : "The six digits your authenticator app shows for Hekate."
+      }
+    >
+      <form onSubmit={submit} className="flex flex-col gap-5">
+        {recovery ? (
+          <Field
+            id="recovery"
+            label="Recovery code"
+            autoComplete="one-time-code"
+            autoFocus
+            spellCheck={false}
+            placeholder="xxxxx-xxxxx"
+            className="h-10 font-mono"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+          />
+        ) : (
+          <CodeField value={code} onChange={setCode} invalid={Boolean(error)} />
+        )}
+        <ErrorLine message={error} />
+        <Button variant="primary" size="lg" type="submit" disabled={pending || !ready}>
+          {pending ? "Checking" : "Continue"}
+        </Button>
+        <Choice
+          checked={trust}
+          onChange={(e) => setTrust(e.target.checked)}
+          className="text-[13px] text-ink-2"
+        >
+          Trust this browser for 30 days
+        </Choice>
+        <button
+          type="button"
+          onClick={() => {
+            setCode("");
+            setError(null);
+            toggle();
+          }}
+          className="self-start text-[13px] text-ink-3 transition-colors hover:text-ink"
+        >
+          {recovery ? "Use your code app instead" : "Lost your phone? Use a recovery code"}
+        </button>
+      </form>
+      <Back onClick={back} />
     </Frame>
   );
 }
@@ -491,5 +611,40 @@ export function SetupPage() {
         </Button>
       </form>
     </Frame>
+  );
+}
+
+/**
+ * `/second-factor`: a workspace (or the instance) asks for a second factor this member has
+ * not added. Nothing else opens until they add one; they can also sign out.
+ */
+export function SecondFactorPage() {
+  const navigate = useNavigate();
+  const client = useQueryClient();
+  const { data: me } = useQuery(meQuery);
+  const workspace = me?.organisations.find((o) => o.id === me.activeOrganisationId);
+  const signOut = async () => {
+    await authClient.signOut();
+    client.clear();
+    await navigate({ to: "/sign-in", search: {} });
+  };
+  return (
+    <CodeAppSetup
+      page
+      reason={`${workspace?.name ?? "This workspace"} asks you to sign in with a second factor.`}
+      onDone={() => void navigate({ to: "/" })}
+      shell={({ title, intro, body }) => (
+        <Frame title={title} intro={intro}>
+          {body}
+          <button
+            type="button"
+            onClick={signOut}
+            className="self-start text-[13px] text-ink-3 transition-colors hover:text-ink"
+          >
+            Sign out
+          </button>
+        </Frame>
+      )}
+    />
   );
 }

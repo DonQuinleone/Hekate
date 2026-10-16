@@ -8,7 +8,7 @@ import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import type { Actor, GuestActor } from "./access.ts";
 import type { Auth } from "./auth.ts";
-import { organisationFor } from "./tenancy.ts";
+import { assertSecondFactor, organisationFor, type SecondFactorRule } from "./tenancy.ts";
 
 const { guests, guestLinks, guestSessions, organisations } = schema;
 
@@ -204,11 +204,12 @@ export interface ViewerVariables {
  * A member (with their organisation) or a guest. Members are tried first: someone who is
  * both signed in and holding a guest cookie acts as the member.
  */
-export const requireViewer = (auth: Auth, db: Database) =>
+export const requireViewer = (auth: Auth, db: Database, rule: SecondFactorRule) =>
   createMiddleware<{ Variables: ViewerVariables }>(async (c, next) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (session) {
       const membership = await organisationFor(db, session.user.id, session.session.id);
+      await assertSecondFactor(db, session.user.id, membership, rule);
       c.set("actor", {
         kind: "member",
         userId: session.user.id,

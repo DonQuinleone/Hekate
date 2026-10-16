@@ -12,6 +12,15 @@ export class NotFound extends HTTPException {
   }
 }
 
+/** A refusal the web app acts on by its code, not only its status. */
+export class CodedException extends HTTPException {
+  readonly code: string;
+  constructor(status: 403 | 409 | 422, code: string, message: string) {
+    super(status, { message });
+    this.code = code;
+  }
+}
+
 const codes: Record<number, string> = {
   400: "bad_request",
   401: "unauthenticated",
@@ -23,7 +32,7 @@ const codes: Record<number, string> = {
 
 export function onError(err: Error, c: Context) {
   if (err instanceof HTTPException) {
-    const code = codes[err.status] ?? "http_error";
+    const code = err instanceof CodedException ? err.code : (codes[err.status] ?? "http_error");
     return c.json<ApiError>({ error: { code, message: err.message } }, err.status);
   }
   console.error(err);

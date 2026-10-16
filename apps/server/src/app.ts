@@ -58,11 +58,17 @@ export interface AppDeps {
   log?: boolean;
   /** Check the first owner's password against known breaches (PASSWORD_LEAK_CHECK). */
   passwordLeakCheck?: boolean;
+  /** The instance asks every account for a second factor (REQUIRE_SECOND_FACTOR). */
+  requireSecondFactor?: boolean;
 }
 
 export function createApi(deps: AppDeps) {
-  const member = [requireSession(deps.auth), requireOrganisation(deps.db)] as const;
-  const viewer = requireViewer(deps.auth, deps.db);
+  const rule = { instance: deps.requireSecondFactor ?? false };
+  const member = [requireSession(deps.auth), requireOrganisation(deps.db, rule)] as const;
+  // Someone who still owes a second factor may read who they are, to be sent to add one, and
+  // switch to a workspace that does not ask for it; nothing else.
+  const owingAllowed = new Set(["/api/me", "/api/me/organisation"]);
+  const viewer = requireViewer(deps.auth, deps.db, rule);
   const playback = {
     db: deps.db,
     storage: deps.storage,
@@ -70,6 +76,7 @@ export function createApi(deps: AppDeps) {
     audit: deps.audit,
     secret: deps.playbackSecret,
     trustProxy: deps.trustProxy ?? false,
+    secondFactor: rule,
   };
   const reviewDeps = {
     db: deps.db,
@@ -82,9 +89,9 @@ export function createApi(deps: AppDeps) {
     new Hono()
       .route("/health", health(deps.db))
       .route("/setup", setupRoutes(deps.db, deps.auth, deps.passwordLeakCheck ?? false))
-      .use("/me/*", ...member)
-      .use("/me", ...member)
-      .route("/me", meRoutes(deps.db))
+      // "/me/*" also covers "/me" itself.
+      .use("/me/*", requireSession(deps.auth), requireOrganisation(deps.db, rule, owingAllowed))
+      .route("/me", meRoutes(deps.db, rule))
       .route("/invitations", invitationRoutes(deps.db, deps.auth))
       .use("/organisation/*", ...member)
       .route(

@@ -54,6 +54,24 @@ export const guestLinkDays = [3, 14, 30] as const;
 /** How long a review stays open to a reviewer unless the request says otherwise; null is while it runs. */
 export const accessWindowDays = [14, 30] as const;
 
+/** Who in a workspace must sign in with a second factor. */
+export const secondFactorPolicies = ["off", "admins", "everyone"] as const;
+export const secondFactorPolicy = z.enum(secondFactorPolicies);
+export type SecondFactorPolicy = z.infer<typeof secondFactorPolicy>;
+
+/**
+ * Whether someone must have a second factor before they act in a workspace: when the instance
+ * asks it of every account, or the workspace of everyone, or of owners and admins and they are one.
+ */
+export function secondFactorRequired(o: {
+  instance: boolean;
+  policy: SecondFactorPolicy;
+  role: OrganisationRole;
+}): boolean {
+  if (o.instance || o.policy === "everyone") return true;
+  return o.policy === "admins" && atLeast(o.role, "admin");
+}
+
 /**
  * A workspace's settings (decision 037 names it a workspace; code keeps organisation). Each takes
  * effect where it applies: guest links when sent, the language for members without their own,
@@ -69,6 +87,8 @@ export const workspaceSettingsSchema = z.object({
   carriedCommentsShown: z.boolean(),
   /** The workspace's own subject lines for its messages. */
   emailSubjects,
+  /** Who must sign in with a second factor. */
+  secondFactor: secondFactorPolicy,
   /** What a review grants unless the request says otherwise. */
   reviewer: z.object({
     comment: z.boolean(),
@@ -85,6 +105,7 @@ export const defaultWorkspaceSettings: WorkspaceSettings = {
   locale: null,
   carriedCommentsShown: true,
   emailSubjects: {},
+  secondFactor: "off",
   reviewer: { comment: true, decide: true, comments: "all", windowDays: null },
 };
 
@@ -96,6 +117,7 @@ export const workspaceSettingsInput = z
     locale: workspaceSettingsSchema.shape.locale.optional(),
     carriedCommentsShown: workspaceSettingsSchema.shape.carriedCommentsShown.optional(),
     emailSubjects: emailSubjectsChange.optional(),
+    secondFactor: workspaceSettingsSchema.shape.secondFactor.optional(),
     reviewer: workspaceSettingsSchema.shape.reviewer.partial().strict().optional(),
   })
   .strict()
@@ -136,6 +158,7 @@ export function workspaceSettingsOf(stored: unknown): WorkspaceSettings {
         return parsed.success && parsed.data[id] ? [[id, parsed.data[id]]] : [];
       }),
     ) as EmailSubjects,
+    secondFactor: pick(shape.secondFactor, read(stored, "secondFactor"), d.secondFactor),
     reviewer: {
       comment: pick(reviewer.comment, read(storedReviewer, "comment"), d.reviewer.comment),
       decide: pick(reviewer.decide, read(storedReviewer, "decide"), d.reviewer.decide),
@@ -164,6 +187,7 @@ export function applyWorkspaceSettings(
         (entry): entry is [string, string] => typeof entry[1] === "string",
       ),
     ) as EmailSubjects,
+    secondFactor: change.secondFactor ?? current.secondFactor,
     reviewer: { ...current.reviewer, ...change.reviewer },
   };
 }

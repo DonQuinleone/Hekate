@@ -129,6 +129,8 @@ export const users = pgTable("users", {
   timeZone: text("time_zone"),
   /** What they want to see and how the player behaves for them; read with preferencesOf. */
   preferences: jsonb("preferences"),
+  /** Whether a second factor guards their sign-in (Better Auth's two-factor plugin). */
+  twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
   ...timestamps,
 });
 
@@ -183,6 +185,27 @@ export const authVerifications = pgTable("auth_verifications", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   ...timestamps,
 });
+
+/**
+ * A code app (TOTP) for an account's second factor, with its recovery codes. The secret is
+ * encrypted with the auth secret; the recovery codes are kept only as keyed hashes (auth.ts).
+ */
+export const twoFactors = pgTable(
+  "two_factors",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    secret: text("secret").notNull(),
+    backupCodes: text("backup_codes").notNull(),
+    verified: boolean("verified").notNull().default(true),
+    failedVerificationCount: integer("failed_verification_count").notNull().default(0),
+    lockedUntil: timestamp("locked_until", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index("two_factors_user_idx").on(t.userId)],
+);
 
 /**
  * Failed sign-ins per account, for slowing and then locking repeated guesses (apps/server

@@ -1,12 +1,19 @@
 import { type Database, schema } from "@hekate/db";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { APIError, createAuthMiddleware, isAPIError } from "better-auth/api";
-import { emailOTP, haveIBeenPwned } from "better-auth/plugins";
+import { APIError, createAuthMiddleware, getSessionFromCtx, isAPIError } from "better-auth/api";
+import { emailOTP, haveIBeenPwned, twoFactor } from "better-auth/plugins";
 import type { Audit } from "./audit.ts";
 import { waitMessage } from "./lockout.ts";
 import { type Mailer, sendEmail } from "./mail.ts";
-import { admitAttempt, clearAttempts, logLockout, logToWorkspaces } from "./sign-in.ts";
+import { hashedRecoveryCodes, hashRecoveryCode, newRecoveryCodes } from "./second-factor.ts";
+import {
+  admitAttempt,
+  clearAttempts,
+  logForAccount,
+  logLockout,
+  logToWorkspaces,
+} from "./sign-in.ts";
 
 export interface AuthOptions {
   db: Database;
@@ -31,8 +38,8 @@ const appBase = (baseURL: string) => baseURL.replace(/\/$/, "");
 
 /**
  * Better Auth with email and password. Public sign-up is closed: the first account is created by
- * first-run setup, later accounts by invitation. SSO, LDAP, passkeys and magic links plug in here
- * (issues 37, 38, 39, 24). See docs/security.md (Authentication).
+ * first-run setup, later accounts by invitation. A code app is the second factor; SSO, LDAP,
+ * passkeys and magic links plug in here (issues 37, 38, 39, 24). See docs/security.md (Authentication).
  */
 export function createAuth(options: AuthOptions) {
   /** Sign-in requests whose attempt reached the lock, to log once they have failed. */
@@ -51,6 +58,7 @@ export function createAuth(options: AuthOptions) {
         session: schema.authSessions,
         account: schema.authAccounts,
         verification: schema.authVerifications,
+        twoFactor: schema.twoFactors,
       },
     }),
     emailAndPassword: {
@@ -85,6 +93,19 @@ export function createAuth(options: AuthOptions) {
           });
         },
       }),
+      // A second factor: a code app, with ten recovery codes kept only as keyed hashes. A
+      // browser can be trusted for 30 days; ten wrong codes in a row lock it for 15 minutes.
+      twoFactor({
+        issuer: "Hekate",
+        totpOptions: { digits: 6, period: 30 },
+        backupCodeOptions: {
+          amount: 10,
+          customBackupCodesGenerate: () => newRecoveryCodes(),
+          storeBackupCodes: hashedRecoveryCodes(options.secret),
+        },
+        trustDeviceMaxAge: 30 * 24 * 60 * 60,
+        accountLockout: { enabled: true, maxFailedAttempts: 10, durationSeconds: 15 * 60 },
+      }),
       haveIBeenPwned({
         enabled: options.leakCheck ?? !options.testing,
         customPasswordCompromisedMessage:
@@ -93,6 +114,14 @@ export function createAuth(options: AuthOptions) {
     ],
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
+        // A recovery code is compared by its hash: typed in any case, with or without the dash.
+        if (ctx.path === "/two-factor/verify-backup-code" && typeof ctx.body?.code === "string") {
+          return {
+            context: {
+              body: { ...ctx.body, code: hashRecoveryCode(options.secret, ctx.body.code) },
+            },
+          };
+        }
         // Members never sign in by an emailed code.
         if (
           ctx.path === "/sign-in/email-otp" ||
@@ -115,6 +144,20 @@ export function createAuth(options: AuthOptions) {
         }
       }),
       after: createAuthMiddleware(async (ctx) => {
+        if (
+          ctx.path === "/two-factor/generate-backup-codes" &&
+          options.audit &&
+          !isAPIError(ctx.context.returned)
+        ) {
+          const session = await getSessionFromCtx(ctx);
+          if (session)
+            await logForAccount(
+              options.db,
+              options.audit,
+              session.user.id,
+              "account.recovery_codes",
+            );
+        }
         const email = typeof ctx.body?.email === "string" ? ctx.body.email : null;
         if (!email) return;
         const returned = ctx.context.returned;
@@ -159,6 +202,31 @@ export function createAuth(options: AuthOptions) {
           user: { changeEmail: { enabled: true } },
         }
       : {}),
+    // Adding a second factor (its first code verified) and removing it are logged.
+    databaseHooks: {
+      user: {
+        update: {
+          after: async (user, ctx) => {
+            if (!options.audit || !ctx) return;
+            const enabled = (user as { twoFactorEnabled?: boolean }).twoFactorEnabled;
+            if (ctx.path === "/two-factor/verify-totp" && enabled)
+              await logForAccount(
+                options.db,
+                options.audit,
+                user.id,
+                "account.second_factor_added",
+              );
+            if (ctx.path === "/two-factor/disable" && enabled === false)
+              await logForAccount(
+                options.db,
+                options.audit,
+                user.id,
+                "account.second_factor_removed",
+              );
+          },
+        },
+      },
+    },
     session: {
       expiresIn: 60 * 60 * 24 * 14,
       updateAge: 60 * 60 * 24,
@@ -180,6 +248,9 @@ export function createAuth(options: AuthOptions) {
         // A reset code is a key to the account: few to ask for, fewer to try.
         "/email-otp/request-password-reset": { window: 15 * 60, max: 5 },
         "/email-otp/reset-password": { window: 15 * 60, max: 10 },
+        // The plugin locks an account after ten wrong codes; this slows a run at many.
+        "/two-factor/verify-totp": { window: 60, max: 10 },
+        "/two-factor/verify-backup-code": { window: 60, max: 10 },
       },
     },
   });

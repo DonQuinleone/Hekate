@@ -10,6 +10,8 @@
   --hk-ink-3: #80808b;
   --hk-signal: #f0762e;
   --hk-paper: #e9e8e3;
+  /* What is printed on paper, in every theme: a QR code's modules. */
+  --hk-paper-ink: #111113;
   --hk-ok: #58b98a;
   /** Which way native controls (scroll bars, form fields) are drawn. */
   --hk-scheme: dark;

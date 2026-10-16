@@ -119,6 +119,7 @@ const app = createApp({
   publicUrl: config.PUBLIC_URL,
   trustProxy: config.TRUST_PROXY,
   passwordLeakCheck: config.PASSWORD_LEAK_CHECK,
+  requireSecondFactor: config.REQUIRE_SECOND_FACTOR,
 });
 if (config.WEB_DIST) serveWeb(app, config.WEB_DIST);
 

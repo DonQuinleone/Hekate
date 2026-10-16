@@ -22,7 +22,7 @@ import {
   verifyPlayback,
 } from "../playback.ts";
 import type { Storage } from "../storage.ts";
-import { membershipOf } from "../tenancy.ts";
+import { assertSecondFactor, membershipOf, type SecondFactorRule } from "../tenancy.ts";
 
 const {
   filePages,
@@ -48,6 +48,8 @@ export interface PlaybackDeps {
   audit: Audit;
   secret: Buffer;
   trustProxy: boolean;
+  /** What the instance asks of every account's sign-in. */
+  secondFactor: SecondFactorRule;
 }
 
 /** Nothing about playback may be cached or shared: every response is per viewer, per session. */
@@ -465,6 +467,13 @@ export const playRoutes = (deps: PlaybackDeps) => {
       if (!membership) {
         throw new HTTPException(403, { message: "This playback link is not valid for you" });
       }
+      // A workspace that has come to ask for a second factor ends playback at once too.
+      await assertSecondFactor(
+        deps.db,
+        who.userId,
+        { organisationId: claims.organisationId, role: membership.role },
+        deps.secondFactor,
+      );
       actor = {
         kind: "member",
         userId: who.userId,

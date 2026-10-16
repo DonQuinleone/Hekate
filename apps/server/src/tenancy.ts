@@ -1,9 +1,10 @@
 import { type Database, schema } from "@hekate/db";
-import { atLeast } from "@hekate/shared";
+import { atLeast, secondFactorRequired, workspaceSettingsOf } from "@hekate/shared";
 import { and, asc, eq } from "drizzle-orm";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import type { Auth } from "./auth.ts";
+import { CodedException } from "./errors.ts";
 
 export type { OrganisationRole } from "@hekate/shared";
 
@@ -57,10 +58,52 @@ export async function organisationFor(db: Database, userId: string, sessionId: s
   return membership;
 }
 
-/** Resolves the organisation for the request (`organisationFor`). */
-export const requireOrganisation = (db: Database) =>
+export interface SecondFactorRule {
+  /** The instance asks every account for a second factor. */
+  instance: boolean;
+}
+
+/**
+ * Refuses a member without a second factor when the workspace, or the instance, asks for one.
+ * The web app sends them to add one; nothing else works until they have.
+ */
+export async function assertSecondFactor(
+  db: Database,
+  userId: string,
+  membership: { organisationId: string; role: OrganisationRole },
+  rule: SecondFactorRule,
+) {
+  const [row] = await db
+    .select({
+      enabled: schema.users.twoFactorEnabled,
+      settings: schema.organisations.settings,
+    })
+    .from(schema.users)
+    .innerJoin(schema.organisations, eq(schema.organisations.id, membership.organisationId))
+    .where(eq(schema.users.id, userId));
+  if (!row || row.enabled) return;
+  const policy = workspaceSettingsOf(row.settings).secondFactor;
+  if (secondFactorRequired({ instance: rule.instance, policy, role: membership.role })) {
+    throw new CodedException(
+      403,
+      "second_factor_required",
+      "This workspace asks for a second factor. Add one to continue.",
+    );
+  }
+}
+
+/**
+ * Resolves the organisation for the request (`organisationFor`), and holds back a member who
+ * still owes a second factor, except at the paths in `owing` (where they learn that they do).
+ */
+export const requireOrganisation = (
+  db: Database,
+  rule: SecondFactorRule,
+  owing: ReadonlySet<string> = new Set(),
+) =>
   createMiddleware<{ Variables: TenantVariables }>(async (c, next) => {
     const membership = await organisationFor(db, c.var.userId, c.var.sessionId);
+    if (!owing.has(c.req.path)) await assertSecondFactor(db, c.var.userId, membership, rule);
     c.set("organisationId", membership.organisationId);
     c.set("organisationRole", membership.role);
     await next();
