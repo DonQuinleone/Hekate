@@ -1,3 +1,4 @@
+import type { SearchResult } from "@hekate/shared";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { type KeyboardEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
@@ -6,7 +7,7 @@ import { Kbd } from "~/components/kbd";
 import { authClient } from "~/lib/auth";
 import { cn } from "~/lib/cn";
 import { type Hit, type HitGroup, matches, readRecent, rememberRecent } from "~/lib/palette";
-import { meQuery, projectsQuery, type SearchResult, searchQuery } from "~/lib/queries";
+import { meQuery, projectsQuery, searchQuery, useProjectCan } from "~/lib/queries";
 
 const kindGroup: Record<SearchResult["kind"], { group: HitGroup; icon: IconName }> = {
   projects: { group: "Projects", icon: "folder" },
@@ -49,6 +50,8 @@ export function CommandPalette({
   const role = me?.organisations.find((o) => o.id === me.activeOrganisationId)?.role ?? "member";
   const projectId = pathname.match(/^\/projects\/([0-9a-f-]{36})/)?.[1];
   const project = projects.find((p) => p.id === projectId);
+  const can = useProjectCan(project?.id);
+  const scope = me ? `${me.user.id}:${me.activeOrganisationId}` : "";
 
   const onlyActions = query.startsWith(">");
   const q = (onlyActions ? query.slice(1) : query).trim();
@@ -118,32 +121,33 @@ export function CommandPalette({
   const actions = useMemo<Hit[]>(() => {
     const out: Hit[] = [];
     if (project) {
-      out.push(
-        {
+      // Only what this member's role in the project allows.
+      if (can("upload"))
+        out.push({
           id: "act-files",
           group: "Actions",
           label: "Upload files",
           hint: project.name,
           icon: "upload",
           link: `/projects/${project.id}/files`,
-        },
-        {
+        });
+      if (can("request_reviews"))
+        out.push({
           id: "act-reviews",
           group: "Actions",
           label: "Request a review",
           hint: project.name,
           icon: "review",
           link: `/projects/${project.id}/reviews`,
-        },
-        {
-          id: "act-people",
-          group: "Actions",
-          label: "People in this project",
-          hint: project.name,
-          icon: "users",
-          link: `/projects/${project.id}/people`,
-        },
-      );
+        });
+      out.push({
+        id: "act-people",
+        group: "Actions",
+        label: "People in this project",
+        hint: project.name,
+        icon: "users",
+        link: `/projects/${project.id}/people`,
+      });
     } else {
       out.push({
         id: "act-new-project",
@@ -182,7 +186,7 @@ export function CommandPalette({
       },
     );
     return out;
-  }, [project, onToggleSidebar, client, navigate]);
+  }, [project, can, onToggleSidebar, client, navigate]);
 
   const [recent, setRecent] = useState<Hit[]>([]);
   const hits = useMemo(() => {
@@ -205,9 +209,9 @@ export function CommandPalette({
     if (!open) return;
     setQuery("");
     setIndex(0);
-    setRecent(readRecent());
+    setRecent(scope ? readRecent(scope) : []);
     requestAnimationFrame(() => input.current?.focus());
-  }, [open]);
+  }, [open, scope]);
   // The highlight returns to the top whenever the list changes.
   // biome-ignore lint/correctness/useExhaustiveDependencies: hits is the trigger, not a value used.
   useEffect(() => setIndex(0), [hits]);
@@ -221,7 +225,7 @@ export function CommandPalette({
 
   const go = (hit: Hit) => {
     onClose();
-    rememberRecent(hit);
+    if (scope) rememberRecent(hit, scope);
     if (hit.run) hit.run();
     else if (hit.link) void navigate({ href: hit.link });
   };

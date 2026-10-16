@@ -42,25 +42,28 @@ describe("recent", () => {
 
   it("keeps the latest places once each, and never actions or pages", () => {
     const store = memory();
-    rememberRecent(hit("a"), store);
-    rememberRecent(hit("b"), store);
-    rememberRecent(hit("a"), store);
-    rememberRecent(hit("Inbox", "Jump to"), store);
-    expect(readRecent(store).map((h) => [h.label, h.group])).toEqual([
+    rememberRecent(hit("a"), "mira:hall", store);
+    rememberRecent(hit("b"), "mira:hall", store);
+    rememberRecent(hit("a"), "mira:hall", store);
+    rememberRecent(hit("Inbox", "Jump to"), "mira:hall", store);
+    expect(readRecent("mira:hall", store).map((h) => [h.label, h.group])).toEqual([
       ["a", "Recent"],
       ["b", "Recent"],
     ]);
+    // Another workspace, or another person on the same browser, starts empty.
+    expect(readRecent("mira:elsewhere", store)).toEqual([]);
+    expect(readRecent("tomas:hall", store)).toEqual([]);
   });
 
   it("survives storage that is broken or refuses", () => {
-    expect(readRecent({ getItem: () => "{not json" })).toEqual([]);
+    expect(readRecent("s", { getItem: () => "{not json" })).toEqual([]);
     expect(
-      readRecent({
+      readRecent("s", {
         getItem: () => JSON.stringify([{ id: "x", label: "x", link: "https://elsewhere" }]),
       }),
     ).toEqual([]);
     expect(() =>
-      rememberRecent(hit("a"), {
+      rememberRecent(hit("a"), "s", {
         getItem: () => null,
         setItem: () => {
           throw new Error("quota");

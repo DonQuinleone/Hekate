@@ -1,4 +1,5 @@
 import { type Database, inOrg, schema } from "@hekate/db";
+import type { SearchResponse, SearchResult } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, type Column, desc, eq, ilike, isNull, type SQL, sql } from "drizzle-orm";
 import { Hono } from "hono";
@@ -18,18 +19,6 @@ const searchQuery = zValidator(
   }),
 );
 
-export type SearchKind = "projects" | "tracks" | "files" | "reviews" | "people" | "comments";
-
-export interface SearchResult {
-  kind: SearchKind;
-  id: string;
-  label: string;
-  hint: string | null;
-  /** Where it opens in the app, as a path. */
-  link: string;
-  projectId: string | null;
-}
-
 /** `%` and `_` stand for themselves in a name search. */
 const literal = (text: string) => text.replace(/[\\%_]/g, (c) => `\\${c}`);
 
@@ -43,7 +32,7 @@ export const searchRoutes = (db: Database) =>
     const { q, limit } = c.req.valid("query");
     const organisationId = c.var.organisationId;
     const query = prefixQuery(q);
-    if (!query) return c.json({ results: [] as SearchResult[] });
+    if (!query) return c.json({ results: [] } satisfies SearchResponse);
     const tsq = sql`to_tsquery('simple', ${query})`;
     const seen = visibleProjects(actorOf(c.var));
     const live = (column: Column) =>
@@ -190,5 +179,5 @@ export const searchRoutes = (db: Database) =>
         }),
       ),
     ];
-    return c.json({ results });
+    return c.json({ results } satisfies SearchResponse);
   });

@@ -179,7 +179,15 @@ const projects = createRoute({
     search.new === 1 || search.new === "1" ? { new: 1 } : {},
   component: function ProjectsRoute() {
     const search = projects.useSearch();
-    return <ProjectsPage creatingFirst={search.new === 1} />;
+    const navigate = projects.useNavigate();
+    return (
+      <ProjectsPage
+        creatingFirst={search.new === 1}
+        onCreatingDone={() => {
+          if (search.new === 1) void navigate({ search: {}, replace: true });
+        }}
+      />
+    );
   },
 });
 const folderSearch = (search: Record<string, unknown>): { folder?: string } =>

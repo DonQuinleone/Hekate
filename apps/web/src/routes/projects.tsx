@@ -1,7 +1,7 @@
 import { type ProjectProfile, profiles } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { Mark } from "~/components/brand";
 import { Icon, type IconName } from "~/components/icons";
 import { PageHeader } from "~/components/page-header";
@@ -135,9 +135,25 @@ function Empty({ onCreate }: { onCreate: () => void }) {
   );
 }
 
-export function ProjectsPage({ creatingFirst = false }: { creatingFirst?: boolean }) {
+export function ProjectsPage({
+  creatingFirst = false,
+  onCreatingDone,
+}: {
+  /** Open with the form for a new project, as `?new=1` asks. */
+  creatingFirst?: boolean;
+  /** Called when that form closes, to take `?new=1` out of the address. */
+  onCreatingDone?: () => void;
+}) {
   const { data, isPending, error } = useQuery(projectsQuery);
-  const [creating, setCreating] = useState(creatingFirst);
+  const [creating, setCreatingState] = useState(creatingFirst);
+  // Asked again (the palette, while this page is open): open the form again.
+  useEffect(() => {
+    if (creatingFirst) setCreatingState(true);
+  }, [creatingFirst]);
+  const setCreating = (open: boolean) => {
+    setCreatingState(open);
+    if (!open) onCreatingDone?.();
+  };
   return (
     <>
       <PageHeader

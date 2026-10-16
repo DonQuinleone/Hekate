@@ -50,16 +50,18 @@ export const matches = (query: string, hits: Hit[], limit = 8) =>
     .slice(0, limit)
     .map((h) => h.hit);
 
-const RECENT_KEY = "hekate.palette.recent";
+/** Recents are kept per person and workspace, so nothing from one reaches another. */
+const recentKey = (scope: string) => `hekate.palette.recent.${scope}`;
 const RECENT_MAX = 5;
 type Stored = Pick<Hit, "id" | "label" | "hint" | "icon" | "link">;
 
 /** What was opened from the palette lately, newest first; storage may be missing or refuse. */
 export function readRecent(
+  scope: string,
   storage: Pick<Storage, "getItem"> | undefined = globalThis.localStorage,
 ): Hit[] {
   try {
-    const parsed: unknown = JSON.parse(storage?.getItem(RECENT_KEY) ?? "[]");
+    const parsed: unknown = JSON.parse(storage?.getItem(recentKey(scope)) ?? "[]");
     if (!Array.isArray(parsed)) return [];
     return parsed
       .filter(
@@ -81,16 +83,17 @@ export function readRecent(
 /** Remember a place opened from the palette, at the top, once. */
 export function rememberRecent(
   hit: Hit,
+  scope: string,
   storage: Pick<Storage, "getItem" | "setItem"> | undefined = globalThis.localStorage,
 ) {
   if (!hit.link || hit.group === "Jump to" || hit.group === "Actions") return;
   try {
-    const kept = readRecent(storage).filter((h) => h.link !== hit.link);
+    const kept = readRecent(scope, storage).filter((h) => h.link !== hit.link);
     const next: Stored[] = [
       { id: hit.id, label: hit.label, hint: hit.hint ?? null, icon: hit.icon, link: hit.link },
       ...kept.map(({ id, label, hint, icon, link }) => ({ id, label, hint, icon, link })),
     ].slice(0, RECENT_MAX);
-    storage?.setItem(RECENT_KEY, JSON.stringify(next));
+    storage?.setItem(recentKey(scope), JSON.stringify(next));
   } catch {
     // A browser that refuses storage simply has no recents.
   }
