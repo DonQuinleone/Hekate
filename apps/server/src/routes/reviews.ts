@@ -10,12 +10,16 @@ import {
   type ReviewDecision,
   type ReviewerFacts,
   type ReviewerInput,
+  type ReviewerPermissions,
+  type ReviewerPermissionsChange,
   type ReviewKind,
+  type ReviewStepInput,
   remindInput,
   reviewerDefaults,
   reviewerPermissionsChange,
   reviewerState,
   reviewOutcome,
+  reviewTitleFor,
   submitFeedbackInput,
   updateReviewInput,
   withinWindow,
@@ -184,7 +188,7 @@ function memberOnly(actor: Actor): MemberActor {
 async function settle(tx: Tx, review: typeof reviews.$inferSelect) {
   if (review.status !== "open") return review;
   const { facts } = await reviewersOf(tx, review.organisationId, review.id);
-  const outcome = reviewOutcome(review.kind, review.rule, facts);
+  const outcome = reviewOutcome(review.kind, review.rule, facts, review.share);
   if (!outcome) return review;
   const [done] = await tx
     .update(reviews)
@@ -774,7 +778,7 @@ async function expandReviewers(
   tx: Tx,
   actor: MemberActor,
   review: { projectId: string; kind: ReviewKind },
-  entries: ReviewerInput[],
+  entries: ReviewStepInput[],
   firstStep: number,
 ) {
   const rows: (Person & { position: number; groupId: string | null })[] = [];
@@ -785,8 +789,11 @@ async function expandReviewers(
     seen.add(key);
     rows.push({ ...person, position, groupId });
   };
-  for (const [i, entry] of entries.entries()) {
-    const position = firstStep + i;
+  // Each step is one position in the order: everyone in it, groups included, is asked together.
+  const flat = entries.flatMap((step, i) =>
+    (Array.isArray(step) ? step : [step]).map((entry) => ({ entry, position: firstStep + i })),
+  );
+  for (const { entry, position } of flat) {
     if (typeof entry === "string" || !("groupId" in entry)) {
       add(await resolvePerson(tx, actor, review, entry), position, null);
       continue;
@@ -825,6 +832,46 @@ async function expandReviewers(
     }
   }
   return rows;
+}
+
+/**
+ * Each person's permissions in a new review: what the request grants everyone, changed again
+ * by any override given for them (by `reviewerKey`: a member by user id, a guest by email).
+ * An approval reviewer left unable to decide only follows it.
+ */
+async function overridden(
+  tx: Tx,
+  organisationId: string,
+  people: Person[],
+  granted: ReviewerPermissions,
+  overrides: Record<string, ReviewerPermissionsChange>,
+) {
+  if (Object.keys(overrides).length === 0) return people.map(() => granted);
+  const guestIds = people.flatMap((p) => (p.guestId ? [p.guestId] : []));
+  const emails = new Map(
+    guestIds.length
+      ? (
+          await tx
+            .select({ id: guests.id, email: guests.email })
+            .from(guests)
+            .where(inOrg(guests, organisationId, inArray(guests.id, guestIds)))
+        ).map((g) => [g.id, g.email])
+      : [],
+  );
+  return people.map((person) => {
+    const key = person.userId
+      ? `member:${person.userId}`
+      : `guest:${(person.guestId && emails.get(person.guestId)) || ""}`;
+    const change = overrides[key];
+    if (!change) return granted;
+    const result = applyPermissions(granted, change);
+    if (!result.success) {
+      throw new HTTPException(422, {
+        message: result.error.issues[0]?.message ?? "Those permissions do not fit together",
+      });
+    }
+    return result.data;
+  });
 }
 
 /** `/api/projects/:id/reviews`: a project's reviews, and requesting one. Members only. */
@@ -877,17 +924,58 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
         }),
       });
     })
+    // The guests this project has asked before, in its reviews or its groups: whom a new
+    // request can ask again without typing their address. For those who may request reviews.
+    .get("/:id/guests", idParam, async (c) => {
+      const organisationId = c.var.organisationId;
+      const { projectId } = await can(
+        deps.db,
+        actorOf(c.var),
+        "request_reviews",
+        c.req.valid("param").id,
+      );
+      const fields = { id: guests.id, name: guests.name, email: guests.email, label: guests.label };
+      const asked = await deps.db
+        .selectDistinct(fields)
+        .from(reviewReviewers)
+        .innerJoin(reviews, eq(reviews.id, reviewReviewers.reviewId))
+        .innerJoin(guests, eq(guests.id, reviewReviewers.guestId))
+        .where(
+          and(
+            inOrg(reviewReviewers, organisationId),
+            inOrg(reviews, organisationId, eq(reviews.projectId, projectId)),
+            inOrg(guests, organisationId),
+          ),
+        );
+      const grouped = await deps.db
+        .selectDistinct(fields)
+        .from(groupMembers)
+        .innerJoin(groups, eq(groups.id, groupMembers.groupId))
+        .innerJoin(guests, eq(guests.id, groupMembers.guestId))
+        .where(
+          and(
+            inOrg(groupMembers, organisationId),
+            inOrg(groups, organisationId, eq(groups.projectId, projectId)),
+            inOrg(guests, organisationId),
+          ),
+        );
+      const byId = new Map([...asked, ...grouped].map((g) => [g.id, g]));
+      return c.json({
+        guests: [...byId.values()].sort((a, b) => a.name.localeCompare(b.name)),
+      });
+    })
     .post("/:id/reviews", idParam, zValidator("json", createReviewInput), async (c) => {
       const organisationId = c.var.organisationId;
       const actor = actorOf(c.var);
       const { projectId } = await can(deps.db, actor, "request_reviews", c.req.valid("param").id);
       const input = c.req.valid("json");
 
-      // Every item must be in this project.
+      // Every item must be in this project. Their names title a request that has none.
+      const names: string[] = [];
       for (const item of input.items) {
         if ("fileId" in item) {
           const [file] = await deps.db
-            .select({ id: files.id })
+            .select({ id: files.id, name: files.name })
             .from(files)
             .where(
               inOrg(
@@ -898,9 +986,10 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
               ),
             );
           if (!file) throw new HTTPException(422, { message: "Items must come from this project" });
+          names.push(file.name);
         } else {
           const [track] = await deps.db
-            .select({ id: tracks.id })
+            .select({ id: tracks.id, name: tracks.name })
             .from(tracks)
             .where(
               inOrg(
@@ -928,6 +1017,7 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
           if (!track || !version) {
             throw new HTTPException(422, { message: "Items must come from this project" });
           }
+          names.push(track.name);
         }
       }
 
@@ -966,11 +1056,13 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
             organisationId,
             projectId,
             kind: input.kind,
-            title: input.title,
+            title: input.title ?? reviewTitleFor(names),
             message: input.message || null,
             dueAt: input.dueAt ? new Date(input.dueAt) : null,
+            remind: input.remind,
             order: input.order,
             rule: input.rule,
+            share: input.share,
             grant: granted.data,
             createdBy: c.var.userId,
           })
@@ -993,15 +1085,31 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
           input.reviewers,
           0,
         );
+        const permissions = await overridden(
+          tx,
+          organisationId,
+          people,
+          granted.data,
+          input.overrides ?? {},
+        );
+        // Overrides may take the decision from everyone; such an approval would never end.
+        if (
+          input.kind === "approval" &&
+          !people.some((_, i) => (permissions[i] ?? granted.data).decide)
+        ) {
+          throw new HTTPException(422, {
+            message: "An approval needs at least one reviewer who may decide.",
+          });
+        }
         await tx.insert(reviewReviewers).values(
-          people.map((person) => ({
+          people.map((person, i) => ({
             organisationId,
             reviewId: created.id,
             userId: person.userId ?? null,
             guestId: person.guestId ?? null,
             groupId: person.groupId,
             position: person.position,
-            permissions: granted.data,
+            permissions: permissions[i] ?? granted.data,
           })),
         );
         await deps.audit.record(
@@ -1018,13 +1126,15 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
         );
         return created;
       });
-      // Ask whoever can act now: everyone, or the first in a sequence.
+      // Ask whoever can act now: everyone, or the first in a sequence. Those who only follow
+      // an approval hold nothing up, so they hear of it now, guests with the link they need.
       const { rows, facts } = await reviewersOf(deps.db, organisationId, review.id);
       const now = activeReviewers(review.order, facts);
+      const following = new Set(facts.filter((f) => f.observer).map((f) => f.id));
       const requester = { userId: c.var.userId, name: await nameOf(deps.db, c.var.userId) };
       await notify(
         deps,
-        rows.filter((r) => now.has(r.id)),
+        rows.filter((r) => now.has(r.id) || following.has(r.id)),
         review,
         false,
         requester,

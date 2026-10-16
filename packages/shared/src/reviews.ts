@@ -13,8 +13,11 @@ export type ReviewKind = (typeof reviewKinds)[number];
 export const reviewOrders = ["parallel", "sequence"] as const;
 export type ReviewOrder = (typeof reviewOrders)[number];
 
-/** Approvals only: everyone must approve, or any one approval is enough. */
-export const approvalRules = ["all", "any"] as const;
+/**
+ * Approvals only: everyone must approve, any one approval is enough, or a share of the
+ * reviewers asked for a decision (a percentage, rounded up to whole people).
+ */
+export const approvalRules = ["all", "any", "share"] as const;
 export type ApprovalRule = (typeof approvalRules)[number];
 
 export const reviewDecisions = ["approved", "changes_requested"] as const;
@@ -69,7 +72,8 @@ export type PersonInput = z.infer<typeof personInput>;
 /** A reviewer: a member's user id, a guest, or one of the project's groups. */
 export const reviewerInput = z.union([personInput, z.object({ groupId: z.uuid() })]);
 export type ReviewerInput = z.infer<typeof reviewerInput>;
-const reviewerKey = (r: ReviewerInput) =>
+/** One reviewer's identity in a request: the key per-reviewer overrides are given by. */
+export const reviewerKey = (r: ReviewerInput) =>
   typeof r === "string"
     ? `member:${r}`
     : "groupId" in r
@@ -88,29 +92,55 @@ export const groupInput = z
   });
 export type GroupInput = z.input<typeof groupInput>;
 
+/** One step of a request: a reviewer, or several asked together. */
+export const reviewStepInput = z.union([reviewerInput, z.array(reviewerInput).min(1).max(50)]);
+export type ReviewStepInput = z.infer<typeof reviewStepInput>;
+const stepPeople = (step: ReviewStepInput) => (Array.isArray(step) ? step : [step]);
+
 export const createReviewInput = z
   .object({
     kind: z.enum(reviewKinds),
-    title: z.string().trim().min(1).max(160),
+    /** Left out, the review is named after what it asks about. */
+    title: z.string().trim().min(1).max(160).optional(),
     message: z.string().trim().max(4000).optional(),
     dueAt: z.iso.datetime({ offset: true }).nullish(),
+    /** Remind whoever it still waits on the day before it is due. */
+    remind: z.boolean().default(true),
     order: z.enum(reviewOrders).default("parallel"),
     rule: z.enum(approvalRules).optional(),
+    /** With the share rule: the percentage of deciding reviewers whose approval is enough. */
+    share: z.int().min(1).max(100).optional(),
     items: z.array(reviewItemInput).min(1, "A review needs something to review").max(50),
     /**
-     * In order (the order matters in a sequence): members by user id, guests by name and
-     * email (an existing guest of the organisation is reused), and groups, whose members
-     * are asked together as one step.
+     * The steps, in order (the order matters in a sequence): each a reviewer or several asked
+     * together. A reviewer is a member by user id, a guest by name and email (an existing
+     * guest of the organisation is reused), or a group, whose members are asked together.
      */
-    reviewers: z.array(reviewerInput).min(1, "A review needs a reviewer").max(50),
+    reviewers: z.array(reviewStepInput).min(1, "A review needs a reviewer").max(50),
     /** What every reviewer may do, changed from the defaults; each can be adjusted later. */
     permissions: reviewerPermissionsChange.optional(),
+    /** What one reviewer may do, changed again, by their `reviewerKey`. */
+    overrides: z.record(z.string().max(320), reviewerPermissionsChange).optional(),
   })
-  .refine((r) => new Set(r.reviewers.map(reviewerKey)).size === r.reviewers.length, {
-    message: "Each reviewer can be asked once",
+  .refine((r) => r.reviewers.flatMap(stepPeople).length <= 50, {
+    message: "A review can ask at most 50 reviewers",
     path: ["reviewers"],
   })
-  .transform((r) => ({ ...r, rule: r.kind === "approval" ? (r.rule ?? "all") : null }));
+  .refine(
+    (r) => {
+      const keys = r.reviewers.flatMap(stepPeople).map(reviewerKey);
+      return new Set(keys).size === keys.length;
+    },
+    { message: "Each reviewer can be asked once", path: ["reviewers"] },
+  )
+  .refine((r) => r.kind !== "approval" || r.rule !== "share" || r.share !== undefined, {
+    message: "Say what share of the reviewers must approve",
+    path: ["share"],
+  })
+  .transform((r) => {
+    const rule = r.kind === "approval" ? (r.rule ?? "all") : null;
+    return { ...r, rule, share: rule === "share" ? (r.share ?? null) : null };
+  });
 export type CreateReviewInput = z.input<typeof createReviewInput>;
 
 export const decisionInput = z.object({
@@ -165,20 +195,43 @@ export function reviewerState(
  * - Approval, rule *any*: approved as soon as one reviewer's latest decision is *Approved*.
  * - Approval, rule *all*: approved once every reviewer's latest decision is *Approved*; once
  *   everyone has decided and any latest decision is *Changes requested*, changes requested.
+ * - Approval, rule *share*: approved once enough reviewers approve (the share of them,
+ *   rounded up); changes requested as soon as that can no longer happen.
  * - Feedback: submitted once everyone has submitted.
  */
 export function reviewOutcome(
   kind: ReviewKind,
   rule: ApprovalRule | null,
   everyone: ReviewerFacts[],
+  share: number | null = null,
 ): ReviewOutcome {
   const reviewers = everyone.filter((r) => !r.observer);
   if (reviewers.length === 0) return null;
   if (kind === "feedback") return reviewers.every((r) => r.submitted) ? "submitted" : null;
+  if (rule === "share") {
+    const needed = approvalsNeeded(reviewers.length, share ?? 100);
+    const approved = reviewers.filter((r) => r.decision === "approved").length;
+    const open = reviewers.filter((r) => r.decision === null).length;
+    if (approved >= needed) return "approved";
+    return approved + open < needed ? "changes_requested" : null;
+  }
   if (rule === "any" && reviewers.some((r) => r.decision === "approved")) return "approved";
   if (!reviewers.every((r) => r.decision !== null)) return null;
   if (rule === "any") return "changes_requested";
   return reviewers.every((r) => r.decision === "approved") ? "approved" : "changes_requested";
+}
+
+/** How many approvals a share of so many reviewers comes to: at least one, rounded up. */
+export function approvalsNeeded(reviewers: number, share: number): number {
+  return Math.max(1, Math.ceil((reviewers * share) / 100 - 1e-9));
+}
+
+/** The name a request without a title gets: what it asks about. */
+export function reviewTitleFor(names: string[]): string {
+  const [first] = names;
+  if (!first) return "Review";
+  const rest = names.length - 1;
+  return (rest === 0 ? first : `${first} and ${rest} more`).slice(0, 160);
 }
 
 /** Submitting feedback, with an optional word about the review as a whole. */

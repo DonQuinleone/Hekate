@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   activeReviewers,
+  approvalsNeeded,
   createReviewInput,
   gateCounts,
   gateState,
@@ -11,6 +12,7 @@ import {
   reviewerState,
   reviewOutcome,
   reviewSteps,
+  reviewTitleFor,
 } from "./reviews.ts";
 
 // Each reviewer its own step, in the order made, unless a test puts several on one.
@@ -115,6 +117,37 @@ describe("outcomes", () => {
     );
   });
 
+  it("needs a share of approvals under the share rule, and fails once it cannot be reached", () => {
+    const three = (a: Partial<ReviewerFacts>, b: Partial<ReviewerFacts>) => [
+      reviewer("a", a),
+      reviewer("b", b),
+      reviewer("c"),
+    ];
+    // Two thirds of three is two.
+    expect(reviewOutcome("approval", "share", three(approved, {}), 66)).toBeNull();
+    expect(reviewOutcome("approval", "share", three(approved, approved), 66)).toBe("approved");
+    expect(reviewOutcome("approval", "share", three(changes, changes), 66)).toBe(
+      "changes_requested",
+    );
+    // Those only following are not counted.
+    expect(
+      reviewOutcome(
+        "approval",
+        "share",
+        [reviewer("a", approved), reviewer("b", { observer: true })],
+        100,
+      ),
+    ).toBe("approved");
+  });
+
+  it("rounds a share up to whole people, and never to nobody", () => {
+    expect(approvalsNeeded(3, 66)).toBe(2);
+    expect(approvalsNeeded(3, 67)).toBe(3);
+    expect(approvalsNeeded(4, 50)).toBe(2);
+    expect(approvalsNeeded(10, 1)).toBe(1);
+    expect(approvalsNeeded(1, 100)).toBe(1);
+  });
+
   it("completes feedback once everyone has submitted", () => {
     const done = { submitted: true };
     expect(reviewOutcome("feedback", null, [reviewer("a", done), reviewer("b")])).toBeNull();
@@ -150,6 +183,41 @@ describe("review input", () => {
         reviewers: [guest, { ...guest, email: "conductor@example.test" }],
       }).success,
     ).toBe(false);
+  });
+  it("takes steps of several people, and refuses anyone in two steps", () => {
+    const parsed = createReviewInput.parse({
+      ...base,
+      kind: "approval",
+      order: "sequence",
+      reviewers: [["a", "b"], "c"],
+    });
+    expect(parsed.reviewers).toEqual([["a", "b"], "c"]);
+    expect(
+      createReviewInput.safeParse({ ...base, kind: "approval", reviewers: [["a", "b"], "a"] })
+        .success,
+    ).toBe(false);
+    expect(
+      createReviewInput.safeParse({ ...base, kind: "approval", reviewers: [[]] }).success,
+    ).toBe(false);
+  });
+  it("needs a share with the share rule, and keeps it only there", () => {
+    expect(createReviewInput.safeParse({ ...base, kind: "approval", rule: "share" }).success).toBe(
+      false,
+    );
+    expect(
+      createReviewInput.parse({ ...base, kind: "approval", rule: "share", share: 66 }).share,
+    ).toBe(66);
+    expect(createReviewInput.parse({ ...base, kind: "approval", share: 66 }).share).toBeNull();
+  });
+  it("leaves the title to what is reviewed, and reminds by default", () => {
+    const { title: _, ...untitled } = base;
+    const parsed = createReviewInput.parse({ ...untitled, kind: "feedback" });
+    expect(parsed.title).toBeUndefined();
+    expect(parsed.remind).toBe(true);
+    expect(reviewTitleFor(["Maple Leaf Rag"])).toBe("Maple Leaf Rag");
+    expect(reviewTitleFor(["Maple Leaf Rag", "The Entertainer", "Solace"])).toBe(
+      "Maple Leaf Rag and 2 more",
+    );
   });
   it("refuses an empty review and asking someone twice", () => {
     expect(createReviewInput.safeParse({ ...base, kind: "approval", items: [] }).success).toBe(

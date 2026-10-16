@@ -7,7 +7,7 @@ import { Kbd } from "~/components/kbd";
 import { Card, Page, SectionHead } from "~/components/page";
 import { Row, Section, SwitchRow } from "~/components/settings";
 import { Button } from "~/components/ui/button";
-import { Chip, Count } from "~/components/ui/chip";
+import { Chip, Count, ToggleChip } from "~/components/ui/chip";
 import { Checkbox, Choice, ChoiceCard, Radio } from "~/components/ui/choice";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
@@ -614,6 +614,16 @@ function Components() {
             mix
           </Chip>
           <Count>2</Count>
+        </Spec>
+        <Spec
+          name="Toggle chip"
+          rule="A quick pick beside a field, pressed or not: a due date in a week, the rule an approval settles by."
+        >
+          <ToggleChip pressed>everyone</ToggleChip>
+          <ToggleChip pressed={false}>any one</ToggleChip>
+          <ToggleChip pressed={false} disabled>
+            a share
+          </ToggleChip>
         </Spec>
         <Spec name="Eyebrow" rule="Heads a group; a count follows in small tabular figures.">
           <span className="flex items-center gap-2">

@@ -4904,6 +4904,111 @@ describe.runIf(url)("api", () => {
         expect(changed.decisions).toHaveLength(2);
       });
 
+      it("asks a step of several together, names itself, settles on a share, and keeps overrides", async () => {
+        const s = await studio();
+        const conductor = { name: "Mira Solberg", email: "conductor@example.test" };
+        type Detailed = Omit<ReviewBody, "reviewers"> & {
+          title: string;
+          rule: string;
+          share: number;
+          remind: boolean;
+          reviewers: (ReviewBody["reviewers"][number] & {
+            step: number;
+            permissions: { comments: string } | null;
+          })[];
+        };
+        const created = await request(s.owner, s.projectId, {
+          kind: "approval",
+          order: "sequence",
+          rule: "share",
+          share: 66,
+          remind: false,
+          items: [{ trackId: s.trackId }, { fileId: s.artwork }],
+          reviewers: [[s.ids.composer, s.ids.accompanist], conductor],
+          overrides: { "guest:conductor@example.test": { comments: "own" } },
+        });
+        expect(created.status).toBe(201);
+        const review = (await reviewOf(created)) as Detailed;
+        // No title given: it is named after what it asks about.
+        expect(review.title).toBe("Maple Leaf Rag and 1 more");
+        expect(review).toMatchObject({ rule: "share", share: 66, remind: false });
+        // The first step's two are asked together; the guest waits their turn.
+        expect(review.reviewers.map((r) => [r.step, r.state])).toEqual([
+          [0, "invited"],
+          [0, "invited"],
+          [1, "waiting"],
+        ]);
+        expect(review.reviewers.map((r) => r.permissions?.comments)).toEqual(["all", "all", "own"]);
+        // The guest can be asked again from the project's list, by those who may ask.
+        const known = await getAs(`/api/projects/${s.projectId}/guests`, s.owner);
+        expect(((await known.json()) as { guests: { email: string }[] }).guests).toEqual([
+          expect.objectContaining({ email: "conductor@example.test" }),
+        ]);
+        expect((await getAs(`/api/projects/${s.projectId}/guests`, s.composer)).status).toBe(403);
+        // Another workspace's project does not exist from here.
+        const [elsewhere] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-asked" })
+          .returning();
+        const [theirs] = await db
+          .insert(schema.projects)
+          .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+          .returning();
+        expect((await getAs(`/api/projects/${theirs?.id}/guests`, s.owner)).status).toBe(404);
+        // Two of three is the share: both in the first step approving settles it.
+        const path = `/api/reviews/${review.id}/decisions`;
+        const one = await reviewOf(
+          await app.request(path, json({ decision: "approved" }, s.composer)),
+        );
+        expect(one.status).toBe("open");
+        const two = await reviewOf(
+          await app.request(path, json({ decision: "approved" }, s.accompanist)),
+        );
+        expect(two).toMatchObject({ status: "completed", outcome: "approved" });
+        // A share must be given with the rule, and an override must fit together.
+        const refused = await request(s.owner, s.projectId, {
+          kind: "approval",
+          rule: "share",
+          items: [{ trackId: s.trackId }],
+          reviewers: [s.ids.composer],
+        });
+        expect(refused.status).toBe(400);
+        const backwards = await request(s.owner, s.projectId, {
+          kind: "feedback",
+          items: [{ trackId: s.trackId }],
+          reviewers: [s.ids.composer],
+          overrides: {
+            [`member:${s.ids.composer}`]: {
+              startsAt: "2030-01-02T00:00:00Z",
+              expiresAt: "2030-01-01T00:00:00Z",
+            },
+          },
+        });
+        expect(backwards.status).toBe(422);
+        // Overrides that leave an approval nobody who may decide are refused.
+        const undecided = await request(s.owner, s.projectId, {
+          kind: "approval",
+          items: [{ trackId: s.trackId }],
+          reviewers: [s.ids.composer],
+          overrides: { [`member:${s.ids.composer}`]: { decide: false } },
+        });
+        expect(undecided.status).toBe(422);
+        // A guest who only follows an approval still gets the link they need to follow it.
+        mailer.sent.length = 0;
+        const followed = await request(s.owner, s.projectId, {
+          kind: "approval",
+          items: [{ trackId: s.trackId }],
+          reviewers: [s.ids.composer, { name: "Tomas Varga", email: "follower@example.test" }],
+          overrides: { "guest:follower@example.test": { decide: false } },
+        });
+        expect(followed.status).toBe(201);
+        expect(((await reviewOf(followed)) as Detailed).reviewers.map((r) => r.state)).toEqual([
+          "invited",
+          "observing",
+        ]);
+        expect(mailer.sent.some((m) => m.to === "follower@example.test")).toBe(true);
+      });
+
       it("completes feedback when everyone has submitted", async () => {
         const s = await studio();
         const review = await reviewOf(
@@ -5282,6 +5387,17 @@ describe.runIf(url)("api", () => {
           ]);
           const also = await ask("Sleeve notes", hours(20), [s.ids.composer, guest]);
           await ask("Liner notes", hours(72), [s.ids.composer, guest]);
+          // One whose requester turned the reminder off is left alone.
+          await reviewOf(
+            await request(s.owner, s.projectId, {
+              kind: "feedback",
+              title: "Cover art",
+              items: [{ trackId: s.trackId }],
+              reviewers: [s.ids.composer],
+              dueAt: hours(10),
+              remind: false,
+            }),
+          );
           // One reviewer has already sent their feedback; they are not reminded.
           expect(
             (await app.request(`/api/reviews/${soon.id}/submit`, json({}, s.accompanist))).status,

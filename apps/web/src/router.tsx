@@ -39,6 +39,7 @@ import {
   ProjectReviewsPage,
 } from "~/routes/project";
 import { ProjectsPage } from "~/routes/projects";
+import { RequestReviewPage } from "~/routes/request-review";
 import { ReviewPage } from "~/routes/review";
 import { SearchPage } from "~/routes/search";
 import { TrackPage } from "~/routes/track";
@@ -360,6 +361,25 @@ const projectReviews = createRoute({
     return <ProjectReviewsPage projectId={projectId} />;
   },
 });
+// Asking for a review: inside the project, optionally of one kind and about one item.
+const requestReviewSearch = z.object({
+  kind: z.enum(["approval", "feedback"]).optional().catch(undefined),
+  item: z
+    .string()
+    .regex(/^(track|file):[0-9a-f-]{36}$/i)
+    .optional()
+    .catch(undefined),
+});
+const requestReview = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/reviews/new",
+  validateSearch: requestReviewSearch,
+  component: function RequestReviewRoute() {
+    const { projectId } = requestReview.useParams();
+    const { kind, item } = requestReview.useSearch();
+    return <RequestReviewPage projectId={projectId} kind={kind} item={item} />;
+  },
+});
 const projectPeople = createRoute({
   getParentRoute: () => app,
   path: "/projects/$projectId/people",
@@ -533,6 +553,7 @@ export const router = createRouter({
       project,
       projectFiles,
       projectReviews,
+      requestReview,
       projectPeople,
       track,
       file,

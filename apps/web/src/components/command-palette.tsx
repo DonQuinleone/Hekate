@@ -153,7 +153,7 @@ export function CommandPalette({
           label: "Request a review",
           hint: project.name,
           icon: "review",
-          link: `/projects/${project.id}/reviews`,
+          link: `/projects/${project.id}/reviews/new`,
         });
       out.push({
         id: "act-people",

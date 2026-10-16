@@ -287,6 +287,15 @@ setup("seed", async ({ page, browser }) => {
     },
   );
 
+  // A group of guests the request form can ask together (#130).
+  await api(page, "POST", `/api/projects/${music.id}/groups`, {
+    name: "Soloists",
+    members: [
+      { name: "Mira Solberg", email: "mira@example.test", label: "Violin" },
+      { name: "Ines Arlow", email: "ines@example.test", label: "Piano" },
+    ],
+  });
+
   // Alex hears when a guest opens a review they asked for.
   await api(page, "PUT", "/api/notifications/preferences", {
     mailMode: "instant",
