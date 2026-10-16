@@ -5,11 +5,15 @@ import {
   auditActions,
   auditActorTypes,
   carryStatuses,
+  type DeliveryProfileId,
   defaultReviewerPermissions,
   type LoudnessSummary,
   type MediaInfo,
   type ProjectPermission,
   type ProjectProfile,
+  type QaCheck,
+  type QaFinding,
+  type QaSeverity,
   type ReviewerPermissions,
   type ReviewOutcome,
   reviewDecisions,
@@ -203,6 +207,8 @@ export const projects = pgTable(
     profile: profileEnum("profile").$type<ProjectProfile>().notNull(),
     /** Whether threads carried to a new version show there until someone hides them. */
     carriedCommentsShown: boolean("carried_comments_shown").notNull().default(true),
+    /** What deliveries are checked against (#41); null suggests one from each file's channels. */
+    deliveryProfile: text("delivery_profile").$type<DeliveryProfileId>(),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     ...timestamps,
   },
@@ -561,6 +567,34 @@ export const alignments = pgTable(
     index("alignments_org_idx").on(t.organisationId),
     uniqueIndex("alignments_pair_idx").on(t.fromFileId, t.toFileId),
     index("alignments_to_idx").on(t.toFileId),
+  ],
+);
+
+/**
+ * What the audio QA's signal checks found in a file (#41): clipping, dropouts, clicks, DC
+ * offset, phase, with passes recorded too. Measured once, when the file is analysed; the
+ * delivery checks are read from the measurements against the project's profile instead.
+ */
+export const qaFindings = pgTable(
+  "qa_findings",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => files.id, { onDelete: "cascade" }),
+    check: text("check").$type<QaCheck>().notNull(),
+    severity: text("severity").$type<QaSeverity>().notNull(),
+    summary: text("summary").notNull(),
+    channel: integer("channel"),
+    start: doublePrecision("start"),
+    end: doublePrecision("end"),
+    details: jsonb("details").$type<QaFinding["details"]>().notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    index("qa_findings_org_idx").on(t.organisationId),
+    index("qa_findings_file_idx").on(t.fileId),
   ],
 );
 

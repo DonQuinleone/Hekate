@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { AnchorKind } from "./anchor.ts";
+import { deliveryProfileId } from "./qa.ts";
 
 /**
  * A project's profile decides which tools and anchors appear. Any kind of file can live in any
@@ -44,8 +45,14 @@ export const updateProjectInput = z
     name: z.string().trim().min(1).max(120).optional(),
     /** Whether threads carried to a new version show there until someone hides them. */
     carriedCommentsShown: z.boolean().optional(),
+    /** What recordings are checked against; null suggests one from each file's channels. */
+    deliveryProfile: deliveryProfileId.nullable().optional(),
   })
-  .refine((u) => u.name !== undefined || u.carriedCommentsShown !== undefined, {
-    message: "Nothing to change",
-  });
+  .refine(
+    (u) =>
+      u.name !== undefined ||
+      u.carriedCommentsShown !== undefined ||
+      u.deliveryProfile !== undefined,
+    { message: "Nothing to change" },
+  );
 export type UpdateProjectInput = z.infer<typeof updateProjectInput>;

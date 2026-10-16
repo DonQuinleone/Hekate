@@ -30,6 +30,7 @@ import {
   checksumHandler,
   proxyHandler,
   requeueAlignments,
+  requeueMissingFindings,
 } from "./media/workers.ts";
 import { playbackSecret, signPlayback } from "./playback.ts";
 import { createStorage } from "./storage.ts";
@@ -4323,6 +4324,69 @@ describe.runIf(url)("api", () => {
           expect(decodeLoudness(new Uint8Array(await series.arrayBuffer())).count).toBe(
             body.series?.count,
           );
+          // And it checked the recording (#41), against the profile its channels suggest.
+          type Report = {
+            profile: { id: string; chosen: boolean };
+            findings: { check: string; severity: string }[];
+          };
+          const qa = await get(`/api/files/${fileId}/qa`, owner);
+          expect(qa.status).toBe(200);
+          const report = (await qa.json()) as Report;
+          expect(report.profile).toMatchObject({ id: "streaming", chosen: false });
+          expect(report.findings.map((f) => f.check)).toEqual(
+            expect.arrayContaining([
+              "format",
+              "true-peak",
+              "clipping",
+              "dropouts",
+              "clicks",
+              "phase",
+            ]),
+          );
+          // The project's choice applies at once, with no new analysis.
+          const patched = await app.request(`/api/projects/${await projectOfFile(fileId)}`, {
+            ...json({ deliveryProfile: "broadcast" }, owner),
+            method: "PATCH",
+          });
+          expect(patched.status).toBe(200);
+          const again = (await (await get(`/api/files/${fileId}/qa`, owner)).json()) as Report;
+          expect(again.profile).toMatchObject({ id: "broadcast", chosen: true });
+          expect((await get(`/api/files/${other.fileId}/qa`)).status).toBe(401);
+
+          // A file analysed before the checks existed is queued again, and gains them alone.
+          const findingsOf = () =>
+            db
+              .select({ id: schema.qaFindings.id })
+              .from(schema.qaFindings)
+              .where(eq(schema.qaFindings.fileId, fileId));
+          const before = (await findingsOf()).length;
+          await db.delete(schema.qaFindings).where(eq(schema.qaFindings.fileId, fileId));
+          const queued: string[] = [];
+          expect(
+            await requeueMissingFindings(db, {
+              send: async (_name, data) => {
+                queued.push((data as { fileId: string }).fileId);
+                return null;
+              },
+            }),
+          ).toBe(1);
+          expect(queued).toEqual([fileId]);
+          const peakRows = await db
+            .select({ id: schema.peakLevels.id })
+            .from(schema.peakLevels)
+            .where(eq(schema.peakLevels.fileId, fileId));
+          await analysisHandler({ db, storage, keyring, jobs, workDir: join(storageRoot, "work") })(
+            { organisationId, fileId },
+            { id: "job", signal: new AbortController().signal, retryCount: 0 },
+          );
+          expect((await findingsOf()).length).toBe(before);
+          expect(
+            await db
+              .select({ id: schema.peakLevels.id })
+              .from(schema.peakLevels)
+              .where(eq(schema.peakLevels.fileId, fileId)),
+          ).toEqual(peakRows);
+
           // A file not yet analysed has no series, and another organisation's is not there.
           expect((await get(`/api/files/${other.fileId}/loudness/series`, owner)).status).toBe(404);
           const [elsewhere] = await db
