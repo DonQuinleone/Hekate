@@ -2,6 +2,7 @@ import { type Database, inOrg, schema } from "@hekate/db";
 import {
   activeReviewers,
   applyPermissions,
+  cancelReviewInput,
   createReviewInput,
   decisionInput,
   guestInput,
@@ -10,15 +11,18 @@ import {
   type ReviewerFacts,
   type ReviewerInput,
   type ReviewKind,
+  remindInput,
   reviewerDefaults,
   reviewerPermissionsChange,
   reviewerState,
   reviewOutcome,
+  submitFeedbackInput,
+  updateReviewInput,
   withinWindow,
   workspaceSettingsOf,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, asc, desc, eq, inArray, max, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNull, max, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -37,6 +41,7 @@ import { NotFound } from "../errors.ts";
 import { issueGuestLink, revokeGuest, type ViewerVariables } from "../guests.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { followersOf, notifyNow } from "../notifications.ts";
+import { admit } from "../rate-limit.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
 const {
@@ -44,6 +49,9 @@ const {
   reviewItems,
   reviewReviewers,
   reviewDecisionLog,
+  reviewItemOpens,
+  accessEvents,
+  comments,
   tracks,
   versions,
   variations,
@@ -91,6 +99,7 @@ export async function reviewersOf(db: Database | Tx, organisationId: string, rev
       viewedAt: reviewReviewers.viewedAt,
       startedAt: reviewReviewers.startedAt,
       submittedAt: reviewReviewers.submittedAt,
+      feedbackNote: reviewReviewers.feedbackNote,
       permissions: reviewReviewers.permissions,
       kind: reviews.kind,
     })
@@ -232,6 +241,8 @@ async function itemsOf(db: Database, organisationId: string, reviewId: string) {
           fileId: item.fileId,
           name: item.fileName,
           fileKind: item.fileKind,
+          /** Every file the item covers, for what reviewers opened and said about it. */
+          fileIds: item.fileId ? [item.fileId] : [],
         };
       }
       // A specific version, or the track's latest as it is now.
@@ -247,30 +258,133 @@ async function itemsOf(db: Database, organisationId: string, reviewId: string) {
         )
         .orderBy(desc(versions.number))
         .limit(1);
-      const [primary] = version
+      const treatments = version
         ? await db
-            .select({ fileId: variations.fileId })
+            .select({
+              fileId: variations.fileId,
+              name: variations.name,
+              primary: variations.isPrimary,
+            })
             .from(variations)
-            .where(
-              inOrg(
-                variations,
-                organisationId,
-                eq(variations.versionId, version.id),
-                eq(variations.isPrimary, true),
-              ),
-            )
+            .where(inOrg(variations, organisationId, eq(variations.versionId, version.id)))
+            .orderBy(desc(variations.isPrimary), asc(variations.createdAt))
         : [];
+      const primary = treatments.find((t) => t.primary) ?? treatments[0];
       return {
         id: item.id,
         kind: "track" as const,
         trackId: item.trackId,
         name: item.trackName,
         follows: item.versionId ? ("version" as const) : ("latest" as const),
-        version: version ?? null,
+        version: version ? { ...version, variations: treatments.map((t) => t.name) } : null,
         fileId: primary?.fileId ?? null,
+        fileIds: treatments.map((t) => t.fileId),
       };
     }),
   );
+}
+
+/** What the review page's activity lists from the access log; decisions come from their own log. */
+const activityActions = [
+  "review.create",
+  "review.submit",
+  "review.cancel",
+  "review.remind",
+  "review.due",
+  "review.reviewer_add",
+  "review.reviewer_remove",
+  "guest.link",
+  "guest.view",
+  "guest.revoke",
+] as const;
+
+/**
+ * A review's activity, newest first: who asked, reminded, changed the date, added or removed
+ * whom, who was sent a link and opened it, and every decision and submission with its note.
+ * Names only: the addresses and network details in the access log stay there.
+ */
+async function activityOf(
+  db: Database,
+  organisationId: string,
+  review: typeof reviews.$inferSelect,
+  rows: ReviewerRow[],
+  decisions: {
+    id: string;
+    reviewerId: string;
+    decision: ReviewDecision;
+    note: string | null;
+    createdAt: Date;
+  }[],
+) {
+  const events = await db
+    .select({
+      id: accessEvents.id,
+      action: accessEvents.action,
+      at: accessEvents.occurredAt,
+      label: accessEvents.actorLabel,
+      userId: accessEvents.userId,
+      guestId: accessEvents.guestId,
+      details: accessEvents.details,
+    })
+    .from(accessEvents)
+    .where(
+      inOrg(
+        accessEvents,
+        organisationId,
+        eq(accessEvents.reviewId, review.id),
+        inArray(accessEvents.action, [...activityActions]),
+      ),
+    )
+    .orderBy(desc(accessEvents.id))
+    .limit(200);
+  // The log keeps "Name <address>", and "(guest)" for guests: the page shows the name.
+  const nameOfLabel = (label: string) => {
+    let name = label.trim();
+    if (name.endsWith(" (guest)")) name = name.slice(0, -" (guest)".length).trimEnd();
+    const address = name.lastIndexOf(" <");
+    if (address >= 0 && name.endsWith(">")) name = name.slice(0, address);
+    return name.trim();
+  };
+  const reviewerOf = (e: { userId: string | null; guestId: string | null }) =>
+    rows.find((row) => (e.guestId ? row.guestId === e.guestId : row.userId === e.userId));
+  const detail = (e: (typeof events)[number], key: string) => {
+    const value = e.details?.[key];
+    return typeof value === "string" ? value : null;
+  };
+  const entries = events.map((e) => {
+    const guestId = detail(e, "guestId");
+    return {
+      id: e.id,
+      action: e.action,
+      name: nameOfLabel(e.label),
+      at: e.at,
+      decision: null as ReviewDecision | null,
+      /** Who it concerned: the reviewer added, removed, reminded or revoked. */
+      subject:
+        detail(e, "name") ??
+        (guestId ? (rows.find((row) => row.guestId === guestId)?.name ?? null) : null),
+      note:
+        e.action === "review.submit"
+          ? (reviewerOf(e)?.feedbackNote ?? null)
+          : e.action === "review.cancel"
+            ? review.cancelReason
+            : null,
+      dueAt: e.action === "review.due" ? detail(e, "dueAt") : null,
+    };
+  });
+  for (const d of decisions) {
+    entries.push({
+      id: d.id,
+      action: "review.decision",
+      name: rows.find((row) => row.id === d.reviewerId)?.name ?? "A former member",
+      at: d.createdAt,
+      decision: d.decision,
+      subject: null,
+      note: d.note,
+      dueAt: null,
+    });
+  }
+  return entries.sort((a, b) => b.at.getTime() - a.at.getTime() || b.id.localeCompare(a.id));
 }
 
 /** Everything the review page shows, from the point of view of whoever is asking. */
@@ -288,10 +402,77 @@ async function reviewView(db: Database, actor: Actor, reviewId: string) {
   const latest = new Map(decisions.map((d) => [d.reviewerId, d]));
   const me = mineOf(rows, actor);
   const member = actor.kind !== "guest";
+  const org = actor.organisationId;
+  const items = await itemsOf(db, org, reviewId);
+  const covered = [...new Set(items.flatMap((i) => i.fileIds))];
+  // Which items each reviewer has opened.
+  const opens =
+    rows.length > 0
+      ? await db
+          .select({ reviewerId: reviewItemOpens.reviewerId, itemId: reviewItemOpens.itemId })
+          .from(reviewItemOpens)
+          .where(
+            inOrg(
+              reviewItemOpens,
+              org,
+              inArray(
+                reviewItemOpens.reviewerId,
+                rows.map((row) => row.id),
+              ),
+            ),
+          )
+      : [];
+  // What each reviewer said on the files under review since it was asked, and where it
+  // starts; members only, as a guest's view of others' comments follows their review.
+  const said =
+    member && covered.length > 0
+      ? await db
+          .select({
+            userId: comments.authorId,
+            guestId: comments.guestAuthorId,
+            count: count(),
+            fileId: sql<string>`(array_agg(${comments.fileId} order by ${comments.createdAt}))[1]`,
+            commentId: sql<string>`(array_agg(${comments.id} order by ${comments.createdAt}))[1]`,
+          })
+          .from(comments)
+          .where(
+            inOrg(
+              comments,
+              org,
+              inArray(comments.fileId, covered),
+              isNull(comments.parentId),
+              gte(comments.createdAt, r.createdAt),
+            ),
+          )
+          .groupBy(comments.authorId, comments.guestAuthorId)
+      : [];
+  // Open threads on each item's file, for those who triage them.
+  const primaries = items.flatMap((i) => (i.fileId ? [i.fileId] : []));
+  const open =
+    member && primaries.length > 0
+      ? await db
+          .select({ fileId: comments.fileId, count: count() })
+          .from(comments)
+          .where(
+            inOrg(
+              comments,
+              org,
+              inArray(comments.fileId, primaries),
+              isNull(comments.parentId),
+              isNull(comments.resolvedAt),
+            ),
+          )
+          .groupBy(comments.fileId)
+      : [];
   return {
     ...r,
     createdByName: review.createdByName,
-    items: await itemsOf(db, actor.organisationId, reviewId),
+    cancelledByName: r.cancelledBy ? await nameOf(db, r.cancelledBy) : null,
+    items: items.map(({ fileIds: _, ...item }) => ({
+      ...item,
+      openComments: member ? (open.find((o) => o.fileId === item.fileId)?.count ?? 0) : null,
+    })),
+    activity: member ? await activityOf(db, org, r, rows, decisions) : [],
     reviewers: rows.map((row, i) => ({
       id: row.id,
       userId: row.userId,
@@ -312,6 +493,18 @@ async function reviewView(db: Database, actor: Actor, reviewId: string) {
       decision: latest.get(row.id)?.decision ?? null,
       decidedAt: latest.get(row.id)?.createdAt ?? null,
       submittedAt: row.submittedAt,
+      viewedAt: row.viewedAt,
+      /** Their latest decision's note, or what they said with their feedback. */
+      note: latest.get(row.id)?.note ?? row.feedbackNote ?? null,
+      /** Their comments on the items since the review was asked, and the first of them. */
+      comments: (() => {
+        const theirs = said.find((c) =>
+          row.guestId ? c.guestId === row.guestId : c.userId === row.userId,
+        );
+        return theirs
+          ? { count: theirs.count, fileId: theirs.fileId, commentId: theirs.commentId }
+          : null;
+      })(),
       // Each reviewer's permissions are for those who manage reviewers, and for themselves.
       permissions:
         (member && access.permissions.has("manage_reviewers")) || row.id === me?.id
@@ -328,6 +521,8 @@ async function reviewView(db: Database, actor: Actor, reviewId: string) {
     you: {
       guest: !member,
       reviewerId: me?.id ?? null,
+      /** The items they have opened. */
+      opened: opens.filter((o) => o.reviewerId === me?.id).map((o) => o.itemId),
       active: me ? active.has(me.id) : false,
       // Changing your decision stays possible while the review is open.
       canDecide:
@@ -382,8 +577,10 @@ async function notify(
   review: ReviewForMail,
   /** In a sequence, whether those before them have responded. */
   turn: boolean,
-  /** Who is asking, when not whoever requested the review. */
-  asking?: string,
+  /** Who is asking, when not whoever requested the review: the notification is from them. */
+  asking?: { userId: string; name: string },
+  /** A reminder of a review they were already asked about, rather than the first ask. */
+  reminder = false,
 ) {
   const base = deps.publicUrl.replace(/\/$/, "");
   const [context] = await deps.db
@@ -396,18 +593,21 @@ async function notify(
     .innerJoin(schema.organisations, eq(schema.organisations.id, schema.projects.organisationId))
     .where(inOrg(schema.projects, review.organisationId, eq(schema.projects.id, review.projectId)));
   const requester =
-    asking ?? (review.createdBy ? await nameOf(deps.db, review.createdBy) : "A colleague");
+    asking?.name ?? (review.createdBy ? await nameOf(deps.db, review.createdBy) : "A colleague");
+  const from = asking?.userId ?? review.createdBy;
   const data = {
     workspace: context?.workspace ?? "Hekate",
     requester,
     review: review.title,
     kind: review.kind as ReviewKind,
     project: context?.project ?? "",
-    message: turn
-      ? [review.message, "Those before you have responded; it is your turn."]
-          .filter(Boolean)
-          .join("\n\n")
-      : review.message,
+    message: [
+      reminder ? `A reminder from ${requester}: this review is still waiting on you.` : null,
+      review.message,
+      turn && !reminder ? "Those before you have responded; it is your turn." : null,
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
     dueAt: review.dueAt,
   };
   const members = people.flatMap((p) => (p.userId ? [p.userId] : []));
@@ -416,10 +616,10 @@ async function notify(
       organisationId: review.organisationId,
       kind: "review_requested",
       recipients: members,
-      actor: review.createdBy ? { userId: review.createdBy } : null,
+      actor: from ? { userId: from } : null,
       projectId: review.projectId,
       reviewId: review.id,
-      text: `asks you to ${ask(review)}`,
+      text: reminder ? `reminds you to ${ask(review)}` : `asks you to ${ask(review)}`,
       detail:
         [review.message, review.dueAt ? `Due ${longDate(review.dueAt)}.` : null]
           .filter(Boolean)
@@ -771,6 +971,7 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
             dueAt: input.dueAt ? new Date(input.dueAt) : null,
             order: input.order,
             rule: input.rule,
+            grant: granted.data,
             createdBy: c.var.userId,
           })
           .returning();
@@ -820,7 +1021,7 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
       // Ask whoever can act now: everyone, or the first in a sequence.
       const { rows, facts } = await reviewersOf(deps.db, organisationId, review.id);
       const now = activeReviewers(review.order, facts);
-      const requester = await nameOf(deps.db, c.var.userId);
+      const requester = { userId: c.var.userId, name: await nameOf(deps.db, c.var.userId) };
       await notify(
         deps,
         rows.filter((r) => now.has(r.id)),
@@ -956,8 +1157,9 @@ export const reviewRoutes = (deps: ReviewDeps) =>
       await tellRequester(deps, review, actor, input.decision, input.note);
       return c.json({ review: await reviewView(deps.db, actor, review.id) });
     })
-    .post("/:id/submit", idParam, async (c) => {
+    .post("/:id/submit", idParam, zValidator("json", submitFeedbackInput), async (c) => {
       const actor = c.var.actor;
+      const { note } = c.req.valid("json");
       const who = await deps.audit.actor(actor);
       const { review, next } = await deps.db.transaction(async (tx) => {
         const { review } = await lockReview(tx, actor, c.req.valid("param").id);
@@ -988,6 +1190,7 @@ export const reviewRoutes = (deps: ReviewDeps) =>
             submittedAt: now,
             viewedAt: me.viewedAt ?? now,
             startedAt: me.startedAt ?? now,
+            feedbackNote: note || null,
             updatedAt: now,
           })
           .where(inOrg(reviewReviewers, actor.organisationId, eq(reviewReviewers.id, me.id)));
@@ -1012,8 +1215,9 @@ export const reviewRoutes = (deps: ReviewDeps) =>
       await tellRequester(deps, review, actor, "feedback");
       return c.json({ review: await reviewView(deps.db, actor, review.id) });
     })
-    .post("/:id/cancel", idParam, async (c) => {
+    .post("/:id/cancel", idParam, zValidator("json", cancelReviewInput), async (c) => {
       const actor = memberOnly(c.var.actor);
+      const { reason } = c.req.valid("json");
       const who = await deps.audit.member(actor.userId);
       const review = await deps.db.transaction(async (tx) => {
         const { review } = await lockReview(tx, actor, c.req.valid("param").id);
@@ -1023,7 +1227,13 @@ export const reviewRoutes = (deps: ReviewDeps) =>
         }
         await tx
           .update(reviews)
-          .set({ status: "cancelled", completedAt: new Date(), updatedAt: new Date() })
+          .set({
+            status: "cancelled",
+            completedAt: new Date(),
+            cancelledBy: actor.userId,
+            cancelReason: reason || null,
+            updatedAt: new Date(),
+          })
           .where(inOrg(reviews, actor.organisationId, eq(reviews.id, review.id)));
         await deps.audit.record(
           actor.organisationId,
@@ -1036,11 +1246,109 @@ export const reviewRoutes = (deps: ReviewDeps) =>
       });
       return c.json({ review: await reviewView(deps.db, actor, review.id) });
     })
+    // Change the due date of an open review; those not yet reminded of it can be again.
+    .patch("/:id", idParam, zValidator("json", updateReviewInput), async (c) => {
+      const actor = memberOnly(c.var.actor);
+      const { dueAt } = c.req.valid("json");
+      const who = await deps.audit.member(actor.userId);
+      await deps.db.transaction(async (tx) => {
+        const { review } = await lockReview(tx, actor, c.req.valid("param").id);
+        await can(tx, actor, "request_reviews", review.projectId);
+        if (review.status !== "open") {
+          throw new HTTPException(409, { message: `This review is ${review.status}` });
+        }
+        const due = dueAt ? new Date(dueAt) : null;
+        await tx
+          .update(reviews)
+          .set({ dueAt: due, updatedAt: new Date() })
+          .where(inOrg(reviews, actor.organisationId, eq(reviews.id, review.id)));
+        // The reminder the day before is due again for the new date.
+        await tx
+          .update(reviewReviewers)
+          .set({ remindedAt: null, updatedAt: new Date() })
+          .where(
+            inOrg(reviewReviewers, actor.organisationId, eq(reviewReviewers.reviewId, review.id)),
+          );
+        await deps.audit.record(
+          actor.organisationId,
+          who,
+          {
+            action: "review.due",
+            projectId: review.projectId,
+            reviewId: review.id,
+            details: { dueAt: due?.toISOString() ?? null },
+          },
+          requestInfo(c, deps.trustProxy),
+          tx,
+        );
+      });
+      return c.json({ review: await reviewView(deps.db, actor, c.req.valid("param").id) });
+    })
+    // Remind everyone the review is waiting on now, or one of them: a notification and a
+    // mail for members, a fresh link for guests. A few a review an hour, so no one is pestered.
+    .post("/:id/remind", idParam, zValidator("json", remindInput), async (c) => {
+      const actor = memberOnly(c.var.actor);
+      const { reviewerId } = c.req.valid("json");
+      const id = c.req.valid("param").id;
+      const { review, waiting } = await deps.db.transaction(async (tx) => {
+        const { review } = await lockReview(tx, actor, id);
+        await can(tx, actor, "manage_reviewers", review.projectId);
+        if (review.status !== "open") {
+          throw new HTTPException(409, { message: `This review is ${review.status}` });
+        }
+        const { rows, facts } = await reviewersOf(tx, actor.organisationId, review.id);
+        const active = activeReviewers(review.order, facts);
+        const now = new Date();
+        const waiting = rows.filter(
+          (r) =>
+            active.has(r.id) &&
+            withinWindow(r.permissions, now) &&
+            (!reviewerId || r.id === reviewerId),
+        );
+        if (reviewerId && !rows.some((r) => r.id === reviewerId)) throw new NotFound("Reviewer");
+        if (waiting.length === 0) {
+          throw new HTTPException(409, {
+            message: reviewerId
+              ? "The review is not waiting on them now"
+              : "The review is not waiting on anyone now",
+          });
+        }
+        return { review, waiting };
+      });
+      const { allowed, retryAfter } = await admit(deps.db, `review-remind:${review.id}`, {
+        max: 5,
+        windowMs: 60 * 60 * 1000,
+      });
+      if (!allowed) {
+        c.header("Retry-After", String(retryAfter));
+        throw new HTTPException(429, {
+          message: "Reviewers have been reminded several times this hour; try again later",
+        });
+      }
+      const requester = { userId: actor.userId, name: await nameOf(deps.db, actor.userId) };
+      await notify(deps, waiting, review, false, requester, true);
+      await deps.audit.record(
+        actor.organisationId,
+        await deps.audit.member(actor.userId),
+        {
+          action: "review.remind",
+          projectId: review.projectId,
+          reviewId: review.id,
+          details: {
+            reviewers: waiting.length,
+            ...(reviewerId ? { name: waiting[0]?.name ?? null } : {}),
+          },
+        },
+        requestInfo(c, deps.trustProxy),
+      );
+      return c.json({ reminded: waiting.length });
+    })
     // Add a reviewer, member or guest, at the end of the order while the review is open.
     .post("/:id/reviewers", idParam, zValidator("json", addReviewerInput), async (c) => {
       const actor = memberOnly(c.var.actor);
       const body = c.req.valid("json");
       const entry: ReviewerInput = "userId" in body ? body.userId : body;
+      const who = await deps.audit.member(actor.userId);
       const { review, added } = await deps.db.transaction(async (tx) => {
         const { review } = await lockReview(tx, actor, c.req.valid("param").id);
         await can(tx, actor, "manage_reviewers", review.projectId);
@@ -1060,6 +1368,15 @@ export const reviewRoutes = (deps: ReviewDeps) =>
           [entry],
           (last?.position ?? -1) + 1,
         );
+        // Those asked later may do what the review granted everyone when it was asked.
+        let grant = review.grant;
+        if (!grant) {
+          const [workspace] = await tx
+            .select({ settings: schema.organisations.settings })
+            .from(schema.organisations)
+            .where(eq(schema.organisations.id, actor.organisationId));
+          grant = reviewerDefaults(workspaceSettingsOf(workspace?.settings), new Date());
+        }
         const inserted = await tx
           .insert(reviewReviewers)
           .values(
@@ -1070,6 +1387,7 @@ export const reviewRoutes = (deps: ReviewDeps) =>
               guestId: person.guestId ?? null,
               groupId: person.groupId,
               position: person.position,
+              permissions: grant,
             })),
           )
           .onConflictDoNothing()
@@ -1084,6 +1402,23 @@ export const reviewRoutes = (deps: ReviewDeps) =>
         }
         const { rows, facts } = await reviewersOf(tx, actor.organisationId, review.id);
         const active = activeReviewers(review.order, facts);
+        await deps.audit.record(
+          actor.organisationId,
+          who,
+          {
+            action: "review.reviewer_add",
+            projectId: review.projectId,
+            reviewId: review.id,
+            details: {
+              name: rows
+                .filter((r) => inserted.some((x) => x.id === r.id))
+                .map((r) => r.name)
+                .join(", "),
+            },
+          },
+          requestInfo(c, deps.trustProxy),
+          tx,
+        );
         return {
           review,
           // Those asked now, rather than later in the sequence.
@@ -1091,7 +1426,7 @@ export const reviewRoutes = (deps: ReviewDeps) =>
         };
       });
       if (added.length > 0) {
-        const requester = await nameOf(deps.db, actor.userId);
+        const requester = { userId: actor.userId, name: await nameOf(deps.db, actor.userId) };
         await notify(deps, added, review, false, requester);
       }
       return c.json({ review: await reviewView(deps.db, actor, review.id) }, 201);
@@ -1177,7 +1512,7 @@ export const reviewRoutes = (deps: ReviewDeps) =>
         }
         return { review, guest };
       });
-      const requester = await nameOf(deps.db, actor.userId);
+      const requester = { userId: actor.userId, name: await nameOf(deps.db, actor.userId) };
       await notify(deps, [guest], review, false, requester);
       return c.body(null, 204);
     })
@@ -1213,6 +1548,7 @@ export const reviewRoutes = (deps: ReviewDeps) =>
     .delete("/:id/reviewers/:reviewerId", reviewerParam, async (c) => {
       const actor = memberOnly(c.var.actor);
       const { id, reviewerId } = c.req.valid("param");
+      const who = await deps.audit.member(actor.userId);
       const { review, next } = await deps.db.transaction(async (tx) => {
         const { review } = await lockReview(tx, actor, id);
         await can(tx, actor, "manage_reviewers", review.projectId);
@@ -1236,7 +1572,7 @@ export const reviewRoutes = (deps: ReviewDeps) =>
             message: "A reviewer who has responded stays on the record",
           });
         }
-        const { facts } = await reviewersOf(tx, actor.organisationId, review.id);
+        const { rows, facts } = await reviewersOf(tx, actor.organisationId, review.id);
         if (facts.length <= 1) {
           throw new HTTPException(409, {
             message: "A review needs a reviewer; cancel it instead",
@@ -1246,6 +1582,18 @@ export const reviewRoutes = (deps: ReviewDeps) =>
         await tx
           .delete(reviewReviewers)
           .where(inOrg(reviewReviewers, actor.organisationId, eq(reviewReviewers.id, reviewerId)));
+        await deps.audit.record(
+          actor.organisationId,
+          who,
+          {
+            action: "review.reviewer_remove",
+            projectId: review.projectId,
+            reviewId: review.id,
+            details: { name: rows.find((r) => r.id === reviewerId)?.name ?? null },
+          },
+          requestInfo(c, deps.trustProxy),
+          tx,
+        );
         const settled = await settle(tx, review);
         const after = await reviewersOf(tx, actor.organisationId, review.id);
         // In a sequence, removing whoever was up hands the turn to the next.
@@ -1350,4 +1698,70 @@ export async function guestReviews(db: Database, organisationId: string, guestId
     closesAt: permissions.expiresAt,
     accessOpen: withinWindow(permissions, now),
   }));
+}
+
+/**
+ * A reviewer opened a file: every item of their open reviews that covers it counts as
+ * opened, once. A file item covers its file; a track item, the files of the version it
+ * reviews (any version, when it follows the latest).
+ */
+export async function noteOpened(db: Database, actor: Actor, fileId: string) {
+  const org = actor.organisationId;
+  const mine = await db
+    .select({ id: reviewReviewers.id, reviewId: reviewReviewers.reviewId })
+    .from(reviewReviewers)
+    .innerJoin(
+      reviews,
+      and(
+        eq(reviews.id, reviewReviewers.reviewId),
+        eq(reviews.organisationId, org),
+        eq(reviews.status, "open"),
+      ),
+    )
+    .where(
+      inOrg(
+        reviewReviewers,
+        org,
+        actor.kind === "guest"
+          ? eq(reviewReviewers.guestId, actor.guestId)
+          : eq(reviewReviewers.userId, actor.userId),
+      ),
+    );
+  if (mine.length === 0) return;
+  const holding = await db
+    .select({ versionId: variations.versionId, trackId: versions.trackId })
+    .from(variations)
+    .innerJoin(
+      versions,
+      and(eq(versions.id, variations.versionId), eq(versions.organisationId, org)),
+    )
+    .where(inOrg(variations, org, eq(variations.fileId, fileId)));
+  const items = await db
+    .select({ id: reviewItems.id, reviewId: reviewItems.reviewId })
+    .from(reviewItems)
+    .where(
+      inOrg(
+        reviewItems,
+        org,
+        inArray(
+          reviewItems.reviewId,
+          mine.map((m) => m.reviewId),
+        ),
+        or(
+          eq(reviewItems.fileId, fileId),
+          ...holding.map((h) =>
+            and(
+              eq(reviewItems.trackId, h.trackId),
+              or(isNull(reviewItems.versionId), eq(reviewItems.versionId, h.versionId)),
+            ),
+          ),
+        ),
+      ),
+    );
+  const rows = items.flatMap((item) =>
+    mine
+      .filter((m) => m.reviewId === item.reviewId)
+      .map((m) => ({ organisationId: org, reviewerId: m.id, itemId: item.id })),
+  );
+  if (rows.length > 0) await db.insert(reviewItemOpens).values(rows).onConflictDoNothing();
 }

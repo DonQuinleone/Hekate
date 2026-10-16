@@ -15,7 +15,13 @@ import { InlineInput, Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
 import { Slider } from "~/components/ui/slider";
-import { type ReviewState, StatusDot, StatusPill } from "~/components/ui/status";
+import {
+  ReviewerDot,
+  type ReviewerDotState,
+  type ReviewState,
+  StatusDot,
+  StatusPill,
+} from "~/components/ui/status";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Switch } from "~/components/ui/toggle";
 import { cn } from "~/lib/cn";
@@ -565,6 +571,29 @@ function Components() {
             {states.map((s) => (
               <span key={s} className="flex items-center gap-1.5">
                 <StatusDot state={s} />
+                {s.replace("_", " ")}
+              </span>
+            ))}
+          </span>
+        </Spec>
+        <Spec
+          name="Reviewer status"
+          rule="A reviewer or an item: dashed when asked, dotted while waiting their turn."
+        >
+          <span className="flex flex-wrap items-center gap-3 text-[12px] text-ink-2">
+            {(
+              [
+                "approved",
+                "changes_requested",
+                "submitted",
+                "in_review",
+                "invited",
+                "waiting",
+                "passed",
+              ] as ReviewerDotState[]
+            ).map((s) => (
+              <span key={s} className="flex items-center gap-1.5">
+                <ReviewerDot state={s} />
                 {s.replace("_", " ")}
               </span>
             ))}

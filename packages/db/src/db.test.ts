@@ -61,6 +61,7 @@ describe("tenancy", () => {
       "rendition_segments",
       "renditions",
       "review_decisions",
+      "review_item_opens",
       "review_items",
       "review_reviewers",
       "reviews",

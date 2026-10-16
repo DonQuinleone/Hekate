@@ -10,6 +10,10 @@ A **review** asks people to look at files: a track's version, a cut, a score. It
 
 Reviewers can be members of the workspace, **guests** from outside it (who need no account), or **groups**. They can be asked all at once or in order, each step starting when the one before it is decided.
 
+## Running a review
+
+A review's page reads in order: where it stands and what is asked of you, its steps, the reviewers with their decisions and notes, the items with the gate, and what has happened so far. Whoever may manage the review can remind everyone it is waiting on (or one reviewer), move or remove the due date, invite more reviewers, send a guest a new link or revoke it, and cancel the review with a reason its reviewers see. Each item shows whether you have opened it yet. Reviewers are reminded on their own the day before a review is due.
+
 ## Comments
 
 Every comment belongs to a file, and most point at a place in it:
