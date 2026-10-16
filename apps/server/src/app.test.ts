@@ -2253,6 +2253,27 @@ describe.runIf(url)("api", () => {
         expect(worst).toBeDefined();
         expect(owner.qaFailing.find((f) => f.id === s.mix)?.summary).toBe(worst?.summary);
 
+        // The file browser's lists carry the same standing, and each file's open threads.
+        const listed = (await (
+          await getAs(`/api/projects/${s.projectId}/tracks`, s.owner)
+        ).json()) as {
+          tracks: { state: string; waitingOn: { name: string }[] }[];
+        };
+        expect(listed.tracks[0]).toMatchObject({
+          state: "in_review",
+          waitingOn: [{ name: "composer" }],
+        });
+        await app.request(
+          `/api/files/${s.mix}/comments`,
+          json({ body: "Pedal noise at bar 12" }, s.owner),
+        );
+        const filesList = (await (
+          await getAs(`/api/projects/${s.projectId}/files`, s.owner)
+        ).json()) as {
+          files: { id: string; openComments: number; uploadedById: string | null }[];
+        };
+        expect(filesList.files.find((f) => f.id === s.mix)?.openComments).toBe(1);
+
         // A Reviewer neither triages nor uploads: no thread count, no failed files.
         const composer = await overview(s.composer);
         expect(composer.figures.openComments).toBeNull();

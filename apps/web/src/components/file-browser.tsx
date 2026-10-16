@@ -1,8 +1,19 @@
 import { descendantsOf, folderPath, formatBytes } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import {
+  columnsFor,
+  folderCount,
+  type Item,
+  itemsIn,
+  latestFile,
+  versionSummary,
+  versionsOf,
+} from "~/lib/browser";
 import { cn } from "~/lib/cn";
+import { ago } from "~/lib/comments";
+import { trackStateCopy } from "~/lib/overview";
 import {
   type Folder,
   type ProjectFile,
@@ -14,49 +25,48 @@ import {
   useProjectCan,
   useTrackMutations,
 } from "~/lib/queries";
+import { Avatar, AvatarRow } from "./avatar";
+import { Empty } from "./empty";
 import { kindIcon, mediaSummary, UploadButton, UploadList } from "./files";
 import { Icon, type IconName } from "./icons";
+import { Card } from "./page";
 import { Button } from "./ui/button";
-import { ActionMenu } from "./ui/menu";
+import { Input, Select } from "./ui/input";
+import { ActionMenu, type MenuAction } from "./ui/menu";
+import { StatusDot } from "./ui/status";
 
-const dateFormat = new Intl.DateTimeFormat("en-GB", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-});
-
-const control =
-  "h-8 min-w-0 rounded-control border border-edge bg-ground px-3 text-[13px] text-ink outline-none placeholder:text-ink-3 focus:border-ink-3";
-const action =
-  "cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink disabled:cursor-default disabled:opacity-50";
-
-type View = "list" | "grid";
+type View = "list" | "columns" | "grid";
 const VIEW_KEY = "hekate.files.view";
+const views: [View, IconName, string][] = [
+  ["list", "list", "List"],
+  ["columns", "columns", "Columns"],
+  ["grid", "grid", "Grid"],
+];
 
 /** The remembered view, per browser; storage can be missing or refuse, so list is the fallback. */
 function storedView(): View {
   try {
-    return localStorage.getItem(VIEW_KEY) === "grid" ? "grid" : "list";
+    const v = localStorage.getItem(VIEW_KEY);
+    return v === "grid" || v === "columns" ? v : "list";
   } catch {
     return "list";
   }
 }
 
-/** What a folder holds: folders, tracks (a folder of a piece's versions) and loose files. */
-type Item =
-  | { kind: "folder"; folder: Folder }
-  | { kind: "track"; track: Track }
-  | { kind: "file"; file: ProjectFile };
-const itemId = (item: Item) =>
-  item.kind === "folder" ? item.folder.id : item.kind === "track" ? item.track.id : item.file.id;
 const itemName = (item: Item) =>
   item.kind === "folder"
     ? item.folder.name
     : item.kind === "track"
       ? item.track.name
-      : item.file.name;
+      : item.kind === "file"
+        ? item.file.name
+        : `${item.track.name} · V${item.version.number}`;
 const itemIcon = (item: Item): IconName =>
-  item.kind === "folder" ? "folder" : item.kind === "track" ? "track" : kindIcon[item.file.kind];
+  item.kind === "folder"
+    ? "folder"
+    : item.kind === "track" || item.kind === "version"
+      ? "track"
+      : kindIcon[item.file.kind];
 
 /** What is being done to one item: renaming it, choosing where it goes, or confirming its removal. */
 type Editing = { id: string; mode: "rename" | "move" | "delete" } | null;
@@ -92,12 +102,11 @@ function RenameForm({
     else onCancel();
   };
   return (
-    <form onSubmit={submit} className="flex min-w-0 flex-1 items-center gap-2">
-      <input
-        // biome-ignore lint/a11y/noAutofocus: the field appears because the person asked to rename
+    <form onSubmit={submit} className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+      <Input
         autoFocus
         aria-label="New name"
-        className={cn(control, "flex-1")}
+        className="max-w-80 min-w-0 flex-1"
         value={name}
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => e.key === "Escape" && onCancel()}
@@ -134,9 +143,9 @@ function MoveForm({
       }}
       className="flex flex-wrap items-center gap-2"
     >
-      <select
+      <Select
         aria-label="Move to"
-        className={cn(control, "max-w-72")}
+        className="max-w-72"
         value={to}
         onChange={(e) => setTo(e.target.value)}
       >
@@ -146,7 +155,7 @@ function MoveForm({
             {o.label}
           </option>
         ))}
-      </select>
+      </Select>
       <Button size="sm" type="submit" disabled={pending || to === (current ?? "")}>
         Move
       </Button>
@@ -157,19 +166,60 @@ function MoveForm({
   );
 }
 
-/** "3 versions · V3": what a track holds, in a glance. */
-function trackSummary(track: Track) {
-  const latest = track.versions.at(-1);
-  if (!latest) return "No versions yet";
-  const count = track.versions.length;
-  return `${count} ${count === 1 ? "version" : "versions"} · V${latest.number} ${latest.variations.map((v) => v.name).join(", ")}`;
+/** A quick way in, shown when its row is hovered or focused. */
+function Quick({ fileId, icon, label }: { fileId: string; icon: IconName; label: string }) {
+  return (
+    <Link
+      to="/files/$fileId"
+      params={{ fileId }}
+      aria-label={label}
+      title={label}
+      className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised hover:text-ink"
+    >
+      <Icon name={icon} size={14} />
+    </Link>
+  );
+}
+
+const rowGrid =
+  "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 @3xl/app:grid-cols-[20px_minmax(0,1fr)_150px_170px_100px_100px_88px]";
+
+/** A file's state while it is prepared, or a dash once it is ready. */
+function FileStatus({ file }: { file: ProjectFile }) {
+  if (file.streamStatus === "failed" || file.analysisStatus === "failed")
+    return (
+      <>
+        <Icon name="warning" size={14} className="text-signal" />
+        <span className="text-ink-2">Failed</span>
+      </>
+    );
+  if (file.streamStatus === "pending" || file.analysisStatus === "pending")
+    return (
+      <>
+        <StatusDot state="in_review" />
+        <span className="text-ink-2">Processing</span>
+      </>
+    );
+  return <span className="text-ink-3">—</span>;
+}
+
+const details = (file: ProjectFile) =>
+  mediaSummary(file.kind, file.mediaInfo, file.streamStatus) ?? file.contentType;
+
+function Comments({ n }: { n: number }) {
+  return n > 0 ? (
+    <span className="flex items-center gap-0.5" title={`${n} open comments`}>
+      <Icon name="comment" size={11} /> {n}
+    </span>
+  ) : null;
 }
 
 /**
- * A project's folders, tracks and files, one folder at a time, as a list or a grid. A track
- * is a special kind of folder: it sits among them, and the files in its versions live in it
- * rather than loose beside it. Those who can organise make folders and tracks, and rename,
- * move and delete what is here; files dropped anywhere on the page land in the open folder.
+ * A project's folders, tracks and files, one folder at a time: as a list, as columns that open
+ * one into the next (as the Finder does), or as a grid. A track is a special kind of folder:
+ * it sits among them, and the files in its versions live in it rather than loose beside it.
+ * Those who can organise make folders and tracks, and rename, move and delete what is here;
+ * files dropped anywhere on the page land in the open folder.
  */
 export function FileBrowser({
   projectId,
@@ -196,6 +246,7 @@ export function FileBrowser({
   const [naming, setNaming] = useState<"folder" | "track" | null>(null);
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState<Editing>(null);
+  const [columnPath, setColumnPath] = useState<Item[]>([]);
   const manage = can("organise");
 
   // A folder that has gone (deleted elsewhere) leaves the viewer at the top.
@@ -203,6 +254,9 @@ export function FileBrowser({
   useEffect(() => {
     if (!known) onOpenFolder(null);
   }, [known, onOpenFolder]);
+  // The columns start again from the open folder.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the folder is the trigger.
+  useEffect(() => setColumnPath([]), [folderId]);
 
   const chooseView = (next: View) => {
     setView(next);
@@ -215,22 +269,15 @@ export function FileBrowser({
 
   const all = folders ?? [];
   const allTracks = trackList ?? [];
+  const allFiles = files ?? [];
   const path = folderPath(all, folderId);
-  // Files that are a track's variations live in the track, not loose in its folder.
-  const inTracks = new Set(
-    allTracks.flatMap((t) => t.versions.flatMap((v) => v.variations.map((x) => x.fileId))),
-  );
-  const items: Item[] = [
-    ...all
-      .filter((f) => f.parentId === folderId)
-      .map((folder) => ({ kind: "folder" as const, folder })),
-    ...allTracks
-      .filter((t) => t.folderId === folderId)
-      .map((track) => ({ kind: "track" as const, track })),
-    ...(files ?? [])
-      .filter((f) => f.folderId === folderId && !inTracks.has(f.id))
-      .map((file) => ({ kind: "file" as const, file })),
-  ];
+  const items = itemsIn(all, allTracks, allFiles, folderId);
+  const fileById = new Map(allFiles.map((f) => [f.id, f]));
+  const trackComments = (t: Track) =>
+    (t.versions.at(-1)?.variations ?? []).reduce(
+      (n, v) => n + (fileById.get(v.fileId)?.openComments ?? 0),
+      0,
+    );
   const parentName = path.at(-2)?.name ?? "the top of the project";
   const failure =
     organise.createFolder.error ??
@@ -259,13 +306,14 @@ export function FileBrowser({
       ? organise.updateFolder.mutate({ id: item.folder.id, name }, done)
       : item.kind === "track"
         ? trackMutations.updateTrack.mutate({ id: item.track.id, name }, done)
-        : organise.updateFile.mutate({ id: item.file.id, name }, done);
+        : item.kind === "file" && organise.updateFile.mutate({ id: item.file.id, name }, done);
   const move = (item: Item, to: string | null) =>
     item.kind === "folder"
       ? organise.updateFolder.mutate({ id: item.folder.id, parentId: to }, done)
       : item.kind === "track"
         ? trackMutations.updateTrack.mutate({ id: item.track.id, folderId: to }, done)
-        : organise.updateFile.mutate({ id: item.file.id, folderId: to }, done);
+        : item.kind === "file" &&
+          organise.updateFile.mutate({ id: item.file.id, folderId: to }, done);
   const remove = (item: Item) => {
     if (item.kind === "folder") organise.deleteFolder.mutate(item.folder.id, done);
     else if (item.kind === "file") organise.deleteFile.mutate(item.file.id, done);
@@ -277,72 +325,28 @@ export function FileBrowser({
     organise.deleteFile.isPending ||
     trackMutations.updateTrack.isPending;
 
-  /** The name, opening a folder or a track, or a file. */
-  const title = (item: Item) =>
-    item.kind === "folder" ? (
-      <button
-        type="button"
-        onClick={() => onOpenFolder(item.folder.id)}
-        className="cursor-pointer truncate border-0 bg-transparent p-0 text-left text-sm text-ink hover:text-signal"
-      >
-        {item.folder.name}
-      </button>
-    ) : item.kind === "track" ? (
-      <Link
-        to="/tracks/$trackId"
-        params={{ trackId: item.track.id }}
-        className="truncate text-sm text-ink no-underline hover:text-signal"
-      >
-        {item.track.name}
-      </Link>
-    ) : (
-      <Link
-        to="/files/$fileId"
-        params={{ fileId: item.file.id }}
-        className="truncate text-sm text-ink no-underline hover:text-signal"
-      >
-        {item.file.name}
-      </Link>
-    );
-
-  const details = (item: Item) => {
-    if (item.kind === "track") return trackSummary(item.track);
-    if (item.kind === "folder") {
-      const inside =
-        all.filter((f) => f.parentId === item.folder.id).length +
-        allTracks.filter((t) => t.folderId === item.folder.id).length +
-        (files ?? []).filter((f) => f.folderId === item.folder.id && !inTracks.has(f.id)).length;
-      return inside === 0 ? "Empty" : inside === 1 ? "1 item" : `${inside} items`;
-    }
-    return (
-      mediaSummary(item.file.kind, item.file.mediaInfo, item.file.streamStatus) ??
-      item.file.contentType
-    );
+  const menu = (item: Item, always = false) => {
+    if (!manage || item.kind === "version") return null;
+    const actions: (MenuAction | "divider")[] = [
+      { label: "Rename", onSelect: () => setEditing({ id: item.id, mode: "rename" }) },
+      { label: "Move to…", onSelect: () => setEditing({ id: item.id, mode: "move" }) },
+      ...(item.kind === "track"
+        ? []
+        : [
+            "divider" as const,
+            {
+              label: "Delete…",
+              danger: true,
+              onSelect: () => setEditing({ id: item.id, mode: "delete" as const }),
+            },
+          ]),
+    ];
+    return <ActionMenu label={itemName(item)} actions={actions} always={always} />;
   };
-
-  const menu = (item: Item) =>
-    manage && (
-      <ActionMenu
-        label={itemName(item)}
-        actions={[
-          { label: "Rename", onSelect: () => setEditing({ id: itemId(item), mode: "rename" }) },
-          { label: "Move to…", onSelect: () => setEditing({ id: itemId(item), mode: "move" }) },
-          ...(item.kind === "track"
-            ? []
-            : [
-                {
-                  label: "Delete…",
-                  danger: true,
-                  onSelect: () => setEditing({ id: itemId(item), mode: "delete" as const }),
-                },
-              ]),
-        ]}
-      />
-    );
 
   /** The open editor for an item, in place of its menu. */
   const editor = (item: Item) => {
-    if (!editing || editing.id !== itemId(item)) return null;
+    if (!editing || editing.id !== item.id) return null;
     if (editing.mode === "rename") {
       return (
         <RenameForm
@@ -383,36 +387,187 @@ export function FileBrowser({
     );
   };
 
+  /** A row's name, opening what it is: a folder here, a track or a file on its page. */
+  const nameOf = (item: Item, sub?: ReactNode, compact = false) => {
+    const pad = compact ? "min-w-0 text-left" : "min-w-0 py-3 text-left";
+    const inner = (
+      <>
+        <span
+          className={cn(
+            "block truncate text-[14px] text-ink",
+            item.kind !== "file" && "font-medium",
+          )}
+        >
+          {itemName(item)}
+        </span>
+        {sub && (
+          <span className="block truncate text-[12px] text-ink-3 @3xl/app:hidden">{sub}</span>
+        )}
+      </>
+    );
+    if (item.kind === "folder")
+      return (
+        <button type="button" onClick={() => onOpenFolder(item.folder.id)} className={pad}>
+          {inner}
+        </button>
+      );
+    if (item.kind === "track") {
+      const file = latestFile(item.track);
+      return file ? (
+        <Link to="/files/$fileId" params={{ fileId: file }} className={pad}>
+          {inner}
+        </Link>
+      ) : (
+        <Link to="/tracks/$trackId" params={{ trackId: item.track.id }} className={pad}>
+          {inner}
+        </Link>
+      );
+    }
+    if (item.kind === "file")
+      return (
+        <Link to="/files/$fileId" params={{ fileId: item.file.id }} className={pad}>
+          {inner}
+        </Link>
+      );
+    return null;
+  };
+
+  const row = (item: Item) => {
+    const open = editing?.id === item.id;
+    let cells: ReactNode;
+    if (item.kind === "folder") {
+      cells = (
+        <>
+          <Icon name="folder" className="text-ink-2" />
+          {open && editing?.mode === "rename"
+            ? editor(item)
+            : nameOf(item, folderCount(all, allTracks, allFiles, item.folder.id))}
+          <span className="hidden text-[13px] text-ink-3 @3xl/app:block">—</span>
+          <span className="hidden truncate text-[13px] text-ink-3 @3xl/app:block">
+            {folderCount(all, allTracks, allFiles, item.folder.id)}
+          </span>
+          <span className="hidden @3xl/app:block" />
+          <span className="hidden @3xl/app:block" />
+        </>
+      );
+    } else if (item.kind === "track") {
+      const t = item.track;
+      const copy = trackStateCopy[t.state ?? (t.versions.length ? "not_reviewed" : "no_version")];
+      const latest = t.versions.at(-1);
+      cells = (
+        <>
+          <Icon name="track" className="text-ink-2" />
+          {open && editing?.mode === "rename"
+            ? editor(item)
+            : nameOf(item, `${copy.label}${latest ? ` · V${latest.number}` : ""}`)}
+          <span className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
+            {copy.dot && <StatusDot state={copy.dot} />}
+            <span className="truncate">{copy.label}</span>
+          </span>
+          <span className="tabular hidden truncate text-[13px] text-ink-3 @3xl/app:block">
+            {versionSummary(t)}
+          </span>
+          <span className="hidden items-center @3xl/app:flex">
+            {t.waitingOn?.length ? (
+              <AvatarRow people={t.waitingOn} size={22} max={3} />
+            ) : (
+              <span className="text-[13px] text-ink-3">—</span>
+            )}
+          </span>
+          <span className="tabular hidden items-center gap-1.5 text-[13px] text-ink-3 @3xl/app:flex">
+            {latest ? ago(latest.createdAt) : ""}
+            <Comments n={trackComments(t)} />
+          </span>
+        </>
+      );
+    } else if (item.kind === "file") {
+      const f = item.file;
+      cells = (
+        <>
+          <Icon name={kindIcon[f.kind]} className="text-ink-3" />
+          {open && editing?.mode === "rename" ? editor(item) : nameOf(item, details(f))}
+          <span className="hidden items-center gap-2 text-[13px] @3xl/app:flex">
+            <FileStatus file={f} />
+          </span>
+          <span className="tabular hidden truncate text-[13px] text-ink-3 @3xl/app:block">
+            {details(f)} · {formatBytes(f.byteSize)}
+          </span>
+          <span className="hidden items-center @3xl/app:flex">
+            {f.uploadedBy && f.uploadedById ? (
+              <span title={f.uploadedBy}>
+                <Avatar id={f.uploadedById} name={f.uploadedBy} size={22} />
+              </span>
+            ) : (
+              <span className="text-[13px] text-ink-3">—</span>
+            )}
+          </span>
+          <span className="tabular hidden items-center gap-1.5 text-[13px] text-ink-3 @3xl/app:flex">
+            {ago(f.createdAt)}
+            <Comments n={f.openComments ?? 0} />
+          </span>
+        </>
+      );
+    }
+    const quickFile =
+      item.kind === "track" ? latestFile(item.track) : item.kind === "file" ? item.file.id : null;
+    return (
+      <li key={item.id} className="group border-b border-line last:border-b-0 hover:bg-raised/40">
+        <div className={rowGrid}>
+          {cells}
+          <span className="flex items-center justify-end gap-0.5">
+            {quickFile && !open && (
+              <span className="hidden opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 @3xl/app:flex">
+                <Quick
+                  fileId={quickFile}
+                  icon={item.kind === "track" ? "play" : "eye"}
+                  label={item.kind === "track" ? "Open in the player" : "Open"}
+                />
+              </span>
+            )}
+            {!open && menu(item)}
+          </span>
+        </div>
+        {open && editing?.mode !== "rename" && (
+          <div className="px-3 pb-3 pl-11">{editor(item)}</div>
+        )}
+      </li>
+    );
+  };
+
   const loadError = error ?? foldersError ?? tracksError;
   if (loadError) return <p className="m-0 text-signal">{loadError.message}</p>;
 
+  const openItem = (item: Item): Item[] | null =>
+    item.kind === "folder"
+      ? itemsIn(all, allTracks, allFiles, item.folder.id)
+      : item.kind === "track" && item.track.versions.length
+        ? versionsOf(item.track)
+        : null;
+
   return (
-    <section aria-label="Files" className="flex flex-col gap-3">
-      <div className="flex min-h-8 flex-wrap items-center justify-between gap-3">
-        <nav
-          aria-label="Folder path"
-          className="flex min-w-0 flex-wrap items-center gap-2 text-[13px]"
-        >
+    <section aria-label="Files" className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <nav aria-label="Folder path" className="flex min-w-0 items-center gap-1 text-[14px]">
           {path.length === 0 ? (
-            <span className="text-ink-2">All files</span>
+            <span className="font-medium text-ink">All files</span>
           ) : (
             <button
               type="button"
-              className={cn(action, "text-[13px]")}
+              className="text-ink-3 hover:text-ink"
               onClick={() => onOpenFolder(null)}
             >
               All files
             </button>
           )}
           {path.map((f, i) => (
-            <span key={f.id} className="flex min-w-0 items-center gap-2">
+            <span key={f.id} className="flex min-w-0 items-center gap-1">
               <span className="text-edge">/</span>
               {i === path.length - 1 ? (
-                <span className="truncate text-ink">{f.name}</span>
+                <span className="truncate font-medium text-ink">{f.name}</span>
               ) : (
                 <button
                   type="button"
-                  className={cn(action, "truncate text-[13px]")}
+                  className="truncate text-ink-3 hover:text-ink"
                   onClick={() => onOpenFolder(f.id)}
                 >
                   {f.name}
@@ -420,47 +575,39 @@ export function FileBrowser({
               )}
             </span>
           ))}
+          <span className="tabular ml-2 shrink-0 text-[13px] text-ink-3">
+            {items.length} {items.length === 1 ? "item" : "items"}
+          </span>
         </nav>
-        <div className="flex flex-wrap items-center gap-2">
-          <fieldset className="m-0 flex gap-0.5 border-0 p-0" aria-label="View">
-            {(["list", "grid"] as const).map((v) => (
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          <fieldset className="m-0 flex rounded-control border border-line bg-raised/40 p-0.5">
+            <legend className="sr-only">View</legend>
+            {views.map(([v, icon, label]) => (
               <button
                 key={v}
                 type="button"
                 aria-pressed={view === v}
+                aria-label={label}
+                title={label}
                 onClick={() => chooseView(v)}
                 className={cn(
-                  "h-7 cursor-pointer rounded-chip border px-2.5 text-xs",
-                  view === v
-                    ? "border-edge bg-raised text-ink"
-                    : "border-transparent bg-transparent text-ink-3 hover:text-ink",
+                  "flex size-7 items-center justify-center rounded-[4px]",
+                  view === v ? "bg-overlay text-ink shadow-2" : "text-ink-3 hover:text-ink",
                 )}
               >
-                {v === "list" ? "List" : "Grid"}
+                <Icon name={icon} size={14} />
               </button>
             ))}
           </fieldset>
           {manage && (
-            <Button
-              size="sm"
-              variant="ghost"
-              aria-label="New folder"
-              onClick={() => setNaming("folder")}
-            >
-              <Icon name="folder" size={14} />
-              <span className="hidden sm:inline">New folder</span>
-            </Button>
-          )}
-          {manage && withTracks && (
-            <Button
-              size="sm"
-              variant="ghost"
-              aria-label="New track"
-              onClick={() => setNaming("track")}
-            >
-              <Icon name="track" size={14} />
-              <span className="hidden sm:inline">New track</span>
-            </Button>
+            <ActionMenu
+              always
+              label="this folder"
+              actions={[
+                { label: "New folder", onSelect: () => setNaming("folder") },
+                ...(withTracks ? [{ label: "New track", onSelect: () => setNaming("track") }] : []),
+              ]}
+            />
           )}
           <UploadButton />
         </div>
@@ -472,12 +619,11 @@ export function FileBrowser({
           className="flex flex-wrap items-center gap-2"
           aria-label={naming === "track" ? "New track" : "New folder"}
         >
-          <input
-            // biome-ignore lint/a11y/noAutofocus: the field appears because the person asked for it
+          <Input
             autoFocus
             aria-label={naming === "track" ? "Track name" : "Folder name"}
             placeholder={naming === "track" ? "Maple Leaf Rag" : "Mixes"}
-            className={cn(control, "w-64")}
+            className="w-64"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => e.key === "Escape" && setNaming(null)}
@@ -498,83 +644,86 @@ export function FileBrowser({
           </Button>
         </form>
       )}
-      {failure && <p className="m-0 text-xs text-signal">{failure.message}</p>}
+      {failure && <p className="m-0 text-[13px] text-signal">{failure.message}</p>}
 
       <UploadList />
 
       {items.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-panel border border-dashed border-hairline px-6 py-12 text-center">
-          <Icon name="upload" size={20} className="text-ink-3" />
-          <p className="m-0 text-[13px] text-ink-2">
-            {folderId ? "This folder is empty." : "Nothing here yet."}
-          </p>
-          {can("upload") && (
-            <p className="m-0 text-xs text-ink-3">Drop files anywhere on this page to add them.</p>
-          )}
-        </div>
+        <Empty
+          title={folderId ? "This folder is empty" : "Nothing here yet"}
+          text={
+            can("upload")
+              ? `Drop files anywhere on this page to upload them here, or use Upload.${withTracks ? " A track groups a piece's versions." : ""}`
+              : "Files appear here once someone uploads them."
+          }
+        />
+      ) : view === "columns" ? (
+        <ColumnBrowser
+          root={items}
+          path={columnPath}
+          onPath={setColumnPath}
+          open={openItem}
+          folders={all}
+          tracks={allTracks}
+          files={allFiles}
+          menu={(item) => menu(item, true)}
+          editor={editor}
+        />
       ) : view === "list" ? (
-        <ul className="m-0 flex list-none flex-col p-0" aria-label="Contents">
-          <li className="label hidden grid-cols-[auto_minmax(0,1fr)_minmax(0,280px)_72px_104px_28px] gap-3 border-b border-hairline px-2 pb-2 sm:grid">
-            <span className="w-4" />
-            <span>Name</span>
-            <span>Details</span>
-            <span className="text-right">Size</span>
-            <span className="text-right">Added</span>
+        <Card>
+          <div
+            aria-hidden="true"
+            className={cn(
+              rowGrid,
+              "eyebrow hidden h-9 border-b border-line text-ink-3 @3xl/app:grid",
+            )}
+          >
             <span />
-          </li>
-          {items.map((item) => {
-            const open = editing?.id === itemId(item);
-            return (
-              <li
-                key={itemId(item)}
-                className="group flex flex-col gap-2 border-b border-hairline px-2 py-1.5 hover:bg-surface"
-              >
-                <div className="grid min-h-9 grid-cols-[auto_minmax(0,1fr)_28px] items-center gap-x-3 gap-y-0.5 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,280px)_72px_104px_28px]">
-                  <Icon name={itemIcon(item)} className="text-ink-2" />
-                  <span className="flex min-w-0 flex-col sm:flex-row sm:items-center sm:gap-3">
-                    {open && editing?.mode === "rename" ? editor(item) : title(item)}
-                    <span className="tabular truncate text-xs text-ink-3 sm:hidden">
-                      {details(item)}
-                    </span>
-                  </span>
-                  <span className="tabular hidden truncate text-xs text-ink-2 sm:block">
-                    {details(item)}
-                  </span>
-                  <span className="tabular hidden text-right text-xs text-ink-3 sm:block">
-                    {item.kind === "file" ? formatBytes(item.file.byteSize) : ""}
-                  </span>
-                  <span className="tabular hidden text-right text-xs text-ink-3 sm:block">
-                    {item.kind === "file" ? dateFormat.format(new Date(item.file.createdAt)) : ""}
-                  </span>
-                  <span className="flex justify-end">{!open && menu(item)}</span>
-                </div>
-                {open && editing?.mode !== "rename" && <div className="pl-7">{editor(item)}</div>}
-              </li>
-            );
-          })}
-        </ul>
+            <span>Name</span>
+            <span>Status</span>
+            <span>{withTracks ? "Versions" : "Details"}</span>
+            <span>People</span>
+            <span>Updated</span>
+            <span />
+          </div>
+          <ul className="m-0 list-none p-0" aria-label="Contents">
+            {items.map(row)}
+          </ul>
+        </Card>
       ) : (
         <ul
-          className="m-0 grid list-none grid-cols-2 gap-3 p-0 sm:grid-cols-3 lg:grid-cols-4"
+          className="m-0 grid list-none grid-cols-2 gap-4 p-0 @3xl/app:grid-cols-4 @6xl/app:grid-cols-5"
           aria-label="Contents"
         >
           {items.map((item) => {
-            const open = editing?.id === itemId(item);
+            const open = editing?.id === item.id;
+            const sub =
+              item.kind === "folder"
+                ? folderCount(all, allTracks, allFiles, item.folder.id)
+                : item.kind === "track"
+                  ? trackStateCopy[item.track.state ?? "no_version"].label
+                  : item.kind === "file"
+                    ? details(item.file)
+                    : "";
             return (
               <li
-                key={itemId(item)}
+                key={item.id}
                 className={cn(
-                  "group flex min-w-0 flex-col gap-3 rounded-panel border border-hairline p-3 hover:border-edge",
-                  open && "col-span-2 sm:col-span-3 lg:col-span-4",
+                  "group relative flex min-w-0 flex-col gap-2.5 rounded-panel-lg border border-line bg-raised/30 p-3 shadow-1 transition-colors hover:border-edge",
+                  open && "col-span-2 @3xl/app:col-span-4 @6xl/app:col-span-5",
                 )}
               >
-                <span className="flex items-start justify-between">
-                  <Icon name={itemIcon(item)} size={28} className="text-ink-2" />
-                  {!open && menu(item)}
+                <span className="flex aspect-[2/1] items-center justify-center rounded-[6px] bg-sunken text-ink-3">
+                  <Icon name={itemIcon(item)} size={24} />
                 </span>
-                <span className="flex min-w-0 flex-col gap-0.5">
-                  {open && editing?.mode === "rename" ? editor(item) : title(item)}
-                  <span className="tabular truncate text-xs text-ink-3">{details(item)}</span>
+                <span className="flex min-w-0 items-start gap-1">
+                  <span className="min-w-0 flex-1">
+                    {open && editing?.mode === "rename"
+                      ? editor(item)
+                      : nameOf(item, undefined, true)}
+                    <span className="block truncate text-[12px] text-ink-3">{sub}</span>
+                  </span>
+                  {!open && menu(item)}
                 </span>
                 {open && editing?.mode !== "rename" && editor(item)}
               </li>
@@ -583,5 +732,226 @@ export function FileBrowser({
         </ul>
       )}
     </section>
+  );
+}
+
+function ColumnRow({
+  item,
+  name,
+  hint,
+  selected,
+  container,
+  onClick,
+  lead,
+}: {
+  item: Item;
+  name: string;
+  hint?: string;
+  selected: boolean;
+  container: boolean;
+  onClick: () => void;
+  lead?: ReactNode;
+}) {
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-current={selected ? "true" : undefined}
+        className={cn(
+          "flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition-colors",
+          selected ? "bg-raised text-ink" : "text-ink-2 hover:bg-raised/50 hover:text-ink",
+        )}
+      >
+        {lead ?? <Icon name={itemIcon(item)} size={15} className="shrink-0 text-ink-3" />}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px]">{name}</span>
+          {hint && <span className="block truncate text-[11px] text-ink-3">{hint}</span>}
+        </span>
+        {container && <Icon name="chevronRight" size={12} className="shrink-0 text-ink-3" />}
+      </button>
+    </li>
+  );
+}
+
+/** Columns, as the Finder does it: each choice opens the next column; the last shows a preview. */
+function ColumnBrowser({
+  root,
+  path,
+  onPath,
+  open,
+  folders,
+  tracks,
+  files,
+  menu,
+  editor,
+}: {
+  root: Item[];
+  path: Item[];
+  onPath: (path: Item[]) => void;
+  open: (item: Item) => Item[] | null;
+  folders: Folder[];
+  tracks: Track[];
+  files: ProjectFile[];
+  menu: (item: Item) => ReactNode;
+  editor: (item: Item) => ReactNode;
+}) {
+  const columns = columnsFor(root, path, open);
+  const last = path.at(-1);
+  const choose = (depth: number, item: Item) => onPath([...path.slice(0, depth), item]);
+  const fileById = new Map(files.map((f) => [f.id, f]));
+  return (
+    <Card className="scroll-quiet flex min-h-[420px] overflow-x-auto">
+      {columns.map((col, depth) => (
+        <ul
+          key={String(depth)}
+          aria-label={depth === 0 ? "Contents" : undefined}
+          className="m-0 flex w-[240px] shrink-0 list-none flex-col overflow-y-auto border-r border-line p-0 py-1"
+        >
+          {col.items.map((item) => {
+            const selected = col.selected?.id === item.id;
+            const common = { item, selected, onClick: () => choose(depth, item) };
+            if (item.kind === "folder")
+              return <ColumnRow key={item.id} {...common} name={item.folder.name} container />;
+            if (item.kind === "track") {
+              const copy = trackStateCopy[item.track.state ?? "no_version"];
+              const latest = item.track.versions.at(-1);
+              return (
+                <ColumnRow
+                  key={item.id}
+                  {...common}
+                  name={item.track.name}
+                  hint={`${copy.label}${latest ? ` · V${latest.number}` : ""}`}
+                  container={item.track.versions.length > 0}
+                />
+              );
+            }
+            if (item.kind === "version")
+              return (
+                <ColumnRow
+                  key={item.id}
+                  {...common}
+                  name={`V${item.version.number}`}
+                  hint={`${item.version.variations.length} variation${item.version.variations.length === 1 ? "" : "s"} · ${ago(item.version.createdAt)}`}
+                  container={false}
+                  lead={<StatusDot state="submitted" />}
+                />
+              );
+            return (
+              <ColumnRow
+                key={item.id}
+                {...common}
+                name={item.file.name}
+                hint={details(item.file)}
+                container={false}
+              />
+            );
+          })}
+          {col.items.length === 0 && <li className="px-3 py-3 text-[12px] text-ink-3">Empty</li>}
+        </ul>
+      ))}
+      {last && open(last) === null ? (
+        <Preview
+          item={last}
+          folders={folders}
+          tracks={tracks}
+          files={files}
+          fileById={fileById}
+          menu={menu}
+          editor={editor}
+        />
+      ) : (
+        <div className="flex w-[280px] shrink-0 items-center justify-center p-4 text-center text-[12px] text-ink-3">
+          {last ? "Choose something inside" : "Choose something to see its details"}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function Preview({
+  item,
+  folders,
+  tracks,
+  files,
+  fileById,
+  menu,
+  editor,
+}: {
+  item: Item;
+  folders: Folder[];
+  tracks: Track[];
+  files: ProjectFile[];
+  fileById: Map<string, ProjectFile>;
+  menu: (item: Item) => ReactNode;
+  editor: (item: Item) => ReactNode;
+}) {
+  const file =
+    item.kind === "file"
+      ? item.file
+      : item.kind === "version"
+        ? fileById.get(
+            item.version.variations.find((v) => v.isPrimary)?.fileId ??
+              item.version.variations[0]?.fileId ??
+              "",
+          )
+        : item.kind === "track"
+          ? fileById.get(latestFile(item.track) ?? "")
+          : undefined;
+  const rows: [string, ReactNode][] = [];
+  if (item.kind === "folder")
+    rows.push(["Holds", folderCount(folders, tracks, files, item.folder.id)]);
+  if (item.kind === "track") {
+    rows.push(["Status", trackStateCopy[item.track.state ?? "no_version"].label]);
+    rows.push(["Versions", String(item.track.versions.length)]);
+  }
+  if (item.kind === "version") {
+    rows.push(["Added", ago(item.version.createdAt)]);
+    rows.push(["Variations", item.version.variations.map((v) => v.name).join(", ")]);
+    if (item.version.notes) rows.push(["Notes", item.version.notes]);
+  }
+  if (file) {
+    rows.push(["Format", details(file)]);
+    rows.push(["Size", formatBytes(file.byteSize)]);
+    rows.push(["Comments", String(file.openComments ?? 0)]);
+    if (file.uploadedBy) rows.push(["Uploaded by", file.uploadedBy]);
+  }
+  return (
+    <div className="flex w-[280px] shrink-0 flex-col gap-4 p-4">
+      <span className="flex h-[110px] items-center justify-center rounded-[6px] bg-sunken text-ink-3">
+        <Icon name={file ? kindIcon[file.kind] : itemIcon(item)} size={28} />
+      </span>
+      <div className="flex items-start gap-2">
+        <h3 className="m-0 min-w-0 flex-1 text-[14px] font-medium break-words text-ink">
+          {itemName(item)}
+        </h3>
+        {menu(item)}
+      </div>
+      {editor(item)}
+      <dl className="m-0 flex flex-col gap-1.5 text-[13px]">
+        {rows.map(([k, v]) => (
+          <div key={k} className="flex gap-3">
+            <dt className="w-24 shrink-0 text-ink-3">{k}</dt>
+            <dd className="m-0 min-w-0 flex-1 break-words text-ink-2">{v}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="flex flex-wrap gap-1.5">
+        {file && (
+          <Button variant="primary" size="sm" asChild>
+            <Link to="/files/$fileId" params={{ fileId: file.id }}>
+              Open
+            </Link>
+          </Button>
+        )}
+        {(item.kind === "track" || item.kind === "version") && (
+          <Button variant="ghost" size="sm" asChild>
+            <Link to="/tracks/$trackId" params={{ trackId: item.track.id }}>
+              Versions
+            </Link>
+          </Button>
+        )}
+      </div>
+    </div>
   );
 }

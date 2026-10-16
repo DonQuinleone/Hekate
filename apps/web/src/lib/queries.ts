@@ -481,7 +481,10 @@ export interface ProjectFile {
   /** A document's pages, drawn or not; null for anything without pages. */
   pageCount?: number | null;
   uploadedBy: string | null;
+  uploadedById?: string | null;
   createdAt: string;
+  /** Threads on it not yet resolved (in a project's file list). */
+  openComments?: number;
 }
 
 export type StreamStatus = "none" | "pending" | "ready" | "failed";
@@ -861,6 +864,9 @@ export interface Track {
   position: number;
   createdAt: string;
   versions: Version[];
+  /** In a project's track list: where it stands, and who it waits on while in review. */
+  state?: TrackState;
+  waitingOn?: OverviewPerson[];
 }
 
 export const projectTracksQuery = (projectId: string) =>

@@ -9,7 +9,7 @@ import {
   updateProjectInput,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, asc, desc, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -277,7 +277,12 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
           streamStatus: files.streamStatus,
           analysisStatus: files.analysisStatus,
           uploadedBy: users.name,
+          uploadedById: users.id,
           createdAt: files.createdAt,
+          // Threads on it not yet resolved.
+          openComments: sql<number>`(select count(*)::int from comments c
+            where c.file_id = ${files.id} and c.organisation_id = ${organisationId}
+            and c.parent_id is null and c.resolved_at is null)`,
         })
         .from(files)
         .leftJoin(users, eq(files.uploadedBy, users.id))
