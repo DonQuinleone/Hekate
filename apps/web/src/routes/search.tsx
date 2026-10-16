@@ -59,11 +59,16 @@ export function SearchPage({ search }: { search: SearchRequest }) {
   const [text, setText] = useState(search.q);
   const [saving, setSaving] = useState(false);
   // The address can change under the page (a saved search, the palette); the field follows,
-  // but not back to words it wrote itself while typing ran ahead of the address.
-  const written = useRef(new Set<string>([search.q]));
+  // but not back to words it wrote itself while typing ran ahead of the address. `pending`
+  // holds the words written and not yet arrived, oldest first; anything else came from outside.
+  const pending = useRef<string[]>([]);
   useEffect(() => {
-    if (written.current.has(search.q)) return;
-    written.current = new Set([search.q]);
+    const at = pending.current.indexOf(search.q);
+    if (at >= 0) {
+      pending.current = pending.current.slice(at + 1);
+      return;
+    }
+    pending.current = [];
     setText(search.q);
   }, [search.q]);
 
@@ -86,17 +91,7 @@ export function SearchPage({ search }: { search: SearchRequest }) {
 
   return (
     <>
-      <PageHeader
-        title="Search"
-        actions={
-          looking && (
-            <Button variant="ghost" size="sm" onClick={() => setSaving(true)}>
-              <Icon name="star" size={14} />
-              Save search
-            </Button>
-          )
-        }
-      />
+      <PageHeader title="Search" />
       <Page width="narrow" className="gap-5">
         <div className="relative">
           <Icon
@@ -108,11 +103,12 @@ export function SearchPage({ search }: { search: SearchRequest }) {
             value={text}
             onChange={(e) => {
               setText(e.target.value);
-              written.current.add(e.target.value);
+              pending.current.push(e.target.value);
               go({ q: e.target.value });
             }}
             placeholder="Projects, tracks, files, reviews, people and comments"
             aria-label="Search"
+            maxLength={200}
             // biome-ignore lint/a11y/noAutofocus: the page exists to be typed into.
             autoFocus
             className="h-12 w-full rounded-panel-lg border border-line bg-raised/40 pr-4 pl-12 text-[16px] text-ink shadow-1 placeholder:text-ink-3 focus:border-edge-strong focus:outline-none @3xl/app:pr-36"
@@ -140,7 +136,7 @@ export function SearchPage({ search }: { search: SearchRequest }) {
             aria-label="Project"
             value={search.projectId ?? ""}
             onChange={(e) => go({ projectId: e.target.value || undefined })}
-            className="@3xl/app:w-40"
+            className="@3xl/app:w-36"
           >
             <option value="">Any project</option>
             {projects.map((p) => (
@@ -153,7 +149,7 @@ export function SearchPage({ search }: { search: SearchRequest }) {
             aria-label="Person"
             value={search.personId ?? ""}
             onChange={(e) => go({ personId: e.target.value || undefined })}
-            className="@3xl/app:w-40"
+            className="@3xl/app:w-36"
           >
             <option value="">Anyone</option>
             {members.map((m) => (
@@ -179,7 +175,7 @@ export function SearchPage({ search }: { search: SearchRequest }) {
             <Button
               variant="ghost"
               size="sm"
-              className="col-span-2 justify-self-start"
+              className="justify-self-start"
               onClick={() =>
                 go({
                   kind: undefined,
@@ -193,13 +189,25 @@ export function SearchPage({ search }: { search: SearchRequest }) {
               Clear
             </Button>
           )}
+          {/* Beside the filters it keeps, not in the header, so a phone keeps one header row. */}
+          {looking && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="col-start-2 justify-self-end @3xl/app:ml-auto"
+              onClick={() => setSaving(true)}
+            >
+              <Icon name="star" size={14} />
+              Save search
+            </Button>
+          )}
         </div>
         {!words && saved.length > 0 && (
           <Saved
             saved={saved}
             onOpen={(s) => {
               setText(s.search.q);
-              written.current.add(s.search.q);
+              pending.current.push(s.search.q);
               void navigate({ to: "/search", search: compact(s.search), replace: true });
             }}
           />

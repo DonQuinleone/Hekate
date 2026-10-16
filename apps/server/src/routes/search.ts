@@ -235,13 +235,21 @@ export const searchRoutes = (db: Database) =>
                 .orderBy(...order(words.comments, comments.createdAt))
                 .limit(limit)
             : none,
-          // People are few: a name match is enough, with no index needed.
-          wanted("people") && q
+          // People are few: a name match is enough, with no index needed. With no words, the
+          // filters alone list them (by when they joined, if a time is set).
+          wanted("people")
             ? db
                 .select({ id: users.id, name: users.name, role: members.role })
                 .from(members)
                 .innerJoin(users, eq(users.id, members.userId))
-                .where(inOrg(members, organisationId, ilike(users.name, `%${literal(q)}%`)))
+                .where(
+                  inOrg(
+                    members,
+                    organisationId,
+                    q ? ilike(users.name, `%${literal(q)}%`) : undefined,
+                    after(members.createdAt),
+                  ),
+                )
                 .orderBy(users.name)
                 .limit(limit)
             : none,

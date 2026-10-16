@@ -2204,6 +2204,13 @@ describe.runIf(url)("api", () => {
         )[0]?.id;
 
         expect(await find("q=mix&kind=files")).toEqual(["files:Mix v1.wav"]);
+        // A kind alone is a search too, people included.
+        expect((await find("kind=people")).sort()).toEqual([
+          "people:Producer",
+          "people:accompanist",
+          "people:composer",
+          "people:engineer",
+        ]);
         // Filters alone list the newest of what they allow.
         expect(await find(`kind=reviews&projectId=${s.projectId}`)).toEqual(["reviews:Mix notes"]);
         expect(await find(`personId=${ownerId}&kind=reviews`)).toEqual(["reviews:Mix notes"]);
