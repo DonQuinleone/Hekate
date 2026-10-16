@@ -231,6 +231,7 @@ function WorkspaceMenu({ collapsed, tab = false }: { collapsed: boolean; tab?: b
   const [open, setOpen, box] = usePopover();
   if (!me) return null;
   const workspace = me.organisations.find((o) => o.id === me.activeOrganisationId);
+  const role = workspace?.role ?? "member";
   const signOut = async () => {
     await authClient.signOut();
     client.clear();
@@ -325,7 +326,20 @@ function WorkspaceMenu({ collapsed, tab = false }: { collapsed: boolean; tab?: b
             className="relative mt-0 min-w-0 bg-transparent p-0 shadow-none"
             onClose={() => setOpen(false)}
             actions={[
-              { label: "Members", onSelect: () => void navigate({ to: "/members" }) },
+              ...(role === "owner" || role === "admin"
+                ? [
+                    {
+                      label: "Workspace settings",
+                      onSelect: () =>
+                        void navigate({ to: "/settings/$section", params: { section: "general" } }),
+                    },
+                  ]
+                : []),
+              {
+                label: "Members",
+                onSelect: () =>
+                  void navigate({ to: "/settings/$section", params: { section: "members" } }),
+              },
               "divider",
               { label: "Sign out", onSelect: () => void signOut() },
             ]}

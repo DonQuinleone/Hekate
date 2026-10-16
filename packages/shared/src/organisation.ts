@@ -29,3 +29,9 @@ export const organisationStorageInput = z.object({
     .regex(/^[a-z][a-z0-9-]{0,31}$/)
     .nullable(),
 });
+
+/** Rename a workspace (an organisation in code). */
+export const organisationUpdateInput = z.object({
+  name: z.string().trim().min(1).max(120),
+});
+export type OrganisationUpdateInput = z.infer<typeof organisationUpdateInput>;
