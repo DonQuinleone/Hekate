@@ -1,57 +1,129 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  createProjectInput,
   creatorRole,
   defaultProjectRoles,
+  permissionsFor,
+  projectListQuery,
   projectPermissions,
-  projectProfile,
   updateProjectInput,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { actorOf, can, visibleProjects } from "../access.ts";
+import { actorOf, can, projectAccess, visibleProjects } from "../access.ts";
+import { type Audit, requestInfo } from "../audit.ts";
+import { NotFound } from "../errors.ts";
+import { projectFigures } from "../project-figures.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
-const { projects, files, users, projectRoles, projectMembers } = schema;
+const { projects, files, users, projectRoles, projectMembers, reviews } = schema;
 
-export const createProjectInput = z.object({
-  name: z.string().trim().min(1).max(120),
-  profile: projectProfile,
-});
+const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
-export const projectRoutes = (db: Database) =>
+export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =>
   new Hono<{ Variables: TenantVariables }>()
-    .get("/", async (c) => {
+    // The projects this member may see: those in use, or (`archived=1`) those archived. With
+    // `figures=1`, each carries what its card shows. Each says whether it is one of yours and
+    // whether you may archive or unarchive it.
+    .get("/", zValidator("query", projectListQuery), async (c) => {
+      const { archived, figures } = c.req.valid("query");
+      const { organisationId, userId, organisationRole } = c.var;
       const rows = await db
-        .select()
+        .select({
+          project: projects,
+          memberId: projectMembers.id,
+          rolePermissions: projectRoles.permissions,
+        })
         .from(projects)
+        .leftJoin(
+          projectMembers,
+          and(
+            eq(projectMembers.projectId, projects.id),
+            eq(projectMembers.organisationId, organisationId),
+            eq(projectMembers.userId, userId),
+          ),
+        )
+        .leftJoin(
+          projectRoles,
+          and(
+            eq(projectRoles.id, projectMembers.roleId),
+            eq(projectRoles.organisationId, organisationId),
+          ),
+        )
         .where(
           inOrg(
             projects,
-            c.var.organisationId,
-            isNull(projects.archivedAt),
+            organisationId,
+            archived ? isNotNull(projects.archivedAt) : isNull(projects.archivedAt),
             visibleProjects(actorOf(c.var)),
           ),
         )
         .orderBy(desc(projects.createdAt));
-      return c.json({ projects: rows });
+      const list = rows.map((r) => ({
+        ...r.project,
+        mine: r.memberId !== null,
+        // Archiving is part of running the project: whoever manages its roles and members.
+        mayArchive: permissionsFor(organisationRole, r.rolePermissions).has("manage_roles"),
+      }));
+      if (!figures || list.length === 0) return c.json({ projects: list });
+      const counted = await projectFigures(
+        db,
+        organisationId,
+        list.map((p) => p.id),
+      );
+      return c.json({
+        projects: list.map((p) => {
+          const { lastFileAt, ...rest } = counted.of(p.id);
+          return { ...p, figures: { ...rest, lastActiveAt: lastFileAt ?? p.createdAt } };
+        }),
+      });
     })
-    // Any member may start a project. It comes with the default roles, and its creator is
-    // its first Producer.
+    // Any member may start a project. It comes with the default roles, or a template's, and its
+    // creator is its first Producer.
     .post("/", zValidator("json", createProjectInput), async (c) => {
-      const input = c.req.valid("json");
+      const { templateId, ...input } = c.req.valid("json");
       const organisationId = c.var.organisationId;
+      // A template must be a project the creator can see; its settings and roles are copied,
+      // never its content.
+      const template = templateId
+        ? await (async () => {
+            const access = await can(db, actorOf(c.var), "view", templateId);
+            const [settings] = await db
+              .select({
+                carriedCommentsShown: projects.carriedCommentsShown,
+                deliveryProfile: projects.deliveryProfile,
+              })
+              .from(projects)
+              .where(inOrg(projects, organisationId, eq(projects.id, access.projectId)));
+            const roles = await db
+              .select({ name: projectRoles.name, permissions: projectRoles.permissions })
+              .from(projectRoles)
+              .where(
+                inOrg(projectRoles, organisationId, eq(projectRoles.projectId, access.projectId)),
+              )
+              .orderBy(asc(projectRoles.position));
+            return { settings, roles };
+          })()
+        : null;
+      const roles = template?.roles.length ? template.roles : defaultProjectRoles;
       const project = await db.transaction(async (tx) => {
         const [created] = await tx
           .insert(projects)
-          .values({ ...input, organisationId })
+          .values({
+            ...input,
+            description: input.description || null,
+            ...template?.settings,
+            organisationId,
+          })
           .returning();
         if (!created) throw new Error("Project insert returned no row");
-        const roles = await tx
+        const made = await tx
           .insert(projectRoles)
           .values(
-            defaultProjectRoles.map((role, position) => ({
+            roles.map((role, position) => ({
               organisationId,
               projectId: created.id,
               name: role.name,
@@ -59,9 +131,37 @@ export const projectRoutes = (db: Database) =>
               position,
             })),
           )
-          .returning({ id: projectRoles.id, name: projectRoles.name });
-        const producer = roles.find((r) => r.name === creatorRole);
-        if (!producer) throw new Error("The default roles have no creator role");
+          .returning({
+            id: projectRoles.id,
+            name: projectRoles.name,
+            permissions: projectRoles.permissions,
+          });
+        // The creator takes the Producer role, or failing that the first that may run the
+        // project; a template without one (a renamed or reduced Producer, say) gains a
+        // Producer, so no project is left without someone who can see and run it.
+        const runs = (r: { permissions: string[] }) =>
+          r.permissions.includes("view") && r.permissions.includes("manage_roles");
+        let producer = made.find((r) => r.name === creatorRole && runs(r)) ?? made.find(runs);
+        if (!producer) {
+          [producer] = await tx
+            .insert(projectRoles)
+            .values({
+              organisationId,
+              projectId: created.id,
+              // A template may already hold a role by that name that cannot run the project.
+              name: made.some((r) => r.name === creatorRole)
+                ? `${creatorRole} (creator)`
+                : creatorRole,
+              permissions: [...projectPermissions],
+              position: made.length,
+            })
+            .returning({
+              id: projectRoles.id,
+              name: projectRoles.name,
+              permissions: projectRoles.permissions,
+            });
+        }
+        if (!producer) throw new Error("No role for the project's creator");
         await tx.insert(projectMembers).values({
           organisationId,
           projectId: created.id,
@@ -70,35 +170,97 @@ export const projectRoutes = (db: Database) =>
         });
         return created;
       });
-      // The creator is its Producer, who may do everything.
-      return c.json({ project: { ...project, permissions: [...projectPermissions] } }, 201);
+      // The creator may do whatever their role allows; a Producer, everything.
+      const access = await can(db, actorOf(c.var), "view", project.id);
+      return c.json({ project: { ...project, permissions: [...access.permissions] } }, 201);
     })
-    .get("/:id", zValidator("param", z.object({ id: z.uuid() })), async (c) => {
+    // Archiving closes the project's open reviews and makes it read-only; it leaves everyone's
+    // lists but keeps everything. Unarchiving makes it whole again (closed reviews stay closed).
+    .post("/:id/archive", idParam, async (c) => {
+      const project = await mayArchive(db, c.var, c.req.valid("param").id);
+      if (project.archived) return c.body(null, 204);
+      const who = await audit.member(c.var.userId);
+      const now = new Date();
+      await db.transaction(async (tx) => {
+        // Taken for update, so a review being requested meanwhile (which holds the row for
+        // share) either lands first and is closed here, or waits and is refused.
+        await tx
+          .select({ id: projects.id })
+          .from(projects)
+          .where(inOrg(projects, c.var.organisationId, eq(projects.id, project.projectId)))
+          .for("update");
+        await tx
+          .update(projects)
+          .set({ archivedAt: now, updatedAt: now })
+          .where(inOrg(projects, c.var.organisationId, eq(projects.id, project.projectId)));
+        await tx
+          .update(reviews)
+          .set({ status: "cancelled", completedAt: now, updatedAt: now })
+          .where(
+            inOrg(
+              reviews,
+              c.var.organisationId,
+              eq(reviews.projectId, project.projectId),
+              eq(reviews.status, "open"),
+            ),
+          );
+        await audit.record(
+          c.var.organisationId,
+          who,
+          { action: "project.archive", projectId: project.projectId },
+          requestInfo(c, trustProxy),
+          tx,
+        );
+      });
+      return c.body(null, 204);
+    })
+    .post("/:id/unarchive", idParam, async (c) => {
+      const project = await mayArchive(db, c.var, c.req.valid("param").id);
+      if (!project.archived) return c.body(null, 204);
+      const who = await audit.member(c.var.userId);
+      await db.transaction(async (tx) => {
+        await tx
+          .update(projects)
+          .set({ archivedAt: null, updatedAt: new Date() })
+          .where(inOrg(projects, c.var.organisationId, eq(projects.id, project.projectId)));
+        await audit.record(
+          c.var.organisationId,
+          who,
+          { action: "project.unarchive", projectId: project.projectId },
+          requestInfo(c, trustProxy),
+          tx,
+        );
+      });
+      return c.body(null, 204);
+    })
+    .get("/:id", idParam, async (c) => {
       const access = await can(db, actorOf(c.var), "view", c.req.valid("param").id);
       const [project] = await db
         .select()
         .from(projects)
         .where(inOrg(projects, c.var.organisationId, eq(projects.id, access.projectId)));
-      // What the caller may do here, so the interface offers only that (the server still checks).
-      return c.json({ project: { ...project, permissions: [...access.permissions] } });
+      // What the caller may do here, so the interface offers only that (the server still checks),
+      // and whether they may archive or unarchive it.
+      return c.json({
+        project: {
+          ...project,
+          permissions: [...access.permissions],
+          mayArchive: access.granted.has("manage_roles"),
+        },
+      });
     })
     // Settings are part of how the project's work flows.
-    .patch(
-      "/:id",
-      zValidator("param", z.object({ id: z.uuid() })),
-      zValidator("json", updateProjectInput),
-      async (c) => {
-        const access = await can(db, actorOf(c.var), "edit_workflows", c.req.valid("param").id);
-        const input = c.req.valid("json");
-        const [project] = await db
-          .update(projects)
-          .set({ ...input, updatedAt: new Date() })
-          .where(inOrg(projects, c.var.organisationId, eq(projects.id, access.projectId)))
-          .returning();
-        return c.json({ project: { ...project, permissions: [...access.permissions] } });
-      },
-    )
-    .get("/:id/files", zValidator("param", z.object({ id: z.uuid() })), async (c) => {
+    .patch("/:id", idParam, zValidator("json", updateProjectInput), async (c) => {
+      const access = await can(db, actorOf(c.var), "edit_workflows", c.req.valid("param").id);
+      const input = c.req.valid("json");
+      const [project] = await db
+        .update(projects)
+        .set({ ...input, updatedAt: new Date() })
+        .where(inOrg(projects, c.var.organisationId, eq(projects.id, access.projectId)))
+        .returning();
+      return c.json({ project: { ...project, permissions: [...access.permissions] } });
+    })
+    .get("/:id/files", idParam, async (c) => {
       const organisationId = c.var.organisationId;
       const access = await can(db, actorOf(c.var), "view", c.req.valid("param").id);
       const project = { id: access.projectId };
@@ -123,3 +285,13 @@ export const projectRoutes = (db: Database) =>
         .orderBy(asc(files.name), desc(files.createdAt));
       return c.json({ files: rows });
     });
+
+/** The project, if this member may archive or unarchive it: whoever may run it, archived or not. */
+async function mayArchive(db: Database, vars: TenantVariables, projectId: string) {
+  const access = await projectAccess(db, actorOf(vars), projectId);
+  if (!access) throw new NotFound("Project");
+  if (!access.granted.has("manage_roles")) {
+    throw new HTTPException(403, { message: "Your role in this project does not allow that" });
+  }
+  return access;
+}

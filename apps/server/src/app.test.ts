@@ -288,9 +288,9 @@ describe.runIf(url)("api", () => {
       headers: { cookie },
     });
     await client.projects.$post({ json: { name: "Crossing", profile: "video" } });
-    const res = await client.projects.$get();
+    const res = await client.projects.$get({ query: {} });
     const body = await res.json();
-    expect(body.projects[0]?.name).toBe("Crossing");
+    expect("projects" in body && body.projects[0]?.name).toBe("Crossing");
   });
 
   describe("members and invitations", () => {
@@ -1654,6 +1654,177 @@ describe.runIf(url)("api", () => {
           project: { permissions: string[] };
         };
         expect(seen.project.permissions).toContain("manage_roles");
+      });
+
+      it("starts a project from a template, archives and unarchives it, and keeps it read-only meanwhile", async () => {
+        const { owner, organisationId, projectId, fileId } = await studio();
+        type Listed = {
+          projects: {
+            id: string;
+            name: string;
+            mine: boolean;
+            mayArchive: boolean;
+            figures?: { files: number };
+          }[];
+        };
+        const list = async (cookie: string, query = "") =>
+          ((await (await getAs(`/api/projects${query}`, cookie)).json()) as Listed).projects;
+
+        // The template: a role of its own and a setting changed. Its content is not copied.
+        await app.request(
+          `/api/projects/${projectId}/roles`,
+          json({ name: "Mixer", permissions: ["view", "comment"] }, owner),
+        );
+        await send("PATCH", `/api/projects/${projectId}`, { carriedCommentsShown: false }, owner);
+        const made = await app.request(
+          "/api/projects",
+          json(
+            {
+              name: "Rags II",
+              profile: "music",
+              description: "  Second set  ",
+              templateId: projectId,
+            },
+            owner,
+          ),
+        );
+        expect(made.status).toBe(201);
+        const copy = (
+          (await made.json()) as {
+            project: { id: string; description: string; carriedCommentsShown: boolean };
+          }
+        ).project;
+        expect(copy).toMatchObject({ description: "Second set", carriedCommentsShown: false });
+        const roles = (await (await getAs(`/api/projects/${copy.id}/roles`, owner)).json()) as {
+          roles: { name: string; members: number }[];
+        };
+        expect(roles.roles.map((r) => r.name)).toContain("Mixer");
+        expect(roles.roles.find((r) => r.name === "Producer")?.members).toBe(1);
+        const files = (await (await getAs(`/api/projects/${copy.id}/files`, owner)).json()) as {
+          files: unknown[];
+        };
+        expect(files.files).toEqual([]);
+
+        // Any member may start a project, but not from one they cannot see.
+        const outsider = await joinAs(owner, "outsider-template@example.test");
+        expect(
+          (
+            await app.request(
+              "/api/projects",
+              json({ name: "Borrowed", profile: "music", templateId: projectId }, outsider),
+            )
+          ).status,
+        ).toBe(404);
+        expect(
+          (await app.request("/api/projects", json({ name: "Own", profile: "general" }, outsider)))
+            .status,
+        ).toBe(201);
+        expect((await list(outsider)).map((p) => [p.name, p.mine])).toEqual([["Own", true]]);
+
+        // The list's figures and who may archive.
+        const engineer = await joinAs(owner, "engineer-archive@example.test");
+        await grantRole(owner, projectId, engineer, "Engineer");
+
+        // A template whose Producer can no longer run anything still leaves its creator able
+        // to see and run the copy.
+        const reduced = (
+          (await (
+            await app.request("/api/projects", json({ name: "Reduced", profile: "general" }, owner))
+          ).json()) as { project: { id: string } }
+        ).project.id;
+        const reducedRoles = (await (
+          await getAs(`/api/projects/${reduced}/roles`, owner)
+        ).json()) as {
+          roles: { id: string; name: string }[];
+        };
+        const producerRole = reducedRoles.roles.find((r) => r.name === "Producer");
+        expect(
+          (
+            await send(
+              "PATCH",
+              `/api/projects/${reduced}/roles/${producerRole?.id}`,
+              { name: "Producer", permissions: ["comment"] },
+              owner,
+            )
+          ).status,
+        ).toBe(200);
+        await grantRole(owner, reduced, engineer, "Engineer");
+        const fromReduced = await app.request(
+          "/api/projects",
+          json({ name: "Mine now", profile: "general", templateId: reduced }, engineer),
+        );
+        expect(fromReduced.status).toBe(201);
+        const ran = ((await fromReduced.json()) as { project: { permissions: string[] } }).project;
+        expect(ran.permissions).toEqual(expect.arrayContaining(["view", "manage_roles"]));
+        const engineerSees = new Map((await list(engineer)).map((p) => [p.name, p.mayArchive]));
+        expect(engineerSees.get("Rags")).toBe(false);
+        expect(engineerSees.get("Mine now")).toBe(true);
+        expect(
+          (await list(owner, "?figures=1")).find((p) => p.id === projectId)?.figures?.files,
+        ).toBe(1);
+
+        // An open review, which archiving closes.
+        const ids = async (cookie: string) =>
+          ((await (await getAs("/api/me", cookie)).json()) as { user: { id: string } }).user.id;
+        const asked = await app.request(
+          `/api/projects/${projectId}/reviews`,
+          json(
+            {
+              kind: "feedback",
+              title: "First notes",
+              items: [{ fileId }],
+              reviewers: [await ids(engineer)],
+            },
+            owner,
+          ),
+        );
+        expect(asked.status).toBe(201);
+
+        // Only those who run the project may archive it; a stranger to it finds nothing.
+        const archive = (cookie: string, action = "archive") =>
+          app.request(`/api/projects/${projectId}/${action}`, json({}, cookie));
+        expect((await archive(engineer)).status).toBe(403);
+        expect((await archive(outsider)).status).toBe(404);
+        expect((await archive(owner)).status).toBe(204);
+
+        expect((await list(owner)).map((p) => p.name)).not.toContain("Rags");
+        expect((await list(owner, "?archived=1")).map((p) => p.name)).toEqual(["Rags"]);
+        const [review] = await db
+          .select({ status: schema.reviews.status })
+          .from(schema.reviews)
+          .where(eq(schema.reviews.projectId, projectId));
+        expect(review?.status).toBe("cancelled");
+
+        // Read-only while archived: it opens, but nothing changes, even for its Producer.
+        const seen = (await (await getAs(`/api/projects/${projectId}`, owner)).json()) as {
+          project: { permissions: string[]; archivedAt: string | null };
+        };
+        expect(seen.project.permissions).toEqual(["view"]);
+        expect(seen.project.archivedAt).not.toBeNull();
+        expect(
+          (await app.request(`/api/files/${fileId}/comments`, json({ body: "Late" }, owner)))
+            .status,
+        ).toBe(403);
+        expect(
+          (await app.request(`/api/projects/${projectId}/tracks`, json({ name: "Elite" }, owner)))
+            .status,
+        ).toBe(403);
+
+        expect((await archive(engineer, "unarchive")).status).toBe(403);
+        expect((await archive(owner, "unarchive")).status).toBe(204);
+        expect((await list(owner)).map((p) => p.name)).toContain("Rags");
+        expect(
+          (await app.request(`/api/files/${fileId}/comments`, json({ body: "Back" }, owner)))
+            .status,
+        ).toBe(201);
+
+        const logged = await db
+          .select({ action: schema.accessEvents.action })
+          .from(schema.accessEvents)
+          .where(eq(schema.accessEvents.organisationId, organisationId));
+        expect(logged.map((e) => e.action)).toEqual(
+          expect.arrayContaining(["project.archive", "project.unarchive"]),
+        );
       });
 
       it("allows each default role what the matrix says, and refuses the rest", async () => {

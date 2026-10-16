@@ -25,6 +25,7 @@ import {
   type Actor,
   actorOf,
   can,
+  lockLiveProject,
   type MemberActor,
   projectAccess,
   reviewAccess,
@@ -688,6 +689,8 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
       }
       const who = await deps.audit.member(c.var.userId);
       const review = await deps.db.transaction(async (tx) => {
+        // Not into a project being archived: archiving closes every open review.
+        await lockLiveProject(tx, organisationId, projectId);
         const [created] = await tx
           .insert(reviews)
           .values({

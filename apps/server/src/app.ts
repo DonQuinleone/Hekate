@@ -101,7 +101,7 @@ export function createApi(deps: AppDeps) {
       .route("/home", homeRoutes(deps.db))
       .use("/projects/*", ...member)
       .use("/projects", ...member)
-      .route("/projects", projectRoutes(deps.db))
+      .route("/projects", projectRoutes(deps.db, deps.audit, deps.trustProxy ?? false))
       .route("/projects", projectTrackRoutes(deps.db))
       .route("/projects", projectAccessRoutes(deps.db))
       .route("/projects", projectReviewRoutes(reviewDeps))

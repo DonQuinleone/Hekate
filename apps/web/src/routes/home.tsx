@@ -1,12 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
-import { Avatar, AvatarRow } from "~/components/avatar";
+import { Avatar } from "~/components/avatar";
 import { Empty } from "~/components/empty";
-import { Icon, type IconName } from "~/components/icons";
+import { Icon } from "~/components/icons";
 import { Card, Page, SectionHead } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
-import { ProjectCover } from "~/components/project-cover";
+import { NewProjectTile, ProjectCard } from "~/components/project-card";
 import { reviewState } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
@@ -21,11 +21,9 @@ import {
   dueIn,
   figures,
   greeting,
-  progress,
 } from "~/lib/home";
 import {
   type HomeActivity,
-  type HomeProject,
   homeQuery,
   type MyReview,
   meQuery,
@@ -132,83 +130,6 @@ function AttentionRow({ item }: { item: Attention }) {
         </Link>
       )}
     </li>
-  );
-}
-
-function ProjectCard({ project, waiting }: { project: HomeProject; waiting: number }) {
-  const pct = progress(project.approvedTracks, project.versionedTracks);
-  const counts: { icon: IconName; n: number; label: string }[] = [
-    { icon: "review", n: project.openReviews, label: "open reviews" },
-    { icon: "comment", n: project.openComments, label: "open comments" },
-  ];
-  return (
-    <Link
-      to="/projects/$projectId"
-      params={{ projectId: project.id }}
-      className="group flex min-w-0 flex-col overflow-hidden rounded-panel-lg border border-line bg-raised/25 shadow-1 transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-px hover:border-edge hover:shadow-3"
-    >
-      <ProjectCover profile={project.profile} size="lg" />
-      <span className="flex flex-col gap-3 p-4">
-        <span className="flex items-start gap-3">
-          <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-ink">
-            {project.name}
-          </span>
-          {waiting > 0 && (
-            <span className="tabular shrink-0 rounded-full bg-signal px-2 text-[12px] leading-[20px] font-medium text-ground">
-              {waiting} on you
-            </span>
-          )}
-        </span>
-        <span className="flex flex-col gap-1.5">
-          <span className="flex items-center justify-between gap-3 text-[12px] text-ink-3">
-            <span className="truncate">
-              {pct === null
-                ? `${project.files} file${project.files === 1 ? "" : "s"}`
-                : `${project.approvedTracks} of ${project.versionedTracks} tracks approved`}
-            </span>
-            {pct !== null && <span className="tabular">{pct}%</span>}
-          </span>
-          <span className={cn("h-1 overflow-hidden rounded-full", pct !== null && "bg-raised")}>
-            {pct !== null && (
-              <span
-                className="block h-full rounded-full bg-ink-2 transition-[width] duration-500"
-                style={{ width: `${pct}%` }}
-              />
-            )}
-          </span>
-        </span>
-        <span className="flex items-center gap-3 text-[12px] text-ink-3">
-          {project.members > 0 && (
-            <AvatarRow people={project.faces} total={project.members} size={20} />
-          )}
-          {counts.map((c) => (
-            <span
-              key={c.icon}
-              className="tabular flex items-center gap-1"
-              title={`${c.n} ${c.label}`}
-            >
-              <Icon name={c.icon} size={12} /> {c.n}
-            </span>
-          ))}
-          <span className="tabular ml-auto truncate">{ago(project.updatedAt)}</span>
-        </span>
-      </span>
-    </Link>
-  );
-}
-
-function NewProjectTile({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex min-h-[200px] flex-col items-center justify-center gap-2 rounded-panel-lg border border-dashed border-line-strong text-ink-3 transition-colors hover:border-edge-strong hover:text-ink"
-    >
-      <span className="flex size-9 items-center justify-center rounded-full border border-line-strong">
-        <Icon name="plus" size={16} />
-      </span>
-      <span className="text-[13px]">New project</span>
-    </button>
   );
 }
 

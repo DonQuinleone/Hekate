@@ -217,6 +217,8 @@ export const projects = pgTable(
     organisationId: organisationId(),
     name: text("name").notNull(),
     profile: profileEnum("profile").$type<ProjectProfile>().notNull(),
+    /** A line saying what it is, for the project list. */
+    description: text("description"),
     /** Whether threads carried to a new version show there until someone hides them. */
     carriedCommentsShown: boolean("carried_comments_shown").notNull().default(true),
     /** What deliveries are checked against (#41); null suggests one from each file's channels. */
