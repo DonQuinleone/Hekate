@@ -1,20 +1,42 @@
-import { descendantsOf, folderPath, formatBytes } from "@hekate/shared";
+import {
+  defaultFileColumns,
+  descendantsOf,
+  type FileColumn,
+  type FileColumnLayout,
+  folderPath,
+  formatBytes,
+  formatDuration,
+  type MarkKind,
+} from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import {
+  type CSSProperties,
+  type DragEvent,
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useState,
+} from "react";
+import {
+  allHave,
   type BrowserFilters,
+  bulkTags,
   columnsFor,
   filtering,
   filterProject,
   folderCount,
   freshPath,
+  gridTemplate,
   type Item,
   indexMarks,
   itemsIn,
   latestFile,
   markKey,
+  movableTo,
   pinnedFirst,
+  rangeBetween,
   unviewed,
   versionSummary,
   versionsOf,
@@ -24,6 +46,7 @@ import { ago } from "~/lib/comments";
 import { trackStateCopy } from "~/lib/overview";
 import {
   type Folder,
+  fileColumnsQuery,
   meQuery,
   type ProjectFile,
   projectFilesQuery,
@@ -33,6 +56,7 @@ import {
   type Tag,
   type Track,
   tagsQuery,
+  useFileColumns,
   useMarks,
   useOrganise,
   useProjectCan,
@@ -41,6 +65,7 @@ import {
 } from "~/lib/queries";
 import { Avatar, AvatarRow } from "./avatar";
 import { Empty } from "./empty";
+import { ColumnHeading, ColumnsMenu, columnNames } from "./file-columns";
 import { FilterChips, FilterMenu, TagEditor } from "./file-filters";
 import { kindIcon, mediaSummary, UploadButton, UploadList } from "./files";
 import { Icon, type IconName } from "./icons";
@@ -145,12 +170,15 @@ function MoveForm({
   pending,
   onMove,
   onCancel,
+  any = false,
 }: {
   options: { id: string; label: string }[];
   current: string | null;
   pending: boolean;
   onMove: (folderId: string | null) => void;
   onCancel: () => void;
+  /** For many things from different places: no destination is where they all are. */
+  any?: boolean;
 }) {
   const [to, setTo] = useState(current ?? "");
   return (
@@ -174,7 +202,7 @@ function MoveForm({
           </option>
         ))}
       </Select>
-      <Button size="sm" type="submit" disabled={pending || to === (current ?? "")}>
+      <Button size="sm" type="submit" disabled={pending || (!any && to === (current ?? ""))}>
         Move
       </Button>
       <Button size="sm" variant="ghost" onClick={onCancel}>
@@ -199,8 +227,9 @@ function Quick({ fileId, icon, label }: { fileId: string; icon: IconName; label:
   );
 }
 
+/** On a phone: icon, name, actions. Wider, the columns the member chose (`--cols`). */
 const rowGrid =
-  "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 @3xl/app:grid-cols-[20px_minmax(0,1fr)_150px_170px_100px_100px_88px]";
+  "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 @3xl/app:grid-cols-[var(--cols)]";
 
 /** Whether a file is still being prepared, or failed to be. */
 const processing = (file: ProjectFile) =>
@@ -246,6 +275,50 @@ function TagPills({ ids, tags }: { ids: string[]; tags: Map<string, Tag> }) {
         </span>
       ))}
       {names.length > 2 && <span className="text-[11px] text-ink-3">+{names.length - 2}</span>}
+    </span>
+  );
+}
+
+/** What a drag of rows carries: their `kind:id` keys. */
+const dragType = "application/x-hekate-items";
+
+/**
+ * A row's icon, which becomes its checkbox on hover, on focus, or while anything is
+ * selected. Shift with a click selects everything from the last one chosen.
+ */
+function Pick({
+  item,
+  checked,
+  showing,
+  onPick,
+}: {
+  item: Item;
+  checked: boolean;
+  showing: boolean;
+  onPick: (range: boolean) => void;
+}) {
+  return (
+    <span className="relative flex size-5 items-center justify-center">
+      <Icon
+        name={itemIcon(item)}
+        className={cn(
+          item.kind === "file" ? "text-ink-3" : "text-ink-2",
+          showing ? "invisible" : "group-focus-within:invisible @3xl/app:group-hover:invisible",
+        )}
+      />
+      <input
+        type="checkbox"
+        aria-label={`Select ${itemName(item)}`}
+        checked={checked}
+        onChange={() => {}}
+        onClick={(event) => onPick(event.shiftKey)}
+        className={cn(
+          "absolute inset-0 m-auto size-3.5 cursor-pointer accent-[var(--hk-ink)]",
+          showing
+            ? "opacity-100"
+            : "opacity-0 focus:opacity-100 group-focus-within:opacity-100 @3xl/app:group-hover:opacity-100",
+        )}
+      />
     </span>
   );
 }
@@ -296,6 +369,13 @@ export function FileBrowser({
   const organise = useOrganise(projectId);
   const trackMutations = useTrackMutations(projectId);
   const setMarks = useMarks(projectId);
+  const { data: savedColumns } = useQuery(fileColumnsQuery);
+  const saveColumns = useFileColumns();
+  /** Widths while a column edge is dragged; kept once it is let go. */
+  const [dragging, setDragging] = useState<FileColumnLayout | null>(null);
+  const columns = dragging ?? savedColumns ?? defaultFileColumns;
+  const gridVars = { "--cols": gridTemplate(columns) } as CSSProperties;
+  const names = { ...columnNames, versions: withTracks ? "Versions" : "Details" };
   const tagging = useTagMutations(projectId);
   const [view, setView] = useState<View>(storedView);
   const [naming, setNaming] = useState<"folder" | "track" | null>(null);
@@ -303,6 +383,26 @@ export function FileBrowser({
   const [editing, setEditing] = useState<Editing>(null);
   const [columnPath, setColumnPath] = useState<Item[]>([]);
   const manage = can("organise");
+  /** What is selected, by `kind:id`, and where a shift-click or shift-arrow range starts. */
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [anchor, setAnchor] = useState<string | null>(null);
+  /** Checkboxes shown without a hover, for phones (from the toolbar menu). */
+  const [selectMode, setSelectMode] = useState(false);
+  const [bulk, setBulk] = useState<"move" | "tags" | "delete" | null>(null);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  /** The folder (or "top") something is being dragged over. */
+  const [dropOn, setDropOn] = useState<string | null>(null);
+  const selecting = selectMode || selected.size > 0;
+  // A new place or new filters start a new selection.
+  const filterKey = `${filters.show.join()}|${filters.tags.join()}`;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the folder and filters are the trigger.
+  useEffect(() => {
+    setSelected(new Set());
+    setAnchor(null);
+    setBulk(null);
+    setSelectMode(false);
+  }, [folderId, filterKey]);
 
   // A folder that has gone (deleted elsewhere) leaves the viewer at the top.
   const known = !folderId || !folders || folders.some((f) => f.id === folderId);
@@ -334,6 +434,141 @@ export function FileBrowser({
   const items = filtered
     ? filterProject(all, allTracks, allFiles, filters, myId, marks)
     : pinnedFirst(itemsIn(all, allTracks, allFiles, folderId), marks);
+  const order = items.map(markKey);
+  const itemByKey = new Map(items.map((i) => [markKey(i), i]));
+  const chosen = items.filter((i) => selected.has(markKey(i)));
+  const clearSelection = () => {
+    setSelected(new Set());
+    setAnchor(null);
+    setBulk(null);
+    setSelectMode(false);
+    setBulkError(null);
+  };
+  /** A click on a checkbox: one more or one fewer, or with Shift everything from the last. */
+  const select = (item: Item, range: boolean) => {
+    const key = markKey(item);
+    setSelected((was) => {
+      const next = new Set(was);
+      if (range) for (const k of rangeBetween(order, anchor, key)) next.add(k);
+      else if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+    setAnchor(key);
+  };
+
+  /**
+   * The list's keys, as Linear and the Finder have them: arrows move between rows, Shift with
+   * an arrow selects as it goes, x selects the row, Cmd or Ctrl and A selects everything,
+   * Escape lets go. Enter opens, as links do.
+   */
+  const onListKey = (event: KeyboardEvent<HTMLUListElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.closest("input, select, textarea, form, [role=menu], [role=dialog]")) return;
+    const rows = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("[data-key]"));
+    const current = target.closest<HTMLElement>("[data-key]")?.dataset.key ?? null;
+    const at = current ? order.indexOf(current) : -1;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const next = Math.min(
+        order.length - 1,
+        Math.max(0, at + (event.key === "ArrowDown" ? 1 : -1)),
+      );
+      const key = order[next];
+      if (!key) return;
+      rows
+        .find((r) => r.dataset.key === key)
+        ?.querySelector<HTMLElement>("[data-name]")
+        ?.focus();
+      if (event.shiftKey) {
+        const from = anchor ?? current ?? key;
+        setSelected(new Set(rangeBetween(order, from, key)));
+        setAnchor(from);
+      }
+    } else if (event.key === "x" && current && !event.metaKey && !event.ctrlKey) {
+      const item = itemByKey.get(current);
+      if (item) select(item, event.shiftKey);
+    } else if (event.key === "a" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      setSelected(new Set(order));
+    } else if (event.key === "Escape" && selected.size > 0) {
+      clearSelection();
+    }
+  };
+
+  /** Run one change per thing; say how many could not be made, and keep those selected. */
+  const runAll = async (work: [Item, () => Promise<unknown>][]) => {
+    setBulkBusy(true);
+    setBulkError(null);
+    const results = await Promise.allSettled(work.map(([, run]) => run()));
+    setBulkBusy(false);
+    const failed = work.filter((_, i) => results[i]?.status === "rejected");
+    const first = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (failed.length) {
+      const why = first?.reason instanceof Error ? first.reason.message : "It was refused";
+      setBulkError(`${failed.length} of ${work.length} could not be changed. ${why}`);
+      setSelected(new Set(failed.map(([item]) => markKey(item))));
+      return false;
+    }
+    clearSelection();
+    return true;
+  };
+  const moveOne = (item: Item, to: string | null): Promise<unknown> =>
+    item.kind === "folder"
+      ? organise.updateFolder.mutateAsync({ id: item.folder.id, parentId: to })
+      : item.kind === "track"
+        ? trackMutations.updateTrack.mutateAsync({ id: item.track.id, folderId: to })
+        : item.kind === "file"
+          ? organise.updateFile.mutateAsync({ id: item.file.id, folderId: to })
+          : Promise.resolve();
+  const parentIdOf = (item: Item) =>
+    item.kind === "folder"
+      ? item.folder.parentId
+      : item.kind === "track"
+        ? item.track.folderId
+        : item.kind === "file"
+          ? item.file.folderId
+          : null;
+  /** Move things into a folder (null, the top), leaving out what is there already or would loop. */
+  const moveAll = (moving: Item[], to: string | null) => {
+    const allowed = new Set(movableTo(all, moving).map((f) => f.id));
+    const work = moving
+      .filter((i) => parentIdOf(i) !== to && (to === null || allowed.has(to)))
+      .map((i): [Item, () => Promise<unknown>] => [i, () => moveOne(i, to)]);
+    if (work.length) void runAll(work);
+  };
+
+  /** Dragging rows onto a folder or the path moves them; only for those who organise. */
+  const dragStart = (item: Item, event: DragEvent<HTMLElement>) => {
+    const key = markKey(item);
+    const keys = selected.has(key) ? [...selected] : [key];
+    event.dataTransfer.setData(dragType, JSON.stringify(keys));
+    event.dataTransfer.effectAllowed = "move";
+  };
+  const dropTarget = (folder: string | null) =>
+    manage
+      ? {
+          onDragOver: (event: DragEvent<HTMLElement>) => {
+            if (!Array.from(event.dataTransfer.types).includes(dragType)) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "move";
+            setDropOn(folder ?? "top");
+          },
+          onDragLeave: () => setDropOn(null),
+          onDrop: (event: DragEvent<HTMLElement>) => {
+            const data = event.dataTransfer.getData(dragType);
+            if (!data) return;
+            event.preventDefault();
+            setDropOn(null);
+            const keys = JSON.parse(data) as string[];
+            moveAll(
+              keys.flatMap((k) => itemByKey.get(k) ?? []),
+              folder,
+            );
+          },
+        }
+      : {};
+
   const fileById = new Map(allFiles.map((f) => [f.id, f]));
   /** The file that stands for an item when it comes to being seen: a track's latest. */
   const seenFile = (item: Item) =>
@@ -364,7 +599,8 @@ export function FileBrowser({
       (n, v) => n + (fileById.get(v.fileId)?.openComments ?? 0),
       0,
     );
-  const parentName = path.at(-2)?.name ?? "the top of the project";
+  const parentOf = (folder: Folder) =>
+    folderPath(all, folder.parentId).at(-1)?.name ?? "the top of the project";
   const failure =
     setMarks.error ??
     organise.createFolder.error ??
@@ -521,7 +757,7 @@ export function FileBrowser({
       <span className="flex flex-wrap items-center gap-2" role="alert">
         <span className="text-[13px] text-ink-2">
           {item.kind === "folder"
-            ? `Delete ${item.folder.name}? What is in it moves to ${parentName}.`
+            ? `Delete ${item.folder.name}? What is in it moves to ${parentOf(item.folder)}.`
             : `Delete ${itemName(item)}? This cannot be undone.`}
         </span>
         <Button size="sm" variant="primary" disabled={pending} onClick={() => remove(item)}>
@@ -566,7 +802,7 @@ export function FileBrowser({
               <span className="sr-only">, a favourite</span>
             </span>
           )}
-          {!compact && item.kind === "file" && (
+          {!compact && item.kind === "file" && !columns.some((c) => c.id === "tags") && (
             <TagPills ids={item.file.tagIds ?? []} tags={tagById} />
           )}
         </span>
@@ -581,121 +817,174 @@ export function FileBrowser({
     );
     if (item.kind === "folder")
       return (
-        <button type="button" onClick={() => onOpenFolder(item.folder.id)} className={pad}>
+        <button
+          type="button"
+          data-name
+          onClick={() => onOpenFolder(item.folder.id)}
+          className={pad}
+        >
           {inner}
         </button>
       );
     if (item.kind === "track") {
       const file = latestFile(item.track);
       return file ? (
-        <Link to="/files/$fileId" params={{ fileId: file }} className={pad}>
+        <Link to="/files/$fileId" params={{ fileId: file }} className={pad} data-name>
           {inner}
         </Link>
       ) : (
-        <Link to="/tracks/$trackId" params={{ trackId: item.track.id }} className={pad}>
+        <Link to="/tracks/$trackId" params={{ trackId: item.track.id }} className={pad} data-name>
           {inner}
         </Link>
       );
     }
     if (item.kind === "file")
       return (
-        <Link to="/files/$fileId" params={{ fileId: item.file.id }} className={pad}>
+        <Link to="/files/$fileId" params={{ fileId: item.file.id }} className={pad} data-name>
           {inner}
         </Link>
       );
     return null;
   };
 
+  /** What one column says about one item. */
+  const cell = (item: Item, id: FileColumn): ReactNode => {
+    if (item.kind === "folder") {
+      if (id === "status") return "—";
+      if (id === "versions") return folderCount(all, allTracks, allFiles, item.folder.id);
+      return null;
+    }
+    if (item.kind === "track") {
+      const t = item.track;
+      const latest = t.versions.at(-1);
+      const file = fileById.get(latestFile(t) ?? "");
+      switch (id) {
+        case "status": {
+          // While its latest file is prepared, or after that failed, that is what it says.
+          if (file && processing(file)) return <FileStatus file={file} />;
+          const copy =
+            trackStateCopy[t.state ?? (t.versions.length ? "not_reviewed" : "no_version")];
+          return (
+            <>
+              {copy.dot && <StatusDot state={copy.dot} />}
+              <span className="truncate text-ink-2">{copy.label}</span>
+            </>
+          );
+        }
+        case "versions":
+          return <span className="tabular truncate">{versionSummary(t)}</span>;
+        case "people":
+          return t.waitingOn?.length ? <AvatarRow people={t.waitingOn} size={22} max={3} /> : "—";
+        case "updated":
+          return (
+            <span className="tabular flex items-center gap-1.5">
+              {latest ? ago(latest.createdAt) : ""}
+              <Comments n={trackComments(t)} />
+            </span>
+          );
+        default:
+          return file ? fileCell(file, id) : null;
+      }
+    }
+    if (item.kind === "file") {
+      const f = item.file;
+      switch (id) {
+        case "status":
+          return <FileStatus file={f} />;
+        case "versions":
+          return (
+            <span className="tabular truncate">
+              {details(f)} · {formatBytes(f.byteSize)}
+            </span>
+          );
+        case "people":
+          return f.uploadedBy && f.uploadedById ? (
+            <span title={f.uploadedBy}>
+              <Avatar id={f.uploadedById} name={f.uploadedBy} size={22} />
+            </span>
+          ) : (
+            "—"
+          );
+        case "updated":
+          return (
+            <span className="tabular flex items-center gap-1.5">
+              {ago(f.createdAt)}
+              <Comments n={f.openComments ?? 0} />
+            </span>
+          );
+        default:
+          return fileCell(f, id);
+      }
+    }
+    return null;
+  };
+  /** The columns that describe a file itself, for a file or a track's latest. */
+  const fileCell = (f: ProjectFile, id: FileColumn): ReactNode => {
+    if (id === "size") return <span className="tabular">{formatBytes(f.byteSize)}</span>;
+    if (id === "format") return <span className="truncate">{details(f)}</span>;
+    if (id === "duration")
+      return f.mediaInfo?.duration !== undefined ? (
+        <span className="tabular">{formatDuration(f.mediaInfo.duration)}</span>
+      ) : (
+        "—"
+      );
+    if (id === "tags") return <TagPills ids={f.tagIds ?? []} tags={tagById} />;
+    return null;
+  };
+  /** What shows under the name on a phone, where the columns do not. */
+  const subOf = (item: Item) => {
+    if (item.kind === "folder") return folderCount(all, allTracks, allFiles, item.folder.id);
+    if (item.kind === "track") {
+      const copy =
+        trackStateCopy[
+          item.track.state ?? (item.track.versions.length ? "not_reviewed" : "no_version")
+        ];
+      const latest = item.track.versions.at(-1);
+      return `${copy.label}${latest ? ` · V${latest.number}` : ""}`;
+    }
+    return item.kind === "file" ? details(item.file) : undefined;
+  };
+
   const row = (item: Item) => {
     const open = editing?.id === item.id;
-    let cells: ReactNode;
-    if (item.kind === "folder") {
-      cells = (
-        <>
-          <Icon name="folder" className="text-ink-2" />
-          {open && editing?.mode === "rename"
-            ? editor(item)
-            : nameOf(item, folderCount(all, allTracks, allFiles, item.folder.id))}
-          <span className="hidden text-[13px] text-ink-3 @3xl/app:block">—</span>
-          <span className="hidden truncate text-[13px] text-ink-3 @3xl/app:block">
-            {folderCount(all, allTracks, allFiles, item.folder.id)}
+    const cells = (
+      <>
+        <Pick
+          item={item}
+          checked={selected.has(markKey(item))}
+          showing={selecting}
+          onPick={(range) => select(item, range)}
+        />
+        {open && editing?.mode === "rename" ? editor(item) : nameOf(item, subOf(item))}
+        {columns.map((c) => (
+          <span
+            key={c.id}
+            className="hidden min-w-0 items-center gap-2 text-[13px] text-ink-3 @3xl/app:flex"
+          >
+            {cell(item, c.id)}
           </span>
-          <span className="hidden @3xl/app:block" />
-          <span className="hidden @3xl/app:block" />
-        </>
-      );
-    } else if (item.kind === "track") {
-      const t = item.track;
-      const copy = trackStateCopy[t.state ?? (t.versions.length ? "not_reviewed" : "no_version")];
-      const latest = t.versions.at(-1);
-      // While its latest file is prepared, or after that failed, that is what the track says.
-      const latestReady = fileById.get(latestFile(t) ?? "");
-      const preparing = latestReady && processing(latestReady);
-      cells = (
-        <>
-          <Icon name="track" className="text-ink-2" />
-          {open && editing?.mode === "rename"
-            ? editor(item)
-            : nameOf(item, `${copy.label}${latest ? ` · V${latest.number}` : ""}`)}
-          <span className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
-            {preparing ? (
-              <FileStatus file={latestReady} />
-            ) : (
-              <>
-                {copy.dot && <StatusDot state={copy.dot} />}
-                <span className="truncate">{copy.label}</span>
-              </>
-            )}
-          </span>
-          <span className="tabular hidden truncate text-[13px] text-ink-3 @3xl/app:block">
-            {versionSummary(t)}
-          </span>
-          <span className="hidden items-center @3xl/app:flex">
-            {t.waitingOn?.length ? (
-              <AvatarRow people={t.waitingOn} size={22} max={3} />
-            ) : (
-              <span className="text-[13px] text-ink-3">—</span>
-            )}
-          </span>
-          <span className="tabular hidden items-center gap-1.5 text-[13px] text-ink-3 @3xl/app:flex">
-            {latest ? ago(latest.createdAt) : ""}
-            <Comments n={trackComments(t)} />
-          </span>
-        </>
-      );
-    } else if (item.kind === "file") {
-      const f = item.file;
-      cells = (
-        <>
-          <Icon name={kindIcon[f.kind]} className="text-ink-3" />
-          {open && editing?.mode === "rename" ? editor(item) : nameOf(item, details(f))}
-          <span className="hidden items-center gap-2 text-[13px] @3xl/app:flex">
-            <FileStatus file={f} />
-          </span>
-          <span className="tabular hidden truncate text-[13px] text-ink-3 @3xl/app:block">
-            {details(f)} · {formatBytes(f.byteSize)}
-          </span>
-          <span className="hidden items-center @3xl/app:flex">
-            {f.uploadedBy && f.uploadedById ? (
-              <span title={f.uploadedBy}>
-                <Avatar id={f.uploadedById} name={f.uploadedBy} size={22} />
-              </span>
-            ) : (
-              <span className="text-[13px] text-ink-3">—</span>
-            )}
-          </span>
-          <span className="tabular hidden items-center gap-1.5 text-[13px] text-ink-3 @3xl/app:flex">
-            {ago(f.createdAt)}
-            <Comments n={f.openComments ?? 0} />
-          </span>
-        </>
-      );
-    }
+        ))}
+      </>
+    );
     const quickFile =
       item.kind === "track" ? latestFile(item.track) : item.kind === "file" ? item.file.id : null;
     return (
-      <li key={item.id} className="group border-b border-line last:border-b-0 hover:bg-raised/40">
-        <div className={rowGrid}>
+      <li
+        key={item.id}
+        data-key={markKey(item)}
+        draggable={manage && !open}
+        onDragStart={(event) => dragStart(item, event)}
+        onDragEnd={() => setDropOn(null)}
+        {...(item.kind === "folder" ? dropTarget(item.folder.id) : {})}
+        className={cn(
+          "group border-b border-line last:border-b-0 hover:bg-raised/40",
+          selected.has(markKey(item)) && "bg-raised/60",
+          item.kind === "folder" &&
+            dropOn === item.folder.id &&
+            "bg-raised shadow-[inset_0_0_0_1px_var(--hk-edge)]",
+        )}
+      >
+        <div className={rowGrid} style={gridVars}>
           {cells}
           <span className="flex items-center justify-end gap-0.5">
             {quickFile && !open && (
@@ -748,8 +1037,12 @@ export function FileBrowser({
           ) : (
             <button
               type="button"
-              className="text-ink-3 hover:text-ink"
+              className={cn(
+                "rounded-control text-ink-3 hover:text-ink",
+                dropOn === "top" && "bg-raised text-ink",
+              )}
               onClick={() => onOpenFolder(null)}
+              {...dropTarget(null)}
             >
               All files
             </button>
@@ -762,8 +1055,12 @@ export function FileBrowser({
               ) : (
                 <button
                   type="button"
-                  className="truncate text-ink-3 hover:text-ink"
+                  className={cn(
+                    "truncate rounded-control text-ink-3 hover:text-ink",
+                    dropOn === f.id && "bg-raised text-ink",
+                  )}
                   onClick={() => onOpenFolder(f.id)}
+                  {...dropTarget(f.id)}
                 >
                   {f.name}
                 </button>
@@ -795,16 +1092,25 @@ export function FileBrowser({
               </button>
             ))}
           </fieldset>
-          {manage && (
-            <ActionMenu
-              always
-              label="this folder"
-              actions={[
-                { label: "New folder", onSelect: () => setNaming("folder") },
-                ...(withTracks ? [{ label: "New track", onSelect: () => setNaming("track") }] : []),
-              ]}
-            />
-          )}
+          <ActionMenu
+            always
+            label="this folder"
+            actions={[
+              ...(manage
+                ? [
+                    { label: "New folder", onSelect: () => setNaming("folder") },
+                    ...(withTracks
+                      ? [{ label: "New track", onSelect: () => setNaming("track") }]
+                      : []),
+                    "divider" as const,
+                  ]
+                : []),
+              ...(selecting
+                ? [{ label: "Stop selecting", onSelect: clearSelection }]
+                : [{ label: "Select", hint: "x", onSelect: () => setSelectMode(true) }]),
+              { label: "Select all", hint: "⌘A", onSelect: () => setSelected(new Set(order)) },
+            ]}
+          />
           <UploadButton />
         </div>
       </div>
@@ -879,21 +1185,30 @@ export function FileBrowser({
       ) : view !== "grid" ? (
         <Card>
           <div
-            aria-hidden="true"
             className={cn(
               rowGrid,
               "eyebrow hidden h-9 border-b border-line text-ink-3 @3xl/app:grid",
             )}
+            style={gridVars}
           >
             <span />
             <span>Name</span>
-            <span>Status</span>
-            <span>{withTracks ? "Versions" : "Details"}</span>
-            <span>People</span>
-            <span>Updated</span>
-            <span />
+            {columns.map((c) => (
+              <ColumnHeading
+                key={c.id}
+                id={c.id}
+                name={names[c.id]}
+                columns={columns}
+                onResize={setDragging}
+                onResized={(next) => {
+                  setDragging(null);
+                  saveColumns.mutate(next);
+                }}
+              />
+            ))}
+            <ColumnsMenu columns={columns} names={names} onChange={saveColumns.mutate} />
           </div>
-          <ul className="m-0 list-none p-0" aria-label="Contents">
+          <ul className="m-0 list-none p-0" aria-label="Contents" onKeyDown={onListKey}>
             {items.map(row)}
           </ul>
         </Card>
@@ -901,6 +1216,7 @@ export function FileBrowser({
         <ul
           className="m-0 grid list-none grid-cols-2 gap-4 p-0 @3xl/app:grid-cols-4 @6xl/app:grid-cols-5"
           aria-label="Contents"
+          onKeyDown={onListKey}
         >
           {items.map((item) => {
             const open = editing?.id === item.id;
@@ -915,13 +1231,34 @@ export function FileBrowser({
             return (
               <li
                 key={item.id}
+                data-key={markKey(item)}
+                draggable={manage && !open}
+                onDragStart={(event) => dragStart(item, event)}
+                onDragEnd={() => setDropOn(null)}
+                {...(item.kind === "folder" ? dropTarget(item.folder.id) : {})}
                 className={cn(
                   "group relative flex min-w-0 flex-col gap-2.5 rounded-panel-lg border border-line bg-raised/30 p-3 shadow-1 transition-colors hover:border-edge",
                   open && "col-span-2 @3xl/app:col-span-4 @6xl/app:col-span-5",
+                  (selected.has(markKey(item)) ||
+                    (item.kind === "folder" && dropOn === item.folder.id)) &&
+                    "border-edge-strong bg-raised/60",
                 )}
               >
-                <span className="flex aspect-[2/1] items-center justify-center rounded-[6px] bg-sunken text-ink-3">
+                <span className="relative flex aspect-[2/1] items-center justify-center rounded-[6px] bg-sunken text-ink-3">
                   <Icon name={itemIcon(item)} size={24} />
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${itemName(item)}`}
+                    checked={selected.has(markKey(item))}
+                    onChange={() => {}}
+                    onClick={(event) => select(item, event.shiftKey)}
+                    className={cn(
+                      "absolute top-2 left-2 size-3.5 cursor-pointer accent-[var(--hk-ink)]",
+                      selecting
+                        ? "opacity-100"
+                        : "opacity-0 focus:opacity-100 group-focus-within:opacity-100 @3xl/app:group-hover:opacity-100",
+                    )}
+                  />
                 </span>
                 <span className="flex min-w-0 items-start gap-1">
                   <span className="min-w-0 flex-1">
@@ -938,7 +1275,226 @@ export function FileBrowser({
           })}
         </ul>
       )}
+      {(chosen.length > 0 || bulkError) && (
+        <SelectionBar
+          count={chosen.length}
+          busy={bulkBusy}
+          error={bulkError}
+          mode={bulk}
+          onMode={setBulk}
+          onClear={clearSelection}
+          actions={[
+            {
+              label: allHave(chosen.map(markKey), marks.pinned) ? "Unpin" : "Pin",
+              run: () => {
+                const items = chosen.map((i) => ({ kind: i.kind as MarkKind, id: i.id }));
+                setMarks.mutate({ items, pinned: !allHave(chosen.map(markKey), marks.pinned) });
+              },
+            },
+            {
+              label: allHave(chosen.map(markKey), marks.favourite) ? "Unfavourite" : "Favourite",
+              run: () => {
+                const items = chosen.map((i) => ({ kind: i.kind as MarkKind, id: i.id }));
+                setMarks.mutate({
+                  items,
+                  favourite: !allHave(chosen.map(markKey), marks.favourite),
+                });
+              },
+            },
+            // Seen if any is new; otherwise unseen again, but only others' files.
+            ...(chosen.some(isNew) ||
+            chosen.some((i) => {
+              const f = seenFile(i);
+              return f !== undefined && f.uploadedById !== myId;
+            })
+              ? [
+                  {
+                    label: chosen.some(isNew) ? "Mark as viewed" : "Mark as not viewed",
+                    run: () => {
+                      const anyNew = chosen.some(isNew);
+                      const ids = chosen.flatMap((i) => {
+                        const f = seenFile(i);
+                        return f && (anyNew || f.uploadedById !== myId) ? [f.id] : [];
+                      });
+                      setMarks.mutate({
+                        items: ids.map((id) => ({ kind: "file" as const, id })),
+                        viewed: anyNew,
+                      });
+                    },
+                  },
+                ]
+              : []),
+          ]}
+          move={
+            manage ? (
+              <MoveForm
+                options={destinations(movableTo(all, chosen), new Set())}
+                current={null}
+                pending={bulkBusy}
+                onMove={(to) => moveAll(chosen, to)}
+                onCancel={() => setBulk(null)}
+                any
+              />
+            ) : null
+          }
+          tags={
+            manage && chosen.some((i) => i.kind === "file") ? (
+              <BulkTags
+                files={chosen.flatMap((i) => (i.kind === "file" ? [i.file] : []))}
+                tags={tags}
+                pending={bulkBusy}
+                onCreate={(name) => tagging.create.mutateAsync(name)}
+                onSave={(files, common, chosenTags) =>
+                  void runAll(
+                    files.map((f): [Item, () => Promise<unknown>] => [
+                      { kind: "file", id: f.id, file: f },
+                      () =>
+                        tagging.setOnFile.mutateAsync({
+                          fileId: f.id,
+                          tagIds: bulkTags(f.tagIds ?? [], common, chosenTags),
+                        }),
+                    ]),
+                  )
+                }
+                onCancel={() => setBulk(null)}
+              />
+            ) : null
+          }
+          remove={
+            manage && chosen.every((i) => i.kind === "folder" || i.kind === "file")
+              ? () =>
+                  void runAll(
+                    chosen.map((i): [Item, () => Promise<unknown>] => [
+                      i,
+                      () =>
+                        i.kind === "folder"
+                          ? organise.deleteFolder.mutateAsync(i.folder.id)
+                          : i.kind === "file"
+                            ? organise.deleteFile.mutateAsync(i.file.id)
+                            : Promise.resolve(),
+                    ]),
+                  )
+              : null
+          }
+        />
+      )}
     </section>
+  );
+}
+
+/** Tags for many files at once: those on every one start chosen. */
+function BulkTags({
+  files,
+  tags,
+  pending,
+  onCreate,
+  onSave,
+  onCancel,
+}: {
+  files: ProjectFile[];
+  tags: Tag[];
+  pending: boolean;
+  onCreate: (name: string) => Promise<Tag>;
+  onSave: (files: ProjectFile[], common: string[], chosen: string[]) => void;
+  onCancel: () => void;
+}) {
+  const common = tags.map((t) => t.id).filter((id) => files.every((f) => f.tagIds?.includes(id)));
+  return (
+    <TagEditor
+      tags={tags}
+      initial={common}
+      pending={pending}
+      onCreate={onCreate}
+      onSave={(chosen) => onSave(files, common, chosen)}
+      onCancel={onCancel}
+    />
+  );
+}
+
+/**
+ * What can be done to everything selected, floating at the foot of the list as Linear and
+ * Dropbox have it: personal marks for everyone; moving, tagging and deleting for those who
+ * organise. Each change is checked on the server, one thing at a time.
+ */
+function SelectionBar({
+  count,
+  busy,
+  error,
+  mode,
+  onMode,
+  onClear,
+  actions,
+  move,
+  tags,
+  remove,
+}: {
+  count: number;
+  busy: boolean;
+  error: string | null;
+  mode: "move" | "tags" | "delete" | null;
+  onMode: (mode: "move" | "tags" | "delete" | null) => void;
+  onClear: () => void;
+  actions: { label: string; run: () => void }[];
+  move: ReactNode;
+  tags: ReactNode;
+  remove: (() => void) | null;
+}) {
+  return (
+    <div
+      role="toolbar"
+      aria-label="Selection"
+      className="rise-in sticky bottom-4 z-20 mx-auto flex w-full max-w-3xl flex-col gap-2 rounded-panel-lg bg-overlay p-2 shadow-4"
+    >
+      {mode === "move" && move && <div className="px-1.5 pt-1">{move}</div>}
+      {mode === "tags" && tags && <div className="px-1.5 pt-1">{tags}</div>}
+      {mode === "delete" && remove && (
+        <div className="flex flex-wrap items-center gap-2 px-1.5 pt-1" role="alert">
+          <span className="text-[13px] text-ink-2">
+            Delete {count === 1 ? "this" : `these ${count}`}? What is in a folder moves up; files
+            cannot be brought back.
+          </span>
+          <Button size="sm" variant="primary" disabled={busy} onClick={remove}>
+            Delete
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => onMode(null)}>
+            Keep
+          </Button>
+        </div>
+      )}
+      {error && <p className="m-0 px-1.5 text-[12px] text-signal">{error}</p>}
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="tabular px-2 text-[13px] text-ink">{count} selected</span>
+        {actions.map((a) => (
+          <Button key={a.label} size="sm" variant="ghost" disabled={busy} onClick={a.run}>
+            {a.label}
+          </Button>
+        ))}
+        {move && (
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => onMode("move")}>
+            Move…
+          </Button>
+        )}
+        {tags && (
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => onMode("tags")}>
+            Tags…
+          </Button>
+        )}
+        {remove && (
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => onMode("delete")}>
+            Delete…
+          </Button>
+        )}
+        <button
+          type="button"
+          aria-label="Clear the selection"
+          title="Clear the selection (Escape)"
+          onClick={onClear}
+          className="ml-auto flex size-7 items-center justify-center rounded-control text-ink-3 hover:bg-raised hover:text-ink"
+        >
+          <Icon name="close" size={14} />
+        </button>
+      </div>
+    </div>
   );
 }
 

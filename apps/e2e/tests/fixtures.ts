@@ -33,5 +33,10 @@ export async function saveScreen(page: Page, name: string) {
   // The seed runs once; the screens run at each width, so the width's project names the file.
   const project = test.info().project.name;
   const file = project === "seed" ? name : `${name}-${project}`;
-  await page.screenshot({ path: join(screens, `${file}.png`), fullPage: true });
+  // Transitions finish first, so a capture never shows a control halfway to its new state.
+  await page.screenshot({
+    path: join(screens, `${file}.png`),
+    fullPage: true,
+    animations: "disabled",
+  });
 }

@@ -1,4 +1,14 @@
-import { type BrowserFilter, browserFilters, type Mark } from "@hekate/shared";
+import {
+  type BrowserFilter,
+  browserFilters,
+  columnWidths,
+  type FileColumn,
+  type FileColumnLayout,
+  fileColumns,
+  type Mark,
+  maxColumnWidth,
+  minColumnWidth,
+} from "@hekate/shared";
 import type { Folder, ProjectFile, Track, Version } from "./queries";
 
 /** What a folder holds: folders, tracks (a folder of a piece's versions) and loose files. */
@@ -226,3 +236,88 @@ export function filterProject(
     marks,
   );
 }
+
+/** The list's grid: the icon, the name taking what is left, each chosen column, the actions. */
+export const gridTemplate = (columns: FileColumnLayout) =>
+  ["20px", "minmax(0,1fr)", ...columns.map((c) => `${c.width}px`), "88px"].join(" ");
+
+/** Show a column, at its usual width and in its usual place among those shown, or hide it. */
+export function toggleColumn(columns: FileColumnLayout, id: FileColumn): FileColumnLayout {
+  if (columns.some((c) => c.id === id)) return columns.filter((c) => c.id !== id);
+  const rank = (c: FileColumn) => fileColumns.indexOf(c);
+  const at = columns.findIndex((c) => rank(c.id) > rank(id));
+  const added = { id, width: columnWidths[id] };
+  return at < 0 ? [...columns, added] : [...columns.slice(0, at), added, ...columns.slice(at)];
+}
+
+/** Move a shown column one place earlier (-1) or later (1). */
+export function moveColumn(
+  columns: FileColumnLayout,
+  id: FileColumn,
+  by: -1 | 1,
+): FileColumnLayout {
+  const from = columns.findIndex((c) => c.id === id);
+  const to = from + by;
+  if (from < 0 || to < 0 || to >= columns.length) return columns;
+  const next = [...columns];
+  [next[from], next[to]] = [
+    next[to] as FileColumnLayout[number],
+    next[from] as FileColumnLayout[number],
+  ];
+  return next;
+}
+
+/** A column at a new width, kept within what fits a header and stays readable. */
+export const resizeColumn = (
+  columns: FileColumnLayout,
+  id: FileColumn,
+  width: number,
+): FileColumnLayout =>
+  columns.map((c) =>
+    c.id === id
+      ? { ...c, width: Math.round(Math.min(maxColumnWidth, Math.max(minColumnWidth, width))) }
+      : c,
+  );
+
+/**
+ * The keys from one to another, either way round, in the order shown: what a shift-click or
+ * shift-arrow selects. Without a starting point, just the one.
+ */
+export function rangeBetween(order: string[], from: string | null, to: string): string[] {
+  const a = from === null ? -1 : order.indexOf(from);
+  const b = order.indexOf(to);
+  if (b < 0) return [];
+  if (a < 0) return [to];
+  return order.slice(Math.min(a, b), Math.max(a, b) + 1);
+}
+
+/** What a set of things says to do to all of them: pin unless every one is pinned already. */
+export const allHave = (keys: Iterable<string>, have: Set<string>) => {
+  let any = false;
+  for (const k of keys) {
+    any = true;
+    if (!have.has(k)) return false;
+  }
+  return any;
+};
+
+/** The folders something may move to: not into itself, nor into anything inside it. */
+export function movableTo(folders: Folder[], moving: Item[]): Folder[] {
+  const out = new Set<string>();
+  for (const item of moving) {
+    if (item.kind !== "folder") continue;
+    const stack = [item.folder.id];
+    while (stack.length) {
+      const id = stack.pop() as string;
+      if (out.has(id)) continue;
+      out.add(id);
+      for (const f of folders) if (f.parentId === id) stack.push(f.id);
+    }
+  }
+  return folders.filter((f) => !out.has(f.id));
+}
+
+/** Tags to put on a file when many are tagged at once: those chosen, less those taken off all. */
+export const bulkTags = (current: string[], common: string[], chosen: string[]) => [
+  ...new Set([...current.filter((t) => !common.includes(t) || chosen.includes(t)), ...chosen]),
+];

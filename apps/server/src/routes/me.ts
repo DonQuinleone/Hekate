@@ -1,4 +1,5 @@
-import { type Database, schema } from "@hekate/db";
+import { type Database, inOrg, schema } from "@hekate/db";
+import { fileColumnsInput } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { asc, eq } from "drizzle-orm";
 import { Hono } from "hono";
@@ -35,4 +36,24 @@ export const meRoutes = (db: Database) =>
         .set({ activeOrganisationId: organisationId })
         .where(eq(schema.authSessions.id, c.var.sessionId));
       return c.json({ activeOrganisationId: organisationId });
+    })
+    // The file browser's columns, as this member arranged them in this workspace.
+    .get("/file-columns", async (c) => {
+      const [row] = await db
+        .select({ columns: schema.members.fileColumns })
+        .from(schema.members)
+        .where(
+          inOrg(schema.members, c.var.organisationId, eq(schema.members.userId, c.var.userId)),
+        );
+      return c.json({ columns: row?.columns ?? null });
+    })
+    .put("/file-columns", zValidator("json", fileColumnsInput), async (c) => {
+      const { columns } = c.req.valid("json");
+      await db
+        .update(schema.members)
+        .set({ fileColumns: columns, updatedAt: new Date() })
+        .where(
+          inOrg(schema.members, c.var.organisationId, eq(schema.members.userId, c.var.userId)),
+        );
+      return c.json({ columns });
     });

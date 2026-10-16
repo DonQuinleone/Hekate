@@ -2366,6 +2366,26 @@ describe.runIf(url)("api", () => {
         expect(after.files.find((f) => f.id === s.mix)?.tagIds).toEqual([]);
       });
 
+      it("keeps each member's file columns for this workspace", async () => {
+        const s = await studio();
+        const columnsOf = async (cookie: string) =>
+          ((await (await getAs("/api/me/file-columns", cookie)).json()) as { columns: unknown })
+            .columns;
+        const put = (cookie: string, columns: unknown) =>
+          app.request("/api/me/file-columns", { ...json({ columns }, cookie), method: "PUT" });
+        expect(await columnsOf(s.composer)).toBeNull();
+        const mine = [
+          { id: "tags", width: 160 },
+          { id: "status", width: 120 },
+        ];
+        expect((await put(s.composer, mine)).status).toBe(200);
+        expect(await columnsOf(s.composer)).toEqual(mine);
+        expect(await columnsOf(s.owner)).toBeNull();
+        expect((await put(s.composer, [mine[0], mine[0]])).status).toBe(400);
+        expect((await put(s.composer, [{ id: "tags", width: 9999 }])).status).toBe(400);
+        expect((await put(s.composer, [{ id: "colour", width: 100 }])).status).toBe(400);
+      });
+
       it("keeps each person's pins, favourites and seen files to themselves", async () => {
         const s = await studio();
         const mark = (cookie: string, body: Record<string, unknown>, projectId = s.projectId) =>

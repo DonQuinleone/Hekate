@@ -8,6 +8,7 @@ import {
   type DeliveryProfileId,
   type DigestFrequency,
   defaultReviewerPermissions,
+  type FileColumnLayout,
   type LoudnessSummary,
   type MailMode,
   type MediaInfo,
@@ -183,6 +184,8 @@ export const members = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     role: organisationRoleEnum("role").notNull().default("member"),
+    /** The file browser's columns as this member arranged them; null for the default. */
+    fileColumns: jsonb("file_columns").$type<FileColumnLayout>(),
     ...timestamps,
   },
   (t) => [uniqueIndex("members_org_user_idx").on(t.organisationId, t.userId)],

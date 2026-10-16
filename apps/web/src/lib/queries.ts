@@ -8,6 +8,7 @@ import {
   decodeLoudness,
   decodePeaks,
   decodeSpectrogram,
+  type FileColumnLayout,
   type FileKind,
   type GroupInput,
   type GuestInput,
@@ -1713,5 +1714,32 @@ export function useMarks(projectId: string) {
     },
     onError: (_e, _i, ctx) => client.setQueryData(key, ctx?.before),
     onSettled: () => client.invalidateQueries({ queryKey: key }),
+  });
+}
+
+/** The file browser's columns as the member arranged them here; null for the default. */
+export const fileColumnsQuery = queryOptions({
+  queryKey: ["me", "file-columns"],
+  queryFn: async () =>
+    (await json<{ columns: FileColumnLayout | null }>(await api.me["file-columns"].$get())).columns,
+  staleTime: Number.POSITIVE_INFINITY,
+});
+
+/** Keep a new arrangement of columns: shown at once, put back if refused. */
+export function useFileColumns() {
+  const client = useQueryClient();
+  const key = fileColumnsQuery.queryKey;
+  return useMutation({
+    mutationFn: async (columns: FileColumnLayout) => {
+      const res = await api.me["file-columns"].$put({ json: { columns } });
+      if (!res.ok) await json(res);
+    },
+    onMutate: async (columns) => {
+      await client.cancelQueries({ queryKey: key });
+      const before = client.getQueryData(key);
+      client.setQueryData(key, columns);
+      return { before };
+    },
+    onError: (_e, _c, ctx) => client.setQueryData(key, ctx?.before),
   });
 }

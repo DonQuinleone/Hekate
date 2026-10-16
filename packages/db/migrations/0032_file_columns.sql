@@ -1,0 +1,1 @@
+ALTER TABLE "members" ADD COLUMN "file_columns" jsonb;

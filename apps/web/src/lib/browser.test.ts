@@ -2,18 +2,26 @@ import type { Mark } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
 import type { Item } from "./browser";
 import {
+  allHave,
   type BrowserFilters,
+  bulkTags,
   columnsFor,
   filterProject,
   filtersFrom,
   filtersTo,
   folderCount,
   freshPath,
+  gridTemplate,
   indexMarks,
   itemsIn,
   latestFile,
+  movableTo,
+  moveColumn,
   noFilters,
   pinnedFirst,
+  rangeBetween,
+  resizeColumn,
+  toggleColumn,
   versionSummary,
   versionsOf,
 } from "./browser";
@@ -168,5 +176,66 @@ describe("marks and filters", () => {
       { kind: "file", id: "Mine.wav", pinned: true, favourite: true, viewed: false },
     ];
     expect(run(["favourites"], [], favourite)).toEqual(["Mine.wav", "Stems"]);
+  });
+});
+
+describe("columns", () => {
+  const cols = [
+    { id: "status", width: 150 },
+    { id: "updated", width: 100 },
+  ] as const;
+
+  it("lays out the grid from the columns shown", () => {
+    expect(gridTemplate([...cols])).toBe("20px minmax(0,1fr) 150px 100px 88px");
+  });
+
+  it("adds a column in its usual place, and takes it away", () => {
+    expect(toggleColumn([...cols], "versions").map((c) => c.id)).toEqual([
+      "status",
+      "versions",
+      "updated",
+    ]);
+    expect(toggleColumn([...cols], "tags").map((c) => c.id)).toEqual(["status", "updated", "tags"]);
+    expect(toggleColumn([...cols], "status").map((c) => c.id)).toEqual(["updated"]);
+  });
+
+  it("moves within bounds and keeps widths readable", () => {
+    expect(moveColumn([...cols], "updated", -1).map((c) => c.id)).toEqual(["updated", "status"]);
+    expect(moveColumn([...cols], "updated", 1)).toEqual(cols);
+    expect(resizeColumn([...cols], "status", 10)[0]?.width).toBe(64);
+    expect(resizeColumn([...cols], "status", 9000)[0]?.width).toBe(480);
+    expect(resizeColumn([...cols], "status", 200.4)[0]?.width).toBe(200);
+  });
+});
+
+describe("selection", () => {
+  const order = ["a", "b", "c", "d"];
+
+  it("selects a range either way round", () => {
+    expect(rangeBetween(order, "b", "d")).toEqual(["b", "c", "d"]);
+    expect(rangeBetween(order, "d", "b")).toEqual(["b", "c", "d"]);
+    expect(rangeBetween(order, null, "c")).toEqual(["c"]);
+    expect(rangeBetween(order, "gone", "c")).toEqual(["c"]);
+    expect(rangeBetween(order, "a", "gone")).toEqual([]);
+  });
+
+  it("says what to do to everything at once", () => {
+    expect(allHave(["a", "b"], new Set(["a", "b", "c"]))).toBe(true);
+    expect(allHave(["a", "d"], new Set(["a"]))).toBe(false);
+    expect(allHave([], new Set(["a"]))).toBe(false);
+  });
+
+  it("keeps folders out of themselves", () => {
+    const mixes = { kind: "folder", id: "Mixes", folder: folders[0] } as Item;
+    expect(movableTo(folders, [mixes]).map((f) => f.id)).toEqual([]);
+    const all = [...folders, folder("Elsewhere", null)];
+    expect(movableTo(all, [mixes]).map((f) => f.id)).toEqual(["Elsewhere"]);
+  });
+
+  it("tags many files, keeping what each had", () => {
+    // Masters was on both and stays chosen; Draft was on both and is taken off; Print is added.
+    expect(
+      bulkTags(["masters", "draft", "own"], ["masters", "draft"], ["masters", "print"]),
+    ).toEqual(["masters", "own", "print"]);
   });
 });

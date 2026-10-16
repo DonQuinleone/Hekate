@@ -233,7 +233,7 @@ test("project-files-columns", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/projects/${seeded().musicProjectId}/files`);
   await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
-  await page.getByRole("button", { name: "Columns" }).click();
+  await page.getByRole("button", { name: "Columns", exact: true }).click();
   await page
     .getByRole("button", { name: /^Maple Leaf Rag/ })
     .first()
@@ -278,4 +278,37 @@ test("project-files-grid", async ({ page }) => {
   await showWhole(page);
   await saveScreen(page, "project-files-grid");
   await checkScreen(page);
+});
+
+// Two rows chosen: the selection bar floats at the foot of the list.
+test("project-files-selected", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/files`);
+  await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
+  await page.getByRole("checkbox", { name: "Select The Entertainer" }).click();
+  await page.getByRole("checkbox", { name: "Select Maple Leaf Rag - Score.pdf" }).click();
+  await settle(page, "[role=toolbar][aria-label=Selection]");
+  await saveScreen(page, "project-files-selected");
+  await checkScreen(page);
+});
+
+// The list's columns, with Tags and Duration added; phones show no columns to choose.
+test("project-files-columns-menu", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "A phone shows names only");
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/files`);
+  await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
+  await page.getByRole("button", { name: "Choose columns" }).click();
+  const menu = page.getByRole("dialog", { name: "Columns" });
+  await menu.getByRole("switch", { name: "Tags" }).click();
+  await menu.getByRole("switch", { name: "Duration" }).click();
+  await settle(page, "main >> text=Duration");
+  await expect(menu.getByRole("switch", { name: "Duration" })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+  await saveScreen(page, "project-files-columns-menu");
+  await checkScreen(page);
+  // Put the list back as it was for the captures that follow.
+  await menu.getByRole("button", { name: "Reset" }).click();
 });
