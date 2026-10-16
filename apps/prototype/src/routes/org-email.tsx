@@ -67,7 +67,8 @@ const templates: Template[] = [
 /** What a transactional email looks like: one message, one action, the lockup, and nothing to configure but the words. */
 export function EmailSection() {
   const [id, setId] = useState("review");
-  const [light, setLight] = useState(true);
+  const [view, setView] = useState<"light" | "dark" | "text">("light");
+  const light = view !== "dark";
   const t = templates.find((x) => x.id === id) ?? templates[0];
   if (!t) return null;
   return (
@@ -84,64 +85,110 @@ export function EmailSection() {
                 </option>
               ))}
             </Select>
-            <Button variant="secondary" size="md" onClick={() => setLight(!light)}>
-              {light ? "Dark client" : "Light client"}
-            </Button>
           </span>
         }
       >
-        <div className={cn("px-4 py-6 @3xl/app:px-10", light ? "bg-ink-3/25" : "bg-canvas")}>
-          <div
-            className={cn(
-              "mx-auto w-full max-w-[520px] overflow-hidden rounded-panel-lg border",
-              light ? "border-ground/15 bg-paper text-ground" : "border-line bg-pane text-ink",
-            )}
-          >
-            <div
+        <fieldset className="m-0 flex min-w-0 gap-1 border-0 px-4 py-2">
+          <legend className="sr-only">Preview as</legend>
+          {(
+            [
+              ["light", "Light client"],
+              ["dark", "Dark client"],
+              ["text", "Plain text"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={view === id}
+              onClick={() => setView(id)}
               className={cn(
-                "flex items-center gap-2 px-7 pt-7",
-                light ? "text-ground" : "text-ink",
+                "h-8 rounded-control px-3 text-[13px] transition-colors",
+                view === id
+                  ? "bg-raised text-ink shadow-1"
+                  : "text-ink-3 hover:bg-raised/60 hover:text-ink",
               )}
             >
-              <Mark size={18} mono={light} />
-              <span className="text-[14px] font-medium">Hekate</span>
-              <span className={cn("ml-auto text-[12px]", light ? "text-ground/50" : "text-ink-3")}>
-                {organisation.name}
-              </span>
-            </div>
-            <div className="px-7 pt-6 pb-7">
-              <h3 className="text-[20px] leading-[26px] font-medium tracking-tight">{t.heading}</h3>
-              <p
-                className={cn(
-                  "mt-3 text-[14px] leading-[22px]",
-                  light ? "text-ground/75" : "text-ink-2",
-                )}
-              >
-                {t.body}
-              </p>
-              <span className="mt-5 inline-flex h-10 items-center rounded-control bg-signal px-4 text-[14px] font-medium text-ground">
-                {t.action}
-              </span>
-              <p
-                className={cn(
-                  "mt-6 text-[12px] leading-[18px]",
-                  light ? "text-ground/50" : "text-ink-3",
-                )}
-              >
-                {t.foot}
-              </p>
-            </div>
+              {label}
+            </button>
+          ))}
+        </fieldset>
+        {view === "text" ? (
+          <pre className="m-0 bg-ground/60 px-5 py-5 font-mono text-[12.5px] leading-[19px] whitespace-pre-wrap text-ink-2">
+            {[
+              `Subject: ${t.subject}`,
+              "",
+              organisation.name,
+              "",
+              t.heading,
+              "",
+              t.body,
+              "",
+              `${t.action}:`,
+              "https://review.endlesshall.example/…",
+              "",
+              "-- ",
+              t.foot,
+            ].join("\n")}
+          </pre>
+        ) : (
+          <div className={cn("px-4 py-6 @3xl/app:px-10", light ? "bg-ink-3/25" : "bg-canvas")}>
             <div
               className={cn(
-                "border-t px-7 py-4 text-[11px]",
-                light ? "border-ground/10 text-ground/40" : "border-line text-ink-3",
+                "mx-auto w-full max-w-[520px] overflow-hidden rounded-panel-lg border",
+                light ? "border-ground/15 bg-paper text-ground" : "border-line bg-pane text-ink",
               )}
             >
-              Sent by Hekate for {organisation.name} · review.endlesshall.example · Change what you
-              are told about
+              <div
+                className={cn(
+                  "flex items-center gap-2 px-7 pt-7",
+                  light ? "text-ground" : "text-ink",
+                )}
+              >
+                <Mark size={18} mono={light} />
+                <span className="text-[14px] font-medium">Hekate</span>
+                <span
+                  className={cn("ml-auto text-[12px]", light ? "text-ground/50" : "text-ink-3")}
+                >
+                  {organisation.name}
+                </span>
+              </div>
+              <div className="px-7 pt-6 pb-7">
+                <h3 className="text-[20px] leading-[26px] font-medium tracking-tight">
+                  {t.heading}
+                </h3>
+                <p
+                  className={cn(
+                    "mt-3 text-[14px] leading-[22px]",
+                    light ? "text-ground/75" : "text-ink-2",
+                  )}
+                >
+                  {t.body}
+                </p>
+                <span className="mt-5 inline-flex h-10 items-center rounded-control bg-signal px-4 text-[14px] font-medium text-ground">
+                  {t.action}
+                </span>
+                <p
+                  className={cn(
+                    "mt-6 text-[12px] leading-[18px]",
+                    light ? "text-ground/50" : "text-ink-3",
+                  )}
+                >
+                  {t.foot}
+                </p>
+              </div>
+              <div
+                className={cn(
+                  "border-t px-7 py-4 text-[11px]",
+                  light ? "border-ground/10 text-ground/40" : "border-line text-ink-3",
+                )}
+              >
+                Sent by Hekate for {organisation.name} · review.endlesshall.example · Change what
+                you are told about
+              </div>
             </div>
           </div>
-        </div>
+        )}
         <Row name="Subject">
           <Input key={t.id} defaultValue={t.subject} className="w-full @3xl/app:w-96" />
         </Row>
@@ -163,8 +210,8 @@ export function EmailSection() {
           hint="One button, in the signal colour, that goes straight to the thing. No second links in the body."
         />
         <Row
-          name="Plain words"
-          hint="Who did what, and what is asked. No marketing, no images beyond the mark."
+          name="Plain words, and plain text"
+          hint="Who did what, and what is asked. The text part is written to be read as it is, not squeezed out of the HTML."
         />
         <Row
           name="Why you got it"
@@ -172,7 +219,7 @@ export function EmailSection() {
         />
         <Row
           name="Both clients"
-          hint="Set for light and dark mail clients; the mark is mono on light, ink on dark."
+          hint="Set for light and dark mail clients; the mark is drawn, not an image, so nothing reports that a message was opened."
         />
       </Section>
     </>

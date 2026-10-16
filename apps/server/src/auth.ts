@@ -1,7 +1,7 @@
 import { type Database, schema } from "@hekate/db";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import type { Mailer } from "./mail.ts";
+import { type Mailer, sendEmail } from "./mail.ts";
 
 export interface AuthOptions {
   db: Database;
@@ -54,10 +54,15 @@ export function createAuth(options: AuthOptions) {
               user: { email: string };
               url: string;
             }) => {
-              await options.mailer?.send({
-                to: user.email,
+              if (!options.mailer) return;
+              await sendEmail(options.mailer, user.email, {
                 subject: "Confirm your new email address for Hekate",
-                text: `Someone, probably you, asked for this address to be used to sign in to Hekate.\n\nTo confirm it, open this link within a day:\n${url}\n\nIf it was not you, ignore this message and nothing changes.`,
+                heading: "Confirm your new email address",
+                body: [
+                  "Someone, probably you, asked for this address to be used to sign in to Hekate. The link works for a day.",
+                ],
+                action: { label: "Confirm the address", url },
+                foot: "If it was not you, ignore this message and nothing changes.",
               });
             },
           },

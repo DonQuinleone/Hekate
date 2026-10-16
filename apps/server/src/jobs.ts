@@ -65,6 +65,12 @@ export const jobDefinitions = {
     options: { retryLimit: 1, expireInSeconds: 30 * 60 },
     schedule: "3 * * * *",
   },
+  /** Remind reviewers the day before a review waiting on them is due. Hourly. */
+  "reviews-remind": {
+    data: z.object({}),
+    options: { retryLimit: 1, expireInSeconds: 30 * 60 },
+    schedule: "29 * * * *",
+  },
   /** Compare storage with the database: remove what nothing uses, report what is missing. Daily. */
   "storage-reconcile": {
     data: z.object({}),

@@ -10,6 +10,7 @@ import {
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Avatar } from "~/components/avatar";
+import { EmailTemplatesSection } from "~/components/email-templates";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { PageHeader } from "~/components/page-header";
@@ -74,6 +75,13 @@ const allSections: SectionSpec[] = [
     group: "Workspace",
     from: "admin",
     intro: "What reviews and new projects get unless someone says otherwise.",
+  },
+  {
+    id: "email",
+    label: "Email templates",
+    group: "Workspace",
+    from: "admin",
+    intro: "The messages Hekate sends for the workspace, as each kind of mail client shows them.",
   },
   {
     id: "members",
@@ -732,6 +740,7 @@ export function WorkspaceSettingsPage({ section }: { section: string }) {
       >
         {current.id === "general" && <General role={role} />}
         {current.id === "defaults" && <Defaults />}
+        {current.id === "email" && <EmailTemplatesSection />}
         {current.id === "members" && <Members role={role} />}
         {current.id === "storage" && <Storage role={role} />}
         {current.id === "log" && <AccessLog />}

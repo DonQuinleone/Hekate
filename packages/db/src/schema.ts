@@ -14,6 +14,7 @@ import {
   type MediaInfo,
   type NotificationChannels,
   type NotificationKind,
+  type NotificationMail,
   notificationKinds,
   type OverviewSection,
   type ProjectPermission,
@@ -1073,6 +1074,8 @@ export const reviewReviewers = pgTable(
     viewedAt: timestamp("viewed_at", { withTimezone: true }),
     startedAt: timestamp("started_at", { withTimezone: true }),
     submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    /** When they were reminded that the review is due tomorrow; once only. */
+    remindedAt: timestamp("reminded_at", { withTimezone: true }),
     ...timestamps,
   },
   (t) => [
@@ -1181,6 +1184,8 @@ export const notifications = pgTable(
     detail: text("detail"),
     /** Where it leads in the app, as a path. */
     link: text("link").notNull(),
+    /** The workspace template its mail's subject comes from, with the values for it. */
+    mail: jsonb("mail").$type<NotificationMail>(),
     /** Shown in the app; a kind someone takes by mail only is kept for the mail alone. */
     inApp: boolean("in_app").notNull().default(true),
     /** How it goes by mail, chosen when it was made; null when it does not. */
