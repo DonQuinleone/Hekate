@@ -180,3 +180,99 @@ export function reviewOutcome(
   if (rule === "any") return "changes_requested";
   return reviewers.every((r) => r.decision === "approved") ? "approved" : "changes_requested";
 }
+
+/** Submitting feedback, with an optional word about the review as a whole. */
+export const submitFeedbackInput = z.object({
+  note: z.string().trim().max(4000).optional(),
+});
+
+/** Cancelling a review, with the reason its reviewers are given. */
+export const cancelReviewInput = z.object({
+  reason: z.string().trim().max(500).optional(),
+});
+
+/** Changing an open review: its due date, or none. */
+export const updateReviewInput = z.object({
+  dueAt: z.iso.datetime({ offset: true }).nullable(),
+});
+
+/** A reminder: to everyone the review is waiting on, or to one reviewer. */
+export const remindInput = z.object({
+  reviewerId: z.uuid().optional(),
+});
+
+/** How far a step of a review, or its gate, has got. */
+export type StepState = "done" | "current" | "ahead" | "failed";
+
+export interface StepReviewer {
+  id: string;
+  step: number;
+  state: ReviewerState;
+}
+
+export interface ReviewStep<R extends StepReviewer = StepReviewer> {
+  step: number;
+  reviewers: R[];
+  responded: number;
+  state: StepState;
+}
+
+/**
+ * A review's steps in order, as its page draws them: done once everyone in it has
+ * responded (or only follows along), current while anyone in it is asked, ahead before.
+ * A parallel review is one step.
+ */
+export function reviewSteps<R extends StepReviewer>(
+  order: ReviewOrder,
+  reviewers: R[],
+): ReviewStep<R>[] {
+  const positions =
+    order === "parallel" ? [0] : [...new Set(reviewers.map((r) => r.step))].sort((a, b) => a - b);
+  return positions.map((step) => {
+    const rows = order === "parallel" ? reviewers : reviewers.filter((r) => r.step === step);
+    const responded = rows.filter((r) => r.state === "submitted").length;
+    const state: StepState = rows.every((r) => r.state === "submitted" || r.state === "observing")
+      ? "done"
+      : rows.some((r) => r.state !== "waiting")
+        ? "current"
+        : "ahead";
+    return { step, reviewers: rows, responded, state };
+  });
+}
+
+/**
+ * The gate at the end of a review: passed once it is approved or the feedback is in,
+ * failed when changes are requested, current once every step is done but nothing is
+ * decided, ahead before that. A cancelled review's gate never opens.
+ */
+export function gateState(
+  status: ReviewStatus,
+  outcome: ReviewOutcome,
+  steps: Pick<ReviewStep, "state">[],
+): StepState {
+  if (outcome === "approved" || outcome === "submitted") return "done";
+  if (outcome === "changes_requested") return "failed";
+  if (status !== "open") return "ahead";
+  return steps.every((s) => s.state === "done") ? "current" : "ahead";
+}
+
+/**
+ * What the gate counts: of the reviewers it waits on (in an approval, those asked for a
+ * decision), how many approved, asked for changes, submitted, and are still to come.
+ */
+export function gateCounts(
+  kind: ReviewKind,
+  reviewers: { state: ReviewerState; decision: ReviewDecision | null }[],
+) {
+  const counted = reviewers.filter((r) => r.state !== "observing");
+  const approved = counted.filter((r) => r.decision === "approved").length;
+  const changes = counted.filter((r) => r.decision === "changes_requested").length;
+  const submitted = counted.filter((r) => r.state === "submitted").length;
+  return {
+    total: counted.length,
+    approved,
+    changes,
+    submitted,
+    toCome: kind === "approval" ? counted.length - approved - changes : counted.length - submitted,
+  };
+}

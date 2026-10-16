@@ -30,6 +30,13 @@ export const auditActions = [
   /** A reviewer recorded an approval decision, or submitted feedback. */
   "review.decision",
   "review.submit",
+  /** Someone reminded the reviewers a review waits on, or one of them. */
+  "review.remind",
+  /** Someone changed a review's due date. */
+  "review.due",
+  /** Someone added a reviewer to a review, or removed one. */
+  "review.reviewer_add",
+  "review.reviewer_remove",
   /** A guest was sent a magic link, used one, or had their links and sessions revoked. */
   "guest.link",
   "guest.sign_in",

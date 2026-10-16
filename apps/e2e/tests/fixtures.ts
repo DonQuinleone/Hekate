@@ -16,6 +16,11 @@ export interface Seeded {
   scoreFileId: string;
   cutFileId: string;
   reviewId: string;
+  /** A review in each state its page shows, by state. */
+  reviewStates: Record<
+    "decided" | "changes" | "approved" | "cancelled" | "waiting" | "overdue",
+    string
+  >;
   /** An invitation's page, waiting to be accepted. */
   invitationPath: string;
   /** A guest link already used, which no longer signs anyone in. */

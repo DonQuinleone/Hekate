@@ -1184,6 +1184,14 @@ export const reviews = pgTable(
     outcome: text("outcome").$type<Exclude<ReviewOutcome, null>>(),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    /**
+     * What its reviewers may do, as requested: the workspace's defaults with the request's
+     * changes. Reviewers added later get the same; one reviewer's override stays theirs.
+     */
+    grant: jsonb("grant").$type<ReviewerPermissions>(),
+    /** Who cancelled it, and the reason its reviewers were given. */
+    cancelledBy: text("cancelled_by").references(() => users.id, { onDelete: "set null" }),
+    cancelReason: text("cancel_reason"),
     ...timestamps,
   },
   (t) => [
@@ -1248,6 +1256,8 @@ export const reviewReviewers = pgTable(
     submittedAt: timestamp("submitted_at", { withTimezone: true }),
     /** When they were reminded that the review is due tomorrow; once only. */
     remindedAt: timestamp("reminded_at", { withTimezone: true }),
+    /** With submitted feedback: a word about the review as a whole. */
+    feedbackNote: text("feedback_note"),
     ...timestamps,
   },
   (t) => [
@@ -1256,6 +1266,23 @@ export const reviewReviewers = pgTable(
     index("review_reviewers_guest_lookup_idx").on(t.guestId),
     check("review_reviewers_one_person", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
   ],
+);
+
+/** Which items of a review each reviewer has opened, and when they first did. */
+export const reviewItemOpens = pgTable(
+  "review_item_opens",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    reviewerId: uuid("reviewer_id")
+      .notNull()
+      .references(() => reviewReviewers.id, { onDelete: "cascade" }),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => reviewItems.id, { onDelete: "cascade" }),
+    openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("review_item_opens_idx").on(t.organisationId, t.reviewerId, t.itemId)],
 );
 
 /**
