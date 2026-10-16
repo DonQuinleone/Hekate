@@ -271,7 +271,7 @@ function Defaults() {
         />
         <SwitchRow
           name="May decide, in an approval"
-          hint="Without it, a reviewer follows an approval without being waited on."
+          hint="Off, an approval must say who may decide; reviewers who may not only follow it."
           checked={reviewer.decide}
           onChange={(decide) => change({ reviewer: { decide } })}
         />

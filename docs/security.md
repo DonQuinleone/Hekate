@@ -24,7 +24,7 @@ Members sign in with what their workspace already uses; guests never need an acc
 - **Directory:** LDAP (including Active Directory) bind authentication for self-hosted installs, with group-to-role mapping.
 - **Passkeys and security keys:** WebAuthn passkeys for passwordless sign-in, and hardware security keys such as YubiKeys as a second factor or as the sole factor. Five keys per account by default, a limit the operator can raise, each named and individually revocable, with recovery codes.
 - **Passwords:** optional, can be disabled per workspace; always paired with a second factor when policy requires.
-- **Guests:** magic links. A guest receives a single-use, short-lived link by email, scoped to the reviews they are invited to; opening it starts a session bound to that browser. Links last three days, are stored only as hashes, and sending a new one revokes the last. The session lasts a fortnight in an httpOnly, SameSite Strict cookie. Links can be re-sent and revoked, and every use is logged.
+- **Guests:** magic links. A guest receives a single-use, short-lived link by email, scoped to the reviews they are invited to; opening it starts a session bound to that browser. Links last three days unless a workspace admin chooses 14 or 30 (Settings, General; the longer the life, the longer a forwarded or intercepted mail stays useful, so three is the default), are stored only as hashes, and sending a new one revokes the last. The session lasts a fortnight in an httpOnly, SameSite Strict cookie. Links can be re-sent and revoked, and every use is logged.
 - **Policy:** per workspace, owners choose the allowed methods and whether a second factor or a security key is required.
 
 ## Delivery

@@ -3639,6 +3639,23 @@ describe.runIf(url)("api", () => {
           expect((link?.expiresAt.getTime() ?? 0) - Date.now()).toBeLessThanOrEqual(14 * day);
           const mail = mailer.sent.find((m) => m.to === "conductor@example.test");
           expect(mail?.text).toContain("works once, for 14 days.");
+
+          // An approval nobody may decide would never end: refused, unless the request says
+          // that its reviewers may decide.
+          const approval = (permissions?: Record<string, unknown>) =>
+            request(s.owner, s.projectId, {
+              kind: "approval",
+              title: "Album master, signed off",
+              items: [{ trackId: s.trackId }],
+              reviewers: [s.ids.composer],
+              ...(permissions ? { permissions } : {}),
+            });
+          const refused = await approval();
+          expect(refused.status).toBe(422);
+          expect(
+            ((await refused.json()) as { error: { message: string } }).error.message,
+          ).toContain("may decide");
+          expect((await approval({ decide: true })).status).toBe(201);
         });
 
         it("signs a guest in once from a magic link, and keeps them to their reviews", async () => {

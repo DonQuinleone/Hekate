@@ -701,6 +701,13 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
           message: granted.error.issues[0]?.message ?? "Those permissions do not fit together",
         });
       }
+      // An approval nobody may decide would wait for ever: everyone would only follow it.
+      if (input.kind === "approval" && !granted.data.decide) {
+        throw new HTTPException(422, {
+          message:
+            "An approval needs reviewers who may decide. The workspace's defaults leave nobody able to: say that they may, or ask for feedback.",
+        });
+      }
       const who = await deps.audit.member(c.var.userId);
       const review = await deps.db.transaction(async (tx) => {
         // Not into a project being archived: archiving closes every open review.
