@@ -119,6 +119,10 @@ An append-only access log records who accessed what, when, through which review,
 - **Request size:** a body is at most 2 MB, except an upload chunk, which has its own limit (Uploads); larger requests get 413.
 - **Rate limits:** kept in PostgreSQL, so every replica counts the same requests (decision 051). Sign-in, reset codes and second-factor codes use Better Auth's limits, now stored in the database; opening guest links and trying their codes are limited to 30 per address in ten minutes; starting uploads to 120 a minute per member; content keys to 30 a minute per session. A refusal is 429 with `Retry-After`. Counts older than a day are purged hourly.
 
+## The runtime image
+
+One image runs Hekate: Node on Debian slim, pinned by digest, with ffmpeg, Poppler and a font added and every package upgraded at build. It holds no package manager (npm, apt and dpkg are removed; dpkg's records stay so scanners still see every package), no shell, and no setuid or setgid binary, and it runs as the unprivileged `node` user. Compose runs it with a read-only root filesystem, `/tmp` and the media work directory in memory (tmpfs), every Linux capability dropped and no new privileges. CI builds it, runs it that way with a smoke test (`scripts/image-smoke.mjs`), and scans it at every severity. Without a shell, inspect a running container with `docker exec app node -e '...'`, or a debug container beside it.
+
 ## Settled questions
 
 - Commercial DRM is not needed yet; segments can be repackaged as CENC `cbcs` without re-encoding if it ever is (decision 022).
