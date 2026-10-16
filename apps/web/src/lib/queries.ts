@@ -3,6 +3,7 @@ import {
   type Anchor,
   type ApprovalRule,
   type CarryStatus,
+  type CategoryHandling,
   type CreateProjectInput,
   type CreateReviewInput,
   type CreateVersionInput,
@@ -44,6 +45,7 @@ import {
   type SsoSettingsInput,
   searchResponse,
   type TrackState,
+  type TriageInput,
   type UpdateCarryInput,
   type WorkspaceSettings,
   type WorkspaceSettingsInput,
@@ -919,6 +921,11 @@ export interface Comment {
   carry: CommentCarry | null;
   /** On a thread: where it began, and each version it was carried to. */
   history: CommentHistory | null;
+  /** Triage (#36): its kind, the stage it waits for, and who is to act on it. */
+  categoryId: string | null;
+  deferredTo: string | null;
+  assigneeId: string | null;
+  assigneeName: string | null;
 }
 
 export interface CommentCarry {
@@ -935,6 +942,27 @@ export interface CommentHistory {
   versionNumber: number | null;
   hops: { fileId: string; versionNumber: number; status: CarryStatus }[];
 }
+
+/** A kind of comment in a project (#36), and how its comments are handled by default. */
+export interface CommentCategory {
+  id: string;
+  name: string;
+  handling: CategoryHandling;
+  stage: string | null;
+  position: number;
+}
+
+export const categoriesQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "categories"],
+    queryFn: async () =>
+      (
+        await json<{ categories: CommentCategory[] }>(
+          await api.projects[":id"].categories.$get({ param: { id: projectId } }),
+        )
+      ).categories,
+    staleTime: 60_000,
+  });
 
 /** A file's comments, oldest first; kept fresh so colleagues' notes appear while reviewing. */
 export const commentsQuery = (fileId: string) =>
@@ -976,6 +1004,29 @@ export function useCommentMutations(fileId: string) {
           }),
         ),
       onSuccess: refresh,
+    }),
+    /**
+     * Triage on one thread or a selection (#36, #132): category, deferral, assignee or
+     * resolved. The answer is the file's threads as they now stand.
+     */
+    triage: useMutation({
+      mutationFn: async (input: TriageInput) =>
+        (
+          await json<{ comments: Comment[] }>(
+            await api.files[":id"].comments.triage.$post({ param: { id: fileId }, json: input }),
+          )
+        ).comments,
+      onSuccess: (comments) => client.setQueryData(["files", fileId, "comments"], comments),
+    }),
+    /** Send someone the open threads on this file assigned to them. */
+    sendList: useMutation({
+      mutationFn: async (userId: string) =>
+        json<{ sent: number }>(
+          await api.files[":id"].comments["send-list"].$post({
+            param: { id: fileId },
+            json: { userId },
+          }),
+        ),
     }),
     /** Triage on a carried thread; its status shows on every version, so all refresh. */
     carry: useMutation({

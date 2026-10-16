@@ -934,3 +934,36 @@ test("account-passkeys", async ({ browser }, info) => {
     await context.close();
   }
 });
+
+// Triage (#132): the open threads one at a time, single keys for each decision, then the lists.
+test("file-triage", async ({ page }) => {
+  await page.goto(`/files/${seeded().dryFileId}?view=triage`);
+  const queue = page.getByRole("complementary", { name: "Queue" });
+  await expect(queue.getByText("Queue · 4")).toBeVisible();
+  await settle(page, "aside li");
+  await saveScreen(page, "file-triage");
+  await checkScreen(page);
+  // The first takes Edit; the second, Balance; the last two, ticked, are assigned at once.
+  await page.keyboard.press("2");
+  await expect(queue.getByRole("button", { name: /Intentional/ })).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+  await page.keyboard.press("3");
+  // Each decision moves the queue on once the server has it.
+  await expect(queue.getByRole("listitem").nth(2).locator('[aria-current="true"]')).toHaveCount(1);
+  await queue.getByRole("checkbox", { name: "Tick comment 3" }).check();
+  await queue.getByRole("checkbox", { name: "Tick comment 4" }).check();
+  await expect(queue.getByText("2 ticked")).toBeVisible();
+  await page.keyboard.press("a");
+  const dialog = page.getByRole("dialog", { name: "Assign" });
+  await dialog.getByLabel("To").selectOption({ index: 1 });
+  await dialog.getByRole("button", { name: "Assign" }).click();
+  await expect(page.getByRole("heading", { name: "Triage done" })).toBeVisible();
+  await expect(page.getByText("4 of 4 comments decided.")).toBeVisible();
+  await saveScreen(page, "file-triage-done");
+  await checkScreen(page);
+  // Assigned to yourself, the list is already yours: there is no one to send it to.
+  await expect(page.getByText("Yours", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /their list/ })).toHaveCount(0);
+});

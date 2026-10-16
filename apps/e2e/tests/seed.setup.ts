@@ -229,7 +229,7 @@ setup("seed", async ({ page, browser }) => {
   type Created = { comment: { id: string } };
   const comment = (fileId: string, body: string, anchor?: unknown, parentId?: string) =>
     api<Created>(page, "POST", `/api/files/${fileId}/comments`, { body, anchor, parentId });
-  await comment(dry, "Pedal noise on the left, just before the downbeat.", {
+  const pedal = await comment(dry, "Pedal noise on the left, just before the downbeat.", {
     kind: "time",
     start: 6.2,
     end: 6.2,
@@ -246,13 +246,29 @@ setup("seed", async ({ page, browser }) => {
     end: 33,
   });
   await api(page, "POST", `/api/comments/${lift.comment.id}/resolve`, { resolved: true });
-  await comment(dry, "The left hand rushes through these bars.", {
+  const rushes = await comment(dry, "The left hand rushes through these bars.", {
     kind: "bar",
     from: { bar: 9 },
     to: { bar: 12 },
     at: 14.2,
   });
   await comment(dry, "Overall balance is great; the reverb tail could be a touch shorter.");
+  // Triage (#36): the pedal noise waits for noise reduction; the rushing is someone's to fix.
+  const { categories } = await api<{ categories: { id: string; name: string }[] }>(
+    page,
+    "GET",
+    `/api/projects/${music.id}/categories`,
+  );
+  const categoryId = (name: string) => categories.find((c) => c.name === name)?.id;
+  await api(page, "POST", `/api/files/${dry}/comments/triage`, {
+    commentIds: [pedal.comment.id],
+    categoryId: categoryId("Noise"),
+  });
+  await api(page, "POST", `/api/files/${dry}/comments/triage`, {
+    commentIds: [rushes.comment.id],
+    categoryId: categoryId("Performance"),
+    assigneeId: user.id,
+  });
   await comment(score, "This dynamic is printed as mp in the parts.", {
     kind: "region",
     page: 1,

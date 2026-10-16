@@ -27,6 +27,7 @@ import { Player } from "~/components/player";
 import { QaSummary, QualityChecks } from "~/components/qa";
 import { ScorePane } from "~/components/score";
 import { FileContext } from "~/components/tracks";
+import { TriageView } from "~/components/triage";
 import { Button } from "~/components/ui/button";
 import { ActionMenu } from "~/components/ui/menu";
 import { cn } from "~/lib/cn";
@@ -147,7 +148,7 @@ function technicalDetails(info: MediaInfo | null): [string, string][] {
   return rows;
 }
 
-export type FileView = "review" | "qa";
+export type FileView = "review" | "qa" | "triage";
 
 /** Opening a file is seeing it: the file browser stops showing it as new to this member. */
 function MarkViewed({ projectId, fileId }: { projectId: string; fileId: string }) {
@@ -172,7 +173,10 @@ export function FilePage({
   /** Whether the details sheet is open beside the file (members only). */
   details?: boolean;
   onDetails?: (open: boolean) => void;
-  /** Review (the player and the comments) or QA (what was measured), kept in the address. */
+  /**
+   * Review (the player and the comments), QA (what was measured) or triage (the open
+   * comments one at a time), kept in the address.
+   */
   view?: FileView;
   onView?: (view: FileView) => void;
   /** The passage being looped, kept in the address so it holds across versions and variations. */
@@ -224,7 +228,9 @@ export function FilePage({
   };
   /** A recording's measurements, checks and details have a view of their own (#41). */
   const hasQa = Boolean(file.mediaInfo?.audio && allows("meters"));
-  const shown = hasQa ? view : "review";
+  /** Triage (#132) belongs to members who may triage. */
+  const canTriage = !guest && can("triage");
+  const shown = view === "triage" ? (canTriage ? "triage" : "review") : hasQa ? view : "review";
   const summary = mediaSummary(file.kind, file.mediaInfo, file.streamStatus);
   const details: [string, string][] = [
     ["Type", file.contentType],
@@ -271,6 +277,47 @@ export function FilePage({
             ]
           : []),
       ];
+  const playback = (
+    <Playback
+      file={file}
+      onMedia={setMedia}
+      loop={passage}
+      onLoop={onLoop}
+      pages={pages}
+      canComment={canComment}
+    />
+  );
+  if (shown === "triage")
+    return (
+      <>
+        <PageHeader
+          crumbs={[
+            ...crumbs,
+            {
+              key: "file",
+              link: (
+                <Link to="/files/$fileId" params={{ fileId: file.id }}>
+                  {file.name}
+                </Link>
+              ),
+            },
+          ]}
+          title="Triage"
+          actions={
+            <Button variant="secondary" size="sm" onClick={() => onView("review")}>
+              Done
+            </Button>
+          }
+        />
+        <TriageView
+          file={file}
+          media={media}
+          player={playback}
+          onLoop={onLoop}
+          onDone={() => onView("review")}
+        />
+      </>
+    );
   return (
     <>
       {!guest && <MarkViewed projectId={file.projectId} fileId={file.id} />}
@@ -291,11 +338,14 @@ export function FilePage({
                 <Icon name="info" size={14} />
                 Details
               </Button>
-              {can("triage") && (
+              {canTriage && (
                 <ActionMenu
                   always
                   label="file"
-                  actions={[{ label: "Export comments…", onSelect: () => setExporting(true) }]}
+                  actions={[
+                    { label: "Export comments…", onSelect: () => setExporting(true) },
+                    { label: "Triage comments", onSelect: () => onView("triage") },
+                  ]}
                 />
               )}
             </>
@@ -348,14 +398,7 @@ export function FilePage({
           )}
         >
           <div className="flex min-w-0 flex-col gap-6">
-            <Playback
-              file={file}
-              onMedia={setMedia}
-              loop={passage}
-              onLoop={onLoop}
-              pages={pages}
-              canComment={canComment}
-            />
+            {playback}
             {shown === "review" && hasQa && (
               <QaSummary fileId={file.id} onOpen={() => onView("qa")} />
             )}

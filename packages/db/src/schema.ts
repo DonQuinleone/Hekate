@@ -5,6 +5,7 @@ import {
   auditActions,
   auditActorTypes,
   carryStatuses,
+  categoryHandlings,
   type DeliveryProfileId,
   type DigestFrequency,
   type DirectoryRoleRule,
@@ -96,6 +97,7 @@ export const approvalRuleEnum = pgEnum("approval_rule", approvalRules);
 export const reviewStatusEnum = pgEnum("review_status", reviewStatuses);
 export const reviewDecisionEnum = pgEnum("review_decision", reviewDecisions);
 export const carryStatusEnum = pgEnum("carry_status", carryStatuses);
+export const categoryHandlingEnum = pgEnum("category_handling", categoryHandlings);
 export const uploadStatusEnum = pgEnum("upload_status", [
   "open",
   "completing",
@@ -402,6 +404,11 @@ export const projects = pgTable(
     checkTruePeak: boolean("check_true_peak").notNull().default(false),
     /** Refuse a new version without an edit decision list. */
     requireEdl: boolean("require_edl").notNull().default(false),
+    /**
+     * Whether its comment categories have been made: a new project gets the defaults at once,
+     * one made before categories existed the first time its categories are read.
+     */
+    categoriesSeeded: boolean("categories_seeded").notNull().default(false),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     ...timestamps,
   },
@@ -685,6 +692,29 @@ export const variations = pgTable(
   ],
 );
 
+/**
+ * A kind of comment in a project, such as Noise (#36), and how its comments are handled by
+ * default: on this version, deferred to a named stage, or information only.
+ */
+export const commentCategories = pgTable(
+  "comment_categories",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: projectId(),
+    name: text("name").notNull(),
+    handling: categoryHandlingEnum("handling").notNull().default("normal"),
+    /** Deferred categories only: the stage their comments wait for. */
+    stage: text("stage"),
+    position: integer("position").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [
+    index("comment_categories_project_idx").on(t.organisationId, t.projectId),
+    uniqueIndex("comment_categories_name_idx").on(t.projectId, sql`lower(${t.name})`),
+  ],
+);
+
 /** A note on a file. The anchor is validated by the shared schema; null means the whole file. */
 export const comments = pgTable(
   "comments",
@@ -706,6 +736,14 @@ export const comments = pgTable(
     resolvedById: text("resolved_by_id").references(() => users.id, { onDelete: "set null" }),
     /** Set when the author changes the text after posting. */
     editedAt: timestamp("edited_at", { withTimezone: true }),
+    /** What kind of comment it is (docs/domain.md, Categories and deferral). */
+    categoryId: uuid("category_id").references((): AnyPgColumn => commentCategories.id, {
+      onDelete: "set null",
+    }),
+    /** The stage it waits for, set aside from this round's to-do list; null is not deferred. */
+    deferredTo: text("deferred_to"),
+    /** Who is to act on it. */
+    assigneeId: text("assignee_id").references(() => users.id, { onDelete: "set null" }),
     ...timestamps,
   },
   (t) => [

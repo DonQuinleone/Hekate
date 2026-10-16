@@ -8,6 +8,7 @@ import {
   carryStatusLabel,
   formatAnchor,
   parseBars,
+  type TriageInput,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
@@ -18,9 +19,12 @@ import { type Loop, MIN_LOOP } from "~/lib/loop";
 import { isWholePage, type PageFocus } from "~/lib/pages";
 import {
   type Comment,
+  type CommentCategory,
+  categoriesQuery,
   commentsQuery,
   fileQuery,
   meQuery,
+  projectMembersQuery,
   useCommentMutations,
   usePreferences,
   useProjectCan,
@@ -30,15 +34,18 @@ import { useViewer } from "~/lib/viewer";
 import type { RegionMarker } from "./document-viewer";
 import { Icon } from "./icons";
 import { Button } from "./ui/button";
+import { Chip, ToggleChip } from "./ui/chip";
 import { Dialog } from "./ui/dialog";
+import { Field } from "./ui/field";
 import { Input, Select, Textarea } from "./ui/input";
-import { ActionMenu } from "./ui/menu";
+import { ActionMenu, type MenuAction } from "./ui/menu";
 
 const fullTime = formatDates({ dateStyle: "medium", timeStyle: "short" });
 
 /** Lowercase time labels read better inline than the upper-case anchor labels on markers. */
 // "00:12.500" reads as "0:12.500", at either end of a range.
-const anchorLabel = (anchor: Anchor) => formatAnchor(anchor).replace(/(^|\s)0(\d:)/g, "$1$2");
+export const anchorLabel = (anchor: Anchor) =>
+  formatAnchor(anchor).replace(/(^|\s)0(\d:)/g, "$1$2");
 
 const textButton =
   "inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink disabled:cursor-default disabled:opacity-40";
@@ -207,6 +214,96 @@ function CommentBody({
   );
 }
 
+/** Defer a thread to a stage: one the project's categories name, or another. */
+export function DeferDialog({
+  stages,
+  onDefer,
+  onClose,
+}: {
+  stages: string[];
+  onDefer: (stage: string) => void;
+  onClose: () => void;
+}) {
+  const [stage, setStage] = useState(stages[0] ?? "");
+  return (
+    <Dialog
+      title="Defer to a stage"
+      description="It leaves this round's list, stays open, and comes back for that stage."
+      onClose={onClose}
+      width="sm"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" disabled={!stage.trim()} onClick={() => onDefer(stage.trim())}>
+            Defer
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        {stages.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {stages.map((s) => (
+              <ToggleChip key={s} pressed={stage === s} onClick={() => setStage(s)}>
+                {s}
+              </ToggleChip>
+            ))}
+          </div>
+        )}
+        <Field label="Stage">
+          <Input value={stage} maxLength={80} onChange={(e) => setStage(e.target.value)} />
+        </Field>
+      </div>
+    </Dialog>
+  );
+}
+
+/** Assign a thread to someone in the project, or to no one. */
+export function AssignDialog({
+  people,
+  current,
+  onAssign,
+  onClose,
+}: {
+  people: { id: string; name: string }[];
+  current: string | null;
+  onAssign: (id: string | null) => void;
+  onClose: () => void;
+}) {
+  const [who, setWho] = useState(current ?? "");
+  return (
+    <Dialog
+      title="Assign"
+      description="Who is to act on it. Send them their list once triage is done."
+      onClose={onClose}
+      width="sm"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={() => onAssign(who || null)}>
+            {who ? "Assign" : "Unassign"}
+          </Button>
+        </>
+      }
+    >
+      <Field label="To">
+        <Select value={who} onChange={(e) => setWho(e.target.value)}>
+          <option value="">No one</option>
+          {people.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </Select>
+      </Field>
+    </Dialog>
+  );
+}
+
 function ThreadView({
   thread,
   fileId,
@@ -218,6 +315,8 @@ function ThreadView({
   mutations,
   canComment,
   canTriage,
+  categories,
+  people,
   marker,
   pages,
 }: {
@@ -235,11 +334,16 @@ function ThreadView({
   mutations: ReturnType<typeof useCommentMutations>;
   canComment: boolean;
   canTriage: boolean;
+  /** The project's categories, to name a thread's kind and to choose one. */
+  categories: CommentCategory[];
+  /** Who a thread can be assigned to: the project's members. */
+  people: { id: string; name: string }[];
   /** The thread's number on the page, when it points at a region of it. */
   marker?: RegionMarker;
   pages?: PageComments;
 }) {
   const [replying, setReplying] = useState(false);
+  const [asking, setAsking] = useState<"defer" | "assign" | null>(null);
   const { comment, replies } = thread;
   const anchor = comment.anchor;
   const carry = comment.carry;
@@ -258,6 +362,24 @@ function ThreadView({
   }, [picked]);
   /** The region drawn on the page, which a carried thread can be moved to. */
   const draft = pages?.focus.draft;
+  const category = categories.find((c) => c.id === comment.categoryId);
+  const triage = (change: Omit<TriageInput, "commentIds">) =>
+    mutations.triage.mutate({ commentIds: [comment.id], ...change });
+  // Triage (#36): its kind, deferring it to a stage or back, and who is to act on it.
+  const triageActions: (MenuAction | "divider")[] = canTriage
+    ? [
+        ...categories.map((c) => ({
+          label: `Mark as ${c.name}`,
+          checked: c.id === comment.categoryId,
+          onSelect: () => triage({ categoryId: c.id === comment.categoryId ? null : c.id }),
+        })),
+        "divider",
+        comment.deferredTo
+          ? { label: "Undefer", onSelect: () => triage({ deferredTo: null }) }
+          : { label: "Defer to a stage…", onSelect: () => setAsking("defer") },
+        { label: "Assign to…", onSelect: () => setAsking("assign") },
+      ]
+    : [];
   return (
     <li
       ref={row}
@@ -376,6 +498,7 @@ function ThreadView({
                     label: carry.visible ? "Hide on this version" : "Show on this version",
                     onSelect: () => setCarry({ visible: !carry.visible }),
                   },
+                  ...(triageActions.length > 0 ? ["divider" as const, ...triageActions] : []),
                 ]}
               />
             </span>
@@ -404,9 +527,38 @@ function ThreadView({
                 {comment.resolvedAt ? "Reopen" : "Resolve"}
               </button>
             )}
+            {canTriage && <ActionMenu label="this thread" actions={triageActions} />}
           </>
         )}
       </div>
+      {(category || comment.deferredTo || comment.assigneeName) && (
+        <p className="m-0 -mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-3">
+          {category && <Chip>{category.name}</Chip>}
+          {comment.deferredTo && <span>deferred to {comment.deferredTo}</span>}
+          {comment.assigneeName && <span>for {comment.assigneeName}</span>}
+        </p>
+      )}
+      {asking === "defer" && (
+        <DeferDialog
+          stages={[...new Set(categories.flatMap((c) => (c.stage ? [c.stage] : [])))]}
+          onDefer={(stage) => {
+            triage({ deferredTo: stage });
+            setAsking(null);
+          }}
+          onClose={() => setAsking(null)}
+        />
+      )}
+      {asking === "assign" && (
+        <AssignDialog
+          people={people}
+          current={comment.assigneeId}
+          onAssign={(id) => {
+            triage({ assigneeId: id });
+            setAsking(null);
+          }}
+          onClose={() => setAsking(null)}
+        />
+      )}
       {path && (
         <p
           className="tabular m-0 -mt-1.5 text-[11px] text-ink-3"
@@ -504,6 +656,18 @@ export function Comments({
   const canTriage = !guest && can("triage");
   const { data: me } = useQuery(meQuery);
   const mutations = useCommentMutations(fileId);
+  // Categories name each thread's kind for members; whom to assign to, for those who triage.
+  const { data: categories = [] } = useQuery({
+    ...categoriesQuery(projectId),
+    enabled: !guest,
+  });
+  const { data: members = [] } = useQuery({
+    ...projectMembersQuery(projectId),
+    enabled: canTriage,
+  });
+  const people = members.map((m) => ({ id: m.userId, name: m.name }));
+  const [onlyCategory, setOnlyCategory] = useState<string | null>(null);
+  const [showDeferred, setShowDeferred] = useState(false);
   /** The playhead when writing began; null for a whole-file comment. */
   const [at, setAt] = useState<number | null>(null);
   const [wholeFile, setWholeFile] = useState(false);
@@ -733,7 +897,12 @@ export function Comments({
     </Composer>
   );
 
-  const threads = data ? threadsOf(data) : { open: [], resolved: [], hidden: [] };
+  const threads = data ? threadsOf(data) : { open: [], deferred: [], resolved: [], hidden: [] };
+  // Filtering by category, once more than one is in use (#36).
+  const used = categories.filter((c) =>
+    [...threads.open, ...threads.deferred].some((t) => t.comment.categoryId === c.id),
+  );
+  const inCategory = (t: Thread) => !onlyCategory || t.comment.categoryId === onlyCategory;
   const markers = data ? regionMarkers(data) : [];
   const view = (t: Thread) => (
     <ThreadView
@@ -748,6 +917,8 @@ export function Comments({
       mutations={mutations}
       canComment={canComment}
       canTriage={canTriage}
+      categories={categories}
+      people={people}
       marker={markers.find((m) => m.id === t.comment.id)}
       pages={pages}
     />
@@ -759,6 +930,7 @@ export function Comments({
         <h2 className="m-0 text-[15px] font-medium">Comments</h2>
         <span className="tabular text-xs text-ink-3">
           {threads.open.length} open
+          {threads.deferred.length > 0 && ` · ${threads.deferred.length} deferred`}
           {threads.resolved.length > 0 && ` · ${threads.resolved.length} resolved`}
         </span>
       </div>
@@ -793,11 +965,48 @@ export function Comments({
       {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
       {data &&
         threads.open.length === 0 &&
+        threads.deferred.length === 0 &&
         threads.resolved.length === 0 &&
         threads.hidden.length === 0 && (
           <p className="m-0 text-[13px] text-ink-3">No comments yet.</p>
         )}
-      <ul className="m-0 flex list-none flex-col p-0">{threads.open.map(view)}</ul>
+      {used.length > 1 && (
+        <fieldset className="m-0 flex min-w-0 flex-wrap gap-1 border-0 p-0">
+          <legend className="sr-only">Show comments of</legend>
+          <ToggleChip pressed={!onlyCategory} onClick={() => setOnlyCategory(null)}>
+            All
+          </ToggleChip>
+          {used.map((c) => (
+            <ToggleChip
+              key={c.id}
+              pressed={onlyCategory === c.id}
+              onClick={() => setOnlyCategory(onlyCategory === c.id ? null : c.id)}
+            >
+              {c.name}
+            </ToggleChip>
+          ))}
+        </fieldset>
+      )}
+      <ul className="m-0 flex list-none flex-col p-0">
+        {threads.open.filter(inCategory).map(view)}
+      </ul>
+      {threads.deferred.length > 0 && (
+        <div className="flex flex-col">
+          <button
+            type="button"
+            onClick={() => setShowDeferred((v) => !v)}
+            aria-expanded={showDeferred}
+            className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+          >
+            {showDeferred ? "Hide" : "Show"} {threads.deferred.length} deferred
+          </button>
+          {showDeferred && (
+            <ul className="m-0 flex list-none flex-col p-0">
+              {threads.deferred.filter(inCategory).map(view)}
+            </ul>
+          )}
+        </div>
+      )}
       {threads.resolved.length > 0 && (
         <div className="flex flex-col">
           <button

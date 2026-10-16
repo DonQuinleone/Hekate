@@ -35,6 +35,15 @@ describe("typingIn", () => {
     expect(typingIn("ArrowLeft", range)).toBe(true);
   });
 
+  it("lets letters through from a checkbox or radio, which take only Space and the arrows", () => {
+    const box = html('<input type="checkbox">', "input");
+    expect(typingIn("a", box)).toBe(false);
+    expect(typingIn(" ", box)).toBe(true);
+    const radio = html('<input type="radio">', "input");
+    expect(typingIn("2", radio)).toBe(false);
+    expect(typingIn("ArrowDown", radio)).toBe(true);
+  });
+
   it("holds nothing outside a field", () => {
     expect(typingIn("k", html("<div>Page</div>", "div"))).toBe(false);
     expect(typingIn("k", null)).toBe(false);

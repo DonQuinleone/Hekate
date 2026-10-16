@@ -11,6 +11,7 @@ import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
 import type { Mailer } from "./mail.ts";
 import { rateLimit } from "./rate-limit.ts";
+import { categoryRoutes, projectCategoryRoutes } from "./routes/categories.ts";
 import { carryRoutes, commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
 import { directoryRoutes } from "./routes/directory.ts";
 import { fileDetailRoutes } from "./routes/file-details.ts";
@@ -169,6 +170,7 @@ export function createApi(deps: AppDeps) {
       .route("/projects", projectFolderRoutes(deps.db))
       .route("/projects", projectOverviewRoutes(deps.db))
       .route("/projects", projectMarkRoutes(deps.db))
+      .route("/projects", projectCategoryRoutes(deps.db))
       .use("/tags/*", ...member)
       .use("/tags", ...member)
       .route("/tags", tagRoutes(deps.db))
@@ -243,6 +245,8 @@ export function createApi(deps: AppDeps) {
       .route("/guest", guestRoutes(reviewDeps))
       .use("/comments/*", ...member)
       .route("/comments", commentRoutes(deps.db))
+      .use("/categories/*", ...member)
+      .route("/categories", categoryRoutes(deps.db))
       .use("/comment-carries/*", ...member)
       .route("/comment-carries", carryRoutes(deps.db))
       // The organisation comes from the token, which the route checks against membership.

@@ -65,9 +65,14 @@ export function ownedByTarget(key: string, target: Element | null): boolean {
   return arrows.has(key) && Boolean(target.closest(composite));
 }
 
-/** Whether the target takes typing: a range input takes the arrows, but not Space. */
+/**
+ * Whether the target takes typing: a range input takes the arrows, but not Space; a checkbox
+ * takes only Space, and a radio Space and the arrows, so letters still reach the page.
+ */
 export function typingIn(key: string, target: Element | null): boolean {
   if (!target?.closest("input, textarea, select, [contenteditable=true]")) return false;
+  if (target instanceof HTMLInputElement && (target.type === "checkbox" || target.type === "radio"))
+    return key === " " || key === "Space" || (target.type === "radio" && arrows.has(key));
   const range = target instanceof HTMLInputElement && target.type === "range";
   return !(range && (key === " " || key === "Space"));
 }
