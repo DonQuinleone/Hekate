@@ -74,7 +74,7 @@ export interface ReviewDeps {
 }
 
 /** The reviewers of a review, in order, members and guests alike, with what the rules need. */
-async function reviewersOf(db: Database | Tx, organisationId: string, reviewId: string) {
+export async function reviewersOf(db: Database | Tx, organisationId: string, reviewId: string) {
   const rows = await db
     .select({
       id: reviewReviewers.id,

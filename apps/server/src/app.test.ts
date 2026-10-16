@@ -2180,6 +2180,103 @@ describe.runIf(url)("api", () => {
       const request = (cookie: string, projectId: string, body: Record<string, unknown>) =>
         app.request(`/api/projects/${projectId}/reviews`, json(body, cookie));
 
+      it("sums up one project for its overview, as each role may see it, and keeps each person's layout", async () => {
+        const s = await studio();
+        type Overview = {
+          figures: {
+            tracks: number;
+            openReviews: number;
+            openComments: number | null;
+            nextDueAt: string | null;
+          };
+          failed: { id: string }[];
+          qaFailing: { id: string; name: string; summary: string }[];
+          overdue: { title: string; waitingOn: { name: string }[] }[];
+          tracks: {
+            name: string;
+            state: string;
+            version: { number: number } | null;
+            waitingOn: { name: string }[];
+          }[];
+          activity: { kind: string }[];
+          role: string | null;
+          layout: string[] | null;
+        };
+        const overview = async (cookie: string) => {
+          const res = await getAs(`/api/projects/${s.projectId}/overview`, cookie);
+          expect(res.status).toBe(200);
+          return (await res.json()) as Overview;
+        };
+        const before = await overview(s.owner);
+        expect(before.tracks).toEqual([
+          expect.objectContaining({
+            name: "Maple Leaf Rag",
+            state: "not_reviewed",
+            version: expect.objectContaining({ number: 1 }),
+          }),
+        ]);
+        expect(before.role).toBe("Producer");
+
+        // An approval past its due date, in order: it waits on the composer, whose step comes
+        // first, and not yet on the accompanist after them.
+        const asked = await request(s.owner, s.projectId, {
+          kind: "approval",
+          title: "Master sign-off",
+          rule: "all",
+          order: "sequence",
+          dueAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+          items: [{ trackId: s.trackId }],
+          reviewers: [s.ids.composer, s.ids.accompanist],
+        });
+        expect(asked.status).toBe(201);
+        const owner = await overview(s.owner);
+        expect(owner.figures.openReviews).toBe(1);
+        expect(owner.figures.nextDueAt).not.toBeNull();
+        expect(owner.figures.openComments).toBe(0);
+        expect(owner.tracks[0]).toMatchObject({
+          state: "in_review",
+          waitingOn: [{ name: "composer" }],
+        });
+        expect(owner.overdue).toEqual([
+          expect.objectContaining({
+            title: "Master sign-off",
+            waitingOn: [expect.objectContaining({ name: "composer" })],
+          }),
+        ]);
+        expect(owner.activity.map((a) => a.kind)).toContain("review");
+
+        // A file fails here exactly as its QA page says it does, delivery checks included.
+        const qaPage = (await (await getAs(`/api/files/${s.mix}/qa`, s.owner)).json()) as {
+          findings: { severity: string; summary: string }[];
+        };
+        const worst = qaPage.findings.find((f) => f.severity === "fail");
+        expect(worst).toBeDefined();
+        expect(owner.qaFailing.find((f) => f.id === s.mix)?.summary).toBe(worst?.summary);
+
+        // A Reviewer neither triages nor uploads: no thread count, no failed files.
+        const composer = await overview(s.composer);
+        expect(composer.figures.openComments).toBeNull();
+        expect(composer.failed).toEqual([]);
+        expect(composer.role).toBe("Reviewer");
+
+        // Each person's own order, refused when it is not one.
+        const layout = (cookie: string, sections: unknown) =>
+          app.request(`/api/projects/${s.projectId}/overview/layout`, {
+            ...json({ sections }, cookie),
+            method: "PUT",
+          });
+        expect((await layout(s.composer, ["tracks", "attention"])).status).toBe(200);
+        expect((await overview(s.composer)).layout).toEqual(["tracks", "attention"]);
+        expect((await overview(s.owner)).layout).toBeNull();
+        expect((await layout(s.composer, ["tasks"])).status).toBe(400);
+        expect((await layout(s.composer, ["stats", "stats"])).status).toBe(400);
+
+        // Someone outside the project finds nothing.
+        const outsider = await joinAs(s.owner, "outsider-overview@example.test");
+        expect((await getAs(`/api/projects/${s.projectId}/overview`, outsider)).status).toBe(404);
+        expect((await layout(outsider, ["stats"])).status).toBe(404);
+      });
+
       it("sums up the projects a member can see for the home page, and nothing else", async () => {
         const s = await studio();
         type Home = {

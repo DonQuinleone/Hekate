@@ -16,6 +16,7 @@ import {
   useArchiveProject,
   useProjectCan,
 } from "~/lib/queries";
+import { ProjectOverview } from "~/routes/overview";
 
 /**
  * A project's pages share their frame: the trail back to the projects, the section's name as
@@ -43,7 +44,7 @@ function ProjectFrame({
           {
             key: "project",
             link: (
-              <Link to="/projects/$projectId/files" params={{ projectId: project.id }}>
+              <Link to="/projects/$projectId" params={{ projectId: project.id }}>
                 {project.name}
               </Link>
             ),
@@ -90,6 +91,19 @@ function ArchivedNotice({ project }: { project: Project }) {
 
 const body =
   "fade-in mx-auto flex w-full max-w-[1360px] flex-col gap-8 px-5 py-6 @3xl/app:px-10 @3xl/app:py-8";
+
+/** The project's first page. */
+export function ProjectOverviewPage({ projectId }: { projectId: string }) {
+  return (
+    <ProjectFrame projectId={projectId} title="Overview">
+      {(project) => (
+        <div className={body}>
+          <ProjectOverview project={project} />
+        </div>
+      )}
+    </ProjectFrame>
+  );
+}
 
 /** The project's files: folders, tracks among them, and everything uploaded. */
 export function ProjectFilesPage({

@@ -16,6 +16,7 @@ import {
   type NotificationKind,
   type NotificationPreferences,
   narrowed,
+  type OverviewSection,
   type ProjectPermission,
   type ProjectProfile,
   type QaFinding,
@@ -27,6 +28,7 @@ import {
   type SavedSearchInput,
   type SearchRequest,
   searchResponse,
+  type TrackState,
   type UpdateCarryInput,
 } from "@hekate/shared";
 import {
@@ -1509,6 +1511,73 @@ export function useUnfollow() {
       if (!res.ok) await json(res);
     },
     onSuccess: () => client.invalidateQueries({ queryKey: followsQuery.queryKey }),
+  });
+}
+
+export interface OverviewPerson {
+  id: string;
+  name: string;
+}
+
+/** A project's first page, as `GET /api/projects/:id/overview` sends it. */
+export interface ProjectOverview {
+  figures: {
+    tracks: number;
+    versionedTracks: number;
+    approvedTracks: number;
+    files: number;
+    openReviews: number;
+    nextDueAt: string | null;
+    /** Null for those who do not triage. */
+    openComments: number | null;
+    processing: number;
+    members: number;
+    faces: OverviewPerson[];
+  };
+  failed: { id: string; name: string }[];
+  qaFailing: { id: string; name: string; summary: string }[];
+  overdue: { id: string; title: string; dueAt: string | null; waitingOn: OverviewPerson[] }[];
+  tracks: {
+    id: string;
+    name: string;
+    version: { number: number; createdAt: string; fileId: string | null } | null;
+    state: TrackState;
+    waitingOn: OverviewPerson[];
+  }[];
+  activity: HomeActivity[];
+  deliveryProfile: string | null;
+  createdAt: string | null;
+  role: string | null;
+  layout: OverviewSection[] | null;
+}
+
+export const projectOverviewQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "overview"],
+    queryFn: async () =>
+      json<ProjectOverview>(await api.projects[":id"].overview.$get({ param: { id: projectId } })),
+  });
+
+/** Keep someone's arrangement of a project's overview. */
+export function useOverviewLayout(projectId: string) {
+  const client = useQueryClient();
+  const key = projectOverviewQuery(projectId).queryKey;
+  return useMutation({
+    mutationFn: async (sections: OverviewSection[]) => {
+      const res = await api.projects[":id"].overview.layout.$put({
+        param: { id: projectId },
+        json: { sections },
+      });
+      if (!res.ok) await json(res);
+    },
+    // The page shows the new order at once; a failure puts the old one back.
+    onMutate: async (sections) => {
+      await client.cancelQueries({ queryKey: key });
+      const before = client.getQueryData(key);
+      client.setQueryData(key, (o) => (o ? { ...o, layout: sections } : o));
+      return { before };
+    },
+    onError: (_e, _s, ctx) => client.setQueryData(key, ctx?.before),
   });
 }
 

@@ -22,7 +22,12 @@ import { HomePage } from "~/routes/home";
 import { InboxPage } from "~/routes/inbox";
 import { InvitePage } from "~/routes/invite";
 import { NotificationsPage } from "~/routes/notifications";
-import { ProjectFilesPage, ProjectPeoplePage, ProjectReviewsPage } from "~/routes/project";
+import {
+  ProjectFilesPage,
+  ProjectOverviewPage,
+  ProjectPeoplePage,
+  ProjectReviewsPage,
+} from "~/routes/project";
 import { ProjectsPage } from "~/routes/projects";
 import { ReviewPage } from "~/routes/review";
 import { SearchPage } from "~/routes/search";
@@ -209,13 +214,17 @@ const folderSearch = (search: Record<string, unknown>): { folder?: string } =>
   typeof search.folder === "string" && /^[0-9a-f-]{36}$/i.test(search.folder)
     ? { folder: search.folder }
     : {};
-// A project opens on its files until its overview arrives (#113).
+// A project opens on its overview; an address with a folder in it still opens the files there.
 const project = createRoute({
   getParentRoute: () => app,
   path: "/projects/$projectId",
   validateSearch: folderSearch,
   beforeLoad: ({ params, search }) => {
-    throw redirect({ to: "/projects/$projectId/files", params, search });
+    if (search.folder) throw redirect({ to: "/projects/$projectId/files", params, search });
+  },
+  component: function ProjectRoute() {
+    const { projectId } = project.useParams();
+    return <ProjectOverviewPage projectId={projectId} />;
   },
 });
 const projectFiles = createRoute({

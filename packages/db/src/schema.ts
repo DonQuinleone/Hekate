@@ -14,6 +14,7 @@ import {
   type NotificationChannels,
   type NotificationKind,
   notificationKinds,
+  type OverviewSection,
   type ProjectPermission,
   type ProjectProfile,
   type QaCheck,
@@ -1234,6 +1235,26 @@ export const follows = pgTable(
 );
 
 /** A search someone kept, to run again from the search page. Theirs alone, per workspace. */
+/** How someone arranges a project's overview: which sections, in what order. */
+export const overviewLayouts = pgTable(
+  "overview_layouts",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    sections: jsonb("sections").$type<OverviewSection[]>().notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("overview_layouts_user_project_idx").on(t.organisationId, t.userId, t.projectId),
+  ],
+);
+
 export const savedSearches = pgTable(
   "saved_searches",
   {
