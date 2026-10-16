@@ -10,6 +10,23 @@ import { FIXED_TIME, type Seeded, saveScreen, seeded, state } from "./fixtures.t
  * captured to test-results/screens.
  */
 
+/**
+ * Every page loads under the server's Content Security Policy, enforced as in production: a
+ * violation (an inline script, a style from elsewhere, a worker the policy forbids) fails the
+ * screen that caused it.
+ */
+const violations = new WeakMap<Page, string[]>();
+test.beforeEach(({ page }) => {
+  const seen: string[] = [];
+  violations.set(page, seen);
+  page.on("console", (message) => {
+    if (/Content Security Policy/i.test(message.text())) seen.push(message.text());
+  });
+});
+test.afterEach(({ page }) => {
+  expect(violations.get(page) ?? [], "Content Security Policy violations").toEqual([]);
+});
+
 interface Screen {
   name: string;
   path: (s: Seeded) => string;
