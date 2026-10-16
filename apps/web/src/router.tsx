@@ -12,12 +12,14 @@ import { Shell } from "~/components/shell";
 import { formatLoop, parseLoop } from "~/lib/loop";
 import { guestMeQuery, meQuery, setupQuery } from "~/lib/queries";
 import { ViewerProvider } from "~/lib/viewer";
+import { AccountPage } from "~/routes/account";
 import { SetupPage, SignInPage } from "~/routes/auth-pages";
 import { FilePage } from "~/routes/file";
 import { GuestHomePage, GuestLinkPage, GuestShell, GuestSignedOutPage } from "~/routes/guest";
 import { HomePage } from "~/routes/home";
 import { InboxPage } from "~/routes/inbox";
 import { InvitePage } from "~/routes/invite";
+import { NotificationsPage } from "~/routes/notifications";
 import { ProjectFilesPage, ProjectPeoplePage, ProjectReviewsPage } from "~/routes/project";
 import { ProjectsPage } from "~/routes/projects";
 import { ReviewPage } from "~/routes/review";
@@ -275,6 +277,26 @@ const inbox = createRoute({
     return <InboxPage item={item} show={show} />;
   },
 });
+const notifications = createRoute({
+  getParentRoute: () => app,
+  path: "/notifications",
+  component: NotificationsPage,
+});
+const account = createRoute({
+  getParentRoute: () => app,
+  path: "/account",
+  beforeLoad: () => {
+    throw redirect({ to: "/account/$section", params: { section: "notifications" } });
+  },
+});
+const accountSection = createRoute({
+  getParentRoute: () => app,
+  path: "/account/$section",
+  component: function AccountRoute() {
+    const { section } = accountSection.useParams();
+    return <AccountPage section={section} />;
+  },
+});
 // The reviews list became the inbox; the old address still works.
 const myReviews = createRoute({
   getParentRoute: () => app,
@@ -326,6 +348,9 @@ export const router = createRouter({
       file,
       myReviews,
       inbox,
+      notifications,
+      account,
+      accountSection,
       review,
       members,
       settingsHome,

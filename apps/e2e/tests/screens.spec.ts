@@ -48,6 +48,16 @@ const screens: Screen[] = [
   { name: "home", path: () => "/", ready: "main section[aria-label=Activity] li a" },
   { name: "projects", path: () => "/projects", ready: "main a:has-text('Joplin Rags')" },
   {
+    name: "notifications",
+    path: () => "/notifications",
+    ready: "main >> text=mentioned you on Maple Leaf Rag - Dry v2.wav",
+  },
+  {
+    name: "account-notifications",
+    path: () => "/account/notifications",
+    ready: "main >> text=Maple Leaf Rag",
+  },
+  {
     name: "project-music",
     path: (s) => `/projects/${s.musicProjectId}/files`,
     ready: "main a:has-text('Maple Leaf Rag - Score.pdf')",
@@ -161,3 +171,15 @@ test.describe("guest", () => {
 });
 
 for (const screen of screens.filter((s) => !s.as || s.as === "owner")) capture(screen);
+
+// The bell's panel, open over the list it leads to.
+test("bell", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto("/notifications");
+  await settle(page, "main section li a");
+  await showWhole(page);
+  await page.getByRole("button", { name: /^Notifications/ }).click();
+  await settle(page, "[role=dialog][aria-label=Notifications] li a");
+  await saveScreen(page, "bell");
+  await checkScreen(page);
+});

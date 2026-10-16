@@ -49,6 +49,8 @@ The words in this document are used exactly as defined, in code, in the interfac
 | **Role** | A named set of permissions within a project, for example Producer, Engineer, Editor, Reviewer. Roles and their permissions are configurable per project. |
 | **Ticket** | A question to the people who run the instance, from a workspace: a thread with a generated reference, a type and a severity limited by the plan. Only with the support module. |
 | **Plan** | What a workspace pays for and is given: limits, features and the support severities it unlocks. Only with the billing module. |
+| **Notification** | Something that happened, told to one member: a review asked of them, a decision on a review they asked for, a reply, a mention (`@` and their full name), a new version of a track they follow, a failed upload, a guest opening their review. Each kind reaches them in the app, by mail (at once or in a digest), or both, as they choose; reviews asked of them and mentions always reach them in the app. Guests are told by mail only. |
+| **Follow** | Being told about a track or a review beyond your own part in it. Making a track or adding a version to it follows it. |
 | **Error reference** | A short code (`HK-7F3A-2C`) shown with an error, by which an operator finds what happened. |
 
 Terms deliberately **not** used: *movement* (a track is the unit), *asset* (say file, track or version), *take* for anything other than a recording-session snippet.

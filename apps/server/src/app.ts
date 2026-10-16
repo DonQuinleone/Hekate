@@ -17,6 +17,7 @@ import { health } from "./routes/health.ts";
 import { homeRoutes } from "./routes/home.ts";
 import { invitationRoutes } from "./routes/invitations.ts";
 import { meRoutes } from "./routes/me.ts";
+import { notificationRoutes } from "./routes/notifications.ts";
 import { organisationRoutes } from "./routes/organisation.ts";
 import { fileRoutes, playRoutes } from "./routes/playback.ts";
 import { projectAccessRoutes } from "./routes/project-access.ts";
@@ -89,6 +90,9 @@ export function createApi(deps: AppDeps) {
           deps.trustProxy ?? false,
         ),
       )
+      .use("/notifications/*", ...member)
+      .use("/notifications", ...member)
+      .route("/notifications", notificationRoutes(deps.db))
       .use("/home", ...member)
       .route("/home", homeRoutes(deps.db))
       .use("/projects/*", ...member)
@@ -102,7 +106,10 @@ export function createApi(deps: AppDeps) {
       .use("/folders/*", ...member)
       .route("/folders", folderRoutes(deps.db))
       .use("/tracks/*", ...member)
-      .route("/tracks", trackRoutes(deps.db, deps.jobs))
+      .route(
+        "/tracks",
+        trackRoutes(deps.db, deps.jobs, { mailer: deps.mailer, publicUrl: deps.publicUrl }),
+      )
       .use("/versions/*", ...member)
       .route("/versions", versionRoutes(deps.db))
       .use("/variations/*", ...member)
@@ -116,7 +123,13 @@ export function createApi(deps: AppDeps) {
       // Guest reviewers reach files and reviews too, only those of their own reviews.
       .use("/files/*", viewer)
       .route("/files", fileRoutes(playback))
-      .route("/files", fileCommentRoutes(deps.db, deps.audit, deps.trustProxy ?? false))
+      .route(
+        "/files",
+        fileCommentRoutes(deps.db, deps.audit, deps.trustProxy ?? false, {
+          mailer: deps.mailer,
+          publicUrl: deps.publicUrl,
+        }),
+      )
       .route("/files", fileManageRoutes(deps.db, deps.audit, deps.trustProxy ?? false))
       .route("/files", fileQaRoutes(deps.db))
       .use("/reviews/*", viewer)
