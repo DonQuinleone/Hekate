@@ -160,11 +160,22 @@ export async function projectAccess(
   db: Pick<Database, "select">,
   actor: Actor,
   projectId: string,
-): Promise<{ projectId: string; permissions: Set<ProjectPermission> } | null> {
+): Promise<{
+  projectId: string;
+  /** What the actor may do now: only look, while the project is archived. */
+  permissions: Set<ProjectPermission>;
+  /** What their role grants, archived or not: what unarchiving it is decided by. */
+  granted: Set<ProjectPermission>;
+  archived: boolean;
+} | null> {
   // Guests see no projects; they reach files only through their reviews.
   if (actor.kind === "guest") return null;
   const [row] = await db
-    .select({ id: projects.id, permissions: projectRoles.permissions })
+    .select({
+      id: projects.id,
+      archivedAt: projects.archivedAt,
+      permissions: projectRoles.permissions,
+    })
     .from(projects)
     .leftJoin(
       projectMembers,
@@ -183,8 +194,12 @@ export async function projectAccess(
     )
     .where(inOrg(projects, actor.organisationId, eq(projects.id, projectId)));
   if (!row) return null;
-  const permissions = permissionsFor(actor.organisationRole, row.permissions);
-  return permissions.has("view") ? { projectId: row.id, permissions } : null;
+  const granted = permissionsFor(actor.organisationRole, row.permissions);
+  if (!granted.has("view")) return null;
+  // An archived project is read-only for everyone until it is unarchived.
+  const archived = row.archivedAt !== null;
+  const permissions = archived ? new Set<ProjectPermission>(["view"]) : granted;
+  return { projectId: row.id, permissions, granted, archived };
 }
 
 /**

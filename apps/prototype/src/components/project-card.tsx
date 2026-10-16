@@ -70,13 +70,13 @@ export function projectSummary(project: Project) {
   return { tracks: its, withVersion, approved, open, openTasks, latest };
 }
 
-export function ProjectCard({ project }: { project: Project }) {
+export function ProjectCard({ project, menu }: { project: Project; menu?: React.ReactNode }) {
   const viewer = useViewer();
   const s = projectSummary(project);
   const waiting = s.open.filter((r) => needsYou(r, viewer.reviewerIn(r))).length;
   const noun = project.profile === "music" ? "tracks" : "deliverables";
   const pct = s.withVersion.length ? Math.round((s.approved / s.withVersion.length) * 100) : 0;
-  return (
+  const card = (
     <Link
       to="/projects/$projectId"
       params={{ projectId: project.id }}
@@ -123,6 +123,16 @@ export function ProjectCard({ project }: { project: Project }) {
         </span>
       </span>
     </Link>
+  );
+  if (!menu) return card;
+  // The menu sits over the cover's corner, beside the link rather than inside it.
+  return (
+    <div className="group relative min-w-0">
+      {card}
+      <div data-e2e-overlap className="absolute top-2 right-2">
+        {menu}
+      </div>
+    </div>
   );
 }
 

@@ -48,6 +48,12 @@ const screens: Screen[] = [
   { name: "home", path: () => "/", ready: "main section[aria-label=Activity] li a" },
   { name: "projects", path: () => "/projects", ready: "main a:has-text('Joplin Rags')" },
   {
+    name: "projects-list",
+    path: () => "/projects?view=list&sort=name",
+    ready: "main a:has-text('Joplin Rags')",
+  },
+  { name: "project-new", path: () => "/projects?new=1", ready: "[role=dialog] >> text=Start from" },
+  {
     name: "notifications",
     path: () => "/notifications",
     ready: "main >> text=mentioned you on Maple Leaf Rag - Dry v2.wav",

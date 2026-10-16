@@ -2,6 +2,7 @@ import {
   type AlignmentPoints,
   type Anchor,
   type CarryStatus,
+  type CreateProjectInput,
   type CreateReviewInput,
   type DeliveryProfileId,
   decodeLoudness,
@@ -83,8 +84,23 @@ export const setupQuery = queryOptions({
 
 export const projectsQuery = queryOptions({
   queryKey: ["projects"],
-  queryFn: async () => (await json<{ projects: Project[] }>(await api.projects.$get())).projects,
+  queryFn: async () =>
+    (await json<{ projects: Project[] }>(await api.projects.$get({ query: {} }))).projects,
 });
+
+/** The projects page: those in use or those archived, each with what its card shows. */
+export const projectCardsQuery = (archived: boolean) =>
+  queryOptions({
+    queryKey: ["projects", "cards", archived],
+    queryFn: async () =>
+      (
+        await json<{ projects: ProjectWithFigures[] }>(
+          await api.projects.$get({
+            query: { figures: "1", ...(archived ? { archived: "1" } : {}) },
+          }),
+        )
+      ).projects,
+  });
 
 export const projectQuery = (id: string) =>
   queryOptions({
@@ -97,9 +113,34 @@ export interface Project {
   id: string;
   name: string;
   profile: ProjectProfile;
+  description: string | null;
   createdAt: string;
+  archivedAt: string | null;
   /** What the signed-in member may do here. Only on a single project; the server checks again. */
   permissions?: ProjectPermission[];
+  /** Whether they may archive or unarchive it (on a single project, and in the list). */
+  mayArchive?: boolean;
+  /** In the list: whether they are a member of it. */
+  mine?: boolean;
+}
+
+/** What a project's card shows beside its name. */
+export interface ProjectFigures {
+  files: number;
+  tracks: number;
+  /** Tracks with at least one version, and of those, how many are approved at their latest. */
+  versionedTracks: number;
+  approvedTracks: number;
+  openComments: number;
+  openReviews: number;
+  members: number;
+  faces: { id: string; name: string }[];
+}
+
+export interface ProjectWithFigures extends Project {
+  mine: boolean;
+  mayArchive: boolean;
+  figures: ProjectFigures & { lastActiveAt: string };
 }
 
 /** Whether the signed-in member may do something in a project, once it has loaded. */
@@ -221,11 +262,28 @@ export function useProjectAccessMutations(projectId: string) {
 export function useCreateProject() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { name: string; profile: ProjectProfile }) =>
+    mutationFn: async (input: CreateProjectInput) =>
       (await json<{ project: Project }>(await api.projects.$post({ json: input }))).project,
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["projects"] });
       void client.invalidateQueries({ queryKey: homeQuery.queryKey });
+    },
+  });
+}
+
+/** Archive a project (its open reviews close), or unarchive one. */
+export function useArchiveProject() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, archive }: { id: string; archive: boolean }) => {
+      const res = await (archive
+        ? api.projects[":id"].archive.$post({ param: { id } })
+        : api.projects[":id"].unarchive.$post({ param: { id } }));
+      if (!res.ok) await json(res);
+    },
+    onSuccess: () => {
+      // Lists, the sidebar, the home page and every review list may change.
+      void client.invalidateQueries();
     },
   });
 }
@@ -1269,21 +1327,13 @@ export const myReviewsQuery = queryOptions({
 });
 
 /** A project as the home page shows it: its figures and a few of its people. */
-export interface HomeProject {
+export interface HomeProject extends ProjectFigures {
   id: string;
   name: string;
   profile: ProjectProfile;
+  description: string | null;
   createdAt: string;
   updatedAt: string;
-  files: number;
-  tracks: number;
-  /** Tracks with at least one version, and of those, how many are approved at their latest. */
-  versionedTracks: number;
-  approvedTracks: number;
-  openComments: number;
-  openReviews: number;
-  members: number;
-  faces: { id: string; name: string }[];
 }
 
 type HomeWho = { id: string; name: string } | null;
