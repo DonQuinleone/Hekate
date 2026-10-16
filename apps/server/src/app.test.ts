@@ -1605,6 +1605,56 @@ describe.runIf(url)("api", () => {
         expect(await backends.get("local").head(blob.key)).toEqual({ size: encryptedSize(9) });
       });
 
+      it("shows a workspace's storage by backend and project, and reconciles it alone", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const [project] = await db
+          .insert(schema.projects)
+          .values({ organisationId, name: "Joplin Rags", profile: "music" })
+          .returning();
+        const used = await storage.put(organisationId, Buffer.alloc(3000, 1));
+        await storage.put(organisationId, Buffer.alloc(500, 2));
+        await db.insert(schema.files).values({
+          organisationId,
+          projectId: project?.id ?? "",
+          name: "maple-leaf.wav",
+          kind: "audio",
+          blobId: used.id,
+          contentType: "audio/wav",
+          byteSize: 3000,
+        });
+        type Usage = {
+          backends: { name: string; bytes: number; objects: number }[];
+          projects: { name: string; bytes: number }[];
+          bytes: number;
+          reconciliation: { removing: boolean; lastRun: unknown; missing: number };
+        };
+        const usage = (await (
+          await app.request("/api/organisation/storage/usage", { headers: { cookie: owner } })
+        ).json()) as Usage;
+        expect(usage.backends).toEqual([{ name: "local", bytes: 3500, objects: 2 }]);
+        expect(usage.projects).toEqual([{ id: project?.id, name: "Joplin Rags", bytes: 3000 }]);
+        expect(usage.bytes).toBe(3500);
+        expect(usage.reconciliation).toMatchObject({ removing: true, lastRun: null, missing: 0 });
+
+        // A member sees none of it.
+        const member = await joinAs(owner, "member@example.test", "member");
+        expect(
+          (await app.request("/api/organisation/storage/usage", { headers: { cookie: member } }))
+            .status,
+        ).toBe(403);
+
+        // A run over this workspace is recorded, finds the lost file, and is rationed.
+        await backends.get(used.backend).delete(used.key);
+        const run = () => app.request("/api/organisation/storage/reconcile", json({}, owner));
+        const ran = (await (await run()).json()) as Usage;
+        expect(ran.reconciliation.lastRun).not.toBeNull();
+        expect(ran.reconciliation.missing).toBe(1);
+        expect((await run()).status).toBe(200);
+        expect((await run()).status).toBe(200);
+        expect((await run()).status).toBe(429);
+      });
+
       it("lets owners choose the backend for new objects", async () => {
         const owner = cookieOf(await setup());
         const organisationId = await organisationOf(owner);

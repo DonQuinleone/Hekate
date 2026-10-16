@@ -1322,6 +1322,24 @@ export const storageFindings = pgTable(
   ],
 );
 
+/**
+ * Each run of the storage reconciliation, for the Storage settings' "last run": the nightly
+ * instance-wide run, or one an admin asked for over their own workspace. Instance-wide like
+ * the findings; a workspace's run names it in `scopeOrganisationId`, a plain id.
+ */
+export const storageReconciliations = pgTable(
+  "storage_reconciliations",
+  {
+    id: id(),
+    /** Null for the instance-wide run; otherwise the one workspace it covered. */
+    scopeOrganisationId: uuid("scope_organisation_id"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    removing: boolean("removing").notNull(),
+  },
+  (t) => [index("storage_reconciliations_started_idx").on(t.startedAt)],
+);
+
 // Notifications (docs/domain.md)
 
 export const notificationKindEnum = pgEnum("notification_kind", notificationKinds);

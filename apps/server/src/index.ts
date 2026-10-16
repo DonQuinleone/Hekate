@@ -11,12 +11,12 @@ import { startWorkers } from "./media/workers.ts";
 import { deliverDigests, deliverInstant } from "./notifications.ts";
 import { playbackSecret } from "./playback.ts";
 import { purgeRequestLimits } from "./rate-limit.ts";
-import { reconcileStorage } from "./reconcile.ts";
 import { remindDue } from "./reminders.ts";
 import { purgeAttempts } from "./sign-in.ts";
 import { settingsOrExit } from "./startup.ts";
 import { serveWeb } from "./static.ts";
 import { createStorage } from "./storage.ts";
+import { recordedReconciliation } from "./storage-usage.ts";
 import { version } from "./version.ts";
 
 const { config, storageConfig } = settingsOrExit();
@@ -80,7 +80,7 @@ if (config.WORKER) {
     config.WORKER_CONCURRENCY,
   );
   await jobs.work("storage-reconcile", async () => {
-    const reports = await reconcileStorage(
+    const reports = await recordedReconciliation(
       { db, storage, audit },
       { remove: config.STORAGE_RECONCILE === "remove" },
     );
@@ -121,6 +121,7 @@ const app = createApp({
   requireSecondFactor: config.REQUIRE_SECOND_FACTOR,
   maxPasskeys: config.MAX_PASSKEYS,
   ssoTrustedOrigins: config.SSO_TRUSTED_ORIGINS,
+  storageReconcile: config.STORAGE_RECONCILE,
 });
 if (config.WEB_DIST) serveWeb(app, config.WEB_DIST, { docsUrl: config.HEKATE_DOCS_URL });
 
