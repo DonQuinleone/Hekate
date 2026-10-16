@@ -61,3 +61,18 @@ test("finds the main area scrolling sideways inside a window that does not", asy
   const problems = await layoutProblems(p);
   expect(problems).toEqual([expect.objectContaining({ check: "overflow" })]);
 });
+
+test("checks a floating layer on its own, and leaves what it covers alone", async ({ page: p }) => {
+  await p.setContent(
+    page(`<div style="position:relative;height:80px">
+      <span style="position:absolute;left:0;top:0">Behind the sheet</span>
+      <aside data-e2e-layer style="position:absolute;left:0;top:0;width:300px;height:80px;background:#222">
+        <span style="position:absolute;left:0;top:0">Sheet title</span>
+        <span style="position:absolute;left:10px;top:4px">Sheet text</span>
+      </aside>
+    </div>`),
+  );
+  const found = (await layoutProblems(p)).filter((x) => x.check === "text-overlap");
+  expect(found).toHaveLength(1);
+  expect(found[0]?.what).toContain("Sheet title");
+});

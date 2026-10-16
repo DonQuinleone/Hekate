@@ -10,6 +10,7 @@ import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
 import type { Mailer } from "./mail.ts";
 import { carryRoutes, commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
+import { fileDetailRoutes } from "./routes/file-details.ts";
 import { fileManageRoutes, folderRoutes, projectFolderRoutes } from "./routes/folders.ts";
 import { projectGroupRoutes } from "./routes/groups.ts";
 import { guestRoutes } from "./routes/guest.ts";
@@ -147,6 +148,7 @@ export function createApi(deps: AppDeps) {
       .route("/files", fileQaRoutes(deps.db))
       .route("/files", fileTagRoutes(deps.db))
       .route("/files", fileRetryRoutes(deps.db, deps.jobs))
+      .route("/files", fileDetailRoutes(deps.db))
       .use("/reviews/*", viewer)
       .route("/reviews", reviewRoutes(reviewDeps))
       .route("/guest", guestRoutes(reviewDeps))

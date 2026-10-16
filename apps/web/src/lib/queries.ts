@@ -441,6 +441,7 @@ export interface AccessEvent {
 export interface AccessLogFilters {
   action?: string;
   projectId?: string;
+  fileId?: string;
 }
 
 /** The access log, newest first, a page at a time. */
@@ -452,6 +453,7 @@ export const accessLogQuery = (filters: AccessLogFilters) =>
       const query: Record<string, string> = { limit: "50" };
       if (filters.action) query.action = filters.action;
       if (filters.projectId) query.projectId = filters.projectId;
+      if (filters.fileId) query.fileId = filters.fileId;
       if (pageParam) query.before = pageParam;
       return json<{ events: AccessEvent[]; nextBefore: string | null }>(
         await api.organisation.audit.$get({ query }),
@@ -1769,3 +1771,51 @@ export function useRetryFile(projectId: string) {
     onSuccess: () => client.invalidateQueries({ queryKey: projectFilesQuery(projectId).queryKey }),
   });
 }
+
+/** Everything known about one file, for its details sheet. */
+export interface FileDetails {
+  file: ProjectFile & { projectId: string; pageCount: number | null };
+  storage: {
+    backend: string;
+    sha256: string | null;
+    encrypted: boolean;
+    keyVersion: number;
+    keySince: string | null;
+  };
+  renditions: {
+    name: string;
+    codecs: string;
+    bandwidth: number;
+    width: number | null;
+    height: number | null;
+    segments: number;
+  }[];
+  pages: { total: number; drawn: number } | null;
+  analysis: { status: StreamStatus; peaks: boolean; loudness: boolean; spectrogram: boolean };
+  usedIn: {
+    versions: {
+      trackId: string;
+      track: string;
+      number: number;
+      variation: string;
+      primary: boolean;
+      latest: boolean;
+    }[];
+    take: {
+      number: number;
+      label: string | null;
+      session: string;
+      channel: string | null;
+      mix: boolean;
+    } | null;
+    reviews: { id: string; title: string; status: "open" | "completed" | "cancelled" }[];
+  };
+  can: { organise: boolean; upload: boolean; log: boolean; delete: boolean };
+}
+
+export const fileDetailsQuery = (fileId: string) =>
+  queryOptions({
+    queryKey: ["files", fileId, "details"],
+    queryFn: async () =>
+      json<FileDetails>(await api.files[":id"].details.$get({ param: { id: fileId } })),
+  });
