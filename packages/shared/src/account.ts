@@ -37,6 +37,21 @@ export const profileInput = z
   .refine((p) => Object.keys(p).length > 0, "Nothing to change");
 export type ProfileInput = z.infer<typeof profileInput>;
 
+/** The themes on offer; "system" follows the device, dark or light, until someone chooses. */
+export const themes = [
+  "system",
+  "signal-dark",
+  "signal-light",
+  "catppuccin",
+  "dracula",
+  "gruvbox",
+  "rose-pine",
+  "osaka-jade",
+  "kanagawa",
+  "solarized",
+] as const;
+export type Theme = (typeof themes)[number];
+
 export const skipSteps = [1, 5, 10] as const;
 export const preRolls = [0, 1, 2] as const;
 
@@ -45,6 +60,7 @@ export const preRolls = [0, 1, 2] as const;
  * project still decides which tools they may have; these choose among those.
  */
 export const preferencesSchema = z.object({
+  theme: z.enum(themes),
   /** The spectrogram in the player's View menu. */
   showSpectrogram: z.boolean(),
   /** The loudness meters and their history on the QA view. */
@@ -63,6 +79,7 @@ export const preferencesSchema = z.object({
 export type Preferences = z.infer<typeof preferencesSchema>;
 
 export const defaultPreferences: Preferences = {
+  theme: "system",
   showSpectrogram: true,
   showLoudness: true,
   splitChannels: false,

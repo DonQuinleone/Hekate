@@ -14,6 +14,7 @@ import { type BrowserFilters, filtersFrom, filtersTo } from "~/lib/browser";
 import { formatLoop, parseLoop } from "~/lib/loop";
 import { projectShows, projectSorts, projectViews } from "~/lib/projects";
 import { guestMeQuery, meQuery, setupQuery } from "~/lib/queries";
+import { useFollowSystemTheme } from "~/lib/theme";
 import { ViewerProvider } from "~/lib/viewer";
 import { AccountPage } from "~/routes/account";
 import { SetupPage, SignInPage } from "~/routes/auth-pages";
@@ -56,8 +57,14 @@ const fileSearch = (
   search: Record<string, unknown>,
 ): { loop?: string; view?: "qa"; sheet?: "details" } => fileSearchSchema.parse(search);
 
+/** Every page: follows the device's dark or light while the theme is "system". */
+function Root() {
+  useFollowSystemTheme();
+  return <Outlet />;
+}
+
 const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({
-  component: Outlet,
+  component: Root,
   notFoundComponent: () => <p className="p-8 text-ink-3">Not found.</p>,
 });
 

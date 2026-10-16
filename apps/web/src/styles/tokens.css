@@ -11,6 +11,8 @@
   --hk-signal: #f0762e;
   --hk-paper: #e9e8e3;
   --hk-ok: #58b98a;
+  /** Which way native controls (scroll bars, form fields) are drawn. */
+  --hk-scheme: dark;
 
   /* Workflow node families, each told apart by shape as well as colour. */
   --hk-node-event: var(--hk-signal);

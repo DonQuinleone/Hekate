@@ -27,6 +27,7 @@ import {
   trackQuery,
   useSwitchOrganisation,
 } from "~/lib/queries";
+import { useThemeSync } from "~/lib/theme";
 
 /** The lamps in the room: slow, warm and cool, behind the chrome. */
 export function Ambient() {
@@ -458,6 +459,7 @@ export function Shell({ children }: { children: ReactNode }) {
   // Dates and numbers in the member's language and time zone; the page redraws if they change.
   setLocale(signedIn?.user.locale, signedIn?.user.timeZone);
   const page = <Fragment key={localeKey()}>{children}</Fragment>;
+  useThemeSync(signedIn?.user.preferences?.theme);
   const [collapsed, setCollapsed] = useCollapsed();
   const [slots, onTrail, onActions] = useHeaderSlots();
   const { data: reviews } = useQuery(myReviewsQuery);
