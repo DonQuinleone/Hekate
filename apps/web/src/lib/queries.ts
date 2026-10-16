@@ -53,6 +53,14 @@ import { api } from "./api";
 export class SignedOutError extends Error {}
 /** The workspace asks for a second factor this member has not added yet. */
 export class SecondFactorDueError extends Error {}
+/** A refusal with the server's code for it, for pages that answer each refusal differently. */
+export class ApiError extends Error {
+  readonly code: string | undefined;
+  constructor(message: string, code?: string) {
+    super(message);
+    this.code = code;
+  }
+}
 
 async function json<T>(res: Response): Promise<T> {
   if (res.status === 401) throw new SignedOutError("Your session has ended. Sign in again.");
@@ -62,7 +70,7 @@ async function json<T>(res: Response): Promise<T> {
     } | null;
     const message = body?.error?.message ?? `Request failed (${res.status})`;
     if (body?.error?.code === "second_factor_required") throw new SecondFactorDueError(message);
-    throw new Error(message);
+    throw new ApiError(message, body?.error?.code);
   }
   return res.json() as Promise<T>;
 }
@@ -1256,16 +1264,43 @@ export const guestMeQuery = queryOptions({
   staleTime: 60_000,
 });
 
-/** Exchange a magic link for a guest session in this browser. */
+/** A guest signed in: who, and the reviews they are in. */
+export type GuestSignedIn = Omit<GuestMe, "guest"> & { guest: { id: string } };
+/** Where the workspace asks for a code: one went to this address, shown masked. */
+export interface GuestCodeSent {
+  verify: "code";
+  sentTo: string;
+}
+
+/**
+ * Exchange a magic link for a guest session in this browser, or, where the workspace asks
+ * for one, have a code sent first.
+ */
 export function useGuestSignIn() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: async (token: string) =>
-      json<Omit<GuestMe, "guest"> & { guest: { id: string } }>(
-        await api.guest.sessions.$post({ json: { token } }),
-      ),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["guest"] }),
+      json<GuestSignedIn | GuestCodeSent>(await api.guest.sessions.$post({ json: { token } })),
+    onSuccess: (data) => {
+      if (!("verify" in data)) void client.invalidateQueries({ queryKey: ["guest"] });
+    },
   });
+}
+
+/** The code a guest was sent: another, when asked for, and the one typed. */
+export function useGuestCode(token: string) {
+  const client = useQueryClient();
+  return {
+    resend: useMutation({
+      mutationFn: async () =>
+        json<GuestCodeSent>(await api.guest.sessions.code.$post({ json: { token } })),
+    }),
+    verify: useMutation({
+      mutationFn: async (code: string) =>
+        json<GuestSignedIn>(await api.guest.sessions.verify.$post({ json: { token, code } })),
+      onSuccess: () => client.invalidateQueries({ queryKey: ["guest"] }),
+    }),
+  };
 }
 
 export function useGuestSignOut() {

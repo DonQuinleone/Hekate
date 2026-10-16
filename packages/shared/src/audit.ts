@@ -33,6 +33,10 @@ export const auditActions = [
   /** A guest was sent a magic link, used one, or had their links and sessions revoked. */
   "guest.link",
   "guest.sign_in",
+  /** A code was sent to a guest opening their link, where the workspace asks for one. */
+  "guest.code_sent",
+  /** A guest's code was wrong, had expired, or had been tried too often. */
+  "guest.code_failed",
   "guest.revoke",
   /** A guest opened a review, or commented. */
   "guest.view",

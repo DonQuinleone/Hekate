@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import postgres from "postgres";
@@ -514,6 +515,39 @@ test("second-factor-required", async ({ page }) => {
     await sql`update organisations set settings = ${sql.json(before?.settings ?? {})} where id = ${before?.id ?? ""}`;
     await sql.end();
   }
+});
+
+// Where the workspace asks for a code, a guest's link sends one and waits for it. A link made
+// in the database for the seeded guest, and the setting, are put back after.
+test.describe("guest code", () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+  test("guest-code", async ({ page }) => {
+    const sql = postgres(process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL ?? "", {
+      max: 1,
+    });
+    const token = `e2e-guest-code-${test.info().project.name}-0123456789`;
+    const [workspace] = await sql<
+      { id: string; settings: Record<string, postgres.JSONValue> | null }[]
+    >`select id, settings from organisations where name = 'Endless Hall Records'`;
+    const [guest] = await sql<{ id: string }[]>`
+      select id from guests where email = 'mira@example.test'`;
+    try {
+      await sql`update organisations set settings = ${sql.json({ ...workspace?.settings, guestVerification: "code" })}
+        where id = ${workspace?.id ?? ""}`;
+      await sql`insert into guest_links (id, organisation_id, guest_id, token_hash, expires_at)
+        values (gen_random_uuid(), ${workspace?.id ?? ""}, ${guest?.id ?? ""},
+          ${createHash("sha256").update(token).digest("hex")}, now() + interval '1 day')`;
+      await page.goto(`/guest/${token}`);
+      await settle(page, "text=Check your email");
+      await expect(page.getByText("m•••@example.test", { exact: false })).toBeVisible();
+      await saveScreen(page, "guest-code");
+      await checkScreen(page);
+    } finally {
+      await sql`update organisations set settings = ${sql.json(workspace?.settings ?? {})} where id = ${workspace?.id ?? ""}`;
+      await sql`delete from guest_links where token_hash = ${createHash("sha256").update(token).digest("hex")}`;
+      await sql.end();
+    }
+  });
 });
 
 // A file whose preparation failed says so, with a way to try again; put back as seeded after.
