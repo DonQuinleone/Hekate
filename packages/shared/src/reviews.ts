@@ -65,6 +65,12 @@ export const guestInput = z.object({
 });
 export type GuestInput = z.input<typeof guestInput>;
 
+/** A guest's label, changed from the project's People page; null takes it away. */
+export const guestLabelInput = z.object({
+  label: z.string().trim().max(60).nullable(),
+});
+export type GuestLabelInput = z.infer<typeof guestLabelInput>;
+
 /** A person in a group: a member's user id, or a guest. */
 export const personInput = z.union([z.string().min(1).max(64), guestInput]);
 export type PersonInput = z.infer<typeof personInput>;

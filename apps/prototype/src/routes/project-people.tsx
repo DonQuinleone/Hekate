@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Avatar, AvatarRow } from "~/components/avatar";
 import { Icon } from "~/components/icons";
@@ -21,7 +22,8 @@ export function People({ project }: { project: Project }) {
   const manage = viewer.can(project.id, "manage_roles");
   const manageReviewers = viewer.can(project.id, "manage_reviewers");
   const projectGroups = groups.filter((g) => g.projectId === project.id);
-  const [dialog, setDialog] = useState<"member" | "group" | "guest" | null>(null);
+  const [dialog, setDialog] = useState<"member" | "group" | null>(null);
+  const navigate = useNavigate();
   const [groupId, setGroupId] = useState<string | null>(null);
   const [permissionsFor, setPermissionsFor] = useState<{ id: string; guest: boolean } | null>(null);
   const memberIds = new Set(project.members.map((m) => m.personId));
@@ -101,7 +103,11 @@ export function People({ project }: { project: Project }) {
           hint="guests without accounts, by link"
           action={
             manageReviewers && (
-              <Button variant="secondary" size="md" onClick={() => setDialog("guest")}>
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={() => navigate({ to: "/reviews/new", search: { project: project.id } })}
+              >
                 <Icon name="mail" size={14} />
                 Invite a reviewer
               </Button>
@@ -164,7 +170,7 @@ export function People({ project }: { project: Project }) {
             })}
             {projectGuests.length === 0 && (
               <li className="px-4 py-4 text-[13px] text-ink-3">
-                No guests yet. Reviewers are invited when a review is requested, or from here.
+                No guests yet. Reviewers are invited when a review is requested.
               </li>
             )}
           </ul>
@@ -272,34 +278,6 @@ export function People({ project }: { project: Project }) {
           <p className="mt-3 text-[12px] text-ink-3">
             Someone not in the workspace yet is invited from Members first.
           </p>
-        </Dialog>
-      )}
-      {dialog === "guest" && (
-        <Dialog
-          title="Invite a reviewer"
-          description="A guest with no account: they reach only what reviews give them, through a link sent by email."
-          onClose={() => setDialog(null)}
-          width="sm"
-          footer={
-            <>
-              <Button variant="ghost" onClick={() => setDialog(null)}>
-                Cancel
-              </Button>
-              <Button variant="primary" onClick={() => setDialog(null)}>
-                Send the link
-              </Button>
-            </>
-          }
-        >
-          <div className="flex flex-col gap-3">
-            <Input placeholder="Name" />
-            <Input placeholder="Email" type="email" />
-            <Input placeholder="Label, such as Conductor (optional)" />
-            <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-              Access until
-              <Input type="date" defaultValue="2026-10-31" />
-            </label>
-          </div>
         </Dialog>
       )}
       {dialog === "group" && (

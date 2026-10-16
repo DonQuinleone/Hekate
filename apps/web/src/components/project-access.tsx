@@ -3,9 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type CSSProperties, type FormEvent, useState } from "react";
 import { cn } from "~/lib/cn";
 import {
-  membersQuery,
   type ProjectRole,
-  projectMembersQuery,
   projectRolesQuery,
   useProjectAccessMutations,
   useProjectCan,
@@ -16,69 +14,6 @@ import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
 import { Input, Select } from "./ui/input";
 import { ActionMenu } from "./ui/menu";
-
-/** Who works on the project, and their role. Organisation owners and admins need none. */
-function Members({ projectId, manage }: { projectId: string; manage: boolean }) {
-  const { data: people } = useQuery(membersQuery);
-  const { data: holders } = useQuery(projectMembersQuery(projectId));
-  const { data: roles } = useQuery(projectRolesQuery(projectId));
-  const { assign, remove } = useProjectAccessMutations(projectId);
-  const error = assign.error ?? remove.error;
-  if (!people || !holders || !roles) return <p className="m-0 text-[13px] text-ink-3">Loading</p>;
-  const roleOf = (userId: string) => holders.find((h) => h.userId === userId)?.roleId ?? "";
-  return (
-    <section aria-label="Members" className="flex flex-col gap-3">
-      <h2 className="m-0 text-[15px] font-medium">Members</h2>
-      <p className="m-0 text-[13px] text-ink-3">
-        Workspace owners and admins can do everything in every project. Everyone else sees this
-        project only with a role in it.
-      </p>
-      {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
-      <ul className="m-0 flex list-none flex-col border-t border-hairline p-0">
-        {people.map((person) => {
-          const everything = person.role === "owner" || person.role === "admin";
-          const current = roleOf(person.userId);
-          return (
-            <li
-              key={person.userId}
-              className="grid min-h-12 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-hairline py-2"
-            >
-              <span className="flex min-w-0 flex-col">
-                <span className="truncate text-sm text-ink">{person.name}</span>
-                <span className="truncate text-xs text-ink-3">{person.email}</span>
-              </span>
-              {manage ? (
-                <Select
-                  size="sm"
-                  className="w-auto"
-                  aria-label={`Role of ${person.name}`}
-                  value={current}
-                  onChange={(event) =>
-                    event.target.value
-                      ? assign.mutate({ userId: person.userId, roleId: event.target.value })
-                      : remove.mutate(person.userId)
-                  }
-                >
-                  <option value="">{everything ? "No role (workspace admin)" : "No access"}</option>
-                  {roles.map((role) => (
-                    <option key={role.id} value={role.id}>
-                      {role.name}
-                    </option>
-                  ))}
-                </Select>
-              ) : (
-                <span className="text-xs text-ink-2">
-                  {roles.find((r) => r.id === current)?.name ??
-                    (everything ? "Workspace admin" : "No access")}
-                </span>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </section>
-  );
-}
 
 /** A role's name: a new role's, or one renamed. */
 function RoleDialog({
@@ -342,12 +277,6 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
       )}
     </>
   );
-}
-
-/** Who is in the project: editable with "Manage" in roles and people, else read-only. */
-export function ProjectMembers({ projectId }: { projectId: string }) {
-  const can = useProjectCan(projectId);
-  return <Members projectId={projectId} manage={can("manage_roles")} />;
 }
 
 /** The project's roles and their levels, as its settings show them. */
