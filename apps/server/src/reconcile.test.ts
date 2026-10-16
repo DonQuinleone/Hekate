@@ -143,6 +143,47 @@ describe.runIf(url)("storage reconciliation", () => {
     expect(gone.map((g) => g.resolution)).toEqual(["gone"]);
   });
 
+  it("survives two runs at once, and a targeted run lists only its own workspace", async () => {
+    const make = async (name: string) =>
+      (
+        await db
+          .insert(schema.organisations)
+          .values({ name, slug: `${name.toLowerCase()}-${Date.now()}` })
+          .returning()
+      )[0]?.id ?? "";
+    const mine = await make("Mine");
+    const theirs = await make("Theirs");
+    const stray = `org/${mine}/${uuidv7()}`;
+    await local.put(stray, Buffer.from("stray"));
+
+    // The nightly run and an admin's, together: one finding, no error.
+    const [a, b] = await Promise.all([
+      reconcileStorage({ db, storage, audit }, { remove: false, organisations: [mine] }),
+      reconcileStorage({ db, storage, audit }, { remove: false }),
+    ]);
+    expect(a[0]?.orphanObjects).toBe(1);
+    expect(b.length).toBeGreaterThan(0);
+    const findings = await db
+      .select()
+      .from(schema.storageFindings)
+      .where(and(eq(schema.storageFindings.key, stray), isNull(schema.storageFindings.resolvedAt)));
+    expect(findings).toHaveLength(1);
+
+    // Asked for one workspace, the backend is listed under that workspace's keys alone.
+    const listed: string[] = [];
+    const list = local.list.bind(local);
+    local.list = (prefix: string) => {
+      listed.push(prefix);
+      return list(prefix);
+    };
+    try {
+      await reconcileStorage({ db, storage, audit }, { remove: false, organisations: [theirs] });
+    } finally {
+      local.list = list;
+    }
+    expect(listed).toEqual([`org/${theirs}/`]);
+  });
+
   it("leaves unfinished uploads alone, and retries a report the access log missed", async () => {
     const [org] = await db
       .insert(schema.organisations)

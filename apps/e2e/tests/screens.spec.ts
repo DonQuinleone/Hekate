@@ -240,7 +240,7 @@ const screens: Screen[] = [
   {
     name: "settings-storage",
     path: () => "/settings/storage",
-    ready: "main >> text=New files go to",
+    ready: "main >> text=Usage by project",
   },
   { name: "settings-log", path: () => "/settings/log", ready: "main [data-log-entry]" },
 ];

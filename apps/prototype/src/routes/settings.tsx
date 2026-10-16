@@ -1189,34 +1189,34 @@ export function SettingsPage({
           </Section>
           <Section
             title="Reconciliation"
-            intro="Compares the database with what the backends hold. Report only: nothing is removed without a person."
+            intro="Every night the storage is compared with the database. Bytes nothing uses are removed once a second run, a day later, still finds them; missing files wait for a person."
           >
-            <Row name="Last run" hint="Nightly, 03:00">
-              <span className="text-[13px] text-ink-2">Today 03:00 · 2 min 14 s</span>
+            <Row name="Last run">
+              <span className="text-[13px] text-ink-2">Today 03:00</span>
             </Row>
-            <Row name="Orphaned objects" hint="In storage, unknown to the database">
-              <span className="tabular text-[13px] text-ink-2">3 · 41 MB</span>
-              <Button variant="ghost" size="md">
-                Remove
-              </Button>
+            <Row name="Unused bytes" hint="In storage, but no file uses them">
+              <span className="tabular text-[13px] text-ink-2">3</span>
             </Row>
             <Row
-              name="Missing bytes"
+              name="Missing files"
               hint={
                 state === "failed"
-                  ? "Objects the database expects that a backend no longer holds. Restore from backup."
-                  : "None"
+                  ? "Files the database expects that their backend no longer holds. Restore them from a backup."
+                  : "Every file is where the database expects it."
               }
             >
               {state === "failed" ? (
                 <span className="flex items-center gap-1.5 text-[13px] text-signal">
-                  <Icon name="warning" size={13} />2 objects · 118 MB
+                  <Icon name="warning" size={13} />2
                 </span>
               ) : (
-                <Dot state="approved" />
+                <span className="text-[13px] text-ink-2">None</span>
               )}
             </Row>
-            <Row name="Run now">
+            <Row name="Removed in the last 30 days">
+              <span className="tabular text-[13px] text-ink-2">12</span>
+            </Row>
+            <Row name="Run now" hint="Checks this workspace only.">
               <Button variant="secondary" size="md">
                 Reconcile
               </Button>

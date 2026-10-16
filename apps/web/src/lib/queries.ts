@@ -554,6 +554,35 @@ export function useWorkspaceStorage() {
   });
 }
 
+/** What the workspace keeps in storage, and what the reconciliation found; admins only. */
+export interface StorageUsage {
+  backends: { name: string; bytes: number; objects: number }[];
+  projects: { id: string; name: string; bytes: number }[];
+  bytes: number;
+  reconciliation: {
+    removing: boolean;
+    lastRun: { startedAt: string; finishedAt: string | null } | null;
+    orphans: number;
+    unused: number;
+    missing: number;
+    removed: number;
+  };
+}
+
+export const storageUsageQuery = queryOptions({
+  queryKey: ["organisation", "storage", "usage"],
+  queryFn: async () => json<StorageUsage>(await api.organisation.storage.usage.$get()),
+});
+
+/** Reconcile this workspace's storage now; what it finds is acted on only by a later run. */
+export function useReconcile() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async () => json<StorageUsage>(await api.organisation.storage.reconcile.$post()),
+    onSuccess: (usage) => client.setQueryData(storageUsageQuery.queryKey, usage),
+  });
+}
+
 /** A guest of the workspace: someone outside it who reviews through links. */
 export interface WorkspaceGuest {
   id: string;
