@@ -94,6 +94,7 @@ export function createApi(deps: AppDeps) {
       .use("/notifications/*", ...member)
       .use("/notifications", ...member)
       .route("/notifications", notificationRoutes(deps.db))
+      .use("/search/*", ...member)
       .use("/search", ...member)
       .route("/search", searchRoutes(deps.db))
       .use("/home", ...member)

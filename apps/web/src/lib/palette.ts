@@ -9,7 +9,8 @@ export type HitGroup =
   | "Files"
   | "Reviews"
   | "People"
-  | "Comments";
+  | "Comments"
+  | "Search";
 
 /** One thing the palette offers: somewhere to go, or something to do. */
 export interface Hit {

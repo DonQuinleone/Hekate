@@ -1,3 +1,4 @@
+import { fileKinds, searchKinds, searchSince } from "@hekate/shared";
 import { QueryClient } from "@tanstack/react-query";
 import {
   createRootRouteWithContext,
@@ -23,6 +24,7 @@ import { NotificationsPage } from "~/routes/notifications";
 import { ProjectFilesPage, ProjectPeoplePage, ProjectReviewsPage } from "~/routes/project";
 import { ProjectsPage } from "~/routes/projects";
 import { ReviewPage } from "~/routes/review";
+import { SearchPage } from "~/routes/search";
 import { TrackPage } from "~/routes/track";
 import { WorkspaceSettingsPage } from "~/routes/workspace-settings";
 
@@ -291,6 +293,25 @@ const inbox = createRoute({
     return <InboxPage item={item} show={show} />;
   },
 });
+/** A search's words and filters, from its address; anything that does not read is dropped. */
+const searchPageSchema = z.object({
+  // Untrimmed: the field writes what is typed, trailing space and all.
+  q: z.string().max(200).optional().catch(undefined),
+  kind: z.enum(searchKinds).optional().catch(undefined),
+  projectId: z.uuid().optional().catch(undefined),
+  personId: z.string().min(1).max(100).optional().catch(undefined),
+  fileKind: z.enum(fileKinds).optional().catch(undefined),
+  since: z.enum(searchSince).optional().catch(undefined),
+});
+const searchPage = createRoute({
+  getParentRoute: () => app,
+  path: "/search",
+  validateSearch: (search: Record<string, unknown>) => searchPageSchema.parse(search),
+  component: function SearchRoute() {
+    const search = searchPage.useSearch();
+    return <SearchPage search={{ ...search, q: search.q ?? "" }} />;
+  },
+});
 const notifications = createRoute({
   getParentRoute: () => app,
   path: "/notifications",
@@ -362,6 +383,7 @@ export const router = createRouter({
       file,
       myReviews,
       inbox,
+      searchPage,
       notifications,
       account,
       accountSection,

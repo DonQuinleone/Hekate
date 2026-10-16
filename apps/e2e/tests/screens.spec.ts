@@ -105,6 +105,11 @@ const screens: Screen[] = [
     path: (s) => `/inbox?item=${s.reviewId}`,
     ready: "section[aria-label=Review] >> text=Your decision",
   },
+  {
+    name: "search",
+    path: (s) => `/search?q=maple&projectId=${s.musicProjectId}`,
+    ready: "main section[aria-label=Files] a",
+  },
   { name: "members", path: () => "/settings/members", ready: "main >> text=Alex Rivera" },
   {
     name: "settings-general",
