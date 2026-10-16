@@ -6,6 +6,7 @@ import {
   notificationKinds,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
+import { ProfileSection, SessionsSection } from "~/components/account-sections";
 import { PageHeader } from "~/components/page-header";
 import { type NavSection, Row, Section, SettingsLayout } from "~/components/settings";
 import { Button } from "~/components/ui/button";
@@ -20,6 +21,17 @@ import {
 } from "~/lib/queries";
 
 const sections: (NavSection & { intro: string })[] = [
+  {
+    id: "account",
+    label: "Account",
+    intro: "Who you are to Hekate, and how you sign in.",
+  },
+  {
+    id: "sessions",
+    label: "Sessions",
+    intro:
+      "Every browser and device signed in as you. Sign out any you do not recognise, then change your password.",
+  },
   {
     id: "notifications",
     label: "Notifications",
@@ -167,7 +179,7 @@ function Notifications() {
   );
 }
 
-/** `/account/$section`: what is yours alone. Notifications now; the rest comes with #116. */
+/** `/account/$section`: what is yours alone, in every workspace (notifications in this one). */
 export function AccountPage({ section }: { section: string }) {
   const current = sections.find((s) => s.id === section) ?? sections[0];
   if (!current) return null;
@@ -182,6 +194,8 @@ export function AccountPage({ section }: { section: string }) {
         base="/account/$section"
         param="section"
       >
+        {current.id === "account" && <ProfileSection />}
+        {current.id === "sessions" && <SessionsSection />}
         {current.id === "notifications" && <Notifications />}
       </SettingsLayout>
     </>

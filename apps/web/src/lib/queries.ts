@@ -20,6 +20,7 @@ import {
   type NotificationPreferences,
   narrowed,
   type OverviewSection,
+  type ProfileInput,
   type ProjectPermission,
   type ProjectProfile,
   type QaFinding,
@@ -65,7 +66,14 @@ export const healthQuery = queryOptions({
 });
 
 export interface Me {
-  user: { id: string; name: string; email: string };
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    emailVerified?: boolean;
+    locale?: string | null;
+    timeZone?: string | null;
+  };
   organisations: { id: string; name: string; role: "owner" | "admin" | "member" }[];
   activeOrganisationId: string;
 }
@@ -1819,3 +1827,44 @@ export const fileDetailsQuery = (fileId: string) =>
     queryFn: async () =>
       json<FileDetails>(await api.files[":id"].details.$get({ param: { id: fileId } })),
   });
+
+/** Change one's own name, language or time zone. */
+export function useUpdateProfile() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: ProfileInput) => {
+      const res = await api.me.$patch({ json: input });
+      if (!res.ok) await json(res);
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: meQuery.queryKey }),
+  });
+}
+
+export interface SignedInSession {
+  id: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+  lastUsedAt: string;
+  current: boolean;
+}
+
+export const sessionsQuery = queryOptions({
+  queryKey: ["me", "sessions"],
+  queryFn: async () =>
+    (await json<{ sessions: SignedInSession[] }>(await api.me.sessions.$get())).sessions,
+});
+
+/** Sign out one other session, or (with no id) every other one. */
+export function useSignOutSession() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (id?: string) => {
+      const res = id
+        ? await api.me.sessions[":id"].$delete({ param: { id } })
+        : await api.me.sessions.$delete();
+      if (!res.ok) await json(res);
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: sessionsQuery.queryKey }),
+  });
+}

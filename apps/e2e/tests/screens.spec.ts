@@ -60,6 +60,16 @@ const screens: Screen[] = [
     ready: "main >> text=mentioned you on Maple Leaf Rag - Dry v2.wav",
   },
   {
+    name: "account",
+    path: () => "/account/account",
+    ready: "main >> text=Endless Hall Records",
+  },
+  {
+    name: "account-sessions",
+    path: () => "/account/sessions",
+    ready: "main >> text=This browser",
+  },
+  {
     name: "account-notifications",
     path: () => "/account/notifications",
     ready: "main >> text=Maple Leaf Rag",

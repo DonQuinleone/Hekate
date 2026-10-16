@@ -120,6 +120,10 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
   image: text("image"),
+  /** How dates and numbers read for them, for example "en-GB"; null follows the browser. */
+  locale: text("locale"),
+  /** Their IANA time zone, for example "Europe/London"; null follows the browser. */
+  timeZone: text("time_zone"),
   ...timestamps,
 });
 

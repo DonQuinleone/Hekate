@@ -375,7 +375,7 @@ const account = createRoute({
   getParentRoute: () => app,
   path: "/account",
   beforeLoad: () => {
-    throw redirect({ to: "/account/$section", params: { section: "notifications" } });
+    throw redirect({ to: "/account/$section", params: { section: "account" } });
   },
 });
 const accountSection = createRoute({
