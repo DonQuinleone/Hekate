@@ -48,6 +48,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Install ffmpeg and Poppler
         run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg poppler-utils fonts-dejavu-core
+      # The LDAP tests run against OpenLDAP from Ubuntu's own packages, with the fixtures in
+      # apps/server/test/ldap. Its own service is not started; the script runs one of its own.
+      - name: Start an LDAP directory
+        run: |
+          echo "slapd slapd/no_configuration boolean true" | sudo debconf-set-selections
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends slapd ldap-utils
+          sudo systemctl stop slapd || true
+          sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.slapd 2>/dev/null || true
+          echo "LDAP_TEST_URL=$(sudo LDAP_TEST_DIR=/var/lib/ldap/hekate-test apps/server/test/ldap/start.sh)" >> "$GITHUB_ENV"
       - name: Start an S3-compatible server
         run: |
           archive="versitygw_${VERSITYGW_VERSION}_Linux_x86_64.tar.gz"

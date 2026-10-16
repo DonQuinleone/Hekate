@@ -55,10 +55,14 @@ export const auditActions = [
   "account.passkey_removed",
   /** A member deleted their account; what they did stays, as a former member's. */
   "account.deleted",
+  /** A member signed in with the workspace's directory; the first time also makes them one. */
+  "account.directory_sign_in",
   /** An owner renamed the workspace. */
   "organisation.rename",
   /** An admin changed the workspace's settings. */
   "organisation.settings",
+  /** An admin changed the workspace's directory (LDAP) settings. */
+  "organisation.directory",
   /** A project was archived (its open reviews closing), or brought back. */
   "project.archive",
   "project.unarchive",

@@ -55,6 +55,8 @@ describe.runIf(url)("api", () => {
   const { db, close } = createDb(url ?? "", { max: 3 });
   const mailer = memoryMailer();
   const audit = createAudit(db);
+  const masterKey = Buffer.alloc(32, 7);
+  const keyring = createKeyring(db, { current: masterKey, previous: [] });
   const auth = createAuth({
     db,
     secret: "test-secret-test-secret-test-secret-0",
@@ -62,6 +64,7 @@ describe.runIf(url)("api", () => {
     testing: true,
     mailer,
     audit,
+    keyring,
   });
   const storageRoot = mkdtempSync(join(tmpdir(), "hekate-api-storage-"));
   const backends = createBackends(
@@ -72,8 +75,6 @@ describe.runIf(url)("api", () => {
       STORAGE_SPARE_PATH: join(storageRoot, "spare"),
     }),
   );
-  const masterKey = Buffer.alloc(32, 7);
-  const keyring = createKeyring(db, { current: masterKey, previous: [] });
   const storage = createStorage(db, backends, keyring);
   const sent: { name: string; data: unknown }[] = [];
   /** Set to make the next queue call fail, as if the queue were down. */
@@ -724,6 +725,122 @@ describe.runIf(url)("api", () => {
         json({}, cookieOf(joined)),
       );
       expect(signedIn.status).toBe(201);
+    });
+
+    describe.runIf(process.env.LDAP_TEST_URL)("directory", () => {
+      const settings = {
+        enabled: true,
+        url: process.env.LDAP_TEST_URL ?? "",
+        verifyCertificate: true,
+        bindDn: "cn=hekate,ou=services,dc=example,dc=test",
+        bindPassword: "bind-secret-for-tests",
+        userBase: "ou=people,dc=example,dc=test",
+        userFilter: "(uid={username})",
+        emailAttribute: "mail",
+        nameAttribute: "cn",
+        groupBase: "ou=groups,dc=example,dc=test",
+        groupFilter: "(member={dn})",
+        roles: [{ group: "producers", role: "admin" }],
+      };
+      const put = (body: unknown, cookie: string) =>
+        app.request("/api/organisation/directory", { ...json(body, cookie), method: "PUT" });
+      const signIn = (username: string, password: string, workspace = "studio") =>
+        app.request("/api/auth/sign-in/directory", json({ workspace, username, password }));
+      type Me = { organisations: { name: string; role: string }[]; user: { name: string } };
+
+      it("signs members in with the workspace's directory, giving each the role their groups say", async () => {
+        const owner = cookieOf(await setup());
+        const offered = async () =>
+          ((await (await app.request("/api/sign-in-methods")).json()) as { directory: boolean })
+            .directory;
+        // Off until it is set up, and the sign-in page does not offer it.
+        expect((await signIn("mira", "mira-directory-pass")).status).toBe(400);
+        expect(await offered()).toBe(false);
+        expect((await put(settings, owner)).status).toBe(200);
+        expect(await offered()).toBe(true);
+        const read = (await (
+          await app.request("/api/organisation/directory", { headers: { cookie: owner } })
+        ).json()) as { directory: Record<string, unknown>; workspace: string };
+        // With the short name people type to sign in with it.
+        expect(read.workspace).toBe("studio");
+        // The bind password goes in and never comes back.
+        expect(read.directory).toMatchObject({ hasBindPassword: true, enabled: true });
+        expect(JSON.stringify(read)).not.toContain("bind-secret");
+        const [stored] = await db.select().from(schema.directories);
+        expect(stored?.bindPasswordSealed).not.toContain("bind-secret");
+        const tested = await app.request("/api/organisation/directory/test", json({}, owner));
+        expect(await tested.json()).toEqual({ ok: true, problem: null });
+
+        // Mira's groups make her an admin; she joins on her first sign-in.
+        const mira = await signIn("mira", "mira-directory-pass");
+        expect(mira.status).toBe(200);
+        const miraMe = (await (
+          await app.request("/api/me", { headers: { cookie: cookieOf(mira) } })
+        ).json()) as Me;
+        expect(miraMe.user.name).toBe("Mira Solberg");
+        expect(miraMe.organisations).toEqual([
+          expect.objectContaining({ name: "Studio", role: "admin" }),
+        ]);
+        // Tomas is in no admin group: a member. Two first sign-ins at once make one account.
+        const [tomas, again] = await Promise.all([
+          signIn("tomas", "tomas-directory-pass"),
+          signIn("tomas", "tomas-directory-pass"),
+        ]);
+        expect([tomas.status, again.status]).toEqual([200, 200]);
+        expect(
+          await db
+            .select({ id: schema.users.id })
+            .from(schema.users)
+            .where(eq(schema.users.email, "tomas@example.test")),
+        ).toHaveLength(1);
+        const tomasMe = (await (
+          await app.request("/api/me", { headers: { cookie: cookieOf(tomas) } })
+        ).json()) as Me;
+        expect(tomasMe.organisations[0]?.role).toBe("member");
+        // A member does not see or change the directory.
+        expect(
+          (
+            await app.request("/api/organisation/directory", {
+              headers: { cookie: cookieOf(tomas) },
+            })
+          ).status,
+        ).toBe(403);
+
+        // Wrong passwords, unknown names and entries without an address are refused.
+        expect((await signIn("mira", "wrong")).status).toBe(401);
+        expect((await signIn("nobody", "mira-directory-pass")).status).toBe(401);
+        expect((await signIn("ines", "ines-directory-pass")).status).toBe(403);
+        // Leaving the bind password out keeps it.
+        const { bindPassword: _, ...withoutPassword } = settings;
+        expect((await put({ ...withoutPassword, roles: [] }, owner)).status).toBe(200);
+        expect((await signIn("tomas", "tomas-directory-pass")).status).toBe(200);
+        // Tomas has no password here: his directory's confirms deleting his account.
+        const remove = (password: string) =>
+          app.request("/api/me", {
+            ...json({ email: "tomas@example.test", password }, cookieOf(tomas)),
+            method: "DELETE",
+          });
+        expect((await remove("wrong")).status).toBe(403);
+        expect((await remove("tomas-directory-pass")).status).toBe(204);
+        // Turned off, it signs no one in.
+        expect((await put({ ...withoutPassword, enabled: false }, owner)).status).toBe(200);
+        expect((await signIn("mira", "mira-directory-pass")).status).toBe(400);
+        expect(await offered()).toBe(false);
+      });
+
+      it("never takes over an account that already has the address", async () => {
+        const owner = cookieOf(await setup());
+        expect((await put(settings, owner)).status).toBe(200);
+        // Tomas already has an account here, by invitation.
+        const { body } = await invite(owner, "tomas@example.test");
+        await app.request(
+          `/api/invitations/${tokenFrom(body.link)}/accept`,
+          json({ name: "Tomas", password: "correct horse battery" }),
+        );
+        const refused = await signIn("tomas", "tomas-directory-pass");
+        expect(refused.status).toBe(403);
+        expect(((await refused.json()) as { message: string }).message).toMatch(/already exists/);
+      });
     });
 
     describe("second factor", () => {

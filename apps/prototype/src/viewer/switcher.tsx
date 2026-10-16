@@ -116,6 +116,7 @@ export function Switcher() {
                     <option value="/sign-in?view=recovery">Sign in: recovery code</option>
                     <option value="/sign-in?view=enrol">Second factor required</option>
                     <option value="/sign-in?view=sso">Sign in: single sign-on</option>
+                    <option value="/sign-in?view=directory">Sign in: directory</option>
                     <option value="/sign-in?view=forgot">Forgotten password</option>
                     <option value="/sign-in?view=sent">Reset: check your email</option>
                     <option value="/sign-in?view=reset">Reset: new password</option>

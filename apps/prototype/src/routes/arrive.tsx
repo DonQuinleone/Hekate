@@ -61,7 +61,16 @@ function Field({
 }
 
 /** Sign in: what the organisation allows. Here: password, passkey and single sign-on. */
-type SignInView = "sign-in" | "forgot" | "sent" | "code" | "recovery" | "enrol" | "reset" | "sso";
+type SignInView =
+  | "sign-in"
+  | "forgot"
+  | "sent"
+  | "code"
+  | "recovery"
+  | "enrol"
+  | "reset"
+  | "sso"
+  | "directory";
 
 /** A QR code as an authenticator app scans it: drawn dark on paper in every theme. */
 function QrSample({ size = 176 }: { size?: number }) {
@@ -348,6 +357,30 @@ export function SignInPage({ view: initial }: { view?: string }) {
       </Frame>
     );
 
+  if (view === "directory")
+    return (
+      <Frame
+        title="Sign in with a directory"
+        intro="Your workspace signs you in with the username and password you use at work."
+      >
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            done();
+          }}
+        >
+          <Field label="Workspace" autoComplete="organization" placeholder="endless-hall-records" />
+          <Field label="Username" autoComplete="username" />
+          <Field label="Password" type="password" autoComplete="current-password" />
+          <Button type="submit" variant="primary" size="lg">
+            Sign in
+          </Button>
+        </form>
+        {back}
+      </Frame>
+    );
+
   if (view === "sso")
     return (
       <Frame
@@ -437,6 +470,13 @@ export function SignInPage({ view: initial }: { view?: string }) {
             Single sign-on
           </Button>
         </div>
+        <button
+          type="button"
+          className="self-center text-[13px] text-ink-3 transition-colors hover:text-ink"
+          onClick={() => setView("directory")}
+        >
+          Sign in with your workspace's directory
+        </button>
       </form>
       <p className="border-t border-line pt-4 text-[13px] text-ink-3">
         Accounts are by invitation. Guests reviewing a file open the link in their email instead.

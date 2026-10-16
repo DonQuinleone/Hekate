@@ -931,31 +931,70 @@ export function SettingsPage({
               checked={false}
             />
           </Section>
-          <Section title="Directory (LDAP)">
-            <Row name="Server">
+          <Section
+            title="Directory (LDAP)"
+            intro={`Members choose "Sign in with your workspace's directory" and enter endless-hall-records. Their first sign-in makes their account.`}
+          >
+            <SwitchRow
+              name="Sign in with the directory"
+              hint="Turned off, nobody new can join through it, and its members sign in with a password or passkey."
+              checked
+            />
+            <Row name="Server" hint="ldaps:// with its port; ldap:// only on a network you trust.">
               <Input
                 defaultValue="ldaps://directory.endlesshall.example:636"
                 className="w-full @3xl/app:w-96"
               />
             </Row>
             <SwitchRow name="Verify the certificate" checked />
-            <Row name="Bind">
-              <Input defaultValue="cn=hekate,ou=services,dc=endlesshall" className="w-64" />
-              <Input
-                type="password"
-                defaultValue="••••••••"
-                className="w-32"
-                aria-label="Bind password"
-              />
+            <Row
+              name="Service account"
+              hint="Searches for people. Left empty, the search is anonymous. The password is never shown again."
+            >
+              <span className="flex flex-wrap gap-2">
+                <Input defaultValue="cn=hekate,ou=services,dc=endlesshall" className="w-64" />
+                <Input
+                  type="password"
+                  placeholder="Kept"
+                  className="w-32"
+                  aria-label="Service account password"
+                />
+              </span>
             </Row>
-            <Row name="Search">
-              <Input
-                defaultValue="ou=people,dc=endlesshall · (uid={username})"
-                className="w-full @3xl/app:w-96"
-              />
+            <Row name="People" hint="Where they are, and the filter that finds one by username.">
+              <span className="flex flex-wrap gap-2">
+                <Input defaultValue="ou=people,dc=endlesshall" className="w-64" />
+                <Input defaultValue="(uid={username})" className="w-40" />
+              </span>
             </Row>
-            <Row name="Test">
-              <Test state={state === "refused" ? "failed" : "idle"} />
+            <Row name="Attributes" hint="Which hold the email address and the name.">
+              <span className="flex flex-wrap gap-2">
+                <Input defaultValue="mail" className="w-32" aria-label="Email attribute" />
+                <Input defaultValue="cn" className="w-32" aria-label="Name attribute" />
+              </span>
+            </Row>
+            <Row
+              name="Groups"
+              hint="Where groups are, and the filter that finds a person's groups."
+            >
+              <span className="flex flex-wrap gap-2">
+                <Input defaultValue="ou=groups,dc=endlesshall" className="w-64" />
+                <Input defaultValue="(member={dn})" className="w-40" />
+              </span>
+            </Row>
+            <Row
+              name="Admins"
+              hint="Groups whose people are admins here, by name or DN, separated by commas. Everyone else is a member; owners stay owners."
+            >
+              <Input defaultValue="producers" className="w-full @3xl/app:w-96" />
+            </Row>
+            <Row name="Test" hint="Connects with the saved settings.">
+              <span className="flex gap-2">
+                <Test state={state === "refused" ? "failed" : "idle"} />
+                <Button variant="primary" size="md">
+                  Save
+                </Button>
+              </span>
             </Row>
           </Section>
         </>

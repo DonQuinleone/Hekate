@@ -7,6 +7,7 @@ import {
   carryStatuses,
   type DeliveryProfileId,
   type DigestFrequency,
+  type DirectoryRoleRule,
   defaultReviewerPermissions,
   type FileColumnLayout,
   type LoudnessSummary,
@@ -243,6 +244,34 @@ export const twoFactors = pgTable(
     ...timestamps,
   },
   (t) => [index("two_factors_user_idx").on(t.userId)],
+);
+
+/**
+ * A workspace's directory (LDAP or Active Directory) for signing in (#38). The bind password
+ * is sealed with the workspace's key (secrets.ts); it is never sent back.
+ */
+export const directories = pgTable(
+  "directories",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    enabled: boolean("enabled").notNull().default(false),
+    url: text("url").notNull(),
+    verifyCertificate: boolean("verify_certificate").notNull().default(true),
+    bindDn: text("bind_dn").notNull().default(""),
+    bindPasswordSealed: text("bind_password_sealed"),
+    /** The version of the workspace key that sealed it. */
+    bindPasswordKeyVersion: integer("bind_password_key_version"),
+    userBase: text("user_base").notNull(),
+    userFilter: text("user_filter").notNull(),
+    emailAttribute: text("email_attribute").notNull().default("mail"),
+    nameAttribute: text("name_attribute").notNull().default("cn"),
+    groupBase: text("group_base").notNull().default(""),
+    groupFilter: text("group_filter").notNull().default("(member={dn})"),
+    roles: jsonb("roles").$type<DirectoryRoleRule[]>().notNull().default([]),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("directories_organisation_idx").on(t.organisationId)],
 );
 
 /**
