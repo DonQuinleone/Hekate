@@ -1158,6 +1158,10 @@ export const notifications = pgTable(
     index("notifications_mail_idx")
       .on(t.mailMode, t.createdAt)
       .where(sql`${t.mailMode} is not null and ${t.emailedAt} is null`),
+    // A file's failure is told to each person once, whichever job failed first.
+    uniqueIndex("notifications_failure_once_idx")
+      .on(t.organisationId, t.fileId, t.userId)
+      .where(sql`${t.kind} = 'processing_failed'`),
   ],
 );
 

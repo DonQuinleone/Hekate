@@ -2327,6 +2327,21 @@ describe.runIf(url)("api", () => {
           }
           expect((await inbox(newcomer)).notifications).toEqual([]);
 
+          // A follow outlives the composer's access to the project, but no longer shows it.
+          const composerId = s.ids.composer;
+          await db
+            .delete(schema.projectMembers)
+            .where(
+              and(
+                eq(schema.projectMembers.projectId, s.projectId),
+                eq(schema.projectMembers.userId, composerId),
+              ),
+            );
+          const hidden = (await (await getAs("/api/notifications/follows", s.composer)).json()) as {
+            follows: unknown[];
+          };
+          expect(hidden.follows).toEqual([]);
+
           const id = follows.follows[0]?.id;
           expect(
             (
@@ -2358,7 +2373,11 @@ describe.runIf(url)("api", () => {
             .update(schema.files)
             .set({ uploadedBy: ownerId ?? null })
             .where(eq(schema.files.id, s.mix));
-          await tellProcessingFailed(db, s.organisationId, s.mix);
+          // Two jobs failing on the same file at once still tell the uploader once.
+          await Promise.all([
+            tellProcessingFailed(db, s.organisationId, s.mix),
+            tellProcessingFailed(db, s.organisationId, s.mix),
+          ]);
           await tellProcessingFailed(db, s.organisationId, s.mix);
           const failed = (await inbox(s.owner)).notifications.filter(
             (n) => n.kind === "processing_failed",
@@ -2410,7 +2429,12 @@ describe.runIf(url)("api", () => {
             mailMode: "instant",
           });
           mailer.sent.length = 0;
-          expect(await deliverInstant(db, mailer, "http://localhost:3000", later)).toBe(1);
+          // Two runs at once send it once between them.
+          const [a, b] = await Promise.all([
+            deliverInstant(db, mailer, "http://localhost:3000", later),
+            deliverInstant(db, mailer, "http://localhost:3000", later),
+          ]);
+          expect(a + b).toBe(1);
           expect(await deliverInstant(db, mailer, "http://localhost:3000", later)).toBe(0);
           expect(mailer.sent.map((m) => m.to)).toEqual(["accompanist@example.test"]);
         });

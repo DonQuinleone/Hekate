@@ -1,5 +1,5 @@
 {
-  "id": "3f90c107-0152-40a6-bae0-4c8e85fcbd4c",
+  "id": "6da3451d-a70d-4183-875a-35819f46fe70",
   "prevId": "424150a6-601e-4780-9c2f-9d0445192565",
   "version": "7",
   "dialect": "postgresql",
@@ -3307,6 +3307,34 @@
           ],
           "isUnique": false,
           "where": "\"notifications\".\"mail_mode\" is not null and \"notifications\".\"emailed_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "notifications_failure_once_idx": {
+          "name": "notifications_failure_once_idx",
+          "columns": [
+            {
+              "expression": "organisation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "file_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"notifications\".\"kind\" = 'processing_failed'",
           "concurrently": false,
           "method": "btree",
           "with": {}

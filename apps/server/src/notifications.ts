@@ -152,7 +152,8 @@ export async function recordNotification(db: Db, event: NotificationEvent) {
     ];
   });
   if (values.length === 0) return [];
-  return db.insert(notifications).values(values).returning();
+  // One failure notice per file and person (a unique index); a second is dropped.
+  return db.insert(notifications).values(values).onConflictDoNothing().returning();
 }
 
 /** A notification as one line: "Mira Solberg approved Album masters". */
@@ -211,8 +212,47 @@ async function emailOf(db: Db, userId: string) {
 }
 
 /**
- * Send the mail waiting to go at once, a batch at a time. Each row is locked while it is
- * sent, so two runs never send it twice; a mail that fails stays queued for the next run.
+ * Send one notification's mail, once. The row is claimed by marking it sent before the
+ * mail goes, in one statement, so a second sender (the queue, or another run) finds it
+ * taken; a mail that fails releases the claim for the next run to try again.
+ */
+async function sendOnce(db: Database, mailer: Mailer, publicUrl: string, n: NotificationRow) {
+  const claimedAt = new Date();
+  const [claimed] = await db
+    .update(notifications)
+    .set({ emailedAt: claimedAt, updatedAt: claimedAt })
+    .where(
+      inOrg(
+        notifications,
+        n.organisationId,
+        eq(notifications.id, n.id),
+        isNull(notifications.emailedAt),
+      ),
+    )
+    .returning({ id: notifications.id });
+  if (!claimed) return false;
+  const to = await emailOf(db, n.userId);
+  try {
+    if (to) await mailer.send({ to, ...instantMail(n, publicUrl) });
+    return true;
+  } catch (error) {
+    console.warn(`Could not send a notification by mail: ${String(error)}`);
+    await db
+      .update(notifications)
+      .set({ emailedAt: null, updatedAt: new Date() })
+      .where(inOrg(notifications, n.organisationId, eq(notifications.id, n.id)));
+    throw error;
+  }
+}
+
+/** The workspaces, for jobs that work through each one's queue in turn. */
+const workspaces = async (db: Database) =>
+  (await db.select({ id: organisations.id }).from(organisations)).map((o) => o.id);
+
+/**
+ * Send the mail waiting to go at once, workspace by workspace, a batch at a time. Each
+ * row is claimed before it is sent, so nothing goes twice; a mail server that fails ends
+ * the run, and what is left goes next time.
  */
 export async function deliverInstant(
   db: Database,
@@ -221,36 +261,29 @@ export async function deliverInstant(
   now = new Date(),
 ) {
   let sent = 0;
-  await db.transaction(async (tx) => {
-    // Instance-wide: one queue for every workspace, each row then handled within its own.
-    const due = await tx
+  for (const organisationId of await workspaces(db)) {
+    const due = await db
       .select()
       .from(notifications)
       .where(
-        and(
+        inOrg(
+          notifications,
+          organisationId,
           eq(notifications.mailMode, "instant" satisfies MailMode),
           isNull(notifications.emailedAt),
           lte(notifications.createdAt, now),
         ),
       )
       .orderBy(asc(notifications.createdAt))
-      .limit(100)
-      .for("update", { skipLocked: true });
+      .limit(100);
     for (const n of due) {
-      const to = await emailOf(tx, n.userId);
       try {
-        if (to) await mailer.send({ to, ...instantMail(n, publicUrl) });
-      } catch (error) {
-        console.warn(`Could not send a notification by mail: ${String(error)}`);
-        break;
+        if (await sendOnce(db, mailer, publicUrl, n)) sent++;
+      } catch {
+        return sent;
       }
-      await tx
-        .update(notifications)
-        .set({ emailedAt: now, updatedAt: now })
-        .where(inOrg(notifications, n.organisationId, eq(notifications.id, n.id)));
-      sent++;
     }
-  });
+  }
   return sent;
 }
 
@@ -261,20 +294,23 @@ export async function deliverDigests(
   publicUrl: string,
   now = new Date(),
 ) {
-  // Instance-wide: who has a digest waiting, in any workspace; each is then read within it.
-  const waiting = await db
-    .selectDistinct({
-      organisationId: notifications.organisationId,
-      userId: notifications.userId,
-    })
-    .from(notifications)
-    .where(
-      and(
-        eq(notifications.mailMode, "digest" satisfies MailMode),
-        isNull(notifications.emailedAt),
-        lte(notifications.createdAt, now),
-      ),
-    );
+  // Who has a digest waiting, workspace by workspace.
+  const waiting: { organisationId: string; userId: string }[] = [];
+  for (const organisationId of await workspaces(db)) {
+    const users = await db
+      .selectDistinct({ userId: notifications.userId })
+      .from(notifications)
+      .where(
+        inOrg(
+          notifications,
+          organisationId,
+          eq(notifications.mailMode, "digest" satisfies MailMode),
+          isNull(notifications.emailedAt),
+          lte(notifications.createdAt, now),
+        ),
+      );
+    waiting.push(...users.map((u) => ({ organisationId, userId: u.userId })));
+  }
   let sent = 0;
   for (const { organisationId, userId } of waiting) {
     await db.transaction(async (tx) => {
@@ -357,19 +393,8 @@ export async function notifyNow(
   const rows = await recordNotification(deps.db, event);
   for (const n of rows) {
     if (n.mailMode !== "instant") continue;
-    const to = await emailOf(deps.db, n.userId);
-    if (!to) continue;
-    try {
-      await deps.mailer.send({ to, ...instantMail(n, deps.publicUrl) });
-    } catch (error) {
-      console.warn(`Could not send a notification by mail: ${String(error)}`);
-      continue;
-    }
-    const now = new Date();
-    await deps.db
-      .update(notifications)
-      .set({ emailedAt: now, updatedAt: now })
-      .where(inOrg(notifications, n.organisationId, eq(notifications.id, n.id)));
+    // A failure leaves it queued for the delivery job.
+    await sendOnce(deps.db, deps.mailer, deps.publicUrl, n).catch(() => false);
   }
   return rows;
 }

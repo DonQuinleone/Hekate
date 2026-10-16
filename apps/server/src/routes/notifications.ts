@@ -8,7 +8,7 @@ import { zValidator } from "@hono/zod-validator";
 import { and, count, desc, eq, isNull, lt, type SQL, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
-import { actorOf, can } from "../access.ts";
+import { actorOf, can, visibleProjects } from "../access.ts";
 import { NotFound } from "../errors.ts";
 import { follow } from "../notifications.ts";
 import type { TenantVariables } from "../tenancy.ts";
@@ -167,7 +167,15 @@ export const notificationRoutes = (db: Database) =>
             eq(projects.id, sql`coalesce(${tracks.projectId}, ${reviews.projectId})`),
           ),
         )
-        .where(inOrg(follows, organisationId, eq(follows.userId, userId)))
+        // Only what you can still see: a follow outlives your access, but tells you nothing.
+        .where(
+          inOrg(
+            follows,
+            organisationId,
+            eq(follows.userId, userId),
+            visibleProjects(actorOf(c.var)),
+          ),
+        )
         .orderBy(desc(follows.createdAt));
       return c.json({ follows: rows });
     })

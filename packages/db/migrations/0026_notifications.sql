@@ -66,4 +66,5 @@ CREATE UNIQUE INDEX "follows_review_idx" ON "follows" USING btree ("organisation
 CREATE INDEX "follows_track_lookup_idx" ON "follows" USING btree ("organisation_id","track_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "notification_preferences_user_idx" ON "notification_preferences" USING btree ("organisation_id","user_id");--> statement-breakpoint
 CREATE INDEX "notifications_user_idx" ON "notifications" USING btree ("organisation_id","user_id","id");--> statement-breakpoint
-CREATE INDEX "notifications_mail_idx" ON "notifications" USING btree ("mail_mode","created_at") WHERE "notifications"."mail_mode" is not null and "notifications"."emailed_at" is null;
+CREATE INDEX "notifications_mail_idx" ON "notifications" USING btree ("mail_mode","created_at") WHERE "notifications"."mail_mode" is not null and "notifications"."emailed_at" is null;--> statement-breakpoint
+CREATE UNIQUE INDEX "notifications_failure_once_idx" ON "notifications" USING btree ("organisation_id","file_id","user_id") WHERE "notifications"."kind" = 'processing_failed';
