@@ -239,3 +239,14 @@ export function matches(query: string, hits: Hit[], limit = 5): Hit[] {
   }
   return out;
 }
+
+/**
+ * Where Tab (or Shift Tab) moves the highlight: to the first hit of the next (or previous)
+ * group, wrapping round. From inside a group, Shift Tab returns to that group's first hit.
+ */
+export function groupStep(hits: Pick<Hit, "group">[], index: number, back: boolean): number {
+  const starts = hits.flatMap((h, i) => (i === 0 || hits[i - 1]?.group !== h.group ? [i] : []));
+  if (starts.length === 0) return 0;
+  if (back) return starts.filter((s) => s < index).at(-1) ?? starts.at(-1) ?? 0;
+  return starts.find((s) => s > index) ?? starts[0] ?? 0;
+}

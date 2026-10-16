@@ -6,7 +6,7 @@ import { Kbd } from "~/components/label";
 import { Thumb } from "~/components/thumb";
 import { projectById } from "~/data";
 import { cn } from "~/lib/cn";
-import { everything, type Hit, type HitGroup, matches, recent } from "~/lib/search";
+import { everything, groupStep, type Hit, type HitGroup, matches, recent } from "~/lib/search";
 import { useViewer } from "~/viewer/context";
 
 /** Ctrl or ⌘ K, whichever the keyboard has. */
@@ -14,7 +14,8 @@ export const paletteKey = navigator.platform.startsWith("Mac") ? "⌘K" : "Ctrl 
 
 /**
  * One place to go anywhere and do anything: the palette answers a few letters with pages, actions and
- * everything the viewer may see. Arrow keys move, Enter opens, Escape closes; `>` narrows to actions.
+ * everything the viewer may see. Arrow keys move, Tab jumps a group, Enter opens, Escape closes;
+ * `>` narrows to actions.
  */
 export function CommandPalette({
   open,
@@ -222,6 +223,10 @@ export function CommandPalette({
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setIndex((i) => Math.max(0, i - 1));
+    } else if (e.key === "Tab") {
+      // Tab moves between groups, keeping focus in the field.
+      e.preventDefault();
+      setIndex((i) => groupStep(hits, i, e.shiftKey));
     } else if (e.key === "Enter") {
       e.preventDefault();
       const hit = hits[index];
@@ -299,6 +304,9 @@ export function CommandPalette({
           </span>
           <span className="flex items-center gap-1.5">
             <Kbd>↵</Kbd> open
+          </span>
+          <span className="hidden items-center gap-1.5 @3xl/app:flex">
+            <Kbd>tab</Kbd> next group
           </span>
           <span className="hidden items-center gap-1.5 @3xl/app:flex">
             <Kbd>{">"}</Kbd> commands only
