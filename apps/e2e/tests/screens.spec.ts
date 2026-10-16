@@ -381,3 +381,53 @@ test("file-details", async ({ page }) => {
   await saveScreen(page, "file-details");
   await checkScreen(page);
 });
+
+// Themes (#117): sign-in and the player in light (the system's choice) and in one palette.
+test.describe("themes", () => {
+  test.describe("signed out", () => {
+    test.use({ storageState: { cookies: [], origins: [] } });
+    for (const [theme, set] of [
+      ["light", async (page: Page) => page.emulateMedia({ colorScheme: "light" })],
+      [
+        "dracula",
+        async (page: Page) =>
+          page.addInitScript(() => localStorage.setItem("hekate.theme", "dracula")),
+      ],
+    ] as const) {
+      test(`sign-in-${theme}`, async ({ page }) => {
+        await set(page);
+        await page.goto("/sign-in");
+        await settle(page, "form");
+        await saveScreen(page, `sign-in-${theme}`);
+        await checkScreen(page);
+      });
+    }
+  });
+
+  test("file-recording-light", async ({ page }) => {
+    await page.clock.setFixedTime(FIXED_TIME);
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.goto(`/files/${seeded().dryFileId}`);
+    await settle(page, "section[aria-label=Comments] li");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "signal-light");
+    await saveScreen(page, "file-recording-light");
+    await checkScreen(page);
+  });
+
+  // A member's own choice, kept on the server; put back after, for the captures that follow.
+  test("file-recording-dracula", async ({ page }) => {
+    const choose = (theme: string) =>
+      page.request.fetch("/api/me/preferences", { method: "PATCH", data: { theme } });
+    expect((await choose("dracula")).ok()).toBe(true);
+    try {
+      await page.clock.setFixedTime(FIXED_TIME);
+      await page.goto(`/files/${seeded().dryFileId}`);
+      await settle(page, "section[aria-label=Comments] li");
+      await expect(page.locator("html")).toHaveAttribute("data-theme", "dracula");
+      await saveScreen(page, "file-recording-dracula");
+      await checkScreen(page);
+    } finally {
+      await choose("system");
+    }
+  });
+});

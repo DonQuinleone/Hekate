@@ -40,7 +40,8 @@ const sections: (NavSection & { intro: string })[] = [
   {
     id: "appearance",
     label: "Appearance",
-    intro: "What the recording page shows you, and how the player behaves. Yours alone.",
+    intro:
+      "How Hekate looks, what the recording page shows you, and how the player behaves. Yours alone.",
   },
 ];
 

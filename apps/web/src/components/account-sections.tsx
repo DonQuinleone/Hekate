@@ -1,4 +1,4 @@
-import { locales, preRolls, skipSteps } from "@hekate/shared";
+import { locales, preRolls, skipSteps, type Theme } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { shortAgent } from "~/lib/agent";
@@ -12,6 +12,7 @@ import {
   useSignOutSession,
   useUpdateProfile,
 } from "~/lib/queries";
+import { applyTheme, themeChoices } from "~/lib/theme";
 import { Avatar } from "./avatar";
 import { Row, Section, SwitchRow } from "./settings";
 import { Button } from "./ui/button";
@@ -335,14 +336,39 @@ export function SessionsSection() {
 
 /**
  * What appears on the recording page and how the player behaves, for you alone. The project
- * decides which tools you may have; this is which of them you want to see. Themes come with
- * the light and alternative palettes.
+ * decides which tools you may have; this is which of them you want to see.
  */
 export function AppearanceSection() {
   const preferences = usePreferences();
   const save = useSavePreferences();
+  const choose = (theme: Theme) => {
+    applyTheme(theme);
+    save.mutate({ theme });
+  };
   return (
     <>
+      <Section title="Theme">
+        <Row name="Theme" hint="The brand in dark and light, and a few others people know." stacked>
+          <div className="grid w-full grid-cols-1 gap-2 @xl/app:grid-cols-2 @3xl/app:grid-cols-3">
+            <ThemeTile
+              name="Follow the system"
+              colours={["#0a0a0b", "#f4f4f2"]}
+              split
+              on={preferences.theme === "system"}
+              onChoose={() => choose("system")}
+            />
+            {themeChoices.map((t) => (
+              <ThemeTile
+                key={t.id}
+                name={t.name}
+                colours={t.colours}
+                on={preferences.theme === t.id}
+                onChoose={() => choose(t.id)}
+              />
+            ))}
+          </div>
+        </Row>
+      </Section>
       <Section title="Tools shown">
         <SwitchRow
           name="Spectrogram in the View menu"
@@ -402,5 +428,53 @@ export function AppearanceSection() {
         )}
       </Section>
     </>
+  );
+}
+
+/** One theme to choose: a swatch of its ground, signal and ink, and its name. */
+function ThemeTile({
+  name,
+  colours,
+  on,
+  split = false,
+  onChoose,
+}: {
+  name: string;
+  colours: string[];
+  on: boolean;
+  /** Half dark, half light, for following the system. */
+  split?: boolean;
+  onChoose: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={onChoose}
+      className={
+        on
+          ? "flex items-center gap-3 rounded-panel border border-signal/60 bg-signal/[0.06] p-2.5 text-left"
+          : "flex items-center gap-3 rounded-panel border border-line p-2.5 text-left transition-colors hover:border-edge"
+      }
+    >
+      {/* The swatch shows the theme's own colours, which are data here rather than chrome. */}
+      <span
+        aria-hidden="true"
+        className="flex h-9 w-14 shrink-0 overflow-hidden rounded-[5px] shadow-1"
+        style={{
+          background: split
+            ? `linear-gradient(135deg, ${colours[0]} 50%, ${colours[1]} 50%)`
+            : colours[0],
+        }}
+      >
+        {!split && (
+          <span className="m-auto flex gap-1">
+            <span className="size-2.5 rounded-full" style={{ background: colours[1] }} />
+            <span className="size-2.5 rounded-full" style={{ background: colours[2] }} />
+          </span>
+        )}
+      </span>
+      <span className="text-[13px] text-ink">{name}</span>
+    </button>
   );
 }

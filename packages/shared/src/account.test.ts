@@ -24,6 +24,7 @@ describe("preferences", () => {
   it("changes some at a time, and only to choices offered", () => {
     expect(preferencesInput.safeParse({ preRoll: 2 }).success).toBe(true);
     expect(preferencesInput.safeParse({ skipSeconds: 3 }).success).toBe(false);
-    expect(preferencesInput.safeParse({ theme: "dracula" }).success).toBe(false);
+    expect(preferencesInput.safeParse({ theme: "dracula" }).success).toBe(true);
+    expect(preferencesInput.safeParse({ theme: "neon" }).success).toBe(false);
   });
 });
