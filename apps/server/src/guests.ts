@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { type Database, inOrg, schema } from "@hekate/db";
+import { workspaceSettingsOf } from "@hekate/shared";
 import { and, eq, gt, isNull } from "drizzle-orm";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
@@ -9,10 +10,9 @@ import type { Actor, GuestActor } from "./access.ts";
 import type { Auth } from "./auth.ts";
 import { organisationFor } from "./tenancy.ts";
 
-const { guests, guestLinks, guestSessions } = schema;
+const { guests, guestLinks, guestSessions, organisations } = schema;
 
-/** A magic link works once, within three days of being sent. */
-export const GUEST_LINK_LIFETIME_MS = 3 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 /** A guest's browser stays signed in for a fortnight, unless revoked. */
 export const GUEST_SESSION_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000;
 export const GUEST_COOKIE = "hekate_guest";
@@ -26,7 +26,8 @@ export const hashToken = (token: string) => createHash("sha256").update(token).d
 
 /**
  * A new magic link for a guest. Any earlier link not yet used is revoked, so only the most
- * recent one works. Returns the token, which goes in the email and nowhere else.
+ * recent one works. It lasts as long as the workspace's settings say. Returns the token, which
+ * goes in the email and nowhere else, and the days it works for.
  */
 export async function issueGuestLink(
   db: Database,
@@ -35,7 +36,7 @@ export async function issueGuestLink(
   now = new Date(),
 ) {
   const { token, hash } = newToken();
-  await db.transaction(async (tx) => {
+  const days = await db.transaction(async (tx) => {
     // One issue at a time per guest, so two sends cannot leave two working links.
     const [guest] = await tx
       .select({ id: guests.id })
@@ -43,6 +44,11 @@ export async function issueGuestLink(
       .where(inOrg(guests, organisationId, eq(guests.id, guestId)))
       .for("update");
     if (!guest) throw new Error("No such guest to send a link to");
+    const [workspace] = await tx
+      .select({ settings: organisations.settings })
+      .from(organisations)
+      .where(eq(organisations.id, organisationId));
+    const { guestLinkDays } = workspaceSettingsOf(workspace?.settings);
     await tx
       .update(guestLinks)
       .set({ revokedAt: now })
@@ -59,10 +65,11 @@ export async function issueGuestLink(
       organisationId,
       guestId,
       tokenHash: hash,
-      expiresAt: new Date(now.getTime() + GUEST_LINK_LIFETIME_MS),
+      expiresAt: new Date(now.getTime() + guestLinkDays * DAY_MS),
     });
+    return guestLinkDays;
   });
-  return token;
+  return { token, days };
 }
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];

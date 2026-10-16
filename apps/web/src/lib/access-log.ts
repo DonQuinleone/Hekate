@@ -20,6 +20,7 @@ export const actionCopy: Record<string, string> = {
   "guest.view": "Guest opened a review",
   "comment.create": "Comment",
   "organisation.rename": "Workspace renamed",
+  "organisation.settings": "Workspace settings changed",
   "project.archive": "Project archived",
   "project.unarchive": "Project brought back",
 };

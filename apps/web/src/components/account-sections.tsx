@@ -4,6 +4,7 @@ import { type FormEvent, useState } from "react";
 import { shortAgent } from "~/lib/agent";
 import { authClient } from "~/lib/auth";
 import { ago } from "~/lib/comments";
+import { languageNames } from "~/lib/locale";
 import {
   meQuery,
   sessionsQuery,
@@ -19,7 +20,6 @@ import { Button } from "./ui/button";
 import { Input, Select } from "./ui/input";
 import { StatusDot } from "./ui/status";
 
-const languageNames = new Intl.DisplayNames(["en-GB"], { type: "language" });
 const zones = (() => {
   try {
     return Intl.supportedValuesOf("timeZone");
@@ -133,6 +133,7 @@ export function ProfileSection() {
   const update = useUpdateProfile();
   if (!me) return null;
   const { user } = me;
+  const workspaceLocale = me.organisations.find((o) => o.id === me.activeOrganisationId)?.locale;
   return (
     <>
       <Section title="You">
@@ -154,7 +155,11 @@ export function ProfileSection() {
               update.mutate({ locale: (e.target.value || null) as (typeof locales)[number] | null })
             }
           >
-            <option value="">As the browser has it</option>
+            <option value="">
+              {workspaceLocale
+                ? `As the workspace has it (${languageNames.of(workspaceLocale) ?? workspaceLocale})`
+                : "As the browser has it"}
+            </option>
             {locales.map((l) => (
               <option key={l} value={l}>
                 {languageNames.of(l) ?? l}

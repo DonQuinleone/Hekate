@@ -724,6 +724,82 @@ describe.runIf(url)("api", () => {
         expect(await nameOf(owner)).toBe("Endless Hall Recordings");
       });
 
+      it("lets every member read the workspace settings and only admins change them", async () => {
+        const owner = cookieOf(await setup());
+        type Settings = {
+          settings: { guestLinkDays: number; locale: string | null; reviewer: { decide: boolean } };
+        };
+        const read = async (cookie: string) => {
+          const res = await app.request("/api/organisation/settings", { headers: { cookie } });
+          return { status: res.status, body: (await res.json()) as Settings };
+        };
+        const change = (body: Record<string, unknown>, cookie: string) =>
+          app.request("/api/organisation/settings", { ...json(body, cookie), method: "PATCH" });
+
+        expect((await read(owner)).body.settings).toEqual({
+          defaultProfile: "music",
+          guestLinkDays: 3,
+          locale: null,
+          carriedCommentsShown: true,
+          reviewer: { comment: true, decide: true, comments: "all", windowDays: null },
+        });
+        expect((await change({ guestLinkDays: 7 }, owner)).status).toBe(400);
+        expect((await change({ storageBackend: "spare" }, owner)).status).toBe(400);
+        expect((await change({}, owner)).status).toBe(400);
+
+        const admin = await joinAs(owner, "engineer@example.test", "admin");
+        expect((await change({ locale: "de-DE" }, admin)).status).toBe(200);
+        // A second change keeps the first.
+        expect((await change({ reviewer: { decide: false } }, owner)).status).toBe(200);
+        const member = await joinAs(owner, "player@example.test", "member");
+        expect((await change({ guestLinkDays: 30 }, member)).status).toBe(403);
+        const seen = await read(member);
+        expect(seen.status).toBe(200);
+        expect(seen.body.settings).toMatchObject({
+          guestLinkDays: 3,
+          locale: "de-DE",
+          reviewer: { decide: false },
+        });
+        // Members without a language of their own get the workspace's.
+        const me = (await (
+          await app.request("/api/me", { headers: { cookie: member } })
+        ).json()) as {
+          organisations: { locale: string | null }[];
+        };
+        expect(me.organisations[0]?.locale).toBe("de-DE");
+
+        // Each change is in the access log.
+        const logged = (await (
+          await app.request("/api/organisation/audit?action=organisation.settings", {
+            headers: { cookie: owner },
+          })
+        ).json()) as { events: { details: unknown }[] };
+        expect(logged.events.map((e) => e.details)).toEqual([
+          { change: { reviewer: { decide: false } } },
+          { change: { locale: "de-DE" } },
+        ]);
+
+        // A new project starts with the workspace's carry-over default.
+        expect((await change({ carriedCommentsShown: false }, owner)).status).toBe(200);
+        const made = await app.request(
+          "/api/projects",
+          json({ name: "Opening titles", profile: "video" }, owner),
+        );
+        const { project } = (await made.json()) as { project: { id: string } };
+        const [row] = await db
+          .select({ shown: schema.projects.carriedCommentsShown })
+          .from(schema.projects)
+          .where(eq(schema.projects.id, project.id));
+        expect(row?.shown).toBe(false);
+
+        // Another workspace keeps its own.
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-settings" })
+          .returning({ settings: schema.organisations.settings });
+        expect(other?.settings).toEqual({});
+      });
+
       it("keeps the blob record when removing its bytes fails, so removal can be retried", async () => {
         const owner = cookieOf(await setup());
         const organisationId = await organisationOf(owner);
@@ -3514,6 +3590,73 @@ describe.runIf(url)("api", () => {
           expect(res.status).toBe(201);
           return { ...s, review, token, cookie: cookieOf(res) };
         };
+
+        it("gives new reviews and guest links the workspace's settings", async () => {
+          const s = await studio();
+          const settings = (body: Record<string, unknown>, cookie: string) =>
+            app.request("/api/organisation/settings", { ...json(body, cookie), method: "PATCH" });
+          expect(
+            (
+              await settings(
+                {
+                  guestLinkDays: 14,
+                  reviewer: { decide: false, comments: "own", windowDays: 30 },
+                },
+                s.owner,
+              )
+            ).status,
+          ).toBe(200);
+          mailer.sent.length = 0;
+          const before = Date.now();
+          const review = await reviewOf(
+            await request(s.owner, s.projectId, {
+              kind: "feedback",
+              title: "Album master",
+              items: [{ trackId: s.trackId }],
+              // The request may still say otherwise for what it names.
+              permissions: { comments: "all" },
+              reviewers: [s.ids.composer, guest],
+            }),
+          );
+          const day = 24 * 60 * 60 * 1000;
+          const granted = await db
+            .select({ permissions: schema.reviewReviewers.permissions })
+            .from(schema.reviewReviewers)
+            .where(eq(schema.reviewReviewers.reviewId, review.id));
+          expect(granted).toHaveLength(2);
+          for (const { permissions } of granted) {
+            expect(permissions).toMatchObject({ comment: true, decide: false, comments: "all" });
+            const ends = Date.parse(permissions.expiresAt ?? "");
+            expect(ends).toBeGreaterThanOrEqual(before + 30 * day);
+            expect(ends).toBeLessThan(Date.now() + 30 * day + 1000);
+          }
+          // The guest's link lasts a fortnight, and the email says so.
+          const [link] = await db
+            .select({ expiresAt: schema.guestLinks.expiresAt, at: schema.guestLinks.createdAt })
+            .from(schema.guestLinks)
+            .where(eq(schema.guestLinks.organisationId, s.organisationId));
+          expect((link?.expiresAt.getTime() ?? 0) - before).toBeGreaterThanOrEqual(14 * day);
+          expect((link?.expiresAt.getTime() ?? 0) - Date.now()).toBeLessThanOrEqual(14 * day);
+          const mail = mailer.sent.find((m) => m.to === "conductor@example.test");
+          expect(mail?.text).toContain("works once, for 14 days.");
+
+          // An approval nobody may decide would never end: refused, unless the request says
+          // that its reviewers may decide.
+          const approval = (permissions?: Record<string, unknown>) =>
+            request(s.owner, s.projectId, {
+              kind: "approval",
+              title: "Album master, signed off",
+              items: [{ trackId: s.trackId }],
+              reviewers: [s.ids.composer],
+              ...(permissions ? { permissions } : {}),
+            });
+          const refused = await approval();
+          expect(refused.status).toBe(422);
+          expect(
+            ((await refused.json()) as { error: { message: string } }).error.message,
+          ).toContain("may decide");
+          expect((await approval({ decide: true })).status).toBe(201);
+        });
 
         it("signs a guest in once from a magic link, and keeps them to their reviews", async () => {
           const s = await invited();

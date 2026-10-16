@@ -1,6 +1,9 @@
+/** Each offered language by its English name ("British English", "German (Germany)"). */
+export const languageNames = new Intl.DisplayNames(["en-GB"], { type: "language" });
+
 /**
  * Dates and numbers as the member reads them: their language and time zone when they chose
- * them (Account), otherwise the browser's. Formatters are made on first use and remade when
+ * them (Account), else the workspace's language, otherwise the browser's. Formatters are made on first use and remade when
  * the choice changes, so modules can hold one as a constant and call `.format` as with Intl.
  */
 let current: { locale: string | undefined; timeZone: string | undefined } = {

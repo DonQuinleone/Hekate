@@ -625,6 +625,13 @@ export function SettingsPage({
             <Row name="Name">
               <Input defaultValue={organisation.name} className="w-64" />
             </Row>
+            <Row name="New projects start as" hint="The profile only decides which tools appear.">
+              <Select defaultValue="music" className="w-40">
+                <option value="music">Music</option>
+                <option value="video">Video</option>
+                <option value="general">General</option>
+              </Select>
+            </Row>
             <Row
               name="Guests sign in with"
               hint="The link alone, or the link plus a code sent to their email."
@@ -700,6 +707,16 @@ export function SettingsPage({
                 <option value="30">30 days</option>
               </Select>
             </Row>
+          </Section>
+          <Section
+            title="Versions"
+            intro="What new projects start with; each project can change it."
+          >
+            <SwitchRow
+              name="Carried comments shown on the new version"
+              hint="Open comments travel to the next version; off keeps them hidden until triage shows them."
+              checked
+            />
           </Section>
           <Section
             title="Tool access"

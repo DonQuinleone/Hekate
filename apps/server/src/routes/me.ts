@@ -1,5 +1,11 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { fileColumnsInput, preferencesInput, preferencesOf, profileInput } from "@hekate/shared";
+import {
+  fileColumnsInput,
+  preferencesInput,
+  preferencesOf,
+  profileInput,
+  workspaceSettingsOf,
+} from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, desc, eq, gt, ne } from "drizzle-orm";
 import { Hono } from "hono";
@@ -27,6 +33,7 @@ export const meRoutes = (db: Database) =>
           id: schema.organisations.id,
           name: schema.organisations.name,
           role: schema.members.role,
+          settings: schema.organisations.settings,
         })
         .from(schema.members)
         .innerJoin(schema.organisations, eq(schema.members.organisationId, schema.organisations.id))
@@ -34,7 +41,11 @@ export const meRoutes = (db: Database) =>
         .orderBy(asc(schema.organisations.name));
       return c.json({
         user: user && { ...user, preferences: preferencesOf(user.preferences) },
-        organisations,
+        // Each workspace's language, for members who have not chosen their own.
+        organisations: organisations.map(({ settings, ...o }) => ({
+          ...o,
+          locale: workspaceSettingsOf(settings).locale,
+        })),
         activeOrganisationId: c.var.organisationId,
       });
     })
