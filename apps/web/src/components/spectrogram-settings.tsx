@@ -11,6 +11,7 @@ import {
 } from "~/lib/spectrogram";
 import type { SpectrogramChannelChoice } from "./spectrogram";
 import { Button } from "./ui/button";
+import { Input, Select } from "./ui/input";
 
 const STORAGE_KEY = "hekate.spectrogram.view";
 
@@ -38,9 +39,6 @@ export function useSpectrogramView(): [SpectrogramView, (view: SpectrogramView) 
   return [view, update];
 }
 
-const control =
-  "h-7 rounded-control border border-edge bg-ground px-2 text-xs text-ink outline-none focus:border-ink-3";
-
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     // biome-ignore lint/a11y/noLabelWithoutControl: the control is the child.
@@ -65,9 +63,10 @@ function NumberField({
 }) {
   return (
     <Field label={label}>
-      <input
+      <Input
+        size="sm"
         type="number"
-        className={`${control} tabular w-24`}
+        className="tabular w-24"
         value={value}
         step={step}
         onChange={(event) => {
@@ -105,8 +104,9 @@ export function SpectrogramSettings({
     <fieldset className="m-0 flex flex-wrap items-end gap-x-4 gap-y-3 border-0 border-t border-hairline p-0 pt-3">
       <legend className="sr-only">Spectrogram settings</legend>
       <Field label="Channel">
-        <select
-          className={control}
+        <Select
+          size="sm"
+          className="w-auto"
           value={channel}
           onChange={(event) => onChannel(event.target.value)}
         >
@@ -119,11 +119,12 @@ export function SpectrogramSettings({
           ))}
           {channels > 1 && <option value="mid">Mid</option>}
           {channels > 1 && <option value="side">Side</option>}
-        </select>
+        </Select>
       </Field>
       <Field label="Colours">
-        <select
-          className={control}
+        <Select
+          size="sm"
+          className="w-auto"
           value={view.colourMap}
           onChange={(event) => set("colourMap", event.target.value as ColourMap)}
         >
@@ -132,11 +133,12 @@ export function SpectrogramSettings({
               {colourMapNames[map]}
             </option>
           ))}
-        </select>
+        </Select>
       </Field>
       <Field label="Scale">
-        <select
-          className={control}
+        <Select
+          size="sm"
+          className="w-auto"
           value={view.scale}
           onChange={(event) => set("scale", event.target.value as FrequencyScale)}
         >
@@ -145,7 +147,7 @@ export function SpectrogramSettings({
               {scaleNames[scale]}
             </option>
           ))}
-        </select>
+        </Select>
       </Field>
       <NumberField label="Floor dB" value={view.floor} step={6} onChange={(v) => set("floor", v)} />
       <NumberField

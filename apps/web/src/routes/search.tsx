@@ -103,7 +103,7 @@ export function SearchPage({ search }: { search: SearchRequest }) {
             size={18}
             className="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-ink-3"
           />
-          <input
+          <Input
             value={text}
             onChange={(e) => {
               setText(e.target.value);
@@ -113,9 +113,9 @@ export function SearchPage({ search }: { search: SearchRequest }) {
             placeholder="Projects, tracks, files, reviews, people and comments"
             aria-label="Search"
             maxLength={200}
-            // biome-ignore lint/a11y/noAutofocus: the page exists to be typed into.
+            // The page exists to be typed into.
             autoFocus
-            className="h-12 w-full rounded-panel-lg border border-line bg-raised/40 pr-4 pl-12 text-[16px] text-ink shadow-1 placeholder:text-ink-3 focus:border-edge-strong focus:outline-none @3xl/app:pr-36"
+            className="h-12 rounded-panel-lg border-line bg-raised/40 pr-4 pl-12 text-[16px] @3xl/app:pr-36"
           />
           {!text && (
             <span className="pointer-events-none absolute top-1/2 right-4 hidden -translate-y-1/2 items-center gap-1.5 text-[12px] text-ink-3 @3xl/app:flex">

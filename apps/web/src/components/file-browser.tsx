@@ -80,8 +80,10 @@ import { kindIcon, mediaSummary, UploadButton, UploadList } from "./files";
 import { Icon, type IconName } from "./icons";
 import { Card } from "./page";
 import { Button } from "./ui/button";
+import { Checkbox } from "./ui/choice";
 import { Input } from "./ui/input";
 import { ActionMenu, type MenuAction } from "./ui/menu";
+import { Segmented } from "./ui/segmented";
 import { StatusDot } from "./ui/status";
 
 type View = "list" | "columns" | "grid";
@@ -239,17 +241,16 @@ function Pick({
           showing ? "invisible" : "group-focus-within:invisible @3xl/app:group-hover:invisible",
         )}
       />
-      <input
-        type="checkbox"
+      <Checkbox
         aria-label={`Select ${itemName(item)}`}
         checked={checked}
         onChange={() => {}}
         onClick={(event) => onPick(event.shiftKey)}
         className={cn(
-          "absolute inset-0 m-auto size-3.5 cursor-pointer accent-[var(--hk-ink)]",
+          "absolute inset-0 m-auto",
           showing
             ? "opacity-100"
-            : "opacity-0 focus:opacity-100 group-focus-within:opacity-100 @3xl/app:group-hover:opacity-100",
+            : "opacity-0 focus-within:opacity-100 group-focus-within:opacity-100 @3xl/app:group-hover:opacity-100",
         )}
       />
     </span>
@@ -1111,25 +1112,16 @@ export function FileBrowser({
         </nav>
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
           <FilterMenu filters={filters} tags={tags} onChange={onFilter} />
-          <fieldset className="m-0 flex rounded-control border border-line bg-raised/40 p-0.5">
-            <legend className="sr-only">View</legend>
-            {views.map(([v, icon, label]) => (
-              <button
-                key={v}
-                type="button"
-                aria-pressed={view === v}
-                aria-label={label}
-                title={label}
-                onClick={() => chooseView(v)}
-                className={cn(
-                  "flex size-7 items-center justify-center rounded-[4px]",
-                  view === v ? "bg-overlay text-ink shadow-2" : "text-ink-3 hover:text-ink",
-                )}
-              >
-                <Icon name={icon} size={14} />
-              </button>
-            ))}
-          </fieldset>
+          <Segmented
+            label="View"
+            value={view}
+            options={views.map(([v, icon, label]) => ({
+              value: v,
+              label,
+              icon: <Icon name={icon} size={14} />,
+            }))}
+            onChange={chooseView}
+          />
           <ActionMenu
             always
             label="this folder"
@@ -1289,17 +1281,16 @@ export function FileBrowser({
               >
                 <span className="relative flex aspect-[2/1] items-center justify-center rounded-[6px] bg-sunken text-ink-3">
                   <Icon name={itemIcon(item)} size={24} />
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     aria-label={`Select ${itemName(item)}`}
                     checked={selected.has(markKey(item))}
                     onChange={() => {}}
                     onClick={(event) => select(item, event.shiftKey)}
                     className={cn(
-                      "absolute top-2 left-2 size-3.5 cursor-pointer accent-[var(--hk-ink)]",
+                      "absolute top-2 left-2",
                       selecting
                         ? "opacity-100"
-                        : "opacity-0 focus:opacity-100 group-focus-within:opacity-100 @3xl/app:group-hover:opacity-100",
+                        : "opacity-0 focus-within:opacity-100 group-focus-within:opacity-100 @3xl/app:group-hover:opacity-100",
                     )}
                   />
                 </span>

@@ -9,6 +9,7 @@ import { PageHeader } from "~/components/page-header";
 import { NewProjectTile, ProjectCard } from "~/components/project-card";
 import { ProjectCover, profileIcon } from "~/components/project-cover";
 import { Button } from "~/components/ui/button";
+import { ChoiceCard } from "~/components/ui/choice";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
@@ -115,29 +116,20 @@ export function NewProject({
         </legend>
         <div className="grid gap-2 @3xl/app:grid-cols-3">
           {(Object.keys(profiles) as ProjectProfile[]).map((p) => (
-            <label
+            <ChoiceCard
               key={p}
-              className={cn(
-                "flex cursor-pointer flex-col gap-1 rounded-panel border p-3 text-[14px] transition-colors has-[:focus-visible]:border-edge-strong",
-                profile === p
-                  ? "border-signal/60 bg-signal/10 text-ink"
-                  : "border-line text-ink-2 hover:border-edge",
-              )}
-            >
-              <input
-                type="radio"
-                name="profile"
-                value={p}
-                checked={profile === p}
-                onChange={() => setProfile(p)}
-                className="sr-only"
-              />
-              <span className="flex items-center gap-2 font-medium">
-                <Icon name={profileIcon[p]} />
-                {profiles[p].label}
-              </span>
-              <span className="text-[13px] text-ink-2">{profileHint[p]}</span>
-            </label>
+              name="profile"
+              value={p}
+              checked={profile === p}
+              onChange={() => setProfile(p)}
+              title={
+                <>
+                  <Icon name={profileIcon[p]} />
+                  {profiles[p].label}
+                </>
+              }
+              hint={profileHint[p]}
+            />
           ))}
         </div>
       </fieldset>

@@ -6,7 +6,6 @@ import {
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
-import { cn } from "~/lib/cn";
 import {
   emailPreviewQuery,
   useSaveWorkspaceSettings,
@@ -16,6 +15,7 @@ import {
 import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
 import { Input, Select } from "./ui/input";
+import { Segmented } from "./ui/segmented";
 
 type View = "light" | "dark" | "text";
 
@@ -141,31 +141,19 @@ export function EmailTemplatesSection() {
           </Select>
         }
       >
-        <fieldset className="m-0 flex min-w-0 gap-1 border-0 px-4 py-2">
-          <legend className="sr-only">Preview as</legend>
-          {(
-            [
-              ["light", "Light client"],
-              ["dark", "Dark client"],
-              ["text", "Plain text"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              aria-pressed={view === id}
-              onClick={() => setView(id)}
-              className={cn(
-                "h-8 rounded-control px-3 text-[13px] transition-colors",
-                view === id
-                  ? "bg-raised text-ink shadow-1"
-                  : "text-ink-3 hover:bg-raised/60 hover:text-ink",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </fieldset>
+        <div className="px-4 py-2">
+          <Segmented
+            label="Preview as"
+            value={view}
+            options={[
+              { value: "light", label: "Light client" },
+              { value: "dark", label: "Dark client" },
+              { value: "text", label: "Plain text" },
+            ]}
+            onChange={setView}
+            className="w-fit"
+          />
+        </div>
         <Preview template={template} view={view} />
         <SubjectRow
           key={template}

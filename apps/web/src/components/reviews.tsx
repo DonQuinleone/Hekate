@@ -18,6 +18,8 @@ import {
 } from "~/lib/queries";
 import { GuestFields } from "./guest-fields";
 import { Button } from "./ui/button";
+import { Checkbox } from "./ui/choice";
+import { Input, Textarea } from "./ui/input";
 import { type ReviewState, StatusPill } from "./ui/status";
 
 const dateFormat = formatDates({ day: "numeric", month: "short" });
@@ -28,9 +30,6 @@ export function reviewState(review: Pick<ReviewSummary, "status" | "outcome">): 
   if (review.status === "open") return "in_review";
   return review.outcome === "submitted" ? "submitted" : (review.outcome ?? "in_review");
 }
-
-const control =
-  "h-8 rounded-control border border-edge bg-ground px-3 text-[13px] text-ink outline-none placeholder:text-ink-3 focus:border-ink-3";
 
 function Choice({
   selected,
@@ -174,8 +173,8 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
         </Field>
         <label className="flex min-w-60 flex-1 flex-col gap-1.5">
           <span className="label">Title</span>
-          <input
-            className={control}
+          <Input
+            className="h-8 text-[13px]"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder={kind === "approval" ? "Album masters" : "Rough mixes, round 1"}
@@ -183,9 +182,9 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
         </label>
         <label className="flex flex-col gap-1.5">
           <span className="label">Due</span>
-          <input
+          <Input
             type="date"
-            className={control}
+            className="h-8 text-[13px]"
             value={due}
             onChange={(e) => setDue(e.target.value)}
           />
@@ -197,11 +196,9 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
           {(tracks ?? []).map((track) => (
             <li key={track.id}>
               <label className="flex cursor-pointer items-center gap-2 text-[13px] text-ink-2">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={items.includes(`track:${track.id}`)}
                   onChange={() => toggle(items, setItems, `track:${track.id}`)}
-                  className="accent-[var(--hk-ink)]"
                 />
                 <span className="text-ink">{track.name}</span>
                 <span className="text-xs text-ink-3">track, its latest version</span>
@@ -211,11 +208,9 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
           {(files ?? []).map((file) => (
             <li key={file.id}>
               <label className="flex cursor-pointer items-center gap-2 text-[13px] text-ink-2">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={items.includes(`file:${file.id}`)}
                   onChange={() => toggle(items, setItems, `file:${file.id}`)}
-                  className="accent-[var(--hk-ink)]"
                 />
                 <span className="text-ink">{file.name}</span>
               </label>
@@ -231,12 +226,7 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
             return (
               <li key={person.userId}>
                 <label className="flex cursor-pointer items-center gap-2 text-[13px] text-ink-2">
-                  <input
-                    type="checkbox"
-                    checked={at >= 0}
-                    onChange={() => toggleMember(person.userId)}
-                    className="accent-[var(--hk-ink)]"
-                  />
+                  <Checkbox checked={at >= 0} onChange={() => toggleMember(person.userId)} />
                   <span className="text-ink">{person.name}</span>
                   {order === "sequence" && at >= 0 && (
                     <span className="tabular text-[11px] text-ink-3">{at + 1}</span>
@@ -250,12 +240,7 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
             return (
               <li key={group.id}>
                 <label className="flex cursor-pointer items-center gap-2 text-[13px] text-ink-2">
-                  <input
-                    type="checkbox"
-                    checked={at >= 0}
-                    onChange={() => toggleGroup(group.id)}
-                    className="accent-[var(--hk-ink)]"
-                  />
+                  <Checkbox checked={at >= 0} onChange={() => toggleGroup(group.id)} />
                   <span className="text-ink">{group.name}</span>
                   <span className="truncate text-xs text-ink-3">
                     group · {group.members.map((m) => m.name).join(", ")}
@@ -321,12 +306,12 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
 
       <label className="flex flex-col gap-1.5">
         <span className="label">Message</span>
-        <textarea
+        <Textarea
           rows={3}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           placeholder="What to listen for, or anything reviewers should know"
-          className="w-full resize-y rounded-control border border-edge bg-ground px-3 py-2 text-[13px] text-ink outline-none placeholder:text-ink-3 focus:border-ink-3"
+          className="text-[13px]"
         />
       </label>
       {create.error && <p className="m-0 text-xs text-signal">{create.error.message}</p>}

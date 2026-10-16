@@ -16,6 +16,8 @@ import {
 } from "~/lib/queries";
 import { Icon } from "./icons";
 import { Button } from "./ui/button";
+import { Checkbox, Radio } from "./ui/choice";
+import { Input, Select } from "./ui/input";
 
 const dateFormat = formatDates({ day: "numeric", month: "short" });
 
@@ -40,12 +42,12 @@ function NewTrack({ projectId }: { projectId: string }) {
   };
   return (
     <form onSubmit={submit} className="flex items-center gap-2">
-      <input
+      <Input
         value={name}
         onChange={(e) => setName(e.target.value)}
         placeholder="New track, for example Maple Leaf Rag"
         aria-label="New track name"
-        className="h-8 w-72 max-w-full rounded-control border border-edge bg-ground px-3 text-[13px] text-ink outline-none placeholder:text-ink-3 focus:border-ink-3"
+        className="h-8 w-72 max-w-full text-[13px]"
       />
       <Button type="submit" size="md" disabled={!name.trim() || createTrack.isPending}>
         <Icon name="plus" size={14} />
@@ -168,8 +170,7 @@ function NewVersion({ track }: { track: Track }) {
                 key={file.id}
                 className="grid grid-cols-[auto_minmax(0,1fr)_160px_auto] items-center gap-3 border-b border-hairline py-2"
               >
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={on}
                   aria-label={`Use ${file.name}`}
                   onChange={() =>
@@ -180,16 +181,15 @@ function NewVersion({ track }: { track: Track }) {
                       return copy;
                     })
                   }
-                  className="accent-signal"
                 />
                 <span className="truncate text-[13px] text-ink">{file.name}</span>
-                <input
+                <Input
+                  size="sm"
                   value={chosen[file.id] ?? ""}
                   disabled={!on}
                   onChange={(e) => setChosen((c) => ({ ...c, [file.id]: e.target.value }))}
                   aria-label={`Variation name for ${file.name}`}
                   placeholder="Variation"
-                  className="h-7 rounded-control border border-edge bg-ground px-2 text-xs text-ink outline-none disabled:opacity-40"
                 />
                 <label
                   className={cn(
@@ -197,13 +197,11 @@ function NewVersion({ track }: { track: Track }) {
                     on ? "text-ink-2" : "text-ink-3 opacity-40",
                   )}
                 >
-                  <input
-                    type="radio"
+                  <Radio
                     name="primary"
                     disabled={!on}
                     checked={on && file.id === (primary ?? ids[0])}
                     onChange={() => setPrimary(file.id)}
-                    className="accent-signal"
                   />
                   Primary
                 </label>
@@ -212,12 +210,12 @@ function NewVersion({ track }: { track: Track }) {
           })}
         </ul>
       )}
-      <input
+      <Input
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         placeholder="Notes for this version (optional)"
         aria-label="Version notes"
-        className="h-8 rounded-control border border-edge bg-ground px-3 text-[13px] text-ink outline-none placeholder:text-ink-3 focus:border-ink-3"
+        className="h-8 text-[13px]"
       />
       <div className="flex items-center justify-end gap-3">
         {createVersion.error && (
@@ -330,14 +328,15 @@ function ScoreLink({ track, canEdit }: { track: Track; canEdit: boolean }) {
         Score
       </label>
       {canEdit ? (
-        <select
+        <Select
+          size="sm"
           id={id}
           value={track.scoreFileId ?? ""}
           disabled={updateTrack.isPending}
           onChange={(e) =>
             updateTrack.mutate({ id: track.id, scoreFileId: e.target.value || null })
           }
-          className="h-7 max-w-full cursor-pointer rounded-control border border-hairline bg-transparent px-2 text-[13px] text-ink outline-none hover:border-edge focus:border-ink-3"
+          className="w-auto max-w-full"
         >
           <option value="">{scores.length ? "None" : "No PDFs in this project yet"}</option>
           {scores.map((f) => (
@@ -345,7 +344,7 @@ function ScoreLink({ track, canEdit }: { track: Track; canEdit: boolean }) {
               {f.name}
             </option>
           ))}
-        </select>
+        </Select>
       ) : (
         <span className="text-[13px] text-ink-2">{linked?.name}</span>
       )}

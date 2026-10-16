@@ -11,8 +11,8 @@ import { PageHeader } from "~/components/page-header";
 import { type NavSection, Row, Section, SettingsLayout } from "~/components/settings";
 import { Button } from "~/components/ui/button";
 import { Select } from "~/components/ui/input";
+import { Segmented } from "~/components/ui/segmented";
 import { Switch } from "~/components/ui/toggle";
-import { cn } from "~/lib/cn";
 import {
   followsQuery,
   notificationPreferencesQuery,
@@ -98,30 +98,15 @@ function Notifications() {
           name="By mail"
           hint={prefs.mailMode === "digest" ? "Daily digests go at 08:00 UTC." : undefined}
         >
-          <fieldset className="m-0 flex rounded-control border border-line bg-ground/60 p-0.5">
-            <legend className="sr-only">By mail</legend>
-            {(["instant", "digest"] as const).map((m) => (
-              <label
-                key={m}
-                className={cn(
-                  "flex h-7 cursor-pointer items-center rounded-[4px] px-3 text-[13px] transition-colors has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-signal",
-                  prefs.mailMode === m
-                    ? "bg-overlay text-ink shadow-2"
-                    : "text-ink-3 hover:text-ink",
-                )}
-              >
-                <input
-                  type="radio"
-                  name="mail-mode"
-                  value={m}
-                  checked={prefs.mailMode === m}
-                  onChange={() => change({ mailMode: m })}
-                  className="sr-only"
-                />
-                {m === "instant" ? "At once" : "Digest"}
-              </label>
-            ))}
-          </fieldset>
+          <Segmented
+            label="By mail"
+            value={prefs.mailMode}
+            options={[
+              { value: "instant", label: "At once" },
+              { value: "digest", label: "Digest" },
+            ]}
+            onChange={(mailMode) => change({ mailMode })}
+          />
           {prefs.mailMode === "digest" && (
             <Select
               aria-label="How often"

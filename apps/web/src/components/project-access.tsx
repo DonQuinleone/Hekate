@@ -11,10 +11,8 @@ import {
   useProjectCan,
 } from "~/lib/queries";
 import { Button } from "./ui/button";
-import { Select } from "./ui/input";
-
-const control =
-  "h-7 rounded-control border border-edge bg-ground px-2 text-xs text-ink outline-none focus:border-ink-3";
+import { Checkbox } from "./ui/choice";
+import { InlineInput, Input, Select } from "./ui/input";
 
 /** Who works on the project, and their role. Organisation owners and admins need none. */
 function Members({ projectId, manage }: { projectId: string; manage: boolean }) {
@@ -47,8 +45,9 @@ function Members({ projectId, manage }: { projectId: string; manage: boolean }) 
                 <span className="truncate text-xs text-ink-3">{person.email}</span>
               </span>
               {manage ? (
-                <select
-                  className={control}
+                <Select
+                  size="sm"
+                  className="w-auto"
                   aria-label={`Role of ${person.name}`}
                   value={current}
                   onChange={(event) =>
@@ -63,7 +62,7 @@ function Members({ projectId, manage }: { projectId: string; manage: boolean }) 
                       {role.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               ) : (
                 <span className="text-xs text-ink-2">
                   {roles.find((r) => r.id === current)?.name ??
@@ -91,7 +90,7 @@ function RoleName({
   const [name, setName] = useState(role.name);
   if (!manage) return <span className="text-xs font-medium text-ink">{role.name}</span>;
   return (
-    <input
+    <InlineInput
       value={name}
       aria-label={`Name of the ${role.name} role`}
       onChange={(event) => setName(event.target.value)}
@@ -102,7 +101,7 @@ function RoleName({
       onKeyDown={(event) => {
         if (event.key === "Enter") event.currentTarget.blur();
       }}
-      className="h-7 w-24 rounded-control border border-transparent bg-transparent px-1 text-center text-xs font-medium text-ink outline-none hover:border-edge focus:border-ink-3"
+      className="w-24 text-center text-xs font-medium"
     />
   );
 }
@@ -141,12 +140,12 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
         <h2 className="m-0 text-[15px] font-medium">Roles</h2>
         {manage && (
           <form onSubmit={add} className="flex items-center gap-2">
-            <input
+            <Input
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder="New role, for example Mixer"
               aria-label="New role name"
-              className="h-8 w-56 max-w-full rounded-control border border-edge bg-ground px-3 text-[13px] text-ink outline-none placeholder:text-ink-3 focus:border-ink-3"
+              className="h-8 w-56 max-w-full text-[13px]"
             />
             <Button type="submit" size="md" disabled={!name.trim() || createRole.isPending}>
               Add role
@@ -241,12 +240,11 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
                       className={cn("border-b border-hairline text-center", column(role.id))}
                     >
                       {manage ? (
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           checked={on}
                           aria-label={`${role.name}: ${permissionNames[permission]}`}
                           onChange={() => toggle(role, permission)}
-                          className="h-3.5 w-3.5 cursor-pointer accent-[var(--hk-ink)]"
+                          className="align-middle"
                         />
                       ) : (
                         <>

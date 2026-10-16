@@ -52,7 +52,7 @@ pnpm check        # lint + typecheck + test, run before every commit
 pnpm build
 pnpm db:generate  # create a migration after changing the schema
 pnpm db:migrate
-pnpm --filter @hekate/e2e e2e   # the visual suite: needs E2E_DATABASE_URL (an empty database) and a built web app
+pnpm --filter @hekate/e2e e2e   # the visual suite: needs E2E_DATABASE_URL (an empty database) and a web app built with VITE_REFERENCE=1
 ```
 
 ## Toolchain and supply chain
@@ -99,7 +99,7 @@ The clickable prototype in `apps/prototype` is the approved design of the whole 
 
 ## Design system
 
-See `docs/brand.md` for the full system. In short: dark, modern, understated. Near-black ground, one signal colour used sparingly, hairlines over cards and shadows, type doing the work, no ornament. The mark is two stems and a point. Use the CSS tokens in `apps/web/src/styles/tokens.css`; do not hard-code colours.
+See `docs/brand.md` for the full system, and the reference page at `/reference` (in `pnpm dev` and the visual suite only) for every component in its states. Every form control comes from `apps/web/src/components/ui`; a test fails on one built anywhere else. In short: dark, modern, understated. Near-black ground, one signal colour used sparingly, hairlines over cards and shadows, type doing the work, no ornament. The mark is two stems and a point. Use the CSS tokens in `apps/web/src/styles/tokens.css`; do not hard-code colours.
 
 ## Review guidelines
 
