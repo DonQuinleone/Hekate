@@ -227,3 +227,30 @@ for (const [name, typed, ready] of [
     await checkScreen(page);
   });
 }
+
+// The file browser's other views: columns opened down to a version, and the grid.
+test("project-files-columns", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/files`);
+  await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
+  await page.getByRole("button", { name: "Columns" }).click();
+  await page
+    .getByRole("button", { name: /^Maple Leaf Rag/ })
+    .first()
+    .click();
+  await page.getByRole("button", { name: /^V2/ }).click();
+  await settle(page, "main dl >> text=Variations");
+  await saveScreen(page, "project-files-columns");
+  await checkScreen(page);
+});
+
+test("project-files-grid", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/files`);
+  await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
+  await page.getByRole("button", { name: "Grid" }).click();
+  await settle(page, "main ul[aria-label=Contents] li");
+  await showWhole(page);
+  await saveScreen(page, "project-files-grid");
+  await checkScreen(page);
+});
