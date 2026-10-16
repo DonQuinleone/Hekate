@@ -50,6 +50,15 @@ Cool near-black, one signal.
 
 Status is shown by dot shape and fill (open ring for in review, signal dot for changes requested, ink dot for approved), not by a traffic-light palette.
 
+### Themes
+
+The palette above is the brand, and the default. People may choose another in Appearance, or follow their device, which is dark or light (`apps/web/src/styles/themes.css`):
+
+- **Signal, light:** the same ladder of surfaces on a warm off-white. Its signal darkens to `#B53C0A` so it holds 4.5:1 on every surface and under white text.
+- **Alternatives people know:** Catppuccin, Dracula, Gruvbox, Rosé Pine, Osaka Jade, Kanagawa and Solarized, each using its own accent as the signal.
+
+A theme overrides tokens and nothing else. Every text colour (`ink`, `ink-2`, `ink-3`, `signal`) is checked against every surface in each theme for 4.5:1, and the visual suite runs axe on sign-in and the player in light and in Dracula. The choice is applied before the first paint (`public/theme-boot.js`) and kept per person.
+
 ## Type
 
 - **Schibsted Grotesk** for the interface and display. Weights 400 and 500 only. Display from 36 px at minus 0.025em; UI text at 13 and 14 px with no tracking.

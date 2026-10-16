@@ -1,0 +1,202 @@
+/*
+ * Themes: each overrides the Signal tokens and nothing else (#117). The
+ * brand's dark theme is tokens.css and depth.css as they are; a theme is chosen in Appearance,
+ * or follows the system (dark or light) until someone chooses. Text colours are checked for
+ * WCAG AA contrast (4.5:1) against every surface in each theme, and axe runs in light and one
+ * palette in the visual suite.
+ */
+
+/* Signal, light */
+:root[data-theme="signal-light"] {
+  --hk-canvas: #e9e9e6;
+  --hk-sunken: #e2e2de;
+  --hk-ground: #f4f4f2;
+  --hk-pane: #fafaf9;
+  --hk-surface: #ffffff;
+  --hk-raised: #f0f0ed;
+  --hk-overlay: #ffffff;
+  --hk-hairline: #dcdcd7;
+  --hk-hairline-soft: #e7e7e3;
+  --hk-edge: #cdcdc7;
+  --hk-edge-strong: #b5b5ae;
+  --hk-ink: #111113;
+  --hk-ink-2: #45454c;
+  --hk-ink-3: #5f5f67;
+  --hk-signal: #b53c0a;
+  --hk-ok: #1d7a4d;
+  --hk-nav: var(--hk-ground);
+  --hk-paper: #ffffff;
+  --hk-line: rgb(0 0 0 / 0.08);
+  --hk-line-strong: rgb(0 0 0 / 0.14);
+  --hk-highlight: inset 0 1px 0 rgb(255 255 255 / 0.7);
+  --hk-highlight-strong: inset 0 1px 0 rgb(255 255 255 / 0.9);
+  --hk-elevation-2: var(--hk-highlight-strong), 0 1px 2px rgb(0 0 0 / 0.08);
+  --hk-elevation-3:
+    var(--hk-highlight-strong), 0 0 0 1px rgb(0 0 0 / 0.06), 0 4px 10px rgb(0 0 0 / 0.06),
+    0 20px 44px -12px rgb(0 0 0 / 0.18);
+  --hk-elevation-4:
+    var(--hk-highlight-strong), 0 0 0 1px rgb(0 0 0 / 0.08), 0 8px 20px rgb(0 0 0 / 0.08),
+    0 40px 80px -20px rgb(0 0 0 / 0.25);
+  --hk-elevation-sticky: var(--hk-highlight), 0 -12px 24px -12px rgb(0 0 0 / 0.12);
+  --hk-shadow-paper: 0 1px 2px rgb(0 0 0 / 0.1), 0 18px 48px -12px rgb(0 0 0 / 0.2);
+  --hk-node-review: #2f63c4;
+  --hk-node-work: #1d7a4d;
+  --hk-node-comm: #6f47c4;
+  --hk-node-flow: #0f7a80;
+  --hk-cover-sheen: rgb(255 255 255 / 0.18);
+  --hk-scheme: light;
+}
+
+/* Catppuccin (Mocha) */
+:root[data-theme="catppuccin"] {
+  --hk-canvas: #11111b;
+  --hk-sunken: #141421;
+  --hk-ground: #181825;
+  --hk-pane: #1e1e2e;
+  --hk-surface: #1e1e2e;
+  --hk-raised: #262637;
+  --hk-overlay: #313244;
+  --hk-hairline: #313244;
+  --hk-hairline-soft: #25253a;
+  --hk-edge: #45475a;
+  --hk-edge-strong: #585b70;
+  --hk-ink: #cdd6f4;
+  --hk-ink-2: #bac2de;
+  --hk-ink-3: #a6adc8;
+  --hk-signal: #f5c2e7;
+  --hk-ok: #a6e3a1;
+  --hk-nav: var(--hk-ground);
+  --hk-scheme: dark;
+}
+
+/* Dracula */
+:root[data-theme="dracula"] {
+  --hk-canvas: #1e1f29;
+  --hk-sunken: #21222c;
+  --hk-ground: #21222c;
+  --hk-pane: #282a36;
+  --hk-surface: #282a36;
+  --hk-raised: #303241;
+  --hk-overlay: #383a4a;
+  --hk-hairline: #3a3c4e;
+  --hk-hairline-soft: #2f3140;
+  --hk-edge: #44475a;
+  --hk-edge-strong: #565a72;
+  --hk-ink: #f8f8f2;
+  --hk-ink-2: #c9cbd9;
+  --hk-ink-3: #a3a8c9;
+  --hk-signal: #bd93f9;
+  --hk-ok: #50fa7b;
+  --hk-nav: var(--hk-ground);
+  --hk-scheme: dark;
+}
+
+/* Gruvbox (dark, hard) */
+:root[data-theme="gruvbox"] {
+  --hk-canvas: #161819;
+  --hk-sunken: #1b1d1e;
+  --hk-ground: #1d2021;
+  --hk-pane: #282828;
+  --hk-surface: #282828;
+  --hk-raised: #32302f;
+  --hk-overlay: #3c3836;
+  --hk-hairline: #3c3836;
+  --hk-hairline-soft: #32302f;
+  --hk-edge: #504945;
+  --hk-edge-strong: #665c54;
+  --hk-ink: #ebdbb2;
+  --hk-ink-2: #d5c4a1;
+  --hk-ink-3: #bdae93;
+  --hk-signal: #fe8019;
+  --hk-ok: #b8bb26;
+  --hk-nav: var(--hk-ground);
+  --hk-scheme: dark;
+}
+
+/* Rosé Pine */
+:root[data-theme="rose-pine"] {
+  --hk-canvas: #131120;
+  --hk-sunken: #16141f;
+  --hk-ground: #191724;
+  --hk-pane: #1f1d2e;
+  --hk-surface: #1f1d2e;
+  --hk-raised: #26233a;
+  --hk-overlay: #2a273f;
+  --hk-hairline: #2a273f;
+  --hk-hairline-soft: #221f33;
+  --hk-edge: #393552;
+  --hk-edge-strong: #44415a;
+  --hk-ink: #e0def4;
+  --hk-ink-2: #c4c1dc;
+  --hk-ink-3: #a6a2c2;
+  --hk-signal: #ebbcba;
+  --hk-ok: #9ccfd8;
+  --hk-nav: var(--hk-ground);
+  --hk-scheme: dark;
+}
+
+/* Osaka Jade */
+:root[data-theme="osaka-jade"] {
+  --hk-canvas: #0b1411;
+  --hk-sunken: #0d1714;
+  --hk-ground: #111c18;
+  --hk-pane: #14211c;
+  --hk-surface: #162520;
+  --hk-raised: #1c2d27;
+  --hk-overlay: #22352e;
+  --hk-hairline: #22352e;
+  --hk-hairline-soft: #1a2a24;
+  --hk-edge: #2f4740;
+  --hk-edge-strong: #3d5a51;
+  --hk-ink: #d6e8e0;
+  --hk-ink-2: #a9c4b8;
+  --hk-ink-3: #8fb0a2;
+  --hk-signal: #5fb39b;
+  --hk-ok: #8fd18a;
+  --hk-nav: var(--hk-ground);
+  --hk-scheme: dark;
+}
+
+/* Kanagawa (Wave) */
+:root[data-theme="kanagawa"] {
+  --hk-canvas: #121218;
+  --hk-sunken: #16161d;
+  --hk-ground: #16161d;
+  --hk-pane: #1f1f28;
+  --hk-surface: #1f1f28;
+  --hk-raised: #2a2a37;
+  --hk-overlay: #2f2f3d;
+  --hk-hairline: #2a2a37;
+  --hk-hairline-soft: #23232e;
+  --hk-edge: #363646;
+  --hk-edge-strong: #54546d;
+  --hk-ink: #dcd7ba;
+  --hk-ink-2: #c8c093;
+  --hk-ink-3: #a6a69c;
+  --hk-signal: #7e9cd8;
+  --hk-ok: #98bb6c;
+  --hk-nav: var(--hk-ground);
+  --hk-scheme: dark;
+}
+
+/* Solarized (dark) */
+:root[data-theme="solarized"] {
+  --hk-canvas: #00212b;
+  --hk-sunken: #002530;
+  --hk-ground: #002731;
+  --hk-pane: #002b36;
+  --hk-surface: #002b36;
+  --hk-raised: #073642;
+  --hk-overlay: #0a3d4a;
+  --hk-hairline: #073642;
+  --hk-hairline-soft: #04303c;
+  --hk-edge: #174956;
+  --hk-edge-strong: #2a5a66;
+  --hk-ink: #eee8d5;
+  --hk-ink-2: #c5ccc9;
+  --hk-ink-3: #a3b1b1;
+  --hk-signal: #d4a20b;
+  --hk-ok: #859900;
+  --hk-nav: var(--hk-ground);
+  --hk-scheme: dark;
+}

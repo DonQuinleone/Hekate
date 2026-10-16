@@ -2,6 +2,7 @@
 @import "@fontsource-variable/schibsted-grotesk";
 @import "./tokens.css";
 @import "./depth.css";
+@import "./themes.css";
 
 /* Tailwind reads the Signal tokens; the default palette is removed so only these exist. */
 @theme {
@@ -65,7 +66,7 @@
     line-height: 20px;
     font-feature-settings: "tnum" 0;
     -webkit-font-smoothing: antialiased;
-    color-scheme: dark;
+    color-scheme: var(--hk-scheme);
     text-rendering: optimizeLegibility;
   }
   :is(h1, h2, h3, h4, p, ul, ol, figure, blockquote) {
