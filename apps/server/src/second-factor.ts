@@ -1,4 +1,5 @@
 import { createHmac, randomInt } from "node:crypto";
+import type { SessionFactor } from "@hekate/shared";
 
 /**
  * Recovery codes for a second factor: ten, each ten characters from an alphabet without
@@ -52,4 +53,26 @@ export function recoveryCodesLeft(stored: string | null | undefined): number {
   } catch {
     return 0;
   }
+}
+
+/**
+ * How a new session was signed in, from the route that made it (decision 048). A code, or a
+ * recovery code, makes it a second-factor session; a passkey, a passkey session. A password
+ * alone is just that, unless the account has a code app: then sign-in only ends without one
+ * in a browser trusted after a code. Removing the code app leaves a code-backed session with
+ * the password alone. Anything else (a session renewed after a change) keeps the factor of
+ * the session it replaces.
+ */
+export function factorFor(
+  path: string | undefined,
+  account: { twoFactorEnabled: boolean },
+  previous: SessionFactor | undefined,
+): SessionFactor {
+  if (path === "/two-factor/verify-totp" || path === "/two-factor/verify-backup-code")
+    return "second_factor";
+  if (path === "/passkey/verify-authentication") return "passkey";
+  if (path === "/sign-in/email") return account.twoFactorEnabled ? "second_factor" : "password";
+  // Removing the code app takes away what a code-backed session stood on.
+  if (path === "/two-factor/disable") return previous === "passkey" ? "passkey" : "password";
+  return previous ?? "password";
 }

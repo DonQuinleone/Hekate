@@ -140,7 +140,7 @@ export function SignInPage({ view: initial }: { view?: string }) {
     return (
       <Frame
         title="Enter your code"
-        intro="From your authenticator app, or the security key you registered."
+        intro="From your authenticator app, or the hardware security key you registered."
       >
         <form
           className="flex flex-col gap-5"
@@ -161,7 +161,7 @@ export function SignInPage({ view: initial }: { view?: string }) {
           <div className="grid grid-cols-2 gap-2">
             <Button type="button" variant="secondary" size="lg" className="gap-2" onClick={done}>
               <Icon name="key" />
-              Security key
+              Hardware security key
             </Button>
             <Button type="button" variant="secondary" size="lg" onClick={() => setView("recovery")}>
               Recovery code
@@ -249,6 +249,12 @@ export function SignInPage({ view: initial }: { view?: string }) {
             Turn on
           </Button>
         </form>
+        <button
+          type="button"
+          className="-mt-4 self-start text-[13px] text-ink-3 transition-colors hover:text-ink"
+        >
+          Use a passkey or hardware security key instead
+        </button>
         <button
           type="button"
           className="self-start text-[13px] text-ink-3 transition-colors hover:text-ink"

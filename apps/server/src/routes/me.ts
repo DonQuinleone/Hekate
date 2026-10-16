@@ -5,7 +5,6 @@ import {
   preferencesInput,
   preferencesOf,
   profileInput,
-  secondFactorRequired,
   workspaceSettingsOf,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
@@ -19,6 +18,7 @@ import type { Auth } from "../auth.ts";
 import { CodedException } from "../errors.ts";
 import { recoveryCodesLeft } from "../second-factor.ts";
 import {
+  factorStanding,
   membershipOf,
   requireSession,
   type SecondFactorRule,
@@ -30,9 +30,11 @@ export interface MeDeps {
   auth: Auth;
   audit: Audit;
   trustProxy: boolean;
+  /** How many passkeys one account may hold (MAX_PASSKEYS). */
+  maxPasskeys: number;
 }
 
-export const meRoutes = (db: Database, rule: SecondFactorRule) =>
+export const meRoutes = (db: Database, rule: SecondFactorRule, deps: { maxPasskeys: number }) =>
   new Hono<{ Variables: TenantVariables }>()
     .get("/", async (c) => {
       const [user] = await db
@@ -63,19 +65,29 @@ export const meRoutes = (db: Database, rule: SecondFactorRule) =>
         .innerJoin(schema.organisations, eq(schema.members.organisationId, schema.organisations.id))
         .where(eq(schema.members.userId, c.var.userId))
         .orderBy(asc(schema.organisations.name));
-      const active = organisations.find((o) => o.id === c.var.organisationId);
+      const keys = await db
+        .select({ id: schema.passkeys.id })
+        .from(schema.passkeys)
+        .where(eq(schema.passkeys.userId, c.var.userId));
+      const standing = await factorStanding(
+        db,
+        c.var.sessionId,
+        { organisationId: c.var.organisationId, role: c.var.organisationRole },
+        rule,
+      );
       const { twoFactorEnabled = false, ...profile } = user ?? {};
       return c.json({
         user: user && { ...profile, preferences: preferencesOf(user.preferences) },
         // Whether they have a second factor, whether this workspace asks for one, and how many
         // recovery codes they have left.
+        // Whether they have a code app and passkeys, what this workspace asks of a sign-in,
+        // whether this one met it, and how many recovery codes they have left.
         secondFactor: {
           enabled: twoFactorEnabled,
-          required: secondFactorRequired({
-            instance: rule.instance,
-            policy: workspaceSettingsOf(active?.settings).secondFactor,
-            role: c.var.organisationRole,
-          }),
+          passkeys: keys.length,
+          required: standing.demand.secondFactor,
+          securityKey: standing.demand.securityKey,
+          met: standing.met,
           recoveryCodesLeft: twoFactorEnabled ? recoveryCodesLeft(factor?.backupCodes) : 0,
         },
         // Each workspace's language, for members who have not chosen their own.
@@ -102,6 +114,22 @@ export const meRoutes = (db: Database, rule: SecondFactorRule) =>
           timeZone: schema.users.timeZone,
         });
       return c.json({ user });
+    })
+    // Their passkeys and hardware security keys: each one's name, kind, and when it was added and last
+    // used; and how many they may hold. Never the key itself.
+    .get("/passkeys", async (c) => {
+      const keys = await db
+        .select({
+          id: schema.passkeys.id,
+          name: schema.passkeys.name,
+          deviceType: schema.passkeys.deviceType,
+          createdAt: schema.passkeys.createdAt,
+          lastUsedAt: schema.passkeys.lastUsedAt,
+        })
+        .from(schema.passkeys)
+        .where(eq(schema.passkeys.userId, c.var.userId))
+        .orderBy(asc(schema.passkeys.createdAt));
+      return c.json({ passkeys: keys, max: deps.maxPasskeys });
     })
     // What they want to see and how the player behaves, merged into what they had. Under a
     // row lock, so two changes at once both land.

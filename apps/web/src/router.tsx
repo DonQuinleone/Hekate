@@ -220,7 +220,7 @@ const secondFactor = createRoute({
   beforeLoad: async ({ context }) => {
     const me = await context.queryClient.fetchQuery(meQuery);
     if (!me) throw redirect({ to: "/sign-in", search: {} });
-    if (me.secondFactor.enabled || !me.secondFactor.required) throw redirect({ to: "/" });
+    if (me.secondFactor.met) throw redirect({ to: "/" });
   },
   component: SecondFactorPage,
 });
@@ -233,8 +233,7 @@ const app = createRoute({
     if (await context.queryClient.ensureQueryData(setupQuery)) throw redirect({ to: "/setup" });
     const me = await context.queryClient.ensureQueryData(meQuery);
     if (!me) throw redirect({ to: "/sign-in", search: {} });
-    if (me.secondFactor.required && !me.secondFactor.enabled)
-      throw redirect({ to: "/second-factor" });
+    if (!me.secondFactor.met) throw redirect({ to: "/second-factor" });
     return { me };
   },
   component: () => (

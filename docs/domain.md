@@ -257,7 +257,7 @@ Workspace owners and admins can do everything in every project. Guests have no r
 ## Settled questions
 
 - Carry-over: a per-comment *Show on this version* toggle with a status.
-- Security keys: five per account is a default the operator can raise.
+- Hardware security keys: five per account is a default the operator can raise.
 - Video: deliverables, versions and renditions, a separate concept from tracks.
 - Guest visibility: governed by reviewer permissions, not a fixed rule.
 - Commercial DRM: later; the delivery design leaves room for it.

@@ -288,6 +288,13 @@
       "when": 1792148505236,
       "tag": "0040_account_deletion",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1792149865883,
+      "tag": "0041_passkeys",
+      "breakpoints": true
     }
   ]
 }

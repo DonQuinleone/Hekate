@@ -1,12 +1,20 @@
+import { passkey } from "@better-auth/passkey";
 import { type Database, schema } from "@hekate/db";
+import type { SessionFactor } from "@hekate/shared";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware, getSessionFromCtx, isAPIError } from "better-auth/api";
 import { emailOTP, haveIBeenPwned, twoFactor } from "better-auth/plugins";
+import { eq } from "drizzle-orm";
 import type { Audit } from "./audit.ts";
 import { waitMessage } from "./lockout.ts";
 import { type Mailer, sendEmail } from "./mail.ts";
-import { hashedRecoveryCodes, hashRecoveryCode, newRecoveryCodes } from "./second-factor.ts";
+import {
+  factorFor,
+  hashedRecoveryCodes,
+  hashRecoveryCode,
+  newRecoveryCodes,
+} from "./second-factor.ts";
 import {
   admitAttempt,
   clearAttempts,
@@ -31,6 +39,8 @@ export interface AuthOptions {
    * characters of a hash). On by default; an instance without internet access turns it off.
    */
   leakCheck?: boolean;
+  /** How many passkeys and hardware security keys one account may hold (MAX_PASSKEYS). */
+  maxPasskeys?: number;
 }
 
 /** The base of the app's own links, for those in emails. */
@@ -38,10 +48,12 @@ const appBase = (baseURL: string) => baseURL.replace(/\/$/, "");
 
 /**
  * Better Auth with email and password. Public sign-up is closed: the first account is created by
- * first-run setup, later accounts by invitation. A code app is the second factor; SSO, LDAP,
- * passkeys and magic links plug in here (issues 37, 38, 39, 24). See docs/security.md (Authentication).
+ * first-run setup, later accounts by invitation. A code app or a passkey is the second factor,
+ * and a passkey also signs in on its own; SSO, LDAP and magic links plug in here (issues 37,
+ * 38, 24). See docs/security.md (Authentication).
  */
 export function createAuth(options: AuthOptions) {
+  const maxPasskeys = options.maxPasskeys ?? 5;
   /** Sign-in requests whose attempt reached the lock, to log once they have failed. */
   const locking = new WeakSet<Request>();
   return betterAuth({
@@ -59,6 +71,7 @@ export function createAuth(options: AuthOptions) {
         account: schema.authAccounts,
         verification: schema.authVerifications,
         twoFactor: schema.twoFactors,
+        passkey: schema.passkeys,
       },
     }),
     emailAndPassword: {
@@ -70,6 +83,13 @@ export function createAuth(options: AuthOptions) {
       revokeSessionsOnPasswordReset: true,
     },
     plugins: [
+      // Passkeys and hardware security keys (WebAuthn): sign in on their own, or confirm a
+      // password sign-in, for this instance's address only.
+      passkey({
+        rpID: new URL(options.baseURL).hostname,
+        rpName: "Hekate",
+        origin: [appBase(options.baseURL), ...(options.trustedOrigins ?? [])],
+      }),
       // A forgotten password: a six-digit code by email, with a link that carries it, both
       // lasting ten minutes and working once. Never a sign-in by email for members
       // (decision 025): that stays for guests.
@@ -114,6 +134,24 @@ export function createAuth(options: AuthOptions) {
     ],
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
+        // Up to the instance's limit of keys per account: asked when registration starts, and
+        // again when the key is saved, so options fetched ahead of time cannot pass it.
+        if (
+          ctx.path === "/passkey/generate-register-options" ||
+          ctx.path === "/passkey/verify-registration"
+        ) {
+          const session = await getSessionFromCtx(ctx);
+          if (session) {
+            const held = await options.db
+              .select({ id: schema.passkeys.id })
+              .from(schema.passkeys)
+              .where(eq(schema.passkeys.userId, session.user.id));
+            if (held.length >= maxPasskeys)
+              throw new APIError("FORBIDDEN", {
+                message: `${maxPasskeys} keys are registered, the most an account may hold. Remove one to add another.`,
+              });
+          }
+        }
         // A recovery code is compared by its hash: typed in any case, with or without the dash.
         if (ctx.path === "/two-factor/verify-backup-code" && typeof ctx.body?.code === "string") {
           return {
@@ -144,6 +182,33 @@ export function createAuth(options: AuthOptions) {
         }
       }),
       after: createAuthMiddleware(async (ctx) => {
+        const succeeded = !isAPIError(ctx.context.returned);
+        // When each key was last used, for the account page.
+        if (ctx.path === "/passkey/verify-authentication" && succeeded) {
+          const credential = (ctx.body as { response?: { id?: unknown } } | undefined)?.response
+            ?.id;
+          if (typeof credential === "string")
+            await options.db
+              .update(schema.passkeys)
+              .set({ lastUsedAt: new Date() })
+              .where(eq(schema.passkeys.credentialID, credential));
+        }
+        if (
+          (ctx.path === "/passkey/verify-registration" || ctx.path === "/passkey/delete-passkey") &&
+          succeeded &&
+          options.audit
+        ) {
+          const session = await getSessionFromCtx(ctx);
+          if (session)
+            await logForAccount(
+              options.db,
+              options.audit,
+              session.user.id,
+              ctx.path === "/passkey/verify-registration"
+                ? "account.passkey_added"
+                : "account.passkey_removed",
+            );
+        }
         if (
           ctx.path === "/two-factor/generate-backup-codes" &&
           options.audit &&
@@ -204,6 +269,30 @@ export function createAuth(options: AuthOptions) {
       : {}),
     // Adding a second factor (its first code verified) and removing it are logged.
     databaseHooks: {
+      // Every session knows how it was signed in (decision 048).
+      session: {
+        create: {
+          before: async (session, ctx) => {
+            const [account] = await options.db
+              .select({ twoFactorEnabled: schema.users.twoFactorEnabled })
+              .from(schema.users)
+              .where(eq(schema.users.id, session.userId));
+            const previous = (
+              ctx?.context.session?.session as { factor?: SessionFactor } | undefined
+            )?.factor;
+            return {
+              data: {
+                ...session,
+                factor: factorFor(
+                  ctx?.path,
+                  { twoFactorEnabled: account?.twoFactorEnabled ?? false },
+                  previous,
+                ),
+              },
+            };
+          },
+        },
+      },
       user: {
         update: {
           after: async (user, ctx) => {
@@ -232,6 +321,7 @@ export function createAuth(options: AuthOptions) {
       updateAge: 60 * 60 * 24,
       additionalFields: {
         activeOrganisationId: { type: "string", required: false, input: false },
+        factor: { type: "string", required: false, input: false, defaultValue: "password" },
       },
     },
     advanced: {

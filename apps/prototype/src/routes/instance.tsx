@@ -257,14 +257,14 @@ const operators = [
   {
     name: "Alex Rivera",
     email: "alex@endlesshall.example",
-    factor: "security key",
+    factor: "hardware security key",
     seen: "2 min",
     since: "2 Aug 2026",
   },
   {
     name: "Ops on call",
     email: "ops@endlesshall.example",
-    factor: "security key",
+    factor: "hardware security key",
     seen: "3 d",
     since: "4 Sep 2026",
   },
@@ -1663,7 +1663,7 @@ export function InstancePage({ section }: { section: string }) {
         <>
           <Section
             title="Operators"
-            intro="Accounts that may open this side of the application. A security key is required; everything they do is in the audit log under their name."
+            intro="Accounts that may open this side of the application. A hardware security key is required; everything they do is in the audit log under their name."
             action={
               <Button variant="primary" size="md">
                 <Icon name="plus" size={14} />
@@ -1695,7 +1695,7 @@ export function InstancePage({ section }: { section: string }) {
             ))}
           </Section>
           <Section title="Rules">
-            <SwitchRow name="Security key required for operators" checked />
+            <SwitchRow name="Hardware security key required for operators" checked />
             <SwitchRow
               name="Sign in as a member leaves a banner and an audit entry"
               hint="Cannot be turned off."
@@ -2325,10 +2325,10 @@ export function InstancePage({ section }: { section: string }) {
           >
             <SwitchRow
               name="Require a second factor for every account"
-              hint="A passkey, a security key or a code app. People without one are asked at their next sign-in."
+              hint="A passkey, a hardware security key or a code app. People without one are asked at their next sign-in."
               checked={false}
             />
-            <SwitchRow name="Security key required for operators" checked />
+            <SwitchRow name="Hardware security key required for operators" checked />
             <Row name="Sessions end after">
               <Select defaultValue="30" className="w-36">
                 <option value="1">1 day</option>

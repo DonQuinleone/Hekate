@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   applyWorkspaceSettings,
   defaultWorkspaceSettings,
+  factorDemand,
   type OrganisationRole,
   reviewerDefaults,
   type SecondFactorPolicy,
   secondFactorRequired,
+  sessionMeets,
   workspaceSettingsInput,
   workspaceSettingsOf,
 } from "./organisation.ts";
@@ -32,6 +34,7 @@ describe("workspace settings", () => {
       carriedCommentsShown: true,
       emailSubjects: { invitation: "Join {workspace}" },
       secondFactor: "off",
+      securityKeyForAdmins: false,
       reviewer: { comment: true, decide: false, comments: "all", windowDays: 30 },
     });
   });
@@ -99,5 +102,32 @@ describe("secondFactorRequired", () => {
   it("reads a stored policy, and falls back to off", () => {
     expect(workspaceSettingsOf({ secondFactor: "admins" }).secondFactor).toBe("admins");
     expect(workspaceSettingsOf({ secondFactor: "sometimes" }).secondFactor).toBe("off");
+  });
+});
+
+describe("what a sign-in must have been", () => {
+  const demand = (
+    policy: SecondFactorPolicy,
+    role: OrganisationRole,
+    securityKeyForAdmins = false,
+  ) => factorDemand({ instance: false, policy, securityKeyForAdmins, role });
+
+  it("takes a password alone where nothing is asked", () => {
+    expect(sessionMeets("password", demand("off", "owner"))).toBe(true);
+  });
+
+  it("takes a code app or a passkey where a second factor is asked", () => {
+    const asked = demand("everyone", "member");
+    expect(sessionMeets("password", asked)).toBe(false);
+    expect(sessionMeets("second_factor", asked)).toBe(true);
+    expect(sessionMeets("passkey", asked)).toBe(true);
+  });
+
+  it("takes only a passkey from owners and admins where a hardware security key is asked", () => {
+    const admin = demand("off", "admin", true);
+    expect(admin).toEqual({ secondFactor: true, securityKey: true });
+    expect(sessionMeets("second_factor", admin)).toBe(false);
+    expect(sessionMeets("passkey", admin)).toBe(true);
+    expect(demand("off", "member", true)).toEqual({ secondFactor: false, securityKey: false });
   });
 });

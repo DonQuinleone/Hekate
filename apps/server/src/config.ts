@@ -88,6 +88,8 @@ const schema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
+  /** How many passkeys and hardware security keys one account may hold. */
+  MAX_PASSKEYS: z.coerce.number().int().min(1).max(50).default(5),
   /** Sender address for email. */
   MAIL_FROM: z.string().default("Hekate <hekate@localhost>"),
   /** Behind a reverse proxy (Caddy in the Compose file), take client addresses from X-Forwarded-For. */
