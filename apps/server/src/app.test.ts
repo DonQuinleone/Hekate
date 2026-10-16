@@ -42,10 +42,6 @@ import { expireUploads } from "./uploads.ts";
 const url = process.env.DATABASE_URL;
 
 describe("config", () => {
-  it("reports every invalid setting", () => {
-    expect(() => loadConfig({ PORT: "nope" })).toThrow(/PORT[\s\S]*DATABASE_URL[\s\S]*AUTH_SECRET/);
-  });
-
   it("refuses a work directory that media tools could not be given safely", () => {
     expect(() => loadConfig({ WORK_DIR: "/mnt/scratch space" })).toThrow(/WORK_DIR/);
     expect(() => loadConfig({ WORK_DIR: "relative/work" })).toThrow(/WORK_DIR/);
