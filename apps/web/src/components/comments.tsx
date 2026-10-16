@@ -13,6 +13,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
 import { ago, historyLabel, passageLoop, type Thread, threadsOf } from "~/lib/comments";
+import { formatDates } from "~/lib/locale";
 import { type Loop, MIN_LOOP } from "~/lib/loop";
 import { isWholePage, type PageFocus } from "~/lib/pages";
 import {
@@ -28,6 +29,8 @@ import { useViewer } from "~/lib/viewer";
 import type { RegionMarker } from "./document-viewer";
 import { Button } from "./ui/button";
 import { ActionMenu } from "./ui/menu";
+
+const fullTime = formatDates({ dateStyle: "medium", timeStyle: "short" });
 
 /** Lowercase time labels read better inline than the upper-case anchor labels on markers. */
 // "00:12.500" reads as "0:12.500", at either end of a range.
@@ -165,7 +168,7 @@ function CommentBody({
             {comment.authorLabel ? `${comment.authorLabel}, guest` : "Guest"}
           </span>
         )}
-        <span className="text-ink-3" title={new Date(comment.createdAt).toLocaleString("en-GB")}>
+        <span className="text-ink-3" title={fullTime.format(new Date(comment.createdAt))}>
           {ago(comment.createdAt)}
           {comment.editedAt && " · edited"}
         </span>

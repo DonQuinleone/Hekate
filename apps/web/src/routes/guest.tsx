@@ -7,10 +7,11 @@ import { reviewState } from "~/components/reviews";
 import { GuestFrame } from "~/components/shell";
 import { Button } from "~/components/ui/button";
 import { StatusPill } from "~/components/ui/status";
+import { formatDates } from "~/lib/locale";
 import { accessNote } from "~/lib/permissions";
 import { guestMeQuery, useGuestSignIn, useGuestSignOut } from "~/lib/queries";
 
-const day = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long" });
+const day = formatDates({ day: "numeric", month: "long" });
 
 function Centred({ children }: { children: ReactNode }) {
   return (

@@ -11,6 +11,7 @@ import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { actionCopy } from "~/lib/access-log";
 import { shortAgent } from "~/lib/agent";
+import { formatDates } from "~/lib/locale";
 import {
   type AccessEvent,
   accessLogQuery,
@@ -30,8 +31,8 @@ type Role = Member["role"];
 const roleLabel: Record<Role, string> = { owner: "Owner", admin: "Admin", member: "Member" };
 const roles: Role[] = ["owner", "admin", "member"];
 
-const dateFormat = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
-const timeFormat = new Intl.DateTimeFormat("en-GB", {
+const dateFormat = formatDates({ day: "numeric", month: "short" });
+const timeFormat = formatDates({
   day: "numeric",
   month: "short",
   hour: "2-digit",

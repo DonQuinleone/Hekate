@@ -356,7 +356,8 @@ export function AppearanceSection() {
           onChange={(splitChannels) => save.mutate({ splitChannels })}
         />
         <SwitchRow
-          name="Loudness under the transport"
+          name="Loudness monitoring"
+          hint="The loudness meters and their history on the QA view."
           checked={preferences.showLoudness}
           onChange={(showLoudness) => save.mutate({ showLoudness })}
         />

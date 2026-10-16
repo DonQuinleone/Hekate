@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Lockup, Mark } from "~/components/brand";
 import { CommandPalette } from "~/components/command-palette";
@@ -15,6 +15,7 @@ import { authClient } from "~/lib/auth";
 import { cn } from "~/lib/cn";
 import { inField } from "~/lib/dom";
 import { docsUrl } from "~/lib/links";
+import { localeKey, setLocale } from "~/lib/locale";
 import {
   fileQuery,
   type MyReview,
@@ -453,6 +454,10 @@ function TopBar({
 }
 
 export function Shell({ children }: { children: ReactNode }) {
+  const { data: signedIn } = useQuery(meQuery);
+  // Dates and numbers in the member's language and time zone; the page redraws if they change.
+  setLocale(signedIn?.user.locale, signedIn?.user.timeZone);
+  const page = <Fragment key={localeKey()}>{children}</Fragment>;
   const [collapsed, setCollapsed] = useCollapsed();
   const [slots, onTrail, onActions] = useHeaderSlots();
   const { data: reviews } = useQuery(myReviewsQuery);
@@ -665,7 +670,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 ))}
               </nav>
             )}
-            <main className="scroll-quiet min-h-0 min-w-0 flex-1 overflow-auto">{children}</main>
+            <main className="scroll-quiet min-h-0 min-w-0 flex-1 overflow-auto">{page}</main>
           </HeaderSlotsProvider>
           <nav
             aria-label="Main"

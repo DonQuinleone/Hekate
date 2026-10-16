@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
 import { cn } from "~/lib/cn";
+import { formatDates } from "~/lib/locale";
 import {
   type FileDetail,
   projectFilesQuery,
@@ -16,7 +17,7 @@ import {
 import { Icon } from "./icons";
 import { Button } from "./ui/button";
 
-const dateFormat = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
+const dateFormat = formatDates({ day: "numeric", month: "short" });
 
 /** "Version 3 · Dry, Wet" for a track's latest version. */
 function latestLabel(track: Track): string {

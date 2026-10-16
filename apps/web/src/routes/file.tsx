@@ -28,6 +28,7 @@ import { ScorePane } from "~/components/score";
 import { FileContext } from "~/components/tracks";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/cn";
+import { formatDates } from "~/lib/locale";
 import type { Loop } from "~/lib/loop";
 import { initialFocus, type PageFocus } from "~/lib/pages";
 import {
@@ -41,7 +42,7 @@ import {
 } from "~/lib/queries";
 import { useViewer } from "~/lib/viewer";
 
-const dateFormat = new Intl.DateTimeFormat("en-GB", {
+const dateFormat = formatDates({
   day: "numeric",
   month: "long",
   year: "numeric",
@@ -338,7 +339,7 @@ export function FilePage({
               pages={pages}
               canComment={canComment}
             />
-            {shown === "review" && hasQa && preferences.showLoudness && (
+            {shown === "review" && hasQa && (
               <QaSummary fileId={file.id} onOpen={() => onView("qa")} />
             )}
           </div>
@@ -391,7 +392,7 @@ export function FilePage({
                 media={media}
                 canChoose={!guest && can("edit_workflows")}
               />
-              {file.mediaInfo?.audio && (
+              {file.mediaInfo?.audio && preferences.showLoudness && (
                 <Loudness
                   fileId={file.id}
                   media={media}

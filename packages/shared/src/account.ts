@@ -47,7 +47,7 @@ export const preRolls = [0, 1, 2] as const;
 export const preferencesSchema = z.object({
   /** The spectrogram in the player's View menu. */
   showSpectrogram: z.boolean(),
-  /** The loudness reading under the transport. */
+  /** The loudness meters and their history on the QA view. */
   showLoudness: z.boolean(),
   /** Each channel in its own lane when a recording first opens. */
   splitChannels: z.boolean(),

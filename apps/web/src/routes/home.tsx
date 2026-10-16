@@ -13,18 +13,19 @@ import { Dialog } from "~/components/ui/dialog";
 import { StatusDot } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
 import { type Attention, attentionFor, deadlinesOf, dueIn, figures, greeting } from "~/lib/home";
+import { formatDates } from "~/lib/locale";
 import { homeQuery, type MyReview, meQuery, myReviewsQuery } from "~/lib/queries";
 import { NewProject } from "~/routes/projects";
 
 /** Shown on the page at most; the rest wait in the reviews list. */
 const ATTENTION_SHOWN = 6;
 
-const dayFormat = new Intl.DateTimeFormat("en-GB", {
+const dayFormat = formatDates({
   weekday: "long",
   day: "numeric",
   month: "long",
 });
-const monthFormat = new Intl.DateTimeFormat("en-GB", { month: "short" });
+const monthFormat = formatDates({ month: "short" });
 
 const rowClass =
   "group flex items-center gap-3.5 rounded-panel px-3 py-2.5 transition-colors hover:bg-raised/60 focus-visible:bg-raised/60";

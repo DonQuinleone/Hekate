@@ -1,4 +1,5 @@
 import type { Anchor, CarryStatus } from "@hekate/shared";
+import { relativeFormat } from "./locale";
 import type { Loop } from "./loop";
 import type { Comment, CommentHistory } from "./queries";
 
@@ -87,7 +88,7 @@ export function passageLoop(anchor: { start: number; end: number }, duration?: n
   };
 }
 
-const relative = new Intl.RelativeTimeFormat("en-GB", { numeric: "auto" });
+const relative = relativeFormat({ numeric: "auto" });
 const steps: [Intl.RelativeTimeFormatUnit, number][] = [
   ["second", 60],
   ["minute", 60],
