@@ -71,6 +71,7 @@ import {
   useTagMutations,
   useTrackMutations,
 } from "~/lib/queries";
+import { useShortcuts } from "~/lib/shortcuts";
 import { Avatar, AvatarRow } from "./avatar";
 import { Empty } from "./empty";
 import { ColumnHeading, ColumnsMenu, columnNames } from "./file-columns";
@@ -415,6 +416,16 @@ export function FileBrowser({
    * an arrow selects as it goes, x selects the row, Cmd or Ctrl and A selects everything,
    * Escape lets go. Enter opens, as links do.
    */
+  // The list takes these itself, once it has focus; the map shows them while it is here.
+  useShortcuts("files", "Files", [
+    { keys: ["j", "ArrowDown"], label: "Next item", where: "In the list" },
+    { keys: ["k", "ArrowUp"], label: "Previous item", where: "In the list" },
+    { keys: ["Enter"], label: "Open", where: "In the list" },
+    { keys: ["x"], label: "Select, or with Shift a range", where: "In the list" },
+    { keys: ["Mod+A"], label: "Select everything", where: "In the list" },
+    { keys: ["Escape"], label: "Clear the selection", where: "In the list" },
+  ]);
+
   const onListKey = (event: KeyboardEvent<HTMLUListElement>) => {
     const target = event.target as HTMLElement;
     if (target.closest("input, select, textarea, form, [role=menu], [role=dialog]")) return;
@@ -422,12 +433,13 @@ export function FileBrowser({
     const current = target.closest<HTMLElement>("[data-key]")?.dataset.key ?? null;
     // While a row is being brought into view, keys count on from it, not from the old focus.
     const at = cursor.current ?? (current ? order.indexOf(current) : -1);
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    // j and k move as the arrows do, as in Gmail and Linear.
+    const plain = !event.metaKey && !event.ctrlKey && !event.altKey;
+    const pressed =
+      plain && event.key === "j" ? "ArrowDown" : plain && event.key === "k" ? "ArrowUp" : event.key;
+    if (pressed === "ArrowDown" || pressed === "ArrowUp") {
       event.preventDefault();
-      const next = Math.min(
-        order.length - 1,
-        Math.max(0, at + (event.key === "ArrowDown" ? 1 : -1)),
-      );
+      const next = Math.min(order.length - 1, Math.max(0, at + (pressed === "ArrowDown" ? 1 : -1)));
       const key = order[next];
       if (!key) return;
       const list = event.currentTarget;

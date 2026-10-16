@@ -175,6 +175,9 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
       ),
     ]
       .filter((el) => shown(el) && !covered(el, el.getBoundingClientRect()))
+      // While a modal is open, only its own targets: the page and the layer that closes the
+      // modal when clicked lie behind it.
+      .filter((el) => !modal || modal.contains(el))
       .filter((el) => !(el.tagName === "A" && el.parentElement?.closest("p") !== null))
       .map((el) => {
         // A checkbox or radio inside its label takes the label's size.

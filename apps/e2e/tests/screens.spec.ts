@@ -355,6 +355,71 @@ test("settings-email-dark-and-text", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The player's keys, the "?" map listing exactly them, and nothing firing while typing.
+test("shortcuts", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "Keys belong to a keyboard");
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  const media = page.locator("main audio, main video").first();
+  await page.waitForFunction(
+    () =>
+      ((document.querySelector("main audio, main video") as HTMLMediaElement | null)?.readyState ??
+        0) >= 1,
+  );
+  const time = () => media.evaluate((m: HTMLMediaElement) => m.currentTime);
+
+  // The map lists what works here, and nothing from elsewhere.
+  await page.keyboard.press("?");
+  const map = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+  await expect(map).toBeVisible();
+  await expect(map.getByRole("region", { name: "Player" })).toContainText("Play or pause");
+  await expect(map.getByRole("region", { name: "Comments" })).toContainText(
+    "Comment at the playhead",
+  );
+  await expect(map.getByRole("region", { name: "Files" })).toHaveCount(0);
+  await saveScreen(page, "shortcuts");
+  await checkScreen(page);
+  // Behind the map, the page's keys wait.
+  await page.keyboard.press(".");
+  expect(await time()).toBe(0);
+  await page.keyboard.press("Escape");
+  await expect(map).toBeHidden();
+
+  // Full stop and comma step; l and j jump by the chosen step.
+  await page.keyboard.press(".");
+  await page.keyboard.press(".");
+  await expect.poll(time).toBeCloseTo(0.02, 3);
+  await page.keyboard.press(",");
+  await expect.poll(time).toBeCloseTo(0.01, 3);
+  await page.keyboard.press("l");
+  await expect.poll(time).toBeGreaterThan(1);
+  await page.keyboard.press("j");
+  await expect.poll(time).toBeLessThan(1);
+
+  // i and o set the loop at the playhead.
+  await page.keyboard.press("l");
+  await page.keyboard.press("i");
+  await expect(page.getByRole("region", { name: "Loop" })).toBeVisible();
+
+  // c starts a comment at the playhead; in the field, the keys are just letters.
+  await page.keyboard.press("c");
+  const field = page.getByRole("textbox", { name: "Comment at the playhead" });
+  await expect(field).toBeFocused();
+  const before = await time();
+  await page.keyboard.type("lj. k");
+  await expect(field).toHaveValue("lj. k");
+  expect(await time()).toBe(before);
+  expect(await media.evaluate((m: HTMLMediaElement) => m.paused)).toBe(true);
+  await field.fill("");
+  await field.blur();
+
+  // g then h goes home.
+  await page.keyboard.press("g");
+  await page.keyboard.press("h");
+  await expect(page).toHaveURL(/\/$/);
+});
+
 // A file whose preparation failed says so, with a way to try again; put back as seeded after.
 test("project-files-failed", async ({ page }, info) => {
   const sql = postgres(process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL ?? "", { max: 1 });
