@@ -1087,6 +1087,7 @@ describe.runIf(url)("api", () => {
         expect((await read(owner)).body.settings).toEqual({
           defaultProfile: "music",
           guestLinkDays: 3,
+          guestVerification: "link",
           locale: null,
           carriedCommentsShown: true,
           emailSubjects: {},
@@ -4001,6 +4002,127 @@ describe.runIf(url)("api", () => {
           expect(res.status).toBe(201);
           return { ...s, review, token, cookie: cookieOf(res) };
         };
+
+        it("asks for a code sent to the guest's address where the workspace says so", async () => {
+          const s = await studio();
+          const changed = await app.request("/api/organisation/settings", {
+            ...json({ guestVerification: "code" }, s.owner),
+            method: "PATCH",
+          });
+          expect(changed.status).toBe(200);
+          mailer.sent.length = 0;
+          await request(s.owner, s.projectId, {
+            kind: "feedback",
+            title: "Album master",
+            items: [{ trackId: s.trackId }],
+            reviewers: [guest],
+          });
+          const token = linkFor("conductor@example.test");
+          const codeFor = () =>
+            [...mailer.sent]
+              .reverse()
+              .find((m) => m.to === "conductor@example.test")
+              ?.subject.match(/^(\d{6}) /)?.[1] ?? "";
+          const verify = (code: string) =>
+            app.request("/api/guest/sessions/verify", json({ token, code }));
+          const errorOf = async (res: Response) =>
+            ((await res.json()) as { error: { code: string } }).error.code;
+          const sendAnother = async () => {
+            // Half a minute between codes.
+            await db
+              .update(schema.guestLinks)
+              .set({ codeSentAt: new Date(Date.now() - 60_000) })
+              .where(eq(schema.guestLinks.organisationId, s.organisationId));
+            return app.request("/api/guest/sessions/code", json({ token }));
+          };
+
+          // The link alone opens nothing: whoever opens it, the code goes to the guest's address.
+          mailer.sent.length = 0;
+          const opened = await signIn(token);
+          expect(opened.status).toBe(202);
+          expect(await opened.json()).toEqual({ verify: "code", sentTo: "c•••@example.test" });
+          expect(cookieOf(opened)).not.toContain("hekate_guest=");
+          expect(mailer.sent.map((m) => m.to)).toEqual(["conductor@example.test"]);
+          const first = codeFor();
+          expect(first).toMatch(/^\d{6}$/);
+          // Someone the mail was forwarded to has the link but not the code.
+          const wrong = first === "000000" ? "111111" : "000000";
+          const guessed = await verify(wrong);
+          expect(guessed.status).toBe(400);
+          expect(await errorOf(guessed)).toBe("code_wrong");
+          // Another code cannot be had at once.
+          const hurried = await app.request("/api/guest/sessions/code", json({ token }));
+          expect(hurried.status).toBe(429);
+          expect(await errorOf(hurried)).toBe("code_wait");
+
+          // A code runs out after ten minutes.
+          await db
+            .update(schema.guestLinks)
+            .set({ codeExpiresAt: new Date(Date.now() - 1000) })
+            .where(eq(schema.guestLinks.organisationId, s.organisationId));
+          const late = await verify(first);
+          expect(late.status).toBe(410);
+          expect(await errorOf(late)).toBe("code_expired");
+
+          // A code that cannot be mailed is not issued, logged or counted against the five.
+          const sentSoFar = async () =>
+            (
+              await db
+                .select({ sent: schema.guestLinks.codesSent })
+                .from(schema.guestLinks)
+                .where(eq(schema.guestLinks.organisationId, s.organisationId))
+            )[0]?.sent;
+          const before = await sentSoFar();
+          const send = mailer.send;
+          mailer.send = async () => {
+            throw new Error("The mail server refused the message");
+          };
+          expect((await sendAnother()).status).toBe(500);
+          mailer.send = send;
+          expect(await sentSoFar()).toBe(before);
+
+          // Five wrong tries spend a code, even the right one after them.
+          expect((await sendAnother()).status).toBe(202);
+          const second = codeFor();
+          expect(second).not.toBe("");
+          const miss = second === "000000" ? "111111" : "000000";
+          for (let i = 0; i < 5; i++) expect((await verify(miss)).status).toBe(400);
+          const spent = await verify(second);
+          expect(spent.status).toBe(429);
+          expect(await errorOf(spent)).toBe("code_tries");
+
+          // A fresh code opens the review, once.
+          expect((await sendAnother()).status).toBe(202);
+          const opens = await verify(codeFor().replace(/(\d{3})/, "$1 "));
+          expect(opens.status).toBe(201);
+          const me = await app.request("/api/guest/me", {
+            headers: { cookie: cookieOf(opens) },
+          });
+          expect(me.status).toBe(200);
+          expect((await signIn(token)).status).toBe(410);
+          expect((await verify(codeFor())).status).toBe(410);
+
+          // Every try is in the access log, with why it failed.
+          const events = await db
+            .select({ action: schema.accessEvents.action, details: schema.accessEvents.details })
+            .from(schema.accessEvents)
+            .where(eq(schema.accessEvents.organisationId, s.organisationId));
+          const failed = events
+            .filter((e) => e.action === "guest.code_failed")
+            .map((e) => (e.details as { reason: string }).reason);
+          expect(failed).toEqual([
+            "wrong",
+            "expired",
+            "wrong",
+            "wrong",
+            "wrong",
+            "wrong",
+            "wrong",
+            "too_many",
+          ]);
+          expect(events.filter((e) => e.action === "guest.code_sent")).toHaveLength(3);
+          expect(events.filter((e) => e.action === "guest.sign_in")).toHaveLength(1);
+        });
 
         it("gives new reviews and guest links the workspace's settings", async () => {
           const s = await studio();

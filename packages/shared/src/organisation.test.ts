@@ -27,6 +27,7 @@ describe("workspace settings", () => {
     expect(read).toEqual({
       defaultProfile: "music",
       guestLinkDays: 14,
+      guestVerification: "link",
       locale: null,
       carriedCommentsShown: true,
       emailSubjects: { invitation: "Join {workspace}" },

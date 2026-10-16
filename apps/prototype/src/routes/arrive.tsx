@@ -471,23 +471,27 @@ export function GuestLinkPage() {
     return (
       <Frame
         title="Check your email"
-        intro="A six-digit code has been sent to the address the review was sent to. It lasts ten minutes."
+        intro="A six-digit code has gone to m•••@example.test, the address the review was sent to. It lasts ten minutes."
       >
         <form
-          className="flex flex-col gap-4"
+          className="flex flex-col gap-5"
           onSubmit={(e) => {
             e.preventDefault();
             setPersona("guest");
             navigate({ to: "/g/reviews/$reviewId", params: { reviewId: "rev-masters" } });
           }}
         >
-          <Field label="Code" placeholder="000 000" autoComplete="one-time-code" />
+          <CodeField />
           <Button type="submit" variant="primary" size="lg">
             Open the review
           </Button>
-          <button type="button" className="text-left text-[13px] text-ink-3 hover:text-ink">
-            Send another code
-          </button>
+          <p className="m-0 text-[13px] text-ink-3">
+            Nothing after a minute? Look in spam, then{" "}
+            <button type="button" className="text-ink-2 hover:text-ink hover:underline">
+              send another code
+            </button>
+            .
+          </p>
         </form>
       </Frame>
     );

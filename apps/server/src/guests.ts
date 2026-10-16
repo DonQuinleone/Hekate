@@ -8,6 +8,14 @@ import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import type { Actor, GuestActor } from "./access.ts";
 import type { Auth } from "./auth.ts";
+import {
+  checkGuestCode,
+  GUEST_CODE_MS,
+  GUEST_CODE_TRIES,
+  hashGuestCode,
+  mayResend,
+  newGuestCode,
+} from "./guest-code.ts";
 import { assertSecondFactor, organisationFor, type SecondFactorRule } from "./tenancy.ts";
 
 const { guests, guestLinks, guestSessions, organisations } = schema;
@@ -74,6 +82,23 @@ export async function issueGuestLink(
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
+/** A session for a guest whose link was just spent, in the same transaction. */
+async function startSession(tx: Tx, link: { organisationId: string; guestId: string }, now: Date) {
+  const session = newToken();
+  const [row] = await tx
+    .insert(guestSessions)
+    .values({
+      organisationId: link.organisationId,
+      guestId: link.guestId,
+      tokenHash: session.hash,
+      expiresAt: new Date(now.getTime() + GUEST_SESSION_LIFETIME_MS),
+      lastSeenAt: now,
+    })
+    .returning();
+  if (!row) throw new Error("Guest session insert returned no row");
+  return { row, token: session.token };
+}
+
 /**
  * Exchange a magic link for a session. The link is spent atomically, so two browsers
  * racing with the same link get one session between them. Null for a link that is
@@ -101,20 +126,135 @@ export async function useGuestLink(
       )
       .returning();
     if (!link) return null;
-    const session = newToken();
-    const [row] = await tx
-      .insert(guestSessions)
-      .values({
-        organisationId: link.organisationId,
-        guestId: link.guestId,
-        tokenHash: session.hash,
-        expiresAt: new Date(now.getTime() + GUEST_SESSION_LIFETIME_MS),
-        lastSeenAt: now,
-      })
-      .returning();
-    if (!row) throw new Error("Guest session insert returned no row");
+    const { row, token: cookie } = await startSession(tx, link, now);
     await andThen(tx, row);
-    return { session: row, token: session.token };
+    return { session: row, token: cookie };
+  });
+}
+
+/** A link that still works, locked for the rest of the transaction; null otherwise. */
+async function usableLink(tx: Tx, token: string, now: Date) {
+  const [link] = await tx
+    .select()
+    .from(guestLinks)
+    .where(
+      and(
+        eq(guestLinks.tokenHash, hashToken(token)),
+        isNull(guestLinks.usedAt),
+        isNull(guestLinks.revokedAt),
+        gt(guestLinks.expiresAt, now),
+      ),
+    )
+    .for("update");
+  return link ?? null;
+}
+
+/**
+ * How a link opens: by itself, or with a code as well (the workspace's setting). Null for a
+ * link that no longer works.
+ */
+export async function verificationFor(db: Database, token: string, now = new Date()) {
+  const [row] = await db
+    .select({ settings: organisations.settings })
+    .from(guestLinks)
+    .innerJoin(organisations, eq(organisations.id, guestLinks.organisationId))
+    .where(
+      and(
+        eq(guestLinks.tokenHash, hashToken(token)),
+        isNull(guestLinks.usedAt),
+        isNull(guestLinks.revokedAt),
+        gt(guestLinks.expiresAt, now),
+      ),
+    );
+  return row ? workspaceSettingsOf(row.settings).guestVerification : null;
+}
+
+/**
+ * A new code for a guest opening their link, without spending it: the link opens only once
+ * the code comes back. Null for a link that no longer works; "wait" or "limit" when another
+ * may not go out yet, or at all. Only the code's hash is kept. `deliver` mails it and logs it
+ * in the same transaction: if either fails, no code is issued and none of the five is used.
+ */
+export async function newGuestCodeFor(
+  db: Database,
+  token: string,
+  deliver: (
+    tx: Tx,
+    sent: { code: string; organisationId: string; guestId: string; email: string },
+  ) => Promise<void>,
+  now = new Date(),
+) {
+  return db.transaction(async (tx) => {
+    const link = await usableLink(tx, token, now);
+    if (!link) return null;
+    const [guest] = await tx
+      .select({ email: guests.email })
+      .from(guests)
+      .where(inOrg(guests, link.organisationId, eq(guests.id, link.guestId)));
+    if (!guest) return null;
+    const who = { organisationId: link.organisationId, guestId: link.guestId, email: guest.email };
+    const may = mayResend(link, now);
+    if (may !== "send") return { status: may, ...who };
+    const code = newGuestCode();
+    await tx
+      .update(guestLinks)
+      .set({
+        codeHash: hashGuestCode(link.id, code),
+        codeSentAt: now,
+        codeExpiresAt: new Date(now.getTime() + GUEST_CODE_MS),
+        codeAttempts: 0,
+        codesSent: link.codesSent + 1,
+      })
+      .where(inOrg(guestLinks, link.organisationId, eq(guestLinks.id, link.id)));
+    await deliver(tx, { code, ...who });
+    return { status: "sent" as const, ...who };
+  });
+}
+
+/**
+ * A guest's code against the one sent for their link. Right: the link is spent and a session
+ * starts, as with the link alone (`signedIn` logs it in the same transaction). Otherwise it
+ * says why not, and `refused` logs that in the same transaction; a wrong code's try is counted
+ * there too, so the count and its log entry are kept together or not at all.
+ */
+export async function verifyGuestCode(
+  db: Database,
+  token: string,
+  code: string,
+  log: {
+    signedIn: (tx: Tx, session: typeof guestSessions.$inferSelect) => Promise<void>;
+    refused: (
+      tx: Tx,
+      who: { organisationId: string; guestId: string },
+      reason: Exclude<ReturnType<typeof checkGuestCode>, "ok">,
+    ) => Promise<void>;
+  },
+  now = new Date(),
+) {
+  return db.transaction(async (tx) => {
+    const link = await usableLink(tx, token, now);
+    if (!link) return { status: "gone" as const };
+    const who = { organisationId: link.organisationId, guestId: link.guestId };
+    const check = checkGuestCode(link, code, now);
+    if (check === "wrong") {
+      await tx
+        .update(guestLinks)
+        .set({ codeAttempts: link.codeAttempts + 1 })
+        .where(inOrg(guestLinks, link.organisationId, eq(guestLinks.id, link.id)));
+      await log.refused(tx, who, check);
+      return { status: "wrong" as const, left: GUEST_CODE_TRIES - link.codeAttempts - 1, ...who };
+    }
+    if (check !== "ok") {
+      await log.refused(tx, who, check);
+      return { status: check, ...who };
+    }
+    await tx
+      .update(guestLinks)
+      .set({ usedAt: now, codeHash: null })
+      .where(inOrg(guestLinks, link.organisationId, eq(guestLinks.id, link.id)));
+    const { row, token: cookie } = await startSession(tx, link, now);
+    await log.signedIn(tx, row);
+    return { status: "ok" as const, session: row, token: cookie };
   });
 }
 
