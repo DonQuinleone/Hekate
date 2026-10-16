@@ -56,6 +56,8 @@ export interface AppDeps {
   trustProxy?: boolean;
   publicUrl: string;
   log?: boolean;
+  /** Check the first owner's password against known breaches (PASSWORD_LEAK_CHECK). */
+  passwordLeakCheck?: boolean;
 }
 
 export function createApi(deps: AppDeps) {
@@ -79,7 +81,7 @@ export function createApi(deps: AppDeps) {
   return (
     new Hono()
       .route("/health", health(deps.db))
-      .route("/setup", setupRoutes(deps.db, deps.auth))
+      .route("/setup", setupRoutes(deps.db, deps.auth, deps.passwordLeakCheck ?? false))
       .use("/me/*", ...member)
       .use("/me", ...member)
       .route("/me", meRoutes(deps.db))

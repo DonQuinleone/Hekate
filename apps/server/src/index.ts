@@ -13,6 +13,7 @@ import { deliverDigests, deliverInstant } from "./notifications.ts";
 import { playbackSecret } from "./playback.ts";
 import { reconcileStorage } from "./reconcile.ts";
 import { remindDue } from "./reminders.ts";
+import { purgeAttempts } from "./sign-in.ts";
 import { serveWeb } from "./static.ts";
 import { createStorage } from "./storage.ts";
 import { version } from "./version.ts";
@@ -48,6 +49,8 @@ const auth = createAuth({
   baseURL: config.PUBLIC_URL,
   trustedOrigins: config.TRUSTED_ORIGINS,
   mailer,
+  audit: createAudit(db),
+  leakCheck: config.PASSWORD_LEAK_CHECK,
 });
 const keyring = createKeyring(db, {
   current: config.MASTER_KEY,
@@ -96,6 +99,9 @@ if (config.WORKER) {
   await jobs.work("notifications-digest", async () => {
     await deliverDigests(db, mailer, config.PUBLIC_URL);
   });
+  await jobs.work("sign-in-attempts-purge", async () => {
+    await purgeAttempts(db);
+  });
   await jobs.work("reviews-remind", async () => {
     await remindDue({ db, mailer, audit, publicUrl: config.PUBLIC_URL });
   });
@@ -112,6 +118,7 @@ const app = createApp({
   playbackSecret: playbackSecret(config.AUTH_SECRET),
   publicUrl: config.PUBLIC_URL,
   trustProxy: config.TRUST_PROXY,
+  passwordLeakCheck: config.PASSWORD_LEAK_CHECK,
 });
 if (config.WEB_DIST) serveWeb(app, config.WEB_DIST);
 

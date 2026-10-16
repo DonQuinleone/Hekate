@@ -151,7 +151,7 @@ export function SignInPage({ view: initial }: { view?: string }) {
     return (
       <Frame
         title="Forgotten your password?"
-        intro="Enter your email and we will send a link that signs you in once and lets you set a new one. It lasts an hour."
+        intro="Enter your email. We will send a code, and a link that carries it, to set a new password. Both last ten minutes."
       >
         <form
           className="flex flex-col gap-4"
@@ -162,7 +162,7 @@ export function SignInPage({ view: initial }: { view?: string }) {
         >
           <Field label="Email" type="email" autoComplete="username" placeholder="you@example.com" />
           <Button type="submit" variant="primary" size="lg">
-            Send me a link
+            Send me a code
           </Button>
         </form>
         {back}
@@ -202,7 +202,7 @@ export function SignInPage({ view: initial }: { view?: string }) {
     return (
       <Frame
         title="Set a new password"
-        intro="Twelve characters or more. A passphrase of a few words is easiest to keep."
+        intro="Twelve characters or more; a few words are easiest to keep. Every session ends, wherever it was signed in."
       >
         <form
           className="flex flex-col gap-4"
@@ -222,9 +222,6 @@ export function SignInPage({ view: initial }: { view?: string }) {
             <span className="ml-2 text-[12px] text-ink-3">strong</span>
           </div>
           <Field label="Again" type="password" autoComplete="new-password" />
-          <label className="flex items-center gap-2 text-[13px] text-ink-2">
-            <input type="checkbox" defaultChecked /> Sign out of every other session
-          </label>
           <Button type="submit" variant="primary" size="lg">
             Save and sign in
           </Button>

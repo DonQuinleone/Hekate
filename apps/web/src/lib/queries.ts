@@ -49,7 +49,11 @@ import {
 } from "@tanstack/react-query";
 import { api } from "./api";
 
+/** The member's session is gone: it ran out, or was ended elsewhere. */
+export class SignedOutError extends Error {}
+
 async function json<T>(res: Response): Promise<T> {
+  if (res.status === 401) throw new SignedOutError("Your session has ended. Sign in again.");
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
     throw new Error(body?.error?.message ?? `Request failed (${res.status})`);

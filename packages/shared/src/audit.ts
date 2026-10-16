@@ -37,6 +37,10 @@ export const auditActions = [
   /** A guest opened a review, or commented. */
   "guest.view",
   "comment.create",
+  /** Too many failed sign-ins locked a member's account for a while. */
+  "account.lockout",
+  /** A member set a new password with a code sent to their address. */
+  "account.password_reset",
   /** An owner renamed the workspace. */
   "organisation.rename",
   /** An admin changed the workspace's settings. */

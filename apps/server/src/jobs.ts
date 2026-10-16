@@ -38,6 +38,12 @@ export const jobDefinitions = {
     data: z.object({ organisationId: z.uuid(), blobId: z.uuid() }),
     options: { retryLimit: 4, retryDelay: 30, retryBackoff: true, expireInSeconds: 60 * 60 },
   },
+  /** Forget sign-in attempts a day old that hold no lock, so they do not pile up. Hourly. */
+  "sign-in-attempts-purge": {
+    data: z.object({}),
+    options: { retryLimit: 1, expireInSeconds: 10 * 60 },
+    schedule: "53 * * * *",
+  },
   /** Abort uploads that were never completed, so their parts stop taking space. Hourly. */
   "uploads-expire": {
     data: z.object({}),
