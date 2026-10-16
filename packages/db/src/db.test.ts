@@ -49,6 +49,7 @@ describe("tenancy", () => {
       "notification_preferences",
       "notifications",
       "organisation_keys",
+      "overview_layouts",
       "peak_levels",
       "project_members",
       "project_roles",

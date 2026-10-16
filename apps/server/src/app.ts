@@ -19,6 +19,7 @@ import { invitationRoutes } from "./routes/invitations.ts";
 import { meRoutes } from "./routes/me.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
 import { organisationRoutes } from "./routes/organisation.ts";
+import { projectOverviewRoutes } from "./routes/overview.ts";
 import { fileRoutes, playRoutes } from "./routes/playback.ts";
 import { projectAccessRoutes } from "./routes/project-access.ts";
 import { projectRoutes } from "./routes/projects.ts";
@@ -107,6 +108,7 @@ export function createApi(deps: AppDeps) {
       .route("/projects", projectReviewRoutes(reviewDeps))
       .route("/projects", projectGroupRoutes(deps.db))
       .route("/projects", projectFolderRoutes(deps.db))
+      .route("/projects", projectOverviewRoutes(deps.db))
       .use("/folders/*", ...member)
       .route("/folders", folderRoutes(deps.db))
       .use("/tracks/*", ...member)
