@@ -432,7 +432,7 @@ test("file-comment-sheet", async ({ page }, info) => {
   await saveScreen(page, "file-comment-sheet");
   await checkScreen(page);
   // With a keyboard, c opens the same sheet, ready to type in.
-  await page.keyboard.press("Escape");
+  await sheet.getByRole("button", { name: "Close" }).click();
   await expect(sheet).toBeHidden();
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press("c");
