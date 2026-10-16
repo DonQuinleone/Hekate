@@ -12,6 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { cn } from "~/lib/cn";
 import { type QaReport, qaQuery, useDeliveryProfile } from "~/lib/queries";
+import { Select } from "./ui/input";
 
 /** What each check is called in the list. */
 const checkNames: Record<QaCheck, string> = {
@@ -217,12 +218,13 @@ export function QualityChecks({
         <span className="ml-auto flex items-center gap-2 text-xs text-ink-3">
           <label htmlFor={id}>Against</label>
           {canChoose ? (
-            <select
+            <Select
+              size="sm"
               id={id}
               value={data.profile.chosen ? data.profile.id : ""}
               disabled={choose.isPending}
               onChange={(e) => choose.mutate((e.target.value || null) as DeliveryProfileId | null)}
-              className="h-7 cursor-pointer rounded-control border border-hairline bg-transparent px-2 text-[13px] text-ink outline-none hover:border-edge focus:border-ink-3"
+              className="w-auto"
             >
               <option value="">{`${deliveryProfiles[data.profile.id].label} (suggested)`}</option>
               {deliveryProfileIds.map((p) => (
@@ -230,7 +232,7 @@ export function QualityChecks({
                   {deliveryProfiles[p].label}
                 </option>
               ))}
-            </select>
+            </Select>
           ) : (
             <span id={id} className="text-ink-2">
               {data.profile.label}

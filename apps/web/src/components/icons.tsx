@@ -188,6 +188,8 @@ const paths = {
 } as const satisfies Record<string, Entry>;
 
 export type IconName = keyof typeof paths;
+/** Every icon in the set, for the design system reference. */
+export const iconNames = Object.keys(paths) as IconName[];
 
 export function Icon({
   name,

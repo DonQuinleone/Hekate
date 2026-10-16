@@ -37,7 +37,7 @@ export function Field({
   id,
   label,
   ...props
-}: { id: string; label: string } & React.InputHTMLAttributes<HTMLInputElement>) {
+}: { id: string; label: string } & Omit<React.InputHTMLAttributes<HTMLInputElement>, "size">) {
   return (
     <div className="flex flex-col gap-1.5">
       <label htmlFor={id} className="label">

@@ -21,6 +21,7 @@ import type { StreamStatus } from "~/lib/queries";
 import { cancelUpload, type UploadProgress, uploadFile } from "~/lib/upload";
 import { Icon, type IconName } from "./icons";
 import { Button } from "./ui/button";
+import { FileInput } from "./ui/input";
 
 export const kindIcon: Record<FileKind, IconName> = {
   audio: "music",
@@ -228,11 +229,9 @@ export function UploadButton() {
   if (!uploads) return null;
   return (
     <>
-      <input
+      <FileInput
         ref={input}
-        type="file"
         multiple
-        className="hidden"
         aria-label="Files to upload"
         onChange={(event) => {
           if (event.target.files) uploads.start(event.target.files);

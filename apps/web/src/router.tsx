@@ -4,6 +4,7 @@ import {
   createRootRouteWithContext,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   Outlet,
   redirect,
 } from "@tanstack/react-router";
@@ -425,6 +426,21 @@ const settings = createRoute({
   },
 });
 
+/**
+ * The design system reference: in development and in the build the visual suite captures
+ * (VITE_REFERENCE=1), never in a release, where this branch and its chunk are left out.
+ */
+const reference =
+  import.meta.env.DEV || import.meta.env.VITE_REFERENCE === "1"
+    ? [
+        createRoute({
+          getParentRoute: () => root,
+          path: "/reference",
+          component: lazyRouteComponent(() => import("~/routes/reference")),
+        }),
+      ]
+    : [];
+
 export const router = createRouter({
   routeTree: root.addChildren([
     setup,
@@ -433,6 +449,7 @@ export const router = createRouter({
     guestLink,
     guestSignedOut,
     guestApp.addChildren([guestHome, guestReview, guestFile]),
+    ...reference,
     app.addChildren([
       home,
       projects,

@@ -15,6 +15,7 @@ import {
   rememberRecent,
 } from "~/lib/palette";
 import { meQuery, projectsQuery, searchQuery, useProjectCan } from "~/lib/queries";
+import { BareInput } from "./ui/input";
 
 const kindGroup: Record<SearchResult["kind"], { group: HitGroup; icon: IconName }> = {
   projects: { group: "Projects", icon: "folder" },
@@ -293,7 +294,7 @@ export function CommandPalette({
       >
         <div className="flex h-13 items-center gap-3 border-b border-line px-4">
           <Icon name="search" size={18} className="shrink-0 text-ink-3" />
-          <input
+          <BareInput
             ref={input}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -305,7 +306,7 @@ export function CommandPalette({
             aria-expanded="true"
             aria-controls="palette-results"
             aria-activedescendant={hits[index] ? `palette-${hits[index].id}` : undefined}
-            className="h-full min-w-0 flex-1 bg-transparent text-[16px] text-ink placeholder:text-ink-2 focus:outline-none focus-visible:shadow-none focus-visible:outline-none"
+            className="h-full flex-1 text-[16px]"
           />
           <Kbd>esc</Kbd>
         </div>

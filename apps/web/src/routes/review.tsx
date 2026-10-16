@@ -6,6 +6,7 @@ import { type Crumb, PageHeader } from "~/components/page-header";
 import { ReviewerPermissionsEditor } from "~/components/reviewer-permissions";
 import { reviewState } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
+import { Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { StatusPill } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
@@ -51,13 +52,13 @@ function YourTurn({ review }: { review: ReviewDetail }) {
           Open each item, leave comments where they help, then record your decision. It is logged; a
           later decision adds to the record rather than replacing it.
         </p>
-        <textarea
+        <Textarea
           rows={2}
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder="A note with your decision (optional)"
           aria-label="Note"
-          className="w-full resize-y rounded-control border border-edge bg-ground px-3 py-2 text-[13px] text-ink outline-none placeholder:text-ink-3 focus:border-ink-3"
+          className="text-[13px]"
         />
         {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
         <div className="flex flex-wrap gap-2">
