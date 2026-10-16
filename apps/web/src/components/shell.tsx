@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, useCallback, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Lockup, Mark } from "~/components/brand";
 import { CommandPalette } from "~/components/command-palette";
@@ -13,7 +13,6 @@ import { MenuList, usePopover } from "~/components/ui/menu";
 import { type ReviewState, StatusDot } from "~/components/ui/status";
 import { authClient } from "~/lib/auth";
 import { cn } from "~/lib/cn";
-import { inField } from "~/lib/dom";
 import { docsUrl } from "~/lib/links";
 import { localeKey, setLocale } from "~/lib/locale";
 import {
@@ -27,7 +26,9 @@ import {
   trackQuery,
   useSwitchOrganisation,
 } from "~/lib/queries";
+import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
 import { useThemeSync } from "~/lib/theme";
+import { openShortcutMap } from "./shortcut-map";
 
 /** The lamps in the room: slow, warm and cool, behind the chrome. */
 export function Ambient() {
@@ -384,6 +385,7 @@ function HelpMenu() {
         <MenuList
           onClose={() => setOpen(false)}
           actions={[
+            { label: "Keyboard shortcuts", hint: "?", onSelect: openShortcutMap },
             {
               label: "View documentation",
               hint: docsUrl.replace(/^https?:\/\//, ""),
@@ -475,39 +477,27 @@ export function Shell({ children }: { children: ReactNode }) {
 
   const navigate = useNavigate();
   const [palette, setPalette] = useState(false);
-  const chord = useRef(0);
-  const toggleSidebar = useCallback(() => setCollapsed(!collapsed), [collapsed, setCollapsed]);
+  const say = useAnnounce();
+  const toggleSidebar = useCallback(() => {
+    setCollapsed(!collapsed);
+    say(collapsed ? "Sidebar shown" : "Sidebar hidden");
+  }, [collapsed, setCollapsed, say]);
 
   // Ctrl or ⌘ K opens the palette anywhere, "/" outside a field; "[" shows or hides the
-  // labels, as in Linear; "g" then h, i or p jumps. Never while typing.
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setPalette((open) => !open);
-        return;
-      }
-      if (event.metaKey || event.ctrlKey || event.altKey || inField(event) || palette) return;
-      if (event.key === "[") toggleSidebar();
-      if (event.key === "/") {
-        event.preventDefault();
-        setPalette(true);
-      }
-      // The second key of a "g" chord must follow within a second.
-      if (event.key === "g") {
-        chord.current = Date.now();
-        return;
-      }
-      if (Date.now() - chord.current < 1000) {
-        chord.current = 0;
-        if (event.key === "h") void navigate({ to: "/" });
-        if (event.key === "i") void navigate({ to: "/inbox" });
-        if (event.key === "p") void navigate({ to: "/projects" });
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [palette, toggleSidebar, navigate]);
+  // labels, as in Linear; "g" then h, i or p jumps. The palette, once open, keeps its keys.
+  useShortcuts("global", "Everywhere", [
+    {
+      keys: ["Mod+K"],
+      label: "Search and commands",
+      run: () => setPalette((open) => !open),
+      anywhere: true,
+    },
+    { keys: ["/"], label: "Search", run: () => setPalette(true) },
+    { keys: ["["], label: "Show or hide the sidebar", run: toggleSidebar },
+    { keys: ["g h"], label: "Go home", run: () => void navigate({ to: "/" }) },
+    { keys: ["g i"], label: "Go to the inbox", run: () => void navigate({ to: "/inbox" }) },
+    { keys: ["g p"], label: "Go to projects", run: () => void navigate({ to: "/projects" }) },
+  ]);
 
   return (
     <div className="relative flex h-full flex-col @3xl/app:flex-row">

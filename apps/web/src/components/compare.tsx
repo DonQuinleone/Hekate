@@ -24,6 +24,7 @@ import {
   playbackQuery,
   trackQuery,
 } from "~/lib/queries";
+import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
 import { audioBuffer, preferredRendition } from "./player";
 import { Button } from "./ui/button";
 
@@ -287,21 +288,25 @@ export function Compare({
     };
   }, [media]);
 
+  const say = useAnnounce();
   // Number keys switch, anywhere on the page but in a text field.
-  useEffect(() => {
-    if (!comparing) return;
-    const onKey = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.closest("input, textarea, select, [contenteditable=true]")) return;
-      const n = Number(event.key);
-      if (Number.isInteger(n) && n >= 1 && n <= sources.length) {
-        event.preventDefault();
-        hear(blind ? order[n - 1] : n - 1);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
+  useShortcuts(
+    "compare",
+    "Comparison",
+    [
+      {
+        keys: sources.map((_, i) => String(i + 1)),
+        label: "Hear a source by its number",
+        run: (event) => {
+          const n = Number(event.key);
+          if (n < 1 || n > sources.length) return;
+          hear(blind ? order[n - 1] : n - 1);
+          say(`Hearing source ${n}`);
+        },
+      },
+    ],
+    comparing,
+  );
 
   if (!variation || candidates.length === 0) return null;
 

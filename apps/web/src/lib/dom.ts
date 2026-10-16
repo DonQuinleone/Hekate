@@ -7,11 +7,6 @@ export function targetOf(event: Event): HTMLElement | null {
   return first instanceof HTMLElement ? first : null;
 }
 
-/** True when the event started in something that takes typing. */
-export function inField(event: Event): boolean {
-  return Boolean(targetOf(event)?.closest("input, textarea, select, [contenteditable=true]"));
-}
-
 /** True when the event started inside `el`. */
 export function within(event: Event, el: Element | null): boolean {
   return Boolean(el && event.composedPath().includes(el));

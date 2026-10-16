@@ -1,9 +1,10 @@
 import { formatChannels, formatDuration, type MediaInfo, type ReviewerTool } from "@hekate/shared";
 import type Hls from "hls.js";
-import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
 import { type Loop, loopEntry, loopFrom, type Rolls, roll, wrapTarget } from "~/lib/loop";
 import { type Playback, type Rendition, usePreferences } from "~/lib/queries";
+import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
 import { Icon } from "./icons";
 import { LoopControls, LoopSurface } from "./loop";
 import { Spectrogram, type SpectrogramChannelChoice } from "./spectrogram";
@@ -381,47 +382,79 @@ export function Player({
       element.currentTime = Math.max(0, Math.min(duration, element.currentTime + seconds));
   };
 
-  const onKeyDown = (event: KeyboardEvent) => {
-    // Controls inside the player keep their own keys (Space ticks a box, opens a list);
-    // only the player itself and its position slider take the shortcuts.
-    const target = event.target as HTMLElement;
-    const slider = target instanceof HTMLInputElement && target.type === "range";
-    if (
-      !slider &&
-      target !== event.currentTarget &&
-      target.closest("input, select, textarea, button")
-    ) {
-      return;
-    }
-    if (slider && event.key !== " ") return;
-    if (event.key === " " || event.key === "k") {
-      event.preventDefault();
-      toggle();
-    } else if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      seekBy(-preferences.skipSeconds);
-    } else if (event.key === "ArrowRight") {
-      event.preventDefault();
-      seekBy(preferences.skipSeconds);
-    } else if (canLoop && (event.key === "i" || event.key === "o")) {
-      // Loop in and out at the playhead; the other edge stays, or the loop runs to the end.
-      const element = media.current;
-      if (!element || !(duration > 0)) return;
-      event.preventDefault();
-      const at = element.currentTime;
-      const next =
-        event.key === "i"
-          ? loopFrom(at, loop && loop.end > at ? loop.end : duration, duration)
-          : loopFrom(loop && loop.start < at ? loop.start : 0, at, duration);
-      if (next) {
-        onLoop(next);
-        setLooping(true);
-      }
-    } else if (event.key === "l" && loop) {
-      event.preventDefault();
-      setLooping((on) => !on);
+  const say = useAnnounce();
+  /** One frame of video, or a hundredth of a second of audio. */
+  const step = info?.video?.fps ? 1 / info.video.fps : 0.01;
+  const stepBy = (direction: -1 | 1) => {
+    const element = media.current;
+    if (!element) return;
+    element.pause();
+    seekBy(direction * step);
+  };
+  /** Loop in or out at the playhead; the other edge stays, or the loop runs to the end. */
+  const edge = (which: "in" | "out") => {
+    const element = media.current;
+    if (!element || !(duration > 0)) return;
+    const at = element.currentTime;
+    const next =
+      which === "in"
+        ? loopFrom(at, loop && loop.end > at ? loop.end : duration, duration)
+        : loopFrom(loop && loop.start < at ? loop.start : 0, at, duration);
+    if (next) {
+      onLoop(next);
+      setLooping(true);
+      say(`Loop ${which} point set`);
     }
   };
+  // The player's keys work anywhere on the page it is on, as in Frame.io; never in a field.
+  useShortcuts("player", "Player", [
+    {
+      keys: ["Space", "k"],
+      label: "Play or pause",
+      run: () => {
+        const element = media.current;
+        toggle();
+        if (element) say(element.paused ? "Paused" : "Playing");
+      },
+    },
+    {
+      keys: ["j", "ArrowLeft"],
+      label: `Back ${preferences.skipSeconds} seconds`,
+      run: () => seekBy(-preferences.skipSeconds),
+    },
+    {
+      keys: ["l", "ArrowRight"],
+      label: `Forward ${preferences.skipSeconds} seconds`,
+      run: () => seekBy(preferences.skipSeconds),
+    },
+    {
+      keys: [","],
+      label: info?.video?.fps ? "One frame back" : "A hundredth of a second back",
+      run: () => stepBy(-1),
+    },
+    {
+      keys: ["."],
+      label: info?.video?.fps ? "One frame forward" : "A hundredth of a second forward",
+      run: () => stepBy(1),
+    },
+    ...(canLoop
+      ? [
+          { keys: ["i"], label: "Loop from the playhead", run: () => edge("in") },
+          { keys: ["o"], label: "Loop to the playhead", run: () => edge("out") },
+          {
+            keys: ["Shift+L"],
+            label: "Loop on or off",
+            run: () => {
+              if (!loop) return;
+              setLooping((on) => {
+                say(on ? "Loop off" : "Loop on");
+                return !on;
+              });
+            },
+          },
+        ]
+      : []),
+  ]);
 
   const events = {
     onPlay: () => setPlaying(true),
@@ -463,9 +496,6 @@ export function Player({
   return (
     <section
       aria-label="Player"
-      // biome-ignore lint/a11y/noNoninteractiveTabindex: the player takes keyboard shortcuts as a whole.
-      tabIndex={0}
-      onKeyDown={onKeyDown}
       className="flex flex-col overflow-hidden rounded-panel border border-hairline bg-surface outline-none focus-visible:border-edge"
     >
       {kind === "video" ? (
