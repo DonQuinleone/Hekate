@@ -377,7 +377,10 @@ export function ReviewBody({
                 ))}
               </ul>
             </section>
-            <YourTurn review={review} />
+            {/* On a phone what is asked of you comes first, before the items, however many. */}
+            <div className="order-first empty:hidden @3xl/app:order-none">
+              <YourTurn review={review} />
+            </div>
             {review.decisions.length > 0 && (
               <section aria-label="Decisions" className="flex flex-col gap-2">
                 <h2 className="m-0 text-[15px] font-medium">Decisions</h2>
