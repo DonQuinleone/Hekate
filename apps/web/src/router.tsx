@@ -49,9 +49,12 @@ const loopSearchSchema = z.object({
 /** A file page's address: the passage looped, and the QA view when it is open. */
 const fileSearchSchema = loopSearchSchema.extend({
   view: z.enum(["qa"]).optional().catch(undefined),
+  /** The details sheet, open beside the file. */
+  sheet: z.enum(["details"]).optional().catch(undefined),
 });
-const fileSearch = (search: Record<string, unknown>): { loop?: string; view?: "qa" } =>
-  fileSearchSchema.parse(search);
+const fileSearch = (
+  search: Record<string, unknown>,
+): { loop?: string; view?: "qa"; sheet?: "details" } => fileSearchSchema.parse(search);
 
 const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   component: Outlet,
@@ -295,11 +298,18 @@ const file = createRoute({
   validateSearch: fileSearch,
   component: function FileRoute() {
     const { fileId } = file.useParams();
-    const { loop, view } = file.useSearch();
+    const { loop, view, sheet } = file.useSearch();
     const navigate = file.useNavigate();
     return (
       <FilePage
         fileId={fileId}
+        details={sheet === "details"}
+        onDetails={(open) =>
+          void navigate({
+            search: (prev) => ({ ...prev, sheet: open ? "details" : undefined }),
+            replace: true,
+          })
+        }
         loop={parseLoop(loop)}
         onLoop={(next) =>
           void navigate({

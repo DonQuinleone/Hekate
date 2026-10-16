@@ -17,13 +17,16 @@ import {
 } from "~/components/comments";
 import { Compare, type CompareFocus } from "~/components/compare";
 import { DocumentViewer } from "~/components/document-viewer";
+import { FileDetailsSheet } from "~/components/file-details";
 import { mediaSummary } from "~/components/files";
+import { Icon } from "~/components/icons";
 import { Loudness } from "~/components/loudness";
 import { type Crumb, PageHeader } from "~/components/page-header";
 import { Player } from "~/components/player";
 import { QaSummary, QualityChecks } from "~/components/qa";
 import { ScorePane } from "~/components/score";
 import { FileContext } from "~/components/tracks";
+import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/cn";
 import type { Loop } from "~/lib/loop";
 import { initialFocus, type PageFocus } from "~/lib/pages";
@@ -158,8 +161,13 @@ export function FilePage({
   onLoop = () => {},
   view = "review",
   onView = () => {},
+  details: showDetails = false,
+  onDetails = () => {},
 }: {
   fileId: string;
+  /** Whether the details sheet is open beside the file (members only). */
+  details?: boolean;
+  onDetails?: (open: boolean) => void;
   /** Review (the player and the comments) or QA (what was measured), kept in the address. */
   view?: FileView;
   onView?: (view: FileView) => void;
@@ -261,7 +269,21 @@ export function FilePage({
         title={file.name}
         // Media formats show in the player; other files say what they are here.
         meta={summary ? undefined : file.contentType}
+        actions={
+          guest ? undefined : (
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-pressed={showDetails}
+              onClick={() => onDetails(!showDetails)}
+            >
+              <Icon name="info" size={14} />
+              Details
+            </Button>
+          )
+        }
       />
+      {!guest && details && <FileDetailsSheet fileId={file.id} onClose={() => onDetails(false)} />}
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-5 sm:px-6">
         {!guest && <FileContext file={file} />}
         {hasQa && (

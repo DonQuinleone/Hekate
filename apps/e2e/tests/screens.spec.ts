@@ -346,3 +346,13 @@ test("project-files-attach", async ({ page }) => {
   await saveScreen(page, "project-files-attach");
   await checkScreen(page);
 });
+
+// A file's details beside it: facts, storage, renditions, where it is used, its own log.
+test("file-details", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().dryFileId}?sheet=details`);
+  await settle(page, "aside[aria-label=Details] >> text=Renditions");
+  await settle(page, "aside[aria-label=Details] >> text=Access");
+  await saveScreen(page, "file-details");
+  await checkScreen(page);
+});

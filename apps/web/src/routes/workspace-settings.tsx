@@ -9,6 +9,7 @@ import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
+import { actionCopy } from "~/lib/access-log";
 import { shortAgent } from "~/lib/agent";
 import {
   type AccessEvent,
@@ -424,30 +425,6 @@ function Storage({ role }: { role: Role }) {
     </Section>
   );
 }
-
-/** Plain words for what each entry records. */
-const actionCopy: Record<string, string> = {
-  "stream.key": "Key issued",
-  "stream.session": "Playback started",
-  "stream.segment": "Segment served",
-  "page.render": "Page rendered",
-  download: "Downloaded",
-  "file.upload": "Uploaded",
-  "file.delete": "Deleted",
-  "audit.export": "Log exported",
-  "storage.remove": "Storage tidied",
-  "storage.missing": "Bytes missing",
-  "review.create": "Review asked",
-  "review.cancel": "Review cancelled",
-  "review.decision": "Decision recorded",
-  "review.submit": "Feedback submitted",
-  "guest.link": "Guest link sent",
-  "guest.sign_in": "Guest signed in",
-  "guest.revoke": "Guest revoked",
-  "guest.view": "Guest opened a review",
-  "comment.create": "Comment",
-  "organisation.rename": "Workspace renamed",
-};
 
 /** What an entry touched, by name: a file, a review, or a deleted one of either. */
 function targetOf(e: AccessEvent): string | null {
