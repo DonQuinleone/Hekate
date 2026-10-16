@@ -205,6 +205,37 @@ const screens: Screen[] = [
     ready: "section[aria-label=Comments] li",
   },
   { name: "review", path: (s) => `/reviews/${s.reviewId}`, ready: "h1:has-text('Album masters')" },
+  // The review page in each of its states (#129).
+  {
+    name: "review-decided",
+    path: (s) => `/reviews/${s.reviewStates.decided}`,
+    ready: "text=You approved",
+  },
+  {
+    name: "review-changes",
+    path: (s) => `/reviews/${s.reviewStates.changes}`,
+    ready: "text=Gate not passed",
+  },
+  {
+    name: "review-approved",
+    path: (s) => `/reviews/${s.reviewStates.approved}`,
+    ready: "text=Gate passed",
+  },
+  {
+    name: "review-cancelled",
+    path: (s) => `/reviews/${s.reviewStates.cancelled}`,
+    ready: "text=Superseded by the album masters",
+  },
+  {
+    name: "review-waiting",
+    path: (s) => `/reviews/${s.reviewStates.waiting}`,
+    ready: "text=Your turn comes after",
+  },
+  {
+    name: "review-overdue",
+    path: (s) => `/reviews/${s.reviewStates.overdue}`,
+    ready: "text=overdue",
+  },
   { name: "inbox", path: () => "/inbox", ready: "main a:has-text('Album masters')" },
   {
     name: "inbox-review",

@@ -28,6 +28,7 @@ import {
   membershipOf,
   type SecondFactorRule,
 } from "../tenancy.ts";
+import { noteOpened } from "./reviews.ts";
 
 const {
   filePages,
@@ -153,6 +154,8 @@ export const fileRoutes = (deps: PlaybackDeps) =>
         .where(inOrg(variations, c.var.organisationId, eq(variations.fileId, file.id)));
       // A guest's review decides which tools and actions they have; members have their role.
       const access = await fileAccess(deps.db, c.var.actor, file.id);
+      // Opening a file a review asks someone about counts as opening that item.
+      await noteOpened(deps.db, c.var.actor, file.id);
       return c.json({
         file: { ...file, variation: variation ?? null, grant: access?.grant ?? null },
       });

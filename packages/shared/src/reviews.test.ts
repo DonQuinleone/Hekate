@@ -2,10 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   activeReviewers,
   createReviewInput,
+  gateCounts,
+  gateState,
   groupInput,
+  type ReviewDecision,
   type ReviewerFacts,
+  type ReviewerState,
   reviewerState,
   reviewOutcome,
+  reviewSteps,
 } from "./reviews.ts";
 
 // Each reviewer its own step, in the order made, unless a test puts several on one.
@@ -181,5 +186,68 @@ describe("groups", () => {
     expect(
       createReviewInput.safeParse({ ...base, reviewers: [{ groupId }, { groupId }] }).success,
     ).toBe(false);
+  });
+});
+
+describe("review steps and the gate", () => {
+  const r = (
+    id: string,
+    step: number,
+    state: ReviewerState,
+    decision: ReviewDecision | null = null,
+  ) => ({
+    id,
+    step,
+    state,
+    decision,
+  });
+
+  it("draws a parallel review as one step", () => {
+    const steps = reviewSteps("parallel", [r("a", 0, "submitted"), r("b", 1, "viewed")]);
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatchObject({ responded: 1, state: "current" });
+  });
+
+  it("marks each step of a sequence done, current or ahead", () => {
+    const steps = reviewSteps("sequence", [
+      r("a", 0, "submitted"),
+      r("b", 1, "invited"),
+      r("c", 1, "observing"),
+      r("d", 2, "waiting"),
+    ]);
+    expect(steps.map((s) => [s.step, s.state, s.responded])).toEqual([
+      [0, "done", 1],
+      [1, "current", 0],
+      [2, "ahead", 0],
+    ]);
+    // Only following along does not hold a step up.
+    expect(reviewSteps("sequence", [r("c", 0, "observing")])[0]?.state).toBe("done");
+  });
+
+  it("opens the gate on the outcome, and waits for every step before that", () => {
+    const done = [{ state: "done" as const }];
+    expect(gateState("completed", "approved", done)).toBe("done");
+    expect(gateState("completed", "submitted", done)).toBe("done");
+    expect(gateState("completed", "changes_requested", done)).toBe("failed");
+    expect(gateState("open", null, done)).toBe("current");
+    expect(gateState("open", null, [...done, { state: "current" }])).toBe("ahead");
+    expect(gateState("cancelled", null, done)).toBe("ahead");
+  });
+
+  it("counts what the gate waits on, leaving out those who only follow", () => {
+    const reviewers = [
+      r("a", 0, "submitted", "approved"),
+      r("b", 0, "submitted", "changes_requested"),
+      r("c", 0, "viewed"),
+      r("d", 0, "observing"),
+    ];
+    expect(gateCounts("approval", reviewers)).toEqual({
+      total: 3,
+      approved: 1,
+      changes: 1,
+      submitted: 2,
+      toCome: 1,
+    });
+    expect(gateCounts("feedback", reviewers).toCome).toBe(1);
   });
 });

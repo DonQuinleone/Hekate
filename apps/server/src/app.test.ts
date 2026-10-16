@@ -14,7 +14,7 @@ import {
   mapTime,
 } from "@hekate/shared";
 import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, eq, like, ne, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp, MAX_BODY_BYTES } from "./app.ts";
 import { createAudit, csvCell } from "./audit.ts";
@@ -3433,6 +3433,201 @@ describe.runIf(url)("api", () => {
       };
       const request = (cookie: string, projectId: string, body: Record<string, unknown>) =>
         app.request(`/api/projects/${projectId}/reviews`, json(body, cookie));
+
+      it("runs a review from its page: due date, reminders, notes, opened items and activity", async () => {
+        const s = await studio();
+        const path = (id: string, rest = "") => `/api/reviews/${id}${rest}`;
+        const send = (method: string, url: string, body: unknown, cookie: string) =>
+          app.request(url, { ...json(body, cookie), method });
+        interface PageReview extends ReviewBody {
+          dueAt: string | null;
+          cancelReason: string | null;
+          cancelledByName: string | null;
+          items: (ReviewBody["items"][number] & { id: string; openComments: number | null })[];
+          reviewers: (ReviewBody["reviewers"][number] & {
+            name: string;
+            note: string | null;
+            comments: { count: number; fileId: string } | null;
+            permissions: { comments: string; tools: string[] } | null;
+          })[];
+          activity: { action: string; name: string; note: string | null; subject: string | null }[];
+          you: ReviewBody["you"] & { opened: string[] };
+        }
+        const pageOf = async (res: Response) =>
+          ((await res.json()) as { review: PageReview }).review;
+        const made = await pageOf(
+          await request(s.owner, s.projectId, {
+            kind: "approval",
+            title: "Master sign-off",
+            items: [{ trackId: s.trackId }, { fileId: s.artwork }],
+            reviewers: [
+              s.ids.composer,
+              s.ids.accompanist,
+              { name: "Ines Arlow", email: "ines@example.test" },
+            ],
+            order: "sequence",
+            dueAt: "2026-11-01T17:00:00Z",
+          }),
+        );
+        const trackItem = made.items.find((i) => i.kind === "track")?.id ?? "";
+
+        // The composer listens to the mix and says something about it.
+        expect((await getAs(`/api/files/${s.mix}`, s.composer)).status).toBe(200);
+        await app.request(`/api/files/${s.mix}/comments`, json({ body: "Pedal" }, s.composer));
+        const theirs = await pageOf(await getAs(path(made.id), s.composer));
+        expect(theirs.you.opened).toEqual([trackItem]);
+        const seen = await pageOf(await getAs(path(made.id), s.owner));
+        expect(seen.reviewers[0]?.comments).toMatchObject({ count: 1, fileId: s.mix });
+        expect(seen.items.find((i) => i.id === trackItem)?.openComments).toBe(1);
+
+        // The due date is the requester's to change; a reviewer may not.
+        const later = { dueAt: "2026-11-08T17:00:00Z" };
+        expect((await send("PATCH", path(made.id), later, s.composer)).status).toBe(403);
+        const moved = await send("PATCH", path(made.id), later, s.owner);
+        expect(moved.status).toBe(200);
+        expect((await pageOf(moved)).dueAt).toBe("2026-11-08T17:00:00.000Z");
+        expect((await send("PATCH", path(made.id), { dueAt: "soon" }, s.owner)).status).toBe(400);
+
+        // Reminders go to whoever the review is waiting on now, a few an hour.
+        const remind = (body: unknown, cookie = s.owner) =>
+          app.request(path(made.id, "/remind"), json(body, cookie));
+        expect((await remind({}, s.composer)).status).toBe(403);
+        // Another producer reminds: the reminder is from them, not whoever asked.
+        const producer = await joinAs(s.owner, "coproducer@example.test");
+        await grantRole(s.owner, s.projectId, producer, "Producer");
+        const reminded = await remind({}, producer);
+        expect(reminded.status).toBe(200);
+        expect(await reminded.json()).toEqual({ reminded: 1 });
+        const [reminder] = await db
+          .select({ actor: schema.notifications.actorUserId })
+          .from(schema.notifications)
+          .where(
+            and(
+              eq(schema.notifications.userId, s.ids.composer),
+              like(schema.notifications.text, "reminds you%"),
+            ),
+          );
+        expect(reminder?.actor).toBe(await idOf(producer));
+        const second = seen.reviewers[1]?.id ?? "";
+        expect((await remind({ reviewerId: second })).status).toBe(409);
+        for (let i = 0; i < 4; i++) expect((await remind({})).status).toBe(200);
+        expect((await remind({})).status).toBe(429);
+
+        // A decision's note reads beside the reviewer.
+        await app.request(
+          path(made.id, "/decisions"),
+          json({ decision: "approved", note: "Lovely balance" }, s.composer),
+        );
+        const decided = await pageOf(await getAs(path(made.id), s.owner));
+        expect(decided.reviewers[0]?.note).toBe("Lovely balance");
+
+        // Cancelled, with the reason, by whom.
+        expect(
+          (await app.request(path(made.id, "/cancel"), json({ reason: "Wrong mix" }, s.composer)))
+            .status,
+        ).toBe(403);
+        const cancelled = await pageOf(
+          await app.request(path(made.id, "/cancel"), json({ reason: "Wrong mix" }, s.owner)),
+        );
+        expect(cancelled).toMatchObject({
+          status: "cancelled",
+          cancelReason: "Wrong mix",
+          cancelledByName: "Producer",
+        });
+        expect((await send("PATCH", path(made.id), later, s.owner)).status).toBe(409);
+
+        // The activity says who did what, newest first, with names and never addresses.
+        const actions = cancelled.activity.map((a) => a.action);
+        expect(actions[0]).toBe("review.cancel");
+        expect(actions).toEqual(
+          expect.arrayContaining([
+            "review.create",
+            "review.due",
+            "review.remind",
+            "review.decision",
+          ]),
+        );
+        expect(cancelled.activity.find((a) => a.action === "review.cancel")?.note).toBe(
+          "Wrong mix",
+        );
+        expect(cancelled.activity.find((a) => a.action === "review.decision")?.note).toBe(
+          "Lovely balance",
+        );
+        expect(JSON.stringify(cancelled.activity)).not.toContain("@");
+        // Members who review see it too; guests never do.
+        expect(
+          (await pageOf(await getAs(path(made.id), s.composer))).activity.length,
+        ).toBeGreaterThan(0);
+
+        // Feedback is submitted with a word about the whole.
+        const feedback = await pageOf(
+          await request(s.owner, s.projectId, {
+            kind: "feedback",
+            title: "First listen",
+            items: [{ fileId: s.artwork }],
+            reviewers: [s.ids.composer, { name: "Ines Arlow", email: "ines@example.test" }],
+          }),
+        );
+        const submitted = await pageOf(
+          await app.request(
+            path(feedback.id, "/submit"),
+            json({ note: "Warm overall" }, s.composer),
+          ),
+        );
+        expect(submitted.reviewers[0]?.note).toBe("Warm overall");
+        expect(submitted.activity.find((a) => a.action === "review.submit")?.note).toBe(
+          "Warm overall",
+        );
+        // A guest's link is in the activity by name; their address stays in the access log.
+        expect(submitted.activity.find((a) => a.action === "guest.link")?.name).toBe("Ines Arlow");
+        expect(JSON.stringify(submitted.activity)).not.toContain("@");
+
+        // Someone asked later may do what everyone was granted, and no more.
+        const narrow = await pageOf(
+          await request(s.owner, s.projectId, {
+            kind: "feedback",
+            title: "Private notes",
+            items: [{ fileId: s.artwork }],
+            reviewers: [s.ids.composer],
+            permissions: { comments: "own", tools: ["loops"] },
+          }),
+        );
+        const widened = await pageOf(
+          await app.request(
+            path(narrow.id, "/reviewers"),
+            json({ name: "Tomas Varga", email: "tomas.varga@example.test" }, s.owner),
+          ),
+        );
+        expect(widened.reviewers.find((r) => r.name === "Tomas Varga")?.permissions).toMatchObject({
+          comments: "own",
+          tools: ["loops"],
+        });
+
+        // Another workspace's review does not exist from here.
+        const [elsewhere] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-review-page" })
+          .returning();
+        const [project] = await db
+          .insert(schema.projects)
+          .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+          .returning();
+        const [foreign] = await db
+          .insert(schema.reviews)
+          .values({
+            organisationId: elsewhere?.id ?? "",
+            projectId: project?.id ?? "",
+            kind: "approval",
+            title: "Theirs",
+            rule: "all",
+          })
+          .returning();
+        expect((await send("PATCH", path(foreign?.id ?? ""), later, s.owner)).status).toBe(404);
+        expect((await remind({}, s.owner)).status).toBe(409);
+        expect(
+          (await app.request(path(foreign?.id ?? "", "/remind"), json({}, s.owner))).status,
+        ).toBe(404);
+      });
 
       it("deletes an account, keeping its comments and decisions as a former member's", async () => {
         const s = await studio();

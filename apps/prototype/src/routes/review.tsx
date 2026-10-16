@@ -838,7 +838,6 @@ export function ReviewBody({
                     { label: "Remind everyone waiting", onSelect: () => {} },
                     { label: "Change the due date…", onSelect: () => {} },
                     { label: "Copy link", onSelect: () => {} },
-                    { label: "Export comments…", onSelect: () => {} },
                     "divider",
                     {
                       label: review.kind === "share" ? "Stop sharing" : "Cancel the review…",
@@ -867,22 +866,23 @@ export function ReviewBody({
             </p>
           )}
           {cancelling && (
-            <div className="rise-in flex flex-wrap items-center gap-3 rounded-panel border border-signal/40 bg-signal/10 px-4 py-3 text-[14px] text-ink">
+            <div className="rise-in flex flex-col gap-3 rounded-panel border border-signal/40 bg-signal/10 px-4 py-3 text-[14px] text-ink">
               <span>
-                Cancel this review? Reviewers lose access to its items and are told. Decisions
-                already recorded stay in the record.
+                Cancel this review? Reviewers lose access to its items. Decisions already recorded
+                stay in the record.
               </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="ml-auto"
-                onClick={() => setCancelling(false)}
-              >
-                Keep it
-              </Button>
-              <Button variant="primary" size="sm" onClick={() => setCancelling(false)}>
-                Cancel the review
-              </Button>
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Reason (optional, shown on the review)
+                <Input className="h-8" />
+              </label>
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setCancelling(false)}>
+                  Keep it
+                </Button>
+                <Button variant="primary" size="sm" onClick={() => setCancelling(false)}>
+                  Cancel the review
+                </Button>
+              </div>
             </div>
           )}
         </div>

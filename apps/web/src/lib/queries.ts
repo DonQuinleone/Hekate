@@ -1189,7 +1189,10 @@ export interface ReviewDetail {
   createdByName: string | null;
   createdAt: string;
   completedAt: string | null;
-  items: (
+  /** Who cancelled it, and the reason its reviewers were given. */
+  cancelledByName: string | null;
+  cancelReason: string | null;
+  items: ((
     | { id: string; kind: "file"; fileId: string; name: string; fileKind: string }
     | {
         id: string;
@@ -1197,10 +1200,13 @@ export interface ReviewDetail {
         trackId: string;
         name: string;
         follows: "version" | "latest";
-        version: { id: string; number: number } | null;
+        version: { id: string; number: number; variations: string[] } | null;
         fileId: string | null;
       }
-  )[];
+  ) & {
+    /** Open threads on the item's file; null for guests. */
+    openComments: number | null;
+  })[];
   reviewers: {
     id: string;
     /** Null for a guest. */
@@ -1219,6 +1225,11 @@ export interface ReviewDetail {
     decision: ReviewDecision | null;
     decidedAt: string | null;
     submittedAt: string | null;
+    viewedAt: string | null;
+    /** Their latest decision's note, or what they said with their feedback. */
+    note: string | null;
+    /** Their comments on the items since the review was asked, and the first; members only. */
+    comments: { count: number; fileId: string; commentId: string } | null;
     /** For those who manage reviewers, and for the reviewer themselves; otherwise null. */
     permissions: ReviewerPermissions | null;
   }[];
@@ -1230,8 +1241,12 @@ export interface ReviewDetail {
     note: string | null;
     createdAt: string;
   }[];
+  /** Who did what, newest first; members only. */
+  activity: ReviewActivity[];
   you: {
     reviewerId: string | null;
+    /** The items you have opened. */
+    opened: string[];
     active: boolean;
     canDecide: boolean;
     canSubmit: boolean;
@@ -1241,6 +1256,29 @@ export interface ReviewDetail {
     /** What you may do here, when you are a reviewer of it. */
     permissions: ReviewerPermissions | null;
   };
+}
+
+export interface ReviewActivity {
+  id: string;
+  action:
+    | "review.create"
+    | "review.decision"
+    | "review.submit"
+    | "review.cancel"
+    | "review.remind"
+    | "review.due"
+    | "review.reviewer_add"
+    | "review.reviewer_remove"
+    | "guest.link"
+    | "guest.view"
+    | "guest.revoke";
+  name: string;
+  at: string;
+  decision: ReviewDecision | null;
+  /** Who it concerned: the reviewer added, removed, reminded or revoked. */
+  subject: string | null;
+  note: string | null;
+  dueAt: string | null;
 }
 
 export const projectReviewsQuery = (projectId: string) =>
@@ -1298,13 +1336,42 @@ export function useReviewActions(reviewId: string) {
       onSuccess: settle,
     }),
     submit: useMutation({
-      mutationFn: async () =>
-        call(await api.reviews[":id"].submit.$post({ param: { id: reviewId } })),
+      mutationFn: async (input: { note?: string } = {}) =>
+        call(await api.reviews[":id"].submit.$post({ param: { id: reviewId }, json: input })),
       onSuccess: settle,
     }),
     cancel: useMutation({
-      mutationFn: async () =>
-        call(await api.reviews[":id"].cancel.$post({ param: { id: reviewId } })),
+      mutationFn: async (input: { reason?: string } = {}) =>
+        call(await api.reviews[":id"].cancel.$post({ param: { id: reviewId }, json: input })),
+      onSuccess: settle,
+    }),
+    /** Move the due date, or take it away. */
+    due: useMutation({
+      mutationFn: async (dueAt: string | null) =>
+        call(await api.reviews[":id"].$patch({ param: { id: reviewId }, json: { dueAt } })),
+      onSuccess: settle,
+    }),
+    /** Remind everyone the review waits on, or one reviewer; returns how many were told. */
+    remind: useMutation({
+      mutationFn: async (reviewerId?: string) =>
+        (
+          await json<{ reminded: number }>(
+            await api.reviews[":id"].remind.$post({
+              param: { id: reviewId },
+              json: reviewerId ? { reviewerId } : {},
+            }),
+          )
+        ).reminded,
+      onSuccess: () => void client.invalidateQueries({ queryKey: reviewQuery(reviewId).queryKey }),
+    }),
+    /** Take a reviewer who has not responded off the review. */
+    removeReviewer: useMutation({
+      mutationFn: async (reviewerId: string) =>
+        call(
+          await api.reviews[":id"].reviewers[":reviewerId"].$delete({
+            param: { id: reviewId, reviewerId },
+          }),
+        ),
       onSuccess: settle,
     }),
     addReviewer: useMutation({

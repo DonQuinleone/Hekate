@@ -326,6 +326,47 @@ setup("seed", async ({ page, browser }) => {
   await guest.storageState({ path: join(state, "guest.json") });
   await guest.close();
 
+  // A review in each state its page shows (#129), made after the guest's link was read.
+  const ask = async (title: string, body: Record<string, unknown>) =>
+    (
+      await api<{ review: { id: string } }>(page, "POST", `/api/projects/${music.id}/reviews`, {
+        kind: "approval",
+        title,
+        order: "parallel",
+        items: [{ trackId: track.id }],
+        reviewers: [user.id],
+        ...body,
+      })
+    ).review.id;
+  const decide = (id: string, decision: string, note?: string) =>
+    api(page, "POST", `/api/reviews/${id}/decisions`, { decision, ...(note ? { note } : {}) });
+  const decided = await ask("Edit points", {
+    reviewers: [user.id, { name: "Ines Arlow", email: "ines@example.test" }],
+    dueAt: "2026-10-28T17:00:00Z",
+  });
+  await decide(decided, "approved", "The splice at 2:14 is clean now.");
+  const changes = await ask("Rough mix", {});
+  await decide(changes, "changes_requested", "The left hand is buried under the pedal.");
+  const approved = await ask("Running order", { rule: "any" });
+  await decide(approved, "approved");
+  const cancelled = await ask("First masters", { dueAt: "2026-10-20T17:00:00Z" });
+  await api(page, "POST", `/api/reviews/${cancelled}/cancel`, {
+    reason: "Superseded by the album masters.",
+  });
+  const waiting = await ask("Producer's listen", {
+    order: "sequence",
+    reviewers: [{ name: "Tomas Varga", email: "tomas.varga@example.test" }, user.id],
+    dueAt: "2026-10-24T17:00:00Z",
+  });
+  // Alex has looked at what is asked of them, as anyone opening the inbox would have.
+  await api(page, "POST", `/api/reviews/${review.id}/viewed`, {});
+  const overdue = await ask("Sleeve notes", {
+    kind: "feedback",
+    rule: undefined,
+    items: [{ fileId: score }],
+    dueAt: "2026-10-10T17:00:00Z",
+  });
+
   // The same moment for every run, so dates and "ago" read the same in every capture.
   const sql = postgres(process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL ?? "", {
     onnotice: () => undefined,
@@ -334,8 +375,12 @@ setup("seed", async ({ page, browser }) => {
     const columns = await sql<{ table_name: string; column_name: string }[]>`
       select table_name, column_name from information_schema.columns
       where table_schema = 'public' and data_type like 'timestamp%'
-        and column_name in ('created_at', 'updated_at', 'decided_at', 'viewed_at', 'submitted_at', 'resolved_at')`;
+        and column_name in ('created_at', 'updated_at', 'decided_at', 'viewed_at', 'submitted_at', 'resolved_at', 'occurred_at', 'opened_at', 'completed_at')`;
     for (const { table_name: table, column_name: column } of columns) {
+      // The decision log and the access log refuse changes (migrations 0006 and 0016); the
+      // seed owns its tables, and lets its fixed clock through by pausing their triggers.
+      const appendOnly = table === "review_decisions" || table === "access_events";
+      if (appendOnly) await sql.unsafe(`alter table "${table}" disable trigger user`);
       // One minute apart, in the order they happened: an hour or so before the fixed time.
       await sql.unsafe(
         `with ordered as (
@@ -346,6 +391,7 @@ setup("seed", async ({ page, browser }) => {
          from ordered where t.ctid = ordered.ctid`,
         [FIXED_TIME],
       );
+      if (appendOnly) await sql.unsafe(`alter table "${table}" enable trigger user`);
     }
   } finally {
     await sql.end();
@@ -359,6 +405,7 @@ setup("seed", async ({ page, browser }) => {
     scoreFileId: score,
     cutFileId: cutFile.id,
     reviewId: review.id,
+    reviewStates: { decided, changes, approved, cancelled, waiting, overdue },
     invitationPath: new URL(invitation).pathname,
     usedGuestPath: guestLink,
   };
