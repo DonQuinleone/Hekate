@@ -362,6 +362,16 @@ test("project-files-attach", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The details sheet opens only when asked for.
+test("file-without-details", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "Once is enough");
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await expect(page.locator("aside[aria-label=Details]")).toHaveCount(0);
+  await page.getByRole("button", { name: "Details" }).click();
+  await expect(page.locator("aside[aria-label=Details]")).toBeVisible();
+});
+
 // A file's details beside it: facts, storage, renditions, where it is used, its own log.
 test("file-details", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);

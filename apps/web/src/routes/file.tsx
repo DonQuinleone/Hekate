@@ -285,7 +285,9 @@ export function FilePage({
           )
         }
       />
-      {!guest && details && <FileDetailsSheet fileId={file.id} onClose={() => onDetails(false)} />}
+      {!guest && showDetails && (
+        <FileDetailsSheet fileId={file.id} onClose={() => onDetails(false)} />
+      )}
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-5 sm:px-6">
         {!guest && <FileContext file={file} />}
         {hasQa && (
