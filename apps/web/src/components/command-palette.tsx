@@ -6,7 +6,14 @@ import { Icon, type IconName } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { authClient } from "~/lib/auth";
 import { cn } from "~/lib/cn";
-import { type Hit, type HitGroup, matches, readRecent, rememberRecent } from "~/lib/palette";
+import {
+  groupStep,
+  type Hit,
+  type HitGroup,
+  matches,
+  readRecent,
+  rememberRecent,
+} from "~/lib/palette";
 import { meQuery, projectsQuery, searchQuery, useProjectCan } from "~/lib/queries";
 
 const kindGroup: Record<SearchResult["kind"], { group: HitGroup; icon: IconName }> = {
@@ -252,6 +259,10 @@ export function CommandPalette({
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setIndex((i) => Math.max(0, i - 1));
+    } else if (e.key === "Tab") {
+      // Tab moves between groups, keeping focus in the field.
+      e.preventDefault();
+      setIndex((i) => groupStep(hits, i, e.shiftKey));
     } else if (e.key === "Enter") {
       e.preventDefault();
       const hit = hits[index];
@@ -371,6 +382,9 @@ export function CommandPalette({
           </span>
           <span className="flex items-center gap-1.5">
             <Kbd>↵</Kbd> open
+          </span>
+          <span className="hidden items-center gap-1.5 @3xl/app:flex">
+            <Kbd>tab</Kbd> next group
           </span>
           <span className="hidden items-center gap-1.5 @3xl/app:flex">
             <Kbd>{">"}</Kbd> commands only
