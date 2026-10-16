@@ -11,6 +11,7 @@ import { useCallback } from "react";
 import { z } from "zod";
 import { Shell } from "~/components/shell";
 import { formatLoop, parseLoop } from "~/lib/loop";
+import { projectShows, projectSorts, projectViews } from "~/lib/projects";
 import { guestMeQuery, meQuery, setupQuery } from "~/lib/queries";
 import { ViewerProvider } from "~/lib/viewer";
 import { AccountPage } from "~/routes/account";
@@ -173,20 +174,32 @@ const home = createRoute({
   path: "/",
   component: HomePage,
 });
+/** The projects page's address: which projects, in what order, how shown; `new=1` opens the form. */
+const projectsSearchSchema = z.object({
+  show: z.enum(projectShows).optional().catch(undefined),
+  sort: z.enum(projectSorts).optional().catch(undefined),
+  view: z.enum(projectViews).optional().catch(undefined),
+  new: z.coerce.number().pipe(z.literal(1)).optional().catch(undefined),
+});
 const projects = createRoute({
   getParentRoute: () => app,
   path: "/projects",
-  // `?new=1` opens the form for a new project, as the palette's action does.
-  validateSearch: (search: Record<string, unknown>): { new?: 1 } =>
-    search.new === 1 || search.new === "1" ? { new: 1 } : {},
+  validateSearch: (search: Record<string, unknown>) => projectsSearchSchema.parse(search),
   component: function ProjectsRoute() {
     const search = projects.useSearch();
     const navigate = projects.useNavigate();
     return (
       <ProjectsPage
+        show={search.show}
+        sort={search.sort}
+        view={search.view}
+        onChange={(next) =>
+          void navigate({ search: (prev) => ({ ...prev, ...next }), replace: true })
+        }
         creatingFirst={search.new === 1}
         onCreatingDone={() => {
-          if (search.new === 1) void navigate({ search: {}, replace: true });
+          if (search.new === 1)
+            void navigate({ search: ({ new: _, ...rest }) => rest, replace: true });
         }}
       />
     );

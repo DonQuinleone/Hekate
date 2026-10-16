@@ -39,6 +39,9 @@ export const auditActions = [
   "comment.create",
   /** An owner renamed the workspace. */
   "organisation.rename",
+  /** A project was archived (its open reviews closing), or brought back. */
+  "project.archive",
+  "project.unarchive",
 ] as const;
 export const auditAction = z.enum(auditActions);
 export type AuditAction = z.infer<typeof auditAction>;

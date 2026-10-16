@@ -39,10 +39,34 @@ export function allowsAnchor(profile: ProjectProfile, kind: AnchorKind): boolean
   return profiles[profile].anchors.includes(kind);
 }
 
+/** A line saying what a project is, for the project list. */
+const projectDescription = z.string().trim().max(300);
+
+/**
+ * A new project: its name and profile, a line about it, and optionally a template: another
+ * project whose settings and roles are copied (never its content).
+ */
+export const createProjectInput = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    profile: projectProfile,
+    description: projectDescription.optional(),
+    templateId: z.uuid().optional(),
+  })
+  .strict();
+export type CreateProjectInput = z.infer<typeof createProjectInput>;
+
+/** Which projects the list shows: those in use, or those archived; with their figures or not. */
+export const projectListQuery = z.object({
+  archived: z.enum(["1"]).optional(),
+  figures: z.enum(["1"]).optional(),
+});
+
 /** A project's settings, changed by those who shape its workflow. */
 export const updateProjectInput = z
   .object({
     name: z.string().trim().min(1).max(120).optional(),
+    description: projectDescription.nullable().optional(),
     /** Whether threads carried to a new version show there until someone hides them. */
     carriedCommentsShown: z.boolean().optional(),
     /** What recordings are checked against; null suggests one from each file's channels. */
@@ -51,6 +75,7 @@ export const updateProjectInput = z
   .refine(
     (u) =>
       u.name !== undefined ||
+      u.description !== undefined ||
       u.carriedCommentsShown !== undefined ||
       u.deliveryProfile !== undefined,
     { message: "Nothing to change" },

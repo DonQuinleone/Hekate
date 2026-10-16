@@ -62,7 +62,9 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
       }
     }
 
-    // Every run of visible text, as the boxes its lines take up.
+    // Every run of visible text, as the boxes its lines take up. While a modal is open, only
+    // its own: the page behind it is out of reach, and the modal lies over it on purpose.
+    const modal = document.querySelector("[aria-modal=true]");
     const texts: { el: Element; rects: DOMRect[] }[] = [];
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -70,6 +72,7 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
       const el = node.parentElement;
       if (!el || !shown(el) || el.closest("[aria-hidden=true], svg, option, script, style"))
         continue;
+      if (modal && !modal.contains(el)) continue;
       const range = document.createRange();
       range.selectNodeContents(node);
       // What shows of the text: its lines, cut to every box that hides its overflow (an
@@ -84,11 +87,13 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
         .map((r) =>
           clips.reduce(
             (cut, c) =>
+              // Never below nothing: a DOMRect with a negative size turns itself round, and a
+              // line cut away by one box would come back at the next.
               new DOMRect(
                 Math.max(cut.left, c.left),
                 Math.max(cut.top, c.top),
-                Math.min(cut.right, c.right) - Math.max(cut.left, c.left),
-                Math.min(cut.bottom, c.bottom) - Math.max(cut.top, c.top),
+                Math.max(0, Math.min(cut.right, c.right) - Math.max(cut.left, c.left)),
+                Math.max(0, Math.min(cut.bottom, c.bottom) - Math.max(cut.top, c.top)),
               ),
             r,
           ),

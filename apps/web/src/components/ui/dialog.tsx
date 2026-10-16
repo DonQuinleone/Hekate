@@ -33,6 +33,7 @@ export function Dialog({
       />
       <div
         role="dialog"
+        aria-modal="true"
         aria-label={title}
         className={cn(
           "rise-in relative flex max-h-full w-full flex-col overflow-hidden rounded-t-panel-lg bg-overlay shadow-4 @3xl/app:rounded-panel-lg",

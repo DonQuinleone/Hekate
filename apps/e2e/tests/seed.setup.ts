@@ -155,10 +155,12 @@ setup("seed", async ({ page, browser }) => {
   const { project: music } = await api<{ project: { id: string } }>(page, "POST", "/api/projects", {
     name: "Joplin Rags",
     profile: "music",
+    description: "Six rags for solo piano, recorded over two days in the hall.",
   });
   const { project: video } = await api<{ project: { id: string } }>(page, "POST", "/api/projects", {
     name: "Opening titles",
     profile: "video",
+    description: "The title sequence and its cuts, for picture lock.",
   });
 
   await upload(page, music.id, [
