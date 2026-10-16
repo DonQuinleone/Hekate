@@ -28,7 +28,9 @@ import {
 import { useShortcuts } from "~/lib/shortcuts";
 import { useViewer } from "~/lib/viewer";
 import type { RegionMarker } from "./document-viewer";
+import { Icon } from "./icons";
 import { Button } from "./ui/button";
+import { Dialog } from "./ui/dialog";
 import { Input, Select, Textarea } from "./ui/input";
 import { ActionMenu } from "./ui/menu";
 
@@ -39,7 +41,7 @@ const fullTime = formatDates({ dateStyle: "medium", timeStyle: "short" });
 const anchorLabel = (anchor: Anchor) => formatAnchor(anchor).replace(/(^|\s)0(\d:)/g, "$1$2");
 
 const textButton =
-  "cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink disabled:cursor-default disabled:opacity-40";
+  "inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink disabled:cursor-default disabled:opacity-40";
 
 /** A document's page and regions, shared with the viewer beside the comments. */
 export interface PageComments {
@@ -178,7 +180,7 @@ function CommentBody({
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className="ml-auto cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+            className="ml-auto inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
           >
             Edit
           </button>
@@ -316,7 +318,7 @@ function ThreadView({
           <button
             type="button"
             onClick={() => onLoop({ start: anchor.start, end: anchor.end })}
-            className="cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+            className="inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
             aria-label={`Loop ${anchorLabel(anchor)}`}
           >
             Loop
@@ -563,6 +565,12 @@ export function Comments({
 
   // "c" starts a comment at the playhead, pausing so the moment holds while you write.
   const composer = useRef<HTMLDivElement>(null);
+  const [sheet, setSheet] = useState(false);
+  const sheetBody = useRef<HTMLDivElement>(null);
+  // The sheet is opened to write in: its text box takes focus.
+  useEffect(() => {
+    if (sheet) sheetBody.current?.querySelector("textarea")?.focus({ preventScroll: true });
+  }, [sheet]);
   useShortcuts(
     "comments",
     "Comments",
@@ -572,11 +580,157 @@ export function Comments({
         label: "Comment at the playhead",
         run: () => {
           media?.pause();
-          composer.current?.querySelector("textarea")?.focus();
+          // On a phone the inline composer is hidden: the sheet opens instead.
+          const inline = composer.current;
+          if (inline && inline.offsetParent !== null) inline.querySelector("textarea")?.focus();
+          else {
+            capture();
+            setSheet(true);
+          }
         },
       },
     ],
     Boolean(media && canComment),
+  );
+
+  const composerLabel = media
+    ? "Comment at the playhead"
+    : pages && pageAim === "region"
+      ? "Comment on the region"
+      : pages?.paged && pageAim === "page"
+        ? `Comment on page ${pages.focus.page}`
+        : "Comment on this file";
+  const composerBody = (
+    <Composer
+      placeholder={composerLabel}
+      submitLabel="Comment"
+      pending={mutations.create.isPending}
+      onSubmit={async (body) => {
+        await mutations.create.mutateAsync({ body, anchor: anchorNow() });
+        setAt(null);
+        setWholeFile(false);
+        setSheet(false);
+        setBars("");
+        // Each document comment starts again from the page shown.
+        if (pages) {
+          if (pageAim === "region") pages.onFocus({ draft: null });
+          setPageTarget("page");
+        }
+      }}
+    >
+      {pages && (pages.paged || draft) && (
+        <span className="flex items-center gap-1">
+          {draft && (
+            <Target
+              pressed={!barsOn && pageAim === "region"}
+              onClick={() => {
+                setBars("");
+                setPageTarget("region");
+              }}
+            >
+              Region
+            </Target>
+          )}
+          {pages.paged && (
+            <Target
+              pressed={!barsOn && pageAim === "page"}
+              onClick={() => {
+                setBars("");
+                setPageTarget("page");
+              }}
+              mono
+            >
+              P. {pages.focus.page}
+            </Target>
+          )}
+          <Target
+            pressed={!barsOn && pageAim === "whole"}
+            onClick={() => {
+              setBars("");
+              setPageTarget("whole");
+            }}
+          >
+            Whole file
+          </Target>
+        </span>
+      )}
+      {offersBars && (
+        <span className="flex items-center gap-1.5">
+          <label htmlFor={barsId} className="label">
+            Bar
+          </label>
+          <Input
+            size="sm"
+            id={barsId}
+            value={bars}
+            onChange={(e) => setBars(e.target.value)}
+            // Space and the arrows belong to the field here, not the player.
+            onKeyDown={(e) => e.stopPropagation()}
+            placeholder="25 or 9-12"
+            inputMode="numeric"
+            aria-invalid={bars.trim() !== "" && parseBars(bars) === null}
+            className="tabular w-24"
+          />
+        </span>
+      )}
+      {media && (
+        <span className="flex items-center gap-1">
+          <button
+            type="button"
+            aria-pressed={!barsOn && !wholeFile && !(loop && onPassage)}
+            onClick={() => {
+              setBars("");
+              setWholeFile(false);
+              setOnPassage(false);
+              setAt(Math.round(media.currentTime * 1000) / 1000);
+            }}
+            className={cn(
+              "tabular h-6 cursor-pointer rounded-chip border px-2 text-[11px]",
+              !barsOn && !wholeFile && !(loop && onPassage)
+                ? "border-edge bg-raised text-ink"
+                : "border-transparent bg-transparent text-ink-3",
+            )}
+          >
+            {at === null ? "At playhead" : anchorLabel({ kind: "time", start: at, end: at })}
+          </button>
+          {loop && (
+            <button
+              type="button"
+              aria-pressed={!barsOn && !wholeFile && onPassage}
+              onClick={() => {
+                setBars("");
+                setWholeFile(false);
+                setOnPassage(true);
+              }}
+              className={cn(
+                "tabular h-6 cursor-pointer rounded-chip border px-2 text-[11px]",
+                !barsOn && !wholeFile && onPassage
+                  ? "border-edge bg-raised text-ink"
+                  : "border-transparent bg-transparent text-ink-3",
+              )}
+            >
+              {anchorLabel({ kind: "time", start: loop.start, end: loop.end })}
+            </button>
+          )}
+          <button
+            type="button"
+            aria-pressed={!barsOn && wholeFile}
+            onClick={() => {
+              setBars("");
+              setWholeFile(true);
+            }}
+            className={cn(
+              "h-6 cursor-pointer rounded-chip border px-2 text-[11px]",
+              !barsOn && wholeFile
+                ? "border-edge bg-raised text-ink"
+                : "border-transparent bg-transparent text-ink-3",
+            )}
+          >
+            Whole file
+          </button>
+        </span>
+      )}
+    </Composer>
   );
 
   const threads = data ? threadsOf(data) : { open: [], resolved: [], hidden: [] };
@@ -609,145 +763,32 @@ export function Comments({
         </span>
       </div>
       {canComment && (
-        <div ref={composer} onFocusCapture={capture}>
-          <Composer
-            placeholder={
-              media
-                ? "Comment at the playhead"
-                : pages && pageAim === "region"
-                  ? "Comment on the region"
-                  : pages?.paged && pageAim === "page"
-                    ? `Comment on page ${pages.focus.page}`
-                    : "Comment on this file"
-            }
-            submitLabel="Comment"
-            pending={mutations.create.isPending}
-            onSubmit={async (body) => {
-              await mutations.create.mutateAsync({ body, anchor: anchorNow() });
-              setAt(null);
-              setWholeFile(false);
-              setBars("");
-              // Each document comment starts again from the page shown.
-              if (pages) {
-                if (pageAim === "region") pages.onFocus({ draft: null });
-                setPageTarget("page");
-              }
+        <>
+          {/* On a phone the composer opens as a sheet, so the comments stay in view. */}
+          <div ref={composer} onFocusCapture={capture} className="hidden @3xl/app:block">
+            {composerBody}
+          </div>
+          <Button
+            variant="secondary"
+            className="w-full @3xl/app:hidden"
+            onClick={() => {
+              media?.pause();
+              capture();
+              setSheet(true);
             }}
           >
-            {pages && (pages.paged || draft) && (
-              <span className="flex items-center gap-1">
-                {draft && (
-                  <Target
-                    pressed={!barsOn && pageAim === "region"}
-                    onClick={() => {
-                      setBars("");
-                      setPageTarget("region");
-                    }}
-                  >
-                    Region
-                  </Target>
-                )}
-                {pages.paged && (
-                  <Target
-                    pressed={!barsOn && pageAim === "page"}
-                    onClick={() => {
-                      setBars("");
-                      setPageTarget("page");
-                    }}
-                    mono
-                  >
-                    P. {pages.focus.page}
-                  </Target>
-                )}
-                <Target
-                  pressed={!barsOn && pageAim === "whole"}
-                  onClick={() => {
-                    setBars("");
-                    setPageTarget("whole");
-                  }}
-                >
-                  Whole file
-                </Target>
-              </span>
-            )}
-            {offersBars && (
-              <span className="flex items-center gap-1.5">
-                <label htmlFor={barsId} className="label">
-                  Bar
-                </label>
-                <Input
-                  size="sm"
-                  id={barsId}
-                  value={bars}
-                  onChange={(e) => setBars(e.target.value)}
-                  // Space and the arrows belong to the field here, not the player.
-                  onKeyDown={(e) => e.stopPropagation()}
-                  placeholder="25 or 9-12"
-                  inputMode="numeric"
-                  aria-invalid={bars.trim() !== "" && parseBars(bars) === null}
-                  className="tabular w-24"
-                />
-              </span>
-            )}
-            {media && (
-              <span className="flex items-center gap-1">
-                <button
-                  type="button"
-                  aria-pressed={!barsOn && !wholeFile && !(loop && onPassage)}
-                  onClick={() => {
-                    setBars("");
-                    setWholeFile(false);
-                    setOnPassage(false);
-                    setAt(Math.round(media.currentTime * 1000) / 1000);
-                  }}
-                  className={cn(
-                    "tabular h-6 cursor-pointer rounded-chip border px-2 text-[11px]",
-                    !barsOn && !wholeFile && !(loop && onPassage)
-                      ? "border-edge bg-raised text-ink"
-                      : "border-transparent bg-transparent text-ink-3",
-                  )}
-                >
-                  {at === null ? "At playhead" : anchorLabel({ kind: "time", start: at, end: at })}
-                </button>
-                {loop && (
-                  <button
-                    type="button"
-                    aria-pressed={!barsOn && !wholeFile && onPassage}
-                    onClick={() => {
-                      setBars("");
-                      setWholeFile(false);
-                      setOnPassage(true);
-                    }}
-                    className={cn(
-                      "tabular h-6 cursor-pointer rounded-chip border px-2 text-[11px]",
-                      !barsOn && !wholeFile && onPassage
-                        ? "border-edge bg-raised text-ink"
-                        : "border-transparent bg-transparent text-ink-3",
-                    )}
-                  >
-                    {anchorLabel({ kind: "time", start: loop.start, end: loop.end })}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  aria-pressed={!barsOn && wholeFile}
-                  onClick={() => {
-                    setBars("");
-                    setWholeFile(true);
-                  }}
-                  className={cn(
-                    "h-6 cursor-pointer rounded-chip border px-2 text-[11px]",
-                    !barsOn && wholeFile
-                      ? "border-edge bg-raised text-ink"
-                      : "border-transparent bg-transparent text-ink-3",
-                  )}
-                >
-                  Whole file
-                </button>
-              </span>
-            )}
-          </Composer>
-        </div>
+            <Icon name="comment" size={14} />
+            {composerLabel}
+          </Button>
+          {sheet && (
+            <Dialog title={composerLabel} onClose={() => setSheet(false)}>
+              {/* Opened to write in: the text box takes focus. */}
+              <div onFocusCapture={capture} ref={sheetBody}>
+                {composerBody}
+              </div>
+            </Dialog>
+          )}
+        </>
       )}
       {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
       {data &&
@@ -763,7 +804,7 @@ export function Comments({
             type="button"
             onClick={() => setShowResolved((v) => !v)}
             aria-expanded={showResolved}
-            className="w-fit cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+            className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
           >
             {showResolved ? "Hide" : "Show"} {threads.resolved.length} resolved
           </button>
@@ -778,7 +819,7 @@ export function Comments({
             type="button"
             onClick={() => setShowHidden((v) => !v)}
             aria-expanded={showHidden}
-            className="w-fit cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+            className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
           >
             {showHidden ? "Hide" : "Show"} {threads.hidden.length} hidden on this version
           </button>
