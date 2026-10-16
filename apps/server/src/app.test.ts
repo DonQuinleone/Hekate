@@ -2007,6 +2007,112 @@ describe.runIf(url)("api", () => {
       const request = (cookie: string, projectId: string, body: Record<string, unknown>) =>
         app.request(`/api/projects/${projectId}/reviews`, json(body, cookie));
 
+      it("sums up the projects a member can see for the home page, and nothing else", async () => {
+        const s = await studio();
+        type Home = {
+          projects: {
+            id: string;
+            files: number;
+            tracks: number;
+            versionedTracks: number;
+            approvedTracks: number;
+            openReviews: number;
+            members: number;
+            faces: { id: string; name: string }[];
+          }[];
+          openComments: number;
+          failed: unknown[];
+          activity: { kind: string; title?: string; trackName?: string }[];
+        };
+        const home = async (cookie: string) => {
+          const res = await getAs("/api/home", cookie);
+          expect(res.status).toBe(200);
+          return (await res.json()) as Home;
+        };
+        const before = (await home(s.owner)).projects.find((p) => p.id === s.projectId);
+        expect(before).toMatchObject({ tracks: 1, openReviews: 0 });
+        expect(before?.files).toBeGreaterThanOrEqual(2);
+
+        await request(s.owner, s.projectId, {
+          kind: "feedback",
+          title: "First listen",
+          items: [{ trackId: s.trackId }],
+          reviewers: [s.ids.composer],
+        });
+        expect((await home(s.owner)).projects.find((p) => p.id === s.projectId)).toMatchObject({
+          openReviews: 1,
+          versionedTracks: 1,
+          approvedTracks: 0,
+        });
+
+        // An approval that settles as approved counts the track as approved.
+        const approval = await reviewOf(
+          await request(s.owner, s.projectId, {
+            kind: "approval",
+            title: "Master sign-off",
+            rule: "any",
+            items: [{ trackId: s.trackId }],
+            reviewers: [s.ids.composer],
+          }),
+        );
+        await app.request(
+          `/api/reviews/${approval.id}/decisions`,
+          json({ decision: "approved" }, s.composer),
+        );
+        const after = await home(s.owner);
+        const card = after.projects.find((p) => p.id === s.projectId);
+        expect(card).toMatchObject({ approvedTracks: 1, openReviews: 1 });
+        expect(card?.faces.length).toBe(Math.min(card?.members ?? 0, 4));
+        // The newest first: the approval settling, then the requests and the version.
+        expect(after.activity[0]).toMatchObject({
+          kind: "review_completed",
+          title: "Master sign-off",
+        });
+        expect(after.activity.map((a) => a.kind)).toEqual(
+          expect.arrayContaining(["review", "version"]),
+        );
+
+        // A version uploaded after the approval has not been reviewed.
+        await app.request(
+          `/api/tracks/${s.trackId}/versions`,
+          json({ variations: [{ fileId: s.artwork, name: "Mix" }] }, s.owner),
+        );
+        expect(
+          (await home(s.owner)).projects.find((p) => p.id === s.projectId)?.approvedTracks,
+        ).toBe(0);
+
+        // A file that failed to process is for those who can replace it, not for reviewers.
+        await db
+          .update(schema.files)
+          .set({ streamStatus: "failed" })
+          .where(eq(schema.files.id, s.mix));
+        expect((await home(s.owner)).failed).toMatchObject([{ id: s.mix }]);
+        expect((await home(s.engineer)).failed).toMatchObject([{ id: s.mix }]);
+        expect((await home(s.composer)).failed).toEqual([]);
+
+        // Another workspace's projects never show, even to an owner here.
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-home" })
+          .returning();
+        const [foreign] = await db
+          .insert(schema.projects)
+          .values({ organisationId: other?.id ?? "", name: "Theirs", profile: "video" })
+          .returning();
+        expect((await home(s.owner)).projects.map((p) => p.id)).not.toContain(foreign?.id);
+        // The composer has a role in the project and sees it; a newcomer with none sees nothing.
+        expect((await home(s.composer)).projects.map((p) => p.id)).toEqual([s.projectId]);
+        const newcomer = await joinAs(s.owner, "newcomer@example.test");
+        expect(await home(newcomer)).toEqual({
+          projects: [],
+          openComments: 0,
+          newVersions: 0,
+          failed: [],
+          activity: [],
+        });
+        expect((await app.request("/api/home")).status).toBe(401);
+      });
+
       it("asks reviewers in turn, logs every decision, and settles under the all rule", async () => {
         const s = await studio();
         mailer.sent.length = 0;

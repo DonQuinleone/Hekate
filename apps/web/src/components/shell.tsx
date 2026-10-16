@@ -61,7 +61,7 @@ function NavItem({
   count,
   exact = false,
 }: {
-  to: "/reviews" | "/projects";
+  to: "/" | "/inbox" | "/projects";
   icon: IconName;
   label: string;
   collapsed: boolean;
@@ -475,10 +475,11 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
         <div className="scroll-quiet mt-5 flex min-h-0 flex-1 flex-col overflow-y-auto">
           <div className="flex flex-col gap-0.5">
+            <NavItem to="/" icon="dashboard" label="Home" collapsed={collapsed} exact />
             <NavItem
-              to="/reviews"
+              to="/inbox"
               icon="inbox"
-              label="Reviews"
+              label="Inbox"
               collapsed={collapsed}
               count={waitingAll.length}
               exact
@@ -553,7 +554,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 </Link>
               ))}
               {waitingHere.length > 4 && (
-                <Link to="/reviews" className="px-2.5 text-[12px] text-ink-3 hover:text-ink">
+                <Link to="/inbox" className="px-2.5 text-[12px] text-ink-3 hover:text-ink">
                   and {waitingHere.length - 4} more
                 </Link>
               )}
@@ -608,13 +609,21 @@ export function Shell({ children }: { children: ReactNode }) {
           >
             {(
               [
-                { to: "/reviews", icon: "inbox", label: "Reviews", count: waitingAll.length },
-                { to: "/projects", icon: "folder", label: "Projects", count: 0 },
+                { to: "/", icon: "dashboard", label: "Home", count: 0, exact: true },
+                {
+                  to: "/inbox",
+                  icon: "inbox",
+                  label: "Inbox",
+                  count: waitingAll.length,
+                  exact: true,
+                },
+                { to: "/projects", icon: "folder", label: "Projects", count: 0, exact: false },
               ] as const
             ).map((item) => (
               <Link
                 key={item.to}
                 to={item.to}
+                activeOptions={{ exact: item.exact }}
                 className="relative flex flex-1 flex-col items-center justify-center gap-0.5 text-[11px] text-ink-3 transition-colors data-[status=active]:text-ink"
               >
                 <Icon name={item.icon} size={18} />

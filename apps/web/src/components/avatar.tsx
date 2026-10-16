@@ -44,3 +44,34 @@ export function Avatar({
     </span>
   );
 }
+
+/** A few people, overlapping, with a count of the rest. */
+export function AvatarRow({
+  people,
+  total = people.length,
+  max = 4,
+  size = 22,
+}: {
+  people: { id: string; name: string }[];
+  /** Everyone, when only some were sent. */
+  total?: number;
+  max?: number;
+  size?: number;
+}) {
+  const shown = people.slice(0, max);
+  const rest = total - shown.length;
+  return (
+    <span className="inline-flex items-center">
+      {shown.map((p, i) => (
+        <Avatar
+          key={p.id}
+          id={p.id}
+          name={p.name}
+          size={size}
+          className={cn(i > 0 && "-ml-1.5", "ring-2 ring-pane")}
+        />
+      ))}
+      {rest > 0 && <span className="tabular ml-1.5 text-[12px] text-ink-3">+{rest}</span>}
+    </span>
+  );
+}
