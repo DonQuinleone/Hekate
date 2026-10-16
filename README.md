@@ -10,6 +10,8 @@ Classical music is a first-class citizen (tracks with versions and variations, b
 
 > **Status:** pre-release. The foundations are being built; nothing here is production-ready yet.
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/DonQuinleone/Hekate/badge)](https://scorecard.dev/viewer/?uri=github.com/DonQuinleone/Hekate)
+
 ## What makes it different
 
 - **Anchored comments.** Every comment carries an anchor: a time range or frame, a region of a PDF page, or a bar and beat in a score. Feedback always points at something.
@@ -95,6 +97,10 @@ STORAGE_ARCHIVE_SECRET_ACCESS_KEY_FILE=/run/secrets/s3-secret
 Everything is encrypted before it reaches a backend, with a key per file (see `docs/security.md`). Set `MASTER_KEY` to 32 random bytes (`openssl rand -base64 32`) and keep a copy somewhere safe, apart from the database and storage: without it, nothing stored can be read.
 
 Every backend is checked at start-up; Hekate will not start with storage it cannot reach or write to. Storage never serves files to browsers directly: media always passes through Hekate's protected delivery. See `.env.example` for every setting.
+
+## Security
+
+Report a vulnerability privately, through the repository's Security tab; see [SECURITY.md](SECURITY.md) for what happens next and how findings are kept at zero.
 
 ## Licence
 
