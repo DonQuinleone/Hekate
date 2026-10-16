@@ -17,8 +17,10 @@ import {
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
+  useCallback,
   useEffect,
   useLayoutEffect,
+  useReducer,
   useRef,
   useState,
 } from "react";
@@ -29,6 +31,7 @@ import {
   columnsFor,
   filtering,
   filterProject,
+  fitColumns,
   folderCount,
   freshPath,
   gridTemplate,
@@ -473,7 +476,20 @@ export function FileBrowser({
   const saveColumns = useFileColumns();
   /** Widths while a column edge is dragged; kept once it is let go. */
   const [dragging, setDragging] = useState<FileColumnLayout | null>(null);
-  const columns = dragging ?? savedColumns ?? defaultFileColumns;
+  const chosenColumns = dragging ?? savedColumns ?? defaultFileColumns;
+  /** How wide the list is, to leave off the columns that do not fit (as Linear does). */
+  const [listWidth, setListWidth] = useState<number | null>(null);
+  const watching = useRef<ResizeObserver | null>(null);
+  const listBox = useCallback((marker: HTMLDivElement | null) => {
+    watching.current?.disconnect();
+    const box = marker?.parentElement;
+    if (!box) return;
+    watching.current = new ResizeObserver(([entry]) =>
+      setListWidth(entry?.contentRect.width ?? null),
+    );
+    watching.current.observe(box);
+  }, []);
+  const columns = listWidth === null ? chosenColumns : fitColumns(chosenColumns, listWidth);
   const gridVars = { "--cols": gridTemplate(columns) } as CSSProperties;
   const names = { ...columnNames, versions: withTracks ? "Versions" : "Details" };
   const tagging = useTagMutations(projectId);
@@ -1359,6 +1375,7 @@ export function FileBrowser({
         />
       ) : view !== "grid" ? (
         <Card>
+          <div ref={listBox} />
           <div
             className={cn(
               rowGrid,
@@ -1368,12 +1385,13 @@ export function FileBrowser({
           >
             <span />
             <span>Name</span>
+            {/* Headings for the columns that fit; widths and choices work on all of them. */}
             {columns.map((c) => (
               <ColumnHeading
                 key={c.id}
                 id={c.id}
                 name={names[c.id]}
-                columns={columns}
+                columns={chosenColumns}
                 onResize={setDragging}
                 onResized={(next) => {
                   setDragging(null);
@@ -1381,7 +1399,12 @@ export function FileBrowser({
                 }}
               />
             ))}
-            <ColumnsMenu columns={columns} names={names} onChange={saveColumns.mutate} />
+            <ColumnsMenu
+              columns={chosenColumns}
+              shown={columns.map((c) => c.id)}
+              names={names}
+              onChange={saveColumns.mutate}
+            />
           </div>
           <Rows items={items} row={row} onKeyDown={onListKey} reveal={reveal} />
         </Card>
@@ -1700,13 +1723,22 @@ function Rows({
   const many = items.length >= VIRTUAL_FROM;
   /** How far down its scrolling area the list starts. */
   const [margin, setMargin] = useState(0);
+  const [, redraw] = useReducer((n: number) => n + 1, 0);
   const scroller = () => list.current?.closest("main") ?? null;
+  // Measured after every render, since what sits above the list (uploads, filter chips) can
+  // grow or shrink while it stays; and again when the window changes size.
   useLayoutEffect(() => {
     const area = list.current?.closest("main");
     if (!many || !list.current || !area) return;
-    setMargin(
-      list.current.getBoundingClientRect().top - area.getBoundingClientRect().top + area.scrollTop,
-    );
+    const next =
+      list.current.getBoundingClientRect().top - area.getBoundingClientRect().top + area.scrollTop;
+    if (Math.abs(next - margin) > 0.5) setMargin(next);
+  });
+  useEffect(() => {
+    if (!many) return;
+    const again = () => redraw();
+    window.addEventListener("resize", again);
+    return () => window.removeEventListener("resize", again);
   }, [many]);
   const virtual = useVirtualizer({
     count: many ? items.length : 0,

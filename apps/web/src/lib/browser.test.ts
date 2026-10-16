@@ -9,12 +9,14 @@ import {
   filterProject,
   filtersFrom,
   filtersTo,
+  fitColumns,
   folderCount,
   freshPath,
   gridTemplate,
   indexMarks,
   itemsIn,
   latestFile,
+  listMinWidth,
   movableTo,
   moveColumn,
   noFilters,
@@ -189,6 +191,12 @@ describe("columns", () => {
 
   it("lays out the grid from the columns shown", () => {
     expect(gridTemplate([...cols])).toBe("20px minmax(0,1fr) 150px 100px 88px");
+    // 20 + 240 + 250 + 88, four gaps of 12 and 24 of padding.
+    expect(listMinWidth([...cols])).toBe(670);
+    // What does not fit is left off from the end, never the page made wider.
+    expect(fitColumns([...cols], 670)).toEqual(cols);
+    expect(fitColumns([...cols], 600).map((c) => c.id)).toEqual(["status"]);
+    expect(fitColumns([...cols], 100)).toEqual([]);
   });
 
   it("adds a column in its usual place, and takes it away", () => {

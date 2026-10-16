@@ -1742,6 +1742,8 @@ export function useFileColumns() {
   const client = useQueryClient();
   const key = fileColumnsQuery.queryKey;
   return useMutation({
+    // One save at a time, in order, so an earlier layout never lands after a later one.
+    scope: { id: "file-columns" },
     mutationFn: async (columns: FileColumnLayout) => {
       const res = await api.me["file-columns"].$put({ json: { columns } });
       if (!res.ok) await json(res);

@@ -30,10 +30,13 @@ export function ColumnsMenu({
   columns,
   names,
   onChange,
+  shown: fitted,
 }: {
   columns: FileColumnLayout;
   names: Record<FileColumn, string>;
   onChange: (columns: FileColumnLayout) => void;
+  /** The columns that fit the list now; the others chosen are left off for lack of room. */
+  shown?: FileColumn[];
 }) {
   const [open, setOpen, box] = usePopover();
   const shown = columns.map((c) => c.id);
@@ -70,6 +73,9 @@ export function ColumnsMenu({
                     onChange={() => onChange(toggleColumn(columns, id))}
                   />
                   <span className="ml-1.5 min-w-0 flex-1 truncate">{names[id]}</span>
+                  {on && fitted && !fitted.includes(id) && (
+                    <span className="shrink-0 text-[11px] text-ink-3">No room</span>
+                  )}
                   {on && (
                     <>
                       <button

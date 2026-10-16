@@ -241,6 +241,23 @@ export function filterProject(
 export const gridTemplate = (columns: FileColumnLayout) =>
   ["20px", "minmax(0,1fr)", ...columns.map((c) => `${c.width}px`), "88px"].join(" ");
 
+/**
+ * The narrowest the list may be before it scrolls sideways: the icon, a readable name, each
+ * column, the actions, the gaps between them and the padding either side.
+ */
+export const listMinWidth = (columns: FileColumnLayout) =>
+  20 + 240 + columns.reduce((w, c) => w + c.width, 0) + 88 + 12 * (columns.length + 2) + 24;
+
+/**
+ * The columns that fit a list of the given width, in the member's order: those at the end are
+ * left off until the rest fit beside a readable name. The Columns menu still shows them all.
+ */
+export function fitColumns(columns: FileColumnLayout, width: number): FileColumnLayout {
+  const fitted = [...columns];
+  while (fitted.length > 0 && listMinWidth(fitted) > width) fitted.pop();
+  return fitted;
+}
+
 /** Show a column, at its usual width and in its usual place among those shown, or hide it. */
 export function toggleColumn(columns: FileColumnLayout, id: FileColumn): FileColumnLayout {
   if (columns.some((c) => c.id === id)) return columns.filter((c) => c.id !== id);

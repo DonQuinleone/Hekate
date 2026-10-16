@@ -2388,6 +2388,19 @@ describe.runIf(url)("api", () => {
         expect((await retry(s.engineer)).status).toBe(409);
         const outsider = await joinAs(s.owner, "outsider-retry@example.test");
         expect((await retry(outsider)).status).toBe(404);
+
+        // A queue that does not take the work leaves that stage failed, to be tried again.
+        await db
+          .update(schema.files)
+          .set({ streamStatus: "failed", analysisStatus: "failed" })
+          .where(eq(schema.files.id, s.mix));
+        failNextSend = true;
+        expect((await retry(s.engineer)).status).toBe(503);
+        const [after] = await db
+          .select({ stream: schema.files.streamStatus, analysis: schema.files.analysisStatus })
+          .from(schema.files)
+          .where(eq(schema.files.id, s.mix));
+        expect(after).toEqual({ stream: "failed", analysis: "pending" });
       });
 
       it("keeps each member's file columns for this workspace", async () => {

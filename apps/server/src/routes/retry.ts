@@ -1,6 +1,6 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import { zValidator } from "@hono/zod-validator";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -9,7 +9,7 @@ import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
 import type { Jobs } from "../jobs.ts";
 import { pageSourceOf } from "../media/pages.ts";
-import { retryPlan } from "../media/retry.ts";
+import { type RetryJob, retryPlan } from "../media/retry.ts";
 
 const { files } = schema;
 
@@ -55,8 +55,36 @@ export const fileRetryRoutes = (db: Database, jobs: Pick<Jobs, "send">) =>
           .where(inOrg(files, organisationId, eq(files.id, fileId)));
         return next;
       });
+      // A job the queue did not take (down, or the failed one not yet finished) would leave
+      // the file waiting for ever: put its stage back to failed, so it can be tried again.
+      const refused: RetryJob[] = [];
       for (const job of plan.jobs) {
-        await jobs.send(job, { organisationId, fileId }, { singletonKey: fileId });
+        const id = await jobs
+          .send(job, { organisationId, fileId }, { singletonKey: fileId })
+          .catch(() => null);
+        if (!id) refused.push(job);
+      }
+      if (refused.length) {
+        const analysis = refused.includes("media-analysis");
+        const stream = refused.some((j) => j !== "media-analysis");
+        await db
+          .update(files)
+          .set({
+            ...(stream
+              ? {
+                  streamStatus: sql`case when ${files.streamStatus} = 'pending' then 'failed'::stream_status else ${files.streamStatus} end`,
+                }
+              : {}),
+            ...(analysis
+              ? {
+                  analysisStatus: sql`case when ${files.analysisStatus} = 'pending' then 'failed'::stream_status else ${files.analysisStatus} end`,
+                }
+              : {}),
+          })
+          .where(inOrg(files, organisationId, eq(files.id, fileId)));
+        throw new HTTPException(503, {
+          message: "Preparing it again could not start; try again in a moment",
+        });
       }
       return c.json({ jobs: plan.jobs }, 202);
     },
