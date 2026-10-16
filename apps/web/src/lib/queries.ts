@@ -11,6 +11,8 @@ import {
   type DeliveryProfileId,
   type DirectorySettings,
   type DirectorySettingsInput,
+  type DownloadKind,
+  type DownloadLevel,
   decodeLoudness,
   decodePeaks,
   decodeSpectrogram,
@@ -963,6 +965,32 @@ export const categoriesQuery = (projectId: string) =>
       ).categories,
     staleTime: 60_000,
   });
+
+/** What someone may download of a file, and what each kind would be (#136). */
+export interface DownloadChoices {
+  level: DownloadLevel;
+  proxy: { available: boolean; detail: string };
+  original: { available: boolean; detail: string };
+  /** Whether the download carries the recipient's mark (audio does not yet). */
+  marked: boolean;
+}
+
+export const downloadsQuery = (fileId: string) =>
+  queryOptions({
+    queryKey: ["files", fileId, "downloads"],
+    queryFn: async () =>
+      json<DownloadChoices>(await api.files[":id"].downloads.$get({ param: { id: fileId } })),
+  });
+
+/** Ask for a download: a link that works once, in this session, for five minutes. */
+export function useRequestDownload(fileId: string) {
+  return useMutation({
+    mutationFn: async (kind: DownloadKind) =>
+      json<{ url: string }>(
+        await api.files[":id"].downloads.$post({ param: { id: fileId }, json: { kind } }),
+      ),
+  });
+}
 
 /** A file's comments, oldest first; kept fresh so colleagues' notes appear while reviewing. */
 export const commentsQuery = (fileId: string) =>

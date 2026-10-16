@@ -11,7 +11,7 @@ Anything that can be heard or seen can be recorded from the speakers or the scre
 
 ## Principles
 
-- **Originals never reach a browser by default.** Reviewers get protected derivatives. Downloading an original is a separate permission, and every download is logged and watermarked.
+- **Originals never reach a browser by default.** Reviewers get protected derivatives. Downloading an original is a separate permission, and every download is logged and watermarked. A download is a link that works once, for five minutes, in the session that asked for it, and is logged before its first byte leaves (decision 056).
 - **No plain media URLs.** There is no URL that returns a whole file to anyone who holds it. Everything goes through short-lived, signed, session-bound delivery.
 - **Encrypted at rest.** Stored files are encrypted with a per-file key.
 - **Every access is logged.** Keys issued, segments served, pages rendered and downloads, with the person or guest and the review they came through.

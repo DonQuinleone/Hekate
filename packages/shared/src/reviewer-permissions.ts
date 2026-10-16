@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { type DownloadLevel, downloadLevels, widestDownload } from "./downloads.ts";
 
 /**
  * What one reviewer may do in one review (docs/domain.md, Reviewer permissions). A guest
@@ -23,6 +24,8 @@ export const reviewerPermissions = z
     decide: z.boolean(),
     comments: z.enum(commentScopes),
     tools: z.array(z.enum(reviewerTools)).max(reviewerTools.length),
+    /** What they may download: nothing unless the review says so. Grants made earlier lack it. */
+    download: z.enum(downloadLevels).default("none"),
     /** The review opens to them from this moment; null is at once. */
     startsAt: when,
     /** And closes to them at this one; null is when the review ends. */
@@ -40,6 +43,7 @@ export const defaultReviewerPermissions: ReviewerPermissions = {
   decide: true,
   comments: "all",
   tools: [...reviewerTools],
+  download: "none",
   startsAt: null,
   expiresAt: null,
 };
@@ -50,6 +54,7 @@ export const reviewerPermissionsChange = z.object({
   decide: z.boolean().optional(),
   comments: z.enum(commentScopes).optional(),
   tools: z.array(z.enum(reviewerTools)).max(reviewerTools.length).optional(),
+  download: z.enum(downloadLevels).optional(),
   startsAt: when.optional(),
   expiresAt: when.optional(),
 });
@@ -78,10 +83,13 @@ const scopeWidth: Record<CommentScope, number> = { own: 0, own_and_replies: 1, a
  * those reviews allows. (Decisions belong to one review, so they are not merged.)
  */
 export function mergeGrants(
-  grants: ReviewerPermissions[],
-): Pick<ReviewerPermissions, "comment" | "comments" | "tools"> | null {
+  grants: (Omit<ReviewerPermissions, "download"> & { download?: DownloadLevel })[],
+):
+  | (Pick<ReviewerPermissions, "comment" | "comments" | "tools"> & { download: DownloadLevel })
+  | null {
   if (grants.length === 0) return null;
   return {
+    download: widestDownload(grants.map((g) => g.download)),
     comment: grants.some((g) => g.comment),
     comments: grants.reduce<CommentScope>(
       (wide, g) => (scopeWidth[g.comments] > scopeWidth[wide] ? g.comments : wide),
