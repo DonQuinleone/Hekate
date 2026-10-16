@@ -14,11 +14,17 @@ import { Shell } from "~/components/shell";
 import { type BrowserFilters, filtersFrom, filtersTo } from "~/lib/browser";
 import { formatLoop, parseLoop } from "~/lib/loop";
 import { projectShows, projectSorts, projectViews } from "~/lib/projects";
-import { guestMeQuery, meQuery, SignedOutError, setupQuery } from "~/lib/queries";
+import {
+  guestMeQuery,
+  meQuery,
+  SecondFactorDueError,
+  SignedOutError,
+  setupQuery,
+} from "~/lib/queries";
 import { useFollowSystemTheme } from "~/lib/theme";
 import { ViewerProvider } from "~/lib/viewer";
 import { AccountPage } from "~/routes/account";
-import { SetupPage, SignInPage, type SignInSearch } from "~/routes/auth-pages";
+import { SecondFactorPage, SetupPage, SignInPage, type SignInSearch } from "~/routes/auth-pages";
 import { FilePage } from "~/routes/file";
 import { GuestHomePage, GuestLinkPage, GuestShell, GuestSignedOutPage } from "~/routes/guest";
 import { HomePage } from "~/routes/home";
@@ -38,13 +44,19 @@ import { TrackPage } from "~/routes/track";
 import { WorkspaceSettingsPage } from "~/routes/workspace-settings";
 
 /** Pages that are not a member's, where a session ending means nothing to undo. */
-const outside = /^\/(sign-in|setup|invite|guest|g(\/|$))/;
+const outside = /^\/(sign-in|setup|invite|guest|second-factor|g(\/|$))/;
 
 /**
  * A member whose session ends mid-visit (it ran out, or was ended from another device) is
  * taken to sign in, told why, and brought back to where they were.
  */
 function onSignedOut(error: unknown) {
+  // The workspace now asks for a second factor (an admin just turned it on): add one first.
+  if (error instanceof SecondFactorDueError && !outside.test(window.location.pathname)) {
+    void queryClient.invalidateQueries({ queryKey: meQuery.queryKey });
+    void router.navigate({ to: "/second-factor" });
+    return;
+  }
   if (!(error instanceof SignedOutError) || outside.test(window.location.pathname)) return;
   if (!queryClient.getQueryData(meQuery.queryKey)) return;
   const here = window.location.pathname + window.location.search;
@@ -61,7 +73,7 @@ export const queryClient = new QueryClient({
 /** Sign-in's address: where to go after, which state of the forgotten password, and why. */
 const signInSearch = z.object({
   redirect: z.string().max(2000).optional().catch(undefined),
-  view: z.enum(["forgot", "sent", "reset"]).optional().catch(undefined),
+  view: z.enum(["forgot", "sent", "reset", "code", "recovery"]).optional().catch(undefined),
   email: z.string().max(254).optional().catch(undefined),
   code: z
     .string()
@@ -201,6 +213,18 @@ const guestFile = createRoute({
   },
 });
 
+/** A member who owes a second factor adds one here before anything else. */
+const secondFactor = createRoute({
+  getParentRoute: () => root,
+  path: "/second-factor",
+  beforeLoad: async ({ context }) => {
+    const me = await context.queryClient.fetchQuery(meQuery);
+    if (!me) throw redirect({ to: "/sign-in", search: {} });
+    if (me.secondFactor.enabled || !me.secondFactor.required) throw redirect({ to: "/" });
+  },
+  component: SecondFactorPage,
+});
+
 /** Everything else needs a signed-in member. */
 const app = createRoute({
   getParentRoute: () => root,
@@ -209,6 +233,8 @@ const app = createRoute({
     if (await context.queryClient.ensureQueryData(setupQuery)) throw redirect({ to: "/setup" });
     const me = await context.queryClient.ensureQueryData(meQuery);
     if (!me) throw redirect({ to: "/sign-in", search: {} });
+    if (me.secondFactor.required && !me.secondFactor.enabled)
+      throw redirect({ to: "/second-factor" });
     return { me };
   },
   component: () => (
@@ -475,6 +501,7 @@ const reference =
 
 export const router = createRouter({
   routeTree: root.addChildren([
+    secondFactor,
     setup,
     signIn,
     invite,

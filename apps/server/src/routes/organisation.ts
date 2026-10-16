@@ -9,6 +9,7 @@ import {
   organisationRole,
   organisationStorageInput,
   organisationUpdateInput,
+  secondFactorRequired,
   workspaceSettingsInput,
   workspaceSettingsOf,
 } from "@hekate/shared";
@@ -103,6 +104,25 @@ export const organisationRoutes = (
       async (c) => {
         const change = c.req.valid("json");
         const organisationId = c.var.organisationId;
+        // Asking others for a second factor starts with having one: nobody locks themselves out.
+        if (
+          change.secondFactor &&
+          secondFactorRequired({
+            instance: false,
+            policy: change.secondFactor,
+            role: c.var.organisationRole,
+          })
+        ) {
+          const [user] = await db
+            .select({ enabled: schema.users.twoFactorEnabled })
+            .from(schema.users)
+            .where(eq(schema.users.id, c.var.userId));
+          if (!user?.enabled) {
+            throw new HTTPException(422, {
+              message: "Add a second factor to your own account first.",
+            });
+          }
+        }
         const who = await audit.member(c.var.userId);
         const settings = await db.transaction(async (tx) => {
           // Locked, so two admins changing different settings at once both keep their change.

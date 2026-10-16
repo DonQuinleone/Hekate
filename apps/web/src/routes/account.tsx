@@ -6,7 +6,12 @@ import {
   notificationKinds,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
-import { AppearanceSection, ProfileSection, SessionsSection } from "~/components/account-sections";
+import {
+  AppearanceSection,
+  ProfileSection,
+  SecondFactorSection,
+  SessionsSection,
+} from "~/components/account-sections";
 import { PageHeader } from "~/components/page-header";
 import { type NavSection, Row, Section, SettingsLayout } from "~/components/settings";
 import { Button } from "~/components/ui/button";
@@ -27,10 +32,10 @@ const sections: (NavSection & { intro: string })[] = [
     intro: "Who you are to Hekate, and how you sign in.",
   },
   {
-    id: "sessions",
-    label: "Sessions",
+    id: "security",
+    label: "Security",
     intro:
-      "Every browser and device signed in as you. Sign out any you do not recognise, then change your password.",
+      "How sign-in is guarded, and every browser and device signed in as you. Sign out any you do not recognise, then change your password.",
   },
   {
     id: "notifications",
@@ -173,7 +178,9 @@ function Notifications() {
 
 /** `/account/$section`: what is yours alone, in every workspace (notifications in this one). */
 export function AccountPage({ section }: { section: string }) {
-  const current = sections.find((s) => s.id === section) ?? sections[0];
+  // "sessions" was this section's earlier name; links to it still arrive.
+  const id = section === "sessions" ? "security" : section;
+  const current = sections.find((s) => s.id === id) ?? sections[0];
   if (!current) return null;
   return (
     <>
@@ -187,7 +194,12 @@ export function AccountPage({ section }: { section: string }) {
         param="section"
       >
         {current.id === "account" && <ProfileSection />}
-        {current.id === "sessions" && <SessionsSection />}
+        {current.id === "security" && (
+          <>
+            <SecondFactorSection />
+            <SessionsSection />
+          </>
+        )}
         {current.id === "notifications" && <Notifications />}
         {current.id === "appearance" && <AppearanceSection />}
       </SettingsLayout>

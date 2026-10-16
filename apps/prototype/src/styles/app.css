@@ -17,6 +17,8 @@
   --hk-ink-3: #80808b;
   --hk-signal: #f0762e;
   --hk-paper: #e9e8e3;
+  /* What is printed on paper, in every theme: a QR code's modules. */
+  --hk-paper-ink: #111113;
   --hk-ok: #58b98a;
   --hk-node-event: var(--hk-signal);
   --hk-node-review: #6fa8ff;
@@ -51,6 +53,7 @@
   --color-ink-3: var(--hk-ink-3);
   --color-signal: var(--hk-signal);
   --color-paper: var(--hk-paper);
+  --color-paper-ink: var(--hk-paper-ink);
   --color-ok: var(--hk-ok);
   --color-node-event: var(--hk-node-event);
   --color-node-review: var(--hk-node-review);

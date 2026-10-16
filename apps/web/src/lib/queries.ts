@@ -51,12 +51,18 @@ import { api } from "./api";
 
 /** The member's session is gone: it ran out, or was ended elsewhere. */
 export class SignedOutError extends Error {}
+/** The workspace asks for a second factor this member has not added yet. */
+export class SecondFactorDueError extends Error {}
 
 async function json<T>(res: Response): Promise<T> {
   if (res.status === 401) throw new SignedOutError("Your session has ended. Sign in again.");
   if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-    throw new Error(body?.error?.message ?? `Request failed (${res.status})`);
+    const body = (await res.json().catch(() => null)) as {
+      error?: { code?: string; message?: string };
+    } | null;
+    const message = body?.error?.message ?? `Request failed (${res.status})`;
+    if (body?.error?.code === "second_factor_required") throw new SecondFactorDueError(message);
+    throw new Error(message);
   }
   return res.json() as Promise<T>;
 }
@@ -92,6 +98,8 @@ export interface Me {
     locale?: string | null;
   }[];
   activeOrganisationId: string;
+  /** Whether they have a second factor, whether this workspace asks for one, and codes left. */
+  secondFactor: { enabled: boolean; required: boolean; recoveryCodesLeft: number };
 }
 
 /** The signed-in member, or null when signed out. */

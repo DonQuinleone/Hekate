@@ -80,6 +80,14 @@ const schema = z.object({
     .enum(["true", "false"])
     .default("true")
     .transform((v) => v === "true"),
+  /**
+   * Ask every account on the instance for a second factor, whatever its workspaces say. People
+   * without one are asked at their next sign-in and cannot continue until they add one.
+   */
+  REQUIRE_SECOND_FACTOR: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
   /** Sender address for email. */
   MAIL_FROM: z.string().default("Hekate <hekate@localhost>"),
   /** Behind a reverse proxy (Caddy in the Compose file), take client addresses from X-Forwarded-For. */

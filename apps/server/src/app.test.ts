@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { createDecipheriv } from "node:crypto";
+import { createDecipheriv, createHmac } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -726,6 +726,202 @@ describe.runIf(url)("api", () => {
       expect(signedIn.status).toBe(201);
     });
 
+    describe("second factor", () => {
+      /** The code an authenticator app shows for this setup link, now (RFC 6238). */
+      const codeFor = (uri: string, at = Date.now()) => {
+        const secret = new URL(uri).searchParams.get("secret") ?? "";
+        const bits = [...secret.replace(/=+$/, "").toUpperCase()]
+          .map((ch) => "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567".indexOf(ch).toString(2).padStart(5, "0"))
+          .join("");
+        const key = Buffer.from((bits.match(/.{8}/g) ?? []).map((b) => Number.parseInt(b, 2)));
+        const counter = Buffer.alloc(8);
+        counter.writeBigUInt64BE(BigInt(Math.floor(at / 30_000)));
+        const mac = createHmac("sha1", key).update(counter).digest();
+        const offset = (mac.at(-1) ?? 0) & 15;
+        return String((mac.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).padStart(6, "0");
+      };
+      const wrong = (code: string) => String((Number(code) + 1) % 1_000_000).padStart(6, "0");
+      type Me = {
+        secondFactor: { enabled: boolean; required: boolean; recoveryCodesLeft: number };
+      };
+      const me = async (cookie: string) =>
+        (await (await app.request("/api/me", { headers: { cookie } })).json()) as Me;
+      /** Add a code app to the account, as the account page does. */
+      const enrol = async (cookie: string, password: string) => {
+        const enabled = await app.request(
+          "/api/auth/two-factor/enable",
+          json({ password }, cookie),
+        );
+        expect(enabled.status).toBe(200);
+        const body = (await enabled.json()) as { totpURI: string; backupCodes: string[] };
+        const verified = await app.request(
+          "/api/auth/two-factor/verify-totp",
+          json({ code: codeFor(body.totpURI) }, cookie),
+        );
+        expect(verified.status).toBe(200);
+        // The session is renewed once the factor is on.
+        return { ...body, cookie: cookieOf(verified) };
+      };
+      const signIn = (password: string, email = owner.email, cookie?: string) =>
+        app.request("/api/auth/sign-in/email", json({ email, password }, cookie));
+
+      it("adds a code app, asks for it at sign-in, and takes each recovery code once", async () => {
+        const first = cookieOf(await setup());
+        expect((await me(first)).secondFactor).toEqual({
+          enabled: false,
+          required: false,
+          recoveryCodesLeft: 0,
+        });
+        // The password is asked again before anything changes.
+        expect(
+          (
+            await app.request(
+              "/api/auth/two-factor/enable",
+              json({ password: "wrong password here" }, first),
+            )
+          ).status,
+        ).toBe(400);
+        const started = await app.request(
+          "/api/auth/two-factor/enable",
+          json({ password: owner.password }, first),
+        );
+        const { totpURI, backupCodes } = (await started.json()) as {
+          totpURI: string;
+          backupCodes: string[];
+        };
+        expect(totpURI).toMatch(/^otpauth:\/\/totp\/Hekate:/);
+        expect(backupCodes).toHaveLength(10);
+        // A wrong first code leaves the factor off.
+        const missed = await app.request(
+          "/api/auth/two-factor/verify-totp",
+          json({ code: wrong(codeFor(totpURI)) }, first),
+        );
+        expect(missed.status).toBe(401);
+        expect((await me(first)).secondFactor.enabled).toBe(false);
+        const verified = await app.request(
+          "/api/auth/two-factor/verify-totp",
+          json({ code: codeFor(totpURI) }, first),
+        );
+        expect(verified.status).toBe(200);
+        const cookie = cookieOf(verified);
+        expect((await me(cookie)).secondFactor).toEqual({
+          enabled: true,
+          required: false,
+          recoveryCodesLeft: 10,
+        });
+        // The recovery codes are stored only as hashes.
+        const [row] = await db.select().from(schema.twoFactors);
+        for (const code of backupCodes) expect(row?.backupCodes).not.toContain(code);
+
+        // Signing in now stops at the second factor: no session until a code is given.
+        const halfway = await signIn(owner.password);
+        expect(halfway.status).toBe(200);
+        expect(await halfway.json()).toMatchObject({ twoFactorRedirect: true });
+        const pending = cookieOf(halfway);
+        expect((await app.request("/api/me", { headers: { cookie: pending } })).status).toBe(401);
+        expect(
+          (
+            await app.request(
+              "/api/auth/two-factor/verify-totp",
+              json({ code: wrong(codeFor(totpURI)) }, pending),
+            )
+          ).status,
+        ).toBe(401);
+        // A recovery code works however it is typed, and only once.
+        const code = backupCodes[0] ?? "";
+        const recovered = await app.request(
+          "/api/auth/two-factor/verify-backup-code",
+          json({ code: ` ${code.replace("-", "").toUpperCase()} ` }, pending),
+        );
+        expect(recovered.status).toBe(200);
+        expect((await me(cookieOf(recovered))).secondFactor.recoveryCodesLeft).toBe(9);
+        const again = cookieOf(await signIn(owner.password));
+        const reused = await app.request(
+          "/api/auth/two-factor/verify-backup-code",
+          json({ code }, again),
+        );
+        expect(reused.status).toBe(401);
+
+        // A trusted browser skips the code for 30 days.
+        const trusted = await app.request(
+          "/api/auth/two-factor/verify-totp",
+          json({ code: codeFor(totpURI), trustDevice: true }, again),
+        );
+        expect(trusted.status).toBe(200);
+        const remembered = trusted.headers
+          .getSetCookie()
+          .map((c) => c.split(";")[0])
+          .filter((c) => c?.startsWith("hekate.trust_device="))
+          .join("; ");
+        expect(remembered).not.toBe("");
+        const skipped = await signIn(owner.password, owner.email, remembered);
+        expect(await skipped.json()).not.toHaveProperty("twoFactorRedirect");
+        expect(cookieOf(skipped)).toContain("hekate.session_token=");
+
+        // New recovery codes replace the old; adding, and the new codes, are in the access log.
+        const fresh = await app.request(
+          "/api/auth/two-factor/generate-backup-codes",
+          json({ password: owner.password }, cookieOf(skipped)),
+        );
+        expect(fresh.status).toBe(200);
+        const actions = (
+          await db.select({ action: schema.accessEvents.action }).from(schema.accessEvents)
+        ).map((e) => e.action);
+        expect(actions).toContain("account.second_factor_added");
+        expect(actions).toContain("account.recovery_codes");
+      });
+
+      it("holds back a member without one where the workspace asks for it", async () => {
+        const first = cookieOf(await setup());
+        // Asking it of others starts with having it.
+        const ask = (cookie: string) =>
+          app.request("/api/organisation/settings", {
+            ...json({ secondFactor: "everyone" }, cookie),
+            method: "PATCH",
+          });
+        expect((await ask(first)).status).toBe(422);
+        const { cookie: ownerCookie } = await enrol(first, owner.password);
+        expect((await ask(ownerCookie)).status).toBe(200);
+
+        const { body } = await invite(ownerCookie, "player@example.test");
+        const joined = await app.request(
+          `/api/invitations/${tokenFrom(body.link)}/accept`,
+          json({ name: "Player", password: "correct horse battery" }),
+        );
+        const member = cookieOf(joined);
+        // Everything is refused, with a code the web app acts on.
+        const refused = await app.request("/api/projects", { headers: { cookie: member } });
+        expect(refused.status).toBe(403);
+        expect(((await refused.json()) as { error: { code: string } }).error.code).toBe(
+          "second_factor_required",
+        );
+        // Who they are still answers, so they can be sent to add one.
+        expect((await me(member)).secondFactor).toEqual({
+          enabled: false,
+          required: true,
+          recoveryCodesLeft: 0,
+        });
+        const { cookie: enrolled } = await enrol(member, "correct horse battery");
+        expect((await app.request("/api/projects", { headers: { cookie: enrolled } })).status).toBe(
+          200,
+        );
+        // Removing it, with the password, holds them back again, and is logged.
+        const removed = await app.request(
+          "/api/auth/two-factor/disable",
+          json({ password: "correct horse battery" }, enrolled),
+        );
+        expect(removed.status).toBe(200);
+        expect(
+          (await app.request("/api/projects", { headers: { cookie: cookieOf(removed) } })).status,
+        ).toBe(403);
+        const removals = await db
+          .select()
+          .from(schema.accessEvents)
+          .where(eq(schema.accessEvents.action, "account.second_factor_removed"));
+        expect(removals).toHaveLength(1);
+      });
+    });
+
     describe("storage", () => {
       const joinAs = async (owner: string, email: string, role: string) => {
         const { body } = await invite(owner, email, role);
@@ -894,6 +1090,7 @@ describe.runIf(url)("api", () => {
           locale: null,
           carriedCommentsShown: true,
           emailSubjects: {},
+          secondFactor: "off",
           reviewer: { comment: true, decide: true, comments: "all", windowDays: null },
         });
         expect((await change({ guestLinkDays: 7 }, owner)).status).toBe(400);

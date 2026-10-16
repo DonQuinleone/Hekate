@@ -5,6 +5,8 @@ import {
   locales,
   type ProjectProfile,
   profiles,
+  type SecondFactorPolicy,
+  secondFactorPolicies,
   type WorkspaceSettingsInput,
 } from "@hekate/shared";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
@@ -89,6 +91,13 @@ const allSections: SectionSpec[] = [
     group: "Access",
     from: "member",
     intro: "Who has an account here, who is invited, and which guests hold a link.",
+  },
+  {
+    id: "security",
+    label: "Security",
+    group: "Access",
+    from: "admin",
+    intro: "How members sign in to this workspace.",
   },
   {
     id: "storage",
@@ -252,6 +261,41 @@ function WorkspaceRows() {
       </Row>
       {error}
     </>
+  );
+}
+
+const policyLabel: Record<SecondFactorPolicy, string> = {
+  off: "Nobody",
+  admins: "Owners and admins",
+  everyone: "Everyone",
+};
+
+/** Who must sign in with a second factor. Asking it of others starts with having one. */
+function Security() {
+  const { settings, change, pending, error } = useSettings();
+  if (!settings) return null;
+  return (
+    <Section title="Sign-in">
+      <Row
+        name="Second factor required of"
+        hint="A code app, with recovery codes. People without one are asked at their next sign-in and cannot carry on until they add one. Guests use their link."
+      >
+        <Select
+          aria-label="Second factor required of"
+          className="w-48"
+          disabled={pending}
+          value={settings.secondFactor}
+          onChange={(e) => change({ secondFactor: e.target.value as SecondFactorPolicy })}
+        >
+          {secondFactorPolicies.map((p) => (
+            <option key={p} value={p}>
+              {policyLabel[p]}
+            </option>
+          ))}
+        </Select>
+      </Row>
+      {error}
+    </Section>
   );
 }
 
@@ -742,6 +786,7 @@ export function WorkspaceSettingsPage({ section }: { section: string }) {
         {current.id === "defaults" && <Defaults />}
         {current.id === "email" && <EmailTemplatesSection />}
         {current.id === "members" && <Members role={role} />}
+        {current.id === "security" && <Security />}
         {current.id === "storage" && <Storage role={role} />}
         {current.id === "log" && <AccessLog />}
       </SettingsLayout>
