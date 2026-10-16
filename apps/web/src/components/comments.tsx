@@ -25,6 +25,7 @@ import {
   usePreferences,
   useProjectCan,
 } from "~/lib/queries";
+import { useShortcuts } from "~/lib/shortcuts";
 import { useViewer } from "~/lib/viewer";
 import type { RegionMarker } from "./document-viewer";
 import { Button } from "./ui/button";
@@ -560,6 +561,24 @@ export function Comments({
     return { kind: "time", start, end: start };
   };
 
+  // "c" starts a comment at the playhead, pausing so the moment holds while you write.
+  const composer = useRef<HTMLDivElement>(null);
+  useShortcuts(
+    "comments",
+    "Comments",
+    [
+      {
+        keys: ["c"],
+        label: "Comment at the playhead",
+        run: () => {
+          media?.pause();
+          composer.current?.querySelector("textarea")?.focus();
+        },
+      },
+    ],
+    Boolean(media && canComment),
+  );
+
   const threads = data ? threadsOf(data) : { open: [], resolved: [], hidden: [] };
   const markers = data ? regionMarkers(data) : [];
   const view = (t: Thread) => (
@@ -590,7 +609,7 @@ export function Comments({
         </span>
       </div>
       {canComment && (
-        <div onFocusCapture={capture}>
+        <div ref={composer} onFocusCapture={capture}>
           <Composer
             placeholder={
               media
