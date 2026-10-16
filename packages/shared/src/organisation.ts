@@ -76,6 +76,39 @@ export function secondFactorRequired(o: {
   return o.policy === "admins" && atLeast(o.role, "admin");
 }
 
+/** How a session was signed in: a password alone, a password and a second factor, a passkey. */
+export const sessionFactors = ["password", "second_factor", "passkey"] as const;
+export type SessionFactor = (typeof sessionFactors)[number];
+
+/** What a workspace (or the instance) asks of someone's sign-in. */
+export interface FactorDemand {
+  /** A second factor: a code app or a passkey. */
+  secondFactor: boolean;
+  /** A passkey or hardware security key, specifically. */
+  securityKey: boolean;
+}
+
+/**
+ * What is asked of this person: the second factor as `secondFactorRequired` says, and a
+ * hardware security key when the workspace asks one of owners and admins and they are one.
+ */
+export function factorDemand(o: {
+  instance: boolean;
+  policy: SecondFactorPolicy;
+  securityKeyForAdmins: boolean;
+  role: OrganisationRole;
+}): FactorDemand {
+  const securityKey = o.securityKeyForAdmins && atLeast(o.role, "admin");
+  return { secondFactor: securityKey || secondFactorRequired(o), securityKey };
+}
+
+/** Whether a session signed in this way meets what is asked. */
+export function sessionMeets(factor: SessionFactor, demand: FactorDemand): boolean {
+  if (demand.securityKey) return factor === "passkey";
+  if (demand.secondFactor) return factor !== "password";
+  return true;
+}
+
 /**
  * A workspace's settings (decision 037 names it a workspace; code keeps organisation). Each takes
  * effect where it applies: guest links when sent, the language for members without their own,
@@ -95,6 +128,8 @@ export const workspaceSettingsSchema = z.object({
   emailSubjects,
   /** Who must sign in with a second factor. */
   secondFactor: secondFactorPolicy,
+  /** Whether owners and admins must sign in with a passkey or hardware security key. */
+  securityKeyForAdmins: z.boolean(),
   /** What a review grants unless the request says otherwise. */
   reviewer: z.object({
     comment: z.boolean(),
@@ -113,6 +148,7 @@ export const defaultWorkspaceSettings: WorkspaceSettings = {
   carriedCommentsShown: true,
   emailSubjects: {},
   secondFactor: "off",
+  securityKeyForAdmins: false,
   reviewer: { comment: true, decide: true, comments: "all", windowDays: null },
 };
 
@@ -126,6 +162,7 @@ export const workspaceSettingsInput = z
     carriedCommentsShown: workspaceSettingsSchema.shape.carriedCommentsShown.optional(),
     emailSubjects: emailSubjectsChange.optional(),
     secondFactor: workspaceSettingsSchema.shape.secondFactor.optional(),
+    securityKeyForAdmins: workspaceSettingsSchema.shape.securityKeyForAdmins.optional(),
     reviewer: workspaceSettingsSchema.shape.reviewer.partial().strict().optional(),
   })
   .strict()
@@ -172,6 +209,11 @@ export function workspaceSettingsOf(stored: unknown): WorkspaceSettings {
       }),
     ) as EmailSubjects,
     secondFactor: pick(shape.secondFactor, read(stored, "secondFactor"), d.secondFactor),
+    securityKeyForAdmins: pick(
+      shape.securityKeyForAdmins,
+      read(stored, "securityKeyForAdmins"),
+      d.securityKeyForAdmins,
+    ),
     reviewer: {
       comment: pick(reviewer.comment, read(storedReviewer, "comment"), d.reviewer.comment),
       decide: pick(reviewer.decide, read(storedReviewer, "decide"), d.reviewer.decide),
@@ -202,6 +244,7 @@ export function applyWorkspaceSettings(
       ),
     ) as EmailSubjects,
     secondFactor: change.secondFactor ?? current.secondFactor,
+    securityKeyForAdmins: change.securityKeyForAdmins ?? current.securityKeyForAdmins,
     reviewer: { ...current.reviewer, ...change.reviewer },
   };
 }

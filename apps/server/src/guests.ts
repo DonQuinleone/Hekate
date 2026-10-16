@@ -349,7 +349,7 @@ export const requireViewer = (auth: Auth, db: Database, rule: SecondFactorRule) 
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (session) {
       const membership = await organisationFor(db, session.user.id, session.session.id);
-      await assertSecondFactor(db, session.user.id, membership, rule);
+      await assertSecondFactor(db, session.session.id, membership, rule);
       c.set("actor", {
         kind: "member",
         userId: session.user.id,

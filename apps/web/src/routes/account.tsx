@@ -13,6 +13,7 @@ import {
   SessionsSection,
 } from "~/components/account-sections";
 import { PageHeader } from "~/components/page-header";
+import { PasskeysSection } from "~/components/passkeys";
 import { type NavSection, Row, Section, SettingsLayout } from "~/components/settings";
 import { Button } from "~/components/ui/button";
 import { Select } from "~/components/ui/input";
@@ -197,6 +198,7 @@ export function AccountPage({ section }: { section: string }) {
         {current.id === "security" && (
           <>
             <SecondFactorSection />
+            <PasskeysSection />
             <SessionsSection />
           </>
         )}

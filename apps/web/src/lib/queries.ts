@@ -106,8 +106,18 @@ export interface Me {
     locale?: string | null;
   }[];
   activeOrganisationId: string;
-  /** Whether they have a second factor, whether this workspace asks for one, and codes left. */
-  secondFactor: { enabled: boolean; required: boolean; recoveryCodesLeft: number };
+  /**
+   * Whether they have a code app and how many passkeys, what this workspace asks of a sign-in
+   * (a second factor; a hardware security key), whether this sign-in met it, and recovery codes left.
+   */
+  secondFactor: {
+    enabled: boolean;
+    passkeys: number;
+    required: boolean;
+    securityKey: boolean;
+    met: boolean;
+    recoveryCodesLeft: number;
+  };
 }
 
 /** The signed-in member, or null when signed out. */
@@ -1262,6 +1272,21 @@ export const guestMeQuery = queryOptions({
     return json<GuestMe>(res);
   },
   staleTime: 60_000,
+});
+
+/** A passkey or hardware security key, as the account page lists it. */
+export interface PasskeyRow {
+  id: string;
+  name: string | null;
+  /** "singleDevice" for a hardware key, "multiDevice" for a passkey that syncs. */
+  deviceType: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+export const passkeysQuery = queryOptions({
+  queryKey: ["me", "passkeys"],
+  queryFn: async () => json<{ passkeys: PasskeyRow[]; max: number }>(await api.me.passkeys.$get()),
 });
 
 /** Delete the signed-in account: its address typed out, and its password. */

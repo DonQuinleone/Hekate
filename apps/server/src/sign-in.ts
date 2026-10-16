@@ -86,7 +86,9 @@ type AccountAction =
   | "account.password_reset"
   | "account.second_factor_added"
   | "account.second_factor_removed"
-  | "account.recovery_codes";
+  | "account.recovery_codes"
+  | "account.passkey_added"
+  | "account.passkey_removed";
 
 /** Write an account event to the access log of every workspace the account belongs to. */
 export async function logToWorkspaces(

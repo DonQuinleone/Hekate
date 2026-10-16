@@ -17,6 +17,7 @@ const {
   notifications,
   organisations,
   overviewLayouts,
+  passkeys,
   projectMembers,
   savedSearches,
   twoFactors,
@@ -152,6 +153,7 @@ export async function deleteAccount(
       }
     }
     await tx.delete(twoFactors).where(eq(twoFactors.userId, userId));
+    await tx.delete(passkeys).where(eq(passkeys.userId, userId));
     await tx.delete(authAccounts).where(eq(authAccounts.userId, userId));
     await tx.delete(authSessions).where(eq(authSessions.userId, userId));
     await tx

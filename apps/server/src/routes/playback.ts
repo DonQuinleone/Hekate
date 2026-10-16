@@ -470,7 +470,7 @@ export const playRoutes = (deps: PlaybackDeps) => {
       // A workspace that has come to ask for a second factor ends playback at once too.
       await assertSecondFactor(
         deps.db,
-        who.userId,
+        claims.sessionId,
         { organisationId: claims.organisationId, role: membership.role },
         deps.secondFactor,
       );
