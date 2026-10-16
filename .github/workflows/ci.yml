@@ -80,7 +80,9 @@ jobs:
           exit 1
       - run: pnpm check
       - run: pnpm build
-      # Dependencies, secrets and misconfiguration in the repository. Fails on fixable high and critical findings.
+      # Dependencies, secrets and misconfiguration in the repository. Fails on any fixable finding.
+      - name: Exceptions to the scanners have an issue and an expiry
+        run: scripts/check-trivyignore.sh
       - name: Trivy (repository)
         id: trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -88,8 +90,11 @@ jobs:
           scan-type: fs
           scan-ref: .
           scanners: vuln,secret,misconfig
-          severity: HIGH,CRITICAL
+          # Every severity fails the build while a fix exists; unfixed findings are reported
+          # below. Exceptions live in .trivyignore, each with an issue and an expiry date.
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
           ignore-unfixed: true
+          trivyignores: .trivyignore
           exit-code: "1"
           version: v0.75.0
       - name: Trivy SARIF (repository)
@@ -101,6 +106,7 @@ jobs:
           scanners: vuln,secret,misconfig
           format: sarif
           output: trivy-repo.sarif
+          trivyignores: .trivyignore
           skip-setup-trivy: true
       - name: Upload to code scanning
         if: ${{ !cancelled() && steps.trivy.outcome != 'skipped' }}
@@ -153,6 +159,28 @@ jobs:
           path: apps/e2e/test-results/screens
           if-no-files-found: ignore
 
+  # Added or updated dependencies: no known vulnerability at any severity, and only licences
+  # that can be combined with AGPL-3.0.
+  dependencies:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: low
+          # Build and test dependencies run on our machines and in CI too.
+          fail-on-scopes: runtime, development, unknown
+          allow-licenses: >-
+            0BSD, AGPL-3.0, AGPL-3.0-only, AGPL-3.0-or-later, Apache-2.0, BlueOak-1.0.0,
+            BSD-2-Clause, BSD-3-Clause, CC-BY-3.0, CC-BY-4.0, CC0-1.0, GPL-3.0, GPL-3.0-only,
+            GPL-3.0-or-later, ISC, LGPL-2.1, LGPL-2.1-only, LGPL-2.1-or-later, LGPL-3.0,
+            LGPL-3.0-only, LGPL-3.0-or-later, MIT, MIT-0, MPL-2.0, Python-2.0, Unlicense,
+            Zlib
+          comment-summary-in-pr: never
+
   image:
     runs-on: ubuntu-latest
     permissions:
@@ -175,8 +203,9 @@ jobs:
         with:
           image-ref: hekate:ci
           scanners: vuln,secret
-          severity: HIGH,CRITICAL
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
           ignore-unfixed: true
+          trivyignores: .trivyignore
           exit-code: "1"
           version: v0.75.0
       - name: Trivy SARIF (image)
@@ -187,6 +216,7 @@ jobs:
           scanners: vuln,secret
           format: sarif
           output: trivy-image.sarif
+          trivyignores: .trivyignore
           skip-setup-trivy: true
       - name: Upload to code scanning
         if: ${{ !cancelled() && steps.trivy.outcome != 'skipped' }}

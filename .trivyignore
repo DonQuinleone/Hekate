@@ -1,0 +1,5 @@
+# Findings Trivy may skip, one per line: the finding's ID, its expiry, and the issue that
+# tracks it. An entry without both fails CI (scripts/check-trivyignore.sh), and an expired one
+# stops being honoured, so every exception is temporary and accounted for.
+#
+#   CVE-2026-12345 exp:2026-12-31 # #170 no fix released upstream yet

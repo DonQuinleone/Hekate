@@ -60,7 +60,8 @@ pnpm --filter @hekate/e2e e2e   # the visual suite: needs E2E_DATABASE_URL (an e
 - Node.js 26, pnpm 12 (pinned in `packageManager`), PostgreSQL 18. Keep everything on its latest release; Dependabot opens weekly grouped updates.
 - pnpm refuses versions published less than a day ago (`minimumReleaseAge`) and runs install scripts only for packages in `allowBuilds`.
 - GitHub Actions are pinned to commit SHAs with the version in a comment.
-- Trivy scans the repository and the image in CI and fails on fixable high or critical findings.
+- Trivy scans the repository and the image in CI and fails on any fixable finding, whatever its severity; unfixed ones go to code scanning. An exception goes in `.trivyignore` with an expiry and the issue that tracks it, or CI refuses it.
+- CodeQL (`security-extended`) checks the TypeScript and the workflows on every pull request and weekly. Dependency review refuses an added or updated dependency with a known vulnerability, or with a licence that cannot be combined with AGPL-3.0.
 - Releases: Conventional Commits drive Release Please, which writes `CHANGELOG.md`. It runs by hand when a release is due (Actions, Release Please, Run workflow) and opens the release PR; merging that PR tags the release.
 
 ## Conventions
