@@ -3,9 +3,12 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { Mark, Wordmark } from "~/components/brand";
 import { Button } from "~/components/ui/button";
+import { CodeField } from "~/components/ui/code-field";
 import { Input } from "~/components/ui/input";
 import { api } from "~/lib/api";
 import { authClient } from "~/lib/auth";
+import { cn } from "~/lib/cn";
+import { passwordStrength } from "~/lib/password";
 
 export function Frame({
   title,
@@ -58,10 +61,82 @@ export function ErrorLine({ message }: { message: string | null }) {
   );
 }
 
+export type SignInView = "forgot" | "sent" | "reset";
+export interface SignInSearch {
+  redirect?: string;
+  view?: SignInView;
+  email?: string;
+  code?: string;
+  /** Why someone is back here: their session ended while they were away. */
+  reason?: "expired";
+}
+
+/** Sign in, and the forgotten password's states: each a query on /sign-in, so each can be linked. */
 export function SignInPage() {
+  const search = useSearch({ from: "/sign-in" }) as SignInSearch;
   const navigate = useNavigate();
-  const { redirect } = useSearch({ from: "/sign-in" });
+  const go = (next: SignInSearch) =>
+    navigate({
+      to: "/sign-in",
+      search: { ...(search.redirect ? { redirect: search.redirect } : {}), ...next },
+    });
+  if (search.view === "forgot")
+    return (
+      <Forgot
+        email={search.email}
+        onSent={(email) => go({ view: "sent", email })}
+        back={() => go({})}
+      />
+    );
+  if (search.view === "sent")
+    return (
+      <Sent
+        email={search.email ?? ""}
+        onCode={(code) => go({ view: "reset", email: search.email ?? "", code })}
+        back={() => go({})}
+      />
+    );
+  if (search.view === "reset")
+    return (
+      <Reset
+        email={search.email ?? ""}
+        code={search.code ?? ""}
+        redirect={search.redirect}
+        again={() => go({ view: "forgot", ...(search.email ? { email: search.email } : {}) })}
+        back={() => go({})}
+      />
+    );
+  return (
+    <SignIn
+      search={search}
+      forgot={(email) => go({ view: "forgot", ...(email ? { email } : {}) })}
+    />
+  );
+}
+
+/** Back to the start, below each of the forgotten password's states. */
+function Back({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="self-start text-[13px] text-ink-3 transition-colors hover:text-ink"
+    >
+      Back to sign in
+    </button>
+  );
+}
+
+/** Where to go once signed in: a path on this site, never somewhere else. */
+async function arrive(redirect: string | undefined, navigate: ReturnType<typeof useNavigate>) {
+  if (redirect?.startsWith("/") && !redirect.startsWith("//")) window.location.assign(redirect);
+  else await navigate({ to: "/" });
+}
+
+function SignIn({ search, forgot }: { search: SignInSearch; forgot: (email: string) => void }) {
+  const navigate = useNavigate();
   const client = useQueryClient();
+  const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const submit = async (e: FormEvent<HTMLFormElement>) => {
@@ -75,32 +150,281 @@ export function SignInPage() {
     });
     setPending(false);
     if (error) {
+      // A wait or a lock says how long, in the server's words.
       setError(
         error.status === 429
-          ? "Too many attempts. Wait a minute and try again."
+          ? (error.message ?? "Too many attempts. Wait a minute and try again.")
           : "That email and password do not match.",
       );
       return;
     }
     await client.invalidateQueries({ queryKey: ["me"] });
-    // Only same-site paths, never an absolute URL.
-    if (redirect?.startsWith("/") && !redirect.startsWith("//")) window.location.assign(redirect);
-    else await navigate({ to: "/" });
+    await arrive(search.redirect, navigate);
   };
   return (
     <Frame title="Sign in" intro="Review for sound and picture.">
+      {search.reason === "expired" && (
+        <p
+          role="status"
+          className="m-0 rounded-panel border border-line bg-raised/40 px-3 py-2.5 text-[13px] text-ink-2"
+        >
+          You were signed out: the session ran out, or was ended from another device. Sign in to
+          carry on where you were.
+        </p>
+      )}
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <Field id="email" label="Email" type="email" autoComplete="username" autoFocus />
+        <Field
+          id="email"
+          label="Email"
+          type="email"
+          autoComplete="username"
+          autoFocus
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
         <Field id="password" label="Password" type="password" autoComplete="current-password" />
+        <button
+          type="button"
+          onClick={() => forgot(email)}
+          className="-mt-2 self-start text-[13px] text-ink-3 transition-colors hover:text-ink"
+        >
+          Forgotten your password?
+        </button>
         <ErrorLine message={error} />
         <Button variant="primary" size="lg" type="submit" disabled={pending}>
           {pending ? "Signing in" : "Sign in"}
         </Button>
       </form>
       <p className="m-0 border-t border-hairline pt-4 text-xs leading-normal text-ink-3">
-        Accounts are by invitation. Single sign-on, passkeys and security keys arrive in later
-        releases.
+        Accounts are by invitation. Guests reviewing a file open the link in their email instead.
       </p>
+    </Frame>
+  );
+}
+
+function Forgot({
+  email,
+  onSent,
+  back,
+}: {
+  email?: string;
+  onSent: (email: string) => void;
+  back: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const address = String(new FormData(e.currentTarget).get("email")).trim();
+    setPending(true);
+    setError(null);
+    const { error } = await authClient.emailOtp.requestPasswordReset({ email: address });
+    setPending(false);
+    if (error) {
+      setError(
+        error.status === 429
+          ? "Too many requests. Wait a few minutes and try again."
+          : (error.message ?? "That did not go through. Try again."),
+      );
+      return;
+    }
+    onSent(address);
+  };
+  return (
+    <Frame
+      title="Forgotten your password?"
+      intro="Enter your email. We will send a code, and a link that carries it, to set a new password. Both last ten minutes."
+    >
+      <form onSubmit={submit} className="flex flex-col gap-4">
+        <Field
+          id="email"
+          label="Email"
+          type="email"
+          autoComplete="username"
+          autoFocus
+          defaultValue={email}
+        />
+        <ErrorLine message={error} />
+        <Button variant="primary" size="lg" type="submit" disabled={pending}>
+          {pending ? "Sending" : "Send me a code"}
+        </Button>
+      </form>
+      <Back onClick={back} />
+    </Frame>
+  );
+}
+
+function Sent({
+  email,
+  onCode,
+  back,
+}: {
+  email: string;
+  onCode: (code: string) => void;
+  back: () => void;
+}) {
+  const [code, setCode] = useState("");
+  const [again, setAgain] = useState<"idle" | "sending" | "sent" | "failed">("idle");
+  return (
+    <Frame
+      title="Check your email"
+      intro="If that address has an account, a code is on its way. Type it here, or open the link under it on this device."
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (code.length === 6) onCode(code);
+        }}
+        className="flex flex-col gap-5"
+      >
+        <CodeField value={code} onChange={setCode} />
+        <Button variant="primary" size="lg" type="submit" disabled={code.length !== 6}>
+          Continue
+        </Button>
+        <p className="m-0 text-[13px] text-ink-3">
+          Nothing after a minute? Look in spam, then{" "}
+          <button
+            type="button"
+            disabled={again === "sending" || !email}
+            onClick={async () => {
+              setAgain("sending");
+              const { error } = await authClient.emailOtp.requestPasswordReset({ email });
+              setAgain(error ? "failed" : "sent");
+            }}
+            className="text-ink-2 underline-offset-2 hover:text-ink hover:underline"
+          >
+            {again === "sent" ? "sent again" : "send it again"}
+          </button>
+          . The code works once, for ten minutes.
+        </p>
+        {again === "failed" && (
+          <ErrorLine message="That did not go through: too many requests, or the mail could not be sent. Wait a few minutes and try again." />
+        )}
+      </form>
+      <Back onClick={back} />
+    </Frame>
+  );
+}
+
+function Reset({
+  email,
+  code,
+  redirect,
+  again,
+  back,
+}: {
+  email: string;
+  code: string;
+  redirect?: string;
+  again: () => void;
+  back: () => void;
+}) {
+  const navigate = useNavigate();
+  const client = useQueryClient();
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [expired, setExpired] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [done, setDone] = useState(false);
+  const strength = passwordStrength(password);
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    if (form.get("again") !== password) {
+      setError("The two passwords are not the same.");
+      return;
+    }
+    setPending(true);
+    setError(null);
+    const { error } = await authClient.emailOtp.resetPassword({ email, otp: code, password });
+    if (error) {
+      setPending(false);
+      const wrongCode = /otp|code/i.test(error.message ?? "") || error.status === 403;
+      setExpired(wrongCode);
+      setError(
+        wrongCode
+          ? "That code is not right, or it has run out. Ask for a new one."
+          : (error.message ?? "That password cannot be used. Choose another."),
+      );
+      return;
+    }
+    // Every session ended with the old password; this one starts the new. If signing in does
+    // not go straight through (a limit, or a further step), the password is still set: say so.
+    const signedIn = await authClient.signIn.email({ email, password });
+    setPending(false);
+    if (signedIn.error || !signedIn.data || "twoFactorRedirect" in signedIn.data) {
+      setDone(true);
+      return;
+    }
+    await client.invalidateQueries({ queryKey: ["me"] });
+    await arrive(redirect, navigate);
+  };
+  if (done)
+    return (
+      <Frame
+        title="Your new password is set"
+        intro="Every session has ended. Sign in with the new password to carry on."
+      >
+        <Button variant="primary" size="lg" onClick={back}>
+          Sign in
+        </Button>
+      </Frame>
+    );
+  return (
+    <Frame
+      title="Set a new password"
+      intro="Twelve characters or more; a few words are easiest to keep. Every session ends, wherever it was signed in."
+    >
+      <form onSubmit={submit} className="flex flex-col gap-4">
+        <Field
+          id="new-password"
+          label="New password"
+          type="password"
+          autoComplete="new-password"
+          minLength={12}
+          autoFocus
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        <div className="-mt-2 flex items-center gap-1" aria-live="polite">
+          {[1, 2, 3, 4].map((n) => (
+            <span
+              key={n}
+              aria-hidden="true"
+              className={cn(
+                "h-1 flex-1 rounded-full",
+                n <= strength.score ? "bg-ink-2" : "bg-raised",
+              )}
+            />
+          ))}
+          <span className="ml-2 w-16 text-right text-[12px] text-ink-2">
+            {password ? strength.label : ""}
+          </span>
+        </div>
+        <Field
+          id="again"
+          label="Again"
+          type="password"
+          autoComplete="new-password"
+          minLength={12}
+        />
+        <ErrorLine message={error} />
+        {expired ? (
+          <Button variant="primary" size="lg" onClick={again}>
+            Send a new code
+          </Button>
+        ) : (
+          <Button
+            variant="primary"
+            size="lg"
+            type="submit"
+            disabled={pending || strength.score === 0}
+          >
+            {pending ? "Saving" : "Save and sign in"}
+          </Button>
+        )}
+      </form>
+      <Back onClick={back} />
     </Frame>
   );
 }

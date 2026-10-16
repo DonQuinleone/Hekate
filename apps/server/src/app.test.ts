@@ -54,12 +54,14 @@ describe("config", () => {
 describe.runIf(url)("api", () => {
   const { db, close } = createDb(url ?? "", { max: 3 });
   const mailer = memoryMailer();
+  const audit = createAudit(db);
   const auth = createAuth({
     db,
     secret: "test-secret-test-secret-test-secret-0",
     baseURL: "http://localhost:3000",
     testing: true,
     mailer,
+    audit,
   });
   const storageRoot = mkdtempSync(join(tmpdir(), "hekate-api-storage-"));
   const backends = createBackends(
@@ -73,7 +75,6 @@ describe.runIf(url)("api", () => {
   const masterKey = Buffer.alloc(32, 7);
   const keyring = createKeyring(db, { current: masterKey, previous: [] });
   const storage = createStorage(db, backends, keyring);
-  const audit = createAudit(db);
   const sent: { name: string; data: unknown }[] = [];
   /** Set to make the next queue call fail, as if the queue were down. */
   let failNextSend = false;
@@ -339,6 +340,156 @@ describe.runIf(url)("api", () => {
       json({ email: owner.email, password: "wrong password here" }),
     );
     expect(bad.status).toBe(401);
+  });
+
+  it("slows repeated guesses at a password, then locks the account for a while", async () => {
+    await setup();
+    const signIn = (password: string) =>
+      app.request("/api/auth/sign-in/email", json({ email: owner.email, password }));
+    // The first few wrong passwords cost nothing.
+    for (let i = 0; i < 4; i++) expect((await signIn("wrong password here")).status).toBe(401);
+    // Then the next try must wait, even with the right password.
+    const waiting = await signIn(owner.password);
+    expect(waiting.status).toBe(429);
+    expect(waiting.headers.get("retry-after")).toBe("1");
+    expect(((await waiting.json()) as { message: string }).message).toMatch(/Wait 1 second/);
+
+    // Ten failures in a quarter of an hour lock it, and the workspace hears of it.
+    const key = (await import("./sign-in.ts")).attemptKey(owner.email);
+    await db
+      .update(schema.signInAttempts)
+      .set({ failures: 9, lastFailureAt: new Date(Date.now() - 120_000) })
+      .where(eq(schema.signInAttempts.key, key));
+    expect((await signIn("wrong password again")).status).toBe(401);
+    const locked = await signIn(owner.password);
+    expect(locked.status).toBe(429);
+    expect(((await locked.json()) as { message: string }).message).toMatch(/locked for 15 minutes/);
+    const events = await db
+      .select({ action: schema.accessEvents.action })
+      .from(schema.accessEvents)
+      .where(eq(schema.accessEvents.action, "account.lockout"));
+    expect(events).toHaveLength(1);
+
+    // Once the lock runs out, the right password works and the count starts again.
+    await db
+      .update(schema.signInAttempts)
+      .set({ lockedUntil: new Date(Date.now() - 1000) })
+      .where(eq(schema.signInAttempts.key, key));
+    expect((await signIn(owner.password)).status).toBe(200);
+    expect(
+      await db.select().from(schema.signInAttempts).where(eq(schema.signInAttempts.key, key)),
+    ).toEqual([]);
+    // Another address is never slowed by this one's failures.
+    expect(
+      (
+        await app.request(
+          "/api/auth/sign-in/email",
+          json({ email: "nobody@example.test", password: "wrong password here" }),
+        )
+      ).status,
+    ).toBe(401);
+  });
+
+  it("lets a burst of guesses through only as the policy would one at a time", async () => {
+    await setup();
+    const tries = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        app.request(
+          "/api/auth/sign-in/email",
+          json({ email: owner.email, password: "wrong password here" }),
+        ),
+      ),
+    );
+    const statuses = tries.map((r) => r.status).sort();
+    // The four free tries are heard; the rest, sent at the same moment, wait.
+    expect(statuses).toEqual([401, 401, 401, 401, 429, 429, 429, 429]);
+  });
+
+  it("forgets attempts a day old that hold no lock", async () => {
+    const { purgeAttempts } = await import("./sign-in.ts");
+    const now = new Date();
+    const old = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+    await db.delete(schema.signInAttempts);
+    await db.insert(schema.signInAttempts).values([
+      { key: "stale", failures: 1, updatedAt: old },
+      { key: "recent", failures: 1, updatedAt: now },
+      {
+        key: "locked",
+        failures: 10,
+        updatedAt: old,
+        lockedUntil: new Date(now.getTime() + 60_000),
+      },
+    ]);
+    await purgeAttempts(db, now);
+    const left = await db.select({ key: schema.signInAttempts.key }).from(schema.signInAttempts);
+    expect(left.map((r) => r.key).sort()).toEqual(["locked", "recent"]);
+  });
+
+  it("sets a new password with an emailed code, ending every session", async () => {
+    const cookie = cookieOf(await setup());
+    mailer.sent.length = 0;
+    const ask = await app.request(
+      "/api/auth/email-otp/request-password-reset",
+      json({ email: owner.email }),
+    );
+    expect(ask.status).toBe(200);
+    const mail = mailer.sent.find((m) => m.to === owner.email);
+    const code = mail?.subject.match(/^(\d{6}) /)?.[1] ?? "";
+    expect(code).toMatch(/^\d{6}$/);
+    // The link carries the address and the code to the reset page.
+    expect(mail?.text).toContain(
+      `/sign-in?view=reset&email=${encodeURIComponent(owner.email)}&code=${code}`,
+    );
+    // An unknown address is answered the same, and sent nothing.
+    mailer.sent.length = 0;
+    expect(
+      (
+        await app.request(
+          "/api/auth/email-otp/request-password-reset",
+          json({ email: "nobody@example.test" }),
+        )
+      ).status,
+    ).toBe(200);
+    expect(mailer.sent).toEqual([]);
+
+    const reset = (otp: string, password: string) =>
+      app.request(
+        "/api/auth/email-otp/reset-password",
+        json({ email: owner.email, otp, password }),
+      );
+    // Twelve characters at least.
+    expect((await reset(code, "too short")).status).toBe(400);
+    expect((await reset(code, "a fresh and long password")).status).toBe(200);
+    // The code worked once; every session ended; the new password signs in.
+    expect((await reset(code, "another long password here")).status).toBe(400);
+    expect((await app.request("/api/me", { headers: { cookie } })).status).toBe(401);
+    expect(
+      (
+        await app.request(
+          "/api/auth/sign-in/email",
+          json({ email: owner.email, password: "a fresh and long password" }),
+        )
+      ).status,
+    ).toBe(200);
+    const events = await db
+      .select({ action: schema.accessEvents.action })
+      .from(schema.accessEvents)
+      .where(eq(schema.accessEvents.action, "account.password_reset"));
+    expect(events).toHaveLength(1);
+  });
+
+  it("never signs a member in by an emailed code", async () => {
+    await setup();
+    const asked = await app.request(
+      "/api/auth/email-otp/send-verification-otp",
+      json({ email: owner.email, type: "sign-in" }),
+    );
+    expect(asked.status).toBe(403);
+    const tried = await app.request(
+      "/api/auth/sign-in/email-otp",
+      json({ email: owner.email, otp: "123456" }),
+    );
+    expect(tried.status).toBe(403);
   });
 
   it("requires a session for tenant routes", async () => {

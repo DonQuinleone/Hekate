@@ -72,6 +72,14 @@ const schema = z.object({
     ),
   /** SMTP connection URL, for example smtp://user:pass@host:587. Without it, emails are written to the log. */
   SMTP_URL: z.string().url().optional(),
+  /**
+   * Check new passwords against Have I Been Pwned, sending only the first five characters of
+   * a hash. Turn off on an instance without internet access.
+   */
+  PASSWORD_LEAK_CHECK: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
   /** Sender address for email. */
   MAIL_FROM: z.string().default("Hekate <hekate@localhost>"),
   /** Behind a reverse proxy (Caddy in the Compose file), take client addresses from X-Forwarded-For. */

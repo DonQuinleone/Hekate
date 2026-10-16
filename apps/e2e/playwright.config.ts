@@ -75,6 +75,8 @@ export default defineConfig({
       STORAGE_LOCAL_PATH: join(state, "storage"),
       WEB_DIST: join(import.meta.dirname, "../web/dist"),
       MIGRATE_ON_START: "true",
+      // The suite never depends on a service outside the machine.
+      PASSWORD_LEAK_CHECK: "false",
       NO_PROXY: "localhost,127.0.0.1",
     },
   },

@@ -184,6 +184,20 @@ export const authVerifications = pgTable("auth_verifications", {
   ...timestamps,
 });
 
+/**
+ * Failed sign-ins per account, for slowing and then locking repeated guesses (apps/server
+ * lockout.ts). Keyed by a hash of the address, so the table names no one; an account belongs
+ * to no single workspace, so neither does this.
+ */
+export const signInAttempts = pgTable("sign_in_attempts", {
+  /** SHA-256 of the email address, lower-cased. */
+  key: text("key").primaryKey(),
+  failures: integer("failures").notNull().default(0),
+  lastFailureAt: timestamp("last_failure_at", { withTimezone: true }),
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
+  ...timestamps,
+});
+
 export const members = pgTable(
   "members",
   {
