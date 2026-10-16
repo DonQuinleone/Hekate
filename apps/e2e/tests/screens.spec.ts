@@ -146,7 +146,12 @@ const screens: Screen[] = [
   {
     name: "settings-general",
     path: () => "/settings/general",
-    ready: "main >> text=Workspaces you are in",
+    ready: "main >> text=Guest links last",
+  },
+  {
+    name: "settings-defaults",
+    path: () => "/settings/defaults",
+    ready: "main >> text=Access window",
   },
   {
     name: "settings-storage",

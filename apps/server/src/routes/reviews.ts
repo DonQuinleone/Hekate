@@ -4,17 +4,18 @@ import {
   applyPermissions,
   createReviewInput,
   decisionInput,
-  defaultReviewerPermissions,
   guestInput,
   type PersonInput,
   type ReviewDecision,
   type ReviewerFacts,
   type ReviewerInput,
   type ReviewKind,
+  reviewerDefaults,
   reviewerPermissionsChange,
   reviewerState,
   reviewOutcome,
   withinWindow,
+  workspaceSettingsOf,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, desc, eq, inArray, max, sql } from "drizzle-orm";
@@ -403,7 +404,8 @@ async function notify(
   }
   for (const person of people) {
     if (!person.guestId) continue;
-    const link = `${base}/guest/${await issueGuestLink(deps.db, review.organisationId, person.guestId)}`;
+    const issued = await issueGuestLink(deps.db, review.organisationId, person.guestId);
+    const link = `${base}/guest/${issued.token}`;
     await deps.audit.record(review.organisationId, await deps.audit.guest(person.guestId), {
       action: "guest.link",
       projectId: review.projectId,
@@ -415,7 +417,7 @@ async function notify(
       "",
       link,
       "",
-      "The link signs you in on this device and works once, for three days.",
+      `The link signs you in on this device and works once, for ${issued.days} days.`,
     ];
     await deps.mailer
       .send({ to: person.email, subject: `Review: ${review.title}`, text: lines.join("\n") })
@@ -681,7 +683,19 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
         }
       }
 
-      const granted = applyPermissions(defaultReviewerPermissions, input.permissions ?? {});
+      // The workspace's defaults, with whatever the request says on top.
+      const [workspace] = await deps.db
+        .select({ settings: schema.organisations.settings })
+        .from(schema.organisations)
+        .where(eq(schema.organisations.id, organisationId));
+      const granted = applyPermissions(
+        // A default window runs from when access opens.
+        reviewerDefaults(
+          workspaceSettingsOf(workspace?.settings),
+          input.permissions?.startsAt ? new Date(input.permissions.startsAt) : new Date(),
+        ),
+        input.permissions ?? {},
+      );
       if (!granted.success) {
         throw new HTTPException(422, {
           message: granted.error.issues[0]?.message ?? "Those permissions do not fit together",

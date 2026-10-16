@@ -14,6 +14,7 @@ import {
   type ReviewSummary,
   useCreateReview,
   useProjectCan,
+  workspaceSettingsQuery,
 } from "~/lib/queries";
 import { GuestFields } from "./guest-fields";
 import { Button } from "./ui/button";
@@ -81,6 +82,7 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
   const { data: members } = useQuery(projectMembersQuery(projectId));
   const { data: roles } = useQuery(projectRolesQuery(projectId));
   const { data: groups } = useQuery(projectGroupsQuery(projectId));
+  const { data: settings } = useQuery(workspaceSettingsQuery);
   const create = useCreateReview(projectId);
   const [kind, setKind] = useState<ReviewKind>("approval");
   const [title, setTitle] = useState("");
@@ -286,9 +288,9 @@ function RequestReview({ projectId, onDone }: { projectId: string; onDone: () =>
         </ul>
         <GuestFields onAdd={addGuest} />
         <p className="m-0 text-xs text-ink-3">
-          Guests need no account: each is emailed a link that works once, for three days, and
-          reaches only this review. In turn, a group's members are asked together, and the next step
-          starts once all of them have responded.
+          Guests need no account: each is emailed a link that works once, for{" "}
+          {settings?.guestLinkDays ?? 3} days, and reaches only this review. In turn, a group's
+          members are asked together, and the next step starts once all of them have responded.
         </p>
       </Field>
 

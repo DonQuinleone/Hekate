@@ -1,17 +1,26 @@
+import {
+  accessWindowDays,
+  type CommentScope,
+  guestLinkDays,
+  locales,
+  type ProjectProfile,
+  profiles,
+  type WorkspaceSettingsInput,
+} from "@hekate/shared";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { PageHeader } from "~/components/page-header";
-import { Row, Section, SettingsLayout } from "~/components/settings";
+import { Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { actionCopy } from "~/lib/access-log";
 import { shortAgent } from "~/lib/agent";
-import { formatDates } from "~/lib/locale";
+import { formatDates, languageNames } from "~/lib/locale";
 import {
   type AccessEvent,
   accessLogQuery,
@@ -22,8 +31,10 @@ import {
   useOrganisationMutations,
   useRenameWorkspace,
   useRevokeGuest,
+  useSaveWorkspaceSettings,
   useWorkspaceStorage,
   workspaceGuestsQuery,
+  workspaceSettingsQuery,
   workspaceStorageQuery,
 } from "~/lib/queries";
 
@@ -55,7 +66,14 @@ const allSections: SectionSpec[] = [
     label: "General",
     group: "Workspace",
     from: "admin",
-    intro: "The workspace's name, and the other workspaces you are in.",
+    intro: "The workspace's name, how new projects start, guest links and its language.",
+  },
+  {
+    id: "defaults",
+    label: "Defaults",
+    group: "Workspace",
+    from: "admin",
+    intro: "What reviews and new projects get unless someone says otherwise.",
   },
   {
     id: "members",
@@ -131,6 +149,7 @@ function General({ role }: { role: Role }) {
         {rename.error && (
           <p className="px-4 py-2 text-[13px] text-signal">{rename.error.message}</p>
         )}
+        <WorkspaceRows />
       </Section>
       <Section
         title="Workspaces you are in"
@@ -143,6 +162,167 @@ function General({ role }: { role: Role }) {
             hint={`${roleLabel[o.role]}${o.id === me.activeOrganisationId ? " · open now" : ""}`}
           />
         ))}
+      </Section>
+    </>
+  );
+}
+
+/** Saves one change to the workspace's settings, and says if it was refused. */
+function useSettings() {
+  const { data: settings } = useQuery(workspaceSettingsQuery);
+  const save = useSaveWorkspaceSettings();
+  return {
+    settings,
+    change: (change: WorkspaceSettingsInput) => save.mutate(change),
+    pending: save.isPending,
+    error: save.error && (
+      <p role="alert" className="px-4 py-2 text-[13px] text-signal">
+        {save.error.message}
+      </p>
+    ),
+  };
+}
+
+/** The guest link lifetime and the language, in the General section's Workspace panel. */
+function WorkspaceRows() {
+  const { settings, change, pending, error } = useSettings();
+  if (!settings) return null;
+  return (
+    <>
+      <Row name="New projects start as" hint="The profile only decides which tools appear.">
+        <Select
+          aria-label="New projects start as"
+          className="w-40"
+          disabled={pending}
+          value={settings.defaultProfile}
+          onChange={(e) => change({ defaultProfile: e.target.value as ProjectProfile })}
+        >
+          {(Object.keys(profiles) as ProjectProfile[]).map((p) => (
+            <option key={p} value={p}>
+              {profiles[p].label}
+            </option>
+          ))}
+        </Select>
+      </Row>
+      <Row
+        name="Guest links last"
+        hint="A guest's link works once, for this long after it is sent."
+      >
+        <Select
+          aria-label="Guest links last"
+          className="w-40"
+          disabled={pending}
+          value={settings.guestLinkDays}
+          onChange={(e) =>
+            change({ guestLinkDays: Number(e.target.value) as (typeof guestLinkDays)[number] })
+          }
+        >
+          {guestLinkDays.map((d) => (
+            <option key={d} value={d}>
+              {d} days
+            </option>
+          ))}
+        </Select>
+      </Row>
+      <Row name="Language and dates" hint="For members who have not chosen their own in Account.">
+        <Select
+          aria-label="Language and dates"
+          className="w-56"
+          disabled={pending}
+          value={settings.locale ?? ""}
+          onChange={(e) =>
+            change({ locale: (e.target.value || null) as (typeof locales)[number] | null })
+          }
+        >
+          <option value="">As each browser has it</option>
+          {locales.map((l) => (
+            <option key={l} value={l}>
+              {languageNames.of(l) ?? l}
+            </option>
+          ))}
+        </Select>
+      </Row>
+      {error}
+    </>
+  );
+}
+
+const scopeLabel: Record<CommentScope, string> = {
+  all: "Everyone's",
+  own_and_replies: "Their own and replies to them",
+  own: "Only their own",
+};
+
+/** What a review grants unless its request says otherwise. */
+function Defaults() {
+  const { settings, change, pending, error } = useSettings();
+  if (!settings) return null;
+  const { reviewer } = settings;
+  return (
+    <>
+      <Section
+        title="Reviewer permissions"
+        intro="A member's project role is always the ceiling. Changes apply to reviews requested from now on."
+      >
+        <SwitchRow
+          name="May comment"
+          checked={reviewer.comment}
+          onChange={(comment) => change({ reviewer: { comment } })}
+        />
+        <SwitchRow
+          name="May decide, in an approval"
+          hint="Without it, a reviewer follows an approval without being waited on."
+          checked={reviewer.decide}
+          onChange={(decide) => change({ reviewer: { decide } })}
+        />
+        <Row name="Comments they see">
+          <Select
+            aria-label="Comments they see"
+            className="w-56"
+            disabled={pending}
+            value={reviewer.comments}
+            onChange={(e) => change({ reviewer: { comments: e.target.value as CommentScope } })}
+          >
+            {(Object.keys(scopeLabel) as CommentScope[]).map((scope) => (
+              <option key={scope} value={scope}>
+                {scopeLabel[scope]}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        <Row name="Access window" hint="Counted from when their access opens.">
+          <Select
+            aria-label="Access window"
+            className="w-56"
+            disabled={pending}
+            value={reviewer.windowDays ?? ""}
+            onChange={(e) =>
+              change({
+                reviewer: {
+                  windowDays: e.target.value
+                    ? (Number(e.target.value) as (typeof accessWindowDays)[number])
+                    : null,
+                },
+              })
+            }
+          >
+            <option value="">While the review is open</option>
+            {accessWindowDays.map((d) => (
+              <option key={d} value={d}>
+                {d} days
+              </option>
+            ))}
+          </Select>
+        </Row>
+        {error}
+      </Section>
+      <Section title="Versions" intro="What new projects start with; each project can change it.">
+        <SwitchRow
+          name="Carried comments shown on the new version"
+          hint="Open comments travel to the next version; off keeps them hidden until triage shows them."
+          checked={settings.carriedCommentsShown}
+          onChange={(carriedCommentsShown) => change({ carriedCommentsShown })}
+        />
       </Section>
     </>
   );
@@ -551,6 +731,7 @@ export function WorkspaceSettingsPage({ section }: { section: string }) {
         param="section"
       >
         {current.id === "general" && <General role={role} />}
+        {current.id === "defaults" && <Defaults />}
         {current.id === "members" && <Members role={role} />}
         {current.id === "storage" && <Storage role={role} />}
         {current.id === "log" && <AccessLog />}

@@ -110,6 +110,8 @@ export const organisations = pgTable("organisations", {
   slug: text("slug").notNull().unique(),
   /** Storage backend for new objects; null uses the instance default (STORAGE_DEFAULT). */
   storageBackend: text("storage_backend"),
+  /** Workspace settings, read through workspaceSettingsOf (packages/shared). */
+  settings: jsonb("settings").notNull().default({}),
   ...timestamps,
 });
 

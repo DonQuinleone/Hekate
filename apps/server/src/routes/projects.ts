@@ -7,6 +7,7 @@ import {
   projectListQuery,
   projectPermissions,
   updateProjectInput,
+  workspaceSettingsOf,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
@@ -109,12 +110,23 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
           })()
         : null;
       const roles = template?.roles.length ? template.roles : defaultProjectRoles;
+      // Without a template, the workspace's defaults.
+      const [workspace] = template
+        ? []
+        : await db
+            .select({ settings: schema.organisations.settings })
+            .from(schema.organisations)
+            .where(eq(schema.organisations.id, organisationId));
+      const defaults = workspace && {
+        carriedCommentsShown: workspaceSettingsOf(workspace.settings).carriedCommentsShown,
+      };
       const project = await db.transaction(async (tx) => {
         const [created] = await tx
           .insert(projects)
           .values({
             ...input,
             description: input.description || null,
+            ...defaults,
             ...template?.settings,
             organisationId,
           })
