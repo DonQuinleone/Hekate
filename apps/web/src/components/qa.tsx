@@ -11,6 +11,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { cn } from "~/lib/cn";
+import { type Loop, MIN_LOOP } from "~/lib/loop";
 import { type QaReport, qaQuery, useDeliveryProfile } from "~/lib/queries";
 import { Select } from "./ui/input";
 
@@ -72,20 +73,31 @@ const where = (f: QaFinding) => {
     : clock(f.start);
 };
 
+/** The passage a finding spans, when it is long enough to loop. */
+export function findingLoop(f: QaFinding): Loop | null {
+  return f.start !== null && f.end !== null && f.end - f.start >= MIN_LOOP
+    ? { start: f.start, end: f.end }
+    : null;
+}
+
 function FindingRow({
   finding,
   onSeek,
+  onLoop,
   action,
   nested = false,
 }: {
   finding: QaFinding;
   onSeek: (t: number) => void;
+  /** Loop the passage it spans, in one action (#44). */
+  onLoop?: (loop: Loop) => void;
   /** Beside the summary: opening a group, for one. */
   action?: React.ReactNode;
   /** One of a group's, shown under it. */
   nested?: boolean;
 }) {
   const at = where(finding);
+  const loop = onLoop ? findingLoop(finding) : null;
   return (
     <li className="grid grid-cols-[12px_1fr_auto] items-baseline gap-x-3 border-b border-hairline py-2.5 sm:grid-cols-[12px_minmax(0,140px)_1fr_auto]">
       <span className="flex h-4 items-center">
@@ -104,14 +116,26 @@ function FindingRow({
         {action && <span className="ml-3">{action}</span>}
       </span>
       {at && finding.start !== null ? (
-        <button
-          type="button"
-          onClick={() => onSeek(finding.start ?? 0)}
-          aria-label={`Play from ${at}`}
-          className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 font-mono text-[11px] text-ink hover:border-signal"
-        >
-          {at}
-        </button>
+        <span className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onSeek(finding.start ?? 0)}
+            aria-label={`Play from ${at}`}
+            className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 font-mono text-[11px] text-ink hover:border-signal"
+          >
+            {at}
+          </button>
+          {loop && onLoop && (
+            <button
+              type="button"
+              onClick={() => onLoop(loop)}
+              aria-label={`Loop ${at}`}
+              className="inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+            >
+              Loop
+            </button>
+          )}
+        </span>
       ) : (
         <span className="text-[11px] text-ink-3">
           {finding.channel !== null ? channelName(finding.channel) : ""}
@@ -133,7 +157,15 @@ function groupFindings(findings: readonly QaFinding[]): QaFinding[][] {
 }
 
 /** Many findings of one check, as one row that opens into all of them. */
-function FindingGroup({ group, onSeek }: { group: QaFinding[]; onSeek: (t: number) => void }) {
+function FindingGroup({
+  group,
+  onSeek,
+  onLoop,
+}: {
+  group: QaFinding[];
+  onSeek: (t: number) => void;
+  onLoop?: (loop: Loop) => void;
+}) {
   const [open, setOpen] = useState(false);
   const first = group[0] as QaFinding;
   const channels = new Set(group.map((f) => f.channel).filter((c) => c !== null));
@@ -163,7 +195,7 @@ function FindingGroup({ group, onSeek }: { group: QaFinding[]; onSeek: (t: numbe
       {open &&
         group.map((f, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: findings have no id and never reorder here.
-          <FindingRow key={i} finding={f} onSeek={onSeek} nested />
+          <FindingRow key={i} finding={f} onSeek={onSeek} onLoop={onLoop} nested />
         ))}
     </>
   );
@@ -179,11 +211,14 @@ export function QualityChecks({
   projectId,
   media,
   canChoose,
+  onLoop,
 }: {
   fileId: string;
   projectId: string;
   media: HTMLMediaElement | null;
   canChoose: boolean;
+  /** Loop a finding's passage in the player and hear it from its start. */
+  onLoop?: (loop: Loop) => void;
 }) {
   const { data } = useQuery(qaQuery(fileId));
   const choose = useDeliveryProfile(projectId);
@@ -248,11 +283,12 @@ export function QualityChecks({
                 key={`${group[0]?.check}-${group[0]?.start}`}
                 group={group}
                 onSeek={seek}
+                onLoop={onLoop}
               />
             ) : (
               group.map((f, i) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: findings have no id and never reorder here.
-                <FindingRow key={`${f.check}-${i}`} finding={f} onSeek={seek} />
+                <FindingRow key={`${f.check}-${i}`} finding={f} onSeek={seek} onLoop={onLoop} />
               ))
             ),
           )}

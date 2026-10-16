@@ -169,6 +169,7 @@ export function Player({
   markers = [],
   loop = null,
   onLoop = () => {},
+  cue,
   tools = null,
 }: {
   fileId: string;
@@ -183,6 +184,8 @@ export function Player({
   /** The passage being looped; kept by the page so it holds across files. */
   loop?: Loop | null;
   onLoop?: (loop: Loop | null) => void;
+  /** Changes each time the page asks to hear the loop, which switches it back on. */
+  cue?: number;
   /** The tools a guest's review allows; null for members, who have them all. */
   tools?: readonly ReviewerTool[] | null;
 }) {
@@ -341,9 +344,10 @@ export function Player({
   // By value: the page makes a new loop object on every render.
   const loopStart = loop?.start;
   const loopEnd = loop?.end;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the cue is the trigger; asked again for the same passage, it comes back on.
   useEffect(() => {
     if (loopStart !== undefined && loopEnd !== undefined) setLooping(true);
-  }, [loopStart, loopEnd]);
+  }, [loopStart, loopEnd, cue]);
 
   // A loop that does not fit this file (an address, or one carried from a longer version)
   // is cut to it, or dropped if nothing of it is left.
