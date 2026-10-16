@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import type { Item } from "./browser";
 import {
   columnsFor,
   folderCount,
+  freshPath,
   itemsIn,
   latestFile,
   versionSummary,
@@ -88,5 +90,24 @@ describe("columnsFor", () => {
     const score = root[2];
     if (!score) throw new Error("no file");
     expect(columnsFor(root, [score], open)).toHaveLength(1);
+  });
+});
+
+describe("freshPath", () => {
+  const open = (item: Item) =>
+    item.kind === "folder" ? itemsIn(folders, tracks, files, item.folder.id) : null;
+  const root = itemsIn(folders, tracks, files, null);
+
+  it("follows renamed items and stops where a choice has gone", () => {
+    const mixes = root.find((i) => i.id === "Mixes") as Item;
+    const stems = (open(mixes) ?? []).find((i) => i.id === "Stems") as Item;
+    const stale = [{ ...mixes, folder: { ...folders[0], name: "Old name" } } as Item, stems];
+    const fresh = freshPath(root, stale, open);
+    expect(fresh.map((i) => i.id)).toEqual(["Mixes", "Stems"]);
+    expect(fresh[0]).toBe(mixes);
+    expect(freshPath(root, [{ ...stems }, mixes], open)).toEqual([]);
+    expect(freshPath(root, [mixes, { ...stems, id: "Gone" }], open).map((i) => i.id)).toEqual([
+      "Mixes",
+    ]);
   });
 });

@@ -60,6 +60,22 @@ export function columnsFor(
   return columns;
 }
 
+/**
+ * A path of choices as the items now stand: each choice looked up by id in the column it
+ * was made in, and the path cut short where one has gone.
+ */
+export function freshPath(root: Item[], path: Item[], open: (item: Item) => Item[] | null): Item[] {
+  const fresh: Item[] = [];
+  let items: Item[] | null = root;
+  for (const chosen of path) {
+    const now = items?.find((i) => i.kind === chosen.kind && i.id === chosen.id);
+    if (!now) break;
+    fresh.push(now);
+    items = open(now);
+  }
+  return fresh;
+}
+
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
 /** "V3 of 4 · 2 variations", or a dash for a track with nothing yet. */

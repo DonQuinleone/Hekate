@@ -5,6 +5,7 @@ import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import {
   columnsFor,
   folderCount,
+  freshPath,
   type Item,
   itemsIn,
   latestFile,
@@ -183,6 +184,13 @@ function Quick({ fileId, icon, label }: { fileId: string; icon: IconName; label:
 
 const rowGrid =
   "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 @3xl/app:grid-cols-[20px_minmax(0,1fr)_150px_170px_100px_100px_88px]";
+
+/** Whether a file is still being prepared, or failed to be. */
+const processing = (file: ProjectFile) =>
+  file.streamStatus === "failed" ||
+  file.analysisStatus === "failed" ||
+  file.streamStatus === "pending" ||
+  file.analysisStatus === "pending";
 
 /** A file's state while it is prepared, or a dash once it is ready. */
 function FileStatus({ file }: { file: ProjectFile }) {
@@ -454,6 +462,9 @@ export function FileBrowser({
       const t = item.track;
       const copy = trackStateCopy[t.state ?? (t.versions.length ? "not_reviewed" : "no_version")];
       const latest = t.versions.at(-1);
+      // While its latest file is prepared, or after that failed, that is what the track says.
+      const latestReady = fileById.get(latestFile(t) ?? "");
+      const preparing = latestReady && processing(latestReady);
       cells = (
         <>
           <Icon name="track" className="text-ink-2" />
@@ -461,8 +472,14 @@ export function FileBrowser({
             ? editor(item)
             : nameOf(item, `${copy.label}${latest ? ` · V${latest.number}` : ""}`)}
           <span className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
-            {copy.dot && <StatusDot state={copy.dot} />}
-            <span className="truncate">{copy.label}</span>
+            {preparing ? (
+              <FileStatus file={latestReady} />
+            ) : (
+              <>
+                {copy.dot && <StatusDot state={copy.dot} />}
+                <span className="truncate">{copy.label}</span>
+              </>
+            )}
           </span>
           <span className="tabular hidden truncate text-[13px] text-ink-3 @3xl/app:block">
             {versionSummary(t)}
@@ -742,7 +759,6 @@ function ColumnRow({
   selected,
   container,
   onClick,
-  lead,
 }: {
   item: Item;
   name: string;
@@ -750,7 +766,6 @@ function ColumnRow({
   selected: boolean;
   container: boolean;
   onClick: () => void;
-  lead?: ReactNode;
 }) {
   return (
     <li>
@@ -763,7 +778,7 @@ function ColumnRow({
           selected ? "bg-raised text-ink" : "text-ink-2 hover:bg-raised/50 hover:text-ink",
         )}
       >
-        {lead ?? <Icon name={itemIcon(item)} size={15} className="shrink-0 text-ink-3" />}
+        <Icon name={itemIcon(item)} size={15} className="shrink-0 text-ink-3" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px]">{name}</span>
           {hint && <span className="block truncate text-[11px] text-ink-3">{hint}</span>}
@@ -796,9 +811,12 @@ function ColumnBrowser({
   menu: (item: Item) => ReactNode;
   editor: (item: Item) => ReactNode;
 }) {
-  const columns = columnsFor(root, path, open);
-  const last = path.at(-1);
-  const choose = (depth: number, item: Item) => onPath([...path.slice(0, depth), item]);
+  // The path holds what was chosen; after a rename, move, delete or refresh, it follows the
+  // current items, and stops where a choice no longer exists.
+  const fresh = freshPath(root, path, open);
+  const columns = columnsFor(root, fresh, open);
+  const last = fresh.at(-1);
+  const choose = (depth: number, item: Item) => onPath([...fresh.slice(0, depth), item]);
   const fileById = new Map(files.map((f) => [f.id, f]));
   return (
     <Card className="scroll-quiet flex min-h-[420px] overflow-x-auto">
@@ -834,7 +852,6 @@ function ColumnBrowser({
                   name={`V${item.version.number}`}
                   hint={`${item.version.variations.length} variation${item.version.variations.length === 1 ? "" : "s"} · ${ago(item.version.createdAt)}`}
                   container={false}
-                  lead={<StatusDot state="submitted" />}
                 />
               );
             return (
