@@ -50,7 +50,7 @@ const firstNames = (people: { name: string }[]) =>
 /**
  * What needs attention in one project, most pressing first: reviews where it is your turn
  * (soonest due first), reviews overdue on someone else, files that could not be processed,
- * and files that fail a delivery check.
+ * and files that fail a quality check.
  */
 export function overviewAttention(
   overview: ProjectOverview,
@@ -103,7 +103,7 @@ export function overviewAttention(
       (f): OverviewAttention => ({
         id: `qa-${f.id}`,
         kind: "qa",
-        title: `${f.name} fails a delivery check`,
+        title: `${f.name} fails a quality check`,
         why: f.summary,
         urgent: false,
         targetId: f.id,

@@ -1,18 +1,21 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  activeReviewers,
   overviewLayoutInput,
   type TrackReviewItem,
   type TrackState,
   trackState,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, asc, count, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { actorOf, can } from "../access.ts";
 import { recentActivity } from "../activity.ts";
 import { projectFigures } from "../project-figures.ts";
+import { failingChecks } from "../qa-summary.ts";
 import type { TenantVariables } from "../tenancy.ts";
+import { reviewersOf } from "./reviews.ts";
 
 const {
   projects,
@@ -22,10 +25,6 @@ const {
   variations,
   reviews,
   reviewItems,
-  reviewReviewers,
-  users,
-  guests,
-  qaFindings,
   projectMembers,
   projectRoles,
   overviewLayouts,
@@ -91,27 +90,7 @@ export const projectOverviewRoutes = (db: Database) =>
               )
               .orderBy(desc(files.createdAt))
           : Promise.resolve([]),
-        // A file that fails a delivery check, with the first failure's summary.
-        db
-          .selectDistinctOn([files.id], {
-            id: files.id,
-            name: files.name,
-            summary: qaFindings.summary,
-          })
-          .from(qaFindings)
-          .innerJoin(
-            files,
-            and(eq(files.id, qaFindings.fileId), eq(files.organisationId, organisationId)),
-          )
-          .where(
-            inOrg(
-              qaFindings,
-              organisationId,
-              eq(files.projectId, projectId),
-              eq(qaFindings.severity, "fail"),
-            ),
-          )
-          .orderBy(files.id, asc(qaFindings.createdAt)),
+        failingChecks(db, organisationId, projectId),
         // Each track with its latest version and that version's primary file.
         db
           .select({
@@ -166,7 +145,12 @@ export const projectOverviewRoutes = (db: Database) =>
             ),
           ),
         db
-          .select({ id: reviews.id, title: reviews.title, dueAt: reviews.dueAt })
+          .select({
+            id: reviews.id,
+            title: reviews.title,
+            dueAt: reviews.dueAt,
+            order: reviews.order,
+          })
           .from(reviews)
           .where(
             inOrg(
@@ -209,46 +193,21 @@ export const projectOverviewRoutes = (db: Database) =>
           ),
       ]);
 
-      // Who has yet to answer each open review: by name, members and guests alike.
-      const openIds = openReviews.map((r) => r.id);
-      const waiting = openIds.length
-        ? await db
-            .select({
-              reviewId: reviewReviewers.reviewId,
-              userId: users.id,
-              userName: users.name,
-              guestId: guests.id,
-              guestName: guests.name,
-            })
-            .from(reviewReviewers)
-            .leftJoin(users, eq(users.id, reviewReviewers.userId))
-            .leftJoin(
-              guests,
-              and(
-                eq(guests.id, reviewReviewers.guestId),
-                eq(guests.organisationId, organisationId),
-              ),
-            )
-            .where(
-              inOrg(
-                reviewReviewers,
-                organisationId,
-                inArray(reviewReviewers.reviewId, openIds),
-                isNull(reviewReviewers.submittedAt),
-              ),
-            )
-            .orderBy(asc(reviewReviewers.position))
-        : [];
+      // Who each open review waits on now: the reviewers of its current step who are asked to
+      // act (in a sequence, later steps have not begun; observers decide nothing).
       const waitingOn = new Map<string, { id: string; name: string }[]>();
-      for (const w of waiting) {
-        const who =
-          w.userId && w.userName
-            ? { id: w.userId, name: w.userName }
-            : w.guestId && w.guestName
-              ? { id: w.guestId, name: w.guestName }
-              : null;
-        if (!who) continue;
-        waitingOn.set(w.reviewId, [...(waitingOn.get(w.reviewId) ?? []), who]);
+      for (const r of openReviews) {
+        const { rows, facts } = await reviewersOf(db, organisationId, r.id);
+        const active = activeReviewers(r.order, facts);
+        waitingOn.set(
+          r.id,
+          rows
+            .filter((row) => active.has(row.id))
+            .flatMap((row) => {
+              const id = row.userId ?? row.guestId;
+              return id && row.name ? [{ id, name: row.name }] : [];
+            }),
+        );
       }
 
       const itemsBy = new Map<string, (TrackReviewItem & { reviewId: string })[]>();

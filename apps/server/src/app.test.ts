@@ -2190,6 +2190,7 @@ describe.runIf(url)("api", () => {
             nextDueAt: string | null;
           };
           failed: { id: string }[];
+          qaFailing: { id: string; name: string; summary: string }[];
           overdue: { title: string; waitingOn: { name: string }[] }[];
           tracks: {
             name: string;
@@ -2216,14 +2217,16 @@ describe.runIf(url)("api", () => {
         ]);
         expect(before.role).toBe("Producer");
 
-        // An approval past its due date, waiting on the composer.
+        // An approval past its due date, in order: it waits on the composer, whose step comes
+        // first, and not yet on the accompanist after them.
         const asked = await request(s.owner, s.projectId, {
           kind: "approval",
           title: "Master sign-off",
           rule: "all",
+          order: "sequence",
           dueAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
           items: [{ trackId: s.trackId }],
-          reviewers: [s.ids.composer],
+          reviewers: [s.ids.composer, s.ids.accompanist],
         });
         expect(asked.status).toBe(201);
         const owner = await overview(s.owner);
@@ -2241,6 +2244,14 @@ describe.runIf(url)("api", () => {
           }),
         ]);
         expect(owner.activity.map((a) => a.kind)).toContain("review");
+
+        // A file fails here exactly as its QA page says it does, delivery checks included.
+        const qaPage = (await (await getAs(`/api/files/${s.mix}/qa`, s.owner)).json()) as {
+          findings: { severity: string; summary: string }[];
+        };
+        const worst = qaPage.findings.find((f) => f.severity === "fail");
+        expect(worst).toBeDefined();
+        expect(owner.qaFailing.find((f) => f.id === s.mix)?.summary).toBe(worst?.summary);
 
         // A Reviewer neither triages nor uploads: no thread count, no failed files.
         const composer = await overview(s.composer);

@@ -66,7 +66,7 @@ describe("overviewAttention", () => {
       ["review", "Album masters"],
       ["overdue", "Mix notes"],
       ["failed", "Cut 3.mp4 could not be processed"],
-      ["qa", "Master.wav fails a delivery check"],
+      ["qa", "Master.wav fails a quality check"],
     ]);
     expect(items[0]).toMatchObject({ when: "due today", urgent: true });
     expect(items[1]?.why).toBe("Overdue, waiting on Mira");
