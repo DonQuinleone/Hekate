@@ -1,0 +1,55 @@
+// Run inside the app image (CI's image job): it starts as built, read-only and with every
+// capability dropped, its media tools work, and nothing in it can raise its privileges.
+import { execFileSync } from "node:child_process";
+import { existsSync, lstatSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+
+const fail = (message) => {
+  console.error(`image: ${message}`);
+  process.exitCode = 1;
+};
+
+if (process.getuid?.() === 0) fail("runs as root");
+for (const [tool, args] of [
+  ["ffmpeg", ["-version"]],
+  ["ffprobe", ["-version"]],
+  ["pdftoppm", ["-v"]],
+]) {
+  try {
+    execFileSync(tool, args, { encoding: "utf8", stdio: "pipe" });
+  } catch (error) {
+    // Some Poppler builds exit non-zero after printing their version; anything else that
+    // stops a tool running (a missing library, denied execution, a crash) fails the image.
+    const said = `${error.stdout ?? ""}${error.stderr ?? ""}`;
+    if (error.code === "ENOENT") fail(`${tool} is missing`);
+    else if (!/version/i.test(said)) fail(`${tool} does not run: ${error.message}`);
+  }
+}
+for (const gone of [
+  "/bin/sh",
+  "/usr/bin/bash",
+  "/usr/bin/dash",
+  "/usr/bin/apt-get",
+  "/usr/bin/dpkg",
+  "/usr/local/bin/npm",
+])
+  if (existsSync(gone)) fail(`${gone} is still there`);
+
+const setuid = [];
+const walk = (dir) => {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) walk(path);
+    else if (entry.isFile() && (lstatSync(path).mode & 0o6000) !== 0) setuid.push(path);
+  }
+};
+for (const root of ["/usr", "/bin", "/sbin", "/lib", "/opt", "/app"]) walk(root);
+if (setuid.length) fail(`setuid or setgid: ${setuid.join(", ")}`);
+
+if (!process.exitCode) console.log("image: as built, unprivileged, no shell, no setuid binaries");

@@ -196,6 +196,12 @@ jobs:
           load: true
           push: false
           tags: hekate:ci
+      # As Compose runs it: read-only, every capability dropped, no new privileges.
+      - name: The image runs hardened
+        run: |
+          docker run --rm --read-only --tmpfs /tmp --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            -v "$PWD/scripts/image-smoke.mjs:/smoke.mjs:ro" hekate:ci /smoke.mjs
       # Operating system and package vulnerabilities in the app image.
       - name: Trivy (image)
         id: trivy
