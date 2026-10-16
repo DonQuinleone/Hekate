@@ -9,6 +9,7 @@ import {
   renderSpectrogram,
   type SpectrogramView,
 } from "~/lib/spectrogram";
+import { useShownTheme } from "~/lib/theme";
 
 /**
  * Which spectrogram to show: every channel stacked ("each"), every channel as one ("all",
@@ -37,6 +38,8 @@ function Plane({
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
+  // The colours come from the tokens, so a new theme redraws the plane.
+  const theme = useShownTheme();
 
   useEffect(() => {
     const element = canvas.current;
@@ -68,7 +71,7 @@ function Plane({
     const image = context.createImageData(width, height);
     renderSpectrogram(spectrogram, width, height, view, table, image.data);
     context.putImageData(image, 0, 0);
-  }, [spectrogram, view, size]);
+  }, [spectrogram, view, size, theme]);
 
   const high = Math.min(view.high, spectrogram.sampleRate / 2);
   const low = Math.min(view.low, high - 1);

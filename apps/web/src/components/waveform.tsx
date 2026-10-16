@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type WaveSurfer from "wavesurfer.js";
 import { cn } from "~/lib/cn";
 import { peakLevelQuery, peaksQuery } from "~/lib/queries";
+import { useShownTheme } from "~/lib/theme";
 
 export type WaveformView = "channels" | "combined";
 
@@ -58,6 +59,8 @@ export function Waveform({
   const container = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const { data: index } = useQuery(peaksQuery(fileId));
+  // The colours come from the tokens, so a new theme draws the waveform again.
+  const theme = useShownTheme();
 
   useEffect(() => {
     const element = container.current;
@@ -125,7 +128,7 @@ export function Waveform({
       cancelled = true;
       instance?.destroy();
     };
-  }, [shown, media, duration, overlay]);
+  }, [shown, media, duration, overlay, theme]);
 
   // Nothing to wait for: no peaks are coming for this file.
   if (index && index.status !== "pending" && index.status !== "ready") return null;

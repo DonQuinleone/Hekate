@@ -402,6 +402,20 @@ test.describe("themes", () => {
         await checkScreen(page);
       });
     }
+
+    // Before anyone signs in, the page still follows the device, browser chrome included.
+    test("sign-in follows the device", async ({ page }) => {
+      await page.emulateMedia({ colorScheme: "dark" });
+      await page.goto("/sign-in");
+      await settle(page, "form");
+      const html = page.locator("html");
+      const chrome = page.locator('meta[name="theme-color"]');
+      await expect(html).not.toHaveAttribute("data-theme", /./);
+      await expect(chrome).toHaveAttribute("content", "#0a0a0b");
+      await page.emulateMedia({ colorScheme: "light" });
+      await expect(html).toHaveAttribute("data-theme", "signal-light");
+      await expect(chrome).toHaveAttribute("content", "#f4f4f2");
+    });
   });
 
   test("file-recording-light", async ({ page }) => {

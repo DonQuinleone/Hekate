@@ -1,5 +1,5 @@
 import type { Theme } from "@hekate/shared";
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 const KEY = "hekate.theme";
 
@@ -16,6 +16,25 @@ export const themeChoices: { id: Exclude<Theme, "system">; name: string; colours
   { id: "solarized", name: "Solarized", colours: ["#002b36", "#d4a20b", "#eee8d5"] },
 ];
 
+/**
+ * Each theme's ground (`--hk-ground` in themes.css), for the browser's own chrome: the status
+ * and address bars on a phone. Kept in step with themes.css and public/theme-boot.js.
+ */
+export const themeGrounds: Record<Exclude<Theme, "system">, string> = {
+  "signal-dark": "#0a0a0b",
+  "signal-light": "#f4f4f2",
+  catppuccin: "#181825",
+  dracula: "#21222c",
+  gruvbox: "#1d2021",
+  "rose-pine": "#191724",
+  "osaka-jade": "#111c18",
+  kanagawa: "#16161d",
+  solarized: "#002731",
+};
+
+/** Fired on the window whenever the theme shown changes. */
+const CHANGED = "hekate:theme";
+
 const prefersLight = () =>
   typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: light)").matches;
 
@@ -26,8 +45,13 @@ export const resolveTheme = (choice: Theme, light = prefersLight()): Exclude<The
 /** Show a theme, and remember the choice on this device for the next first paint. */
 export function applyTheme(choice: Theme) {
   const theme = resolveTheme(choice);
+  const shown = document.documentElement.dataset.theme ?? "signal-dark";
   if (theme === "signal-dark") delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = theme;
+  document
+    .querySelector('meta[name="theme-color"]')
+    ?.setAttribute("content", themeGrounds[theme] ?? themeGrounds["signal-dark"]);
+  if (theme !== shown) window.dispatchEvent(new Event(CHANGED));
   try {
     localStorage.setItem(KEY, choice);
   } catch {
@@ -45,18 +69,44 @@ export function storedTheme(): Theme {
 }
 
 /**
- * Keep the page in the member's theme: theirs once known (never the default while loading,
- * which would undo a choice remembered on this device), and following the device while it
- * is "system".
+ * Keep the page in the member's theme once it is known (never the default while loading,
+ * which would undo a choice remembered on this device).
  */
 export function useThemeSync(choice: Theme | undefined) {
   useEffect(() => {
-    if (!choice) return;
-    applyTheme(choice);
-    if (choice !== "system" || typeof matchMedia !== "function") return;
+    if (choice) applyTheme(choice);
+  }, [choice]);
+}
+
+/**
+ * Follow the device between dark and light while the choice on this device is "system", on
+ * every page: signed in or not, and a guest's.
+ */
+export function useFollowSystemTheme() {
+  useEffect(() => {
+    if (typeof matchMedia !== "function") return;
     const media = matchMedia("(prefers-color-scheme: light)");
-    const follow = () => applyTheme("system");
+    const follow = () => {
+      if (storedTheme() === "system") applyTheme("system");
+    };
     media.addEventListener("change", follow);
     return () => media.removeEventListener("change", follow);
-  }, [choice]);
+  }, []);
+}
+
+const subscribe = (onChange: () => void) => {
+  window.addEventListener(CHANGED, onChange);
+  return () => window.removeEventListener(CHANGED, onChange);
+};
+
+/**
+ * The theme shown now. What paints with the tokens itself (a canvas, a waveform) redraws
+ * when it changes, as CSS does on its own.
+ */
+export function useShownTheme(): string {
+  return useSyncExternalStore(
+    subscribe,
+    () => document.documentElement.dataset.theme ?? "signal-dark",
+    () => "signal-dark",
+  );
 }
