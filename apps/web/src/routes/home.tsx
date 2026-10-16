@@ -28,7 +28,7 @@ const dayFormat = formatDates({
 const monthFormat = formatDates({ month: "short" });
 
 const rowClass =
-  "group flex items-center gap-3.5 rounded-panel px-3 py-2.5 transition-colors hover:bg-raised/60 focus-visible:bg-raised/60";
+  "group flex items-center gap-3.5 rounded-panel px-3 py-row-tight transition-colors hover:bg-raised/60 focus-visible:bg-raised/60";
 
 function AttentionRow({ item }: { item: Attention }) {
   const body = (
@@ -86,7 +86,7 @@ function ComingUp({ reviews, now }: { reviews: MyReview[]; now: number }) {
               <Link
                 to="/reviews/$reviewId"
                 params={{ reviewId: d.id }}
-                className="flex items-center gap-3.5 rounded-panel px-3 py-2 transition-colors hover:bg-raised/60"
+                className="flex items-center gap-3.5 rounded-panel px-3 py-row-snug transition-colors hover:bg-raised/60"
               >
                 <span
                   className={cn(

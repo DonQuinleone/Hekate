@@ -7,9 +7,10 @@
 /* Tailwind reads the Signal tokens; the default palette is removed so only these exist. */
 @theme {
   --color-*: initial;
-  /* Row spacing that follows the density: py-row, py-row-tight, py-row-loose, min-h-row-min. */
+  /* Row spacing that follows the density: py-row, py-row-tight, py-row-snug, py-row-loose, min-h-row-min. */
   --spacing-row: var(--hk-row);
   --spacing-row-tight: var(--hk-row-tight);
+  --spacing-row-snug: var(--hk-row-snug);
   --spacing-row-loose: var(--hk-row-loose);
   --spacing-row-min: var(--hk-row-min);
   --color-canvas: var(--hk-canvas);

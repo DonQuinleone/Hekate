@@ -75,7 +75,7 @@ Anchors are always written the same way: `BAR 112.1`, `BARS 118–124`, `04:31.2
 
 ### Density
 
-Rows of lists and settings take their vertical room from four tokens (`--hk-row`, `--hk-row-tight`, `--hk-row-loose`, `--hk-row-min`; in Tailwind `py-row`, `py-row-tight`, `py-row-loose`, `min-h-row-min`). A member's Compact choice (Account, Appearance) sets `data-density="compact"` on the page, which tightens all four on the same scale; nothing else changes, and no list sets its own compact spacing. A new list reads these tokens rather than fixed padding.
+Rows of lists and settings take their vertical room from five tokens (`--hk-row`, `--hk-row-tight`, `--hk-row-snug`, `--hk-row-loose`, `--hk-row-min`; in Tailwind `py-row`, `py-row-tight`, `py-row-snug`, `py-row-loose`, `min-h-row-min`). A member's Compact choice (Account, Appearance) sets `data-density="compact"` on the page, which tightens all five on the same scale; nothing else changes, and no list sets its own compact spacing. A new list reads these tokens rather than fixed padding.
 
 ## Components
 

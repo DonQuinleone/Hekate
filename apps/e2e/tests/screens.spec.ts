@@ -689,6 +689,8 @@ test.describe("compact", () => {
       "main a:has-text('Maple Leaf Rag')",
     ],
     ["inbox-compact", () => "/inbox", "main a:has-text('Album masters')"],
+    ["home-compact", () => "/", "main section[aria-label=Activity] li a"],
+    ["review-compact", () => `/reviews/${seeded().reviewId}`, "h1:has-text('Album masters')"],
     ["account-appearance-compact", () => "/account/appearance", "main >> text=Density"],
   ] as const) {
     test(name, async ({ page }) => {
