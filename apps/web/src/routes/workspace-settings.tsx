@@ -1,6 +1,7 @@
 import {
   accessWindowDays,
   type CommentScope,
+  formatBytes,
   type GuestVerification,
   guestLinkDays,
   locales,
@@ -34,7 +35,10 @@ import {
   type Member,
   membersQuery,
   meQuery,
+  type StorageUsage,
+  storageUsageQuery,
   useOrganisationMutations,
+  useReconcile,
   useRenameWorkspace,
   useRevokeGuest,
   useSaveWorkspaceSettings,
@@ -638,54 +642,142 @@ function Guests() {
 
 function Storage({ role }: { role: Role }) {
   const { data } = useQuery(workspaceStorageQuery);
+  const { data: usage } = useQuery(storageUsageQuery);
   const choose = useWorkspaceStorage();
   if (!data) return null;
+  const receiving = data.backend ?? data.defaultBackend;
+  const usedIn = (name: string) => usage?.backends.find((b) => b.name === name);
   return (
-    <Section
-      title="Backends"
-      intro="Existing files stay where they are; the choice applies to new ones."
-    >
-      <Row
-        name="New files go to"
-        hint={
-          role === "owner"
-            ? "The instance default unless you choose another backend."
-            : "Only an owner can change it."
+    <>
+      <Section
+        title="Backends"
+        intro="Existing files stay where they are; the choice applies to new ones."
+      >
+        <Row
+          name="New files go to"
+          hint={
+            role === "owner"
+              ? "The instance default unless you choose another backend."
+              : "Only an owner can change it."
+          }
+        >
+          {role === "owner" ? (
+            <Select
+              aria-label="Backend for new files"
+              value={data.backend ?? ""}
+              onChange={(e) => choose.mutate(e.target.value || null)}
+              className="w-56"
+            >
+              <option value="">The default ({data.defaultBackend})</option>
+              {data.available.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <span className="text-[14px] text-ink-2">{receiving}</span>
+          )}
+        </Row>
+        {data.available.map((b) => {
+          const used = usedIn(b);
+          return (
+            <Row
+              key={b}
+              name={b}
+              hint={
+                [
+                  b === receiving ? "Receives new files" : null,
+                  b === data.defaultBackend && b !== receiving ? "The instance default" : null,
+                  used ? `${used.objects} ${used.objects === 1 ? "object" : "objects"}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || undefined
+              }
+            >
+              <span className="tabular text-[13px] text-ink-2">
+                {formatBytes(used?.bytes ?? 0)}
+              </span>
+            </Row>
+          );
+        })}
+        {choose.error && (
+          <p className="px-4 py-2 text-[13px] text-signal">{choose.error.message}</p>
+        )}
+      </Section>
+      {usage && <StorageUsageSections usage={usage} />}
+    </>
+  );
+}
+
+/** Each project's share of the storage, and what the reconciliation found in the workspace. */
+function StorageUsageSections({ usage }: { usage: StorageUsage }) {
+  const reconcile = useReconcile();
+  const r = usage.reconciliation;
+  return (
+    <>
+      <Section
+        title="Usage by project"
+        intro={`${formatBytes(usage.bytes)} in all: originals, and the renditions, pages and waveforms made from them.`}
+      >
+        {usage.projects.length === 0 && (
+          <Row name="No projects yet" hint="Files a project holds are counted here." />
+        )}
+        {usage.projects.map((p) => (
+          <Row key={p.id} name={p.name}>
+            <span className="tabular text-[14px] text-ink">{formatBytes(p.bytes)}</span>
+          </Row>
+        ))}
+      </Section>
+      <Section
+        title="Reconciliation"
+        intro={
+          r.removing
+            ? "Every night the storage is compared with the database. Bytes nothing uses are removed once a second run, a day later, still finds them; missing files wait for a person."
+            : "Every night the storage is compared with the database. This instance only reports: nothing is removed without a person."
         }
       >
-        {role === "owner" ? (
-          <Select
-            aria-label="Backend for new files"
-            value={data.backend ?? ""}
-            onChange={(e) => choose.mutate(e.target.value || null)}
-            className="w-56"
-          >
-            <option value="">The default ({data.defaultBackend})</option>
-            {data.available.map((b) => (
-              <option key={b} value={b}>
-                {b}
-              </option>
-            ))}
-          </Select>
-        ) : (
-          <span className="text-[14px] text-ink-2">{data.backend ?? data.defaultBackend}</span>
-        )}
-      </Row>
-      {data.available.map((b) => (
+        <Row name="Last run">
+          <span className="text-[13px] text-ink-2">
+            {r.lastRun ? timeFormat.format(new Date(r.lastRun.startedAt)) : "Not yet"}
+          </span>
+        </Row>
+        <Row name="Unused bytes" hint="In storage, but no file uses them">
+          <span className="tabular text-[13px] text-ink-2">
+            {r.orphans + r.unused === 0 ? "None" : r.orphans + r.unused}
+          </span>
+        </Row>
         <Row
-          key={b}
-          name={b}
+          name="Missing files"
           hint={
-            b === (data.backend ?? data.defaultBackend)
-              ? "Receives new files"
-              : b === data.defaultBackend
-                ? "The instance default"
-                : undefined
+            r.missing > 0
+              ? "Files the database expects that their backend no longer holds. Restore them from a backup."
+              : "Every file is where the database expects it."
           }
-        />
-      ))}
-      {choose.error && <p className="px-4 py-2 text-[13px] text-signal">{choose.error.message}</p>}
-    </Section>
+        >
+          {r.missing > 0 ? (
+            <span className="flex items-center gap-1.5 text-[13px] text-signal">
+              <Icon name="warning" size={13} />
+              {r.missing}
+            </span>
+          ) : (
+            <span className="text-[13px] text-ink-2">None</span>
+          )}
+        </Row>
+        <Row name="Removed in the last 30 days">
+          <span className="tabular text-[13px] text-ink-2">{r.removed}</span>
+        </Row>
+        <Row name="Run now" hint={reconcile.error?.message ?? "Checks this workspace only."}>
+          <Button
+            variant="secondary"
+            disabled={reconcile.isPending}
+            onClick={() => reconcile.mutate()}
+          >
+            {reconcile.isPending ? "Reconciling" : "Reconcile"}
+          </Button>
+        </Row>
+      </Section>
+    </>
   );
 }
 

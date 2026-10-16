@@ -35,6 +35,7 @@ import { searchRoutes } from "./routes/search.ts";
 import { setupRoutes } from "./routes/setup.ts";
 import { signInMethodRoutes } from "./routes/sign-in-methods.ts";
 import { ssoRoutes } from "./routes/sso.ts";
+import { storageSettingsRoutes } from "./routes/storage-settings.ts";
 import { fileTagRoutes, tagRoutes } from "./routes/tags.ts";
 import {
   projectTrackRoutes,
@@ -64,6 +65,8 @@ export interface AppDeps {
   log?: boolean;
   /** How many passkeys one account may hold (MAX_PASSKEYS). */
   maxPasskeys?: number;
+  /** What storage reconciliation does with bytes nothing uses (STORAGE_RECONCILE). */
+  storageReconcile?: "remove" | "report";
   /** Identity providers on a private network the server may reach (SSO_TRUSTED_ORIGINS). */
   ssoTrustedOrigins?: string[];
   /** Check the first owner's password against known breaches (PASSWORD_LEAK_CHECK). */
@@ -126,6 +129,15 @@ export function createApi(deps: AppDeps) {
           baseURL: deps.publicUrl,
           trusted: deps.ssoTrustedOrigins ?? [],
           trustProxy: deps.trustProxy ?? false,
+        }),
+      )
+      .route(
+        "/organisation/storage",
+        storageSettingsRoutes({
+          db: deps.db,
+          storage: deps.storage,
+          audit: deps.audit,
+          removing: (deps.storageReconcile ?? "remove") === "remove",
         }),
       )
       .route(

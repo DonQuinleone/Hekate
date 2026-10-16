@@ -77,7 +77,10 @@ export async function reconcileStorage(
     (await db.select({ id: organisations.id }).from(organisations)).map((o) => o.id),
   );
 
-  /** Record a sighting, and return the finding. */
+  /**
+   * Record a sighting, and return the finding. Atomic, so two runs at once (the nightly one and
+   * one an admin asked for) never both try to create the same open finding.
+   */
   const sight = async (
     kind: Kind,
     backend: string,
@@ -85,24 +88,6 @@ export async function reconcileStorage(
     owner: string | null,
     blobId: string | null,
   ) => {
-    const [existing] = await db
-      .select()
-      .from(storageFindings)
-      .where(
-        and(
-          eq(storageFindings.kind, kind),
-          eq(storageFindings.backend, backend),
-          eq(storageFindings.key, key),
-          isNull(storageFindings.resolvedAt),
-        ),
-      );
-    if (existing) {
-      await db
-        .update(storageFindings)
-        .set({ lastSeenAt: now })
-        .where(eq(storageFindings.id, existing.id));
-      return existing;
-    }
     const [created] = await db
       .insert(storageFindings)
       .values({
@@ -114,9 +99,26 @@ export async function reconcileStorage(
         firstSeenAt: now,
         lastSeenAt: now,
       })
+      .onConflictDoNothing({
+        target: [storageFindings.kind, storageFindings.backend, storageFindings.key],
+        where: isNull(storageFindings.resolvedAt),
+      })
       .returning();
-    if (!created) throw new Error("Finding insert returned no row");
-    return created;
+    if (created) return created;
+    const [existing] = await db
+      .update(storageFindings)
+      .set({ lastSeenAt: now })
+      .where(
+        and(
+          eq(storageFindings.kind, kind),
+          eq(storageFindings.backend, backend),
+          eq(storageFindings.key, key),
+          isNull(storageFindings.resolvedAt),
+        ),
+      )
+      .returning();
+    if (!existing) throw new Error("Finding was neither created nor found");
+    return existing;
   };
 
   /** Keys an organisation's unfinished uploads will write to, in one backend. */
@@ -145,12 +147,15 @@ export async function reconcileStorage(
       removed: 0,
     };
 
-    // What the backend holds, grouped by the organisation in each key.
+    // What the backend holds, grouped by the organisation in each key. A targeted run lists
+    // only its own organisations' keys, never the whole backend.
     const stored = new Map<string, string[]>();
-    for await (const object of backend.list("org/")) {
-      const owner = ownerOf(object.key);
-      if (!owner) continue;
-      stored.set(owner, [...(stored.get(owner) ?? []), object.key]);
+    for (const prefix of scope ? [...scope].map((o) => `org/${o}/`) : ["org/"]) {
+      for await (const object of backend.list(prefix)) {
+        const owner = ownerOf(object.key);
+        if (!owner) continue;
+        stored.set(owner, [...(stored.get(owner) ?? []), object.key]);
+      }
     }
 
     for (const owner of new Set([...stored.keys(), ...living])) {
