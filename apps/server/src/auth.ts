@@ -7,6 +7,8 @@ import { APIError, createAuthMiddleware, getSessionFromCtx, isAPIError } from "b
 import { emailOTP, haveIBeenPwned, twoFactor } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import type { Audit } from "./audit.ts";
+import { directorySignIn } from "./directory-sign-in.ts";
+import type { Keyring } from "./keyring.ts";
 import { waitMessage } from "./lockout.ts";
 import { type Mailer, sendEmail } from "./mail.ts";
 import {
@@ -39,6 +41,8 @@ export interface AuthOptions {
    * characters of a hash). On by default; an instance without internet access turns it off.
    */
   leakCheck?: boolean;
+  /** Opens a workspace directory's bind password, for directory sign-in (#38). */
+  keyring?: Keyring;
   /** How many passkeys and hardware security keys one account may hold (MAX_PASSKEYS). */
   maxPasskeys?: number;
 }
@@ -83,6 +87,8 @@ export function createAuth(options: AuthOptions) {
       revokeSessionsOnPasswordReset: true,
     },
     plugins: [
+      // A workspace's directory (LDAP): its username and password sign in.
+      directorySignIn({ db: options.db, keyring: options.keyring, audit: options.audit }),
       // Passkeys and hardware security keys (WebAuthn): sign in on their own, or confirm a
       // password sign-in, for this instance's address only.
       passkey({

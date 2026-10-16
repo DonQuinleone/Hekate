@@ -13,6 +13,7 @@ import {
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Avatar } from "~/components/avatar";
+import { DirectorySection } from "~/components/directory";
 import { EmailTemplatesSection } from "~/components/email-templates";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
@@ -808,7 +809,12 @@ export function WorkspaceSettingsPage({ section }: { section: string }) {
         {current.id === "defaults" && <Defaults />}
         {current.id === "email" && <EmailTemplatesSection />}
         {current.id === "members" && <Members role={role} />}
-        {current.id === "security" && <Security />}
+        {current.id === "security" && (
+          <>
+            <Security />
+            <DirectorySection />
+          </>
+        )}
         {current.id === "storage" && <Storage role={role} />}
         {current.id === "log" && <AccessLog />}
       </SettingsLayout>

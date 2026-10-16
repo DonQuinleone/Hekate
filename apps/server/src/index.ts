@@ -43,6 +43,10 @@ const backends = await (async () => {
 
 const { db, close } = createDb(config.DATABASE_URL);
 const mailer = createMailer({ smtpUrl: config.SMTP_URL, from: config.MAIL_FROM });
+const keyring = createKeyring(db, {
+  current: config.MASTER_KEY,
+  previous: config.MASTER_KEYS_PREVIOUS,
+});
 const auth = createAuth({
   db,
   secret: config.AUTH_SECRET,
@@ -52,11 +56,9 @@ const auth = createAuth({
   audit: createAudit(db),
   leakCheck: config.PASSWORD_LEAK_CHECK,
   maxPasskeys: config.MAX_PASSKEYS,
+  keyring,
 });
-const keyring = createKeyring(db, {
-  current: config.MASTER_KEY,
-  previous: config.MASTER_KEYS_PREVIOUS,
-});
+
 // Every organisation key must open with a configured master key; keys wrapped by a
 // previous master key are re-wrapped with the current one (docs/security.md).
 try {

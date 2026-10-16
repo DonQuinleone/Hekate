@@ -16,6 +16,7 @@ import { deleteAccount } from "../account-deletion.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import type { Auth } from "../auth.ts";
 import { CodedException } from "../errors.ts";
+import type { Keyring } from "../keyring.ts";
 import { recoveryCodesLeft } from "../second-factor.ts";
 import {
   factorStanding,
@@ -29,6 +30,8 @@ import {
 export interface MeDeps {
   auth: Auth;
   audit: Audit;
+  /** Opens the directories that vouch for accounts with no password here. */
+  keyring?: Keyring;
   trustProxy: boolean;
   /** How many passkeys one account may hold (MAX_PASSKEYS). */
   maxPasskeys: number;
@@ -250,6 +253,7 @@ export const accountRoutes = (db: Database, deps: MeDeps) =>
       const result = await deleteAccount(
         db,
         deps.auth,
+        deps.keyring,
         deps.audit,
         c.var.userId,
         c.req.valid("json"),

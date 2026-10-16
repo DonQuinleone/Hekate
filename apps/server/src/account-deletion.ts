@@ -1,8 +1,10 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import { type DeleteAccountInput, FORMER_MEMBER } from "@hekate/shared";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, like, sql } from "drizzle-orm";
 import type { Audit, RequestInfo } from "./audit.ts";
 import type { Auth } from "./auth.ts";
+import { directoryConfig, verifyPassword } from "./directory.ts";
+import type { Keyring } from "./keyring.ts";
 
 const {
   accessEvents,
@@ -30,6 +32,41 @@ export type DeletionResult =
   | { status: "sole_owner"; workspaces: string[] };
 
 /**
+ * Whether a password is the account's: its password here, or, for an account made by a
+ * workspace's directory (#38) with none here, its password in that directory, checked by
+ * binding as the person the account is linked to.
+ */
+async function passwordIsTheirs(
+  db: Database,
+  auth: Auth,
+  keyring: Keyring | undefined,
+  userId: string,
+  password: string,
+): Promise<boolean> {
+  const [credential] = await db
+    .select({ hash: authAccounts.password })
+    .from(authAccounts)
+    .where(and(eq(authAccounts.userId, userId), eq(authAccounts.providerId, "credential")));
+  if (credential?.hash) {
+    const context = await auth.$context;
+    return context.password.verify({ hash: credential.hash, password });
+  }
+  if (!keyring) return false;
+  const links = await db
+    .select({ providerId: authAccounts.providerId, dn: authAccounts.accountId })
+    .from(authAccounts)
+    .where(and(eq(authAccounts.userId, userId), like(authAccounts.providerId, "directory:%")));
+  for (const link of links) {
+    const organisationId = link.providerId.slice("directory:".length);
+    const config = await directoryConfig(db, keyring, organisationId);
+    if (!config?.enabled) continue;
+    // A directory that cannot be reached cannot vouch: try the next, else refuse.
+    if (await verifyPassword(config, link.dn, password).catch(() => false)) return true;
+  }
+  return false;
+}
+
+/**
  * Delete an account (decision 047). What the member did stays, as a former member's: their
  * comments, decisions and access log entries keep their place, under "A former member". What
  * was theirs alone goes: sign-in, sessions, the second factor, memberships, preferences,
@@ -43,6 +80,7 @@ export type DeletionResult =
 export async function deleteAccount(
   db: Database,
   auth: Auth,
+  keyring: Keyring | undefined,
   audit: Audit,
   userId: string,
   input: DeleteAccountInput,
@@ -51,15 +89,7 @@ export async function deleteAccount(
   const [user] = await db.select({ email: users.email }).from(users).where(eq(users.id, userId));
   if (!user || user.email.toLowerCase() !== input.email.trim().toLowerCase())
     return { status: "refused" };
-  const [credential] = await db
-    .select({ hash: authAccounts.password })
-    .from(authAccounts)
-    .where(and(eq(authAccounts.userId, userId), eq(authAccounts.providerId, "credential")));
-  const context = await auth.$context;
-  if (
-    !credential?.hash ||
-    !(await context.password.verify({ hash: credential.hash, password: input.password }))
-  )
+  if (!(await passwordIsTheirs(db, auth, keyring, userId, input.password)))
     return { status: "refused" };
 
   return db.transaction(async (tx) => {

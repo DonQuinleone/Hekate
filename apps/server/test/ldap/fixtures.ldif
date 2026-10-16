@@ -1,0 +1,58 @@
+# A small directory for the LDAP tests (apps/server/src/directory.test.ts). Fictional people only.
+dn: dc=example,dc=test
+objectClass: dcObject
+objectClass: organization
+dc: example
+o: Endless Hall Records
+
+dn: ou=people,dc=example,dc=test
+objectClass: organizationalUnit
+ou: people
+
+dn: ou=groups,dc=example,dc=test
+objectClass: organizationalUnit
+ou: groups
+
+dn: ou=services,dc=example,dc=test
+objectClass: organizationalUnit
+ou: services
+
+dn: cn=hekate,ou=services,dc=example,dc=test
+objectClass: organizationalRole
+objectClass: simpleSecurityObject
+cn: hekate
+userPassword: bind-secret-for-tests
+
+dn: uid=mira,ou=people,dc=example,dc=test
+objectClass: inetOrgPerson
+uid: mira
+cn: Mira Solberg
+sn: Solberg
+mail: mira@example.test
+userPassword: mira-directory-pass
+
+dn: uid=tomas,ou=people,dc=example,dc=test
+objectClass: inetOrgPerson
+uid: tomas
+cn: Tomas Varga
+sn: Varga
+mail: tomas@example.test
+userPassword: tomas-directory-pass
+
+dn: uid=ines,ou=people,dc=example,dc=test
+objectClass: inetOrgPerson
+uid: ines
+cn: Ines Arlow
+sn: Arlow
+userPassword: ines-directory-pass
+
+dn: cn=producers,ou=groups,dc=example,dc=test
+objectClass: groupOfNames
+cn: producers
+member: uid=mira,ou=people,dc=example,dc=test
+
+dn: cn=reviewers,ou=groups,dc=example,dc=test
+objectClass: groupOfNames
+cn: reviewers
+member: uid=tomas,ou=people,dc=example,dc=test
+member: uid=mira,ou=people,dc=example,dc=test
