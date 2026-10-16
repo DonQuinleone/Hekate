@@ -282,7 +282,7 @@ export function BrandSection() {
       </Section>
       <Section
         title="Icons"
-        intro="One weight, 1.5 px strokes on a 16 px grid, round caps. Icons carry meaning on their own: a track is bars, a folder is a folder, never a label saying what the icon already says."
+        intro="Lucide, at one 1.5 px stroke, named for what each means in Hekate. Icons carry meaning on their own: a track is bars, a folder is a folder, never a label saying what the icon already says."
       >
         <div className="flex flex-wrap gap-1 px-4 py-3">
           {iconSample.map((i) => (
