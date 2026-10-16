@@ -113,6 +113,8 @@ export function Switcher() {
                   <optgroup label="Arrival">
                     <option value="/sign-in">Sign in</option>
                     <option value="/sign-in?view=code">Sign in: second factor</option>
+                    <option value="/sign-in?view=recovery">Sign in: recovery code</option>
+                    <option value="/sign-in?view=enrol">Second factor required</option>
                     <option value="/sign-in?view=sso">Sign in: single sign-on</option>
                     <option value="/sign-in?view=forgot">Forgotten password</option>
                     <option value="/sign-in?view=sent">Reset: check your email</option>

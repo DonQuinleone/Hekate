@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   applyWorkspaceSettings,
   defaultWorkspaceSettings,
+  type OrganisationRole,
   reviewerDefaults,
+  type SecondFactorPolicy,
+  secondFactorRequired,
   workspaceSettingsInput,
   workspaceSettingsOf,
 } from "./organisation.ts";
@@ -27,6 +30,7 @@ describe("workspace settings", () => {
       locale: null,
       carriedCommentsShown: true,
       emailSubjects: { invitation: "Join {workspace}" },
+      secondFactor: "off",
       reviewer: { comment: true, decide: false, comments: "all", windowDays: 30 },
     });
   });
@@ -69,5 +73,30 @@ describe("workspace settings", () => {
       expiresAt: "2026-10-30T09:00:00.000Z",
     });
     expect(reviewerDefaults(defaultWorkspaceSettings, now).expiresAt).toBeNull();
+  });
+});
+
+describe("secondFactorRequired", () => {
+  const ask = (policy: SecondFactorPolicy, role: OrganisationRole, instance = false) =>
+    secondFactorRequired({ instance, policy, role });
+
+  it("asks no one when neither the workspace nor the instance does", () => {
+    expect(ask("off", "owner")).toBe(false);
+  });
+
+  it("asks owners and admins first, then everyone", () => {
+    expect(ask("admins", "owner")).toBe(true);
+    expect(ask("admins", "admin")).toBe(true);
+    expect(ask("admins", "member")).toBe(false);
+    expect(ask("everyone", "member")).toBe(true);
+  });
+
+  it("asks every account when the instance does, whatever the workspace says", () => {
+    expect(ask("off", "member", true)).toBe(true);
+  });
+
+  it("reads a stored policy, and falls back to off", () => {
+    expect(workspaceSettingsOf({ secondFactor: "admins" }).secondFactor).toBe("admins");
+    expect(workspaceSettingsOf({ secondFactor: "sometimes" }).secondFactor).toBe("off");
   });
 });

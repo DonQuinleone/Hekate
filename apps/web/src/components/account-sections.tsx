@@ -1,5 +1,5 @@
 import { locales, preRolls, skipSteps, type Theme } from "@hekate/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { shortAgent } from "~/lib/agent";
 import { authClient } from "~/lib/auth";
@@ -15,9 +15,11 @@ import {
 } from "~/lib/queries";
 import { applyTheme, themeChoices } from "~/lib/theme";
 import { Avatar } from "./avatar";
+import { CodeAppSetup, RecoveryCodes } from "./second-factor";
 import { Row, Section, SwitchRow } from "./settings";
 import { Button } from "./ui/button";
 import { Choice } from "./ui/choice";
+import { Dialog } from "./ui/dialog";
 import { Input, Select } from "./ui/input";
 import { StatusDot } from "./ui/status";
 
@@ -277,6 +279,199 @@ function PasswordSection() {
         )}
       </Row>
     </Section>
+  );
+}
+
+/** The password asked again before a second factor is removed or its codes replaced. */
+function PasswordDialog({
+  title,
+  description,
+  action,
+  danger = false,
+  run,
+  onClose,
+}: {
+  title: string;
+  description: string;
+  action: string;
+  danger?: boolean;
+  run: (password: string) => Promise<string | null>;
+  onClose: () => void;
+}) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setPending(true);
+    setError(await run(password));
+    setPending(false);
+  };
+  return (
+    <Dialog title={title} description={description} onClose={onClose} width="sm">
+      <form onSubmit={submit} className="flex flex-col gap-4">
+        <Input
+          type="password"
+          autoComplete="current-password"
+          aria-label="Password"
+          placeholder="Password"
+          autoFocus
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        {error && <Note error>{error}</Note>}
+        <span className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            variant={danger ? "secondary" : "primary"}
+            className={danger ? "text-signal" : undefined}
+            disabled={pending || !password}
+          >
+            {action}
+          </Button>
+        </span>
+      </form>
+    </Dialog>
+  );
+}
+
+/**
+ * The second factor: a code app, and the recovery codes that stand in for it. Removing it, or
+ * replacing the codes, asks for the password again.
+ */
+export function SecondFactorSection() {
+  const client = useQueryClient();
+  const { data: me } = useQuery(meQuery);
+  const [open, setOpen] = useState<"add" | "remove" | "codes" | null>(null);
+  const [codes, setCodes] = useState<string[] | null>(null);
+  if (!me) return null;
+  const { enabled, required, recoveryCodesLeft } = me.secondFactor;
+  const close = () => setOpen(null);
+  const refresh = () => client.invalidateQueries({ queryKey: ["me"] });
+  const wrongPassword = (status: number) =>
+    status === 400 ? "That password is not right." : "That did not go through.";
+  return (
+    <>
+      <Section
+        title="Second factor"
+        intro="A code from an app on your phone, asked for after your password. Passkeys and security keys arrive here too."
+      >
+        <Row
+          name="Code app"
+          hint={
+            enabled
+              ? "On. Asked for at each sign-in, except in browsers you trust."
+              : required
+                ? "This workspace asks for one."
+                : "Off. Any authenticator app works."
+          }
+        >
+          {enabled ? (
+            <Button size="sm" variant="ghost" onClick={() => setOpen("remove")}>
+              Remove…
+            </Button>
+          ) : (
+            <Button size="sm" variant="secondary" onClick={() => setOpen("add")}>
+              Set up…
+            </Button>
+          )}
+        </Row>
+      </Section>
+      {enabled && (
+        <Section
+          title="Recovery codes"
+          intro="Ten single-use codes for when your phone is lost. Keep them somewhere else."
+        >
+          <Row
+            name={`${recoveryCodesLeft} of 10 unused`}
+            hint={
+              recoveryCodesLeft <= 3
+                ? "Few left: generate new ones, which replace these."
+                : "New ones replace these."
+            }
+          >
+            <Button size="sm" variant="secondary" onClick={() => setOpen("codes")}>
+              Generate new ones…
+            </Button>
+          </Row>
+        </Section>
+      )}
+      {open === "add" && (
+        <CodeAppSetup
+          onCancel={close}
+          onDone={close}
+          shell={({ title, intro, body }) => (
+            <Dialog title={title} description={intro} onClose={close} width="sm">
+              {body}
+            </Dialog>
+          )}
+        />
+      )}
+      {open === "remove" && (
+        <PasswordDialog
+          title="Remove the code app"
+          description={
+            required
+              ? "This workspace asks for a second factor: you will be asked to add one again before you can carry on. Your recovery codes stop working."
+              : "Sign-in will ask for your password alone. Your recovery codes stop working."
+          }
+          action="Remove"
+          danger
+          onClose={close}
+          run={async (password) => {
+            const { error } = await authClient.twoFactor.disable({ password });
+            if (error) return wrongPassword(error.status);
+            close();
+            await refresh();
+            return null;
+          }}
+        />
+      )}
+      {open === "codes" && !codes && (
+        <PasswordDialog
+          title="Generate new recovery codes"
+          description="The codes you have now stop working."
+          action="Generate"
+          onClose={close}
+          run={async (password) => {
+            const { data, error } = await authClient.twoFactor.generateBackupCodes({ password });
+            if (error || !data) return wrongPassword(error?.status ?? 0);
+            setCodes(data.backupCodes);
+            await refresh();
+            return null;
+          }}
+        />
+      )}
+      {codes && (
+        <Dialog
+          title="Keep your recovery codes"
+          description="Each signs you in once if your phone is lost. They are not shown again."
+          width="sm"
+          onClose={() => {
+            setCodes(null);
+            close();
+          }}
+        >
+          <div className="flex flex-col gap-5">
+            <RecoveryCodes codes={codes} />
+            <span className="flex justify-end">
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setCodes(null);
+                  close();
+                }}
+              >
+                I have kept them
+              </Button>
+            </span>
+          </div>
+        </Dialog>
+      )}
+    </>
   );
 }
 

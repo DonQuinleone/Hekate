@@ -23,6 +23,9 @@ export const actionCopy: Record<string, string> = {
   "organisation.settings": "Workspace settings changed",
   "account.lockout": "Account locked after failed sign-ins",
   "account.password_reset": "Password reset with an emailed code",
+  "account.second_factor_added": "Second factor added",
+  "account.second_factor_removed": "Second factor removed",
+  "account.recovery_codes": "New recovery codes generated",
   "project.archive": "Project archived",
   "project.unarchive": "Project brought back",
 };

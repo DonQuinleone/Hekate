@@ -4,6 +4,7 @@ import { Lockup } from "~/components/brand";
 import { Icon } from "~/components/icons";
 import { Dot } from "~/components/status";
 import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
 import { organisation } from "~/data";
 import { cn } from "~/lib/cn";
 import { useViewer } from "~/viewer/context";
@@ -60,7 +61,34 @@ function Field({
 }
 
 /** Sign in: what the organisation allows. Here: password, passkey and single sign-on. */
-type SignInView = "sign-in" | "forgot" | "sent" | "code" | "reset" | "sso";
+type SignInView = "sign-in" | "forgot" | "sent" | "code" | "recovery" | "enrol" | "reset" | "sso";
+
+/** A QR code as an authenticator app scans it: drawn dark on paper in every theme. */
+function QrSample({ size = 176 }: { size?: number }) {
+  const n = 29;
+  // A fixed pattern that reads as a QR code: three finders and a scatter of modules.
+  const finder = (x: number, y: number) =>
+    `M${x} ${y}h7v7h-7zM${x + 1} ${y + 1}v5h5v-5zM${x + 2} ${y + 2}h3v3h-3z`;
+  let d = finder(2, 2) + finder(n - 9, 2) + finder(2, n - 9);
+  for (let y = 2; y < n - 2; y++)
+    for (let x = 2; x < n - 2; x++) {
+      const inFinder = (x < 10 && y < 10) || (x > n - 11 && y < 10) || (x < 10 && y > n - 11);
+      if (!inFinder && (x * 7 + y * 13 + x * y) % 5 < 2) d += `M${x} ${y}h1v1h-1z`;
+    }
+  return (
+    <svg
+      role="img"
+      aria-label="QR code for your authenticator app"
+      viewBox={`0 0 ${n} ${n}`}
+      width={size}
+      height={size}
+      shapeRendering="crispEdges"
+      className="shrink-0 rounded-control bg-paper text-paper-ink"
+    >
+      <path d={d} fill="currentColor" fillRule="evenodd" />
+    </svg>
+  );
+}
 
 const codeBoxes =
   "h-14 w-full rounded-control border border-edge-strong bg-raised text-center text-[22px] tabular text-ink shadow-1 focus:border-ink-2 focus:outline-none focus-visible:shadow-none";
@@ -135,7 +163,7 @@ export function SignInPage({ view: initial }: { view?: string }) {
               <Icon name="key" />
               Security key
             </Button>
-            <Button type="button" variant="secondary" size="lg" onClick={() => setView("reset")}>
+            <Button type="button" variant="secondary" size="lg" onClick={() => setView("recovery")}>
               Recovery code
             </Button>
           </div>
@@ -144,6 +172,90 @@ export function SignInPage({ view: initial }: { view?: string }) {
           </label>
         </form>
         {back}
+      </Frame>
+    );
+
+  if (view === "recovery")
+    return (
+      <Frame
+        title="Use a recovery code"
+        intro="One of the codes you kept when you added your code app. Each works once."
+      >
+        <form
+          className="flex flex-col gap-5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            done();
+          }}
+        >
+          <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+            Recovery code
+            <Input placeholder="xxxxx-xxxxx" className="h-10 font-mono" spellCheck={false} />
+          </label>
+          {refused && (
+            <p className="text-[14px] text-signal">
+              That recovery code is not right, or it has been used.
+            </p>
+          )}
+          <Button type="submit" variant="primary" size="lg">
+            Continue
+          </Button>
+          <label className="flex items-center gap-2 text-[13px] text-ink-2">
+            <input type="checkbox" /> Trust this browser for 30 days
+          </label>
+          <button
+            type="button"
+            className="self-start text-[13px] text-ink-3 transition-colors hover:text-ink"
+            onClick={() => setView("code")}
+          >
+            Use your code app instead
+          </button>
+        </form>
+        {back}
+      </Frame>
+    );
+
+  // A workspace that asks for a second factor holds back a member without one: before anything
+  // else, they add a code app (password, then this, then their recovery codes).
+  if (view === "enrol")
+    return (
+      <Frame
+        title="Scan the code"
+        intro={`${organisation.name} asks everyone to sign in with a second factor. Scan this with any authenticator app, then type the six digits it shows.`}
+      >
+        <form
+          className="flex flex-col gap-5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            done();
+          }}
+        >
+          <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
+            <QrSample />
+            <p className="m-0 text-[13px] leading-normal text-ink-3">
+              No camera? Type this key into the app instead:
+              <span className="mt-1.5 block font-mono text-[14px] break-all text-ink">
+                JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP
+              </span>
+            </p>
+          </div>
+          <CodeField />
+          {refused && (
+            <p className="text-[14px] text-signal">
+              That code is not right. Codes change every 30 seconds.
+            </p>
+          )}
+          <Button type="submit" variant="primary" size="lg">
+            Turn on
+          </Button>
+        </form>
+        <button
+          type="button"
+          className="self-start text-[13px] text-ink-3 transition-colors hover:text-ink"
+          onClick={() => setView("sign-in")}
+        >
+          Sign out
+        </button>
       </Frame>
     );
 

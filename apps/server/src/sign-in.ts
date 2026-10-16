@@ -81,20 +81,36 @@ export async function clearAttempts(db: Database, email: string) {
 /** Whether the attempts stand locked now, rather than only slowed. */
 export const isLocked = (a: Attempts, now = new Date()) => Boolean(standing(a, now).lockedUntil);
 
+type AccountAction =
+  | "account.lockout"
+  | "account.password_reset"
+  | "account.second_factor_added"
+  | "account.second_factor_removed"
+  | "account.recovery_codes";
+
 /** Write an account event to the access log of every workspace the account belongs to. */
 export async function logToWorkspaces(
   db: Database,
   audit: Audit,
   email: string,
-  action: "account.lockout" | "account.password_reset",
+  action: AccountAction,
 ) {
   const [user] = await db
     .select({ id: users.id })
     .from(users)
     .where(eq(users.email, email.trim().toLowerCase()));
-  if (!user) return;
-  const who = await audit.member(user.id);
-  for (const organisationId of await workspacesOf(db, user.id)) {
+  if (user) await logForAccount(db, audit, user.id, action);
+}
+
+/** The same, for an account known by its id. */
+export async function logForAccount(
+  db: Database,
+  audit: Audit,
+  userId: string,
+  action: AccountAction,
+) {
+  const who = await audit.member(userId);
+  for (const organisationId of await workspacesOf(db, userId)) {
     await audit.record(organisationId, who, { action });
   }
 }

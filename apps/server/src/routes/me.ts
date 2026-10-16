@@ -4,6 +4,7 @@ import {
   preferencesInput,
   preferencesOf,
   profileInput,
+  secondFactorRequired,
   workspaceSettingsOf,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
@@ -11,9 +12,10 @@ import { and, asc, desc, eq, gt, ne } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { membershipOf, type TenantVariables } from "../tenancy.ts";
+import { recoveryCodesLeft } from "../second-factor.ts";
+import { membershipOf, type SecondFactorRule, type TenantVariables } from "../tenancy.ts";
 
-export const meRoutes = (db: Database) =>
+export const meRoutes = (db: Database, rule: SecondFactorRule) =>
   new Hono<{ Variables: TenantVariables }>()
     .get("/", async (c) => {
       const [user] = await db
@@ -25,9 +27,14 @@ export const meRoutes = (db: Database) =>
           locale: schema.users.locale,
           timeZone: schema.users.timeZone,
           preferences: schema.users.preferences,
+          twoFactorEnabled: schema.users.twoFactorEnabled,
         })
         .from(schema.users)
         .where(eq(schema.users.id, c.var.userId));
+      const [factor] = await db
+        .select({ backupCodes: schema.twoFactors.backupCodes })
+        .from(schema.twoFactors)
+        .where(eq(schema.twoFactors.userId, c.var.userId));
       const organisations = await db
         .select({
           id: schema.organisations.id,
@@ -39,8 +46,21 @@ export const meRoutes = (db: Database) =>
         .innerJoin(schema.organisations, eq(schema.members.organisationId, schema.organisations.id))
         .where(eq(schema.members.userId, c.var.userId))
         .orderBy(asc(schema.organisations.name));
+      const active = organisations.find((o) => o.id === c.var.organisationId);
+      const { twoFactorEnabled = false, ...profile } = user ?? {};
       return c.json({
-        user: user && { ...user, preferences: preferencesOf(user.preferences) },
+        user: user && { ...profile, preferences: preferencesOf(user.preferences) },
+        // Whether they have a second factor, whether this workspace asks for one, and how many
+        // recovery codes they have left.
+        secondFactor: {
+          enabled: twoFactorEnabled,
+          required: secondFactorRequired({
+            instance: rule.instance,
+            policy: workspaceSettingsOf(active?.settings).secondFactor,
+            role: c.var.organisationRole,
+          }),
+          recoveryCodesLeft: twoFactorEnabled ? recoveryCodesLeft(factor?.backupCodes) : 0,
+        },
         // Each workspace's language, for members who have not chosen their own.
         organisations: organisations.map(({ settings, ...o }) => ({
           ...o,

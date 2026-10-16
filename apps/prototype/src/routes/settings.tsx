@@ -850,11 +850,16 @@ export function SettingsPage({
                 ))}
               </span>
             </Row>
-            <SwitchRow
-              name="Second factor required"
-              hint="A passkey, a security key or a code app; recovery codes are issued."
-              checked
-            />
+            <Row
+              name="Second factor required of"
+              hint="A code app, a passkey or a security key, with recovery codes. People without one are asked at their next sign-in and cannot carry on until they add one. Guests use their link."
+            >
+              <Select defaultValue="everyone" className="w-48">
+                <option value="off">Nobody</option>
+                <option value="admins">Owners and admins</option>
+                <option value="everyone">Everyone</option>
+              </Select>
+            </Row>
             <SwitchRow name="Security key required for owners and admins" checked={false} />
             <Row name="Sessions end after">
               <Select defaultValue="30" className="w-40">

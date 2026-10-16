@@ -45,6 +45,18 @@ const screens: Screen[] = [
     as: "signed-out",
   },
   // The design system reference (built in for the suite only).
+  {
+    name: "sign-in-code",
+    path: () => "/sign-in?view=code",
+    ready: "text=Enter your code",
+    as: "signed-out",
+  },
+  {
+    name: "sign-in-recovery",
+    path: () => "/sign-in?view=recovery",
+    ready: "text=Use a recovery code",
+    as: "signed-out",
+  },
   { name: "reference", path: () => "/reference", ready: "main h1", as: "signed-out" },
   {
     name: "invitation",
@@ -91,8 +103,8 @@ const screens: Screen[] = [
     ready: "main >> text=Endless Hall Records",
   },
   {
-    name: "account-sessions",
-    path: () => "/account/sessions",
+    name: "account-security",
+    path: () => "/account/security",
     ready: "main >> text=This browser",
   },
   {
@@ -178,6 +190,11 @@ const screens: Screen[] = [
     name: "settings-defaults",
     path: () => "/settings/defaults",
     ready: "main >> text=Access window",
+  },
+  {
+    name: "settings-security",
+    path: () => "/settings/security",
+    ready: "main >> text=Second factor required of",
   },
   {
     name: "settings-email",
@@ -461,6 +478,42 @@ test("file-comment-sheet", async ({ page }, info) => {
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press("c");
   await expect(sheet.getByRole("textbox", { name: "Comment at the playhead" })).toBeFocused();
+});
+
+// Adding a code app from the account page: the password, then the code to scan. Cancelled
+// there, so the account stays as seeded.
+test("account-second-factor", async ({ page }) => {
+  await page.goto("/account/security");
+  await settle(page, "main >> text=Code app");
+  await page.getByRole("button", { name: "Set up…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add a code app" });
+  await dialog.getByLabel("Password").fill("correct horse battery");
+  await dialog.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByRole("dialog", { name: "Scan the code" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "QR code for your authenticator app" })).toBeVisible();
+  await saveScreen(page, "account-second-factor");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Cancel" }).click();
+});
+
+// A workspace that asks for a second factor holds back a member without one until they add
+// it. Asked for directly in the database, and put back after.
+test("second-factor-required", async ({ page }) => {
+  const sql = postgres(process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL ?? "", { max: 1 });
+  const [before] = await sql<{ id: string; settings: Record<string, postgres.JSONValue> | null }[]>`
+    select id, settings from organisations where name = 'Endless Hall Records'`;
+  try {
+    await sql`update organisations set settings = ${sql.json({ ...before?.settings, secondFactor: "everyone" })}
+      where id = ${before?.id ?? ""}`;
+    await page.goto("/");
+    await expect(page).toHaveURL(/\/second-factor$/);
+    await settle(page, "text=asks you to sign in with a second factor");
+    await saveScreen(page, "second-factor-required");
+    await checkScreen(page);
+  } finally {
+    await sql`update organisations set settings = ${sql.json(before?.settings ?? {})} where id = ${before?.id ?? ""}`;
+    await sql.end();
+  }
 });
 
 // A file whose preparation failed says so, with a way to try again; put back as seeded after.

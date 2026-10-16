@@ -41,6 +41,11 @@ export const auditActions = [
   "account.lockout",
   /** A member set a new password with a code sent to their address. */
   "account.password_reset",
+  /** A member added a second factor to their account, or removed it. */
+  "account.second_factor_added",
+  "account.second_factor_removed",
+  /** A member generated new recovery codes; the old ones stop working. */
+  "account.recovery_codes",
   /** An owner renamed the workspace. */
   "organisation.rename",
   /** An admin changed the workspace's settings. */
