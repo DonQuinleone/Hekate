@@ -18,6 +18,7 @@ describe("workspace settings", () => {
       guestLinkDays: 14,
       locale: "tlh",
       reviewer: { decide: false, comments: "everyone", windowDays: 30 },
+      emailSubjects: { invitation: "Join {workspace}", decision: "{nonsense}", stale: "x" },
       stale: true,
     });
     expect(read).toEqual({
@@ -25,6 +26,7 @@ describe("workspace settings", () => {
       guestLinkDays: 14,
       locale: null,
       carriedCommentsShown: true,
+      emailSubjects: { invitation: "Join {workspace}" },
       reviewer: { comment: true, decide: false, comments: "all", windowDays: 30 },
     });
   });

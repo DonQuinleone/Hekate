@@ -224,6 +224,9 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
 /** Axe's WCAG 2.2 AA rules; each violation as one line naming the rule and where. */
 export async function accessibilityProblems(page: Page): Promise<string[]> {
   const result = await new AxeBuilder({ page })
+    // A sandboxed frame runs no scripts, so axe cannot look inside it; what it shows (an
+    // email preview) is not the app's interface and is tested on its own.
+    .exclude("iframe[sandbox]")
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
     .analyze();
   return result.violations.flatMap((v) =>

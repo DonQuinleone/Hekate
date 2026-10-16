@@ -53,6 +53,7 @@ const kindCopy: Record<NotificationKind, string> = {
   version: "A new version of a track you follow",
   processing_failed: "Processing fails on your upload",
   guest_opened: "A guest opens a review you asked for",
+  due_soon: "A review waiting on you is due tomorrow",
 };
 
 function Channel({

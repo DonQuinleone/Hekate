@@ -154,6 +154,11 @@ const screens: Screen[] = [
     ready: "main >> text=Access window",
   },
   {
+    name: "settings-email",
+    path: () => "/settings/email",
+    ready: "main iframe[title*='light mail client']",
+  },
+  {
     name: "settings-storage",
     path: () => "/settings/storage",
     ready: "main >> text=New files go to",
@@ -332,6 +337,20 @@ test("project-files-columns-menu", async ({ page }, info) => {
   await checkScreen(page);
   // Put the list back as it was for the captures that follow.
   await menu.getByRole("button", { name: "Reset" }).click();
+});
+
+// Each message in a dark client and as plain text, which matters as much as the HTML.
+test("settings-email-dark-and-text", async ({ page }) => {
+  await page.goto("/settings/email");
+  await settle(page, "main iframe[title*='light mail client']");
+  await page.getByRole("button", { name: "Dark client" }).click();
+  await settle(page, "main iframe[title*='dark mail client']");
+  await saveScreen(page, "settings-email-dark");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Plain text" }).click();
+  await settle(page, "main pre >> text=Open the review:");
+  await saveScreen(page, "settings-email-text");
+  await checkScreen(page);
 });
 
 // A file whose preparation failed says so, with a way to try again; put back as seeded after.

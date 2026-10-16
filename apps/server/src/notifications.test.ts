@@ -23,6 +23,7 @@ const row = (over: Partial<NotificationRow>): NotificationRow => ({
   text: 'approved "Album masters"',
   detail: null,
   link: "/reviews/r",
+  mail: null,
   inApp: true,
   mailMode: "instant",
   emailedAt: null,
@@ -41,11 +42,13 @@ describe("notification mail", () => {
   });
 
   it("links into the app and to the settings", () => {
-    const mail = instantMail(row({ detail: "Lovely." }), "https://hekate.example/");
+    const workspace = { name: "Endless Hall Records", subjects: {} };
+    const mail = instantMail(row({ detail: "Lovely." }), "https://hekate.example/", workspace);
     expect(mail.subject).toBe('Mira Solberg approved "Album masters"');
     expect(mail.text).toContain("Lovely.");
-    expect(mail.text).toContain("https://hekate.example/reviews/r");
+    expect(mail.text).toContain("See the review:\nhttps://hekate.example/reviews/r");
     expect(mail.text).toContain("https://hekate.example/account/notifications");
+    expect(mail.html).toContain('href="https://hekate.example/reviews/r"');
     const digest = digestMail(
       [row({}), row({ text: "added version 3 of Bethena" })],
       "Endless Hall Records",
@@ -53,6 +56,44 @@ describe("notification mail", () => {
     );
     expect(digest.subject).toBe("2 updates in Endless Hall Records");
     expect(digest.text).toContain("- Mira Solberg added version 3 of Bethena");
+  });
+
+  it("takes the workspace's subject line where its template has one", () => {
+    const n = row({
+      mail: {
+        template: "decision",
+        values: { review: "Album masters", decision: "approved", project: "Joplin Rags" },
+      },
+    });
+    const workspace = (subjects = {}) => ({ name: "Endless Hall Records", subjects });
+    expect(instantMail(n, "https://hekate.example", workspace()).subject).toBe(
+      "Album masters: approved",
+    );
+    expect(
+      instantMail(
+        n,
+        "https://hekate.example",
+        workspace({ decision: "{reviewer} on {review} ({project}): {decision}" }),
+      ).subject,
+    ).toBe("Mira Solberg on Album masters (Joplin Rags): approved");
+  });
+
+  it("keeps the requester the event captured, rather than whoever acted", () => {
+    const n = row({
+      kind: "review_requested",
+      actorName: "Alex Rivera",
+      mail: {
+        template: "review_requested",
+        values: { review: "Album masters", kind: "approval", requester: "Ines Arlow" },
+      },
+    });
+    const workspace = {
+      name: "Endless Hall Records",
+      subjects: { review_requested: "{requester} asks about {review}" },
+    };
+    expect(instantMail(n, "https://hekate.example", workspace).subject).toBe(
+      "Ines Arlow asks about Album masters",
+    );
   });
 });
 

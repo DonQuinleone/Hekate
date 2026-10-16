@@ -3,6 +3,8 @@ import {
   applyWorkspaceSettings,
   atLeast,
   auditQuery,
+  emailTemplateId,
+  emailTestInput,
   inviteInput,
   organisationRole,
   organisationStorageInput,
@@ -16,10 +18,12 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { type Audit, csvHeader, csvRow, requestInfo } from "../audit.ts";
+import { render } from "../email/render.ts";
+import { sampleData, workspaceEmail } from "../email/templates.ts";
 import { NotFound } from "../errors.ts";
 import { revokeGuest } from "../guests.ts";
 import { INVITATION_LIFETIME_MS, newInvitationToken } from "../invitation-token.ts";
-import type { Mailer } from "../mail.ts";
+import { type Mailer, sendEmail } from "../mail.ts";
 import type { Storage } from "../storage.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";
 
@@ -125,6 +129,55 @@ export const organisationRoutes = (
         return c.json({ settings });
       },
     )
+    // A template as the workspace sends it, with sample content: subject, plain text and HTML
+    // for a light or a dark client.
+    .get(
+      "/email/:template",
+      requireRole("admin"),
+      zValidator("param", z.object({ template: emailTemplateId })),
+      zValidator("query", z.object({ scheme: z.enum(["light", "dark"]).default("light") })),
+      async (c) => {
+        const { template } = c.req.valid("param");
+        const [workspace] = await db
+          .select({ name: organisations.name, settings: organisations.settings })
+          .from(organisations)
+          .where(eq(organisations.id, c.var.organisationId));
+        if (!workspace) throw new NotFound("Workspace");
+        const sample = sampleData(workspace.name, publicUrl.replace(/\/$/, ""))[template];
+        const email = workspaceEmail(
+          template,
+          sample,
+          workspaceSettingsOf(workspace.settings).emailSubjects,
+        );
+        c.header("cache-control", "no-store");
+        return c.json(render(email, c.req.valid("query").scheme));
+      },
+    )
+    // Send a template to yourself, with sample content, to see it in your own mail client.
+    .post("/email/test", requireRole("admin"), zValidator("json", emailTestInput), async (c) => {
+      const { template } = c.req.valid("json");
+      const [workspace] = await db
+        .select({ name: organisations.name, settings: organisations.settings })
+        .from(organisations)
+        .where(eq(organisations.id, c.var.organisationId));
+      const [me] = await db
+        .select({ email: users.email })
+        .from(users)
+        .where(eq(users.id, c.var.userId));
+      if (!workspace || !me) throw new NotFound("Workspace");
+      const sample = sampleData(workspace.name, publicUrl.replace(/\/$/, ""))[template];
+      const email = workspaceEmail(
+        template,
+        sample,
+        workspaceSettingsOf(workspace.settings).emailSubjects,
+      );
+      try {
+        await sendEmail(mailer, me.email, { ...email, subject: `Test: ${email.subject}` });
+      } catch {
+        throw new HTTPException(502, { message: "The mail server did not take the message" });
+      }
+      return c.json({ to: me.email });
+    })
     .get("/members", async (c) => {
       const rows = await db
         .select({
@@ -280,7 +333,7 @@ export const organisationRoutes = (
           expiresAt: invitations.expiresAt,
         });
       const [organisation] = await db
-        .select({ name: organisations.name })
+        .select({ name: organisations.name, settings: organisations.settings })
         .from(organisations)
         .where(eq(organisations.id, c.var.organisationId));
       const [inviter] = await db
@@ -288,11 +341,20 @@ export const organisationRoutes = (
         .from(users)
         .where(eq(users.id, c.var.userId));
       const link = `${publicUrl.replace(/\/$/, "")}/invite/${token}`;
-      await mailer.send({
-        to: email,
-        subject: `${inviter?.name ?? "Someone"} invited you to ${organisation?.name ?? "Hekate"}`,
-        text: `${inviter?.name ?? "Someone"} invited you to join ${organisation?.name ?? "their workspace"} on Hekate.\n\nAccept the invitation: ${link}\n\nThe link works once and expires in 7 days.`,
-      });
+      await sendEmail(
+        mailer,
+        email,
+        workspaceEmail(
+          "invitation",
+          {
+            workspace: organisation?.name ?? "Hekate",
+            inviter: inviter?.name ?? "Someone",
+            url: link,
+            days: Math.round(INVITATION_LIFETIME_MS / (24 * 60 * 60 * 1000)),
+          },
+          workspaceSettingsOf(organisation?.settings).emailSubjects,
+        ),
+      );
       return c.json({ invitation, link }, 201);
     })
     .delete("/invitations/:id", requireRole("admin"), idParam, async (c) => {

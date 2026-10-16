@@ -9,6 +9,7 @@ import {
   decodePeaks,
   decodeSpectrogram,
   defaultPreferences,
+  type EmailTemplateId,
   type FileColumnLayout,
   type FileKind,
   type GroupInput,
@@ -408,8 +409,30 @@ export function useSaveWorkspaceSettings() {
       ).settings,
     onSuccess: (settings, change) => {
       client.setQueryData(workspaceSettingsQuery.queryKey, settings);
+      if (change.emailSubjects) client.invalidateQueries({ queryKey: ["organisation", "email"] });
       if (change.locale !== undefined) client.invalidateQueries({ queryKey: meQuery.queryKey });
     },
+  });
+}
+
+/** A message as the workspace sends it, with sample content, for one kind of mail client. */
+export const emailPreviewQuery = (template: EmailTemplateId, scheme: "light" | "dark") =>
+  queryOptions({
+    queryKey: ["organisation", "email", template, scheme],
+    queryFn: async () =>
+      json<{ subject: string; text: string; html: string }>(
+        await api.organisation.email[":template"].$get({
+          param: { template },
+          query: { scheme },
+        }),
+      ),
+  });
+
+/** Send a template to yourself, with sample content. */
+export function useSendTestEmail() {
+  return useMutation({
+    mutationFn: async (template: EmailTemplateId) =>
+      json<{ to: string }>(await api.organisation.email.test.$post({ json: { template } })),
   });
 }
 

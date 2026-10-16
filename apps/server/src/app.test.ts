@@ -34,6 +34,7 @@ import {
 } from "./media/workers.ts";
 import { deliverDigests, deliverInstant, tellProcessingFailed } from "./notifications.ts";
 import { playbackSecret, signPlayback } from "./playback.ts";
+import { remindDue } from "./reminders.ts";
 import { createStorage } from "./storage.ts";
 import { expireUploads } from "./uploads.ts";
 
@@ -741,6 +742,7 @@ describe.runIf(url)("api", () => {
           guestLinkDays: 3,
           locale: null,
           carriedCommentsShown: true,
+          emailSubjects: {},
           reviewer: { comment: true, decide: true, comments: "all", windowDays: null },
         });
         expect((await change({ guestLinkDays: 7 }, owner)).status).toBe(400);
@@ -798,6 +800,64 @@ describe.runIf(url)("api", () => {
           .values({ name: "Elsewhere", slug: "elsewhere-settings" })
           .returning({ settings: schema.organisations.settings });
         expect(other?.settings).toEqual({});
+      });
+
+      it("previews each message with the workspace's subject lines, and sends a test", async () => {
+        const owner = cookieOf(await setup());
+        const change = (body: Record<string, unknown>, cookie: string) =>
+          app.request("/api/organisation/settings", { ...json(body, cookie), method: "PATCH" });
+        // Only the template's own placeholders.
+        expect(
+          (await change({ emailSubjects: { invitation: "Join {review}" } }, owner)).status,
+        ).toBe(400);
+        expect(
+          (
+            await change(
+              { emailSubjects: { invitation: "{inviter} asks you into {workspace}" } },
+              owner,
+            )
+          ).status,
+        ).toBe(200);
+        const preview = async (path: string, cookie: string) =>
+          app.request(`/api/organisation/email/${path}`, { headers: { cookie } });
+        const light = (await (await preview("invitation", owner)).json()) as {
+          subject: string;
+          text: string;
+          html: string;
+        };
+        expect(light.subject).toBe("Ines Arlow asks you into Studio");
+        expect(light.text).toContain("Accept the invitation:");
+        const dark = (await (await preview("invitation?scheme=dark", owner)).json()) as {
+          html: string;
+        };
+        expect(dark.html).toContain("#0e0e10");
+        expect((await preview("nonsense", owner)).status).toBe(400);
+        // Back to the default.
+        expect((await change({ emailSubjects: { invitation: null } }, owner)).status).toBe(200);
+        expect(
+          ((await (await preview("invitation", owner)).json()) as { subject: string }).subject,
+        ).toBe("Join Studio on Hekate");
+
+        mailer.sent.length = 0;
+        const test = await app.request(
+          "/api/organisation/email/test",
+          json({ template: "decision" }, owner),
+        );
+        expect(test.status).toBe(200);
+        expect(mailer.sent).toHaveLength(1);
+        expect(mailer.sent[0]?.subject).toBe("Test: Album masters: changes requested");
+        expect(mailer.sent[0]?.html).toContain("See the review");
+
+        const member = await joinAs(owner, "player@example.test", "member");
+        expect((await preview("invitation", member)).status).toBe(403);
+        expect(
+          (
+            await app.request(
+              "/api/organisation/email/test",
+              json({ template: "decision" }, member),
+            )
+          ).status,
+        ).toBe(403);
       });
 
       it("keeps the blob record when removing its bytes fails, so removal can be retried", async () => {
@@ -3364,7 +3424,10 @@ describe.runIf(url)("api", () => {
           "accompanist@example.test",
           "producer@example.test",
         ]);
-        expect(mailer.sent[1]?.subject).toBe('composer approved "Album master"');
+        // The workspace's subject line for a decision, and who decided at the top.
+        expect(mailer.sent[1]?.subject).toBe("Album master: approved");
+        expect(mailer.sent[1]?.text).toContain('composer approved "Album master"');
+        expect(mailer.sent[1]?.html).toContain("See the review");
         const done = await reviewOf(
           await app.request(
             `${path}/decisions`,
@@ -3638,7 +3701,7 @@ describe.runIf(url)("api", () => {
           expect((link?.expiresAt.getTime() ?? 0) - before).toBeGreaterThanOrEqual(14 * day);
           expect((link?.expiresAt.getTime() ?? 0) - Date.now()).toBeLessThanOrEqual(14 * day);
           const mail = mailer.sent.find((m) => m.to === "conductor@example.test");
-          expect(mail?.text).toContain("works once, for 14 days.");
+          expect(mail?.text.replace(/\s+/g, " ")).toContain("works once, for 14 days.");
 
           // An approval nobody may decide would never end: refused, unless the request says
           // that its reviewers may decide.
@@ -3656,6 +3719,58 @@ describe.runIf(url)("api", () => {
             ((await refused.json()) as { error: { message: string } }).error.message,
           ).toContain("may decide");
           expect((await approval({ decide: true })).status).toBe(201);
+        });
+
+        it("reminds those it still waits on the day before a review is due, once", async () => {
+          const s = await studio();
+          const hours = (n: number) => new Date(Date.now() + n * 60 * 60 * 1000).toISOString();
+          const ask = async (title: string, dueAt: string, reviewers: unknown[]) =>
+            reviewOf(
+              await request(s.owner, s.projectId, {
+                kind: "feedback",
+                title,
+                items: [{ trackId: s.trackId }],
+                reviewers,
+                dueAt,
+              }),
+            );
+          const soon = await ask("Album master", hours(12), [
+            s.ids.composer,
+            s.ids.accompanist,
+            guest,
+          ]);
+          const also = await ask("Sleeve notes", hours(20), [s.ids.composer, guest]);
+          await ask("Liner notes", hours(72), [s.ids.composer, guest]);
+          // One reviewer has already sent their feedback; they are not reminded.
+          expect(
+            (await app.request(`/api/reviews/${soon.id}/submit`, json({}, s.accompanist))).status,
+          ).toBe(200);
+          mailer.sent.length = 0;
+          const deps = { db, mailer, audit, publicUrl: "http://localhost:3000" };
+          expect(await remindDue(deps)).toBe(4);
+          const told = await db
+            .select({ userId: schema.notifications.userId, text: schema.notifications.text })
+            .from(schema.notifications)
+            .where(eq(schema.notifications.kind, "due_soon"));
+          expect(told.map((t) => t.text).sort()).toEqual([
+            'your feedback on "Album master" is due tomorrow',
+            'your feedback on "Sleeve notes" is due tomorrow',
+          ]);
+          expect(told.every((t) => t.userId === s.ids.composer)).toBe(true);
+          // The guest gets one mail, with one link that opens both.
+          const mails = mailer.sent.filter((m) => m.to === "conductor@example.test");
+          expect(mails).toHaveLength(1);
+          expect(mails[0]?.subject).toMatch(/is due tomorrow$/);
+          expect(mails[0]?.text).toContain("- Sleeve notes");
+          const token = mails[0]?.text.match(/\/guest\/([A-Za-z0-9_-]+)/)?.[1] ?? "";
+          const signedIn = await signIn(token);
+          expect(signedIn.status).toBe(201);
+          const mine = (await (await getAs("/api/guest/me", cookieOf(signedIn))).json()) as {
+            reviews: { id: string }[];
+          };
+          expect(mine.reviews.map((r) => r.id)).toEqual(expect.arrayContaining([soon.id, also.id]));
+          // Never twice.
+          expect(await remindDue(deps)).toBe(0);
         });
 
         it("signs a guest in once from a magic link, and keeps them to their reviews", async () => {
