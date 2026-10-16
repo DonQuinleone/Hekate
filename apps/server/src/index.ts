@@ -48,6 +48,8 @@ const auth = createAuth({
   baseURL: config.PUBLIC_URL,
   trustedOrigins: config.TRUSTED_ORIGINS,
   mailer,
+  audit: createAudit(db),
+  leakCheck: config.PASSWORD_LEAK_CHECK,
 });
 const keyring = createKeyring(db, {
   current: config.MASTER_KEY,

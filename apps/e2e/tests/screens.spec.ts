@@ -20,6 +20,30 @@ interface Screen {
 
 const screens: Screen[] = [
   { name: "sign-in", path: () => "/sign-in", ready: "form", as: "signed-out" },
+  {
+    name: "sign-in-expired",
+    path: () => "/sign-in?reason=expired&redirect=%2Finbox",
+    ready: "text=You were signed out",
+    as: "signed-out",
+  },
+  {
+    name: "sign-in-forgot",
+    path: () => "/sign-in?view=forgot",
+    ready: "text=Forgotten your password?",
+    as: "signed-out",
+  },
+  {
+    name: "sign-in-sent",
+    path: () => "/sign-in?view=sent&email=producer%40example.test",
+    ready: "text=Check your email",
+    as: "signed-out",
+  },
+  {
+    name: "sign-in-reset",
+    path: () => "/sign-in?view=reset&email=producer%40example.test&code=123456",
+    ready: "text=Set a new password",
+    as: "signed-out",
+  },
   // The design system reference (built in for the suite only).
   { name: "reference", path: () => "/reference", ready: "main h1", as: "signed-out" },
   {

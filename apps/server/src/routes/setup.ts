@@ -1,5 +1,6 @@
 import { type Database, schema } from "@hekate/db";
 import { zValidator } from "@hono/zod-validator";
+import { isAPIError } from "better-auth/api";
 import { asc, count } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -40,6 +41,15 @@ export const setupRoutes = (db: Database, auth: Auth) => {
         if (await hasUsers(db))
           throw new HTTPException(409, { message: "Hekate is already set up" });
         const ctx = await auth.$context;
+        // The password first: one refused (a known breach, or the check unreachable) must
+        // leave no account behind, or setup could never run again.
+        const password = await ctx.password.hash(input.password).catch((error: unknown) => {
+          if (isAPIError(error))
+            throw new HTTPException(error.statusCode === 400 ? 400 : 503, {
+              message: error.message || "That password cannot be used. Choose another.",
+            });
+          throw error;
+        });
         const user = await ctx.internalAdapter.createUser(
           { name: input.name, email: input.email.toLowerCase(), emailVerified: true },
           { method: "admin" },
@@ -48,7 +58,7 @@ export const setupRoutes = (db: Database, auth: Auth) => {
           userId: user.id,
           providerId: "credential",
           accountId: user.id,
-          password: await ctx.password.hash(input.password),
+          password,
         });
         const [existing] = await db
           .select()

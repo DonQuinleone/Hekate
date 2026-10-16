@@ -1,5 +1,5 @@
 import { fileKinds, searchKinds, searchSince } from "@hekate/shared";
-import { QueryClient } from "@tanstack/react-query";
+import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import {
   createRootRouteWithContext,
   createRoute,
@@ -14,11 +14,11 @@ import { Shell } from "~/components/shell";
 import { type BrowserFilters, filtersFrom, filtersTo } from "~/lib/browser";
 import { formatLoop, parseLoop } from "~/lib/loop";
 import { projectShows, projectSorts, projectViews } from "~/lib/projects";
-import { guestMeQuery, meQuery, setupQuery } from "~/lib/queries";
+import { guestMeQuery, meQuery, SignedOutError, setupQuery } from "~/lib/queries";
 import { useFollowSystemTheme } from "~/lib/theme";
 import { ViewerProvider } from "~/lib/viewer";
 import { AccountPage } from "~/routes/account";
-import { SetupPage, SignInPage } from "~/routes/auth-pages";
+import { SetupPage, SignInPage, type SignInSearch } from "~/routes/auth-pages";
 import { FilePage } from "~/routes/file";
 import { GuestHomePage, GuestLinkPage, GuestShell, GuestSignedOutPage } from "~/routes/guest";
 import { HomePage } from "~/routes/home";
@@ -37,7 +37,39 @@ import { SearchPage } from "~/routes/search";
 import { TrackPage } from "~/routes/track";
 import { WorkspaceSettingsPage } from "~/routes/workspace-settings";
 
-export const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 10_000 } } });
+/** Pages that are not a member's, where a session ending means nothing to undo. */
+const outside = /^\/(sign-in|setup|invite|guest|g(\/|$))/;
+
+/**
+ * A member whose session ends mid-visit (it ran out, or was ended from another device) is
+ * taken to sign in, told why, and brought back to where they were.
+ */
+function onSignedOut(error: unknown) {
+  if (!(error instanceof SignedOutError) || outside.test(window.location.pathname)) return;
+  if (!queryClient.getQueryData(meQuery.queryKey)) return;
+  const here = window.location.pathname + window.location.search;
+  queryClient.clear();
+  void router.navigate({ to: "/sign-in", search: { reason: "expired", redirect: here } });
+}
+
+export const queryClient = new QueryClient({
+  queryCache: new QueryCache({ onError: onSignedOut }),
+  mutationCache: new MutationCache({ onError: onSignedOut }),
+  defaultOptions: { queries: { staleTime: 10_000 } },
+});
+
+/** Sign-in's address: where to go after, which state of the forgotten password, and why. */
+const signInSearch = z.object({
+  redirect: z.string().max(2000).optional().catch(undefined),
+  view: z.enum(["forgot", "sent", "reset"]).optional().catch(undefined),
+  email: z.string().max(254).optional().catch(undefined),
+  code: z
+    .string()
+    .regex(/^\d{6}$/)
+    .optional()
+    .catch(undefined),
+  reason: z.enum(["expired"]).optional().catch(undefined),
+});
 
 /** A file page's loop, from its address: kept only when it reads as one. */
 const loopSearchSchema = z.object({
@@ -82,11 +114,11 @@ const setup = createRoute({
 const signIn = createRoute({
   getParentRoute: () => root,
   path: "/sign-in",
-  validateSearch: (search: Record<string, unknown>): { redirect?: string } =>
-    typeof search.redirect === "string" ? { redirect: search.redirect } : {},
+  validateSearch: (search: Record<string, unknown>): SignInSearch => signInSearch.parse(search),
   beforeLoad: async ({ context, search }) => {
     if (await context.queryClient.ensureQueryData(setupQuery)) throw redirect({ to: "/setup" });
-    if (!search.redirect && (await context.queryClient.fetchQuery(meQuery)))
+    // Someone signed in has nothing to do here, unless they came to set a new password.
+    if (!search.redirect && !search.view && (await context.queryClient.fetchQuery(meQuery)))
       throw redirect({ to: "/" });
   },
   component: SignInPage,

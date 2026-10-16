@@ -1,7 +1,12 @@
 import { type Database, schema } from "@hekate/db";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { APIError, createAuthMiddleware, isAPIError } from "better-auth/api";
+import { emailOTP, haveIBeenPwned } from "better-auth/plugins";
+import type { Audit } from "./audit.ts";
+import { waitFor, waitMessage } from "./lockout.ts";
 import { type Mailer, sendEmail } from "./mail.ts";
+import { attemptsFor, clearAttempts, isLocked, logToWorkspaces, recordFailure } from "./sign-in.ts";
 
 export interface AuthOptions {
   db: Database;
@@ -12,7 +17,17 @@ export interface AuthOptions {
   testing?: boolean;
   /** Sends the link that confirms a new email address; without it, addresses cannot change. */
   mailer?: Mailer;
+  /** Where lockouts and password resets are logged, in each of the account's workspaces. */
+  audit?: Audit;
+  /**
+   * Check new passwords against known breaches (Have I Been Pwned, by the first five
+   * characters of a hash). On by default; an instance without internet access turns it off.
+   */
+  leakCheck?: boolean;
 }
+
+/** The base of the app's own links, for those in emails. */
+const appBase = (baseURL: string) => baseURL.replace(/\/$/, "");
 
 /**
  * Better Auth with email and password. Public sign-up is closed: the first account is created by
@@ -41,6 +56,77 @@ export function createAuth(options: AuthOptions) {
       disableSignUp: true,
       minPasswordLength: 12,
       maxPasswordLength: 256,
+      // A new password ends every session, wherever it was: whoever knew the old one is out.
+      revokeSessionsOnPasswordReset: true,
+    },
+    plugins: [
+      // A forgotten password: a six-digit code by email, with a link that carries it, both
+      // lasting ten minutes and working once. Never a sign-in by email for members
+      // (decision 025): that stays for guests.
+      emailOTP({
+        otpLength: 6,
+        expiresIn: 10 * 60,
+        allowedAttempts: 3,
+        storeOTP: "hashed",
+        disableSignUp: true,
+        sendVerificationOTP: async ({ email, otp, type }) => {
+          if (type !== "forget-password" || !options.mailer) return;
+          const link = `${appBase(options.baseURL)}/sign-in?view=reset&email=${encodeURIComponent(email)}&code=${otp}`;
+          await sendEmail(options.mailer, email, {
+            subject: `${otp} is your code to set a new Hekate password`,
+            heading: "Set a new password",
+            body: [
+              `Your code is ${otp}. Type it where you asked, or open the link. Both last ten minutes and work once.`,
+            ],
+            action: { label: "Set a new password", url: link },
+            foot: "If you did not ask, ignore this: your password stays as it is.",
+          });
+        },
+      }),
+      haveIBeenPwned({
+        enabled: options.leakCheck ?? !options.testing,
+        customPasswordCompromisedMessage:
+          "That password appears in known data breaches. Choose another one.",
+      }),
+    ],
+    hooks: {
+      before: createAuthMiddleware(async (ctx) => {
+        // Members never sign in by an emailed code.
+        if (
+          ctx.path === "/sign-in/email-otp" ||
+          (ctx.path === "/email-otp/send-verification-otp" && ctx.body?.type === "sign-in")
+        ) {
+          throw new APIError("FORBIDDEN", { message: "Sign in with your password." });
+        }
+        // Repeated guesses wait longer each time, then the account locks for a while.
+        if (ctx.path === "/sign-in/email" && typeof ctx.body?.email === "string") {
+          const attempts = await attemptsFor(options.db, ctx.body.email);
+          const wait = waitFor(attempts, new Date());
+          if (wait > 0) {
+            throw new APIError(
+              "TOO_MANY_REQUESTS",
+              { message: waitMessage(wait, isLocked(attempts)) },
+              { "Retry-After": String(Math.ceil(wait / 1000)) },
+            );
+          }
+        }
+      }),
+      after: createAuthMiddleware(async (ctx) => {
+        const email = typeof ctx.body?.email === "string" ? ctx.body.email : null;
+        if (!email) return;
+        const returned = ctx.context.returned;
+        const failed = isAPIError(returned);
+        if (ctx.path === "/sign-in/email") {
+          if (failed && returned.statusCode === 401)
+            await recordFailure(options.db, email, options.audit);
+          else if (!failed) await clearAttempts(options.db, email);
+        }
+        if (ctx.path === "/email-otp/reset-password" && !failed) {
+          await clearAttempts(options.db, email);
+          if (options.audit)
+            await logToWorkspaces(options.db, options.audit, email, "account.password_reset");
+        }
+      }),
     },
     // A new address takes effect only once its owner follows the link sent to it.
     ...(options.mailer
@@ -85,7 +171,12 @@ export function createAuth(options: AuthOptions) {
       enabled: !options.testing,
       window: 60,
       max: 100,
-      customRules: { "/sign-in/email": { window: 60, max: 10 } },
+      customRules: {
+        "/sign-in/email": { window: 60, max: 10 },
+        // A reset code is a key to the account: few to ask for, fewer to try.
+        "/email-otp/request-password-reset": { window: 15 * 60, max: 5 },
+        "/email-otp/reset-password": { window: 15 * 60, max: 10 },
+      },
     },
   });
 }

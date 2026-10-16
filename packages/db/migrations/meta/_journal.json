@@ -260,6 +260,13 @@
       "when": 1792138789682,
       "tag": "0036_email",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1792145390956,
+      "tag": "0037_sign_in",
+      "breakpoints": true
     }
   ]
 }

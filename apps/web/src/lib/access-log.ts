@@ -21,6 +21,8 @@ export const actionCopy: Record<string, string> = {
   "comment.create": "Comment",
   "organisation.rename": "Workspace renamed",
   "organisation.settings": "Workspace settings changed",
+  "account.lockout": "Account locked after failed sign-ins",
+  "account.password_reset": "Password reset with an emailed code",
   "project.archive": "Project archived",
   "project.unarchive": "Project brought back",
 };
