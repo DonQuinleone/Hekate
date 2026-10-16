@@ -59,30 +59,33 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
    * out unless one went out moments ago (a reload); asked for again, a refusal says why.
    */
   const sendCode = async (c: Context, token: string, asked: boolean) => {
-    const sent = await newGuestCodeFor(deps.db, token);
-    if (!sent) throw gone();
-    if (sent.status === "sent") {
-      const [workspace] = await deps.db
+    const info = requestInfo(c, deps.trustProxy);
+    // Mailed and logged as it is issued: a code that cannot go out, or be logged, is not kept.
+    const sent = await newGuestCodeFor(deps.db, token, async (tx, issued) => {
+      const [workspace] = await tx
         .select({ name: organisations.name })
         .from(organisations)
-        .where(eq(organisations.id, sent.organisationId));
-      await sendEmail(deps.mailer, sent.email, {
+        .where(eq(organisations.id, issued.organisationId));
+      await deps.audit.record(
+        issued.organisationId,
+        await deps.audit.guest(issued.guestId),
+        { action: "guest.code_sent" },
+        info,
+        tx,
+      );
+      await sendEmail(deps.mailer, issued.email, {
         workspace: workspace?.name,
-        subject: `${sent.code} is your code to open your review`,
+        subject: `${issued.code} is your code to open your review`,
         heading: "Your code to open the review",
         body: [
-          `Type ${sent.code} where you opened your link. It lasts ten minutes and works once.`,
+          `Type ${issued.code} where you opened your link. It lasts ten minutes and works once.`,
           "The link was opened in a browser. If that was not you, ignore this: without the code, the link opens nothing.",
         ],
         foot: "You get this because a review was sent to this address.",
       });
-      await deps.audit.record(
-        sent.organisationId,
-        await deps.audit.guest(sent.guestId),
-        { action: "guest.code_sent" },
-        requestInfo(c, deps.trustProxy),
-      );
-    } else if (asked) {
+    });
+    if (!sent) throw gone();
+    if (sent.status !== "sent" && asked)
       throw sent.status === "wait"
         ? new CodedException(429, "code_wait", "A code has just been sent. Wait a moment.")
         : new CodedException(
@@ -90,7 +93,6 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
             "code_limit",
             "No more codes for this link. Ask whoever invited you to send a new one.",
           );
-    }
     return c.json({ verify: "code" as const, sentTo: maskEmail(sent.email) }, 202);
   };
 
@@ -140,14 +142,26 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
         async (c) => {
           const { token, code } = c.req.valid("json");
           const info = requestInfo(c, deps.trustProxy);
-          const result = await verifyGuestCode(deps.db, token, code, async (tx, session) => {
-            await deps.audit.record(
-              session.organisationId,
-              await deps.audit.guest(session.guestId),
-              { action: "guest.sign_in", details: { verified: "code" } },
-              info,
-              tx,
-            );
+          // The sign-in, or the refusal and why, is logged with what it changes.
+          const result = await verifyGuestCode(deps.db, token, code, {
+            signedIn: async (tx, session) => {
+              await deps.audit.record(
+                session.organisationId,
+                await deps.audit.guest(session.guestId),
+                { action: "guest.sign_in", details: { verified: "code" } },
+                info,
+                tx,
+              );
+            },
+            refused: async (tx, who, reason) => {
+              await deps.audit.record(
+                who.organisationId,
+                await deps.audit.guest(who.guestId),
+                { action: "guest.code_failed", details: { reason } },
+                info,
+                tx,
+              );
+            },
           });
           if (result.status === "ok") {
             setGuestCookie(c, result.token, secure);
@@ -160,13 +174,6 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
             );
           }
           if (result.status === "gone") throw gone();
-          // Every try that fails is in the access log, with why.
-          await deps.audit.record(
-            result.organisationId,
-            await deps.audit.guest(result.guestId),
-            { action: "guest.code_failed", details: { reason: result.status } },
-            info,
-          );
           if (result.status === "wrong")
             throw new CodedException(
               400,

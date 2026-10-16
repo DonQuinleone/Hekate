@@ -172,9 +172,18 @@ export async function verificationFor(db: Database, token: string, now = new Dat
 /**
  * A new code for a guest opening their link, without spending it: the link opens only once
  * the code comes back. Null for a link that no longer works; "wait" or "limit" when another
- * may not go out yet, or at all. The code is returned to be mailed, and only its hash is kept.
+ * may not go out yet, or at all. Only the code's hash is kept. `deliver` mails it and logs it
+ * in the same transaction: if either fails, no code is issued and none of the five is used.
  */
-export async function newGuestCodeFor(db: Database, token: string, now = new Date()) {
+export async function newGuestCodeFor(
+  db: Database,
+  token: string,
+  deliver: (
+    tx: Tx,
+    sent: { code: string; organisationId: string; guestId: string; email: string },
+  ) => Promise<void>,
+  now = new Date(),
+) {
   return db.transaction(async (tx) => {
     const link = await usableLink(tx, token, now);
     if (!link) return null;
@@ -197,20 +206,29 @@ export async function newGuestCodeFor(db: Database, token: string, now = new Dat
         codesSent: link.codesSent + 1,
       })
       .where(inOrg(guestLinks, link.organisationId, eq(guestLinks.id, link.id)));
-    return { status: "sent" as const, code, ...who };
+    await deliver(tx, { code, ...who });
+    return { status: "sent" as const, ...who };
   });
 }
 
 /**
  * A guest's code against the one sent for their link. Right: the link is spent and a session
- * starts, as with the link alone (`andThen` logs it in the same transaction). Wrong: the try is
- * counted, and kept even though nothing else changes. Otherwise it says why not.
+ * starts, as with the link alone (`signedIn` logs it in the same transaction). Otherwise it
+ * says why not, and `refused` logs that in the same transaction; a wrong code's try is counted
+ * there too, so the count and its log entry are kept together or not at all.
  */
 export async function verifyGuestCode(
   db: Database,
   token: string,
   code: string,
-  andThen: (tx: Tx, session: typeof guestSessions.$inferSelect) => Promise<void>,
+  log: {
+    signedIn: (tx: Tx, session: typeof guestSessions.$inferSelect) => Promise<void>;
+    refused: (
+      tx: Tx,
+      who: { organisationId: string; guestId: string },
+      reason: Exclude<ReturnType<typeof checkGuestCode>, "ok">,
+    ) => Promise<void>;
+  },
   now = new Date(),
 ) {
   return db.transaction(async (tx) => {
@@ -223,15 +241,19 @@ export async function verifyGuestCode(
         .update(guestLinks)
         .set({ codeAttempts: link.codeAttempts + 1 })
         .where(inOrg(guestLinks, link.organisationId, eq(guestLinks.id, link.id)));
+      await log.refused(tx, who, check);
       return { status: "wrong" as const, left: GUEST_CODE_TRIES - link.codeAttempts - 1, ...who };
     }
-    if (check !== "ok") return { status: check, ...who };
+    if (check !== "ok") {
+      await log.refused(tx, who, check);
+      return { status: check, ...who };
+    }
     await tx
       .update(guestLinks)
       .set({ usedAt: now, codeHash: null })
       .where(inOrg(guestLinks, link.organisationId, eq(guestLinks.id, link.id)));
     const { row, token: cookie } = await startSession(tx, link, now);
-    await andThen(tx, row);
+    await log.signedIn(tx, row);
     return { status: "ok" as const, session: row, token: cookie };
   });
 }

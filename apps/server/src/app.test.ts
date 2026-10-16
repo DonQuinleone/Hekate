@@ -4064,6 +4064,23 @@ describe.runIf(url)("api", () => {
           expect(late.status).toBe(410);
           expect(await errorOf(late)).toBe("code_expired");
 
+          // A code that cannot be mailed is not issued, logged or counted against the five.
+          const sentSoFar = async () =>
+            (
+              await db
+                .select({ sent: schema.guestLinks.codesSent })
+                .from(schema.guestLinks)
+                .where(eq(schema.guestLinks.organisationId, s.organisationId))
+            )[0]?.sent;
+          const before = await sentSoFar();
+          const send = mailer.send;
+          mailer.send = async () => {
+            throw new Error("The mail server refused the message");
+          };
+          expect((await sendAnother()).status).toBe(500);
+          mailer.send = send;
+          expect(await sentSoFar()).toBe(before);
+
           // Five wrong tries spend a code, even the right one after them.
           expect((await sendAnother()).status).toBe(202);
           const second = codeFor();
