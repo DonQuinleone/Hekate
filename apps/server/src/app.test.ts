@@ -2177,8 +2177,72 @@ describe.runIf(url)("api", () => {
           .where(eq(schema.projects.id, s.projectId));
         expect(await search(s.owner, "maple")).toEqual([]);
 
-        expect((await getAs("/api/search?q=", s.owner)).status).toBe(400);
+        // Nothing typed and nothing narrowed: nothing to look for.
+        expect(await search(s.owner, "")).toEqual([]);
+        expect((await getAs("/api/search?q=x&kind=tasks", s.owner)).status).toBe(400);
         expect((await app.request("/api/search?q=maple")).status).toBe(401);
+      });
+
+      it("narrows a search by kind, project, person, file kind and date, and keeps saved ones", async () => {
+        const s = await studio();
+        type Found = { results: { kind: string; label: string }[] };
+        const find = async (query: string, cookie = s.owner) =>
+          ((await (await getAs(`/api/search?${query}`, cookie)).json()) as Found).results.map(
+            (r) => `${r.kind}:${r.label}`,
+          );
+        await request(s.owner, s.projectId, {
+          kind: "feedback",
+          title: "Mix notes",
+          items: [{ trackId: s.trackId }],
+          reviewers: [s.ids.composer],
+        });
+        const ownerId = (
+          await db
+            .select({ id: schema.users.id })
+            .from(schema.users)
+            .where(eq(schema.users.email, "producer@example.test"))
+        )[0]?.id;
+
+        expect(await find("q=mix&kind=files")).toEqual(["files:Mix v1.wav"]);
+        // Filters alone list the newest of what they allow.
+        expect(await find(`kind=reviews&projectId=${s.projectId}`)).toEqual(["reviews:Mix notes"]);
+        expect(await find(`personId=${ownerId}&kind=reviews`)).toEqual(["reviews:Mix notes"]);
+        expect(await find(`personId=${s.ids.composer}&kind=reviews`)).toEqual([]);
+        expect(await find("q=mix&fileKind=video")).toEqual([]);
+        expect((await find("q=mix&fileKind=audio")).every((r) => r.startsWith("files:"))).toBe(
+          true,
+        );
+        expect(await find("q=mix&since=week")).toContain("reviews:Mix notes");
+        await db
+          .update(schema.reviews)
+          .set({ createdAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000) })
+          .where(eq(schema.reviews.projectId, s.projectId));
+        expect(await find("q=mix&since=month")).not.toContain("reviews:Mix notes");
+
+        // Saved searches are each person's own.
+        const saved = await app.request(
+          "/api/search/saved",
+          json({ name: "Audio mixes", search: { q: "mix", fileKind: "audio" } }, s.owner),
+        );
+        expect(saved.status).toBe(201);
+        const { saved: row } = (await saved.json()) as { saved: { id: string } };
+        type Saved = { saved: { name: string; search: { q: string; fileKind?: string } }[] };
+        const list = async (cookie: string) =>
+          ((await (await getAs("/api/search/saved", cookie)).json()) as Saved).saved;
+        expect(await list(s.owner)).toEqual([
+          expect.objectContaining({ name: "Audio mixes", search: { q: "mix", fileKind: "audio" } }),
+        ]);
+        expect(await list(s.composer)).toEqual([]);
+        expect((await app.request("/api/search/saved")).status).toBe(401);
+        expect(
+          (await app.request("/api/search/saved", json({ name: "", search: { q: "x" } }, s.owner)))
+            .status,
+        ).toBe(400);
+        const remove = (cookie: string) =>
+          app.request(`/api/search/saved/${row.id}`, { method: "DELETE", headers: { cookie } });
+        expect((await remove(s.composer)).status).toBe(404);
+        expect((await remove(s.owner)).status).toBe(204);
+        expect(await list(s.owner)).toEqual([]);
       });
 
       describe("notifications", () => {

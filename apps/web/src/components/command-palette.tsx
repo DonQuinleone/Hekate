@@ -58,7 +58,7 @@ export function CommandPalette({
   // The server is asked once typing settles, and the last answer stays while it thinks.
   const asked = useDeferredValue(onlyActions ? "" : q);
   const { data: found = [] } = useQuery({
-    ...searchQuery(asked),
+    ...searchQuery({ q: asked }),
     enabled: open && asked.length > 0,
     placeholderData: keepPreviousData,
   });
@@ -88,6 +88,13 @@ export function CommandPalette({
         icon: "folder",
         link: "/projects",
         shortcut: "G P",
+      },
+      {
+        id: "go-search",
+        group: "Jump to",
+        label: "Search",
+        icon: "search",
+        link: "/search",
       },
       {
         id: "go-members",
@@ -202,7 +209,15 @@ export function CommandPalette({
         link: r.link,
       }),
     );
-    return [...matches(q, [...pages, ...actions], 5), ...results];
+    // The search page takes it further: filters, and searches kept for later.
+    const further: Hit = {
+      id: "search-page",
+      group: "Search",
+      label: `Search for “${q}” with filters`,
+      icon: "search",
+      link: `/search?q=${encodeURIComponent(q)}`,
+    };
+    return [...matches(q, [...pages, ...actions], 5), ...results, further];
   }, [q, onlyActions, pages, recent, actions, found]);
 
   useEffect(() => {

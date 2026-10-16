@@ -60,6 +60,7 @@ describe("tenancy", () => {
       "review_items",
       "review_reviewers",
       "reviews",
+      "saved_searches",
       "sessions",
       "spectrograms",
       "takes",

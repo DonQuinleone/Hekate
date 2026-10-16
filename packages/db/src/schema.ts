@@ -25,6 +25,7 @@ import {
   reviewKinds,
   reviewOrders,
   reviewStatuses,
+  type SearchRequest,
 } from "@hekate/shared";
 import { type SQL, sql } from "drizzle-orm";
 import {
@@ -1228,4 +1229,20 @@ export const follows = pgTable(
     index("follows_track_lookup_idx").on(t.organisationId, t.trackId),
     check("follows_one_thing", sql`(${t.trackId} is null) <> (${t.reviewId} is null)`),
   ],
+);
+
+/** A search someone kept, to run again from the search page. Theirs alone, per workspace. */
+export const savedSearches = pgTable(
+  "saved_searches",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    search: jsonb("search").$type<SearchRequest>().notNull(),
+    ...timestamps,
+  },
+  (t) => [index("saved_searches_user_idx").on(t.organisationId, t.userId)],
 );

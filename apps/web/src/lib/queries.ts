@@ -14,6 +14,7 @@ import {
   type MediaInfo,
   type NotificationKind,
   type NotificationPreferences,
+  narrowed,
   type ProjectPermission,
   type ProjectProfile,
   type QaFinding,
@@ -22,6 +23,8 @@ import {
   type ReviewerPermissionsChange,
   type ReviewerState,
   type ReviewKind,
+  type SavedSearchInput,
+  type SearchRequest,
   searchResponse,
   type UpdateCarryInput,
 } from "@hekate/shared";
@@ -1459,13 +1462,46 @@ export function useUnfollow() {
   });
 }
 
-/** What matches a few typed words, across everything the member may see. */
-export const searchQuery = (q: string) =>
+/** What matches a search's words and filters, across everything the member may see. */
+export const searchQuery = (search: SearchRequest) =>
   queryOptions({
-    queryKey: ["search", q],
-    queryFn: async () =>
+    queryKey: ["search", search],
+    queryFn: async () => {
+      const { q, ...filters } = search;
+      // Only the filters that are set reach the address.
+      const query = Object.fromEntries(Object.entries({ q, ...filters }).filter(([, v]) => v));
       // Read through the shared schema, so a change to the contract shows here at once.
-      searchResponse.parse(await json(await api.search.$get({ query: { q } }))).results,
-    enabled: q.trim().length > 0,
+      return searchResponse.parse(await json(await api.search.$get({ query }))).results;
+    },
+    enabled: search.q.trim().length > 0 || narrowed(search),
     staleTime: 30_000,
   });
+
+export interface SavedSearch {
+  id: string;
+  name: string;
+  search: SearchRequest;
+}
+
+export const savedSearchesQuery = queryOptions({
+  queryKey: ["search", "saved"],
+  queryFn: async () => (await json<{ saved: SavedSearch[] }>(await api.search.saved.$get())).saved,
+});
+
+export function useSavedSearchMutations() {
+  const client = useQueryClient();
+  const refresh = () => client.invalidateQueries({ queryKey: savedSearchesQuery.queryKey });
+  const save = useMutation({
+    mutationFn: async (input: SavedSearchInput) =>
+      (await json<{ saved: SavedSearch }>(await api.search.saved.$post({ json: input }))).saved,
+    onSuccess: refresh,
+  });
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await api.search.saved[":id"].$delete({ param: { id } });
+      if (!res.ok) await json(res);
+    },
+    onSuccess: refresh,
+  });
+  return { save, remove };
+}
