@@ -9,6 +9,7 @@ import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { remapCarries } from "../carry.ts";
 import { type JobHandler, type Jobs, jobDefinitions } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
+import { tellProcessingFailed } from "../notifications.ts";
 import type { Storage } from "../storage.ts";
 import { expireUploads } from "../uploads.ts";
 import { alignInThread } from "./align.ts";
@@ -108,6 +109,7 @@ export function probeHandler(deps: MediaWorkerDeps): JobHandler<"media-probe"> {
           .update(files)
           .set({ streamStatus: "failed" })
           .where(inOrg(files, organisationId, eq(files.id, fileId)));
+        await tellProcessingFailed(deps.db, organisationId, fileId);
       }
       throw error;
     }
@@ -121,6 +123,7 @@ export function probeHandler(deps: MediaWorkerDeps): JobHandler<"media-probe"> {
         ...(info.audio ? { analysisStatus: "pending" as const } : {}),
       })
       .where(inOrg(files, organisationId, eq(files.id, fileId)));
+    if (!playable) await tellProcessingFailed(deps.db, organisationId, fileId);
     if (playable) {
       await deps.jobs.send("media-proxy", { organisationId, fileId }, { singletonKey: fileId });
     }
@@ -136,11 +139,13 @@ export function probeHandler(deps: MediaWorkerDeps): JobHandler<"media-probe"> {
  * Idempotent: a file that already has renditions is left alone.
  */
 export function proxyHandler(deps: MediaWorkerDeps): JobHandler<"media-proxy"> {
-  const markFailed = (organisationId: string, fileId: string) =>
-    deps.db
+  const markFailed = async (organisationId: string, fileId: string) => {
+    await deps.db
       .update(files)
       .set({ streamStatus: "failed" })
       .where(inOrg(files, organisationId, eq(files.id, fileId)));
+    await tellProcessingFailed(deps.db, organisationId, fileId);
+  };
 
   return async ({ organisationId, fileId }, job) => {
     const [file] = await deps.db
@@ -338,6 +343,7 @@ export function analysisHandler(deps: MediaWorkerDeps): JobHandler<"media-analys
           .update(files)
           .set({ analysisStatus: "failed" })
           .where(inOrg(files, organisationId, eq(files.id, fileId)));
+        await tellProcessingFailed(deps.db, organisationId, fileId);
       }
       throw error;
     }
@@ -362,11 +368,13 @@ export function renderHandler(deps: MediaWorkerDeps): JobHandler<"document-rende
       .where(inOrg(files, organisationId, eq(files.id, fileId)));
     if (!file) return;
     const source = pageSourceOf(file.name, file.contentType);
-    const done = (status: "ready" | "failed", pageCount: number | null = null) =>
-      deps.db
+    const done = async (status: "ready" | "failed", pageCount: number | null = null) => {
+      await deps.db
         .update(files)
         .set({ streamStatus: status, pageCount })
         .where(inOrg(files, organisationId, eq(files.id, fileId)));
+      if (status === "failed") await tellProcessingFailed(deps.db, organisationId, fileId);
+    };
     if (!source) {
       await done("failed");
       return;

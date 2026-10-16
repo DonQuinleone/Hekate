@@ -29,10 +29,13 @@ export function Switch({
   checked,
   onChange,
   label,
+  disabled = false,
 }: {
   checked: boolean;
   onChange: (checked: boolean) => void;
   label: string;
+  /** Fixed where it is, such as a setting that cannot be turned off. */
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -40,10 +43,11 @@ export function Switch({
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
-        "relative h-5 w-9 shrink-0 rounded-full transition-colors duration-200",
-        checked ? "bg-signal" : "bg-edge hover:bg-edge-strong",
+        "relative h-5 w-9 shrink-0 rounded-full transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-50",
+        checked ? "bg-signal" : "bg-edge enabled:hover:bg-edge-strong",
       )}
     >
       <span

@@ -17,6 +17,8 @@ import { actorOf, can } from "../access.ts";
 import { carryThreads } from "../carry.ts";
 import { NotFound } from "../errors.ts";
 import type { Jobs } from "../jobs.ts";
+import type { Mailer } from "../mail.ts";
+import { follow, followersOf, notifyNow } from "../notifications.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { folderIn, lockProject } from "./folders.ts";
 
@@ -196,13 +198,19 @@ export const projectTrackRoutes = (db: Database) =>
             position: (last?.position ?? -1) + 1,
           })
           .returning({ id: tracks.id });
+        // Whoever makes a track hears about its new versions.
+        if (row) await follow(tx, organisationId, c.var.userId, { trackId: row.id });
         return row;
       });
       return c.json({ track: await oneTrack(db, organisationId, created?.id ?? "") }, 201);
     });
 
 /** `/api/tracks/:id`: one track; renaming, linking its score, reordering; new versions. */
-export const trackRoutes = (db: Database, jobs: Pick<Jobs, "send">) =>
+export const trackRoutes = (
+  db: Database,
+  jobs: Pick<Jobs, "send">,
+  mail: { mailer: Mailer; publicUrl: string },
+) =>
   new Hono<{ Variables: TenantVariables }>()
     .get("/:id", idParam, async (c) => {
       const track = await trackOf(db, c.var.organisationId, c.req.valid("param").id);
@@ -243,6 +251,7 @@ export const trackRoutes = (db: Database, jobs: Pick<Jobs, "send">) =>
         input.variations.map((v) => v.fileId),
       );
       let aligning: string[] = [];
+      let made = 0;
       try {
         aligning = await db.transaction(async (tx) => {
           // Lock the track so concurrent new versions take consecutive numbers.
@@ -256,6 +265,9 @@ export const trackRoutes = (db: Database, jobs: Pick<Jobs, "send">) =>
             .from(versions)
             .where(inOrg(versions, organisationId, eq(versions.trackId, id)));
           const number = (last?.number ?? 0) + 1;
+          made = number;
+          // Whoever adds a version follows the track from then on.
+          await follow(tx, organisationId, c.var.userId, { trackId: id });
           const [version] = await tx
             .insert(versions)
             .values({
@@ -303,6 +315,22 @@ export const trackRoutes = (db: Database, jobs: Pick<Jobs, "send">) =>
             console.warn(`Could not queue alignment ${alignmentId} now: ${String(error)}`),
           );
       }
+      await notifyNow(
+        { db, ...mail },
+        {
+          organisationId,
+          kind: "version",
+          recipients: await followersOf(db, organisationId, { trackId: id }),
+          actor: { userId: c.var.userId },
+          projectId: track.projectId,
+          trackId: id,
+          text: `added version ${made} of ${track.name}`,
+          detail: input.notes || null,
+          link: `/tracks/${id}`,
+        },
+      ).catch((error: unknown) =>
+        console.warn(`Could not tell followers about a new version: ${String(error)}`),
+      );
       return c.json({ track: await oneTrack(db, organisationId, id) }, 201);
     });
 
