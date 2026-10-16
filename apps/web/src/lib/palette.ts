@@ -51,6 +51,20 @@ export const matches = (query: string, hits: Hit[], limit = 8) =>
     .slice(0, limit)
     .map((h) => h.hit);
 
+/**
+ * Where Tab (or Shift Tab) moves the highlight: to the first hit of the next (or previous)
+ * group, wrapping round. From inside a group, Shift Tab returns to that group's first hit.
+ */
+export function groupStep(hits: Pick<Hit, "group">[], index: number, back: boolean): number {
+  const starts = hits.flatMap((h, i) => (i === 0 || hits[i - 1]?.group !== h.group ? [i] : []));
+  if (starts.length === 0) return 0;
+  if (back) {
+    const before = starts.filter((s) => s < index);
+    return before.at(-1) ?? starts.at(-1) ?? 0;
+  }
+  return starts.find((s) => s > index) ?? starts[0] ?? 0;
+}
+
 /** Recents are kept per person and workspace, so nothing from one reaches another. */
 const recentKey = (scope: string) => `hekate.palette.recent.${scope}`;
 const RECENT_MAX = 5;

@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { type Hit, matches, readRecent, rememberRecent, score } from "./palette";
+import {
+  groupStep,
+  type Hit,
+  type HitGroup,
+  matches,
+  readRecent,
+  rememberRecent,
+  score,
+} from "./palette";
 
 const hit = (label: string, group: Hit["group"] = "Files"): Hit => ({
   id: label,
@@ -70,5 +78,31 @@ describe("recent", () => {
         },
       }),
     ).not.toThrow();
+  });
+});
+
+describe("groupStep", () => {
+  const hits = [
+    { group: "Jump to" },
+    { group: "Jump to" },
+    { group: "Files" },
+    { group: "Files" },
+    { group: "Comments" },
+  ] as const satisfies { group: HitGroup }[];
+
+  it("moves to the next group's first hit, and wraps round", () => {
+    expect(groupStep(hits, 0, false)).toBe(2);
+    expect(groupStep(hits, 3, false)).toBe(4);
+    expect(groupStep(hits, 4, false)).toBe(0);
+  });
+
+  it("moves back to this group's first hit, then the previous group's", () => {
+    expect(groupStep(hits, 3, true)).toBe(2);
+    expect(groupStep(hits, 2, true)).toBe(0);
+    expect(groupStep(hits, 0, true)).toBe(4);
+  });
+
+  it("stays put with nothing to move between", () => {
+    expect(groupStep([], 0, false)).toBe(0);
   });
 });
