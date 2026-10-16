@@ -94,7 +94,7 @@ export function AccountPage({ section }: { section: string }) {
   const sec = sections.some((s) => s.id === section) ? section : "account";
   const keys = [
     { name: "MacBook Touch ID", kind: "Passkey", used: "today" },
-    { name: "YubiKey 5C", kind: "Security key", used: "3 Oct" },
+    { name: "YubiKey 5C", kind: "Hardware security key", used: "3 Oct" },
     { name: "iPhone", kind: "Passkey", used: "yesterday" },
   ];
   return (
@@ -161,8 +161,8 @@ export function AccountPage({ section }: { section: string }) {
             </Row>
           </Section>
           <Section
-            title="Passkeys and security keys"
-            intro="Up to five. A passkey signs you in without a password; a security key can be required by the workspace."
+            title="Passkeys and hardware security keys"
+            intro="Up to five. A passkey signs you in without a password; a hardware security key, such as a YubiKey, can be required by the workspace."
             action={
               <Button
                 variant="secondary"
@@ -249,8 +249,8 @@ export function AccountPage({ section }: { section: string }) {
           </Section>
           {adding && (
             <Dialog
-              title="Add a passkey or security key"
-              description="Your browser asks you to touch the key or use the device's unlock."
+              title="Add a passkey or hardware security key"
+              description="Your browser asks you to touch the key (a YubiKey, or any FIDO2 key), or to unlock this device."
               onClose={() => setAdding(false)}
               width="sm"
               footer={

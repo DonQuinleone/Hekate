@@ -56,6 +56,8 @@ export interface AppDeps {
   trustProxy?: boolean;
   publicUrl: string;
   log?: boolean;
+  /** How many passkeys one account may hold (MAX_PASSKEYS). */
+  maxPasskeys?: number;
   /** Check the first owner's password against known breaches (PASSWORD_LEAK_CHECK). */
   passwordLeakCheck?: boolean;
   /** The instance asks every account for a second factor (REQUIRE_SECOND_FACTOR). */
@@ -96,11 +98,12 @@ export function createApi(deps: AppDeps) {
           auth: deps.auth,
           audit: deps.audit,
           trustProxy: deps.trustProxy ?? false,
+          maxPasskeys: deps.maxPasskeys ?? 5,
         }),
       )
       // "/me/*" also covers "/me" itself.
       .use("/me/*", requireSession(deps.auth), requireOrganisation(deps.db, rule, owingAllowed))
-      .route("/me", meRoutes(deps.db, rule))
+      .route("/me", meRoutes(deps.db, rule, { maxPasskeys: deps.maxPasskeys ?? 5 }))
       .route("/invitations", invitationRoutes(deps.db, deps.auth))
       .use("/organisation/*", ...member)
       .route(

@@ -454,7 +454,7 @@ export function SecondFactorSection() {
     <>
       <Section
         title="Second factor"
-        intro="A code from an app on your phone, asked for after your password. Passkeys and security keys arrive here too."
+        intro="A code from an app on your phone, asked for after your password. A passkey or hardware security key, below, does the same."
       >
         <Row
           name="Code app"

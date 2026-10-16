@@ -1,5 +1,5 @@
 import { type Database, schema } from "@hekate/db";
-import { atLeast, secondFactorRequired, workspaceSettingsOf } from "@hekate/shared";
+import { atLeast, factorDemand, sessionMeets, workspaceSettingsOf } from "@hekate/shared";
 import { and, asc, eq } from "drizzle-orm";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
@@ -64,32 +64,51 @@ export interface SecondFactorRule {
 }
 
 /**
- * Refuses a member without a second factor when the workspace, or the instance, asks for one.
- * The web app sends them to add one; nothing else works until they have.
+ * What a workspace (or the instance) asks of this member's sign-in, and how this session was
+ * signed in (decision 048).
  */
-export async function assertSecondFactor(
+export async function factorStanding(
   db: Database,
-  userId: string,
+  sessionId: string,
   membership: { organisationId: string; role: OrganisationRole },
   rule: SecondFactorRule,
 ) {
   const [row] = await db
-    .select({
-      enabled: schema.users.twoFactorEnabled,
-      settings: schema.organisations.settings,
-    })
-    .from(schema.users)
+    .select({ factor: schema.authSessions.factor, settings: schema.organisations.settings })
+    .from(schema.authSessions)
     .innerJoin(schema.organisations, eq(schema.organisations.id, membership.organisationId))
-    .where(eq(schema.users.id, userId));
-  if (!row || row.enabled) return;
-  const policy = workspaceSettingsOf(row.settings).secondFactor;
-  if (secondFactorRequired({ instance: rule.instance, policy, role: membership.role })) {
-    throw new CodedException(
-      403,
-      "second_factor_required",
-      "This workspace asks for a second factor. Add one to continue.",
-    );
-  }
+    .where(eq(schema.authSessions.id, sessionId));
+  const settings = workspaceSettingsOf(row?.settings);
+  const demand = factorDemand({
+    instance: rule.instance,
+    policy: settings.secondFactor,
+    securityKeyForAdmins: settings.securityKeyForAdmins,
+    role: membership.role,
+  });
+  const factor = row?.factor ?? "password";
+  return { demand, factor, met: sessionMeets(factor, demand) };
+}
+
+/**
+ * Refuses a member whose sign-in falls short of what the workspace, or the instance, asks: a
+ * second factor, or for owners and admins a hardware security key. The web app sends them to add one,
+ * or to confirm with the one they have; nothing else works until they do.
+ */
+export async function assertSecondFactor(
+  db: Database,
+  sessionId: string,
+  membership: { organisationId: string; role: OrganisationRole },
+  rule: SecondFactorRule,
+) {
+  const { demand, met } = await factorStanding(db, sessionId, membership, rule);
+  if (met) return;
+  throw new CodedException(
+    403,
+    "second_factor_required",
+    demand.securityKey
+      ? "This workspace asks owners and admins to sign in with a passkey or hardware security key."
+      : "This workspace asks for a second factor. Add one, or confirm with yours, to continue.",
+  );
 }
 
 /**
@@ -103,7 +122,7 @@ export const requireOrganisation = (
 ) =>
   createMiddleware<{ Variables: TenantVariables }>(async (c, next) => {
     const membership = await organisationFor(db, c.var.userId, c.var.sessionId);
-    if (!owing.has(c.req.path)) await assertSecondFactor(db, c.var.userId, membership, rule);
+    if (!owing.has(c.req.path)) await assertSecondFactor(db, c.var.sessionId, membership, rule);
     c.set("organisationId", membership.organisationId);
     c.set("organisationRole", membership.role);
     await next();

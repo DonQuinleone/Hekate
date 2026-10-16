@@ -51,6 +51,7 @@ const auth = createAuth({
   mailer,
   audit: createAudit(db),
   leakCheck: config.PASSWORD_LEAK_CHECK,
+  maxPasskeys: config.MAX_PASSKEYS,
 });
 const keyring = createKeyring(db, {
   current: config.MASTER_KEY,
@@ -120,6 +121,7 @@ const app = createApp({
   trustProxy: config.TRUST_PROXY,
   passwordLeakCheck: config.PASSWORD_LEAK_CHECK,
   requireSecondFactor: config.REQUIRE_SECOND_FACTOR,
+  maxPasskeys: config.MAX_PASSKEYS,
 });
 if (config.WEB_DIST) serveWeb(app, config.WEB_DIST);
 

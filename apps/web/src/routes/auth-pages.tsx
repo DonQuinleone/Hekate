@@ -2,6 +2,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { Mark, Wordmark } from "~/components/brand";
+import { Icon } from "~/components/icons";
+import { AddPasskey, usePasskeySignIn } from "~/components/passkeys";
 import { CodeAppSetup } from "~/components/second-factor";
 import { Button } from "~/components/ui/button";
 import { Choice } from "~/components/ui/choice";
@@ -147,6 +149,7 @@ async function arrive(redirect: string | undefined, navigate: ReturnType<typeof 
 
 function SignIn({ search, forgot }: { search: SignInSearch; forgot: (email: string) => void }) {
   const navigate = useNavigate();
+  const key = usePasskeySignIn();
   const client = useQueryClient();
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -210,9 +213,21 @@ function SignIn({ search, forgot }: { search: SignInSearch; forgot: (email: stri
         >
           Forgotten your password?
         </button>
-        <ErrorLine message={error} />
+        <ErrorLine message={error ?? key.error} />
         <Button variant="primary" size="lg" type="submit" disabled={pending}>
           {pending ? "Signing in" : "Sign in"}
+        </Button>
+        <Button
+          variant="secondary"
+          size="lg"
+          className="gap-2"
+          disabled={key.pending}
+          onClick={async () => {
+            if (await key.signIn()) await arrive(search.redirect, navigate);
+          }}
+        >
+          <Icon name="key" size={16} />
+          {key.pending ? "Waiting for the key" : "Sign in with a passkey"}
         </Button>
       </form>
       <p className="m-0 border-t border-hairline pt-4 text-xs leading-normal text-ink-3">
@@ -241,6 +256,7 @@ function SecondFactor({
   const client = useQueryClient();
   const [code, setCode] = useState("");
   const [trust, setTrust] = useState(false);
+  const key = usePasskeySignIn();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const ready = recovery ? code.replace(/[^a-z0-9]/gi, "").length === 10 : code.length === 6;
@@ -316,6 +332,17 @@ function SecondFactor({
         >
           {recovery ? "Use your code app instead" : "Lost your phone? Use a recovery code"}
         </button>
+        <button
+          type="button"
+          disabled={key.pending}
+          onClick={async () => {
+            if (await key.signIn()) await arrive(redirect, navigate);
+          }}
+          className="-mt-3 self-start text-[13px] text-ink-3 transition-colors hover:text-ink"
+        >
+          Use a passkey or hardware security key
+        </button>
+        <ErrorLine message={key.error} />
       </form>
       <Back onClick={back} />
     </Frame>
@@ -622,29 +649,71 @@ export function SecondFactorPage() {
   const navigate = useNavigate();
   const client = useQueryClient();
   const { data: me } = useQuery(meQuery);
+  const [withKey, setWithKey] = useState(false);
+  const confirm = usePasskeySignIn();
   const workspace = me?.organisations.find((o) => o.id === me.activeOrganisationId);
   const signOut = async () => {
     await authClient.signOut();
     client.clear();
     await navigate({ to: "/sign-in", search: {} });
   };
-  return (
-    <CodeAppSetup
-      page
-      reason={`${workspace?.name ?? "This workspace"} asks you to sign in with a second factor.`}
-      onDone={() => void navigate({ to: "/" })}
-      shell={({ title, intro, body }) => (
-        <Frame title={title} intro={intro}>
-          {body}
-          <button
-            type="button"
-            onClick={signOut}
-            className="self-start text-[13px] text-ink-3 transition-colors hover:text-ink"
-          >
-            Sign out
-          </button>
-        </Frame>
+  const standing = me?.secondFactor;
+  const name = workspace?.name ?? "This workspace";
+  const reason = standing?.securityKey
+    ? `${name} asks owners and admins to sign in with a passkey or hardware security key.`
+    : `${name} asks you to sign in with a second factor.`;
+  const foot = (
+    <button
+      type="button"
+      onClick={signOut}
+      className="self-start text-[13px] text-ink-3 transition-colors hover:text-ink"
+    >
+      Sign out
+    </button>
+  );
+  const shell = ({ title, intro, body }: { title: string; intro: string; body: ReactNode }) => (
+    <Frame title={title} intro={intro}>
+      {body}
+      {!standing?.securityKey && (
+        <button
+          type="button"
+          onClick={() => setWithKey(!withKey)}
+          className="-mt-4 self-start text-[13px] text-ink-3 transition-colors hover:text-ink"
+        >
+          {withKey ? "Use a code app instead" : "Use a passkey or hardware security key instead"}
+        </button>
       )}
-    />
+      {foot}
+    </Frame>
+  );
+
+  // They have a key: this sign-in only needs confirming with it.
+  if (standing && standing.passkeys > 0)
+    return (
+      <Frame
+        title="Confirm it is you"
+        intro={`${reason} Use your passkey or hardware security key.`}
+      >
+        <Button
+          variant="primary"
+          size="lg"
+          className="gap-2"
+          disabled={confirm.pending}
+          onClick={async () => {
+            if (await confirm.signIn()) await navigate({ to: "/" });
+          }}
+        >
+          <Icon name="key" size={16} />
+          {confirm.pending ? "Waiting for the key" : "Use my passkey"}
+        </Button>
+        <ErrorLine message={confirm.error} />
+        {foot}
+      </Frame>
+    );
+  // A key is asked for, or chosen: add one, then confirm with it.
+  if (standing?.securityKey || withKey)
+    return <AddPasskey page reason={reason} onAdded={() => undefined} shell={shell} />;
+  return (
+    <CodeAppSetup page reason={reason} onDone={() => void navigate({ to: "/" })} shell={shell} />
   );
 }

@@ -852,7 +852,7 @@ export function SettingsPage({
             </Row>
             <Row
               name="Second factor required of"
-              hint="A code app, a passkey or a security key, with recovery codes. People without one are asked at their next sign-in and cannot carry on until they add one. Guests use their link."
+              hint="A code app, a passkey or a hardware security key, with recovery codes. People without one are asked at their next sign-in and cannot carry on until they add one. Guests use their link."
             >
               <Select defaultValue="everyone" className="w-48">
                 <option value="off">Nobody</option>
@@ -860,7 +860,10 @@ export function SettingsPage({
                 <option value="everyone">Everyone</option>
               </Select>
             </Row>
-            <SwitchRow name="Security key required for owners and admins" checked={false} />
+            <SwitchRow
+              name="Passkey or hardware security key required for owners and admins"
+              checked={false}
+            />
             <Row name="Sessions end after">
               <Select defaultValue="30" className="w-40">
                 <option value="1">1 day</option>

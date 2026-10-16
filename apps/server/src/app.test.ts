@@ -742,7 +742,14 @@ describe.runIf(url)("api", () => {
       };
       const wrong = (code: string) => String((Number(code) + 1) % 1_000_000).padStart(6, "0");
       type Me = {
-        secondFactor: { enabled: boolean; required: boolean; recoveryCodesLeft: number };
+        secondFactor: {
+          enabled: boolean;
+          passkeys: number;
+          required: boolean;
+          securityKey: boolean;
+          met: boolean;
+          recoveryCodesLeft: number;
+        };
       };
       const me = async (cookie: string) =>
         (await (await app.request("/api/me", { headers: { cookie } })).json()) as Me;
@@ -769,7 +776,10 @@ describe.runIf(url)("api", () => {
         const first = cookieOf(await setup());
         expect((await me(first)).secondFactor).toEqual({
           enabled: false,
+          passkeys: 0,
           required: false,
+          securityKey: false,
+          met: true,
           recoveryCodesLeft: 0,
         });
         // The password is asked again before anything changes.
@@ -806,7 +816,10 @@ describe.runIf(url)("api", () => {
         const cookie = cookieOf(verified);
         expect((await me(cookie)).secondFactor).toEqual({
           enabled: true,
+          passkeys: 0,
           required: false,
+          securityKey: false,
+          met: true,
           recoveryCodesLeft: 10,
         });
         // The recovery codes are stored only as hashes.
@@ -871,6 +884,71 @@ describe.runIf(url)("api", () => {
         expect(actions).toContain("account.recovery_codes");
       });
 
+      it("asks owners and admins for a passkey session where the workspace says so", async () => {
+        const first = cookieOf(await setup());
+        const [user] = await db.select().from(schema.users);
+        const keyFor = (n: number) => ({
+          id: `key-${n}`,
+          userId: user?.id ?? "",
+          name: `Key ${n}`,
+          publicKey: "not a real key",
+          credentialID: `credential-${n}`,
+          counter: 0,
+          deviceType: "singleDevice",
+          backedUp: false,
+        });
+        const ask = (body: Record<string, unknown>) =>
+          app.request("/api/organisation/settings", {
+            ...json(body, first),
+            method: "PATCH",
+          });
+        // Asking for a key starts with having one.
+        expect((await ask({ securityKeyForAdmins: true })).status).toBe(422);
+        await db.insert(schema.passkeys).values(keyFor(1));
+        expect((await ask({ securityKeyForAdmins: true })).status).toBe(200);
+
+        // A password session falls short: everything but who they are is refused.
+        const standing = await me(first);
+        expect(standing.secondFactor).toMatchObject({
+          passkeys: 1,
+          required: true,
+          securityKey: true,
+          met: false,
+        });
+        const refused = await app.request("/api/projects", { headers: { cookie: first } });
+        expect(refused.status).toBe(403);
+        expect(((await refused.json()) as { error: { message: string } }).error.message).toMatch(
+          /passkey or hardware security key/,
+        );
+        // A session signed in with a passkey meets it.
+        await db
+          .update(schema.authSessions)
+          .set({ factor: "passkey" })
+          .where(eq(schema.authSessions.userId, user?.id ?? ""));
+        expect((await app.request("/api/projects", { headers: { cookie: first } })).status).toBe(
+          200,
+        );
+
+        // Up to five keys: the sixth is refused before the browser is asked.
+        await db.insert(schema.passkeys).values([2, 3, 4, 5].map(keyFor));
+        const sixth = await app.request("/api/auth/passkey/generate-register-options", {
+          headers: { cookie: first, origin: "http://localhost:3000" },
+        });
+        expect(sixth.status).toBe(403);
+        expect(((await sixth.json()) as { message: string }).message).toMatch(/5 keys/);
+        // Options fetched before the fifth key was added are no way round it.
+        const saved = await app.request("/api/auth/passkey/verify-registration", {
+          ...json({ response: {} }, first),
+          headers: {
+            cookie: first,
+            origin: "http://localhost:3000",
+            "content-type": "application/json",
+          },
+        });
+        expect(saved.status).toBe(403);
+        expect(((await saved.json()) as { message: string }).message).toMatch(/5 keys/);
+      });
+
       it("holds back a member without one where the workspace asks for it", async () => {
         const first = cookieOf(await setup());
         // Asking it of others starts with having it.
@@ -898,7 +976,10 @@ describe.runIf(url)("api", () => {
         // Who they are still answers, so they can be sent to add one.
         expect((await me(member)).secondFactor).toEqual({
           enabled: false,
+          passkeys: 0,
           required: true,
+          securityKey: false,
+          met: false,
           recoveryCodesLeft: 0,
         });
         const { cookie: enrolled } = await enrol(member, "correct horse battery");
@@ -1092,6 +1173,7 @@ describe.runIf(url)("api", () => {
           carriedCommentsShown: true,
           emailSubjects: {},
           secondFactor: "off",
+          securityKeyForAdmins: false,
           reviewer: { comment: true, decide: true, comments: "all", windowDays: null },
         });
         expect((await change({ guestLinkDays: 7 }, owner)).status).toBe(400);

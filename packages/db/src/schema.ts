@@ -29,6 +29,7 @@ import {
   reviewOrders,
   reviewStatuses,
   type SearchRequest,
+  type SessionFactor,
 } from "@hekate/shared";
 import { type SQL, sql } from "drizzle-orm";
 import {
@@ -154,9 +155,41 @@ export const authSessions = pgTable(
     activeOrganisationId: uuid("active_organisation_id").references(() => organisations.id, {
       onDelete: "set null",
     }),
+    /**
+     * How the session was signed in: a password alone, a password and a second factor, or a
+     * passkey (decision 048). A workspace that asks for a second factor, or a security key,
+     * reads this.
+     */
+    factor: text("factor").$type<SessionFactor>().notNull().default("password"),
     ...timestamps,
   },
   (t) => [index("auth_sessions_user_idx").on(t.userId)],
+);
+
+/**
+ * A passkey or hardware security key (WebAuthn), for Better Auth's passkey plugin: signs in on
+ * its own, or confirms a password sign-in. Named by its owner; up to an operator's limit each.
+ */
+export const passkeys = pgTable(
+  "passkeys",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name"),
+    publicKey: text("public_key").notNull(),
+    credentialID: text("credential_id").notNull().unique(),
+    counter: integer("counter").notNull(),
+    /** "singleDevice" for a hardware key, "multiDevice" for a passkey that syncs. */
+    deviceType: text("device_type").notNull(),
+    backedUp: boolean("backed_up").notNull(),
+    transports: text("transports"),
+    aaguid: text("aaguid"),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("passkeys_user_idx").on(t.userId)],
 );
 
 /** Better Auth account: one row per sign-in method (credential password, later SSO, LDAP). */

@@ -310,6 +310,12 @@ function Security() {
           ))}
         </Select>
       </Row>
+      <SwitchRow
+        name="Passkey or hardware security key required for owners and admins"
+        hint="They sign in with a passkey or hardware security key; a code app is not enough."
+        checked={settings.securityKeyForAdmins}
+        onChange={(securityKeyForAdmins) => change({ securityKeyForAdmins })}
+      />
       {error}
     </Section>
   );

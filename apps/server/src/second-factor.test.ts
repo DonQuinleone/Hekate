@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  factorFor,
   hashedRecoveryCodes,
   hashRecoveryCode,
   newRecoveryCodes,
@@ -53,5 +54,26 @@ describe("recovery codes", () => {
   it("counts nothing when nothing is stored", () => {
     expect(recoveryCodesLeft(null)).toBe(0);
     expect(recoveryCodesLeft("not json")).toBe(0);
+  });
+});
+
+describe("how a session was signed in", () => {
+  const plain = { twoFactorEnabled: false };
+  const guarded = { twoFactorEnabled: true };
+  it("names the factor from the route that made the session", () => {
+    expect(factorFor("/sign-in/email", plain, undefined)).toBe("password");
+    expect(factorFor("/two-factor/verify-totp", guarded, undefined)).toBe("second_factor");
+    expect(factorFor("/two-factor/verify-backup-code", guarded, undefined)).toBe("second_factor");
+    expect(factorFor("/passkey/verify-authentication", plain, undefined)).toBe("passkey");
+  });
+
+  it("counts a trusted browser as having given the code", () => {
+    expect(factorFor("/sign-in/email", guarded, undefined)).toBe("second_factor");
+  });
+
+  it("keeps the factor of a session it renews, except what a removed code app gave", () => {
+    expect(factorFor("/two-factor/disable", plain, "passkey")).toBe("passkey");
+    expect(factorFor("/two-factor/disable", plain, "second_factor")).toBe("password");
+    expect(factorFor("/change-password", plain, undefined)).toBe("password");
   });
 });

@@ -710,3 +710,61 @@ test.describe("compact", () => {
     });
   }
 });
+
+// Passkeys (#39), with Chrome's virtual authenticator: one added on the account page, then
+// used to sign in without a password; revoked after, so the account is as seeded.
+test("account-passkeys", async ({ browser }, info) => {
+  const context = await browser.newContext({
+    storageState: { cookies: [], origins: [] },
+    viewport: info.project.use.viewport ?? { width: 1440, height: 900 },
+    baseURL: info.project.use.baseURL,
+  });
+  const page = await context.newPage();
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("WebAuthn.enable");
+  await cdp.send("WebAuthn.addVirtualAuthenticator", {
+    options: {
+      protocol: "ctap2",
+      transport: "internal",
+      hasResidentKey: true,
+      hasUserVerification: true,
+      isUserVerified: true,
+    },
+  });
+  try {
+    await page.goto("/sign-in");
+    await page.fill("#email", "producer@example.test");
+    await page.fill("#password", "correct horse battery");
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await page.waitForURL((url) => !url.pathname.startsWith("/sign-in"));
+
+    await page.goto("/account/security");
+    await settle(page, "main >> text=Passkeys and hardware security keys");
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Add a passkey or hardware security key" });
+    await dialog.getByLabel("Name").fill("Studio laptop");
+    await dialog.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.locator("main").getByText("Studio laptop")).toBeVisible();
+    await saveScreen(page, "account-passkeys");
+    await checkScreen(page);
+
+    // Signed out, the key alone signs in.
+    await context.clearCookies();
+    await page.goto("/sign-in");
+    await page.getByRole("button", { name: "Sign in with a passkey" }).click();
+    await page.waitForURL((url) => !url.pathname.startsWith("/sign-in"));
+    await expect(page.getByRole("navigation").first()).toBeVisible();
+  } finally {
+    await page.goto("/account/security");
+    await settle(page, "main >> text=Passkeys and hardware security keys");
+    const actions = page.getByRole("button", { name: "Actions for Studio laptop" });
+    while ((await actions.count()) > 0) {
+      const before = await actions.count();
+      await actions.first().click();
+      await page.getByRole("menuitem", { name: "Revoke" }).click();
+      await expect(actions).toHaveCount(before - 1);
+    }
+    await context.close();
+  }
+});
