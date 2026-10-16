@@ -22,7 +22,12 @@ import {
   verifyPlayback,
 } from "../playback.ts";
 import type { Storage } from "../storage.ts";
-import { assertSecondFactor, membershipOf, type SecondFactorRule } from "../tenancy.ts";
+import {
+  assertSecondFactor,
+  assertSignedInThrough,
+  membershipOf,
+  type SecondFactorRule,
+} from "../tenancy.ts";
 
 const {
   filePages,
@@ -467,7 +472,12 @@ export const playRoutes = (deps: PlaybackDeps) => {
       if (!membership) {
         throw new HTTPException(403, { message: "This playback link is not valid for you" });
       }
-      // A workspace that has come to ask for a second factor ends playback at once too.
+      // A workspace that has come to ask for a second factor, or for single sign-on, ends
+      // playback at once too.
+      await assertSignedInThrough(deps.db, claims.sessionId, {
+        organisationId: claims.organisationId,
+        role: membership.role,
+      });
       await assertSecondFactor(
         deps.db,
         claims.sessionId,

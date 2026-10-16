@@ -56,6 +56,7 @@ const auth = createAuth({
   audit: createAudit(db),
   leakCheck: config.PASSWORD_LEAK_CHECK,
   maxPasskeys: config.MAX_PASSKEYS,
+  ssoTrustedOrigins: config.SSO_TRUSTED_ORIGINS,
   keyring,
 });
 
@@ -124,6 +125,7 @@ const app = createApp({
   passwordLeakCheck: config.PASSWORD_LEAK_CHECK,
   requireSecondFactor: config.REQUIRE_SECOND_FACTOR,
   maxPasskeys: config.MAX_PASSKEYS,
+  ssoTrustedOrigins: config.SSO_TRUSTED_ORIGINS,
 });
 if (config.WEB_DIST) serveWeb(app, config.WEB_DIST);
 

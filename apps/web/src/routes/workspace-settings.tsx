@@ -19,6 +19,7 @@ import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { PageHeader } from "~/components/page-header";
 import { Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
+import { SsoSection } from "~/components/sso";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select } from "~/components/ui/input";
@@ -812,6 +813,7 @@ export function WorkspaceSettingsPage({ section }: { section: string }) {
         {current.id === "security" && (
           <>
             <Security />
+            <SsoSection />
             <DirectorySection />
           </>
         )}

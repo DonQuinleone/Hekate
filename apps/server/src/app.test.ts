@@ -65,6 +65,7 @@ describe.runIf(url)("api", () => {
     mailer,
     audit,
     keyring,
+    ssoTrustedOrigins: process.env.KEYCLOAK_URL ? [process.env.KEYCLOAK_URL] : [],
   });
   const storageRoot = mkdtempSync(join(tmpdir(), "hekate-api-storage-"));
   const backends = createBackends(
@@ -101,6 +102,7 @@ describe.runIf(url)("api", () => {
     trustProxy: true,
     publicUrl: "http://localhost:3000",
     log: false,
+    ssoTrustedOrigins: process.env.KEYCLOAK_URL ? [process.env.KEYCLOAK_URL] : [],
   });
   const owner = {
     name: "Producer",
@@ -725,6 +727,315 @@ describe.runIf(url)("api", () => {
         json({}, cookieOf(joined)),
       );
       expect(signedIn.status).toBe(201);
+    });
+
+    it("never swaps a workspace's identity provider once people sign in through it", async () => {
+      const owner = cookieOf(await setup());
+      const saml = (idpEntityId: string, groupsClaim = "groups") => ({
+        enabled: true,
+        protocol: "saml",
+        issuer: "",
+        clientId: "",
+        entryPoint: "https://idp.example.com/saml/sso",
+        idpEntityId,
+        certificate: "MIIBexample",
+        groupsClaim,
+        roles: [],
+        enforce: false,
+      });
+      const put = (body: unknown) =>
+        app.request("/api/organisation/sso", { ...json(body, owner), method: "PUT" });
+      expect((await put(saml("https://idp.example.com/one"))).status).toBe(200);
+      // Before anyone has signed in through it, it may still be replaced.
+      expect((await put(saml("https://idp.example.com/two"))).status).toBe(200);
+      const [provider] = await db.select().from(schema.ssoProviders);
+      await db.insert(schema.authAccounts).values({
+        id: "sso-subject",
+        userId: (await db.select({ id: schema.users.id }).from(schema.users))[0]?.id ?? "",
+        accountId: "subject-1",
+        providerId: provider?.providerId ?? "",
+      });
+      // Now another provider's subject 1 would be someone else: refused, whatever the protocol.
+      const swapped = await put(saml("https://idp.example.com/three"));
+      expect(swapped.status).toBe(422);
+      expect(await swapped.text()).toContain("cannot be swapped for another");
+      // Its other settings still change.
+      expect((await put(saml("https://idp.example.com/two", "roles"))).status).toBe(200);
+    });
+
+    describe.runIf(process.env.KEYCLOAK_URL)("single sign-on", () => {
+      const kc = process.env.KEYCLOAK_URL ?? "";
+      const realm = `${kc}/realms/hekate`;
+      const oidc = {
+        enabled: true,
+        protocol: "oidc",
+        issuer: realm,
+        clientId: "hekate",
+        clientSecret: "oidc-client-secret-for-tests",
+        entryPoint: "",
+        idpEntityId: "",
+        certificate: "",
+        groupsClaim: "groups",
+        roles: [{ group: "producers", role: "admin" }],
+        enforce: false,
+      };
+      const put = (body: unknown, cookie: string) =>
+        app.request("/api/organisation/sso", { ...json(body, cookie), method: "PUT" });
+      type Me = { organisations: { name: string; role: string }[]; user: { name: string } };
+      const me = async (cookie: string) =>
+        (await (await app.request("/api/me", { headers: { cookie } })).json()) as Me;
+
+      /** A browser at Keycloak: its cookies, followed redirects, and the login form posted. */
+      const atKeycloak = async (start: string, username: string, password: string) => {
+        const jar = new Map<string, string>();
+        const keep = (res: Response) => {
+          for (const c of res.headers.getSetCookie()) {
+            const pair = c.split(";")[0] ?? "";
+            const at = pair.indexOf("=");
+            jar.set(pair.slice(0, at), pair.slice(at + 1));
+          }
+          return res;
+        };
+        const cookie = () => [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
+        let res = keep(await fetch(start, { redirect: "manual", headers: { cookie: cookie() } }));
+        while (res.status >= 300 && res.status < 400) {
+          const next = new URL(res.headers.get("location") ?? "", start).toString();
+          res = keep(await fetch(next, { redirect: "manual", headers: { cookie: cookie() } }));
+        }
+        const page = await res.text();
+        const action = /<form[^>]*id="kc-form-login"[^>]*action="([^"]+)"/.exec(page)?.[1];
+        expect(action).toBeTruthy();
+        return keep(
+          await fetch((action ?? "").replaceAll("&amp;", "&"), {
+            method: "POST",
+            redirect: "manual",
+            headers: { cookie: cookie(), "content-type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ username, password, credentialId: "" }),
+          }),
+        );
+      };
+
+      /** Starts at the sign-in page's button and returns the signed-in response, or the refusal. */
+      const signIn = async (username: string, password: string, workspace = "studio") => {
+        const found = await app.request(`/api/sign-in-methods/sso?workspace=${workspace}`);
+        expect(found.status).toBe(200);
+        const { providerId } = (await found.json()) as { providerId: string };
+        const started = await app.request(
+          "/api/auth/sign-in/sso",
+          json({ providerId, callbackURL: "/", errorCallbackURL: "/sign-in?view=sso" }),
+        );
+        expect(started.status).toBe(200);
+        const { url } = (await started.json()) as { url: string };
+        const state = cookieOf(started);
+        const back = await atKeycloak(url, username, password);
+        if (back.status === 302) {
+          // OIDC: back to the callback with a code.
+          const to = new URL(back.headers.get("location") ?? "");
+          return app.request(to.pathname + to.search, { headers: { cookie: state } });
+        }
+        // SAML: a page that posts the response to the ACS.
+        const page = await back.text();
+        const field = (name: string) =>
+          new RegExp(`name="${name}" value="([^"]+)"`).exec(page)?.[1]?.replaceAll("&#x2b;", "+") ??
+          "";
+        const acs = new URL(
+          (/<form[^>]*action="([^"]+)"/.exec(page)?.[1] ?? "")
+            .replaceAll("&#x3a;", ":")
+            .replaceAll("&#x2f;", "/"),
+        );
+        return app.request(acs.pathname, {
+          method: "POST",
+          headers: {
+            cookie: state,
+            "content-type": "application/x-www-form-urlencoded",
+            origin: kc,
+          },
+          body: new URLSearchParams({
+            SAMLResponse: field("SAMLResponse"),
+            RelayState: field("RelayState"),
+          }).toString(),
+        });
+      };
+
+      it("signs members in through the workspace's OIDC provider, with the role their groups give", async () => {
+        const owner = cookieOf(await setup());
+        const offered = async () =>
+          ((await (await app.request("/api/sign-in-methods")).json()) as { sso: boolean }).sso;
+        expect(await offered()).toBe(false);
+        expect((await app.request("/api/sign-in-methods/sso?workspace=studio")).status).toBe(404);
+        const saved = await put(oidc, owner);
+        expect(saved.status).toBe(200);
+        const body = (await saved.json()) as {
+          sso: Record<string, unknown>;
+          serviceProvider: { redirectUri: string };
+        };
+        // The secret goes in and never comes back; the redirect URI is what Keycloak is given.
+        expect(body.sso).toMatchObject({ hasClientSecret: true, enabled: true, issuer: realm });
+        expect(JSON.stringify(body)).not.toContain("oidc-client-secret");
+        expect(body.serviceProvider.redirectUri).toMatch(
+          /^http:\/\/localhost:3000\/api\/auth\/sso\/callback\/workspace-/,
+        );
+        expect(await offered()).toBe(true);
+
+        // Mira's groups make her an admin; she joins on her first sign-in.
+        const mira = await signIn("mira", "mira-sso-pass");
+        expect(mira.status).toBe(302);
+        const miraMe = await me(cookieOf(mira));
+        expect(miraMe.user.name).toBe("Mira Solberg");
+        expect(miraMe.organisations).toEqual([
+          expect.objectContaining({ name: "Studio", role: "admin" }),
+        ]);
+        // Tomas is in no admin group: a member. Both are in the access log.
+        const tomas = await signIn("tomas", "tomas-sso-pass");
+        expect((await me(cookieOf(tomas))).organisations[0]?.role).toBe("member");
+        const logged = await db
+          .select()
+          .from(schema.accessEvents)
+          .where(eq(schema.accessEvents.action, "account.sso_sign_in"));
+        expect(logged).toHaveLength(2);
+        // A member neither sees nor changes it.
+        expect(
+          (
+            await app.request("/api/organisation/sso", {
+              headers: { cookie: cookieOf(tomas) },
+            })
+          ).status,
+        ).toBe(403);
+        expect((await put(oidc, cookieOf(tomas))).status).toBe(403);
+
+        // Turned off, it signs no one in and the page stops offering it.
+        const { clientSecret: _, ...kept } = oidc;
+        expect((await put({ ...kept, enabled: false }, owner)).status).toBe(200);
+        expect(await offered()).toBe(false);
+        const providerId = body.serviceProvider.redirectUri.split("/").pop();
+        expect(
+          (await app.request("/api/auth/sign-in/sso", json({ providerId, callbackURL: "/" })))
+            .status,
+        ).toBe(400);
+      }, 60_000);
+
+      it("enforced, holds back members who signed in otherwise, but never the owner", async () => {
+        const owner = cookieOf(await setup());
+        const { body } = await invite(owner, "player@example.test");
+        const player = cookieOf(
+          await app.request(
+            `/api/invitations/${tokenFrom(body.link)}/accept`,
+            json({ name: "Player", password: "correct horse battery" }),
+          ),
+        );
+        expect((await put({ ...oidc, enforce: true }, owner)).status).toBe(200);
+        const refused = await app.request("/api/projects", { headers: { cookie: player } });
+        expect(refused.status).toBe(403);
+        expect(((await refused.json()) as { error: { code: string } }).error.code).toBe(
+          "sso_required",
+        );
+        // Who they are still answers, so the app can send them to sign in.
+        expect((await app.request("/api/me", { headers: { cookie: player } })).status).toBe(200);
+        // The owner keeps their password (break-glass); a member who came through it works.
+        expect((await app.request("/api/projects", { headers: { cookie: owner } })).status).toBe(
+          200,
+        );
+        const mira = cookieOf(await signIn("mira", "mira-sso-pass"));
+        expect((await app.request("/api/projects", { headers: { cookie: mira } })).status).toBe(
+          200,
+        );
+      }, 60_000);
+
+      it("never takes over an account that already has the address", async () => {
+        const owner = cookieOf(await setup());
+        const { body } = await invite(owner, "tomas@example.test");
+        await app.request(
+          `/api/invitations/${tokenFrom(body.link)}/accept`,
+          json({ name: "Tomas", password: "correct horse battery" }),
+        );
+        expect((await put(oidc, owner)).status).toBe(200);
+        const refused = await signIn("tomas", "tomas-sso-pass");
+        expect(refused.status).toBe(302);
+        expect(refused.headers.get("location")).toMatch(/error=/);
+        expect(cookieOf(refused)).not.toContain("session_token");
+      }, 60_000);
+
+      it("signs members in through a SAML identity provider", async () => {
+        const owner = cookieOf(await setup());
+        const read = (await (
+          await app.request("/api/organisation/sso", { headers: { cookie: owner } })
+        ).json()) as { serviceProvider: { entityId: string; acsUrl: string } };
+        // Keycloak is told about this workspace's service provider through its admin API.
+        const token = (
+          (await (
+            await fetch(`${kc}/realms/master/protocol/openid-connect/token`, {
+              method: "POST",
+              headers: { "content-type": "application/x-www-form-urlencoded" },
+              body: new URLSearchParams({
+                grant_type: "password",
+                client_id: "admin-cli",
+                username: "admin",
+                password: "admin-secret-for-tests",
+              }),
+            })
+          ).json()) as { access_token: string }
+        ).access_token;
+        const property = (name: string, attribute: string) => ({
+          name,
+          protocol: "saml",
+          protocolMapper: "saml-user-property-mapper",
+          config: { "user.attribute": attribute, "attribute.name": name },
+        });
+        const made = await fetch(`${kc}/admin/realms/hekate/clients`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+          body: JSON.stringify({
+            clientId: read.serviceProvider.entityId,
+            protocol: "saml",
+            redirectUris: [read.serviceProvider.acsUrl],
+            attributes: {
+              "saml.assertion.signature": "true",
+              "saml.server.signature": "true",
+              "saml.client.signature": "false",
+              "saml.authnstatement": "true",
+              saml_assertion_consumer_url_post: read.serviceProvider.acsUrl,
+            },
+            protocolMappers: [
+              property("email", "email"),
+              property("givenName", "firstName"),
+              property("surname", "lastName"),
+              {
+                name: "groups",
+                protocol: "saml",
+                protocolMapper: "saml-group-membership-mapper",
+                config: { "attribute.name": "groups", "full.path": "false", single: "false" },
+              },
+            ],
+          }),
+        });
+        expect(made.status).toBe(201);
+        const descriptor = await (await fetch(`${realm}/protocol/saml/descriptor`)).text();
+        const certificate = /<ds:X509Certificate>([^<]+)</.exec(descriptor)?.[1] ?? "";
+        expect(
+          (
+            await put(
+              {
+                ...oidc,
+                protocol: "saml",
+                issuer: "",
+                clientId: "",
+                clientSecret: "",
+                entryPoint: `${realm}/protocol/saml`,
+                idpEntityId: realm,
+                certificate,
+              },
+              owner,
+            )
+          ).status,
+        ).toBe(200);
+        const mira = await signIn("mira", "mira-sso-pass");
+        expect(mira.status).toBe(302);
+        const miraMe = await me(cookieOf(mira));
+        expect(miraMe.user.name).toBe("Mira Solberg");
+        expect(miraMe.organisations).toEqual([
+          expect.objectContaining({ name: "Studio", role: "admin" }),
+        ]);
+      }, 60_000);
     });
 
     describe.runIf(process.env.LDAP_TEST_URL)("directory", () => {
@@ -1790,7 +2101,7 @@ describe.runIf(url)("api", () => {
             "content-type": "application/octet-stream",
             ...(digest ? { "content-digest": `sha-256=:${digest}:` } : {}),
           },
-          body: bytes,
+          body: new Uint8Array(bytes),
         });
       const complete = (cookie: string, id: string) =>
         app.request(`/api/uploads/${id}/complete`, json({}, cookie));
@@ -3128,6 +3439,59 @@ describe.runIf(url)("api", () => {
             })
           ).status,
         ).toBe(401);
+      });
+
+      it("asks an account with no password for a fresh sign-in before deleting it", async () => {
+        const s = await studio();
+        const del = (body: object) =>
+          app.request("/api/me", { ...json(body, s.composer), method: "DELETE" });
+        const codeOf = async (res: Response) =>
+          ((await res.json()) as { error: { code: string } }).error.code;
+        // With a password, the password confirms it: leaving it out is refused.
+        const without = await del({ email: "composer@example.test" });
+        expect(without.status).toBe(403);
+        expect(await codeOf(without)).toBe("confirm_refused");
+        // Signed in only through single sign-on (#37): no password here to give.
+        await db
+          .delete(schema.authAccounts)
+          .where(
+            and(
+              eq(schema.authAccounts.userId, s.ids.composer),
+              eq(schema.authAccounts.providerId, "credential"),
+            ),
+          );
+        await db.insert(schema.authAccounts).values({
+          id: "sso-link",
+          userId: s.ids.composer,
+          accountId: "kc-composer",
+          providerId: "workspace-endless",
+        });
+        const confirm = async () =>
+          (await (await getAs("/api/me/deletion", s.composer)).json()) as {
+            with: string;
+            providerId: string | null;
+            fresh: boolean;
+          };
+        expect(await confirm()).toEqual({
+          with: "sign_in",
+          providerId: "workspace-endless",
+          fresh: true,
+        });
+        // A sign-in more than ten minutes old does not confirm it.
+        const aged = (minutes: number) =>
+          db
+            .update(schema.authSessions)
+            .set({ createdAt: new Date(Date.now() - minutes * 60_000) })
+            .where(eq(schema.authSessions.userId, s.ids.composer));
+        await aged(11);
+        expect((await confirm()).fresh).toBe(false);
+        const stale = await del({ email: "composer@example.test" });
+        expect(stale.status).toBe(403);
+        expect(await codeOf(stale)).toBe("sign_in_again");
+        // Signed in again just now, the address alone confirms it.
+        await aged(1);
+        expect((await del({ email: "someone@example.test" })).status).toBe(403);
+        expect((await del({ email: "composer@example.test" })).status).toBe(204);
       });
 
       it("sums up one project for its overview, as each role may see it, and keeps each person's layout", async () => {

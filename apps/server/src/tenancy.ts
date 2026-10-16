@@ -1,4 +1,4 @@
-import { type Database, schema } from "@hekate/db";
+import { type Database, inOrg, schema } from "@hekate/db";
 import { atLeast, factorDemand, sessionMeets, workspaceSettingsOf } from "@hekate/shared";
 import { and, asc, eq } from "drizzle-orm";
 import { createMiddleware } from "hono/factory";
@@ -112,8 +112,41 @@ export async function assertSecondFactor(
 }
 
 /**
+ * Refuses a member, other than an owner, who did not sign in through the single sign-on their
+ * workspace makes the only way in (#37). Owners keep their password, so a broken identity
+ * provider never locks a workspace out (break-glass).
+ */
+export async function assertSignedInThrough(
+  db: Database,
+  sessionId: string,
+  membership: { organisationId: string; role: OrganisationRole },
+) {
+  if (membership.role === "owner") return;
+  const [row] = await db
+    .select({ via: schema.authSessions.ssoProviderId, required: schema.ssoProviders.providerId })
+    .from(schema.authSessions)
+    .innerJoin(
+      schema.ssoProviders,
+      inOrg(
+        schema.ssoProviders,
+        membership.organisationId,
+        eq(schema.ssoProviders.enabled, true),
+        eq(schema.ssoProviders.enforce, true),
+      ),
+    )
+    .where(eq(schema.authSessions.id, sessionId));
+  if (row && row.via !== row.required)
+    throw new CodedException(
+      403,
+      "sso_required",
+      "This workspace signs its members in through single sign-on. Sign in that way to continue.",
+    );
+}
+
+/**
  * Resolves the organisation for the request (`organisationFor`), and holds back a member who
- * still owes a second factor, except at the paths in `owing` (where they learn that they do).
+ * still owes a second factor, or who did not come through the single sign-on the workspace
+ * requires, except at the paths in `owing` (where they learn that they do).
  */
 export const requireOrganisation = (
   db: Database,
@@ -122,7 +155,10 @@ export const requireOrganisation = (
 ) =>
   createMiddleware<{ Variables: TenantVariables }>(async (c, next) => {
     const membership = await organisationFor(db, c.var.userId, c.var.sessionId);
-    if (!owing.has(c.req.path)) await assertSecondFactor(db, c.var.sessionId, membership, rule);
+    if (!owing.has(c.req.path)) {
+      await assertSignedInThrough(db, c.var.sessionId, membership);
+      await assertSecondFactor(db, c.var.sessionId, membership, rule);
+    }
     c.set("organisationId", membership.organisationId);
     c.set("organisationRole", membership.role);
     await next();

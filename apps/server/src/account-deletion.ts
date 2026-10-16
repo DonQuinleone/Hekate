@@ -1,6 +1,11 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { type DeleteAccountInput, FORMER_MEMBER } from "@hekate/shared";
-import { and, eq, like, sql } from "drizzle-orm";
+import {
+  type DeleteAccountInput,
+  type DeletionConfirmation,
+  FORMER_MEMBER,
+  FRESH_SIGN_IN_MS,
+} from "@hekate/shared";
+import { and, eq, like, ne, sql } from "drizzle-orm";
 import type { Audit, RequestInfo } from "./audit.ts";
 import type { Auth } from "./auth.ts";
 import { directoryConfig, verifyPassword } from "./directory.ts";
@@ -29,7 +34,47 @@ const {
 export type DeletionResult =
   | { status: "deleted" }
   | { status: "refused" }
+  | { status: "sign_in_again" }
   | { status: "sole_owner"; workspaces: string[] };
+
+/**
+ * How an account confirms its deletion: with its password here; with its directory password,
+ * for an account made by a workspace's directory (#38); otherwise, for an account that signs
+ * in only through single sign-on (#37) or a passkey, with a sign-in in the last ten minutes,
+ * as GitHub asks for sudo mode. `fresh` says whether this session is one.
+ */
+export async function deletionConfirmation(
+  db: Database,
+  userId: string,
+  sessionId: string,
+): Promise<DeletionConfirmation> {
+  const links = await db
+    .select({ providerId: authAccounts.providerId, hash: authAccounts.password })
+    .from(authAccounts)
+    .where(eq(authAccounts.userId, userId));
+  if (links.some((l) => l.providerId === "credential" && l.hash)) return { with: "password" };
+  if (links.some((l) => l.providerId.startsWith("directory:"))) return { with: "directory" };
+  const [sso] = await db
+    .select({ providerId: authAccounts.providerId })
+    .from(authAccounts)
+    .where(
+      and(
+        eq(authAccounts.userId, userId),
+        ne(authAccounts.providerId, "credential"),
+        sql`${authAccounts.providerId} not like 'directory:%'`,
+      ),
+    )
+    .limit(1);
+  const [session] = await db
+    .select({ createdAt: authSessions.createdAt })
+    .from(authSessions)
+    .where(and(eq(authSessions.id, sessionId), eq(authSessions.userId, userId)));
+  return {
+    with: "sign_in",
+    providerId: sso?.providerId ?? null,
+    fresh: Boolean(session && Date.now() - session.createdAt.getTime() < FRESH_SIGN_IN_MS),
+  };
+}
 
 /**
  * Whether a password is the account's: its password here, or, for an account made by a
@@ -74,22 +119,30 @@ async function passwordIsTheirs(
  * that named it. The row itself stays, emptied, so what
  * they wrote keeps an author; no name, address or choice of theirs is left in it.
  *
- * Refused unless the address typed is the account's and the password is right, and refused
- * while they are the only owner of a workspace, which would be left with no one to run it.
+ * Refused unless the address typed is the account's and it is confirmed as
+ * `deletionConfirmation` says, and refused while they are the only owner of a workspace,
+ * which would be left with no one to run it.
  */
 export async function deleteAccount(
   db: Database,
   auth: Auth,
   keyring: Keyring | undefined,
   audit: Audit,
-  userId: string,
+  session: { userId: string; sessionId: string },
   input: DeleteAccountInput,
   request?: RequestInfo,
 ): Promise<DeletionResult> {
+  const { userId } = session;
   const [user] = await db.select({ email: users.email }).from(users).where(eq(users.id, userId));
   if (!user || user.email.toLowerCase() !== input.email.trim().toLowerCase())
     return { status: "refused" };
-  if (!(await passwordIsTheirs(db, auth, keyring, userId, input.password)))
+  const confirm = await deletionConfirmation(db, userId, session.sessionId);
+  if (confirm.with === "sign_in") {
+    if (!confirm.fresh) return { status: "sign_in_again" };
+  } else if (
+    !input.password ||
+    !(await passwordIsTheirs(db, auth, keyring, userId, input.password))
+  )
     return { status: "refused" };
 
   return db.transaction(async (tx) => {

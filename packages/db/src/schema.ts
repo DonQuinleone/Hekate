@@ -31,6 +31,7 @@ import {
   reviewStatuses,
   type SearchRequest,
   type SessionFactor,
+  type SsoProtocol,
 } from "@hekate/shared";
 import { type SQL, sql } from "drizzle-orm";
 import {
@@ -162,6 +163,8 @@ export const authSessions = pgTable(
      * reads this.
      */
     factor: text("factor").$type<SessionFactor>().notNull().default("password"),
+    /** The single sign-on provider that signed the session in, if one did (#37). */
+    ssoProviderId: text("sso_provider_id"),
     ...timestamps,
   },
   (t) => [index("auth_sessions_user_idx").on(t.userId)],
@@ -272,6 +275,42 @@ export const directories = pgTable(
     ...timestamps,
   },
   (t) => [uniqueIndex("directories_organisation_idx").on(t.organisationId)],
+);
+
+/**
+ * A workspace's single sign-on (#37): one OpenID Connect or SAML identity provider. Better
+ * Auth's SSO plugin reads the provider columns (`providerId`, `issuer`, `domain`, and the
+ * configuration as JSON text); the rest are Hekate's. One per workspace.
+ */
+export const ssoProviders = pgTable(
+  "sso_providers",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    /** The provider's name in sign-in and callback addresses: `workspace-` and the id. */
+    providerId: text("provider_id").notNull().unique(),
+    /** The OIDC issuer, or the SAML identity provider's entity ID. */
+    issuer: text("issuer").notNull(),
+    /** Unused: providers are found by workspace, never by an address's domain. */
+    domain: text("domain").notNull().default(""),
+    /** Better Auth's OIDC configuration, JSON; holds the client secret, as Better Auth needs it. */
+    oidcConfig: text("oidc_config"),
+    /** Better Auth's SAML configuration, JSON. */
+    samlConfig: text("saml_config"),
+    /** Who set it up. */
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    enabled: boolean("enabled").notNull().default(false),
+    protocol: text("protocol").$type<SsoProtocol>().notNull().default("oidc"),
+    clientId: text("client_id").notNull().default(""),
+    entryPoint: text("entry_point").notNull().default(""),
+    certificate: text("certificate").notNull().default(""),
+    groupsClaim: text("groups_claim").notNull().default("groups"),
+    roles: jsonb("roles").$type<DirectoryRoleRule[]>().notNull().default([]),
+    /** Members (not owners) sign in to the workspace only through it. */
+    enforce: boolean("enforce").notNull().default(false),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("sso_providers_organisation_idx").on(t.organisationId)],
 );
 
 /**

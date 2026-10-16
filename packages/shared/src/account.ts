@@ -119,6 +119,19 @@ export const FORMER_MEMBER = "A former member";
 /** Deleting your account: the address typed out, and the password, so it is meant and it is you. */
 export const deleteAccountInput = z.object({
   email: z.string().trim().max(254),
-  password: z.string().min(1).max(256),
+  /** Left out by an account with no password to give: a fresh sign-in confirms it instead. */
+  password: z.string().min(1).max(256).optional(),
 });
 export type DeleteAccountInput = z.infer<typeof deleteAccountInput>;
+
+/**
+ * How deleting an account is confirmed: its password here, its directory password, or, for an
+ * account with neither (single sign-on, or a passkey alone), a sign-in in the last ten minutes.
+ */
+export type DeletionConfirmation =
+  | { with: "password" }
+  | { with: "directory" }
+  | { with: "sign_in"; providerId: string | null; fresh: boolean };
+
+/** How long a sign-in confirms deleting an account that has no password to give. */
+export const FRESH_SIGN_IN_MS = 10 * 60_000;
