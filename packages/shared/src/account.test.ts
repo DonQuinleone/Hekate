@@ -28,3 +28,12 @@ describe("preferences", () => {
     expect(preferencesInput.safeParse({ theme: "neon" }).success).toBe(false);
   });
 });
+
+describe("density", () => {
+  it("is comfortable unless chosen compact", () => {
+    expect(defaultPreferences.density).toBe("comfortable");
+    expect(preferencesOf({ density: "compact" }).density).toBe("compact");
+    expect(preferencesOf({ density: "cosy" }).density).toBe("comfortable");
+    expect(preferencesInput.safeParse({ density: "cosy" }).success).toBe(false);
+  });
+});

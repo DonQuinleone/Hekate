@@ -550,6 +550,12 @@ export function AccountPage({ section }: { section: string }) {
                 <option value="yes">Follow the system</option>
               </Select>
             </Row>
+            <Row name="Density" hint="How much room each row of a list takes, everywhere.">
+              <Select defaultValue="comfortable" className="w-40">
+                <option value="comfortable">Comfortable</option>
+                <option value="compact">Compact</option>
+              </Select>
+            </Row>
           </Section>
           <Section
             title="Tools shown"

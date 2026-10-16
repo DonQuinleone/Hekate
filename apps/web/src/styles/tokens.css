@@ -35,7 +35,24 @@
   --hk-font-sans:
     "Schibsted Grotesk Variable", "Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
 
+  /*
+   * Density: how much room a row of a list takes (Account, Appearance). Every list reads these;
+   * compact tightens them all on the same scale.
+   */
+  --hk-row: 0.75rem;
+  --hk-row-tight: 0.625rem;
+  --hk-row-loose: 1rem;
+  --hk-row-min: 3rem;
+
   --hk-radius-chip: 4px;
   --hk-radius-control: 6px;
   --hk-radius-panel: 8px;
+}
+
+/* Compact: every row on the same, tighter scale. */
+:root[data-density="compact"] {
+  --hk-row: 0.375rem;
+  --hk-row-tight: 0.3125rem;
+  --hk-row-loose: 0.625rem;
+  --hk-row-min: 2.25rem;
 }

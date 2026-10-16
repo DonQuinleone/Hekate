@@ -813,7 +813,7 @@ export function FileBrowser({
 
   /** A row's name, opening what it is: a folder here, a track or a file on its page. */
   const nameOf = (item: Item, sub?: ReactNode, compact = false) => {
-    const pad = compact ? "min-w-0 text-left" : "min-w-0 py-3 text-left";
+    const pad = compact ? "min-w-0 text-left" : "min-w-0 py-row text-left";
     const key = markKey(item);
     const inner = (
       <>

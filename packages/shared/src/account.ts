@@ -53,6 +53,9 @@ export const themes = [
 export type Theme = (typeof themes)[number];
 
 export const skipSteps = [1, 5, 10] as const;
+/** How much room lists and settings give each row. */
+export const densities = ["comfortable", "compact"] as const;
+export type Density = (typeof densities)[number];
 export const preRolls = [0, 1, 2] as const;
 
 /**
@@ -61,6 +64,8 @@ export const preRolls = [0, 1, 2] as const;
  */
 export const preferencesSchema = z.object({
   theme: z.enum(themes),
+  /** How much room each row of a list takes: the file browser, settings, inbox, reviews, comments. */
+  density: z.enum(densities),
   /** The spectrogram in the player's View menu. */
   showSpectrogram: z.boolean(),
   /** The loudness meters and their history on the QA view. */
@@ -80,6 +85,7 @@ export type Preferences = z.infer<typeof preferencesSchema>;
 
 export const defaultPreferences: Preferences = {
   theme: "system",
+  density: "comfortable",
   showSpectrogram: true,
   showLoudness: true,
   splitChannels: false,

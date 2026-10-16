@@ -73,6 +73,10 @@ Anchors are always written the same way: `BAR 112.1`, `BARS 118–124`, `04:31.2
 - Hit targets at least 28 px in dense tool bars and 44 px elsewhere.
 - Shadows only for what floats: menus, popovers, dialogs and the paper of a score, at a soft, layered weight. Everything that sits on the page is elevated by a step up the surface scale plus a hairline, never a shadow.
 
+### Density
+
+Rows of lists and settings take their vertical room from four tokens (`--hk-row`, `--hk-row-tight`, `--hk-row-loose`, `--hk-row-min`; in Tailwind `py-row`, `py-row-tight`, `py-row-loose`, `min-h-row-min`). A member's Compact choice (Account, Appearance) sets `data-density="compact"` on the page, which tightens all four on the same scale; nothing else changes, and no list sets its own compact spacing. A new list reads these tokens rather than fixed padding.
+
 ## Components
 
 One set, in `apps/web/src/components/ui`, restyled on the tokens and never stock: button, field and its label, input (with small, inline and bare forms), select, textarea, checkbox, radio, choice card, switch, slider, segmented, menu and dropdown, dialog, tabs, chip and count, status dot and pill. Screens build from it and nothing else; a test fails on a form control made anywhere else. Settings rows, cards, section heads and empty states sit beside it in `components/`.

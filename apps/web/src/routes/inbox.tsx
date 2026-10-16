@@ -19,7 +19,7 @@ const filters: { id: InboxFilter; label: string; none: string }[] = [
 ];
 
 const rowClass =
-  "flex w-full items-start gap-3 rounded-panel px-3 py-2.5 text-left transition-colors duration-150";
+  "flex w-full items-start gap-3 rounded-panel px-3 py-row-tight text-left transition-colors duration-150";
 
 function Row({ item, active, show }: { item: InboxItem; active: boolean; show: InboxFilter }) {
   const body = (
