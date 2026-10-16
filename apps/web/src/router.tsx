@@ -391,9 +391,12 @@ const projectPeople = createRoute({
 const track = createRoute({
   getParentRoute: () => app,
   path: "/tracks/$trackId",
+  // A track opens in the player; its versions page is asked for by name.
+  validateSearch: z.object({ view: z.enum(["versions"]).optional().catch(undefined) }),
   component: function TrackRoute() {
     const { trackId } = track.useParams();
-    return <TrackPage trackId={trackId} />;
+    const { view } = track.useSearch();
+    return <TrackPage trackId={trackId} view={view} />;
   },
 });
 const file = createRoute({

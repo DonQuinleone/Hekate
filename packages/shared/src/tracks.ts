@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { type DeliveryProfileId, deliveryProfiles, suggestedProfile } from "./qa.ts";
 
 const label = (what: string, max: number) =>
   z
@@ -38,10 +39,23 @@ const variationInput = z.object({
  * A new version of a track: the next number, with its variations. Every version has at
  * least one variation and exactly one primary; when none is marked, the first is primary.
  */
+/**
+ * What becomes of each of the previous version's open threads on the new one (decision
+ * 029): carried and shown (the default), carried but hidden, or settled as it lands.
+ */
+export const carryChoices = ["open", "hidden", "fixed", "wont_fix"] as const;
+export type CarryChoice = (typeof carryChoices)[number];
+
 export const createVersionInput = z
   .object({
     notes: z.string().trim().max(2000).optional(),
     variations: z.array(variationInput).min(1, "A version needs at least one file").max(16),
+    /** The previous version's threads, by id, where not simply carried and shown. */
+    carry: z.record(z.uuid(), z.enum(carryChoices)).optional(),
+    /** An edit decision list in the same project: how this version was cut from the takes. */
+    edlFileId: z.uuid().nullish(),
+    /** Let it in past the project's version checks: for those who may edit workflows. */
+    letThrough: z.boolean().optional(),
   })
   .refine((v) => v.variations.filter((x) => x.primary).length <= 1, {
     message: "Only one variation can be primary",
@@ -51,6 +65,8 @@ export const createVersionInput = z
     message: "A file can be one variation only",
     path: ["variations"],
   });
+
+export type CreateVersionInput = z.input<typeof createVersionInput>;
 
 export const addVariationInput = variationInput;
 
@@ -73,4 +89,76 @@ export function variationNameFrom(fileName: string, trackName?: string): string 
     name = name.replace(new RegExp(`^${escaped}\\s*[-–_:]\\s*`, "i"), "");
   }
   return name.slice(0, 80) || "Main";
+}
+
+/** Replacing a variation's file: the new file takes its place, and its threads follow. */
+export const replaceVariationInput = z.object({ fileId: z.uuid() });
+
+/** What a project checks before a new version lands; off unless the project asks. */
+export interface VersionChecks {
+  /** Refuse audio whose true peak is over the delivery profile's ceiling. */
+  truePeak: boolean;
+  /** Refuse a version without an edit decision list. */
+  edl: boolean;
+}
+
+/** A file of a new version, as the checks see it. */
+export interface CheckedFile {
+  name: string;
+  /** Audio channels; files without audio are not checked; undefined until it is probed. */
+  channels: number | null | undefined;
+  /** Its highest true peak in dBTP; undefined while it is still being measured. */
+  truePeak: number | null | undefined;
+}
+
+export type VersionRefusal =
+  | { check: "true_peak"; file: string; truePeak: number; ceiling: number; message: string }
+  | { check: "measuring"; file: string; message: string }
+  | { check: "edl"; message: string };
+
+const dB = (n: number) => `${n > 0 ? "+" : ""}${n.toFixed(1).replace("-", "\u2212")}`;
+
+/**
+ * Why a new version may not land, if it may not: the project's checks against its files.
+ * The ceiling is the delivery profile's (or the one suggested by each file's channels).
+ * A file still being measured cannot be judged yet, which is a refusal of its own.
+ */
+export function versionRefusals(
+  checks: VersionChecks,
+  profile: DeliveryProfileId | null,
+  files: CheckedFile[],
+  hasEdl: boolean,
+): VersionRefusal[] {
+  const out: VersionRefusal[] = [];
+  if (checks.truePeak) {
+    for (const f of files) {
+      if (f.channels === null || f.channels === 0) continue;
+      if (f.channels === undefined || f.truePeak === undefined) {
+        out.push({
+          check: "measuring",
+          file: f.name,
+          message: `${f.name} is still being measured; its true peak is checked once that finishes.`,
+        });
+        continue;
+      }
+      const chosen = deliveryProfiles[profile ?? suggestedProfile(f.channels)];
+      if (f.truePeak !== null && f.truePeak > chosen.truePeakMax) {
+        out.push({
+          check: "true_peak",
+          file: f.name,
+          truePeak: f.truePeak,
+          ceiling: chosen.truePeakMax,
+          message: `The upload workflow refused ${f.name}: true peak ${dB(f.truePeak)} dBTP is over the ${dB(chosen.truePeakMax)} dBTP ceiling of ${chosen.label}. Fix the export and upload again, or ask a producer to let it through.`,
+        });
+      }
+    }
+  }
+  if (checks.edl && !hasEdl) {
+    out.push({
+      check: "edl",
+      message:
+        "This project asks for an edit decision list with every version. Attach the EDL, or ask a producer to let it through.",
+    });
+  }
+  return out;
 }

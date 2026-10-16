@@ -1,8 +1,15 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { type AlignmentPoints, type Anchor, carryTarget, remapAnchor } from "@hekate/shared";
+import {
+  type AlignmentPoints,
+  type Anchor,
+  type CarryChoice,
+  carryTarget,
+  remapAnchor,
+} from "@hekate/shared";
 import { and, desc, eq, inArray, isNull, lt } from "drizzle-orm";
 
-const { alignments, comments, commentCarries, tracks, variations, versions } = schema;
+const { alignments, comments, commentCarries, guests, tracks, users, variations, versions } =
+  schema;
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
@@ -34,6 +41,9 @@ export async function carryThreads(
   organisationId: string,
   version: { id: string; trackId: string; number: number },
   shown: boolean,
+  /** What becomes of each thread, chosen as the version was added; open when not said. */
+  choices: Record<string, CarryChoice> = {},
+  by: string | null = null,
 ): Promise<string[]> {
   const [previous] = await tx
     .select({ id: versions.id })
@@ -66,36 +76,7 @@ export async function carryThreads(
   const nameOf = new Map(before.map((v) => [v.fileId, v.name]));
   const fileIds = [...nameOf.keys()];
 
-  // Threads raised on the previous version, and those carried there that are still live.
-  const raised = await tx
-    .select({ commentId: comments.id, fileId: comments.fileId, anchor: comments.anchor })
-    .from(comments)
-    .where(
-      inOrg(
-        comments,
-        organisationId,
-        inArray(comments.fileId, fileIds),
-        isNull(comments.parentId),
-        isNull(comments.resolvedAt),
-      ),
-    );
-  const carried = await tx
-    .select({
-      commentId: commentCarries.commentId,
-      fileId: commentCarries.fileId,
-      anchor: commentCarries.anchor,
-    })
-    .from(commentCarries)
-    .innerJoin(comments, eq(comments.id, commentCarries.commentId))
-    .where(
-      inOrg(
-        commentCarries,
-        organisationId,
-        inArray(commentCarries.fileId, fileIds),
-        inArray(commentCarries.status, ["open", "not_fixed"]),
-        isNull(comments.resolvedAt),
-      ),
-    );
+  const sources = await carrySources(tx, organisationId, fileIds);
 
   const rows: {
     organisationId: string;
@@ -103,19 +84,34 @@ export async function carryThreads(
     fileId: string;
     anchor: Anchor | null;
     visible: boolean;
+    status?: "fixed" | "wont_fix";
+    statusById?: string | null;
   }[] = [];
-  for (const source of [...raised, ...carried]) {
+  const settled: string[] = [];
+  for (const source of sources) {
     const target = carryTarget(nameOf.get(source.fileId) ?? "", after);
     if (!target) continue;
+    const choice = choices[source.commentId] ?? "open";
+    const settles = choice === "fixed" || choice === "wont_fix";
+    if (settles) settled.push(source.commentId);
     rows.push({
       organisationId,
       commentId: source.commentId,
       fileId: target.fileId,
       anchor: source.anchor,
-      visible: shown,
+      visible: choice === "hidden" ? false : shown,
+      ...(settles && { status: choice, statusById: by }),
     });
   }
   if (rows.length > 0) await tx.insert(commentCarries).values(rows).onConflictDoNothing();
+  // Fixed and won't fix settle the thread itself, as triage on the version would.
+  if (settled.length > 0) {
+    const now = new Date();
+    await tx
+      .update(comments)
+      .set({ resolvedAt: now, resolvedById: by, updatedAt: now })
+      .where(inOrg(comments, organisationId, inArray(comments.id, settled)));
+  }
 
   // Each earlier variation is aligned with the one its threads move to.
   const pairs = before.flatMap((v) => {
@@ -242,4 +238,104 @@ export async function versionNumbersOf(
     .innerJoin(versions, eq(versions.id, variations.versionId))
     .where(inOrg(variations, organisationId, inArray(variations.fileId, fileIds)));
   return new Map(rows.map((r) => [r.fileId, r.number]));
+}
+
+/**
+ * The threads a version's files would pass on to the next: those raised on them and still
+ * unresolved, and those carried to them that are still open or not fixed.
+ */
+async function carrySources(tx: Database | Tx, organisationId: string, fileIds: string[]) {
+  const raised = await tx
+    .select({ commentId: comments.id, fileId: comments.fileId, anchor: comments.anchor })
+    .from(comments)
+    .where(
+      inOrg(
+        comments,
+        organisationId,
+        inArray(comments.fileId, fileIds),
+        isNull(comments.parentId),
+        isNull(comments.resolvedAt),
+      ),
+    );
+  const carried = await tx
+    .select({
+      commentId: commentCarries.commentId,
+      fileId: commentCarries.fileId,
+      anchor: commentCarries.anchor,
+    })
+    .from(commentCarries)
+    .innerJoin(comments, eq(comments.id, commentCarries.commentId))
+    .where(
+      inOrg(
+        commentCarries,
+        organisationId,
+        inArray(commentCarries.fileId, fileIds),
+        inArray(commentCarries.status, ["open", "not_fixed"]),
+        isNull(comments.resolvedAt),
+      ),
+    );
+
+  const seen = new Set<string>();
+  return [...raised, ...carried].filter((s) => !seen.has(s.commentId) && seen.add(s.commentId));
+}
+
+/**
+ * What a new version of a track would carry over from its latest: each thread, where it
+ * points, and the variation it was raised or carried on, for whoever adds the version to
+ * confirm or correct before it lands.
+ */
+export async function carryPreview(db: Database, organisationId: string, trackId: string) {
+  const [latest] = await db
+    .select({ id: versions.id })
+    .from(versions)
+    .where(inOrg(versions, organisationId, eq(versions.trackId, trackId)))
+    .orderBy(desc(versions.number))
+    .limit(1);
+  if (!latest) return [];
+  const own = await db
+    .select({ fileId: variations.fileId, name: variations.name })
+    .from(variations)
+    .where(inOrg(variations, organisationId, eq(variations.versionId, latest.id)));
+  if (own.length === 0) return [];
+  const nameOf = new Map(own.map((v) => [v.fileId, v.name]));
+  const sources = await carrySources(db, organisationId, [...nameOf.keys()]);
+  if (sources.length === 0) return [];
+  const threads = await db
+    .select({
+      id: comments.id,
+      body: comments.body,
+      memberName: users.name,
+      guestName: guests.name,
+    })
+    .from(comments)
+    .leftJoin(users, eq(users.id, comments.authorId))
+    .leftJoin(
+      guests,
+      and(eq(guests.id, comments.guestAuthorId), eq(guests.organisationId, organisationId)),
+    )
+    .where(
+      inOrg(
+        comments,
+        organisationId,
+        inArray(
+          comments.id,
+          sources.map((s) => s.commentId),
+        ),
+      ),
+    );
+  const byId = new Map(threads.map((t) => [t.id, t]));
+  return sources.flatMap((s) => {
+    const thread = byId.get(s.commentId);
+    return thread
+      ? [
+          {
+            commentId: s.commentId,
+            body: thread.body,
+            authorName: thread.memberName ?? thread.guestName ?? null,
+            anchor: s.anchor,
+            variation: nameOf.get(s.fileId) ?? null,
+          },
+        ]
+      : [];
+  });
 }

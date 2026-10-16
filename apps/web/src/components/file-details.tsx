@@ -115,6 +115,7 @@ function UsedIn({ details }: { details: FileDetails }) {
           key={`${v.trackId}-${v.number}`}
           to="/tracks/$trackId"
           params={{ trackId: v.trackId }}
+          search={{ view: "versions" }}
           className="truncate text-[13px] text-ink-2 hover:text-ink"
         >
           {v.track} · V{v.number}

@@ -96,6 +96,8 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
               .select({
                 carriedCommentsShown: projects.carriedCommentsShown,
                 deliveryProfile: projects.deliveryProfile,
+                checkTruePeak: projects.checkTruePeak,
+                requireEdl: projects.requireEdl,
               })
               .from(projects)
               .where(inOrg(projects, organisationId, eq(projects.id, access.projectId)));
