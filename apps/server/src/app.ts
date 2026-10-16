@@ -25,6 +25,7 @@ import { fileRoutes, playRoutes } from "./routes/playback.ts";
 import { projectAccessRoutes } from "./routes/project-access.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { fileQaRoutes } from "./routes/qa.ts";
+import { fileRetryRoutes } from "./routes/retry.ts";
 import { projectReviewRoutes, reviewRoutes } from "./routes/reviews.ts";
 import { searchRoutes } from "./routes/search.ts";
 import { setupRoutes } from "./routes/setup.ts";
@@ -145,6 +146,7 @@ export function createApi(deps: AppDeps) {
       .route("/files", fileManageRoutes(deps.db, deps.audit, deps.trustProxy ?? false))
       .route("/files", fileQaRoutes(deps.db))
       .route("/files", fileTagRoutes(deps.db))
+      .route("/files", fileRetryRoutes(deps.db, deps.jobs))
       .use("/reviews/*", viewer)
       .route("/reviews", reviewRoutes(reviewDeps))
       .route("/guest", guestRoutes(reviewDeps))

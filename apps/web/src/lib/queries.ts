@@ -8,6 +8,7 @@ import {
   decodeLoudness,
   decodePeaks,
   decodeSpectrogram,
+  type FileColumnLayout,
   type FileKind,
   type GroupInput,
   type GuestInput,
@@ -942,6 +943,18 @@ export function useTrackMutations(projectId: string) {
         ).track,
       onSuccess: refresh,
     }),
+    addVariation: useMutation({
+      mutationFn: async (input: { versionId: string; fileId: string; name: string }) =>
+        (
+          await json<{ track: Track }>(
+            await api.versions[":id"].variations.$post({
+              param: { id: input.versionId },
+              json: { fileId: input.fileId, name: input.name },
+            }),
+          )
+        ).track,
+      onSuccess: refresh,
+    }),
     makePrimary: useMutation({
       mutationFn: async (variationId: string) =>
         (
@@ -1713,5 +1726,46 @@ export function useMarks(projectId: string) {
     },
     onError: (_e, _i, ctx) => client.setQueryData(key, ctx?.before),
     onSettled: () => client.invalidateQueries({ queryKey: key }),
+  });
+}
+
+/** The file browser's columns as the member arranged them here; null for the default. */
+export const fileColumnsQuery = queryOptions({
+  queryKey: ["me", "file-columns"],
+  queryFn: async () =>
+    (await json<{ columns: FileColumnLayout | null }>(await api.me["file-columns"].$get())).columns,
+  staleTime: Number.POSITIVE_INFINITY,
+});
+
+/** Keep a new arrangement of columns: shown at once, put back if refused. */
+export function useFileColumns() {
+  const client = useQueryClient();
+  const key = fileColumnsQuery.queryKey;
+  return useMutation({
+    // One save at a time, in order, so an earlier layout never lands after a later one.
+    scope: { id: "file-columns" },
+    mutationFn: async (columns: FileColumnLayout) => {
+      const res = await api.me["file-columns"].$put({ json: { columns } });
+      if (!res.ok) await json(res);
+    },
+    onMutate: async (columns) => {
+      await client.cancelQueries({ queryKey: key });
+      const before = client.getQueryData(key);
+      client.setQueryData(key, columns);
+      return { before };
+    },
+    onError: (_e, _c, ctx) => client.setQueryData(key, ctx?.before),
+  });
+}
+
+/** Prepare a file again after its preparation failed. */
+export function useRetryFile(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (fileId: string) => {
+      const res = await api.files[":id"].retry.$post({ param: { id: fileId } });
+      if (!res.ok) await json(res);
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: projectFilesQuery(projectId).queryKey }),
   });
 }

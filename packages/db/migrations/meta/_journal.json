@@ -225,6 +225,13 @@
       "when": 1792127303781,
       "tag": "0031_tags_and_marks",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1792128696141,
+      "tag": "0032_file_columns",
+      "breakpoints": true
     }
   ]
 }
