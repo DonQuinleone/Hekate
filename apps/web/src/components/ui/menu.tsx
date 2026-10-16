@@ -1,8 +1,9 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
 import { within } from "~/lib/dom";
 import { Icon } from "../icons";
 import { Button } from "./button";
+import { fieldClass } from "./input";
 
 /** Opens on its control, closes on a click elsewhere or Escape. */
 export function usePopover(): [
@@ -30,6 +31,8 @@ export function usePopover(): [
 
 export interface MenuAction {
   label: string;
+  /** A mark before the label: an icon, or a programme's logo. */
+  icon?: ReactNode;
   hint?: string;
   danger?: boolean;
   checked?: boolean;
@@ -79,6 +82,9 @@ export function MenuList({
               a.danger ? "text-signal" : "text-ink",
             )}
           >
+            {a.icon && (
+              <span className="flex min-w-4 shrink-0 justify-center text-ink-2">{a.icon}</span>
+            )}
             <span className="flex-1">{a.label}</span>
             {a.hint && <span className="text-ink-3">{a.hint}</span>}
             {a.checked && <Icon name="check" size={14} className="text-ink-2" />}
@@ -125,39 +131,72 @@ export function ActionMenu({
   );
 }
 
-/** A control that shows its current value and opens a list of choices. */
+/**
+ * A control that shows its current value and opens a list of choices: quiet in a toolbar,
+ * or drawn as a field in a form, where a native select cannot show each choice's mark.
+ */
 export function Dropdown({
   value,
   actions,
   align = "left",
   size = "md",
+  variant = "ghost",
+  label,
   className,
 }: {
   value: ReactNode;
   actions: (MenuAction | "divider")[];
   align?: "left" | "right";
   size?: "sm" | "md";
+  variant?: "ghost" | "field";
+  /** What the control chooses, for a screen reader, where no label is beside it. */
+  label?: string;
   className?: string;
 }) {
   const [open, setOpen, box] = usePopover();
+  const field = variant === "field";
+  const id = useId();
   return (
-    <div ref={box} className="relative">
+    <div ref={box} className={cn("relative", field && "w-full")}>
       <button
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
+        // Named by what it chooses and what is chosen, so the choice is heard while it is shut.
+        aria-labelledby={label ? `${id}-label ${id}-value` : undefined}
         onClick={() => setOpen(!open)}
         className={cn(
-          "flex items-center gap-1.5 rounded-control border border-transparent text-ink-2 transition-colors hover:bg-raised hover:text-ink",
-          size === "sm" ? "h-7 px-2 text-[13px]" : "h-8 px-2.5 text-[13px]",
-          open && "bg-raised text-ink",
+          field
+            ? cn(fieldClass, "flex h-9 items-center gap-2 text-left")
+            : cn(
+                "flex items-center gap-1.5 rounded-control border border-transparent text-ink-2 transition-colors hover:bg-raised hover:text-ink",
+                size === "sm" ? "h-7 px-2 text-[13px]" : "h-8 px-2.5 text-[13px]",
+                open && "bg-raised text-ink",
+              ),
           className,
         )}
       >
-        {value}
-        <Icon name="chevronDown" size={12} className="text-ink-3" />
+        {label && (
+          <span id={`${id}-label`} className="sr-only">
+            {label}
+          </span>
+        )}
+        <span
+          id={`${id}-value`}
+          className={cn("flex items-center", field ? "min-w-0 flex-1 gap-2" : "gap-1.5")}
+        >
+          {value}
+        </span>
+        <Icon name="chevronDown" size={12} className="shrink-0 text-ink-3" />
       </button>
-      {open && <MenuList actions={actions} onClose={() => setOpen(false)} align={align} />}
+      {open && (
+        <MenuList
+          actions={actions}
+          onClose={() => setOpen(false)}
+          align={align}
+          className={field ? "min-w-full" : undefined}
+        />
+      )}
     </div>
   );
 }

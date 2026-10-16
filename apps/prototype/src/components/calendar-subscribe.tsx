@@ -27,8 +27,15 @@ export function CalendarSubscribeDialog({
     >
       <div className="flex flex-col gap-3">
         <div className="grid gap-2 @md/app:grid-cols-3">
-          {["Apple Calendar", "Google Calendar", "Outlook"].map((c) => (
+          {(
+            [
+              ["Apple Calendar", "apple"],
+              ["Google Calendar", "google"],
+              ["Outlook", "outlook"],
+            ] as const
+          ).map(([c, mark]) => (
             <Button key={c} variant="secondary" size="md" onClick={() => setCopied(true)}>
+              <Icon name={mark} size={14} />
               {c}
             </Button>
           ))}

@@ -77,6 +77,10 @@ Anchors are always written the same way: `BAR 112.1`, `BARS 118–124`, `04:31.2
 
 Rows of lists and settings take their vertical room from five tokens (`--hk-row`, `--hk-row-tight`, `--hk-row-snug`, `--hk-row-loose`, `--hk-row-min`; in Tailwind `py-row`, `py-row-tight`, `py-row-snug`, `py-row-loose`, `min-h-row-min`). A member's Compact choice (Account, Appearance) sets `data-density="compact"` on the page, which tightens all five on the same scale; nothing else changes, and no list sets its own compact spacing. A new list reads these tokens rather than fixed padding.
 
+## Icons
+
+Hekate draws no icons of its own. They are [Lucide](https://lucide.dev)'s (ISC licence), through `lucide-react`, at a fixed 1.5 px stroke whatever the size, and named for what they mean in Hekate rather than how they look: `Icon name="track"`, not a disc. `components/icons.tsx` holds the map, identical in `apps/web` and `apps/prototype`; a new icon is a new name there, never an SVG drawn in a screen. Another programme or service (an editing system, a sign-in provider, a chat) is shown by its own logo, never a generic glyph: the marks come from existing sets, [Simple Icons](https://simpleicons.org) (CC0) where it has them, [FontAudio](https://github.com/fefanto/fontaudio) (CC BY 4.0, by fefanto) for Reaper and [theSVG](https://thesvg.org) (MIT) for Avid, drawn in one colour at the text's height. They are their owners' trademarks, used only to name the programme. In a form, a choice known by its mark is a field-style `Dropdown`, since a native select cannot show it. An icon carries its meaning alone: never a label saying what the icon already says.
+
 ## Components
 
 One set, in `apps/web/src/components/ui`, restyled on the tokens and never stock: button, field and its label, input (with small, inline and bare forms), select, textarea, checkbox, radio, choice card, switch, slider, segmented, menu and dropdown, dialog, tabs, chip and count, status dot and pill. Screens build from it and nothing else; a test fails on a form control made anywhere else. Settings rows, cards, section heads and empty states sit beside it in `components/`.

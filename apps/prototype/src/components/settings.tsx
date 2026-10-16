@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { Icon } from "~/components/icons";
 import { Page } from "~/components/page";
 import { cn } from "~/lib/cn";
 import { Label } from "./label";
@@ -258,19 +259,7 @@ export function Matrix({
                         why && "cursor-not-allowed opacity-50",
                       )}
                     >
-                      <svg
-                        width="10"
-                        height="10"
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
-                      >
-                        <path d="M3 8.5 L6.5 12 L13 4.5" />
-                      </svg>
+                      <Icon name="check" size={12} strokeWidth={2.5} />
                     </button>
                   </td>
                 );

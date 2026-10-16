@@ -2,7 +2,7 @@ import { type ReactNode, useState } from "react";
 import { Avatar, AvatarRow } from "~/components/avatar";
 import { Lockup, Mark, Wordmark } from "~/components/brand";
 import { Empty } from "~/components/empty";
-import { Icon, iconNames } from "~/components/icons";
+import { Icon, type IconName, iconNames } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { Card, Page, SectionHead } from "~/components/page";
 import { Row, Section, SwitchRow } from "~/components/settings";
@@ -213,7 +213,7 @@ function Brand() {
       </Section>
       <Section
         title="Icons"
-        intro="One weight, 1.5 px strokes on a 16 px grid, round caps. An icon carries its meaning alone: never a label saying what the icon already says."
+        intro="Lucide, at one 1.5 px stroke, named for what each means in Hekate. An icon carries its meaning alone: never a label saying what the icon already says."
       >
         <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-1 p-3">
           {iconNames.map((name) => (
@@ -228,6 +228,15 @@ function Brand() {
         </ul>
       </Section>
     </>
+  );
+}
+
+/** A programme's mark in a slot wide enough for a wordmark (Avid's), drawn lower to match. */
+function MarkSlot({ name }: { name: IconName }) {
+  return (
+    <span className="flex w-8 shrink-0 justify-center text-ink-2">
+      <Icon name={name} size={name === "avid" ? 9 : 14} />
+    </span>
   );
 }
 
@@ -288,6 +297,36 @@ function Components() {
             ]}
           />
           <ActionMenu always label="this file" actions={[{ label: "Details", onSelect: noop }]} />
+        </Spec>
+        <Spec
+          name="Dropdown field"
+          rule="In a form, where each choice is known by its mark (another programme, a provider), a dropdown drawn as a field shows it; anything else is a select. Marks sit in one slot wide enough for the widest, so the names line up."
+        >
+          <div className="w-60">
+            <Dropdown
+              variant="field"
+              label="Export for"
+              value={
+                <>
+                  <MarkSlot name="protools" />
+                  Pro Tools
+                </>
+              }
+              actions={(
+                [
+                  ["Pro Tools", "protools"],
+                  ["Nuendo", "steinberg"],
+                  ["Reaper", "reaper"],
+                  ["Avid Media Composer", "avid"],
+                ] as const
+              ).map(([label, mark]) => ({
+                label,
+                icon: <MarkSlot name={mark} />,
+                checked: label === "Pro Tools",
+                onSelect: noop,
+              }))}
+            />
+          </div>
         </Spec>
         <Spec
           name="Keys"
