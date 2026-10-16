@@ -2403,6 +2403,58 @@ describe.runIf(url)("api", () => {
         expect(after).toEqual({ stream: "failed", analysis: "pending" });
       });
 
+      it("tells everything about one file, and what each role may do with it", async () => {
+        const s = await studio();
+        type Details = {
+          file: { name: string; uploadedBy: string | null };
+          storage: { backend: string; encrypted: boolean; sha256: string | null };
+          usedIn: {
+            versions: { track: string; number: number; variation: string; latest: boolean }[];
+            reviews: { title: string }[];
+          };
+          can: { organise: boolean; log: boolean; delete: boolean };
+        };
+        const details = async (cookie: string, fileId: string) => {
+          const res = await getAs(`/api/files/${fileId}/details`, cookie);
+          return { status: res.status, body: (await res.json()) as Details };
+        };
+        const mix = await details(s.composer, s.mix);
+        expect(mix.status).toBe(200);
+        expect(mix.body.file.name).toBe("Mix v1.wav");
+        expect(mix.body.storage).toMatchObject({ backend: "local", encrypted: true });
+        expect(mix.body.storage).not.toHaveProperty("key");
+        expect(mix.body.usedIn.versions).toEqual([
+          expect.objectContaining({
+            track: "Maple Leaf Rag",
+            number: 1,
+            variation: "Mix",
+            latest: true,
+          }),
+        ]);
+        // A Reviewer sees the facts but neither organises nor reads the log.
+        expect(mix.body.can).toEqual(
+          expect.objectContaining({ organise: false, log: false, delete: false }),
+        );
+
+        // A review of the track's latest asks about this file too, so it stays.
+        await request(s.owner, s.projectId, {
+          kind: "feedback",
+          title: "First listen",
+          items: [{ trackId: s.trackId }],
+          reviewers: [s.ids.composer],
+        });
+        const owned = await details(s.owner, s.mix);
+        expect(owned.body.usedIn.reviews.map((r) => r.title)).toEqual(["First listen"]);
+        expect(owned.body.can).toEqual(
+          expect.objectContaining({ organise: true, log: true, delete: false }),
+        );
+        expect((await details(s.owner, s.artwork)).body.can.delete).toBe(true);
+
+        // Someone outside the project finds nothing.
+        const outsider = await joinAs(s.owner, "outsider-details@example.test");
+        expect((await details(outsider, s.mix)).status).toBe(404);
+      });
+
       it("keeps each member's file columns for this workspace", async () => {
         const s = await studio();
         const columnsOf = async (cookie: string) =>

@@ -9,6 +9,9 @@ import { expect, type Page } from "@playwright/test";
  *
  * An element that overlaps on purpose (a label on a waveform, say) says so with
  * `data-e2e-overlap`; it is then left out of the overlap checks, along with its contents.
+ * A panel that floats over the page without shutting it off (a side sheet) says so with
+ * `data-e2e-layer`: what it covers is out of sight, and its own text is checked against
+ * itself.
  */
 
 /** The smallest target WCAG 2.2 accepts (2.5.8), in CSS pixels. */
@@ -65,6 +68,11 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
     // Every run of visible text, as the boxes its lines take up. While a modal is open, only
     // its own: the page behind it is out of reach, and the modal lies over it on purpose.
     const modal = document.querySelector("[aria-modal=true]");
+    const layers = [...document.querySelectorAll("[data-e2e-layer]")].filter(shown);
+    const layerOf = (el: Element) => el.closest("[data-e2e-layer]");
+    // Whether a box outside the layers lies under one of them, out of sight.
+    const covered = (el: Element, box: DOMRect) =>
+      !layerOf(el) && layers.some((l) => intersect(l.getBoundingClientRect(), box, 0));
     const texts: { el: Element; rects: DOMRect[] }[] = [];
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -98,7 +106,7 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
             r,
           ),
         )
-        .filter((r) => r.width > 1 && r.height > 1);
+        .filter((r) => r.width > 1 && r.height > 1 && !covered(el, r));
       if (rects.length) texts.push({ el, rects });
     }
 
@@ -108,6 +116,7 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
         const a = texts[i];
         const b = texts[j];
         if (!a || !b || a.el === b.el || exempt(a.el) || exempt(b.el)) continue;
+        if (layerOf(a.el) !== layerOf(b.el)) continue;
         if (a.rects.some((ra) => b.rects.some((rb) => intersect(ra, rb, 2)))) {
           problems.push({
             check: "text-overlap",
@@ -122,7 +131,7 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
       if (!shown(el) || exempt(el)) continue;
       const box = el.getBoundingClientRect();
       const thin = (box.width <= 2 && box.height >= 6) || (box.height <= 2 && box.width >= 6);
-      if (!thin) continue;
+      if (!thin || covered(el, box)) continue;
       const style = getComputedStyle(el);
       const painted =
         style.backgroundColor !== "rgba(0, 0, 0, 0)" && style.backgroundColor !== "transparent";
@@ -130,6 +139,7 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
       const crossed = texts.find(
         (t) =>
           !exempt(t.el) &&
+          layerOf(t.el) === layerOf(el) &&
           !el.contains(t.el) &&
           !t.el.contains(el) &&
           t.rects.some((r) => intersect(r, box, 0.5)),
@@ -164,7 +174,7 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
         "a[href], button, input:not([type=hidden]), select, textarea, [role=button], [role=tab], [role=link], [role=checkbox], [role=radio], [role=switch], [role=slider]",
       ),
     ]
-      .filter((el) => shown(el))
+      .filter((el) => shown(el) && !covered(el, el.getBoundingClientRect()))
       .filter((el) => !(el.tagName === "A" && el.parentElement?.closest("p") !== null))
       .map((el) => {
         // A checkbox or radio inside its label takes the label's size.
@@ -188,6 +198,7 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
       const crowded = targets.find(
         (o) =>
           o !== t &&
+          layerOf(o.el) === layerOf(t.el) &&
           (circleTouchesBox(t.x, t.y, o.box) ||
             (o.small && Math.hypot(o.x - t.x, o.y - t.y) < 2 * radius - 0.5)),
       );

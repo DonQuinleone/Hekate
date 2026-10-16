@@ -14,6 +14,7 @@ import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { Card } from "~/components/page";
 import { ProjectCover } from "~/components/project-cover";
+import { Property } from "~/components/property";
 import { reviewState } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
 import { usePopover } from "~/components/ui/menu";
@@ -187,15 +188,6 @@ function AttentionRow({ item }: { item: OverviewAttention }) {
         </Link>
       )}
     </li>
-  );
-}
-
-function Property({ name, children }: { name: string; children: ReactNode }) {
-  return (
-    <div className="flex min-h-9 items-center gap-4 text-[13px]">
-      <dt className="w-28 shrink-0 text-ink-3">{name}</dt>
-      <dd className="m-0 min-w-0 flex-1 truncate text-ink">{children}</dd>
-    </div>
   );
 }
 
