@@ -73,6 +73,8 @@ pnpm check      # lint, typecheck and tests across the workspace
 
 ## Self-hosting
 
+The documentation (install, configuration, backups, the security model, and a guide to reviews and guests) is built from `docs/site` and published with each release.
+
 ```sh
 cp .env.example .env    # set HEKATE_DOMAIN, secrets, MASTER_KEY and storage
 docker compose -f deploy/compose.yml up -d

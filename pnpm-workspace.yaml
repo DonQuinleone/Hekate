@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - docs/site
 
 # Supply chain: only these packages may run install scripts.
 allowBuilds:
@@ -8,3 +9,9 @@ allowBuilds:
 
 # Supply chain: never install a version published less than a day ago (pnpm's default, stated here).
 minimumReleaseAge: 1440
+
+# Security fixes for transitive dependencies, until their dependents take them up.
+overrides:
+  # The documentation site's code blocks (Expressive Code) pin postcss-nested 6, whose
+  # postcss-selector-parser 6 has CVE-2026-104844; 7 is the same plugin on the fixed parser.
+  "postcss-nested@^6": ^7.0.2
