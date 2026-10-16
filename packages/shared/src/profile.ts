@@ -62,11 +62,13 @@ export const projectListQuery = z.object({
   figures: z.enum(["1"]).optional(),
 });
 
-/** A project's settings, changed by those who shape its workflow. */
+/** A project's settings: its own, for those who edit the project; its checks, for those who edit its workflow. */
 export const updateProjectInput = z
   .object({
     name: z.string().trim().min(1).max(120).optional(),
     description: projectDescription.nullable().optional(),
+    /** Only decides which tools appear; files of any kind stay welcome. */
+    profile: projectProfile.optional(),
     /** Whether threads carried to a new version show there until someone hides them. */
     carriedCommentsShown: z.boolean().optional(),
     /** What recordings are checked against; null suggests one from each file's channels. */
@@ -80,6 +82,7 @@ export const updateProjectInput = z
     (u) =>
       u.name !== undefined ||
       u.description !== undefined ||
+      u.profile !== undefined ||
       u.carriedCommentsShown !== undefined ||
       u.deliveryProfile !== undefined ||
       u.checkTruePeak !== undefined ||

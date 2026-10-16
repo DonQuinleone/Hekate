@@ -6,7 +6,7 @@ import { UploadProvider } from "~/components/files";
 import { ReviewerGroups } from "~/components/groups";
 import { Icon } from "~/components/icons";
 import { PageHeader } from "~/components/page-header";
-import { ProjectAccess } from "~/components/project-access";
+import { ProjectMembers } from "~/components/project-access";
 import { ProjectReviews } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
 import { type BrowserFilters, noFilters } from "~/lib/browser";
@@ -24,7 +24,7 @@ import { ProjectOverview } from "~/routes/overview";
  * A project's pages share their frame: the trail back to the projects, the section's name as
  * the title (the project itself is in the sidebar's switcher, decision 038), and the content.
  */
-function ProjectFrame({
+export function ProjectFrame({
   projectId,
   title,
   actions,
@@ -164,13 +164,13 @@ export function ProjectReviewsPage({ projectId }: { projectId: string }) {
   );
 }
 
-/** Who is in the project, and what each role may do. */
+/** Who is in the project, and their roles; what each role may do is in its settings. */
 export function ProjectPeoplePage({ projectId }: { projectId: string }) {
   return (
     <ProjectFrame projectId={projectId} title="People">
       {(project) => (
         <div className={body}>
-          <ProjectAccess projectId={project.id} />
+          <ProjectMembers projectId={project.id} />
         </div>
       )}
     </ProjectFrame>

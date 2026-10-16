@@ -245,7 +245,7 @@ export const fileCommentRoutes = (
   new Hono<{ Variables: ViewerVariables }>()
     .get("/:id/comments", idParam, async (c) => {
       const fileId = c.req.valid("param").id;
-      const access = await canOnFile(db, c.var.actor, "view", fileId);
+      const access = await canOnFile(db, c.var.actor, "read_comments", fileId);
       return c.json({
         comments: await threadsOn(db, c.var.organisationId, c.var.actor, access, fileId),
       });

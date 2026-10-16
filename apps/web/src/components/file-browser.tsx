@@ -333,6 +333,8 @@ export function FileBrowser({
   const [editing, setEditing] = useState<Editing>(null);
   const [columnPath, setColumnPath] = useState<Item[]>([]);
   const manage = can("organise");
+  /** Deleting is its own level above organising (#142). */
+  const mayDelete = can("delete_files");
   /** What is selected, by `kind:id`, and where a shift-click or shift-arrow range starts. */
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [anchor, setAnchor] = useState<string | null>(null);
@@ -683,7 +685,7 @@ export function FileBrowser({
                 },
               ]
             : []),
-          ...(item.kind === "track"
+          ...(item.kind === "track" || !mayDelete
             ? []
             : [
                 "divider" as const,
@@ -1410,7 +1412,7 @@ export function FileBrowser({
             ) : null
           }
           remove={
-            manage && chosen.every((i) => i.kind === "folder" || i.kind === "file")
+            mayDelete && chosen.every((i) => i.kind === "folder" || i.kind === "file")
               ? () =>
                   void runAll(
                     chosen.map((i): [Item, () => Promise<unknown>] => [
