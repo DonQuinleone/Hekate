@@ -1264,6 +1264,16 @@ export const guestMeQuery = queryOptions({
   staleTime: 60_000,
 });
 
+/** Delete the signed-in account: its address typed out, and its password. */
+export function useDeleteAccount() {
+  return useMutation({
+    mutationFn: async (input: { email: string; password: string }) => {
+      const res = await api.me.$delete({ json: input });
+      if (res.status !== 204) await json(res);
+    },
+  });
+}
+
 /** A guest signed in: who, and the reviews they are in. */
 export type GuestSignedIn = Omit<GuestMe, "guest"> & { guest: { id: string } };
 /** Where the workspace asks for a code: one went to this address, shown masked. */

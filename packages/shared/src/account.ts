@@ -106,3 +106,13 @@ export function preferencesOf(stored: unknown): Preferences {
   }
   return out;
 }
+
+/** How a deleted account appears wherever it acted: no name, no address. */
+export const FORMER_MEMBER = "A former member";
+
+/** Deleting your account: the address typed out, and the password, so it is meant and it is you. */
+export const deleteAccountInput = z.object({
+  email: z.string().trim().max(254),
+  password: z.string().min(1).max(256),
+});
+export type DeleteAccountInput = z.infer<typeof deleteAccountInput>;

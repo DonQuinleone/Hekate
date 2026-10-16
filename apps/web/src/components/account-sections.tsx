@@ -1,5 +1,6 @@
 import { locales, preRolls, skipSteps, type Theme } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { shortAgent } from "~/lib/agent";
 import { authClient } from "~/lib/auth";
@@ -8,6 +9,7 @@ import { languageNames } from "~/lib/locale";
 import {
   meQuery,
   sessionsQuery,
+  useDeleteAccount,
   usePreferences,
   useSavePreferences,
   useSignOutSession,
@@ -16,7 +18,7 @@ import {
 import { applyTheme, themeChoices } from "~/lib/theme";
 import { Avatar } from "./avatar";
 import { CodeAppSetup, RecoveryCodes } from "./second-factor";
-import { Row, Section, SwitchRow } from "./settings";
+import { Danger, Row, Section, SwitchRow } from "./settings";
 import { Button } from "./ui/button";
 import { Choice } from "./ui/choice";
 import { Dialog } from "./ui/dialog";
@@ -196,7 +198,101 @@ export function ProfileSection() {
         )}
       </Section>
       <PasswordSection />
+      <DeleteAccount email={me.user.email} />
     </>
+  );
+}
+
+/**
+ * Deleting the account, at the foot of the page. What you wrote and decided stays, as a former
+ * member's; the address typed out and the password confirm it.
+ */
+function DeleteAccount({ email }: { email: string }) {
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [password, setPassword] = useState("");
+  const remove = useDeleteAccount();
+  const client = useQueryClient();
+  const navigate = useNavigate();
+  const close = () => {
+    setOpen(false);
+    setTyped("");
+    setPassword("");
+    remove.reset();
+  };
+  const matches = typed.trim().toLowerCase() === email.toLowerCase();
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    remove.mutate(
+      { email: typed, password },
+      {
+        onSuccess: async () => {
+          client.clear();
+          await navigate({ to: "/sign-in", search: {} });
+        },
+      },
+    );
+  };
+  return (
+    <Danger>
+      <Row
+        name="Delete your account"
+        hint="Your comments and decisions stay, attributed to a former member."
+      >
+        <Button size="sm" variant="secondary" className="text-signal" onClick={() => setOpen(true)}>
+          Delete…
+        </Button>
+      </Row>
+      {open && (
+        <Dialog
+          title="Delete your account"
+          description="You are signed out everywhere and cannot sign in again. Your name and address leave every workspace; what you wrote and decided stays, as a former member's. This cannot be undone."
+          onClose={close}
+          width="sm"
+        >
+          <form onSubmit={submit} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="delete-email" className="label">
+                Type {email} to confirm
+              </label>
+              <Input
+                id="delete-email"
+                autoComplete="off"
+                spellCheck={false}
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="delete-password" className="label">
+                Password
+              </label>
+              <Input
+                id="delete-password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+            {remove.error && <Note error>{remove.error.message}</Note>}
+            <span className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={close}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="secondary"
+                className="text-signal"
+                disabled={!matches || !password || remove.isPending}
+              >
+                {remove.isPending ? "Deleting" : "Delete my account"}
+              </Button>
+            </span>
+          </form>
+        </Dialog>
+      )}
+    </Danger>
   );
 }
 

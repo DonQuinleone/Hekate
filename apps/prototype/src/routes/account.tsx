@@ -136,7 +136,7 @@ export function AccountPage({ section }: { section: string }) {
           <Danger>
             <Row
               name="Delete your account"
-              hint="Your comments stay, attributed to a former member."
+              hint="Your comments and decisions stay, attributed to a former member."
             >
               <Button variant="secondary" size="md" className="text-signal">
                 Delete…

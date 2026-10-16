@@ -14,7 +14,7 @@ import {
   mapTime,
 } from "@hekate/shared";
 import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.ts";
 import { createAudit, csvCell } from "./audit.ts";
@@ -2770,6 +2770,120 @@ describe.runIf(url)("api", () => {
       };
       const request = (cookie: string, projectId: string, body: Record<string, unknown>) =>
         app.request(`/api/projects/${projectId}/reviews`, json(body, cookie));
+
+      it("deletes an account, keeping its comments and decisions as a former member's", async () => {
+        const s = await studio();
+        const remove = (cookie: string, body: Record<string, unknown>) =>
+          app.request("/api/me", { ...json(body, cookie), method: "DELETE" });
+        const errorOf = async (res: Response) =>
+          ((await res.json()) as { error: { code: string; message: string } }).error;
+
+        // The only owner hands the workspace on first.
+        const sole = await remove(s.owner, { email: owner.email, password: owner.password });
+        expect(sole.status).toBe(409);
+        expect((await errorOf(sole)).message).toContain("Studio");
+
+        // The composer comments and approves, then deletes their account.
+        const said = await app.request(
+          `/api/files/${s.mix}/comments`,
+          json({ body: "The coda is lovely." }, s.composer),
+        );
+        expect(said.status).toBe(201);
+        const review = await reviewOf(
+          await request(s.owner, s.projectId, {
+            kind: "approval",
+            title: "Master sign-off",
+            items: [{ trackId: s.trackId }],
+            reviewers: [s.ids.composer, s.ids.accompanist],
+          }),
+        );
+        await app.request(
+          `/api/reviews/${review.id}/decisions`,
+          json({ decision: "approved" }, s.composer),
+        );
+        // The address must be theirs, and the password right.
+        expect(
+          (
+            await remove(s.composer, {
+              email: "someone@example.test",
+              password: "correct horse battery",
+            })
+          ).status,
+        ).toBe(403);
+        expect(
+          (await remove(s.composer, { email: "composer@example.test", password: "wrong password" }))
+            .status,
+        ).toBe(403);
+        const gone = await remove(s.composer, {
+          email: "Composer@Example.test",
+          password: "correct horse battery",
+        });
+        expect(gone.status).toBe(204);
+
+        // Signed out everywhere, and no way back in.
+        expect((await getAs("/api/me", s.composer)).status).toBe(401);
+        expect(
+          (
+            await app.request(
+              "/api/auth/sign-in/email",
+              json({ email: "composer@example.test", password: "correct horse battery" }),
+            )
+          ).status,
+        ).toBe(401);
+
+        // What they wrote and decided stays, with no name or address of theirs.
+        const comments = (await (await getAs(`/api/files/${s.mix}/comments`, s.owner)).json()) as {
+          comments: { body: string; authorName: string | null }[];
+        };
+        expect(comments.comments).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ body: "The coda is lovely.", authorName: "A former member" }),
+          ]),
+        );
+        const after = (await (await getAs(`/api/reviews/${review.id}`, s.owner)).json()) as {
+          review: ReviewBody;
+        };
+        expect(after.review.decisions).toEqual([
+          expect.objectContaining({ decision: "approved", reviewerName: "A former member" }),
+        ]);
+        const [row] = await db
+          .select()
+          .from(schema.users)
+          .where(eq(schema.users.id, s.ids.composer));
+        expect(row?.name).toBe("A former member");
+        expect(row?.email).not.toContain("composer");
+        expect(row?.deletedAt).not.toBeNull();
+        // The access log keeps every entry, none naming them; the deletion is one of them.
+        const trail = await db
+          .select({ action: schema.accessEvents.action, label: schema.accessEvents.actorLabel })
+          .from(schema.accessEvents)
+          .where(eq(schema.accessEvents.userId, s.ids.composer));
+        expect(trail.length).toBeGreaterThan(1);
+        for (const entry of trail) expect(entry.label).toBe("A former member");
+        expect(trail.map((e) => e.action)).toContain("account.deleted");
+        // The log still refuses any other change.
+        const [someoneElse] = await db
+          .select({ id: schema.accessEvents.id })
+          .from(schema.accessEvents)
+          .where(
+            and(
+              eq(schema.accessEvents.organisationId, s.organisationId),
+              ne(schema.accessEvents.userId, s.ids.composer),
+            ),
+          )
+          .limit(1);
+        expect(someoneElse).toBeDefined();
+        await expect(
+          db
+            .update(schema.accessEvents)
+            .set({ actorLabel: "A former member" })
+            .where(eq(schema.accessEvents.id, someoneElse?.id ?? "")),
+        ).rejects.toThrow();
+        // They are no longer a member anywhere.
+        expect(
+          await db.select().from(schema.members).where(eq(schema.members.userId, s.ids.composer)),
+        ).toEqual([]);
+      });
 
       it("sums up one project for its overview, as each role may see it, and keeps each person's layout", async () => {
         const s = await studio();

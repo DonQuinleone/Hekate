@@ -91,7 +91,14 @@ export function createApi(deps: AppDeps) {
       .route("/setup", setupRoutes(deps.db, deps.auth, deps.passwordLeakCheck ?? false))
       // "/me/*" also covers "/me" itself.
       .use("/me/*", requireSession(deps.auth), requireOrganisation(deps.db, rule, owingAllowed))
-      .route("/me", meRoutes(deps.db, rule))
+      .route(
+        "/me",
+        meRoutes(deps.db, rule, {
+          auth: deps.auth,
+          audit: deps.audit,
+          trustProxy: deps.trustProxy ?? false,
+        }),
+      )
       .route("/invitations", invitationRoutes(deps.db, deps.auth))
       .use("/organisation/*", ...member)
       .route(
