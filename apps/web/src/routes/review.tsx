@@ -11,6 +11,7 @@ import { ActionMenu } from "~/components/ui/menu";
 import { StatusPill } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
+import { useNarrow } from "~/lib/narrow";
 import { permissionSummary } from "~/lib/permissions";
 import { projectQuery, type ReviewDetail, reviewQuery, useReviewActions } from "~/lib/queries";
 import { useViewer } from "~/lib/viewer";
@@ -272,6 +273,9 @@ export function ReviewBody({
     enabled: Boolean(review) && !guest,
   });
   const { viewed, cancel } = useReviewActions(reviewId);
+  // On a phone what is asked of you comes before the items, however many, in the document as
+  // on screen (48rem, the app's @3xl breakpoint).
+  const [layout, narrow] = useNarrow(768);
   // A reviewer opening the review has viewed it: once per visit.
   const marked = useRef(false);
   const mine = review?.reviewers.find((r) => r.id === review.you.reviewerId);
@@ -344,8 +348,12 @@ export function ReviewBody({
           </p>
         )}
 
-        <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div
+          ref={layout}
+          className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_320px]"
+        >
           <div className="flex min-w-0 flex-col gap-6">
+            {narrow && <YourTurn review={review} />}
             <section aria-label="Items" className="flex flex-col gap-2">
               <h2 className="m-0 text-[15px] font-medium">Items</h2>
               <ul className="m-0 flex list-none flex-col border-t border-hairline p-0">
@@ -377,10 +385,7 @@ export function ReviewBody({
                 ))}
               </ul>
             </section>
-            {/* On a phone what is asked of you comes first, before the items, however many. */}
-            <div className="order-first empty:hidden @3xl/app:order-none">
-              <YourTurn review={review} />
-            </div>
+            {!narrow && <YourTurn review={review} />}
             {review.decisions.length > 0 && (
               <section aria-label="Decisions" className="flex flex-col gap-2">
                 <h2 className="m-0 text-[15px] font-medium">Decisions</h2>

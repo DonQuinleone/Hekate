@@ -565,6 +565,12 @@ export function Comments({
 
   // "c" starts a comment at the playhead, pausing so the moment holds while you write.
   const composer = useRef<HTMLDivElement>(null);
+  const [sheet, setSheet] = useState(false);
+  const sheetBody = useRef<HTMLDivElement>(null);
+  // The sheet is opened to write in: its text box takes focus.
+  useEffect(() => {
+    if (sheet) sheetBody.current?.querySelector("textarea")?.focus({ preventScroll: true });
+  }, [sheet]);
   useShortcuts(
     "comments",
     "Comments",
@@ -574,14 +580,19 @@ export function Comments({
         label: "Comment at the playhead",
         run: () => {
           media?.pause();
-          composer.current?.querySelector("textarea")?.focus();
+          // On a phone the inline composer is hidden: the sheet opens instead.
+          const inline = composer.current;
+          if (inline && inline.offsetParent !== null) inline.querySelector("textarea")?.focus();
+          else {
+            capture();
+            setSheet(true);
+          }
         },
       },
     ],
     Boolean(media && canComment),
   );
 
-  const [sheet, setSheet] = useState(false);
   const composerLabel = media
     ? "Comment at the playhead"
     : pages && pageAim === "region"
@@ -771,7 +782,10 @@ export function Comments({
           </Button>
           {sheet && (
             <Dialog title={composerLabel} onClose={() => setSheet(false)}>
-              <div onFocusCapture={capture}>{composerBody}</div>
+              {/* Opened to write in: the text box takes focus. */}
+              <div onFocusCapture={capture} ref={sheetBody}>
+                {composerBody}
+              </div>
             </Dialog>
           )}
         </>
