@@ -140,7 +140,10 @@ function Reviewers({ review }: { review: ReviewDetail }) {
         {review.reviewers.map((r) => {
           const notes = r.permissions ? permissionSummary(r.permissions, review.kind, r.guest) : [];
           return (
-            <li key={r.id} className="group flex flex-col gap-1 border-b border-hairline py-2.5">
+            <li
+              key={r.id}
+              className="group flex flex-col gap-1 border-b border-hairline py-row-tight"
+            >
               <span className="flex items-center justify-between gap-3">
                 <span className="flex min-w-0 items-center gap-2">
                   {review.order === "sequence" && (
@@ -360,7 +363,7 @@ export function ReviewBody({
                 {review.items.map((item) => (
                   <li
                     key={item.id}
-                    className="flex min-h-12 items-center justify-between gap-3 border-b border-hairline py-2"
+                    className="flex min-h-row-min items-center justify-between gap-3 border-b border-hairline py-row-snug"
                   >
                     <span className="flex min-w-0 flex-col">
                       <span className="truncate text-sm text-ink">{item.name}</span>
@@ -393,7 +396,7 @@ export function ReviewBody({
                   {review.decisions.map((d) => (
                     <li
                       key={d.id}
-                      className="flex flex-col gap-0.5 border-b border-hairline py-2.5"
+                      className="flex flex-col gap-0.5 border-b border-hairline py-row-tight"
                     >
                       <span className="flex items-baseline gap-2 text-[13px]">
                         <span className="font-medium text-ink">

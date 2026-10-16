@@ -13,6 +13,7 @@ import { MenuList, usePopover } from "~/components/ui/menu";
 import { type ReviewState, StatusDot } from "~/components/ui/status";
 import { authClient } from "~/lib/auth";
 import { cn } from "~/lib/cn";
+import { useDensitySync } from "~/lib/density";
 import { docsUrl } from "~/lib/links";
 import { localeKey, setLocale } from "~/lib/locale";
 import {
@@ -464,6 +465,7 @@ export function Shell({ children }: { children: ReactNode }) {
   setLocale(signedIn?.user.locale ?? workspace?.locale, signedIn?.user.timeZone);
   const page = <Fragment key={localeKey()}>{children}</Fragment>;
   useThemeSync(signedIn?.user.preferences?.theme);
+  useDensitySync(signedIn?.user.preferences?.density);
   const [collapsed, setCollapsed] = useCollapsed();
   const [slots, onTrail, onActions] = useHeaderSlots();
   const { data: reviews } = useQuery(myReviewsQuery);

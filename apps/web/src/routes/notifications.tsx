@@ -40,7 +40,7 @@ export function NotificationsPage() {
             <ul className="m-0 flex list-none flex-col p-0">
               {items.map((n) => (
                 <li key={n.id}>
-                  <NotificationItem n={n} size={28} className="rounded-panel px-2 py-2.5" />
+                  <NotificationItem n={n} size={28} className="rounded-panel px-2 py-row-tight" />
                 </li>
               ))}
             </ul>

@@ -29,10 +29,30 @@
   --hk-radius-chip: 4px;
   --hk-radius-control: 6px;
   --hk-radius-panel: 8px;
+  /* Density, as in apps/web: how much room a row of a list takes. */
+  --hk-row: 0.75rem;
+  --hk-row-tight: 0.625rem;
+  --hk-row-snug: 0.5rem;
+  --hk-row-loose: 1rem;
+  --hk-row-min: 3rem;
+}
+
+/* Compact (Account, Appearance): every row on the same, tighter scale. */
+:host([data-density="compact"]) {
+  --hk-row: 0.375rem;
+  --hk-row-tight: 0.3125rem;
+  --hk-row-snug: 0.25rem;
+  --hk-row-loose: 0.625rem;
+  --hk-row-min: 2.25rem;
 }
 
 /* Tailwind reads the Signal tokens; the default palette is removed so only these exist. */
 @theme {
+  --spacing-row: var(--hk-row);
+  --spacing-row-tight: var(--hk-row-tight);
+  --spacing-row-snug: var(--hk-row-snug);
+  --spacing-row-loose: var(--hk-row-loose);
+  --spacing-row-min: var(--hk-row-min);
   --color-*: initial;
   --color-canvas: var(--hk-canvas);
   --color-ground: var(--hk-ground);

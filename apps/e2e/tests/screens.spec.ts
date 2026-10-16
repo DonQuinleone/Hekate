@@ -679,3 +679,34 @@ test.describe("themes", () => {
     }
   });
 });
+
+// Density (#218): compact tightens every list on one scale. A member's choice, put back after.
+test.describe("compact", () => {
+  for (const [name, path, ready] of [
+    [
+      "project-files-compact",
+      () => `/projects/${seeded().musicProjectId}/files`,
+      "main a:has-text('Maple Leaf Rag')",
+    ],
+    ["inbox-compact", () => "/inbox", "main a:has-text('Album masters')"],
+    ["home-compact", () => "/", "main section[aria-label=Activity] li a"],
+    ["review-compact", () => `/reviews/${seeded().reviewId}`, "h1:has-text('Album masters')"],
+    ["account-appearance-compact", () => "/account/appearance", "main >> text=Density"],
+  ] as const) {
+    test(name, async ({ page }) => {
+      const choose = (density: string) =>
+        page.request.fetch("/api/me/preferences", { method: "PATCH", data: { density } });
+      expect((await choose("compact")).ok()).toBe(true);
+      try {
+        await page.clock.setFixedTime(FIXED_TIME);
+        await page.goto(path());
+        await settle(page, ready);
+        await expect(page.locator("html")).toHaveAttribute("data-density", "compact");
+        await saveScreen(page, name);
+        await checkScreen(page);
+      } finally {
+        await choose("comfortable");
+      }
+    });
+  }
+});

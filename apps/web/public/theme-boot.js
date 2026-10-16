@@ -25,4 +25,9 @@
   if (!(theme in grounds)) theme = "signal-dark";
   if (theme !== "signal-dark") document.documentElement.dataset.theme = theme;
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", grounds[theme]);
+  // And the density chosen last time (src/lib/density.ts).
+  try {
+    if (localStorage.getItem("hekate.density") === "compact")
+      document.documentElement.dataset.density = "compact";
+  } catch {}
 })();

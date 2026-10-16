@@ -396,7 +396,7 @@ function ProjectList({
             <Link
               to="/projects/$projectId"
               params={{ projectId: p.id }}
-              className="flex min-w-0 items-center gap-3 py-2.5 text-ink after:absolute after:inset-0"
+              className="flex min-w-0 items-center gap-3 py-row-tight text-ink after:absolute after:inset-0"
             >
               <ProjectCover profile={p.profile} size="sm" />
               <span className="min-w-0">

@@ -550,6 +550,25 @@ export function AccountPage({ section }: { section: string }) {
                 <option value="yes">Follow the system</option>
               </Select>
             </Row>
+            <Row name="Density" hint="How much room each row of a list takes, everywhere.">
+              <Select
+                defaultValue={
+                  document.getElementById("root")?.dataset.density === "compact"
+                    ? "compact"
+                    : "comfortable"
+                }
+                className="w-40"
+                onChange={(e) => {
+                  // The prototype renders in a shadow root; its host carries the density.
+                  const host = document.getElementById("root");
+                  if (e.target.value === "compact") host?.setAttribute("data-density", "compact");
+                  else host?.removeAttribute("data-density");
+                }}
+              >
+                <option value="comfortable">Comfortable</option>
+                <option value="compact">Compact</option>
+              </Select>
+            </Row>
           </Section>
           <Section
             title="Tools shown"
