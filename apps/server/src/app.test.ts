@@ -2366,6 +2366,63 @@ describe.runIf(url)("api", () => {
         expect(after.files.find((f) => f.id === s.mix)?.tagIds).toEqual([]);
       });
 
+      it("prepares a failed file again, once, for those who may upload", async () => {
+        const s = await studio();
+        await db
+          .update(schema.files)
+          .set({ streamStatus: "failed", analysisStatus: "failed" })
+          .where(eq(schema.files.id, s.mix));
+        const retry = (cookie: string) =>
+          app.request(`/api/files/${s.mix}/retry`, json({}, cookie));
+        expect((await retry(s.composer)).status).toBe(403);
+        sent.length = 0;
+        const res = await retry(s.engineer);
+        expect(res.status).toBe(202);
+        expect(sent.map((j) => j.name)).toEqual(["media-proxy", "media-analysis"]);
+        const [row] = await db
+          .select({ stream: schema.files.streamStatus, analysis: schema.files.analysisStatus })
+          .from(schema.files)
+          .where(eq(schema.files.id, s.mix));
+        expect(row).toEqual({ stream: "pending", analysis: "pending" });
+        // Already under way: nothing failed now.
+        expect((await retry(s.engineer)).status).toBe(409);
+        const outsider = await joinAs(s.owner, "outsider-retry@example.test");
+        expect((await retry(outsider)).status).toBe(404);
+
+        // A queue that does not take the work leaves that stage failed, to be tried again.
+        await db
+          .update(schema.files)
+          .set({ streamStatus: "failed", analysisStatus: "failed" })
+          .where(eq(schema.files.id, s.mix));
+        failNextSend = true;
+        expect((await retry(s.engineer)).status).toBe(503);
+        const [after] = await db
+          .select({ stream: schema.files.streamStatus, analysis: schema.files.analysisStatus })
+          .from(schema.files)
+          .where(eq(schema.files.id, s.mix));
+        expect(after).toEqual({ stream: "failed", analysis: "pending" });
+      });
+
+      it("keeps each member's file columns for this workspace", async () => {
+        const s = await studio();
+        const columnsOf = async (cookie: string) =>
+          ((await (await getAs("/api/me/file-columns", cookie)).json()) as { columns: unknown })
+            .columns;
+        const put = (cookie: string, columns: unknown) =>
+          app.request("/api/me/file-columns", { ...json({ columns }, cookie), method: "PUT" });
+        expect(await columnsOf(s.composer)).toBeNull();
+        const mine = [
+          { id: "tags", width: 160 },
+          { id: "status", width: 120 },
+        ];
+        expect((await put(s.composer, mine)).status).toBe(200);
+        expect(await columnsOf(s.composer)).toEqual(mine);
+        expect(await columnsOf(s.owner)).toBeNull();
+        expect((await put(s.composer, [mine[0], mine[0]])).status).toBe(400);
+        expect((await put(s.composer, [{ id: "tags", width: 9999 }])).status).toBe(400);
+        expect((await put(s.composer, [{ id: "colour", width: 100 }])).status).toBe(400);
+      });
+
       it("keeps each person's pins, favourites and seen files to themselves", async () => {
         const s = await studio();
         const mark = (cookie: string, body: Record<string, unknown>, projectId = s.projectId) =>

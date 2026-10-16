@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useState } from "react";
+import { createContext, type ReactNode, useContext, useState } from "react";
 import { Avatar, AvatarRow } from "~/components/avatar";
 import { Icon, type IconName } from "~/components/icons";
 import { Label } from "~/components/label";
@@ -93,6 +93,122 @@ function Quick({
     <button type="button" aria-label={label} title={label} onClick={onClick} className={cls}>
       <Icon name={icon} size={14} />
     </button>
+  );
+}
+
+/* ---------- Selection (#114) ---------- */
+
+/** What is selected in the list, shared by its rows. */
+const Picked = createContext<{
+  has: (id: string) => boolean;
+  toggle: (id: string) => void;
+  any: boolean;
+} | null>(null);
+
+/**
+ * A row's icon, which becomes its checkbox on hover or focus, and stays one while anything is
+ * selected. Shift-click selects a range; in the real list x selects the focused row, arrows
+ * move, Shift with an arrow extends, Cmd or Ctrl and A selects everything, Escape lets go.
+ */
+function RowPick({ id, icon, className }: { id: string; icon: IconName; className: string }) {
+  const picked = useContext(Picked);
+  const showing = picked?.any ?? false;
+  return (
+    <span className="relative flex size-5 items-center justify-center">
+      <Icon
+        name={icon}
+        className={cn(className, showing ? "invisible" : "@3xl/app:group-hover:invisible")}
+      />
+      <input
+        type="checkbox"
+        aria-label="Select"
+        checked={picked?.has(id) ?? false}
+        onChange={() => picked?.toggle(id)}
+        className={cn(
+          "absolute inset-0 m-auto size-3.5 cursor-pointer accent-[var(--hk-ink)]",
+          showing ? "opacity-100" : "opacity-0 focus:opacity-100 @3xl/app:group-hover:opacity-100",
+        )}
+      />
+    </span>
+  );
+}
+
+/**
+ * What can be done to everything selected, floating at the foot of the list (Linear,
+ * Dropbox): pin, favourite and mark seen for everyone; move, tag and delete for those who
+ * organise. Rows also drag onto a folder or the path to move.
+ */
+function SelectionBar({ count, onClear }: { count: number; onClear: () => void }) {
+  return (
+    <div
+      role="toolbar"
+      aria-label="Selection"
+      className="rise-in sticky bottom-4 z-20 mx-auto mt-4 flex w-full max-w-3xl flex-wrap items-center gap-1 rounded-panel-lg bg-overlay p-2 shadow-4"
+    >
+      <span className="tabular px-2 text-[13px] text-ink">{count} selected</span>
+      {["Pin", "Favourite", "Mark as viewed", "Move…", "Tags…", "Delete…"].map((label) => (
+        <Button key={label} size="sm" variant="ghost">
+          {label}
+        </Button>
+      ))}
+      <button
+        type="button"
+        aria-label="Clear the selection"
+        onClick={onClear}
+        className="ml-auto flex size-7 items-center justify-center rounded-control text-ink-3 hover:bg-raised hover:text-ink"
+      >
+        <Icon name="close" size={14} />
+      </button>
+    </div>
+  );
+}
+
+const columnChoices = [
+  "Status",
+  "Versions",
+  "People",
+  "Updated",
+  "Size",
+  "Format",
+  "Duration",
+  "Tags",
+];
+
+/**
+ * The list's columns, chosen and ordered per person and kept for them; a header's edge drags
+ * for its width.
+ */
+function ColumnsChooser() {
+  const [open, setOpen, box] = usePopover();
+  const [on, setOn] = useState(columnChoices.slice(0, 4));
+  return (
+    <div ref={box} className="relative flex justify-end">
+      <button
+        type="button"
+        aria-label="Choose columns"
+        onClick={() => setOpen(!open)}
+        className="flex size-7 items-center justify-center rounded-control text-ink-3 hover:bg-raised hover:text-ink"
+      >
+        <Icon name="sliders" size={14} />
+      </button>
+      {open && (
+        <div className="rise-in absolute top-full right-0 z-30 mt-1 w-56 rounded-panel-lg bg-overlay p-2 shadow-4">
+          <Label>Columns, in order</Label>
+          {columnChoices.map((c) => (
+            <button
+              key={c}
+              type="button"
+              aria-pressed={on.includes(c)}
+              onClick={() => setOn(on.includes(c) ? on.filter((x) => x !== c) : [...on, c])}
+              className="flex h-8 w-full items-center gap-2 rounded-control px-2 text-left text-[13px] text-ink hover:bg-raised"
+            >
+              <span className="flex-1">{c}</span>
+              {on.includes(c) && <Icon name="check" size={13} />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -191,7 +307,7 @@ function TrackRow({ track, project }: { track: Track; project: Project }) {
   ];
   return (
     <li className={cn(rowGrid, "group border-b border-line last:border-b-0 hover:bg-raised/50")}>
-      <Icon name="track" className="text-ink-2" />
+      <RowPick id={track.id} icon="track" className="text-ink-2" />
       <Link
         to={file ? "/files/$fileId" : "/tracks/$trackId"}
         params={file ? { fileId: file.id } : { trackId: track.id }}
@@ -256,7 +372,7 @@ function FileRow({ file, project }: { file: File; project: Project }) {
   const long = useScreenState() === "long";
   return (
     <li className={cn(rowGrid, "group border-b border-line last:border-b-0 hover:bg-raised/50")}>
-      <Icon name={kindIcon[file.kind]} className="text-ink-3" />
+      <RowPick id={file.id} icon={kindIcon[file.kind]} className="text-ink-3" />
       <Link to="/files/$fileId" params={{ fileId: file.id }} className="min-w-0 py-3">
         <span
           className={cn("block text-[14px] text-ink", long ? "line-clamp-2 break-all" : "truncate")}
@@ -332,7 +448,7 @@ function FolderRow({ folder, project }: { folder: Folder; project: Project }) {
   const viewer = useViewer();
   return (
     <li className={cn(rowGrid, "group border-b border-line last:border-b-0 hover:bg-raised/50")}>
-      <Icon name="folder" className="text-ink-2" />
+      <RowPick id={folder.id} icon="folder" className="text-ink-2" />
       <Link
         to="/projects/$projectId/$view"
         params={{ projectId: project.id, view: "files" }}
@@ -728,6 +844,18 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
   const state = useScreenState();
   const path = folderPath(folderId);
   const items = itemsIn(project, folderId);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const selection = {
+    has: (id: string) => picked.has(id),
+    toggle: (id: string) =>
+      setPicked((was) => {
+        const next = new Set(was);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      }),
+    any: picked.size > 0,
+  };
   const canUpload = viewer.can(project.id, "upload");
   const uploading = state === "processing";
   const [requesting, setRequesting] = useState(false);
@@ -802,7 +930,7 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
                   : []),
                 { label: "Upload request…", onSelect: () => setRequesting(true) },
                 "divider",
-                { label: "Select all", onSelect: () => {} },
+                { label: "Select all", onSelect: () => setPicked(new Set(items.map((i) => i.id))) },
               ]}
             />
           )}
@@ -924,28 +1052,33 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
       ) : view === "columns" ? (
         <ColumnBrowser project={project} rootId={folderId} />
       ) : view === "list" ? (
-        <Card>
-          <div className={cn(rowGrid, "hidden h-9 border-b border-line @3xl/app:grid")}>
-            <span />
-            <Label>Name</Label>
-            <Label>Status</Label>
-            <Label>Versions</Label>
-            <Label>People</Label>
-            <Label>Updated</Label>
-            <span />
-          </div>
-          <ul className="list-none p-0">
-            {items.map((item) =>
-              item.kind === "folder" ? (
-                <FolderRow key={item.id} folder={item.folder} project={project} />
-              ) : item.kind === "track" ? (
-                <TrackRow key={item.id} track={item.track} project={project} />
-              ) : item.kind === "file" ? (
-                <FileRow key={item.id} file={item.file} project={project} />
-              ) : null,
-            )}
-          </ul>
-        </Card>
+        <Picked.Provider value={selection}>
+          <Card>
+            <div className={cn(rowGrid, "hidden h-9 border-b border-line @3xl/app:grid")}>
+              <span />
+              <Label>Name</Label>
+              <Label>Status</Label>
+              <Label>Versions</Label>
+              <Label>People</Label>
+              <Label>Updated</Label>
+              <ColumnsChooser />
+            </div>
+            <ul className="list-none p-0">
+              {items.map((item) =>
+                item.kind === "folder" ? (
+                  <FolderRow key={item.id} folder={item.folder} project={project} />
+                ) : item.kind === "track" ? (
+                  <TrackRow key={item.id} track={item.track} project={project} />
+                ) : item.kind === "file" ? (
+                  <FileRow key={item.id} file={item.file} project={project} />
+                ) : null,
+              )}
+            </ul>
+          </Card>
+          {picked.size > 0 && (
+            <SelectionBar count={picked.size} onClear={() => setPicked(new Set())} />
+          )}
+        </Picked.Provider>
       ) : (
         <ul className="grid list-none grid-cols-2 gap-4 p-0 @3xl/app:grid-cols-4 @6xl/app:grid-cols-5">
           {items.map((item) => {

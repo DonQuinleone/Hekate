@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
+import postgres from "postgres";
 import { checkScreen } from "./checks.ts";
 import { FIXED_TIME, type Seeded, saveScreen, seeded, state } from "./fixtures.ts";
 
@@ -233,7 +234,7 @@ test("project-files-columns", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/projects/${seeded().musicProjectId}/files`);
   await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
-  await page.getByRole("button", { name: "Columns" }).click();
+  await page.getByRole("button", { name: "Columns", exact: true }).click();
   await page
     .getByRole("button", { name: /^Maple Leaf Rag/ })
     .first()
@@ -277,5 +278,71 @@ test("project-files-grid", async ({ page }) => {
   await settle(page, "main ul[aria-label=Contents] li");
   await showWhole(page);
   await saveScreen(page, "project-files-grid");
+  await checkScreen(page);
+});
+
+// Two rows chosen: the selection bar floats at the foot of the list.
+test("project-files-selected", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/files`);
+  await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
+  await page.getByRole("checkbox", { name: "Select The Entertainer" }).click();
+  await page.getByRole("checkbox", { name: "Select Maple Leaf Rag - Score.pdf" }).click();
+  await settle(page, "[role=toolbar][aria-label=Selection]");
+  await saveScreen(page, "project-files-selected");
+  await checkScreen(page);
+});
+
+// The list's columns, with Tags and Duration added; phones show no columns to choose.
+test("project-files-columns-menu", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "A phone shows names only");
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/files`);
+  await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
+  await page.getByRole("button", { name: "Choose columns" }).click();
+  const menu = page.getByRole("dialog", { name: "Columns" });
+  await menu.getByRole("switch", { name: "Tags" }).click();
+  await menu.getByRole("switch", { name: "Duration" }).click();
+  await settle(page, "main >> text=Duration");
+  await expect(menu.getByRole("switch", { name: "Duration" })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+  await saveScreen(page, "project-files-columns-menu");
+  await checkScreen(page);
+  // Put the list back as it was for the captures that follow.
+  await menu.getByRole("button", { name: "Reset" }).click();
+});
+
+// A file whose preparation failed says so, with a way to try again; put back as seeded after.
+test("project-files-failed", async ({ page }, info) => {
+  const sql = postgres(process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL ?? "", { max: 1 });
+  const { scoreFileId, musicProjectId } = seeded();
+  const [before] = await sql<{ stream_status: string }[]>`
+    update files set stream_status = 'failed' where id = ${scoreFileId}
+    returning (select stream_status from files where id = ${scoreFileId})`;
+  try {
+    await page.clock.setFixedTime(FIXED_TIME);
+    await page.goto(`/projects/${musicProjectId}/files`);
+    // A phone has no status column; there the row's menu offers to try again.
+    await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
+    if (info.project.name !== "phone") await settle(page, "main button:has-text('Retry')");
+    await saveScreen(page, "project-files-failed");
+    await checkScreen(page);
+  } finally {
+    await sql`update files set stream_status = ${before?.stream_status ?? "ready"} where id = ${scoreFileId}`;
+    await sql.end();
+  }
+});
+
+// A loose file put into a track, as its next version or beside the latest.
+test("project-files-attach", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/files`);
+  await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
+  await page.getByRole("button", { name: "Actions for Maple Leaf Rag - Score.pdf" }).click();
+  await page.getByRole("menuitem", { name: "Attach to a track…" }).click();
+  await settle(page, "main form[aria-label='Attach to a track']");
+  await saveScreen(page, "project-files-attach");
   await checkScreen(page);
 });

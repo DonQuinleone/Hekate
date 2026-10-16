@@ -2,6 +2,7 @@ export * from "./alignment.ts";
 export * from "./anchor.ts";
 export * from "./audit.ts";
 export * from "./comments.ts";
+export * from "./file-columns.ts";
 export * from "./files.ts";
 export * from "./folders.ts";
 export * from "./format.ts";
