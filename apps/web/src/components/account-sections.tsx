@@ -17,6 +17,7 @@ import { applyTheme, themeChoices } from "~/lib/theme";
 import { Avatar } from "./avatar";
 import { Row, Section, SwitchRow } from "./settings";
 import { Button } from "./ui/button";
+import { Choice } from "./ui/choice";
 import { Input, Select } from "./ui/input";
 import { StatusDot } from "./ui/status";
 
@@ -245,15 +246,13 @@ function PasswordSection() {
               value={next}
               onChange={(e) => setNext(e.target.value)}
             />
-            <label className="flex items-center gap-2 text-[13px] text-ink-2">
-              <input
-                type="checkbox"
-                checked={everywhere}
-                onChange={(e) => setEverywhere(e.target.checked)}
-                className="size-3.5 accent-[var(--hk-ink)]"
-              />
+            <Choice
+              checked={everywhere}
+              onChange={(e) => setEverywhere(e.target.checked)}
+              className="text-[13px] text-ink-2"
+            >
               Sign out everywhere else
-            </label>
+            </Choice>
             <span className="flex gap-2">
               <Button
                 size="sm"

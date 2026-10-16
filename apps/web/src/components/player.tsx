@@ -9,6 +9,7 @@ import { LoopControls, LoopSurface } from "./loop";
 import { Spectrogram, type SpectrogramChannelChoice } from "./spectrogram";
 import { SpectrogramSettings, useSpectrogramView } from "./spectrogram-settings";
 import { Button } from "./ui/button";
+import { Slider } from "./ui/slider";
 import { Toggle } from "./ui/toggle";
 import { WAVEFORM_HEIGHT, Waveform, type WaveformView } from "./waveform";
 
@@ -604,8 +605,7 @@ export function Player({
               className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-ink"
               style={{ left: `${share(time)}%` }}
             />
-            <input
-              type="range"
+            <Slider
               aria-label="Position"
               min={0}
               max={duration || 0}

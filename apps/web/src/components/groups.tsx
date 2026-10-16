@@ -10,9 +10,8 @@ import {
 } from "~/lib/queries";
 import { GuestFields } from "./guest-fields";
 import { Button } from "./ui/button";
-
-const control =
-  "h-8 rounded-control border border-edge bg-ground px-3 text-[13px] text-ink outline-none placeholder:text-ink-3 focus:border-ink-3";
+import { Choice } from "./ui/choice";
+import { Input } from "./ui/input";
 
 const keyOf = (p: PersonInput) =>
   typeof p === "string" ? `member:${p}` : `guest:${p.email.toLowerCase()}`;
@@ -63,8 +62,8 @@ function GroupEditor({
     >
       <label className="flex max-w-80 flex-col gap-1.5">
         <span className="label">Name</span>
-        <input
-          className={control}
+        <Input
+          className="h-8 text-[13px]"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Soloists"
@@ -75,15 +74,13 @@ function GroupEditor({
         <ul className="m-0 flex list-none flex-col gap-1 p-0">
           {(members ?? []).map((person) => (
             <li key={person.userId}>
-              <label className="flex cursor-pointer items-center gap-2 text-[13px] text-ink-2">
-                <input
-                  type="checkbox"
-                  checked={people.includes(person.userId)}
-                  onChange={() => toggle(person.userId)}
-                  className="accent-[var(--hk-ink)]"
-                />
-                <span className="text-ink">{person.name}</span>
-              </label>
+              <Choice
+                checked={people.includes(person.userId)}
+                onChange={() => toggle(person.userId)}
+                className="items-center text-[13px]"
+              >
+                {person.name}
+              </Choice>
             </li>
           ))}
           {guests.map((guest) => (

@@ -1,10 +1,7 @@
 import type { GuestInput } from "@hekate/shared";
 import { useState } from "react";
-import { cn } from "~/lib/cn";
 import { Button } from "./ui/button";
-
-const control =
-  "h-8 rounded-control border border-edge bg-ground px-3 text-[13px] text-ink outline-none placeholder:text-ink-3 focus:border-ink-3";
+import { Input } from "./ui/input";
 
 /** Add a guest reviewer by name and email: someone outside the organisation, without an account. */
 export function GuestFields({
@@ -27,23 +24,23 @@ export function GuestFields({
   };
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <input
-        className={cn(control, "min-w-36 flex-1")}
+      <Input
+        className="h-8 w-auto min-w-36 flex-1 text-[13px]"
         value={name}
         onChange={(e) => setName(e.target.value)}
         placeholder="Name"
         aria-label="Guest name"
       />
-      <input
-        className={cn(control, "min-w-44 flex-1")}
+      <Input
+        className="h-8 w-auto min-w-44 flex-1 text-[13px]"
         type="email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         placeholder="Email"
         aria-label="Guest email"
       />
-      <input
-        className={cn(control, "w-32")}
+      <Input
+        className="h-8 w-32 text-[13px]"
         value={label}
         onChange={(e) => setLabel(e.target.value)}
         placeholder="Role (optional)"

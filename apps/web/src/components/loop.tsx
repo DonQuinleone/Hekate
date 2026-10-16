@@ -2,6 +2,8 @@ import { type PointerEvent, type ReactNode, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
 import { type Loop, loopFrom, MAX_ROLL, nudge, type Rolls, roll } from "~/lib/loop";
 import { Button } from "./ui/button";
+import { Choice } from "./ui/choice";
+import { Input, Select } from "./ui/input";
 
 /** Movement, in pixels, that turns a click into a drag. */
 const DRAG_THRESHOLD = 4;
@@ -128,9 +130,6 @@ function stepsFor(fps: number | undefined) {
   ];
 }
 
-const field =
-  "h-7 w-14 rounded-control border border-edge bg-ground px-2 text-xs text-ink outline-none focus:border-ink-3";
-
 function Edge({
   name,
   at,
@@ -181,15 +180,13 @@ export function LoopControls({
       aria-label="Loop"
       className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-hairline pt-3"
     >
-      <label className="flex cursor-pointer items-center gap-2 text-xs text-ink-2">
-        <input
-          type="checkbox"
-          checked={active}
-          onChange={(e) => onActive(e.target.checked)}
-          className="accent-[var(--hk-signal)]"
-        />
+      <Choice
+        checked={active}
+        onChange={(e) => onActive(e.target.checked)}
+        className="items-center text-xs text-ink-2"
+      >
         Loop
-      </label>
+      </Choice>
       <Edge
         name="In"
         at={loop.start}
@@ -202,8 +199,9 @@ export function LoopControls({
       />
       <label className="flex items-center gap-2 text-xs text-ink-3">
         Step
-        <select
-          className={cn(field, "w-auto")}
+        <Select
+          size="sm"
+          className="w-auto"
           value={step}
           onChange={(e) => setStep(Number(e.target.value))}
         >
@@ -212,16 +210,17 @@ export function LoopControls({
               {s.label}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
       <label className="flex items-center gap-2 text-xs text-ink-3">
         Pre-roll
-        <input
+        <Input
+          size="sm"
           type="number"
           min={0}
           max={MAX_ROLL}
           step={0.5}
-          className={field}
+          className="w-14"
           value={rolls.pre}
           onChange={(e) => onRolls({ ...rolls, pre: roll(Number(e.target.value)) })}
         />
@@ -229,12 +228,13 @@ export function LoopControls({
       </label>
       <label className="flex items-center gap-2 text-xs text-ink-3">
         Post-roll
-        <input
+        <Input
+          size="sm"
           type="number"
           min={0}
           max={MAX_ROLL}
           step={0.5}
-          className={field}
+          className="w-14"
           value={rolls.post}
           onChange={(e) => onRolls({ ...rolls, post: roll(Number(e.target.value)) })}
         />

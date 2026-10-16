@@ -28,6 +28,7 @@ import {
 import { useViewer } from "~/lib/viewer";
 import type { RegionMarker } from "./document-viewer";
 import { Button } from "./ui/button";
+import { Input, Select, Textarea } from "./ui/input";
 import { ActionMenu } from "./ui/menu";
 
 const fullTime = formatDates({ dateStyle: "medium", timeStyle: "short" });
@@ -122,14 +123,14 @@ function Composer({
   };
   return (
     <form onSubmit={submit} className="flex flex-col gap-2">
-      <textarea
+      <Textarea
         value={body}
         onChange={(e) => setBody(e.target.value)}
         onKeyDown={onKeyDown}
         placeholder={placeholder}
         rows={3}
         aria-label={placeholder}
-        className="min-h-20 w-full resize-y rounded-control border border-edge bg-ground px-3 py-2 text-[13px] text-ink outline-none placeholder:text-ink-3 focus:border-ink-3"
+        className="min-h-20 text-[13px]"
       />
       {error && <p className="m-0 text-xs text-signal">{error}</p>}
       <div className="flex flex-wrap items-center gap-2">
@@ -324,18 +325,19 @@ function ThreadView({
           // A carried thread is settled by its status on this version.
           canTriage ? (
             <span className="ml-auto flex items-center gap-1">
-              <select
+              <Select
+                size="sm"
                 aria-label="Status on this version"
                 value={carry.status}
                 onChange={(e) => setCarry({ status: e.target.value as CarryStatus })}
-                className="h-6 cursor-pointer rounded-chip border border-hairline bg-transparent px-1.5 text-xs text-ink-2 outline-none hover:border-edge focus:border-ink-3"
+                className="w-auto"
               >
                 {carryStatuses.map((s) => (
                   <option key={s} value={s}>
                     {carryStatusLabel(s, here ?? 0)}
                   </option>
                 ))}
-              </select>
+              </Select>
               <ActionMenu
                 label="this thread"
                 actions={[
@@ -654,7 +656,8 @@ export function Comments({
                 <label htmlFor={barsId} className="label">
                   Bar
                 </label>
-                <input
+                <Input
+                  size="sm"
                   id={barsId}
                   value={bars}
                   onChange={(e) => setBars(e.target.value)}
@@ -663,7 +666,7 @@ export function Comments({
                   placeholder="25 or 9-12"
                   inputMode="numeric"
                   aria-invalid={bars.trim() !== "" && parseBars(bars) === null}
-                  className="tabular h-6 w-24 rounded-chip border border-hairline bg-transparent px-2 text-[11px] text-ink outline-none placeholder:text-ink-3 hover:border-edge focus:border-ink-3 aria-invalid:border-signal"
+                  className="tabular w-24"
                 />
               </span>
             )}

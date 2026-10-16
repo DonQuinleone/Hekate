@@ -20,6 +20,8 @@ interface Screen {
 
 const screens: Screen[] = [
   { name: "sign-in", path: () => "/sign-in", ready: "form", as: "signed-out" },
+  // The design system reference (built in for the suite only).
+  { name: "reference", path: () => "/reference", ready: "main h1", as: "signed-out" },
   {
     name: "invitation",
     path: (s) => s.invitationPath,

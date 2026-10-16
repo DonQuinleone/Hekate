@@ -127,7 +127,10 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg poppler-utils fonts-dejavu-core
       - name: Install Chromium
         run: pnpm --filter @hekate/e2e exec playwright install --with-deps chromium
+      # The design system reference is built in for the suite to capture; releases leave it out.
       - run: pnpm --filter @hekate/web build
+        env:
+          VITE_REFERENCE: "1"
       - run: pnpm --filter @hekate/e2e e2e
       - name: Keep the captures
         if: ${{ !cancelled() }}

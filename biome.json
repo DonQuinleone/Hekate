@@ -26,7 +26,16 @@
         "noLabelWithoutControl": {
           "level": "error",
           "options": {
-            "inputComponents": ["Input", "Select", "Textarea"]
+            "inputComponents": [
+              "Input",
+              "Select",
+              "Textarea",
+              "InlineInput",
+              "BareInput",
+              "Checkbox",
+              "Radio",
+              "Slider"
+            ]
           }
         }
       }
