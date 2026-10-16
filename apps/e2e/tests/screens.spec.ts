@@ -682,6 +682,42 @@ test("file-details", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Asking for a review (#130): the form inside the project, empty and then filled in turn.
+test("request-review", async ({ page }) => {
+  const { musicProjectId, trackId } = seeded();
+  await page.goto(`/projects/${musicProjectId}/reviews/new?kind=approval&item=track:${trackId}`);
+  const form = page.getByRole("form", { name: "Request a review" });
+  await expect(form.getByRole("list", { name: "Chosen" })).toBeVisible();
+  await settle(page, "form li");
+  await saveScreen(page, "request-review");
+  await checkScreen(page);
+});
+
+test("request-review-filled", async ({ page }) => {
+  const { musicProjectId, trackId } = seeded();
+  await page.goto(`/projects/${musicProjectId}/reviews/new?kind=approval&item=track:${trackId}`);
+  const form = page.getByRole("form", { name: "Request a review" });
+  await form.getByRole("button", { name: /Soloists/ }).click();
+  await form.getByRole("checkbox", { name: "Alex Rivera" }).check();
+  // In turn: Alex first, the soloists after.
+  await form.getByRole("button", { name: "In turn" }).click();
+  await form.getByRole("button", { name: "Add a step" }).click();
+  await form.getByRole("button", { name: "Step 1" }).first().click();
+  await page.getByRole("menuitemradio", { name: "Step 2" }).click();
+  await form.getByRole("button", { name: "a share" }).click();
+  await form.getByRole("button", { name: "A week" }).click();
+  // A guest needs an email: the form says so rather than sending a link nowhere.
+  await form.getByRole("button", { name: "Someone new" }).click();
+  await form.getByLabel("Name", { exact: true }).fill("Tomas Varga");
+  await form.getByRole("button", { name: "Add", exact: true }).click();
+  const error = form.getByText("An email is needed: their link goes there.");
+  await expect(error).toBeVisible();
+  await error.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await expect(form.getByRole("button", { name: "Send the review" })).toBeEnabled();
+  await saveScreen(page, "request-review-filled");
+  await checkScreen(page);
+});
+
 // Comment export (#99): the file's threads as a marker list, previewed, then downloaded.
 test("file-export-comments", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}`);

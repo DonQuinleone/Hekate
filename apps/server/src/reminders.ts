@@ -69,6 +69,7 @@ export async function remindDue(
           reviews,
           workspace.id,
           eq(reviews.status, "open"),
+          eq(reviews.remind, true),
           gt(reviews.dueAt, now),
           lte(reviews.dueAt, new Date(now.getTime() + DAY_MS)),
         ),

@@ -1,6 +1,7 @@
 import {
   type AlignmentPoints,
   type Anchor,
+  type ApprovalRule,
   type CarryStatus,
   type CreateProjectInput,
   type CreateReviewInput,
@@ -1183,7 +1184,10 @@ export interface ReviewDetail {
   message: string | null;
   dueAt: string | null;
   order: "parallel" | "sequence";
-  rule: "all" | "any" | null;
+  rule: ApprovalRule | null;
+  /** With the share rule: the percentage whose approval is enough. */
+  share: number | null;
+  remind: boolean;
   status: ReviewSummary["status"];
   outcome: ReviewSummary["outcome"];
   createdByName: string | null;
@@ -1300,6 +1304,25 @@ export const reviewQuery = (id: string) =>
         .review,
     // Others decide while you look.
     refetchInterval: 15_000,
+  });
+
+/** A guest the project has asked before, to ask again without typing their address. */
+export interface KnownGuest {
+  id: string;
+  name: string;
+  email: string;
+  label: string | null;
+}
+
+export const projectGuestsQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "guests"],
+    queryFn: async () =>
+      (
+        await json<{ guests: KnownGuest[] }>(
+          await api.projects[":id"].guests.$get({ param: { id: projectId } }),
+        )
+      ).guests,
   });
 
 export function useCreateReview(projectId: string) {

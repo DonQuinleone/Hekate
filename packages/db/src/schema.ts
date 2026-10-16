@@ -1179,6 +1179,10 @@ export const reviews = pgTable(
     order: reviewOrderEnum("order").notNull().default("parallel"),
     /** Approvals only. */
     rule: approvalRuleEnum("rule"),
+    /** With the share rule: the percentage of deciding reviewers whose approval is enough. */
+    share: integer("share"),
+    /** Whether the day-before reminder goes out. */
+    remind: boolean("remind").notNull().default(true),
     status: reviewStatusEnum("status").notNull().default("open"),
     /** Set when the review completes: approved, changes requested, or (feedback) submitted. */
     outcome: text("outcome").$type<Exclude<ReviewOutcome, null>>(),
@@ -1196,6 +1200,7 @@ export const reviews = pgTable(
   },
   (t) => [
     index("reviews_project_idx").on(t.organisationId, t.projectId, t.createdAt),
+    check("reviews_share_range", sql`${t.share} is null or ${t.share} between 1 and 100`),
     index("reviews_search_idx").using(
       "gin",
       searchVector(sql`coalesce(${t.title}, '') || ' ' || coalesce(${t.message}, '')`),
