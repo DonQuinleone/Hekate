@@ -77,6 +77,24 @@ describe("notification mail", () => {
       ).subject,
     ).toBe("Mira Solberg on Album masters (Joplin Rags): approved");
   });
+
+  it("keeps the requester the event captured, rather than whoever acted", () => {
+    const n = row({
+      kind: "review_requested",
+      actorName: "Alex Rivera",
+      mail: {
+        template: "review_requested",
+        values: { review: "Album masters", kind: "approval", requester: "Ines Arlow" },
+      },
+    });
+    const workspace = {
+      name: "Endless Hall Records",
+      subjects: { review_requested: "{requester} asks about {review}" },
+    };
+    expect(instantMail(n, "https://hekate.example", workspace).subject).toBe(
+      "Ines Arlow asks about Album masters",
+    );
+  });
 });
 
 describe("digestDue", () => {

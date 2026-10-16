@@ -3724,36 +3724,51 @@ describe.runIf(url)("api", () => {
         it("reminds those it still waits on the day before a review is due, once", async () => {
           const s = await studio();
           const hours = (n: number) => new Date(Date.now() + n * 60 * 60 * 1000).toISOString();
-          const ask = async (title: string, dueAt: string) =>
+          const ask = async (title: string, dueAt: string, reviewers: unknown[]) =>
             reviewOf(
               await request(s.owner, s.projectId, {
                 kind: "feedback",
                 title,
                 items: [{ trackId: s.trackId }],
-                reviewers: [s.ids.composer, s.ids.accompanist, guest],
+                reviewers,
                 dueAt,
               }),
             );
-          const soon = await ask("Album master", hours(12));
-          await ask("Liner notes", hours(72));
+          const soon = await ask("Album master", hours(12), [
+            s.ids.composer,
+            s.ids.accompanist,
+            guest,
+          ]);
+          const also = await ask("Sleeve notes", hours(20), [s.ids.composer, guest]);
+          await ask("Liner notes", hours(72), [s.ids.composer, guest]);
           // One reviewer has already sent their feedback; they are not reminded.
           expect(
             (await app.request(`/api/reviews/${soon.id}/submit`, json({}, s.accompanist))).status,
           ).toBe(200);
           mailer.sent.length = 0;
           const deps = { db, mailer, audit, publicUrl: "http://localhost:3000" };
-          expect(await remindDue(deps)).toBe(2);
+          expect(await remindDue(deps)).toBe(4);
           const told = await db
             .select({ userId: schema.notifications.userId, text: schema.notifications.text })
             .from(schema.notifications)
             .where(eq(schema.notifications.kind, "due_soon"));
-          expect(told).toEqual([
-            { userId: s.ids.composer, text: 'your feedback on "Album master" is due tomorrow' },
+          expect(told.map((t) => t.text).sort()).toEqual([
+            'your feedback on "Album master" is due tomorrow',
+            'your feedback on "Sleeve notes" is due tomorrow',
           ]);
-          const mail = mailer.sent.find((m) => m.to === "conductor@example.test");
-          expect(mail?.subject).toBe("Album master is due tomorrow");
-          const token = mail?.text.match(/\/guest\/([A-Za-z0-9_-]+)/)?.[1] ?? "";
-          expect((await signIn(token)).status).toBe(201);
+          expect(told.every((t) => t.userId === s.ids.composer)).toBe(true);
+          // The guest gets one mail, with one link that opens both.
+          const mails = mailer.sent.filter((m) => m.to === "conductor@example.test");
+          expect(mails).toHaveLength(1);
+          expect(mails[0]?.subject).toMatch(/is due tomorrow$/);
+          expect(mails[0]?.text).toContain("- Sleeve notes");
+          const token = mails[0]?.text.match(/\/guest\/([A-Za-z0-9_-]+)/)?.[1] ?? "";
+          const signedIn = await signIn(token);
+          expect(signedIn.status).toBe(201);
+          const mine = (await (await getAs("/api/guest/me", cookieOf(signedIn))).json()) as {
+            reviews: { id: string }[];
+          };
+          expect(mine.reviews.map((r) => r.id)).toEqual(expect.arrayContaining([soon.id, also.id]));
           // Never twice.
           expect(await remindDue(deps)).toBe(0);
         });

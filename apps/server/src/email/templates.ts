@@ -49,6 +49,8 @@ export interface TemplateData {
     kind: ReviewKind;
     project: string;
     dueAt: Date;
+    /** Other reviews of theirs due as well, which the same link opens. */
+    others?: string[];
     url: string;
     guestLinkDays?: number;
     settingsUrl?: string;
@@ -131,8 +133,8 @@ export function workspaceEmail<T extends EmailTemplateId>(
         heading: `${d.requester} asks for your ${d.kind}`,
         body: [
           d.kind === "approval"
-            ? `${d.review}, in ${d.project}, is ready. Listen, leave comments where they belong, then record Approved or Changes requested.`
-            : `${d.review}, in ${d.project}, is ready. Listen and leave comments where they belong, then send your feedback.`,
+            ? `${d.review}, in ${d.project}, is ready. Open it, leave comments where they belong, then record Approved or Changes requested.`
+            : `${d.review}, in ${d.project}, is ready. Open it and leave comments where they belong, then send your feedback.`,
           ...(d.message?.trim() ? [quoted(d.message)] : []),
           ...(d.dueAt ? [`Due ${longDate(d.dueAt)}.`] : []),
         ],
@@ -181,7 +183,13 @@ export function workspaceEmail<T extends EmailTemplateId>(
         workspace: d.workspace,
         subject,
         heading: `Your ${d.kind === "approval" ? "decision" : "feedback"} on ${d.review} is due tomorrow`,
-        body: [`${d.review}, in ${d.project}, waits on you. It is due ${longDate(d.dueAt)}.`],
+        body: [
+          `${d.review}, in ${d.project}, waits on you. It is due ${longDate(d.dueAt)}.`,
+          ...(d.others?.length
+            ? ["These are due tomorrow too, and the same link opens them:"]
+            : []),
+        ],
+        ...(d.others?.length ? { list: d.others } : {}),
         action: { label: "Open the review", url: d.url },
         foot:
           d.guestLinkDays !== undefined

@@ -209,10 +209,11 @@ export function instantMail(n: NotificationRow, publicUrl: string, workspace: Ma
   const line = lineOf(n);
   const subject = n.mail
     ? subjectFor(n.mail.template, workspace.subjects, {
-        ...n.mail.values,
-        workspace: workspace.name,
+        // Who acted, unless the event captured someone else (a manager asking for a review).
         reviewer: n.actorName ?? "",
         requester: n.actorName ?? "",
+        ...n.mail.values,
+        workspace: workspace.name,
       })
     : line.length > 120
       ? `${line.slice(0, 117)}...`
