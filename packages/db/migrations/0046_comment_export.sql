@@ -1,0 +1,1 @@
+ALTER TYPE "public"."audit_action" ADD VALUE 'comment.export' BEFORE 'account.lockout';

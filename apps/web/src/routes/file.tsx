@@ -17,6 +17,7 @@ import {
 } from "~/components/comments";
 import { Compare, type CompareFocus } from "~/components/compare";
 import { DocumentViewer } from "~/components/document-viewer";
+import { ExportCommentsDialog } from "~/components/exports";
 import { FileDetailsSheet } from "~/components/file-details";
 import { mediaSummary } from "~/components/files";
 import { Icon } from "~/components/icons";
@@ -27,6 +28,7 @@ import { QaSummary, QualityChecks } from "~/components/qa";
 import { ScorePane } from "~/components/score";
 import { FileContext } from "~/components/tracks";
 import { Button } from "~/components/ui/button";
+import { ActionMenu } from "~/components/ui/menu";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
 import type { Loop } from "~/lib/loop";
@@ -186,6 +188,7 @@ export function FilePage({
   const preferences = usePreferences();
   /** On a document: the page shown, and the region drawn or thread picked on it. */
   const [pageFocus, setPageFocus] = useState<PageFocus>(initialFocus);
+  const [exporting, setExporting] = useState(false);
   // Another file starts on its first page, with nothing drawn.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset whenever the file changes.
   useEffect(() => setPageFocus(initialFocus), [fileId]);
@@ -274,18 +277,28 @@ export function FilePage({
         meta={summary ? undefined : file.contentType}
         actions={
           guest ? undefined : (
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-pressed={showDetails}
-              onClick={() => onDetails(!showDetails)}
-            >
-              <Icon name="info" size={14} />
-              Details
-            </Button>
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-pressed={showDetails}
+                onClick={() => onDetails(!showDetails)}
+              >
+                <Icon name="info" size={14} />
+                Details
+              </Button>
+              {can("triage") && (
+                <ActionMenu
+                  always
+                  label="file"
+                  actions={[{ label: "Export comments…", onSelect: () => setExporting(true) }]}
+                />
+              )}
+            </>
           )
         }
       />
+      {exporting && <ExportCommentsDialog file={file} onClose={() => setExporting(false)} />}
       {!guest && showDetails && (
         <FileDetailsSheet fileId={file.id} onClose={() => onDetails(false)} />
       )}

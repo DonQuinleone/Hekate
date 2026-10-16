@@ -1,26 +1,41 @@
 import { useState } from "react";
-import { Icon } from "~/components/icons";
+import { Icon, type IconName } from "~/components/icons";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Select } from "~/components/ui/input";
+import { Dropdown, type MenuAction } from "~/components/ui/menu";
 import { type Comment, categories, type File, personById } from "~/data";
 import { cn } from "~/lib/cn";
 import { formatClock } from "~/lib/format";
 
-const targets = [
-  "Pyramix",
-  "SADiE",
-  "Pro Tools",
-  "Sequoia",
-  "Nuendo",
-  "Reaper",
-  "Final Cut Pro",
-  "DaVinci Resolve",
-  "Premiere Pro",
-  "Avid Media Composer",
-  "CSV",
-  "Plain text",
+/** Audio editors, then video, then the open formats, each by its own mark. */
+const groups: [string, IconName][][] = [
+  [
+    ["Pro Tools", "protools"],
+    ["Nuendo", "steinberg"],
+    ["Reaper", "reaper"],
+  ],
+  [
+    ["Final Cut Pro", "apple"],
+    ["DaVinci Resolve", "resolve"],
+    ["Premiere Pro", "premiere"],
+    ["Avid Media Composer", "avid"],
+  ],
+  [
+    ["CSV", "spreadsheet"],
+    ["Plain text", "text"],
+  ],
 ];
+const markOf = new Map(groups.flat());
+
+/** A mark at the text's height, in a slot wide enough for Avid's wordmark. */
+function Mark({ name }: { name: IconName }) {
+  return (
+    <span className="flex w-8 shrink-0 justify-center text-ink-2">
+      <Icon name={name} size={name === "avid" ? 9 : 14} />
+    </span>
+  );
+}
 
 /** A version's comments as a timed list for a target application, or a printable sheet. */
 export function ExportCommentsDialog({
@@ -32,14 +47,26 @@ export function ExportCommentsDialog({
   comments: Comment[];
   onClose: () => void;
 }) {
-  const [target, setTarget] = useState("Pyramix");
-  const [scope, setScope] = useState("version");
+  const [target, setTarget] = useState("DaVinci Resolve");
+  const [scope, setScope] = useState("open");
+  const [time, setTime] = useState("tc-hour");
   const [done, setDone] = useState(false);
-  const list = comments.filter((c) => !c.parentId).slice(0, 3);
+  const threads = comments.filter((c) => !c.parentId);
+  const list = threads
+    .filter((c) => c.anchor.kind === "time" && (scope.startsWith("all") || !c.resolved))
+    .slice(0, 2);
+  const midi = target === "Pro Tools";
+  const xml = target === "Final Cut Pro" || target === "Premiere Pro";
+  const free = target === "CSV" || target === "Plain text";
+  const tc = (s: number) => {
+    const f = Math.round(s * 25);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${p((time === "tc-hour" ? 1 : 0) + Math.floor(f / 90000))}:${p(Math.floor(f / 1500) % 60)}:${p(Math.floor(f / 25) % 60)}:${p(f % 25)}`;
+  };
   return (
     <Dialog
       title="Export comments"
-      description={`${comments.filter((c) => !c.parentId).length} threads on ${file.name}`}
+      description={`${threads.length} threads on ${file.name}`}
       onClose={onClose}
       footer={
         <>
@@ -55,52 +82,90 @@ export function ExportCommentsDialog({
       }
     >
       <div className="grid gap-4 @md/app:grid-cols-2">
-        <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-          For
-          <Select value={target} onChange={(e) => setTarget(e.target.value)}>
-            {targets.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </Select>
-        </label>
+        <div className="flex min-w-0 flex-col gap-1.5 text-[13px] text-ink-2">
+          <span aria-hidden="true">For</span>
+          <Dropdown
+            variant="field"
+            label="For"
+            value={
+              <>
+                <Mark name={markOf.get(target) ?? "file"} />
+                <span className="truncate">{target}</span>
+              </>
+            }
+            actions={groups.flatMap((group, i) => [
+              ...(i > 0 ? (["divider"] as const) : []),
+              ...group.map(
+                ([label, mark]): MenuAction => ({
+                  label,
+                  icon: <Mark name={mark} />,
+                  checked: label === target,
+                  onSelect: () => setTarget(label),
+                }),
+              ),
+            ])}
+          />
+        </div>
         <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
           Scope
           <Select value={scope} onChange={(e) => setScope(e.target.value)}>
-            <option value="version">This version</option>
-            <option value="open">Open only</option>
-            <option value="category">By category…</option>
-            <option value="replies">With replies</option>
-            <option value="all">All versions</option>
+            <option value="open">Open threads</option>
+            <option value="open-replies">Open threads, with replies</option>
+            <option value="all">All threads</option>
+            <option value="all-replies">All threads, with replies</option>
           </Select>
         </label>
-        <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-          Encoding
-          <Select defaultValue="utf8">
-            <option value="utf8">UTF-8</option>
-            <option value="latin1">Latin-1 (older Pyramix)</option>
-          </Select>
-        </label>
-        <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-          Time base
-          <Select defaultValue="tc">
-            <option value="tc">Timecode from the file's start</option>
-            <option value="samples">Samples</option>
-            <option value="bars">Bars, where typed</option>
-          </Select>
-        </label>
+        {!midi && (
+          <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+            Time base
+            <Select value={time} onChange={(e) => setTime(e.target.value)}>
+              <option value="tc">Timecode from 00:00:00:00</option>
+              <option value="tc-hour">Timecode from 01:00:00:00</option>
+              {free && <option value="seconds">Seconds from the file's start</option>}
+              {free && <option value="samples">Samples from the file's start</option>}
+            </Select>
+          </label>
+        )}
+        {!midi && time.startsWith("tc") && (
+          <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+            Frame rate
+            <Select defaultValue="25">
+              {["23.976", "24", "25", "29.97", "29.97 drop", "30", "50", "59.94", "60"].map((r) => (
+                <option key={r} value={r}>
+                  {r} fps
+                </option>
+              ))}
+            </Select>
+          </label>
+        )}
+        {!xml && (
+          <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+            Encoding
+            <Select defaultValue="utf8">
+              <option value="utf8">UTF-8</option>
+              <option value="latin1">Latin-1 (older systems)</option>
+            </Select>
+          </label>
+        )}
       </div>
-      <div className="mt-4 flex flex-col gap-1 rounded-panel border border-line bg-sunken p-3 text-[12px] text-ink-2">
+      <div className="mt-4 flex min-w-0 flex-col gap-1 rounded-panel border border-line bg-sunken p-3 text-[12px] text-ink-2">
         <span className="text-ink-3">Preview · {target}</span>
-        {list.map((c, i) => (
-          <span key={c.id} className="tabular truncate">
-            {String(i + 1).padStart(3, "0")}{" "}
-            {c.anchor.kind === "time" ? formatClock(c.anchor.start) : "00:00.000"} [
-            {categories.find((x) => x.id === c.categoryId)?.name ?? "—"}]{" "}
-            {personById(c.authorId).name.split(" ")[0]}: {c.body}
-          </span>
-        ))}
+        {midi ? (
+          <span>A MIDI file with {list.length} markers, in seconds from the file's start.</span>
+        ) : (
+          list.map((c, i) => (
+            <span key={c.id} className="truncate whitespace-pre font-mono">
+              {String(i + 1).padStart(3, "0")}
+              {"  "}
+              {c.anchor.kind === "time" ? tc(c.anchor.start) : formatClock(0)}
+              {"  "}
+              {personById(c.authorId).name}: {c.body}
+            </span>
+          ))
+        )}
+        <span className="text-ink-3">
+          Threads without a time are left out of marker lists; CSV and plain text keep them.
+        </span>
       </div>
     </Dialog>
   );
