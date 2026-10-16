@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
-import { Avatar } from "~/components/avatar";
+import { ActivityRow, Section, Stat } from "~/components/dashboard";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
-import { Card, Page, SectionHead } from "~/components/page";
+import { Card, Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
 import { NewProjectTile, ProjectCard } from "~/components/project-card";
 import { reviewState } from "~/components/reviews";
@@ -12,23 +12,8 @@ import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { StatusDot } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
-import { ago } from "~/lib/comments";
-import {
-  type Attention,
-  activityText,
-  attentionFor,
-  deadlinesOf,
-  dueIn,
-  figures,
-  greeting,
-} from "~/lib/home";
-import {
-  type HomeActivity,
-  homeQuery,
-  type MyReview,
-  meQuery,
-  myReviewsQuery,
-} from "~/lib/queries";
+import { type Attention, attentionFor, deadlinesOf, dueIn, figures, greeting } from "~/lib/home";
+import { homeQuery, type MyReview, meQuery, myReviewsQuery } from "~/lib/queries";
 import { NewProject } from "~/routes/projects";
 
 /** Shown on the page at most; the rest wait in the reviews list. */
@@ -40,52 +25,6 @@ const dayFormat = new Intl.DateTimeFormat("en-GB", {
   month: "long",
 });
 const monthFormat = new Intl.DateTimeFormat("en-GB", { month: "short" });
-
-function Stat({
-  label,
-  value,
-  hint,
-  flag = false,
-}: {
-  label: string;
-  value: number;
-  hint: string;
-  flag?: boolean;
-}) {
-  return (
-    <div className="flex min-w-0 flex-col rounded-panel-lg border border-line bg-raised/25 px-4 py-3.5 shadow-1">
-      <span className="truncate text-[13px] text-ink-3">{label}</span>
-      <span
-        className={cn(
-          "tabular mt-1 block text-[28px] leading-[32px] font-semibold tracking-[-0.02em]",
-          flag ? "text-signal" : "text-ink",
-        )}
-      >
-        {value}
-      </span>
-      <span className="mt-1 block truncate text-[12px] text-ink-3">{hint}</span>
-    </div>
-  );
-}
-
-function Section({
-  title,
-  hint,
-  action,
-  children,
-}: {
-  title: string;
-  hint?: string;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <section aria-label={title} className="flex min-w-0 flex-col gap-3">
-      <SectionHead title={title} hint={hint} action={action} />
-      {children}
-    </section>
-  );
-}
 
 const rowClass =
   "group flex items-center gap-3.5 rounded-panel px-3 py-2.5 transition-colors hover:bg-raised/60 focus-visible:bg-raised/60";
@@ -126,44 +65,6 @@ function AttentionRow({ item }: { item: Attention }) {
         </Link>
       ) : (
         <Link to="/files/$fileId" params={{ fileId: item.targetId }} className={rowClass}>
-          {body}
-        </Link>
-      )}
-    </li>
-  );
-}
-
-function ActivityRow({ a }: { a: HomeActivity }) {
-  const body = (
-    <>
-      {a.who ? (
-        <Avatar id={a.who.id} name={a.who.name} size={24} />
-      ) : (
-        <span className="flex size-6 shrink-0 items-center justify-center text-ink-3">
-          <Icon name="review" size={14} />
-        </span>
-      )}
-      <span className="min-w-0 flex-1 truncate text-[13px] text-ink-2">
-        {a.who && <span className="text-ink">{a.who.name} </span>}
-        {activityText(a)}
-      </span>
-      <span className="tabular shrink-0 text-[12px] text-ink-3">{ago(a.at)}</span>
-    </>
-  );
-  const cls =
-    "flex items-center gap-3 rounded-panel px-3 py-2 transition-colors hover:bg-raised/60";
-  return (
-    <li>
-      {a.kind === "comment" ? (
-        <Link to="/files/$fileId" params={{ fileId: a.fileId }} className={cls}>
-          {body}
-        </Link>
-      ) : a.kind === "version" ? (
-        <Link to="/tracks/$trackId" params={{ trackId: a.trackId }} className={cls}>
-          {body}
-        </Link>
-      ) : (
-        <Link to="/reviews/$reviewId" params={{ reviewId: a.reviewId }} className={cls}>
           {body}
         </Link>
       )}

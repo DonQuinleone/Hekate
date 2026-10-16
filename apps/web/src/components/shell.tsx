@@ -134,6 +134,7 @@ function useCurrentProjectId(): string | undefined {
 
 /** A project's sections, in the sidebar once it is open. More arrive with their pages. */
 const projectSections = [
+  { id: "", label: "Overview", icon: "dashboard", to: "/projects/$projectId" },
   { id: "files", label: "Files", icon: "folder", to: "/projects/$projectId/files" },
   { id: "reviews", label: "Reviews", icon: "review", to: "/projects/$projectId/reviews" },
   { id: "people", label: "People", icon: "users", to: "/projects/$projectId/people" },
@@ -555,12 +556,11 @@ export function Shell({ children }: { children: ReactNode }) {
                     key={item.id}
                     to={item.to}
                     params={{ projectId: current.id }}
+                    // The overview's address sits above every other section's.
+                    activeOptions={{ exact: item.id === "" }}
                     title={collapsed ? item.label : undefined}
                     aria-current={
-                      section === item.id ||
-                      (item.id === "files" && !section && pathname.startsWith("/projects/"))
-                        ? "page"
-                        : undefined
+                      section === item.id && pathname.startsWith("/projects/") ? "page" : undefined
                     }
                     className={cn(
                       navClass,
@@ -654,7 +654,10 @@ export function Shell({ children }: { children: ReactNode }) {
                     key={item.id}
                     to={item.to}
                     params={{ projectId: current.id }}
-                    aria-current={section === item.id ? "page" : undefined}
+                    activeOptions={{ exact: item.id === "" }}
+                    aria-current={
+                      section === item.id && pathname.startsWith("/projects/") ? "page" : undefined
+                    }
                     className="h-7 shrink-0 rounded-control px-2.5 text-[13px] leading-7 whitespace-nowrap text-ink-3 transition-colors aria-[current=page]:bg-raised aria-[current=page]:text-ink"
                   >
                     {item.label}

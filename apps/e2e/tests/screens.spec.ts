@@ -64,6 +64,16 @@ const screens: Screen[] = [
     ready: "main >> text=Maple Leaf Rag",
   },
   {
+    name: "project-overview",
+    path: (s) => `/projects/${s.musicProjectId}`,
+    ready: "main section[aria-label='Needs attention'] li",
+  },
+  {
+    name: "project-overview-video",
+    path: (s) => `/projects/${s.videoProjectId}`,
+    ready: "main section[aria-label='Activity'] li",
+  },
+  {
     name: "project-music",
     path: (s) => `/projects/${s.musicProjectId}/files`,
     ready: "main a:has-text('Maple Leaf Rag - Score.pdf')",
