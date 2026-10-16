@@ -32,6 +32,7 @@ import {
   requeueAlignments,
   requeueMissingFindings,
 } from "./media/workers.ts";
+import { deliverDigests, deliverInstant, tellProcessingFailed } from "./notifications.ts";
 import { playbackSecret, signPlayback } from "./playback.ts";
 import { createStorage } from "./storage.ts";
 import { expireUploads } from "./uploads.ts";
@@ -2114,6 +2115,307 @@ describe.runIf(url)("api", () => {
         expect((await app.request("/api/home")).status).toBe(401);
       });
 
+      describe("notifications", () => {
+        type Listed = {
+          notifications: { id: string; kind: string; actorName: string | null; text: string }[];
+          unread: number;
+          nextBefore: string | null;
+        };
+        const inbox = async (cookie: string, query = "") =>
+          (await (await getAs(`/api/notifications${query}`, cookie)).json()) as Listed;
+        const put = (path: string, body: unknown, cookie: string) =>
+          app.request(path, { ...json(body, cookie), method: "PUT" });
+
+        it("tells reviewers and requesters, in the app and by mail, and no one else", async () => {
+          const s = await studio();
+          mailer.sent.length = 0;
+          const review = await reviewOf(
+            await request(s.owner, s.projectId, {
+              kind: "approval",
+              title: "Master sign-off",
+              rule: "any",
+              items: [{ trackId: s.trackId }],
+              reviewers: [s.ids.composer],
+            }),
+          );
+          const asked = await inbox(s.composer);
+          expect(asked.unread).toBe(1);
+          expect(asked.notifications[0]).toMatchObject({
+            kind: "review_requested",
+            actorName: "Producer",
+            text: 'asks you to approve "Master sign-off"',
+          });
+          expect(mailer.sent.map((m) => m.to)).toEqual(["composer@example.test"]);
+          // Whoever asked is not told of their own request.
+          expect((await inbox(s.owner)).notifications).toEqual([]);
+
+          await app.request(
+            `/api/reviews/${review.id}/decisions`,
+            json({ decision: "approved" }, s.composer),
+          );
+          expect((await inbox(s.owner)).notifications[0]).toMatchObject({
+            kind: "decision",
+            actorName: "composer",
+            text: 'approved "Master sign-off"',
+          });
+          // Nobody else heard anything.
+          expect((await inbox(s.accompanist)).notifications).toEqual([]);
+          expect((await inbox(s.engineer)).notifications).toEqual([]);
+          expect((await app.request("/api/notifications")).status).toBe(401);
+        });
+
+        it("marks read one at a time or all at once, only your own, only in this workspace", async () => {
+          const s = await studio();
+          for (const title of ["One", "Two"]) {
+            await request(s.owner, s.projectId, {
+              kind: "feedback",
+              title,
+              items: [{ trackId: s.trackId }],
+              reviewers: [s.ids.composer],
+            });
+          }
+          const listed = await inbox(s.composer);
+          expect(listed.unread).toBe(2);
+          const [first, second] = listed.notifications;
+          // Someone else's notification does not exist for you.
+          expect(
+            (await app.request(`/api/notifications/${first?.id}/read`, json({}, s.accompanist)))
+              .status,
+          ).toBe(404);
+          expect(
+            (await app.request(`/api/notifications/${first?.id}/read`, json({}, s.composer)))
+              .status,
+          ).toBe(204);
+          const unread = await inbox(s.composer, "?unread=1");
+          expect(unread.notifications.map((n) => n.id)).toEqual([second?.id]);
+          expect(unread.unread).toBe(1);
+          const paged = await inbox(s.composer, "?limit=1");
+          expect(paged.notifications).toHaveLength(1);
+          expect(paged.nextBefore).toBe(paged.notifications[0]?.id);
+          await app.request("/api/notifications/read-all", json({}, s.composer));
+          expect((await inbox(s.composer)).unread).toBe(0);
+
+          // A row in another workspace never shows here.
+          const [other] = await db
+            .insert(schema.organisations)
+            .values({ name: "Elsewhere", slug: "elsewhere-notifications" })
+            .returning();
+          await db.insert(schema.notifications).values({
+            organisationId: other?.id ?? "",
+            userId: s.ids.composer,
+            kind: "decision",
+            text: "approved something elsewhere",
+            link: "/reviews/elsewhere",
+          });
+          expect((await inbox(s.composer)).notifications.map((n) => n.text)).not.toContain(
+            "approved something elsewhere",
+          );
+        });
+
+        it("follows each person's choices, keeping requests and mentions in the app", async () => {
+          const s = await studio();
+          const off = { app: false, mail: false };
+          expect(
+            (
+              await put(
+                "/api/notifications/preferences",
+                {
+                  mailMode: "instant",
+                  digest: "daily",
+                  kinds: { review_requested: off, decision: off },
+                },
+                s.composer,
+              )
+            ).status,
+          ).toBe(200);
+          expect(
+            (
+              await put(
+                "/api/notifications/preferences",
+                { mailMode: "weekly", digest: "daily", kinds: {} },
+                s.composer,
+              )
+            ).status,
+          ).toBe(400);
+          const saved = (await (
+            await getAs("/api/notifications/preferences", s.composer)
+          ).json()) as {
+            preferences: { kinds: Record<string, unknown> };
+          };
+          expect(saved.preferences.kinds).toEqual({ review_requested: off, decision: off });
+
+          mailer.sent.length = 0;
+          await request(s.owner, s.projectId, {
+            kind: "feedback",
+            title: "Quiet please",
+            items: [{ trackId: s.trackId }],
+            reviewers: [s.ids.composer],
+          });
+          // Still told in the app, but not by mail, as chosen.
+          expect((await inbox(s.composer)).notifications.map((n) => n.kind)).toEqual([
+            "review_requested",
+          ]);
+          expect(mailer.sent).toEqual([]);
+        });
+
+        it("tells people they are mentioned, and thread starters of replies", async () => {
+          const s = await studio();
+          const started = await app.request(
+            `/api/files/${s.mix}/comments`,
+            json({ body: "Is the pedal too long here, @composer?" }, s.owner),
+          );
+          const { comment } = (await started.json()) as { comment: { id: string } };
+          expect((await inbox(s.composer)).notifications[0]).toMatchObject({
+            kind: "mention",
+            text: "mentioned you on Mix v1.wav",
+          });
+          await app.request(
+            `/api/files/${s.mix}/comments`,
+            json({ body: "A touch, yes.", parentId: comment.id }, s.composer),
+          );
+          expect((await inbox(s.owner)).notifications[0]).toMatchObject({
+            kind: "reply",
+            actorName: "composer",
+            text: "replied to your comment on Mix v1.wav",
+          });
+          // A name that only starts like someone's is not a mention.
+          await app.request(
+            `/api/files/${s.mix}/comments`,
+            json({ body: "Ask @composers everywhere" }, s.owner),
+          );
+          expect((await inbox(s.composer)).notifications).toHaveLength(1);
+        });
+
+        it("tells a track's followers of new versions, if they can still see it", async () => {
+          const s = await studio();
+          // The owner made the track, so follows it; the composer chooses to.
+          expect(
+            (
+              await app.request(
+                "/api/notifications/follows",
+                json({ trackId: s.trackId }, s.composer),
+              )
+            ).status,
+          ).toBe(204);
+          // A member without a role in the project cannot follow what they cannot see.
+          const newcomer = await joinAs(s.owner, "newcomer@example.test");
+          expect(
+            (
+              await app.request(
+                "/api/notifications/follows",
+                json({ trackId: s.trackId }, newcomer),
+              )
+            ).status,
+          ).toBe(404);
+          const follows = (await (
+            await getAs("/api/notifications/follows", s.composer)
+          ).json()) as {
+            follows: { id: string; name: string; projectName: string }[];
+          };
+          expect(follows.follows).toMatchObject([{ name: "Maple Leaf Rag" }]);
+
+          await app.request(
+            `/api/tracks/${s.trackId}/versions`,
+            json({ variations: [{ fileId: s.artwork, name: "Mix" }] }, s.engineer),
+          );
+          for (const cookie of [s.owner, s.composer]) {
+            expect((await inbox(cookie)).notifications[0]).toMatchObject({
+              kind: "version",
+              actorName: "engineer",
+              text: "added version 2 of Maple Leaf Rag",
+            });
+          }
+          expect((await inbox(newcomer)).notifications).toEqual([]);
+
+          const id = follows.follows[0]?.id;
+          expect(
+            (
+              await app.request(`/api/notifications/follows/${id}`, {
+                method: "DELETE",
+                headers: { cookie: s.owner },
+              })
+            ).status,
+          ).toBe(404);
+          expect(
+            (
+              await app.request(`/api/notifications/follows/${id}`, {
+                method: "DELETE",
+                headers: { cookie: s.composer },
+              })
+            ).status,
+          ).toBe(204);
+        });
+
+        it("tells an uploader once when processing fails", async () => {
+          const s = await studio();
+          const ownerId = (
+            await db
+              .select({ id: schema.users.id })
+              .from(schema.users)
+              .where(eq(schema.users.email, "producer@example.test"))
+          )[0]?.id;
+          await db
+            .update(schema.files)
+            .set({ uploadedBy: ownerId ?? null })
+            .where(eq(schema.files.id, s.mix));
+          await tellProcessingFailed(db, s.organisationId, s.mix);
+          await tellProcessingFailed(db, s.organisationId, s.mix);
+          const failed = (await inbox(s.owner)).notifications.filter(
+            (n) => n.kind === "processing_failed",
+          );
+          expect(failed).toHaveLength(1);
+          expect(failed[0]).toMatchObject({
+            actorName: null,
+            text: "Mix v1.wav could not be processed",
+          });
+        });
+
+        it("gathers digests and sends instant mail once", async () => {
+          const s = await studio();
+          await put(
+            "/api/notifications/preferences",
+            { mailMode: "digest", digest: "hourly", kinds: {} },
+            s.composer,
+          );
+          mailer.sent.length = 0;
+          for (const title of ["Digest one", "Digest two"]) {
+            await request(s.owner, s.projectId, {
+              kind: "feedback",
+              title,
+              items: [{ trackId: s.trackId }],
+              reviewers: [s.ids.composer],
+            });
+          }
+          expect(mailer.sent).toEqual([]);
+          const later = new Date(Date.now() + 60_000);
+          expect(await deliverDigests(db, mailer, "http://localhost:3000", later)).toBe(1);
+          expect(mailer.sent).toHaveLength(1);
+          expect(mailer.sent[0]).toMatchObject({
+            to: "composer@example.test",
+            subject: "2 updates in Studio",
+          });
+          expect(mailer.sent[0]?.text).toContain(
+            'Producer asks you to give feedback on "Digest two"',
+          );
+          expect(await deliverDigests(db, mailer, "http://localhost:3000", later)).toBe(0);
+
+          // An instant mail that could not go at once goes on the next run, and only once.
+          await db.insert(schema.notifications).values({
+            organisationId: s.organisationId,
+            userId: s.ids.accompanist,
+            kind: "decision",
+            actorName: "Producer",
+            text: "approved something",
+            link: "/reviews/x",
+            mailMode: "instant",
+          });
+          mailer.sent.length = 0;
+          expect(await deliverInstant(db, mailer, "http://localhost:3000", later)).toBe(1);
+          expect(await deliverInstant(db, mailer, "http://localhost:3000", later)).toBe(0);
+          expect(mailer.sent.map((m) => m.to)).toEqual(["accompanist@example.test"]);
+        });
+      });
+
       it("asks reviewers in turn, logs every decision, and settles under the all rule", async () => {
         const s = await studio();
         mailer.sent.length = 0;
@@ -2148,7 +2450,12 @@ describe.runIf(url)("api", () => {
           await app.request(`${path}/decisions`, json({ decision: "approved" }, s.composer)),
         );
         expect(approved.reviewers.map((r) => r.state)).toEqual(["submitted", "invited"]);
-        expect(mailer.sent.map((m) => m.to)).toEqual(["accompanist@example.test"]);
+        // The next reviewer is asked, and whoever asked hears of the decision.
+        expect(mailer.sent.map((m) => m.to)).toEqual([
+          "accompanist@example.test",
+          "producer@example.test",
+        ]);
+        expect(mailer.sent[1]?.subject).toBe('composer approved "Album master"');
         const done = await reviewOf(
           await app.request(
             `${path}/decisions`,
@@ -3050,7 +3357,10 @@ describe.runIf(url)("api", () => {
             "submitted",
             "invited",
           ]);
-          expect(mailer.sent.map((m) => m.to)).toEqual(["accompanist@example.test"]);
+          expect(mailer.sent.map((m) => m.to)).toEqual([
+            "accompanist@example.test",
+            "producer@example.test",
+          ]);
         });
 
         it("checks a group's people when it is asked, and adds a group as a later step", async () => {

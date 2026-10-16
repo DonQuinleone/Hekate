@@ -53,6 +53,18 @@ export const jobDefinitions = {
     options: { retryLimit: 1, expireInSeconds: 10 * 60 },
     schedule: "*/15 * * * *",
   },
+  /** Send notifications by mail as they happen. Every minute; each run sends what is waiting. */
+  "notifications-mail": {
+    data: z.object({}),
+    options: { retryLimit: 1, expireInSeconds: 5 * 60 },
+    schedule: "* * * * *",
+  },
+  /** Send each digest that is due: hourly ones every hour, daily ones in the morning. */
+  "notifications-digest": {
+    data: z.object({}),
+    options: { retryLimit: 1, expireInSeconds: 30 * 60 },
+    schedule: "3 * * * *",
+  },
   /** Compare storage with the database: remove what nothing uses, report what is missing. Daily. */
   "storage-reconcile": {
     data: z.object({}),

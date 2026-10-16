@@ -7,6 +7,7 @@ export * from "./folders.ts";
 export * from "./format.ts";
 export * from "./loudness.ts";
 export * from "./media.ts";
+export * from "./notifications.ts";
 export * from "./organisation.ts";
 export * from "./peaks.ts";
 export * from "./profile.ts";

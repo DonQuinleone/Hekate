@@ -6,9 +6,14 @@ import {
   auditActorTypes,
   carryStatuses,
   type DeliveryProfileId,
+  type DigestFrequency,
   defaultReviewerPermissions,
   type LoudnessSummary,
+  type MailMode,
   type MediaInfo,
+  type NotificationChannels,
+  type NotificationKind,
+  notificationKinds,
   type ProjectPermission,
   type ProjectProfile,
   type QaCheck,
@@ -1103,5 +1108,99 @@ export const storageFindings = pgTable(
     uniqueIndex("storage_findings_open_idx")
       .on(t.kind, t.backend, t.key)
       .where(sql`${t.resolvedAt} is null`),
+  ],
+);
+
+// Notifications (docs/domain.md)
+
+export const notificationKindEnum = pgEnum("notification_kind", notificationKinds);
+
+/**
+ * Something that happened, told to one member. Written in the same transaction as what it
+ * tells of; mail goes out afterwards from here (at once, or gathered into a digest), so a
+ * notification is never lost to a mail server being down.
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: notificationKindEnum("kind").notNull(),
+    /** Who did it: a member or a guest, or neither when Hekate itself did. */
+    actorUserId: text("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorGuestId: uuid("actor_guest_id").references(() => guests.id, { onDelete: "set null" }),
+    /** Their name when it happened, so the line still reads after they leave. */
+    actorName: text("actor_name"),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    reviewId: uuid("review_id").references(() => reviews.id, { onDelete: "cascade" }),
+    fileId: uuid("file_id").references(() => files.id, { onDelete: "cascade" }),
+    trackId: uuid("track_id").references(() => tracks.id, { onDelete: "cascade" }),
+    commentId: uuid("comment_id").references(() => comments.id, { onDelete: "cascade" }),
+    /** What happened, after the actor's name: "approved Album masters". */
+    text: text("text").notNull(),
+    /** More to read in a mail, such as the message with a review. */
+    detail: text("detail"),
+    /** Where it leads in the app, as a path. */
+    link: text("link").notNull(),
+    /** Shown in the app; a kind someone takes by mail only is kept for the mail alone. */
+    inApp: boolean("in_app").notNull().default(true),
+    /** How it goes by mail, chosen when it was made; null when it does not. */
+    mailMode: text("mail_mode").$type<MailMode>(),
+    emailedAt: timestamp("emailed_at", { withTimezone: true }),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    index("notifications_user_idx").on(t.organisationId, t.userId, t.id),
+    index("notifications_mail_idx")
+      .on(t.mailMode, t.createdAt)
+      .where(sql`${t.mailMode} is not null and ${t.emailedAt} is null`),
+  ],
+);
+
+/** How notifications reach one member in one workspace. Missing means the defaults. */
+export const notificationPreferences = pgTable(
+  "notification_preferences",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    mailMode: text("mail_mode").$type<MailMode>().notNull().default("instant"),
+    digest: text("digest").$type<DigestFrequency>().notNull().default("daily"),
+    /** Choices per kind; a kind not here takes its default. */
+    kinds: jsonb("kinds")
+      .$type<Partial<Record<NotificationKind, NotificationChannels>>>()
+      .notNull()
+      .default({}),
+    /** When the last digest went, so the next one gathers only what came after. */
+    lastDigestAt: timestamp("last_digest_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("notification_preferences_user_idx").on(t.organisationId, t.userId)],
+);
+
+/** A track or review someone is told about beyond their own part in it. */
+export const follows = pgTable(
+  "follows",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    trackId: uuid("track_id").references(() => tracks.id, { onDelete: "cascade" }),
+    reviewId: uuid("review_id").references(() => reviews.id, { onDelete: "cascade" }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("follows_track_idx").on(t.organisationId, t.userId, t.trackId),
+    uniqueIndex("follows_review_idx").on(t.organisationId, t.userId, t.reviewId),
+    index("follows_track_lookup_idx").on(t.organisationId, t.trackId),
+    check("follows_one_thing", sql`(${t.trackId} is null) <> (${t.reviewId} is null)`),
   ],
 );

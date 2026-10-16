@@ -12,6 +12,8 @@ import {
   type GuestInput,
   type LoudnessSummary,
   type MediaInfo,
+  type NotificationKind,
+  type NotificationPreferences,
   type ProjectPermission,
   type ProjectProfile,
   type QaFinding,
@@ -1337,3 +1339,121 @@ export const homeQuery = queryOptions({
   queryFn: async () => json<Home>(await api.home.$get()),
   refetchInterval: 60_000,
 });
+
+export interface AppNotification {
+  id: string;
+  kind: NotificationKind;
+  actorName: string | null;
+  actorUserId: string | null;
+  actorGuestId: string | null;
+  text: string;
+  link: string;
+  readAt: string | null;
+  createdAt: string;
+}
+
+type NotificationPage = {
+  notifications: AppNotification[];
+  unread: number;
+  nextBefore: string | null;
+};
+
+/** The latest notifications and how many are unread: the bell. */
+export const notificationsQuery = queryOptions({
+  queryKey: ["notifications", "latest"],
+  queryFn: async () =>
+    json<NotificationPage>(await api.notifications.$get({ query: { limit: "8" } })),
+  refetchInterval: 30_000,
+});
+
+/** Every notification, newest first, a page at a time. */
+export const allNotificationsQuery = infiniteQueryOptions({
+  queryKey: ["notifications", "all"],
+  initialPageParam: undefined as string | undefined,
+  queryFn: async ({ pageParam }) =>
+    json<NotificationPage>(
+      await api.notifications.$get({
+        query: { limit: "40", ...(pageParam ? { before: pageParam } : {}) },
+      }),
+    ),
+  getNextPageParam: (page) => page.nextBefore ?? undefined,
+});
+
+export function useNotificationActions() {
+  const client = useQueryClient();
+  const refresh = () => client.invalidateQueries({ queryKey: ["notifications"] });
+  return {
+    read: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api.notifications[":id"].read.$post({ param: { id } });
+        if (!res.ok) await json(res);
+      },
+      onSuccess: refresh,
+    }),
+    readAll: useMutation({
+      mutationFn: async () => {
+        const res = await api.notifications["read-all"].$post();
+        if (!res.ok) await json(res);
+      },
+      onSuccess: refresh,
+    }),
+  };
+}
+
+export const notificationPreferencesQuery = queryOptions({
+  queryKey: ["notifications", "preferences"],
+  queryFn: async () =>
+    (
+      await json<{ preferences: NotificationPreferences }>(
+        await api.notifications.preferences.$get(),
+      )
+    ).preferences,
+});
+
+export function useSaveNotificationPreferences() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (preferences: NotificationPreferences) =>
+      (
+        await json<{ preferences: NotificationPreferences }>(
+          await api.notifications.preferences.$put({ json: preferences }),
+        )
+      ).preferences,
+    onMutate: async (preferences) => {
+      const key = notificationPreferencesQuery.queryKey;
+      await client.cancelQueries({ queryKey: key });
+      const before = client.getQueryData(key);
+      client.setQueryData(key, preferences);
+      return { before };
+    },
+    onError: (_error, _input, context) =>
+      client.setQueryData(notificationPreferencesQuery.queryKey, context?.before),
+    onSettled: () => client.invalidateQueries({ queryKey: notificationPreferencesQuery.queryKey }),
+  });
+}
+
+export interface Follow {
+  id: string;
+  trackId: string | null;
+  reviewId: string | null;
+  name: string;
+  projectId: string;
+  projectName: string;
+}
+
+export const followsQuery = queryOptions({
+  queryKey: ["notifications", "follows"],
+  queryFn: async () =>
+    (await json<{ follows: Follow[] }>(await api.notifications.follows.$get())).follows,
+});
+
+export function useUnfollow() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await api.notifications.follows[":id"].$delete({ param: { id } });
+      if (!res.ok) await json(res);
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: followsQuery.queryKey }),
+  });
+}

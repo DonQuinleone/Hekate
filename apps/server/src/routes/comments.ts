@@ -6,6 +6,7 @@ import {
   carrySettles,
   createCommentInput,
   editCommentInput,
+  mentionedIn,
   resolveCommentInput,
   updateCarryInput,
   visibleComments,
@@ -21,6 +22,8 @@ import { type Audit, requestInfo } from "../audit.ts";
 import { hopsOf, lockTrackOfFile, versionNumbersOf } from "../carry.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
+import type { Mailer } from "../mail.ts";
+import { type NotificationActor, notifyNow, projectPeople } from "../notifications.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
 const { comments, commentCarries, files, projects, users, guests } = schema;
@@ -76,7 +79,12 @@ async function commentOf(db: Database, organisationId: string, id: string) {
  * `/api/files/:id/comments`: a file's comment threads, and starting or replying to one.
  * Guest reviewers use these too, on the files of their reviews.
  */
-export const fileCommentRoutes = (db: Database, audit: Audit, trustProxy: boolean) =>
+export const fileCommentRoutes = (
+  db: Database,
+  audit: Audit,
+  trustProxy: boolean,
+  mail: { mailer: Mailer; publicUrl: string },
+) =>
   new Hono<{ Variables: ViewerVariables }>()
     .get("/:id/comments", idParam, async (c) => {
       const organisationId = c.var.organisationId;
@@ -173,6 +181,7 @@ export const fileCommentRoutes = (db: Database, audit: Audit, trustProxy: boolea
       const [file] = await db
         .select({
           id: files.id,
+          name: files.name,
           kind: files.kind,
           mediaInfo: files.mediaInfo,
           pageCount: files.pageCount,
@@ -275,11 +284,99 @@ export const fileCommentRoutes = (db: Database, audit: Audit, trustProxy: boolea
         }
         return row;
       });
+      await tellAboutComment(
+        { db, ...mail },
+        {
+          organisationId,
+          projectId: file.projectId,
+          fileId: threadFileId,
+          fileName: file.name,
+          commentId: created?.id ?? "",
+          parentId: input.parentId ?? null,
+          body: input.body,
+          actor: actor.kind === "guest" ? { guestId: actor.guestId } : { userId: actor.userId },
+        },
+      ).catch((error: unknown) =>
+        console.warn(`Could not tell people about a comment: ${String(error)}`),
+      );
       return c.json(
         { comment: publicComment(await commentOf(db, organisationId, created?.id ?? "")) },
         201,
       );
     });
+
+/**
+ * Tell the people a new comment concerns: those it mentions, and, for a reply, whoever
+ * started the thread and the others who replied in it. A mention wins over a reply.
+ */
+async function tellAboutComment(
+  deps: { db: Database; mailer: Mailer; publicUrl: string },
+  c: {
+    organisationId: string;
+    projectId: string;
+    fileId: string;
+    fileName: string;
+    commentId: string;
+    parentId: string | null;
+    body: string;
+    actor: NotificationActor;
+  },
+) {
+  const common = {
+    organisationId: c.organisationId,
+    actor: c.actor,
+    projectId: c.projectId,
+    fileId: c.fileId,
+    commentId: c.commentId,
+    detail: c.body,
+    link: `/files/${c.fileId}`,
+  };
+  const mentioned = mentionedIn(
+    c.body,
+    await projectPeople(deps.db, c.organisationId, c.projectId),
+  ).map((p) => p.id);
+  if (mentioned.length > 0) {
+    await notifyNow(deps, {
+      ...common,
+      kind: "mention",
+      recipients: mentioned,
+      text: `mentioned you on ${c.fileName}`,
+    });
+  }
+  if (!c.parentId) return;
+  const thread = await deps.db
+    .select({ id: comments.id, authorId: comments.authorId, parentId: comments.parentId })
+    .from(comments)
+    .where(
+      inOrg(
+        comments,
+        c.organisationId,
+        or(eq(comments.id, c.parentId), eq(comments.parentId, c.parentId)),
+      ),
+    );
+  const starter = thread.find((t) => t.id === c.parentId)?.authorId ?? null;
+  const others = thread.flatMap((t) =>
+    t.parentId && t.authorId && t.authorId !== starter ? [t.authorId] : [],
+  );
+  const skip = new Set(mentioned);
+  if (starter && !skip.has(starter)) {
+    await notifyNow(deps, {
+      ...common,
+      kind: "reply",
+      recipients: [starter],
+      text: `replied to your comment on ${c.fileName}`,
+    });
+  }
+  const rest = [...new Set(others)].filter((id) => !skip.has(id) && id !== starter);
+  if (rest.length > 0) {
+    await notifyNow(deps, {
+      ...common,
+      kind: "reply",
+      recipients: rest,
+      text: `replied in a thread on ${c.fileName}`,
+    });
+  }
+}
 
 /**
  * `/api/comments/:id`: editing your own words, and resolving or reopening a thread (triage).

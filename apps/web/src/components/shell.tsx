@@ -4,6 +4,7 @@ import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Lockup, Mark } from "~/components/brand";
 import { Icon, type IconName } from "~/components/icons";
+import { NotificationsMenu } from "~/components/notifications";
 import { HeaderSlotsProvider, useHeaderSlots } from "~/components/page-header";
 import { ProjectCover } from "~/components/project-cover";
 import { MenuList, usePopover } from "~/components/ui/menu";
@@ -340,6 +341,11 @@ function WorkspaceMenu({ collapsed, tab = false }: { collapsed: boolean; tab?: b
                 onSelect: () =>
                   void navigate({ to: "/settings/$section", params: { section: "members" } }),
               },
+              {
+                label: "Your account",
+                onSelect: () =>
+                  void navigate({ to: "/account/$section", params: { section: "notifications" } }),
+              },
               "divider",
               { label: "Sign out", onSelect: () => void signOut() },
             ]}
@@ -417,7 +423,7 @@ function TopBar({
   onActions: (el: HTMLElement | null) => void;
 }) {
   return (
-    <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-x-3 border-b border-line px-3 @3xl/app:flex-nowrap @3xl/app:px-6">
+    <header className="relative flex min-h-12 shrink-0 flex-wrap items-center gap-x-3 border-b border-line px-3 @3xl/app:flex-nowrap @3xl/app:px-6">
       <div ref={onTrail} className="flex h-12 min-w-0 flex-1 items-center" />
       {/* The page's actions: beside the trail on a wide screen, a row of their own on a phone. */}
       <div
@@ -425,6 +431,7 @@ function TopBar({
         className="order-last flex w-full items-center gap-1.5 overflow-x-auto pb-2 empty:hidden @3xl/app:order-none @3xl/app:w-auto @3xl/app:overflow-visible @3xl/app:pb-0"
       />
       <div className="flex shrink-0 items-center gap-1.5">
+        <NotificationsMenu />
         <HelpMenu />
       </div>
     </header>
@@ -466,7 +473,7 @@ export function Shell({ children }: { children: ReactNode }) {
       >
         <div className={cn("flex h-9 items-center gap-1 px-1", collapsed && "justify-center px-0")}>
           <Link
-            to="/projects"
+            to="/"
             aria-label="Hekate"
             className="flex min-w-0 flex-1 items-center rounded-control px-1 py-1 text-ink transition-opacity hover:opacity-80"
           >
@@ -649,7 +656,7 @@ export function GuestFrame({ account, children }: { account: ReactNode; children
       <Ambient />
       <Pane>
         <HeaderSlotsProvider slots={slots}>
-          <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-x-3 border-b border-line px-3 @3xl/app:flex-nowrap @3xl/app:px-6">
+          <header className="relative flex min-h-12 shrink-0 flex-wrap items-center gap-x-3 border-b border-line px-3 @3xl/app:flex-nowrap @3xl/app:px-6">
             <Link to="/g" className="flex shrink-0 items-center" aria-label="Your reviews">
               <Lockup size={18} />
             </Link>

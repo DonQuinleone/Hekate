@@ -9,6 +9,7 @@ import { createJobs } from "./jobs.ts";
 import { createKeyring, UnknownMasterKeyError } from "./keyring.ts";
 import { createMailer } from "./mail.ts";
 import { startWorkers } from "./media/workers.ts";
+import { deliverDigests, deliverInstant } from "./notifications.ts";
 import { playbackSecret } from "./playback.ts";
 import { reconcileStorage } from "./reconcile.ts";
 import { serveWeb } from "./static.ts";
@@ -87,6 +88,12 @@ if (config.WORKER) {
         `Storage ${r.backend}: ${r.orphanObjects} orphan object(s), ${r.unreferencedBlobs} unused blob(s), ${r.missingObjects} missing, ${r.removed} removed`,
       );
     }
+  });
+  await jobs.work("notifications-mail", async () => {
+    await deliverInstant(db, mailer, config.PUBLIC_URL);
+  });
+  await jobs.work("notifications-digest", async () => {
+    await deliverDigests(db, mailer, config.PUBLIC_URL);
   });
 }
 

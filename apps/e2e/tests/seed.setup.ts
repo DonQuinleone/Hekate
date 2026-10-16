@@ -265,6 +265,13 @@ setup("seed", async ({ page, browser }) => {
     },
   );
 
+  // Alex hears when a guest opens a review they asked for.
+  await api(page, "PUT", "/api/notifications/preferences", {
+    mailMode: "instant",
+    digest: "daily",
+    kinds: { guest_opened: { app: true, mail: false } },
+  });
+
   // An invitation waiting to be accepted.
   const { link: invitation } = await api<{ link: string }>(
     page,
@@ -289,6 +296,11 @@ setup("seed", async ({ page, browser }) => {
   const guestPage = await guest.newPage();
   await guestPage.goto(guestLink);
   await guestPage.waitForURL(/\/g\/reviews\//);
+  // The guest has looked, and answers Alex by name: two notifications for the bell.
+  await api(guestPage, "POST", `/api/reviews/${review.id}/viewed`, {});
+  await api(guestPage, "POST", `/api/files/${dry}/comments`, {
+    body: "@Alex Rivera the pedal noise is gone in the wet mix.",
+  });
   await guest.storageState({ path: join(state, "guest.json") });
   await guest.close();
 
