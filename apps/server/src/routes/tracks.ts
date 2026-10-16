@@ -20,6 +20,7 @@ import type { Jobs } from "../jobs.ts";
 import type { Mailer } from "../mail.ts";
 import { follow, followersOf, notifyNow } from "../notifications.ts";
 import type { TenantVariables } from "../tenancy.ts";
+import { trackStandings } from "../track-standing.ts";
 import { folderIn, lockProject } from "./folders.ts";
 
 const { tracks, versions, variations, files, projects } = schema;
@@ -170,7 +171,19 @@ export const projectTrackRoutes = (db: Database) =>
   new Hono<{ Variables: TenantVariables }>()
     .get("/:id/tracks", idParam, async (c) => {
       const { projectId } = await can(db, actorOf(c.var), "view", c.req.valid("param").id);
-      return c.json({ tracks: await tracksOf(db, c.var.organisationId, projectId) });
+      const [list, standing] = await Promise.all([
+        tracksOf(db, c.var.organisationId, projectId),
+        trackStandings(db, c.var.organisationId, projectId),
+      ]);
+      // Where each stands, and who it waits on, for the file browser's status column.
+      const by = new Map(standing.tracks.map((t) => [t.id, t]));
+      return c.json({
+        tracks: list.map((t) => ({
+          ...t,
+          state: by.get(t.id)?.state ?? ("no_version" as const),
+          waitingOn: by.get(t.id)?.waitingOn ?? [],
+        })),
+      });
     })
     .post("/:id/tracks", idParam, zValidator("json", createTrackInput), async (c) => {
       const organisationId = c.var.organisationId;
