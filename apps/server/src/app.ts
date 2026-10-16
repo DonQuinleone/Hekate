@@ -177,12 +177,21 @@ export function createApi(deps: AppDeps) {
       .use("/tracks/*", ...member)
       .route(
         "/tracks",
-        trackRoutes(deps.db, deps.jobs, { mailer: deps.mailer, publicUrl: deps.publicUrl }),
+        trackRoutes(
+          deps.db,
+          deps.jobs,
+          { mailer: deps.mailer, publicUrl: deps.publicUrl },
+          deps.audit,
+          deps.trustProxy ?? false,
+        ),
       )
       .use("/versions/*", ...member)
       .route("/versions", versionRoutes(deps.db))
       .use("/variations/*", ...member)
-      .route("/variations", variationRoutes(deps.db))
+      .route(
+        "/variations",
+        variationRoutes(deps.db, deps.jobs, deps.audit, deps.trustProxy ?? false),
+      )
       .use("/uploads/*", ...member)
       .use("/uploads", ...member)
       // Starting uploads, per member: a client in a loop is stopped before storage is.

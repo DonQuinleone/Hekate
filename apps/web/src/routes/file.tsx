@@ -259,7 +259,11 @@ export function FilePage({
               {
                 key: "track",
                 link: (
-                  <Link to="/tracks/$trackId" params={{ trackId: file.variation.trackId }}>
+                  <Link
+                    to="/tracks/$trackId"
+                    params={{ trackId: file.variation.trackId }}
+                    search={{ view: "versions" }}
+                  >
                     {file.variation.trackName}
                   </Link>
                 ),

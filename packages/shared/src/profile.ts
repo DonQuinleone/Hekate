@@ -71,13 +71,19 @@ export const updateProjectInput = z
     carriedCommentsShown: z.boolean().optional(),
     /** What recordings are checked against; null suggests one from each file's channels. */
     deliveryProfile: deliveryProfileId.nullable().optional(),
+    /** Refuse a new version whose audio peaks over the delivery profile's ceiling. */
+    checkTruePeak: z.boolean().optional(),
+    /** Refuse a new version without an edit decision list. */
+    requireEdl: z.boolean().optional(),
   })
   .refine(
     (u) =>
       u.name !== undefined ||
       u.description !== undefined ||
       u.carriedCommentsShown !== undefined ||
-      u.deliveryProfile !== undefined,
+      u.deliveryProfile !== undefined ||
+      u.checkTruePeak !== undefined ||
+      u.requireEdl !== undefined,
     { message: "Nothing to change" },
   );
 export type UpdateProjectInput = z.infer<typeof updateProjectInput>;

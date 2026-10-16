@@ -398,6 +398,10 @@ export const projects = pgTable(
     carriedCommentsShown: boolean("carried_comments_shown").notNull().default(true),
     /** What deliveries are checked against (#41); null suggests one from each file's channels. */
     deliveryProfile: text("delivery_profile").$type<DeliveryProfileId>(),
+    /** Refuse a new version whose audio peaks over the delivery profile's ceiling (#131). */
+    checkTruePeak: boolean("check_true_peak").notNull().default(false),
+    /** Refuse a new version without an edit decision list. */
+    requireEdl: boolean("require_edl").notNull().default(false),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     ...timestamps,
   },
@@ -641,6 +645,12 @@ export const versions = pgTable(
       .references(() => tracks.id, { onDelete: "cascade" }),
     number: integer("number").notNull(),
     notes: text("notes"),
+    /** How it was cut from the takes: an edit decision list in the same project. */
+    edlFileId: uuid("edl_file_id").references((): AnyPgColumn => files.id, {
+      onDelete: "set null",
+    }),
+    /** Who let it in past the project's version checks, when someone had to. */
+    letThroughBy: text("let_through_by").references(() => users.id, { onDelete: "set null" }),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     ...timestamps,
   },

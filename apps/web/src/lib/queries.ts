@@ -5,6 +5,7 @@ import {
   type CarryStatus,
   type CreateProjectInput,
   type CreateReviewInput,
+  type CreateVersionInput,
   type DeletionConfirmation,
   type DeliveryProfileId,
   type DirectorySettings,
@@ -193,6 +194,11 @@ export interface Project {
   permissions?: ProjectPermission[];
   /** Whether they may archive or unarchive it (on a single project, and in the list). */
   mayArchive?: boolean;
+  /** What deliveries are checked against; null suggests one from each file's channels. */
+  deliveryProfile?: DeliveryProfileId | null;
+  /** The checks a new version must pass before it lands. */
+  checkTruePeak?: boolean;
+  requireEdl?: boolean;
   /** In the list: whether they are a member of it. */
   mine?: boolean;
 }
@@ -1050,6 +1056,12 @@ export interface Variation {
 export interface Version {
   id: string;
   number: number;
+  /** Who added it, by name; null once their account is gone. */
+  createdByName: string | null;
+  /** How it was cut from the takes: an edit decision list in the project. */
+  edlFileId: string | null;
+  /** Who let it in past the project's version checks, when someone had to. */
+  letThroughBy: string | null;
   notes: string | null;
   createdAt: string;
   variations: Variation[];
@@ -1079,6 +1091,27 @@ export const projectTracksQuery = (projectId: string) =>
           await api.projects[":id"].tracks.$get({ param: { id: projectId } }),
         )
       ).tracks,
+  });
+
+/** A thread the next version of a track would carry over, to confirm or correct. */
+export interface CarryCandidate {
+  commentId: string;
+  body: string;
+  authorName: string | null;
+  anchor: Anchor | null;
+  /** The variation it was raised or carried on. */
+  variation: string | null;
+}
+
+export const carryQuery = (trackId: string) =>
+  queryOptions({
+    queryKey: ["tracks", trackId, "carry"],
+    queryFn: async () =>
+      (
+        await json<{ threads: CarryCandidate[] }>(
+          await api.tracks[":id"].carry.$get({ param: { id: trackId } }),
+        )
+      ).threads,
   });
 
 export const trackQuery = (trackId: string) =>
@@ -1124,28 +1157,42 @@ export function useTrackMutations(projectId: string) {
       onSuccess: refresh,
     }),
     createVersion: useMutation({
+      mutationFn: async ({ trackId, ...input }: CreateVersionInput & { trackId: string }) =>
+        (
+          await json<{ track: Track }>(
+            await api.tracks[":id"].versions.$post({ param: { id: trackId }, json: input }),
+          )
+        ).track,
+      onSuccess: (track) => {
+        refresh(track);
+        void client.invalidateQueries({ queryKey: ["tracks", track.id, "carry"] });
+      },
+    }),
+    addVariation: useMutation({
       mutationFn: async (input: {
-        trackId: string;
-        notes?: string;
-        variations: { fileId: string; name: string; primary?: boolean }[];
+        versionId: string;
+        fileId: string;
+        name: string;
+        primary?: boolean;
       }) =>
         (
           await json<{ track: Track }>(
-            await api.tracks[":id"].versions.$post({
-              param: { id: input.trackId },
-              json: { notes: input.notes, variations: input.variations },
+            await api.versions[":id"].variations.$post({
+              param: { id: input.versionId },
+              json: { fileId: input.fileId, name: input.name, primary: input.primary },
             }),
           )
         ).track,
       onSuccess: refresh,
     }),
-    addVariation: useMutation({
-      mutationFn: async (input: { versionId: string; fileId: string; name: string }) =>
+    /** A corrected export in place of a variation's file; its threads move with it. */
+    replaceFile: useMutation({
+      mutationFn: async (input: { variationId: string; fileId: string }) =>
         (
           await json<{ track: Track }>(
-            await api.versions[":id"].variations.$post({
-              param: { id: input.versionId },
-              json: { fileId: input.fileId, name: input.name },
+            await api.variations[":id"].replace.$post({
+              param: { id: input.variationId },
+              json: { fileId: input.fileId },
             }),
           )
         ).track,

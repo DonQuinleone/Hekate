@@ -33,7 +33,8 @@ The words in this document are used exactly as defined, in code, in the interfac
 | **Comment** | A note on a file, optionally anchored to a place in it. Comments can be threaded and resolved. |
 | **Category** | A configurable label on a comment, such as *Noise*, *Edit*, *Balance*, *Performance*. A category can carry a default handling, for example *Noise* defers the comment to a later stage. Categories are defined per project. |
 | **Deferred** | A comment set aside for a later stage of the workflow (typically noise, handled at the end). It stays open and reappears when that stage starts. |
-| **Carry-over** | Linking a comment raised on one version to the version where it was addressed, with the anchor mapped across, so the reviewer can hear or see a before and after. |
+| **Carry-over** | Linking a comment raised on one version to the version where it was addressed, with the anchor mapped across, so the reviewer can hear or see a before and after. Whoever adds a version confirms or corrects it: each open thread is carried, carried but hidden, or settled as the version lands. |
+| **Version checks** | What a project asks of a new version before it lands: a true peak under the delivery profile's ceiling, an edit decision list. A producer can let a refused version through, on the record. |
 | **Anchor** | Where a comment points: a time range or frame (`time`), a rectangle on a page or frame (`region`), or a bar and beat or range of bars (`bar`). A comment without an anchor is about the whole file. |
 | **Review** | One request, made by someone with the authority, for one or more people to look at one or more items (tracks, versions, files). A review is either an approval or feedback. |
 | **Approval** | A review that ends in a formal, logged decision from each reviewer: **Approved** or **Changes requested**. |

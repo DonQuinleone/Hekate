@@ -85,9 +85,17 @@ function NewVersion({
           <span>
             The upload workflow refused Maple Leaf Rag - V3 dry.wav: true peak +0.2 dBTP is over the
             −1.0 dBTP ceiling of Apple Digital Masters. Fix the export and upload again, or ask a
-            producer to let it through.
+            producer to let it through. This project asks for an edit decision list with every
+            version. Attach the EDL, or ask a producer to let it through.
           </span>
         </p>
+      )}
+      {refused && (
+        <div className="-mt-3 flex gap-2 pl-6">
+          <Button variant="secondary" size="sm">
+            Let it through
+          </Button>
+        </div>
       )}
       <label className="flex flex-col gap-1.5 text-[14px] text-ink-2">
         What changed
@@ -98,16 +106,42 @@ function NewVersion({
         />
       </label>
       <div className="grid gap-4 @3xl/app:grid-cols-2">
-        <label className="flex items-start gap-2 text-[14px] text-ink-2">
-          <input type="checkbox" defaultChecked className="mt-1" />
-          <span>
-            Carry over the 4 open comments from V{next - 1}
+        <fieldset className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0 @3xl/app:col-span-2">
+          <legend className="mb-1 text-[14px] text-ink-2">
+            The 3 open comments from V{next - 1}
             <span className="block text-[13px] text-ink-3">
-              Their anchors follow the music once the versions are aligned; you can move any by
-              hand.
+              Each carries over unless you say otherwise. Anchors follow the music once the versions
+              are aligned; you can move any by hand.
             </span>
-          </span>
-        </label>
+          </legend>
+          <ul className="flex flex-col">
+            {[
+              ["Pedal noise on the left, just before the downbeat.", "Tomas Varga · Dry · 0:06"],
+              ["The left hand rushes through these bars.", "Ines Arlow · Dry · bars 9 to 12"],
+              ["The reverb tail could be a touch shorter.", "Mira Solberg · Wet"],
+            ].map(([body, meta], i) => (
+              <li
+                key={body}
+                className="flex items-center gap-3 border-b border-line py-2 last:border-b-0"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[14px] text-ink">{body}</span>
+                  <span className="block truncate text-[12px] text-ink-3">{meta}</span>
+                </span>
+                <select
+                  defaultValue={i === 2 ? "fixed" : "open"}
+                  aria-label={`What becomes of "${body}"`}
+                  className="h-8 w-36 rounded-control border border-edge bg-ground px-2 text-[13px] text-ink"
+                >
+                  <option value="open">Carry over</option>
+                  <option value="hidden">Carry, hidden</option>
+                  <option value="fixed">Fixed</option>
+                  <option value="wont_fix">Won't fix</option>
+                </select>
+              </li>
+            ))}
+          </ul>
+        </fieldset>
         <label className="flex flex-col gap-1.5 text-[14px] text-ink-2">
           Edit decision list
           <span className="flex items-center gap-2">
@@ -115,7 +149,7 @@ function NewVersion({
               Attach EDL
             </Button>
             <span className="text-[13px] text-ink-3">
-              CMX 3600, Pyramix or Sequoia. Optional here.
+              CMX 3600, Pyramix or Sequoia. Optional here, unless the project asks for one.
             </span>
           </span>
         </label>

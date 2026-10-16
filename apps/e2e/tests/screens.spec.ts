@@ -183,7 +183,11 @@ const screens: Screen[] = [
     path: (s) => `/projects/${s.videoProjectId}/files`,
     ready: "main a:has-text('Opening titles - Cut 3.mp4')",
   },
-  { name: "track", path: (s) => `/tracks/${s.trackId}`, ready: "text=Bars 12 to 16" },
+  {
+    name: "track",
+    path: (s) => `/tracks/${s.trackId}?view=versions`,
+    ready: "text=Bars 12 to 16",
+  },
   {
     name: "file-recording",
     path: (s) => `/files/${s.dryFileId}`,
@@ -679,6 +683,30 @@ test("file-details", async ({ page }) => {
   await settle(page, "aside[aria-label=Details] >> text=Renditions");
   await settle(page, "aside[aria-label=Details] >> text=Access");
   await saveScreen(page, "file-details");
+  await checkScreen(page);
+});
+
+// A track opens in the player; its next version is checked before it lands (#131).
+test("track-new-version", async ({ page }) => {
+  const { trackId } = seeded();
+  await page.goto(`/tracks/${trackId}`);
+  await expect(page).toHaveURL(/\/files\//);
+  await page.goto(`/tracks/${trackId}?view=versions`);
+  await page.getByRole("button", { name: "Add version" }).click();
+  const form = page.getByRole("form", { name: "Version 3" });
+  await form.getByRole("button", { name: "From the project" }).first().click();
+  await page.getByRole("menuitem", { name: "Maple Leaf Rag - Dry v3.wav" }).click();
+  await expect(form.getByLabel("Variation name for Maple Leaf Rag - Dry v3.wav")).toHaveValue(
+    "Dry v3",
+  );
+  await form.getByRole("button", { name: "Add version 3" }).click();
+  // The project asks for an EDL: a real refusal from the server, which a producer may override.
+  const refusal = form.getByRole("alert");
+  await expect(refusal).toContainText("asks for an edit decision list");
+  await expect(form.getByRole("button", { name: "Let it through" })).toBeVisible();
+  await settle(page, "form li");
+  await refusal.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await saveScreen(page, "track-new-version");
   await checkScreen(page);
 });
 

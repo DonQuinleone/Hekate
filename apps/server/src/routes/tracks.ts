@@ -5,17 +5,20 @@ import {
   createVersionInput,
   isPdf,
   type ProjectPermission,
+  replaceVariationInput,
   updateTrackInput,
+  versionRefusals,
   withPrimary,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, asc, eq, inArray, max, ne } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, inArray, max, ne, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, can } from "../access.ts";
-import { carryThreads } from "../carry.ts";
-import { NotFound } from "../errors.ts";
+import { type Audit, requestInfo } from "../audit.ts";
+import { carryPreview, carryThreads } from "../carry.ts";
+import { CodedException, NotFound } from "../errors.ts";
 import type { Jobs } from "../jobs.ts";
 import type { Mailer } from "../mail.ts";
 import { follow, followersOf, notifyNow } from "../notifications.ts";
@@ -23,7 +26,18 @@ import type { TenantVariables } from "../tenancy.ts";
 import { trackStandings } from "../track-standing.ts";
 import { folderIn, lockProject } from "./folders.ts";
 
-const { tracks, versions, variations, files, projects } = schema;
+const {
+  tracks,
+  versions,
+  variations,
+  files,
+  projects,
+  loudness,
+  users,
+  comments,
+  commentCarries,
+  alignments,
+} = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
@@ -79,8 +93,9 @@ async function tracksOf(db: Database, organisationId: string, projectId: string)
     .orderBy(asc(tracks.position), asc(tracks.createdAt), asc(tracks.id));
   if (trackRows.length === 0) return [];
   const versionRows = await db
-    .select()
+    .select({ ...getTableColumns(versions), createdByName: users.name })
     .from(versions)
+    .leftJoin(users, eq(users.id, versions.createdBy))
     .where(
       inOrg(
         versions,
@@ -223,6 +238,8 @@ export const trackRoutes = (
   db: Database,
   jobs: Pick<Jobs, "send">,
   mail: { mailer: Mailer; publicUrl: string },
+  audit: Audit,
+  trustProxy: boolean,
 ) =>
   new Hono<{ Variables: TenantVariables }>()
     .get("/:id", idParam, async (c) => {
@@ -251,6 +268,13 @@ export const trackRoutes = (
       });
       return c.json({ track: await oneTrack(db, organisationId, id) });
     })
+    // What a new version would carry over, for whoever adds it to confirm or correct.
+    .get("/:id/carry", idParam, async (c) => {
+      const organisationId = c.var.organisationId;
+      const track = await trackOf(db, organisationId, c.req.valid("param").id);
+      await canSeeTrack(db, c.var, track.projectId, "upload");
+      return c.json({ threads: await carryPreview(db, organisationId, track.id) });
+    })
     .post("/:id/versions", idParam, zValidator("json", createVersionInput), async (c) => {
       const organisationId = c.var.organisationId;
       const { id } = c.req.valid("param");
@@ -263,6 +287,97 @@ export const trackRoutes = (
         track.projectId,
         input.variations.map((v) => v.fileId),
       );
+      const [project] = await db
+        .select({
+          shown: projects.carriedCommentsShown,
+          deliveryProfile: projects.deliveryProfile,
+          checkTruePeak: projects.checkTruePeak,
+          requireEdl: projects.requireEdl,
+        })
+        .from(projects)
+        .where(inOrg(projects, organisationId, eq(projects.id, track.projectId)));
+      if (input.edlFileId) {
+        const [edl] = await db
+          .select({ name: files.name })
+          .from(files)
+          .where(
+            inOrg(
+              files,
+              organisationId,
+              eq(files.projectId, track.projectId),
+              eq(files.id, input.edlFileId),
+            ),
+          );
+        if (!edl)
+          throw new HTTPException(422, { message: "Files must come from the same project" });
+        if (!/\.edl$/i.test(edl.name)) {
+          throw new HTTPException(422, { message: "An edit decision list is an .edl file" });
+        }
+      }
+      // The project's checks run before the version lands (#131): a refusal says why, and
+      // only someone who may edit workflows can let it through, on the record.
+      const measured = await db
+        .select({
+          name: files.name,
+          kind: files.kind,
+          mediaInfo: files.mediaInfo,
+          streamStatus: files.streamStatus,
+          analysisStatus: files.analysisStatus,
+          summary: loudness.summary,
+        })
+        .from(files)
+        .leftJoin(
+          loudness,
+          and(eq(loudness.fileId, files.id), eq(loudness.organisationId, organisationId)),
+        )
+        .where(
+          inOrg(
+            files,
+            organisationId,
+            inArray(
+              files.id,
+              input.variations.map((v) => v.fileId),
+            ),
+          ),
+        );
+      const refusals = versionRefusals(
+        { truePeak: Boolean(project?.checkTruePeak), edl: Boolean(project?.requireEdl) },
+        project?.deliveryProfile ?? null,
+        measured.map((f) => ({
+          name: f.name,
+          // Audio and video are checked; until the worker has probed one, it is measuring.
+          channels:
+            f.kind !== "audio" && f.kind !== "video"
+              ? null
+              : f.mediaInfo
+                ? (f.mediaInfo.audio?.channels ?? null)
+                : f.streamStatus === "failed" || f.analysisStatus === "failed"
+                  ? null
+                  : undefined,
+          // Not measured yet while analysis runs; a file that could not be measured is
+          // left to the people reviewing it.
+          truePeak: f.summary
+            ? f.summary.truePeak
+            : f.analysisStatus === "failed" || f.analysisStatus === "none"
+              ? null
+              : undefined,
+        })),
+        Boolean(input.edlFileId),
+      );
+      const letThrough = refusals.length > 0 && input.letThrough === true;
+      if (refusals.length > 0 && !letThrough) {
+        const waiting = refusals.every((r) => r.check === "measuring");
+        throw new CodedException(
+          waiting ? 409 : 422,
+          waiting ? "version_measuring" : "version_refused",
+          refusals
+            .filter((r) => waiting || r.check !== "measuring")
+            .map((r) => r.message)
+            .join(" "),
+        );
+      }
+      if (letThrough) await canSeeTrack(db, c.var, track.projectId, "edit_workflows");
+      const who = letThrough ? await audit.member(c.var.userId) : null;
       let aligning: string[] = [];
       let made = 0;
       try {
@@ -288,6 +403,8 @@ export const trackRoutes = (
               trackId: id,
               number,
               notes: input.notes || null,
+              edlFileId: input.edlFileId ?? null,
+              letThroughBy: letThrough ? c.var.userId : null,
               createdBy: c.var.userId,
             })
             .returning({ id: versions.id });
@@ -301,16 +418,32 @@ export const trackRoutes = (
               position: v.position,
             })),
           );
-          // The previous version's open threads come along, to be settled here.
-          const [project] = await tx
-            .select({ shown: projects.carriedCommentsShown })
-            .from(projects)
-            .where(inOrg(projects, organisationId, eq(projects.id, track.projectId)));
+          if (who) {
+            await audit.record(
+              organisationId,
+              who,
+              {
+                action: "version.let_through",
+                projectId: track.projectId,
+                details: {
+                  trackId: id,
+                  version: number,
+                  checks: [...new Set(refusals.map((r) => r.check))],
+                },
+              },
+              requestInfo(c, trustProxy),
+              tx,
+            );
+          }
+          // The previous version's open threads come along, to be settled here, as whoever
+          // added it chose.
           return carryThreads(
             tx,
             organisationId,
             { id: version?.id ?? "", trackId: id, number },
             project?.shown ?? true,
+            input.carry ?? {},
+            c.var.userId,
           );
         });
       } catch (error) {
@@ -410,44 +543,187 @@ export const versionRoutes = (db: Database) =>
   );
 
 /** `/api/variations/:id/primary`: make this the variation a version opens with. */
-export const variationRoutes = (db: Database) =>
-  new Hono<{ Variables: TenantVariables }>().post("/:id/primary", idParam, async (c) => {
-    const organisationId = c.var.organisationId;
-    const { id } = c.req.valid("param");
-    const [variation] = await db
-      .select({
-        versionId: variations.versionId,
-        trackId: versions.trackId,
-        projectId: tracks.projectId,
-      })
-      .from(variations)
-      .innerJoin(versions, eq(versions.id, variations.versionId))
-      .innerJoin(tracks, eq(tracks.id, versions.trackId))
-      .where(inOrg(variations, organisationId, eq(variations.id, id)));
-    if (!variation) throw new NotFound("Variation");
-    await canSeeTrack(db, c.var, variation.projectId, "organise");
-    await db.transaction(async (tx) => {
-      // One switch at a time per version, so two never lock its variations in opposite orders.
-      await tx
-        .select({ id: versions.id })
-        .from(versions)
-        .where(inOrg(versions, organisationId, eq(versions.id, variation.versionId)))
-        .for("update");
-      // Clear the old primary first: the partial unique index allows one at a time.
-      await tx
-        .update(variations)
-        .set({ isPrimary: false, updatedAt: new Date() })
+export const variationRoutes = (
+  db: Database,
+  jobs: Pick<Jobs, "send">,
+  audit: Audit,
+  trustProxy: boolean,
+) =>
+  new Hono<{ Variables: TenantVariables }>()
+    .post("/:id/primary", idParam, async (c) => {
+      const organisationId = c.var.organisationId;
+      const { id } = c.req.valid("param");
+      const [variation] = await db
+        .select({
+          versionId: variations.versionId,
+          trackId: versions.trackId,
+          projectId: tracks.projectId,
+        })
+        .from(variations)
+        .innerJoin(versions, eq(versions.id, variations.versionId))
+        .innerJoin(tracks, eq(tracks.id, versions.trackId))
+        .where(inOrg(variations, organisationId, eq(variations.id, id)));
+      if (!variation) throw new NotFound("Variation");
+      await canSeeTrack(db, c.var, variation.projectId, "organise");
+      await db.transaction(async (tx) => {
+        // One switch at a time per version, so two never lock its variations in opposite orders.
+        await tx
+          .select({ id: versions.id })
+          .from(versions)
+          .where(inOrg(versions, organisationId, eq(versions.id, variation.versionId)))
+          .for("update");
+        // Clear the old primary first: the partial unique index allows one at a time.
+        await tx
+          .update(variations)
+          .set({ isPrimary: false, updatedAt: new Date() })
+          .where(
+            inOrg(
+              variations,
+              organisationId,
+              and(eq(variations.versionId, variation.versionId), ne(variations.id, id)),
+            ),
+          );
+        await tx
+          .update(variations)
+          .set({ isPrimary: true, updatedAt: new Date() })
+          .where(inOrg(variations, organisationId, eq(variations.id, id)));
+      });
+      return c.json({ track: await oneTrack(db, organisationId, variation.trackId) });
+    })
+    /**
+     * Replace a variation's file with another of the same kind (a corrected export), for
+     * those who organise the project. Its threads, carried threads and alignments move to
+     * the new file, so the comments are kept; the old file stays in the project, loose.
+     */
+    .post("/:id/replace", idParam, zValidator("json", replaceVariationInput), async (c) => {
+      const organisationId = c.var.organisationId;
+      const { id } = c.req.valid("param");
+      const { fileId } = c.req.valid("json");
+      const [variation] = await db
+        .select({
+          versionId: variations.versionId,
+          fileId: variations.fileId,
+          trackId: versions.trackId,
+          projectId: tracks.projectId,
+          kind: files.kind,
+        })
+        .from(variations)
+        .innerJoin(versions, eq(versions.id, variations.versionId))
+        .innerJoin(tracks, eq(tracks.id, versions.trackId))
+        .innerJoin(files, eq(files.id, variations.fileId))
+        .where(inOrg(variations, organisationId, eq(variations.id, id)));
+      if (!variation) throw new NotFound("Variation");
+      await canSeeTrack(db, c.var, variation.projectId, "organise");
+      if (fileId === variation.fileId) {
+        throw new HTTPException(422, { message: "That is already this variation's file" });
+      }
+      const [replacement] = await db
+        .select({ kind: files.kind })
+        .from(files)
         .where(
           inOrg(
-            variations,
+            files,
             organisationId,
-            and(eq(variations.versionId, variation.versionId), ne(variations.id, id)),
+            eq(files.projectId, variation.projectId),
+            eq(files.id, fileId),
           ),
         );
-      await tx
-        .update(variations)
-        .set({ isPrimary: true, updatedAt: new Date() })
-        .where(inOrg(variations, organisationId, eq(variations.id, id)));
+      if (!replacement) {
+        throw new HTTPException(422, { message: "Files must come from the same project" });
+      }
+      if (replacement.kind !== variation.kind) {
+        throw new HTTPException(422, { message: "Replace it with a file of the same kind" });
+      }
+      const who = await audit.member(c.var.userId);
+      let realign: string[] = [];
+      try {
+        realign = await db.transaction(async (tx) => {
+          // As a new version does: settling threads waits while they move. The variation is
+          // read again under the lock, so two replacements at once move from the file it has.
+          await tx
+            .select({ id: tracks.id })
+            .from(tracks)
+            .where(inOrg(tracks, organisationId, eq(tracks.id, variation.trackId)))
+            .for("update");
+          const [current] = await tx
+            .select({ fileId: variations.fileId })
+            .from(variations)
+            .where(inOrg(variations, organisationId, eq(variations.id, id)))
+            .for("update");
+          if (!current) throw new NotFound("Variation");
+          if (current.fileId === fileId) {
+            throw new HTTPException(422, { message: "That is already this variation's file" });
+          }
+          const old = current.fileId;
+          const now = new Date();
+          await tx
+            .update(variations)
+            .set({ fileId, updatedAt: now })
+            .where(inOrg(variations, organisationId, eq(variations.id, id)));
+          await tx
+            .update(comments)
+            .set({ fileId, updatedAt: now })
+            .where(inOrg(comments, organisationId, eq(comments.fileId, old)));
+          await tx
+            .update(commentCarries)
+            .set({ fileId, updatedAt: now })
+            .where(inOrg(commentCarries, organisationId, eq(commentCarries.fileId, old)));
+          // Where the music moved is worked out again, against the new file.
+          const moved = await tx
+            .select({
+              id: alignments.id,
+              fromFileId: alignments.fromFileId,
+              toFileId: alignments.toFileId,
+            })
+            .from(alignments)
+            .where(
+              inOrg(
+                alignments,
+                organisationId,
+                or(eq(alignments.fromFileId, old), eq(alignments.toFileId, old)),
+              ),
+            );
+          for (const a of moved) {
+            await tx
+              .update(alignments)
+              .set({
+                fromFileId: a.fromFileId === old ? fileId : a.fromFileId,
+                toFileId: a.toFileId === old ? fileId : a.toFileId,
+                status: "pending",
+                points: null,
+                quality: null,
+                updatedAt: now,
+              })
+              .where(inOrg(alignments, organisationId, eq(alignments.id, a.id)));
+          }
+          await audit.record(
+            organisationId,
+            who,
+            {
+              action: "variation.replace",
+              projectId: variation.projectId,
+              fileId,
+              details: { variationId: id, replaced: old },
+            },
+            requestInfo(c, trustProxy),
+            tx,
+          );
+          return moved.map((a) => a.id);
+        });
+      } catch (error) {
+        if (violates(error, "variations_file_idx")) {
+          throw new HTTPException(409, {
+            message: "That file is already a variation of a version",
+          });
+        }
+        throw error;
+      }
+      for (const alignmentId of realign) {
+        await jobs
+          .send("media-align", { organisationId, alignmentId }, { singletonKey: alignmentId })
+          .catch((error: unknown) =>
+            console.warn(`Could not queue alignment ${alignmentId} now: ${String(error)}`),
+          );
+      }
+      return c.json({ track: await oneTrack(db, organisationId, variation.trackId) });
     });
-    return c.json({ track: await oneTrack(db, organisationId, variation.trackId) });
-  });
