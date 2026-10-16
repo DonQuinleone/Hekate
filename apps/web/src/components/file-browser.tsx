@@ -371,7 +371,15 @@ export function FileBrowser({
       return (
         <MoveForm
           options={destinations(all, exclude)}
-          current={folderId}
+          current={
+            item.kind === "folder"
+              ? item.folder.parentId
+              : item.kind === "track"
+                ? item.track.folderId
+                : item.kind === "file"
+                  ? item.file.folderId
+                  : folderId
+          }
           pending={pending}
           onMove={(to) => move(item, to)}
           onCancel={() => setEditing(null)}
