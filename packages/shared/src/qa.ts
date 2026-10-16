@@ -158,7 +158,10 @@ export function deliveryFindings(
     const { rates, atLeast } = profile.sampleRates;
     const rateOk = atLeast ? audio.sampleRate >= (rates[0] ?? 0) : rates.includes(audio.sampleRate);
     if (!rateOk) problems.push(`${audio.sampleRate / 1000} kHz`);
-    if (
+    if (profile.bitDepthMin && !audio.bitDepth) {
+      // A lossy or unreported format cannot show it meets a master's bit depth.
+      problems.push(`${audio.codec}, no bit depth`);
+    } else if (
       profile.bitDepthMin &&
       audio.bitDepth &&
       (profile.bitDepthExact

@@ -5,7 +5,7 @@ import { pipeline } from "node:stream/promises";
 import { type Database, inOrg, schema, uuidv7 } from "@hekate/db";
 import { encodeLoudness, encodePeaks, type MediaInfo, usableAlignment } from "@hekate/shared";
 import { wrapKey } from "@hekate/storage";
-import { and, eq, inArray, isNull, lt } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { remapCarries } from "../carry.ts";
 import { type JobHandler, type Jobs, jobDefinitions } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
@@ -18,6 +18,9 @@ import { pageSourceOf, renderPages } from "./pages.ts";
 import { type PackagedRendition, packageRendition, planRenditions } from "./proxy.ts";
 import { spectrogramsInThread } from "./spectrogram.ts";
 import { together } from "./together.ts";
+
+type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
 import { sweepWorkspaces, withWorkspace } from "./workspace.ts";
 
 const {
@@ -253,7 +256,12 @@ export function analysisHandler(deps: MediaWorkerDeps): JobHandler<"media-analys
       .from(peakLevels)
       .where(inOrg(peakLevels, organisationId, eq(peakLevels.fileId, fileId)))
       .limit(1);
-    if (existing.length > 0) return;
+    if (existing.length > 0) {
+      // Analysed already. A file analysed before the signal checks existed has no findings
+      // (every check records its pass), so measure those alone and keep the rest.
+      await backfillFindings(deps, organisationId, fileId, file.blobId, audio, job.signal);
+      return;
+    }
 
     const stored: string[] = [];
     const store = async (bytes: Uint8Array) => {
@@ -532,6 +540,64 @@ export function checksumHandler(deps: MediaWorkerDeps): JobHandler<"blob-checksu
 }
 
 /** Start every background worker in this process. */
+const hasFindings = async (db: Database | Tx, organisationId: string, fileId: string) =>
+  (
+    await db
+      .select({ id: qaFindings.id })
+      .from(qaFindings)
+      .where(inOrg(qaFindings, organisationId, eq(qaFindings.fileId, fileId)))
+      .limit(1)
+  ).length > 0;
+
+/** The signal checks for a file analysed before they existed; nothing if it has them. */
+async function backfillFindings(
+  deps: MediaWorkerDeps,
+  organisationId: string,
+  fileId: string,
+  blobId: string,
+  audio: NonNullable<MediaInfo["audio"]>,
+  signal: AbortSignal,
+) {
+  if (await hasFindings(deps.db, organisationId, fileId)) return;
+  const analysis = await withWorkspace(deps.workDir, async (dir) => {
+    const input = await materialise(deps.storage, organisationId, blobId, dir, signal);
+    return analyseAudio(input, audio, dir, signal);
+  });
+  await deps.db.transaction(async (tx) => {
+    // Locked, so two runs at once write the findings only once.
+    await tx
+      .select({ id: files.id })
+      .from(files)
+      .where(inOrg(files, organisationId, eq(files.id, fileId)))
+      .for("update");
+    if (await hasFindings(tx, organisationId, fileId)) return;
+    if (analysis.findings.length > 0) {
+      await tx
+        .insert(qaFindings)
+        .values(analysis.findings.map((f) => ({ organisationId, fileId, ...f })));
+    }
+  });
+}
+
+/**
+ * Queue analysis for files measured before the signal checks existed, so their QA view
+ * fills in after an upgrade. Instance-wide, a batch at a time; each job reads only its file.
+ */
+export async function requeueMissingFindings(db: Database, jobs: Pick<Jobs, "send">) {
+  const waiting = await db
+    .selectDistinct({ organisationId: peakLevels.organisationId, fileId: peakLevels.fileId })
+    .from(peakLevels)
+    .where(
+      sql`not exists (select 1 from ${qaFindings} where ${qaFindings.fileId} = ${peakLevels.fileId}
+        and ${qaFindings.organisationId} = ${peakLevels.organisationId})`,
+    )
+    .limit(500);
+  for (const { organisationId, fileId } of waiting) {
+    await jobs.send("media-analysis", { organisationId, fileId }, { singletonKey: fileId });
+  }
+  return waiting.length;
+}
+
 export async function startWorkers(jobs: Jobs, deps: MediaWorkerDeps, concurrency: number) {
   // Plaintext left behind by a process that crashed mid-job is removed before any new work.
   const swept = await sweepWorkspaces(deps.workDir);
@@ -554,4 +620,9 @@ export async function startWorkers(jobs: Jobs, deps: MediaWorkerDeps, concurrenc
     const aborted = await expireUploads(deps.db, deps.storage);
     if (aborted > 0) console.log(`Discarded ${aborted} expired upload(s)`);
   });
+  const backfill = await requeueMissingFindings(deps.db, deps.jobs).catch((error: unknown) => {
+    console.warn(`Could not queue the signal checks for older files: ${String(error)}`);
+    return 0;
+  });
+  if (backfill > 0) console.log(`Queued the signal checks for ${backfill} older file(s)`);
 }

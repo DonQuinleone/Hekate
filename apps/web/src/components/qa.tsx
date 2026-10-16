@@ -11,7 +11,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { cn } from "~/lib/cn";
-import { qaQuery, useDeliveryProfile } from "~/lib/queries";
+import { type QaReport, qaQuery, useDeliveryProfile } from "~/lib/queries";
 
 /** What each check is called in the list. */
 const checkNames: Record<QaCheck, string> = {
@@ -34,6 +34,13 @@ const severityNames: Record<QaSeverity, string> = {
   warn: "Worth a look",
   info: "Note",
   pass: "Passes",
+};
+
+/** What the checks say before they are ready: still running, or unable to run at all. */
+const waitingCopy: Record<Exclude<QaReport["status"], "ready">, string> = {
+  pending: "Checking the recording",
+  failed: "The checks could not run; replace the file to try again",
+  none: "Not checked",
 };
 
 /** Severity by the dot's shape and fill, as review status is: never a traffic light. */
@@ -205,7 +212,7 @@ export function QualityChecks({
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
         <h2 className="m-0 text-[15px] font-medium">Checks</h2>
         <span className="tabular text-xs text-ink-3">
-          {data.status === "ready" ? tally : "Checking the recording"}
+          {data.status === "ready" ? tally : waitingCopy[data.status]}
         </span>
         <span className="ml-auto flex items-center gap-2 text-xs text-ink-3">
           <label htmlFor={id}>Against</label>
@@ -293,7 +300,7 @@ export function QaSummary({ fileId, onOpen }: { fileId: string; onOpen: () => vo
   const parts = [
     typeof integrated === "number" ? `${integrated.toFixed(1).replace("-", "−")} LUFS` : null,
     data.status !== "ready"
-      ? "Checking the recording"
+      ? waitingCopy[data.status]
       : issues === 0
         ? "No issues"
         : `${issues} ${issues === 1 ? "issue" : "issues"}`,

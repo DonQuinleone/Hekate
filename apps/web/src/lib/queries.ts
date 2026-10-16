@@ -727,6 +727,8 @@ export const qaQuery = (fileId: string) =>
     queryKey: ["files", fileId, "qa"],
     queryFn: async () => json<QaReport>(await api.files[":id"].qa.$get({ param: { id: fileId } })),
     staleTime: 60_000,
+    // The signal checks arrive with the analysis: ask again until it has finished.
+    refetchInterval: (query) => (query.state.data?.status === "pending" ? 3000 : false),
   });
 
 /** Choose what a project's recordings are checked against; every file's report follows. */

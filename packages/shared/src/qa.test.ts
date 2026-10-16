@@ -38,6 +38,16 @@ describe("delivery checks", () => {
       summary: "Not as CD asks: 48 kHz, 24-bit",
     });
     expect(by(found, "true-peak")?.summary).toBe("True peak 0.4 dBTP, over the −0.1 dBTP ceiling");
+    // A lossy file reports no bit depth, so it cannot pass a master's.
+    const lossy = deliveryFindings(
+      deliveryProfiles.cd,
+      { audio: { codec: "aac", channels: 2, sampleRate: 44_100 } },
+      summary(-14, -1),
+    );
+    expect(by(lossy, "format")).toMatchObject({
+      severity: "fail",
+      summary: "Not as CD asks: aac, no bit depth",
+    });
     // CD has no loudness target.
     expect(by(found, "loudness")).toBeUndefined();
     const loud = deliveryFindings(
