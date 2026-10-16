@@ -21,4 +21,10 @@ export class InvalidKeyError extends StorageError {
 
 export class StorageConfigError extends StorageError {
   override name = "StorageConfigError";
+  /** Each problem as "SETTING: what is wrong", for a start-up report that lists them all. */
+  readonly problems: string[];
+  constructor(message: string, problems: string[] = [message]) {
+    super(message);
+    this.problems = problems;
+  }
 }
