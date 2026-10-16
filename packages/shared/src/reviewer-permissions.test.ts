@@ -39,7 +39,21 @@ describe("reviewer permissions", () => {
       comments: "own_and_replies",
       tools: ["meters", "loops"],
       download: "proxy",
+      maxPlays: null,
     });
+    // Plays: the most any review allows, and without limit if any review sets none.
+    expect(
+      mergeGrants([
+        { ...all, maxPlays: 2 },
+        { ...all, maxPlays: 5 },
+      ])?.maxPlays,
+    ).toBe(5);
+    expect(
+      mergeGrants([
+        { ...all, maxPlays: 2 },
+        { ...all, maxPlays: null },
+      ])?.maxPlays,
+    ).toBeNull();
     // A grant made before downloads existed allows none.
     const { download: _, ...older } = all;
     expect(mergeGrants([older])?.download).toBe("none");

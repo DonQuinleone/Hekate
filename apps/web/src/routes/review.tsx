@@ -343,6 +343,7 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
                           kind={review.kind}
                           guest={r.guest}
                           initial={r.permissions}
+                          items={review.items.map((i) => ({ id: i.id, name: i.name }))}
                           pending={permissions.isPending}
                           error={permissions.error?.message ?? null}
                           onCancel={() => setEditing(null)}

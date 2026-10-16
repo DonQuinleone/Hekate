@@ -5,9 +5,10 @@ import {
   type ProjectPermission,
   permissionsFor,
   type ReviewerPermissions,
+  readGrant,
   withinWindow,
 } from "@hekate/shared";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lte, sql } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
 import { NotFound } from "./errors.ts";
 
@@ -19,6 +20,7 @@ const {
   reviews,
   reviewItems,
   reviewReviewers,
+  tracks,
   versions,
   variations,
 } = schema;
@@ -99,6 +101,7 @@ export async function guestReach(
   const rows = await db
     .select({
       reviewId: reviews.id,
+      itemId: reviewItems.id,
       permissions: reviewReviewers.permissions,
       fileId: reviewItems.fileId,
       trackId: reviewItems.trackId,
@@ -116,7 +119,14 @@ export async function guestReach(
     )
     .where(inOrg(reviewItems, guest.organisationId, eq(reviews.status, "open")))
     .orderBy(desc(reviews.createdAt), desc(reviews.id));
-  const items = rows.filter((r) => withinWindow(r.permissions, now));
+  // Within their window, and among the items their review shows them (#55).
+  const items = rows
+    .map((r) => ({ ...r, permissions: readGrant(r.permissions) }))
+    .filter(
+      (r) =>
+        withinWindow(r.permissions, now) &&
+        (r.permissions.items === null || r.permissions.items.includes(r.itemId)),
+    );
   const ids = new Map<string, { reviewId: string; permissions: ReviewerPermissions }[]>();
   const add = (fileId: string, item: { reviewId: string; permissions: ReviewerPermissions }) => {
     const list = ids.get(fileId) ?? [];
@@ -130,24 +140,55 @@ export async function guestReach(
       continue;
     }
     if (!item.trackId) continue;
-    const [version] = await db
+    // The version under review (the one named, else the latest); with history, it and the
+    // ones before it, never a version added after the one the review names.
+    const [pinned] = item.versionId
+      ? await db
+          .select({ number: versions.number })
+          .from(versions)
+          .where(inOrg(versions, guest.organisationId, eq(versions.id, item.versionId)))
+      : [];
+    if (item.versionId && !pinned) continue;
+    const found = await db
       .select({ id: versions.id })
       .from(versions)
       .where(
         inOrg(
           versions,
           guest.organisationId,
-          item.versionId ? eq(versions.id, item.versionId) : eq(versions.trackId, item.trackId),
+          item.versionId && !item.permissions.history
+            ? eq(versions.id, item.versionId)
+            : and(
+                eq(versions.trackId, item.trackId),
+                pinned ? lte(versions.number, pinned.number) : undefined,
+              ),
         ),
       )
       .orderBy(desc(versions.number))
-      .limit(1);
-    if (!version) continue;
+      .limit(item.permissions.history ? 1000 : 1);
+    if (found.length === 0) continue;
     const variants = await db
       .select({ fileId: variations.fileId })
       .from(variations)
-      .where(inOrg(variations, guest.organisationId, eq(variations.versionId, version.id)));
+      .where(
+        inOrg(
+          variations,
+          guest.organisationId,
+          inArray(
+            variations.versionId,
+            found.map((v) => v.id),
+          ),
+        ),
+      );
     for (const v of variants) add(v.fileId, item);
+    // The track's score, as a page beside the recording, for those given it.
+    if (item.permissions.tools.includes("score")) {
+      const [track] = await db
+        .select({ scoreFileId: tracks.scoreFileId })
+        .from(tracks)
+        .where(inOrg(tracks, guest.organisationId, eq(tracks.id, item.trackId)));
+      if (track?.scoreFileId) add(track.scoreFileId, item);
+    }
   }
   return ids;
 }
