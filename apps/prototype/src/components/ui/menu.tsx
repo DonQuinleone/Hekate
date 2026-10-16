@@ -53,6 +53,7 @@ export function MenuList({
 }) {
   return (
     <div
+      data-e2e-overlap
       role="menu"
       className={cn(
         "rise-in absolute z-30 mt-1 flex min-w-44 flex-col rounded-panel bg-overlay p-1 shadow-3",
