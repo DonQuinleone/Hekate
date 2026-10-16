@@ -175,3 +175,7 @@ Any error a person can see (a 5xx, or a refusal worth a support question) carrie
 ## 043. System information shows releases; the image stays immutable
 
 The instance shows the running version and build, the update channel and the releases available with their notes and upgrade instructions. For 1.0, nothing is patched in place: an upgrade is a new image. Signed hot patches applied as overlays may come later as an explicit opt-in (#158).
+
+## 044. Mail is plain text first, with an HTML alternative, and fetches nothing
+
+Every message is one shape (who did what, one action, a line about why you got it) rendered from one structure into both parts of a multipart mail. The plain-text part is written as text: wrapped at 72 characters, links on their own lines, the foot after a `-- ` signature line; it is never derived from the HTML. The HTML part is laid out in tables, light colours inline and dark ones from a `prefers-color-scheme` query, and holds no images: the mark is drawn in table cells, so nothing is fetched and nothing reports that a message was opened. Every link goes to the app. A workspace may change each template's subject line, using only the placeholders that template offers. Mail about something a member is told of goes through the notifications table, which already retries; a message carrying a one-time link (a guest's link, an invitation) is sent at once and never queued, because job data holds no secrets, and the sender can send it again. Bounces are recorded once a provider that reports them is configured (#71).

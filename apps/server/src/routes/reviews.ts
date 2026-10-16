@@ -32,9 +32,10 @@ import {
   reviewAccess,
 } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
+import { decisionWords, longDate, subjectValues, workspaceEmail } from "../email/templates.ts";
 import { NotFound } from "../errors.ts";
 import { issueGuestLink, revokeGuest, type ViewerVariables } from "../guests.ts";
-import type { Mailer } from "../mail.ts";
+import { type Mailer, sendEmail } from "../mail.ts";
 import { followersOf, notifyNow } from "../notifications.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
@@ -379,13 +380,36 @@ async function notify(
   deps: ReviewDeps,
   people: Pick<ReviewerRow, "email" | "guestId" | "userId">[],
   review: ReviewForMail,
-  opening: string,
+  /** In a sequence, whether those before them have responded. */
+  turn: boolean,
+  /** Who is asking, when not whoever requested the review. */
+  asking?: string,
 ) {
   const base = deps.publicUrl.replace(/\/$/, "");
-  const extra = [
-    ...(review.message ? [review.message] : []),
-    ...(review.dueAt ? [`Due ${review.dueAt.toUTCString().slice(0, 16)}.`] : []),
-  ];
+  const [context] = await deps.db
+    .select({
+      workspace: schema.organisations.name,
+      settings: schema.organisations.settings,
+      project: schema.projects.name,
+    })
+    .from(schema.projects)
+    .innerJoin(schema.organisations, eq(schema.organisations.id, schema.projects.organisationId))
+    .where(inOrg(schema.projects, review.organisationId, eq(schema.projects.id, review.projectId)));
+  const requester =
+    asking ?? (review.createdBy ? await nameOf(deps.db, review.createdBy) : "A colleague");
+  const data = {
+    workspace: context?.workspace ?? "Hekate",
+    requester,
+    review: review.title,
+    kind: review.kind as ReviewKind,
+    project: context?.project ?? "",
+    message: turn
+      ? [review.message, "Those before you have responded; it is your turn."]
+          .filter(Boolean)
+          .join("\n\n")
+      : review.message,
+    dueAt: review.dueAt,
+  };
   const members = people.flatMap((p) => (p.userId ? [p.userId] : []));
   if (members.length > 0) {
     await notifyNow(deps, {
@@ -396,8 +420,15 @@ async function notify(
       projectId: review.projectId,
       reviewId: review.id,
       text: `asks you to ${ask(review)}`,
-      detail: extra.length ? extra.join("\n\n") : null,
+      detail:
+        [review.message, review.dueAt ? `Due ${longDate(review.dueAt)}.` : null]
+          .filter(Boolean)
+          .join("\n\n") || null,
       link: `/reviews/${review.id}`,
+      mail: {
+        template: "review_requested",
+        values: subjectValues("review_requested", { ...data, url: "" }),
+      },
     }).catch((error: unknown) =>
       console.warn(`Could not tell a reviewer about a review: ${String(error)}`),
     );
@@ -405,25 +436,19 @@ async function notify(
   for (const person of people) {
     if (!person.guestId) continue;
     const issued = await issueGuestLink(deps.db, review.organisationId, person.guestId);
-    const link = `${base}/guest/${issued.token}`;
     await deps.audit.record(review.organisationId, await deps.audit.guest(person.guestId), {
       action: "guest.link",
       projectId: review.projectId,
       reviewId: review.id,
     });
-    const lines = [
-      opening,
-      ...extra.flatMap((line) => ["", line]),
-      "",
-      link,
-      "",
-      `The link signs you in on this device and works once, for ${issued.days} days.`,
-    ];
-    await deps.mailer
-      .send({ to: person.email, subject: `Review: ${review.title}`, text: lines.join("\n") })
-      .catch((error: unknown) =>
-        console.warn(`Could not send the review request to a reviewer: ${String(error)}`),
-      );
+    const email = workspaceEmail(
+      "review_requested",
+      { ...data, url: `${base}/guest/${issued.token}`, guestLinkDays: issued.days },
+      workspaceSettingsOf(context?.settings).emailSubjects,
+    );
+    await sendEmail(deps.mailer, person.email, email).catch((error: unknown) =>
+      console.warn(`Could not send the review request to a reviewer: ${String(error)}`),
+    );
   }
 }
 
@@ -433,8 +458,22 @@ const decisionText: Record<ReviewDecision, (title: string) => string> = {
 };
 
 /** Tell whoever asked for a review, and anyone following it, that a reviewer has acted. */
-async function tellRequester(deps: ReviewDeps, review: ReviewForMail, actor: Actor, text: string) {
+async function tellRequester(
+  deps: ReviewDeps,
+  review: ReviewForMail,
+  actor: Actor,
+  decision: ReviewDecision | "feedback",
+  note?: string | null,
+) {
   const followers = await followersOf(deps.db, review.organisationId, { reviewId: review.id });
+  const [project] = await deps.db
+    .select({ name: schema.projects.name })
+    .from(schema.projects)
+    .where(inOrg(schema.projects, review.organisationId, eq(schema.projects.id, review.projectId)));
+  const text =
+    decision === "feedback"
+      ? `gave feedback on "${review.title}"`
+      : decisionText[decision](review.title);
   await notifyNow(deps, {
     organisationId: review.organisationId,
     kind: "decision",
@@ -443,7 +482,16 @@ async function tellRequester(deps: ReviewDeps, review: ReviewForMail, actor: Act
     projectId: review.projectId,
     reviewId: review.id,
     text,
+    detail: note?.trim() || null,
     link: `/reviews/${review.id}`,
+    mail: {
+      template: "decision",
+      values: {
+        review: review.title,
+        decision: decisionWords[decision],
+        project: project?.name ?? "",
+      },
+    },
   }).catch((error: unknown) =>
     console.warn(`Could not tell the requester about a decision: ${String(error)}`),
   );
@@ -777,7 +825,8 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
         deps,
         rows.filter((r) => now.has(r.id)),
         review,
-        `${requester} asks you to ${ask(review)}.`,
+        false,
+        requester,
       );
       return c.json({ review: await reviewView(deps.db, actor, review.id) }, 201);
     });
@@ -903,8 +952,8 @@ export const reviewRoutes = (deps: ReviewDeps) =>
             : [];
         return { review: settled, next };
       });
-      if (next.length > 0) await notify(deps, next, review, `It is your turn to ${ask(review)}.`);
-      await tellRequester(deps, review, actor, decisionText[input.decision](review.title));
+      if (next.length > 0) await notify(deps, next, review, true);
+      await tellRequester(deps, review, actor, input.decision, input.note);
       return c.json({ review: await reviewView(deps.db, actor, review.id) });
     })
     .post("/:id/submit", idParam, async (c) => {
@@ -959,8 +1008,8 @@ export const reviewRoutes = (deps: ReviewDeps) =>
             : [];
         return { review: settled, next };
       });
-      if (next.length > 0) await notify(deps, next, review, `It is your turn to ${ask(review)}.`);
-      await tellRequester(deps, review, actor, `gave feedback on "${review.title}"`);
+      if (next.length > 0) await notify(deps, next, review, true);
+      await tellRequester(deps, review, actor, "feedback");
       return c.json({ review: await reviewView(deps.db, actor, review.id) });
     })
     .post("/:id/cancel", idParam, async (c) => {
@@ -1043,7 +1092,7 @@ export const reviewRoutes = (deps: ReviewDeps) =>
       });
       if (added.length > 0) {
         const requester = await nameOf(deps.db, actor.userId);
-        await notify(deps, added, review, `${requester} asks you to ${ask(review)}.`);
+        await notify(deps, added, review, false, requester);
       }
       return c.json({ review: await reviewView(deps.db, actor, review.id) }, 201);
     })
@@ -1103,12 +1152,7 @@ export const reviewRoutes = (deps: ReviewDeps) =>
           };
         });
         if (changed.next.length > 0) {
-          await notify(
-            deps,
-            changed.next,
-            changed.review,
-            `It is your turn to ${ask(changed.review)}.`,
-          );
+          await notify(deps, changed.next, changed.review, true);
         }
         return c.json({ review: await reviewView(deps.db, actor, id) });
       },
@@ -1134,7 +1178,7 @@ export const reviewRoutes = (deps: ReviewDeps) =>
         return { review, guest };
       });
       const requester = await nameOf(deps.db, actor.userId);
-      await notify(deps, [guest], review, `${requester} asks you to ${ask(review)}.`);
+      await notify(deps, [guest], review, false, requester);
       return c.body(null, 204);
     })
     // Revoke a guest reviewer's links and signed-in browsers, everywhere in the organisation.
@@ -1213,7 +1257,7 @@ export const reviewRoutes = (deps: ReviewDeps) =>
             : [];
         return { review: settled, next };
       });
-      if (next.length > 0) await notify(deps, next, review, `It is your turn to ${ask(review)}.`);
+      if (next.length > 0) await notify(deps, next, review, true);
       return c.json({ review: await reviewView(deps.db, actor, id) });
     });
 

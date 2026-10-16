@@ -1,9 +1,12 @@
 import { createTransport } from "nodemailer";
+import { type Email, render } from "./email/render.ts";
 
+/** One mail: plain text always, and its HTML alternative when there is one. */
 export interface Message {
   to: string;
   subject: string;
   text: string;
+  html?: string;
 }
 
 export interface Mailer {
@@ -25,6 +28,12 @@ export function createMailer(options: { smtpUrl?: string | undefined; from: stri
       await transport.sendMail({ from: options.from, ...message });
     },
   };
+}
+
+/** Send a message in Hekate's shape, as plain text and HTML together. */
+export function sendEmail(mailer: Mailer, to: string, email: Email) {
+  const { subject, text, html } = render(email);
+  return mailer.send({ to, subject, text, html });
 }
 
 /** Collects messages for tests. */

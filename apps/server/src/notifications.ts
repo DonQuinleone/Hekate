@@ -4,10 +4,15 @@ import {
   DAILY_DIGEST_HOUR_UTC,
   type DigestFrequency,
   defaultNotificationPreferences,
+  type EmailSubjects,
   type MailMode,
   type NotificationKind,
+  type NotificationMail,
+  subjectFor,
+  workspaceSettingsOf,
 } from "@hekate/shared";
 import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { render } from "./email/render.ts";
 import type { Mailer } from "./mail.ts";
 
 const {
@@ -43,6 +48,8 @@ export interface NotificationEvent {
   detail?: string | null;
   /** Where it leads in the app, as a path such as `/reviews/…`. */
   link: string;
+  /** The workspace template whose subject line its mail takes, and the values for it. */
+  mail?: NotificationMail;
 }
 
 export type NotificationRow = typeof notifications.$inferSelect;
@@ -146,6 +153,7 @@ export async function recordNotification(db: Db, event: NotificationEvent) {
         text: event.text,
         detail: event.detail ?? null,
         link: event.link,
+        mail: event.mail ?? null,
         inApp: channels.app,
         mailMode: channels.mail ? pref.mailMode : null,
       },
@@ -162,36 +170,78 @@ export const lineOf = (n: Pick<NotificationRow, "actorName" | "text">) =>
 
 const settingsPath = "/account/notifications";
 
-/** One notification by mail, sent as it happens. */
-export function instantMail(n: NotificationRow, publicUrl: string) {
+/** The one thing each kind of mail asks you to do. */
+const actionLabel: Record<NotificationKind, string> = {
+  review_requested: "Open the review",
+  decision: "See the review",
+  reply: "Open the thread",
+  mention: "Open the comment",
+  version: "Open the version",
+  processing_failed: "Open the file",
+  guest_opened: "See the review",
+  due_soon: "Open the review",
+};
+
+/** Why each kind of mail came. */
+const whyFoot: Record<NotificationKind, string> = {
+  review_requested: "You get this because you were asked to review.",
+  decision: "You get this because you requested the review or follow it.",
+  reply: "You get this because you took part in the thread.",
+  mention: "You get this because someone mentioned you.",
+  version: "You get this because you follow the track.",
+  processing_failed: "You get this because you uploaded the file.",
+  guest_opened: "You get this because you requested the review.",
+  due_soon: "A reminder, sent once, the day before the due date.",
+};
+
+/** The workspace a mail comes from: its name, and its own subject lines. */
+export interface MailWorkspace {
+  name: string;
+  subjects: EmailSubjects;
+}
+
+/**
+ * One notification by mail, sent as it happens. A kind with a workspace template takes the
+ * workspace's subject line; the rest say what happened.
+ */
+export function instantMail(n: NotificationRow, publicUrl: string, workspace: MailWorkspace) {
   const base = publicUrl.replace(/\/$/, "");
   const line = lineOf(n);
-  return {
-    subject: line.length > 120 ? `${line.slice(0, 117)}...` : line,
-    text: [
-      `${line}.`,
-      ...(n.detail ? ["", n.detail] : []),
-      "",
-      `${base}${n.link}`,
-      "",
-      `Choose what reaches you, and how: ${base}${settingsPath}`,
-    ].join("\n"),
-  };
+  const subject = n.mail
+    ? subjectFor(n.mail.template, workspace.subjects, {
+        ...n.mail.values,
+        workspace: workspace.name,
+        reviewer: n.actorName ?? "",
+        requester: n.actorName ?? "",
+      })
+    : line.length > 120
+      ? `${line.slice(0, 117)}...`
+      : line;
+  return render({
+    workspace: workspace.name,
+    subject,
+    heading: line,
+    body: n.detail ? n.detail.split(/\n{2,}/) : [],
+    action: { label: actionLabel[n.kind], url: `${base}${n.link}` },
+    foot: whyFoot[n.kind],
+    settingsUrl: `${base}${settingsPath}`,
+  });
 }
 
 /** Several notifications gathered into one mail, oldest first. */
 export function digestMail(rows: NotificationRow[], workspace: string, publicUrl: string) {
   const base = publicUrl.replace(/\/$/, "");
-  return {
-    subject: `${rows.length} update${rows.length === 1 ? "" : "s"} in ${workspace}`,
-    text: [
-      `What happened in ${workspace}:`,
-      "",
-      ...rows.flatMap((n) => [`- ${lineOf(n)}`, `  ${base}${n.link}`]),
-      "",
-      `Choose what reaches you, and how: ${base}${settingsPath}`,
-    ].join("\n"),
-  };
+  const count = `${rows.length} update${rows.length === 1 ? "" : "s"}`;
+  return render({
+    workspace,
+    subject: `${count} in ${workspace}`,
+    heading: `${count} in ${workspace}`,
+    body: [],
+    list: rows.map(lineOf),
+    action: { label: "Open your inbox", url: `${base}/inbox` },
+    foot: "You get these gathered together, as you chose.",
+    settingsUrl: `${base}${settingsPath}`,
+  });
 }
 
 /**
@@ -204,6 +254,17 @@ export function digestDue(frequency: DigestFrequency, lastDigestAt: Date | null,
   if (lastDigestAt && lastDigestAt.getTime() < dayAgo) return true;
   if (now.getUTCHours() !== DAILY_DIGEST_HOUR_UTC) return false;
   return !lastDigestAt || lastDigestAt.getTime() < now.getTime() - 60 * 60 * 1000;
+}
+
+async function mailWorkspace(db: Db, n: NotificationRow): Promise<MailWorkspace> {
+  const [workspace] = await db
+    .select({ name: organisations.name, settings: organisations.settings })
+    .from(organisations)
+    .where(eq(organisations.id, n.organisationId));
+  return {
+    name: workspace?.name ?? "Hekate",
+    subjects: workspaceSettingsOf(workspace?.settings).emailSubjects,
+  };
 }
 
 async function emailOf(db: Db, userId: string) {
@@ -233,7 +294,7 @@ async function sendOnce(db: Database, mailer: Mailer, publicUrl: string, n: Noti
   if (!claimed) return false;
   const to = await emailOf(db, n.userId);
   try {
-    if (to) await mailer.send({ to, ...instantMail(n, publicUrl) });
+    if (to) await mailer.send({ to, ...instantMail(n, publicUrl, await mailWorkspace(db, n)) });
     return true;
   } catch (error) {
     console.warn(`Could not send a notification by mail: ${String(error)}`);

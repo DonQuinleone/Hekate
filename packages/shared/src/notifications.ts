@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { EmailTemplateId } from "./email.ts";
 
 /**
  * What tells a member something happened (docs/domain.md, Notifications). Each kind can reach
@@ -19,8 +20,16 @@ export const notificationKinds = [
   "processing_failed",
   /** A guest opened a review you asked for. */
   "guest_opened",
+  /** A review waiting on you is due tomorrow. */
+  "due_soon",
 ] as const;
 export type NotificationKind = (typeof notificationKinds)[number];
+
+/** A notification whose mail takes a workspace template's subject line, with its values. */
+export interface NotificationMail {
+  template: EmailTemplateId;
+  values: Record<string, string>;
+}
 export const notificationKind = z.enum(notificationKinds);
 
 export interface NotificationChannels {
@@ -37,6 +46,7 @@ export const notificationDefaults: Record<NotificationKind, NotificationChannels
   version: { app: true, mail: false },
   processing_failed: { app: true, mail: true },
   guest_opened: { app: false, mail: false },
+  due_soon: { app: true, mail: true },
 };
 
 /** Reviews asked of you and mentions always reach you in the app, whatever you choose. */

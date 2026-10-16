@@ -1,5 +1,11 @@
 import { z } from "zod";
 import { locales } from "./account.ts";
+import {
+  type EmailSubjects,
+  emailSubjects,
+  emailSubjectsChange,
+  emailTemplateIds,
+} from "./email.ts";
 import { projectProfile } from "./profile.ts";
 import {
   commentScopes,
@@ -61,6 +67,8 @@ export const workspaceSettingsSchema = z.object({
   locale: z.enum(locales).nullable(),
   /** Whether a new project shows threads carried to a new version (decision 029). */
   carriedCommentsShown: z.boolean(),
+  /** The workspace's own subject lines for its messages. */
+  emailSubjects,
   /** What a review grants unless the request says otherwise. */
   reviewer: z.object({
     comment: z.boolean(),
@@ -76,6 +84,7 @@ export const defaultWorkspaceSettings: WorkspaceSettings = {
   guestLinkDays: 3,
   locale: null,
   carriedCommentsShown: true,
+  emailSubjects: {},
   reviewer: { comment: true, decide: true, comments: "all", windowDays: null },
 };
 
@@ -86,11 +95,15 @@ export const workspaceSettingsInput = z
     guestLinkDays: workspaceSettingsSchema.shape.guestLinkDays.optional(),
     locale: workspaceSettingsSchema.shape.locale.optional(),
     carriedCommentsShown: workspaceSettingsSchema.shape.carriedCommentsShown.optional(),
+    emailSubjects: emailSubjectsChange.optional(),
     reviewer: workspaceSettingsSchema.shape.reviewer.partial().strict().optional(),
   })
   .strict()
   .refine(
-    (s) => Object.keys(s).length > 0 && (!s.reviewer || Object.keys(s.reviewer).length > 0),
+    (s) =>
+      Object.keys(s).length > 0 &&
+      (!s.reviewer || Object.keys(s.reviewer).length > 0) &&
+      (!s.emailSubjects || Object.keys(s.emailSubjects).length > 0),
     "Nothing to change",
   );
 export type WorkspaceSettingsInput = z.infer<typeof workspaceSettingsInput>;
@@ -116,6 +129,13 @@ export function workspaceSettingsOf(stored: unknown): WorkspaceSettings {
       read(stored, "carriedCommentsShown"),
       d.carriedCommentsShown,
     ),
+    emailSubjects: Object.fromEntries(
+      emailTemplateIds.flatMap((id) => {
+        const subject = read(read(stored, "emailSubjects"), id);
+        const parsed = emailSubjects.safeParse({ [id]: subject });
+        return parsed.success && parsed.data[id] ? [[id, parsed.data[id]]] : [];
+      }),
+    ) as EmailSubjects,
     reviewer: {
       comment: pick(reviewer.comment, read(storedReviewer, "comment"), d.reviewer.comment),
       decide: pick(reviewer.decide, read(storedReviewer, "decide"), d.reviewer.decide),
@@ -139,6 +159,11 @@ export function applyWorkspaceSettings(
     guestLinkDays: change.guestLinkDays ?? current.guestLinkDays,
     locale: change.locale === undefined ? current.locale : change.locale,
     carriedCommentsShown: change.carriedCommentsShown ?? current.carriedCommentsShown,
+    emailSubjects: Object.fromEntries(
+      Object.entries({ ...current.emailSubjects, ...change.emailSubjects }).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string",
+      ),
+    ) as EmailSubjects,
     reviewer: { ...current.reviewer, ...change.reviewer },
   };
 }
