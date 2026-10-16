@@ -50,6 +50,7 @@ describe("tenancy", () => {
       "project_members",
       "project_roles",
       "projects",
+      "qa_findings",
       "rendition_segments",
       "renditions",
       "review_decisions",

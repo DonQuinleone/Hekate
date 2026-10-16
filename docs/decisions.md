@@ -138,6 +138,12 @@ On a document or picture, dragging on the page with a mouse or pen draws a recta
 
 A track can link one PDF of its project as its score (`tracks.score_file_id`); the server refuses anything that is not a document. The recording's page then shows the score's pages, drawn and delivered like any document's, under the player, and links to the score's own page, where comments on it live. Recordings are not synced to their scores: in classical music, repeats, cuts, edits between takes and rubato make a bar map more trouble than help. Instead, in music projects only, a reviewer types the bars a comment is about ("25", "0" for an upbeat, or "9-12"); the comment keeps the moment of the recording they were listening to, so it plays from there, and reads "BAR 25" or "BARS 9–12". Other profiles have no bars, and the server refuses them there.
 
+## 035. A recording has a QA view; the review screen stays with the music
+
+A recording's file page has two views, kept in its address (`?view=qa`). Review is for listening and commenting: the player, the comments beside it, the score and Compare, with a single summary of what QA found ("−17.5 LUFS · 1 issue") that opens QA. QA holds what was measured: the quality checks, loudness and the meters, and the file's technical details. The player keeps its place in both, so switching views never stops playback. A guest has QA only when their review grants the meters.
+
+The checks come in two kinds. Signal checks (clipping, flattened peaks, dropouts, clicks, DC offset, long silences, phase and mono fold-down) are measured once, in the same decode as the loudness analysis, and stored in `qa_findings`. Delivery checks (format, loudness, true peak, dead channels, balance) are read from those measurements against the project's delivery profile each time they are shown: Streaming, CD, Apple Digital Masters, broadcast (EBU R128), 5.1 surround or Dolby Atmos. A project without one is checked against the profile its channel count suggests, so changing profile needs no new analysis. Severity is shown by the dot's shape and fill, never by a traffic-light palette.
+
 ## 036. The prototype is the design contract
 
 The clickable prototype in `apps/prototype`, approved in #105, is the design of the whole application: its navigation, layouts, copy, states, components and keyboard behaviour. `apps/web` builds what it shows; where building proves it wrong, the prototype changes in the same pull request. (Number 035 is held by the audio QA view in #103.)

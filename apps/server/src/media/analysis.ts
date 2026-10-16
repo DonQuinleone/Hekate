@@ -6,15 +6,19 @@ import {
   type LoudnessSummary,
   type PeakLevel,
   peakLevels,
+  type QaFinding,
   samplesPerFrameAt,
 } from "@hekate/shared";
 import { run, safeInputArgs } from "./ffmpeg.ts";
 import { finishLoudness, LoudnessParser, loudnessFilters, PhaseMeter } from "./loudness.ts";
 import { PeakBuilder } from "./peaks.ts";
+import { SignalChecks } from "./qa.ts";
 
 export interface AudioAnalysis {
   levels: PeakLevel[];
   loudness: { series: LoudnessSeries; summary: LoudnessSummary };
+  /** The QA's signal checks (#41), from the same samples. */
+  findings: QaFinding[];
 }
 
 /**
@@ -32,6 +36,7 @@ export async function analyseAudio(
   const samplesPerFrame = samplesPerFrameAt(audio.sampleRate);
   const peaks = new PeakBuilder(audio.channels, audio.sampleRate);
   const phase = new PhaseMeter(audio.channels, samplesPerFrame);
+  const checks = new SignalChecks(audio.channels, audio.sampleRate);
   const metadata = join(workspace, "loudness.txt");
   await run(
     "ffmpeg",
@@ -63,6 +68,7 @@ export async function analyseAudio(
       onStdout: (chunk) => {
         peaks.push(chunk);
         phase.push(chunk);
+        checks.push(chunk);
       },
     },
   );
@@ -75,5 +81,6 @@ export async function analyseAudio(
   return {
     levels: peakLevels(base),
     loudness: finishLoudness(parser, phase, audio.sampleRate),
+    findings: checks.finish(),
   };
 }
