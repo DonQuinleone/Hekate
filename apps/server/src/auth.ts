@@ -110,6 +110,7 @@ export function createAuth(options: AuthOptions) {
         twoFactor: schema.twoFactors,
         passkey: schema.passkeys,
         ssoProvider: schema.ssoProviders,
+        rateLimit: schema.authRateLimits,
       },
     }),
     emailAndPassword: {
@@ -416,6 +417,8 @@ export function createAuth(options: AuthOptions) {
     },
     rateLimit: {
       enabled: !options.testing,
+      // In PostgreSQL, so every replica counts the same attempts.
+      storage: "database",
       window: 60,
       max: 100,
       customRules: {

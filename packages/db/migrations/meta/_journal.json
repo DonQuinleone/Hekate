@@ -309,6 +309,13 @@
       "when": 1792152472518,
       "tag": "0043_single_sign_on",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1792153680783,
+      "tag": "0044_rate_limits",
+      "breakpoints": true
     }
   ]
 }
