@@ -9,7 +9,7 @@ import {
   sinceDate,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, type Column, desc, eq, gte, ilike, isNull, type SQL, sql } from "drizzle-orm";
+import { and, type Column, desc, eq, gte, ilike, isNull, or, type SQL, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { actorOf, visibleProjects } from "../access.ts";
@@ -17,8 +17,19 @@ import { NotFound } from "../errors.ts";
 import { excerpt, prefixQuery } from "../search.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
-const { projects, tracks, files, reviews, comments, members, users, savedSearches, searchVector } =
-  schema;
+const {
+  projects,
+  tracks,
+  files,
+  fileTags,
+  tags,
+  reviews,
+  comments,
+  members,
+  users,
+  savedSearches,
+  searchVector,
+} = schema;
 
 const searchQuery = zValidator(
   "query",
@@ -112,10 +123,23 @@ export const searchRoutes = (db: Database) =>
       const since = filters.since ? sinceDate(filters.since) : null;
       const after = (created: Column) => (since ? gte(created, since) : undefined);
       const by = (column: Column) => (filters.personId ? eq(column, filters.personId) : undefined);
-      // Which kinds the filters leave: a person narrows to what people make, a file kind to files.
+      // A file matches by its name or by the names of its tags.
+      const taggedAs = tsq
+        ? sql`exists (select 1 from ${fileTags} ft join ${tags} t
+            on t.id = ft.tag_id and t.organisation_id = ${organisationId}
+            where ft.file_id = ${files.id} and ft.organisation_id = ${organisationId}
+            and to_tsvector('simple', t.name) @@ ${tsq})`
+        : undefined;
+      const tagged = filters.tagId
+        ? sql`exists (select 1 from ${fileTags} ft where ft.file_id = ${files.id}
+            and ft.organisation_id = ${organisationId} and ft.tag_id = ${filters.tagId})`
+        : undefined;
+      // Which kinds the filters leave: a person narrows to what people make, a file kind or a
+      // tag to files.
       const wanted = (kind: SearchKind) =>
         (!filters.kind || filters.kind === kind) &&
         (!filters.fileKind || kind === "files") &&
+        (!filters.tagId || kind === "files") &&
         (!filters.personId || kind === "files" || kind === "reviews" || kind === "comments") &&
         (!filters.projectId || kind !== "people");
       const none = Promise.resolve([] as never[]);
@@ -174,7 +198,8 @@ export const searchRoutes = (db: Database) =>
                   inOrg(
                     files,
                     organisationId,
-                    matches(words.files),
+                    tsq ? or(matches(words.files), taggedAs) : undefined,
+                    tagged,
                     inLiveProject,
                     after(files.createdAt),
                     by(files.uploadedBy),

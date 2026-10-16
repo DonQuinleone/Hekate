@@ -9,7 +9,7 @@ import { Thumb } from "~/components/thumb";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select, Textarea } from "~/components/ui/input";
-import { ActionMenu, type MenuAction } from "~/components/ui/menu";
+import { ActionMenu, type MenuAction, usePopover } from "~/components/ui/menu";
 import {
   files as allFiles,
   type File,
@@ -238,7 +238,13 @@ function TrackRow({ track, project }: { track: Track; project: Project }) {
         <span className="hidden items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 @3xl/app:flex">
           {quick}
         </span>
-        {viewer.can(project.id, "organise") && <ActionMenu label={track.name} actions={actions} />}
+        <ActionMenu
+          label={track.name}
+          actions={[
+            ...personalActions(false),
+            ...(viewer.can(project.id, "organise") ? ["divider" as const, ...actions] : []),
+          ]}
+        />
       </span>
     </li>
   );
@@ -296,23 +302,27 @@ function FileRow({ file, project }: { file: File; project: Project }) {
             <Quick icon="download" label="Download" onClick={() => {}} />
           )}
         </span>
-        {viewer.can(project.id, "organise") && (
-          <ActionMenu
-            label={file.name}
-            actions={[
-              { label: "Share…", onSelect: () => {} },
-              { label: "Details", onSelect: () => {} },
-              "divider",
-              { label: "Rename", onSelect: () => {} },
-              { label: "Move to…", onSelect: () => {} },
-              { label: "Attach to a track…", onSelect: () => {} },
-              { label: "Tags…", onSelect: () => {} },
-              ...(viewer.can(project.id, "delete")
-                ? ["divider" as const, { label: "Delete…", danger: true, onSelect: () => {} }]
-                : []),
-            ]}
-          />
-        )}
+        <ActionMenu
+          label={file.name}
+          actions={[
+            ...personalActions(false),
+            ...(viewer.can(project.id, "organise")
+              ? [
+                  "divider" as const,
+                  { label: "Share…", onSelect: () => {} },
+                  { label: "Details", onSelect: () => {} },
+                  "divider" as const,
+                  { label: "Rename", onSelect: () => {} },
+                  { label: "Move to…", onSelect: () => {} },
+                  { label: "Attach to a track…", onSelect: () => {} },
+                  { label: "Tags…", onSelect: () => {} },
+                  ...(viewer.can(project.id, "delete")
+                    ? ["divider" as const, { label: "Delete…", danger: true, onSelect: () => {} }]
+                    : []),
+                ]
+              : []),
+          ]}
+        />
       </span>
     </li>
   );
@@ -338,20 +348,114 @@ function FolderRow({ folder, project }: { folder: Folder; project: Project }) {
       <span className="hidden @3xl/app:block" />
       <span className="hidden @3xl/app:block" />
       <span className="flex items-center justify-end">
-        {viewer.can(project.id, "organise") && (
-          <ActionMenu
-            label={folder.name}
-            actions={[
-              { label: "Upload request…", onSelect: () => {} },
-              "divider",
-              { label: "Rename", onSelect: () => {} },
-              { label: "Move to…", onSelect: () => {} },
-              { label: "Delete…", danger: true, onSelect: () => {} },
-            ]}
-          />
-        )}
+        <ActionMenu
+          label={folder.name}
+          actions={[
+            ...personalActions(null),
+            ...(viewer.can(project.id, "organise")
+              ? [
+                  "divider" as const,
+                  { label: "Upload request…", onSelect: () => {} },
+                  "divider" as const,
+                  { label: "Rename", onSelect: () => {} },
+                  { label: "Move to…", onSelect: () => {} },
+                  { label: "Delete…", danger: true, onSelect: () => {} },
+                ]
+              : []),
+          ]}
+        />
       </span>
     </li>
+  );
+}
+
+/* ---------- Personal marks and filters ---------- */
+
+/**
+ * What anyone who can see a thing may do to it for themselves (#114): pin it to the top of
+ * its folder, keep it as a favourite, and (files and tracks) mark it seen or not. These
+ * open every row's menu; organising follows for those who may.
+ */
+function personalActions(seen: boolean | null): (MenuAction | "divider")[] {
+  return [
+    { label: "Pin to the top", onSelect: () => {} },
+    { label: "Add to favourites", onSelect: () => {} },
+    ...(seen === null
+      ? []
+      : [{ label: seen ? "Mark as not viewed" : "Mark as viewed", onSelect: () => {} }]),
+  ];
+}
+
+const filterChoices: [IconName, string][] = [
+  ["eye", "Not yet viewed"],
+  ["comment", "With open comments"],
+  ["user", "Uploaded by me"],
+  ["star", "Favourites"],
+];
+const sampleTags: [string, number][] = [
+  ["For print", 1],
+  ["Masters", 2],
+  ["Reference", 0],
+];
+
+/**
+ * The Filter control: ways of looking across the whole project, and the workspace's tags.
+ * While any is on, the list gathers matches from every folder, each saying where it lives,
+ * and the filters show as removable chips under the toolbar.
+ */
+function FilterMenu() {
+  const [open, setOpen, box] = usePopover();
+  const [on, setOn] = useState<string[]>([]);
+  const toggle = (v: string) => setOn(on.includes(v) ? on.filter((x) => x !== v) : [...on, v]);
+  const row = (icon: IconName, label: string, count?: number) => (
+    <button
+      key={label}
+      type="button"
+      aria-pressed={on.includes(label)}
+      onClick={() => toggle(label)}
+      className="flex h-8 w-full items-center gap-2.5 rounded-control px-2 text-left text-[13px] text-ink hover:bg-raised"
+    >
+      <Icon name={icon} size={14} className="text-ink-3" />
+      <span className="flex-1 truncate">{label}</span>
+      {count !== undefined && <span className="tabular text-[12px] text-ink-3">{count}</span>}
+      <span className="flex w-4 justify-end">
+        {on.includes(label) && <Icon name="check" size={13} />}
+      </span>
+    </button>
+  );
+  return (
+    <div ref={box} className="relative">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className={cn(
+          "flex h-8 items-center gap-1.5 rounded-control px-2.5 text-[13px] hover:bg-raised hover:text-ink",
+          on.length ? "text-ink" : "text-ink-3",
+        )}
+      >
+        <Icon name="filter" size={14} />
+        Filter
+        {on.length > 0 && (
+          <span className="tabular rounded-full bg-raised px-1.5 text-[11px] text-ink-2">
+            {on.length}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Filter files"
+          className="rise-in absolute left-0 z-30 mt-1 w-64 rounded-panel-lg bg-overlay p-1.5 shadow-4 @3xl/app:right-0 @3xl/app:left-auto"
+        >
+          <p className="eyebrow m-0 px-2 pt-1 pb-1 text-ink-3">Show only</p>
+          {filterChoices.map(([icon, label]) => row(icon, label))}
+          <div className="mx-2 my-1.5 h-px bg-line" />
+          <p className="eyebrow m-0 px-2 pt-1 pb-1 text-ink-3">Tagged</p>
+          {sampleTags.map(([label, n]) => row("tag", label, n))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -658,13 +762,7 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
           <span className="ml-2 text-[13px] text-ink-3">{plural(items.length, "item")}</span>
         </nav>
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
-          <button
-            type="button"
-            className="flex h-8 items-center gap-1.5 rounded-control px-2.5 text-[13px] text-ink-3 hover:bg-raised hover:text-ink"
-          >
-            <Icon name="filter" size={14} />
-            Filter
-          </button>
+          <FilterMenu />
           <div
             role="radiogroup"
             className="flex rounded-control border border-line bg-raised/40 p-0.5"

@@ -283,6 +283,9 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
           openComments: sql<number>`(select count(*)::int from comments c
             where c.file_id = ${files.id} and c.organisation_id = ${organisationId}
             and c.parent_id is null and c.resolved_at is null)`,
+          tagIds: sql<string[]>`coalesce((select array_agg(ft.tag_id::text order by ft.tag_id)
+            from file_tags ft where ft.file_id = ${files.id}
+            and ft.organisation_id = ${organisationId}), '{}')`,
         })
         .from(files)
         .leftJoin(users, eq(files.uploadedBy, users.id))
