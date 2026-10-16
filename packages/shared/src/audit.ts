@@ -50,6 +50,8 @@ export const auditActions = [
   "account.second_factor_removed",
   /** A member generated new recovery codes; the old ones stop working. */
   "account.recovery_codes",
+  /** A member deleted their account; what they did stays, as a former member's. */
+  "account.deleted",
   /** An owner renamed the workspace. */
   "organisation.rename",
   /** An admin changed the workspace's settings. */

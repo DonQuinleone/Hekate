@@ -550,6 +550,19 @@ test.describe("guest code", () => {
   });
 });
 
+// Deleting your account asks for the address typed out and the password; opened, not sent.
+test("account-delete", async ({ page }) => {
+  await page.goto("/account/account");
+  await settle(page, "main >> text=Danger zone");
+  await page.getByRole("button", { name: "Delete…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Delete your account" });
+  await dialog.getByLabel("Type producer@example.test to confirm").fill("producer@example.test");
+  await expect(dialog.getByRole("button", { name: "Delete my account" })).toBeDisabled();
+  await saveScreen(page, "account-delete");
+  await checkScreen(page);
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+});
+
 // A file whose preparation failed says so, with a way to try again; put back as seeded after.
 test("project-files-failed", async ({ page }, info) => {
   const sql = postgres(process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL ?? "", { max: 1 });

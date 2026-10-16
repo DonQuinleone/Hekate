@@ -281,6 +281,13 @@
       "when": 1792147443715,
       "tag": "0039_guest_code",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1792148505236,
+      "tag": "0040_account_deletion",
+      "breakpoints": true
     }
   ]
 }
