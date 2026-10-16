@@ -73,7 +73,10 @@ export const queryClient = new QueryClient({
 /** Sign-in's address: where to go after, which state of the forgotten password, and why. */
 const signInSearch = z.object({
   redirect: z.string().max(2000).optional().catch(undefined),
-  view: z.enum(["forgot", "sent", "reset", "code", "recovery"]).optional().catch(undefined),
+  view: z
+    .enum(["forgot", "sent", "reset", "code", "recovery", "directory"])
+    .optional()
+    .catch(undefined),
   email: z.string().max(254).optional().catch(undefined),
   code: z
     .string()

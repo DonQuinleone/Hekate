@@ -5,6 +5,8 @@ import {
   type CreateProjectInput,
   type CreateReviewInput,
   type DeliveryProfileId,
+  type DirectorySettings,
+  type DirectorySettingsInput,
   decodeLoudness,
   decodePeaks,
   decodeSpectrogram,
@@ -135,6 +137,13 @@ export const setupQuery = queryOptions({
   queryKey: ["setup"],
   queryFn: async () => (await json<{ needed: boolean }>(await api.setup.$get())).needed,
   staleTime: Number.POSITIVE_INFINITY,
+});
+
+/** What the sign-in page offers beyond a password and a passkey. */
+export const signInMethodsQuery = queryOptions({
+  queryKey: ["sign-in-methods"],
+  queryFn: async () => json<{ directory: boolean }>(await api["sign-in-methods"].$get()),
+  staleTime: 5 * 60_000,
 });
 
 export const projectsQuery = queryOptions({
@@ -427,6 +436,36 @@ export const workspaceSettingsQuery = queryOptions({
 });
 
 /** Change some workspace settings (admins). The language reaches every member, so `me` too. */
+/** The workspace's directory (LDAP) for signing in; admins only. */
+export const directoryQuery = queryOptions({
+  queryKey: ["organisation", "directory"],
+  queryFn: async () =>
+    json<{ directory: DirectorySettings; workspace: string }>(
+      await api.organisation.directory.$get(),
+    ),
+});
+
+export function useSaveDirectory() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: DirectorySettingsInput) =>
+      (
+        await json<{ directory: DirectorySettings }>(
+          await api.organisation.directory.$put({ json: input }),
+        )
+      ).directory,
+    onSuccess: () => client.invalidateQueries({ queryKey: directoryQuery.queryKey }),
+  });
+}
+
+/** Connect with the saved settings and say whether it worked. */
+export function useTestDirectory() {
+  return useMutation({
+    mutationFn: async () =>
+      json<{ ok: boolean; problem: string | null }>(await api.organisation.directory.test.$post()),
+  });
+}
+
 export function useSaveWorkspaceSettings() {
   const client = useQueryClient();
   return useMutation({

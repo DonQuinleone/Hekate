@@ -13,7 +13,7 @@ import { api } from "~/lib/api";
 import { authClient } from "~/lib/auth";
 import { cn } from "~/lib/cn";
 import { passwordStrength } from "~/lib/password";
-import { meQuery } from "~/lib/queries";
+import { meQuery, signInMethodsQuery } from "~/lib/queries";
 
 export function Frame({
   title,
@@ -66,7 +66,7 @@ export function ErrorLine({ message }: { message: string | null }) {
   );
 }
 
-export type SignInView = "forgot" | "sent" | "reset" | "code" | "recovery";
+export type SignInView = "forgot" | "sent" | "reset" | "code" | "recovery" | "directory";
 export interface SignInSearch {
   redirect?: string;
   view?: SignInView;
@@ -110,6 +110,8 @@ export function SignInPage() {
         back={() => go({})}
       />
     );
+  if (search.view === "directory")
+    return <DirectorySignIn redirect={search.redirect} back={() => go({})} />;
   if (search.view === "reset")
     return (
       <Reset
@@ -150,6 +152,7 @@ async function arrive(redirect: string | undefined, navigate: ReturnType<typeof 
 function SignIn({ search, forgot }: { search: SignInSearch; forgot: (email: string) => void }) {
   const navigate = useNavigate();
   const key = usePasskeySignIn();
+  const { data: methods } = useQuery(signInMethodsQuery);
   const client = useQueryClient();
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -229,10 +232,82 @@ function SignIn({ search, forgot }: { search: SignInSearch; forgot: (email: stri
           <Icon name="key" size={16} />
           {key.pending ? "Waiting for the key" : "Sign in with a passkey"}
         </Button>
+        {methods?.directory && (
+          <button
+            type="button"
+            onClick={() =>
+              void navigate({
+                to: "/sign-in",
+                search: {
+                  ...(search.redirect ? { redirect: search.redirect } : {}),
+                  view: "directory",
+                },
+              })
+            }
+            className="self-center text-[13px] text-ink-3 transition-colors hover:text-ink"
+          >
+            Sign in with your workspace's directory
+          </button>
+        )}
       </form>
       <p className="m-0 border-t border-hairline pt-4 text-xs leading-normal text-ink-3">
         Accounts are by invitation. Guests reviewing a file open the link in their email instead.
       </p>
+    </Frame>
+  );
+}
+
+/**
+ * Signing in with a workspace's directory (LDAP or Active Directory): which workspace, then the
+ * username and password the directory knows. The first sign-in makes the account.
+ */
+function DirectorySignIn({ redirect, back }: { redirect?: string; back: () => void }) {
+  const navigate = useNavigate();
+  const client = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    setPending(true);
+    setError(null);
+    const { error } = await authClient.$fetch("/sign-in/directory", {
+      method: "POST",
+      body: {
+        workspace: String(form.get("workspace")),
+        username: String(form.get("username")),
+        password: String(form.get("password")),
+      },
+    });
+    setPending(false);
+    if (error) {
+      setError(error.message ?? "That did not go through. Try again.");
+      return;
+    }
+    await client.invalidateQueries({ queryKey: ["me"] });
+    await arrive(redirect, navigate);
+  };
+  return (
+    <Frame
+      title="Sign in with a directory"
+      intro="Your workspace signs you in with the username and password you use at work."
+    >
+      <form onSubmit={submit} className="flex flex-col gap-4">
+        <Field
+          id="workspace"
+          label="Workspace"
+          autoComplete="organization"
+          autoFocus
+          placeholder="endless-hall-records"
+        />
+        <Field id="username" label="Username" autoComplete="username" />
+        <Field id="password" label="Password" type="password" autoComplete="current-password" />
+        <ErrorLine message={error} />
+        <Button variant="primary" size="lg" type="submit" disabled={pending}>
+          {pending ? "Signing in" : "Sign in"}
+        </Button>
+      </form>
+      <Back onClick={back} />
     </Frame>
   );
 }

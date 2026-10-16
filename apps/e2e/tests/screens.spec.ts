@@ -58,6 +58,12 @@ const screens: Screen[] = [
     ready: "text=Use a recovery code",
     as: "signed-out",
   },
+  {
+    name: "sign-in-directory",
+    path: () => "/sign-in?view=directory",
+    ready: "text=Sign in with a directory",
+    as: "signed-out",
+  },
   { name: "reference", path: () => "/reference", ready: "main h1", as: "signed-out" },
   {
     name: "invitation",
@@ -195,7 +201,7 @@ const screens: Screen[] = [
   {
     name: "settings-security",
     path: () => "/settings/security",
-    ready: "main >> text=Second factor required of",
+    ready: "main >> text=Directory (LDAP)",
   },
   {
     name: "settings-email",

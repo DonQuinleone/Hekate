@@ -10,6 +10,7 @@ import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
 import type { Mailer } from "./mail.ts";
 import { carryRoutes, commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
+import { directoryRoutes, signInMethodRoutes } from "./routes/directory.ts";
 import { fileDetailRoutes } from "./routes/file-details.ts";
 import { fileManageRoutes, folderRoutes, projectFolderRoutes } from "./routes/folders.ts";
 import { projectGroupRoutes } from "./routes/groups.ts";
@@ -91,12 +92,14 @@ export function createApi(deps: AppDeps) {
     new Hono()
       .route("/health", health(deps.db))
       .route("/setup", setupRoutes(deps.db, deps.auth, deps.passwordLeakCheck ?? false))
+      .route("/sign-in-methods", signInMethodRoutes(deps.db))
       // Deleting the account needs no workspace; it answers before the workspace check below.
       .route(
         "/me",
         accountRoutes(deps.db, {
           auth: deps.auth,
           audit: deps.audit,
+          keyring: deps.keyring,
           trustProxy: deps.trustProxy ?? false,
           maxPasskeys: deps.maxPasskeys ?? 5,
         }),
@@ -106,6 +109,10 @@ export function createApi(deps: AppDeps) {
       .route("/me", meRoutes(deps.db, rule, { maxPasskeys: deps.maxPasskeys ?? 5 }))
       .route("/invitations", invitationRoutes(deps.db, deps.auth))
       .use("/organisation/*", ...member)
+      .route(
+        "/organisation/directory",
+        directoryRoutes(deps.db, deps.keyring, deps.audit, deps.trustProxy ?? false),
+      )
       .route(
         "/organisation",
         organisationRoutes(
