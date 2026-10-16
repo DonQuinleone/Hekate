@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { cn } from "~/lib/cn";
+import { formatDates } from "~/lib/locale";
 import {
   projectFilesQuery,
   projectGroupsQuery,
@@ -18,7 +19,7 @@ import { GuestFields } from "./guest-fields";
 import { Button } from "./ui/button";
 import { type ReviewState, StatusPill } from "./ui/status";
 
-const dateFormat = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
+const dateFormat = formatDates({ day: "numeric", month: "short" });
 
 /** A review's status as the pill shows it. */
 export function reviewState(review: Pick<ReviewSummary, "status" | "outcome">): ReviewState {

@@ -1,6 +1,7 @@
 import type { ReviewerPermissions, ReviewerTool } from "@hekate/shared";
+import { formatDates } from "./locale";
 
-const moment = new Intl.DateTimeFormat("en-GB", {
+const moment = formatDates({
   day: "numeric",
   month: "short",
   hour: "2-digit",

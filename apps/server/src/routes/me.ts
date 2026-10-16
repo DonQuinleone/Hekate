@@ -1,7 +1,7 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { fileColumnsInput } from "@hekate/shared";
+import { fileColumnsInput, preferencesInput, preferencesOf, profileInput } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gt, ne } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -11,7 +11,15 @@ export const meRoutes = (db: Database) =>
   new Hono<{ Variables: TenantVariables }>()
     .get("/", async (c) => {
       const [user] = await db
-        .select({ id: schema.users.id, name: schema.users.name, email: schema.users.email })
+        .select({
+          id: schema.users.id,
+          name: schema.users.name,
+          email: schema.users.email,
+          emailVerified: schema.users.emailVerified,
+          locale: schema.users.locale,
+          timeZone: schema.users.timeZone,
+          preferences: schema.users.preferences,
+        })
         .from(schema.users)
         .where(eq(schema.users.id, c.var.userId));
       const organisations = await db
@@ -24,7 +32,100 @@ export const meRoutes = (db: Database) =>
         .innerJoin(schema.organisations, eq(schema.members.organisationId, schema.organisations.id))
         .where(eq(schema.members.userId, c.var.userId))
         .orderBy(asc(schema.organisations.name));
-      return c.json({ user, organisations, activeOrganisationId: c.var.organisationId });
+      return c.json({
+        user: user && { ...user, preferences: preferencesOf(user.preferences) },
+        organisations,
+        activeOrganisationId: c.var.organisationId,
+      });
+    })
+    // Name, language and time zone. The email address changes through sign-in's own flow,
+    // which confirms the new address first.
+    .patch("/", zValidator("json", profileInput), async (c) => {
+      const input = c.req.valid("json");
+      const [user] = await db
+        .update(schema.users)
+        .set({ ...input, updatedAt: new Date() })
+        .where(eq(schema.users.id, c.var.userId))
+        .returning({
+          id: schema.users.id,
+          name: schema.users.name,
+          email: schema.users.email,
+          locale: schema.users.locale,
+          timeZone: schema.users.timeZone,
+        });
+      return c.json({ user });
+    })
+    // What they want to see and how the player behaves, merged into what they had. Under a
+    // row lock, so two changes at once both land.
+    .patch("/preferences", zValidator("json", preferencesInput), async (c) => {
+      const change = c.req.valid("json");
+      const preferences = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .select({ preferences: schema.users.preferences })
+          .from(schema.users)
+          .where(eq(schema.users.id, c.var.userId))
+          .for("update");
+        const next = { ...preferencesOf(row?.preferences), ...change };
+        await tx
+          .update(schema.users)
+          .set({ preferences: next, updatedAt: new Date() })
+          .where(eq(schema.users.id, c.var.userId));
+        return next;
+      });
+      return c.json({ preferences });
+    })
+    // Where this person is signed in. Tokens never leave the server.
+    .get("/sessions", async (c) => {
+      const rows = await db
+        .select({
+          id: schema.authSessions.id,
+          ipAddress: schema.authSessions.ipAddress,
+          userAgent: schema.authSessions.userAgent,
+          createdAt: schema.authSessions.createdAt,
+          lastUsedAt: schema.authSessions.updatedAt,
+        })
+        .from(schema.authSessions)
+        .where(
+          and(
+            eq(schema.authSessions.userId, c.var.userId),
+            gt(schema.authSessions.expiresAt, new Date()),
+          ),
+        )
+        .orderBy(desc(schema.authSessions.updatedAt));
+      return c.json({
+        sessions: rows.map((r) => ({ ...r, current: r.id === c.var.sessionId })),
+      });
+    })
+    // Sign out one other session, or every other one; this one stays.
+    .delete(
+      "/sessions/:id",
+      zValidator("param", z.object({ id: z.string().min(1).max(100) })),
+      async (c) => {
+        const id = c.req.valid("param").id;
+        if (id === c.var.sessionId) {
+          throw new HTTPException(409, {
+            message: "Sign out of this session from the account menu",
+          });
+        }
+        const gone = await db
+          .delete(schema.authSessions)
+          .where(and(eq(schema.authSessions.id, id), eq(schema.authSessions.userId, c.var.userId)))
+          .returning({ id: schema.authSessions.id });
+        if (gone.length === 0) throw new HTTPException(404, { message: "Session not found" });
+        return c.body(null, 204);
+      },
+    )
+    .delete("/sessions", async (c) => {
+      const gone = await db
+        .delete(schema.authSessions)
+        .where(
+          and(
+            eq(schema.authSessions.userId, c.var.userId),
+            ne(schema.authSessions.id, c.var.sessionId),
+          ),
+        )
+        .returning({ id: schema.authSessions.id });
+      return c.json({ signedOut: gone.length });
     })
     .put("/organisation", zValidator("json", z.object({ organisationId: z.uuid() })), async (c) => {
       const { organisationId } = c.req.valid("json");

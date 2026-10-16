@@ -3,6 +3,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
 import { actionCopy } from "~/lib/access-log";
+import { formatDates } from "~/lib/locale";
 import {
   accessLogQuery,
   type FileDetails,
@@ -21,15 +22,15 @@ import { Button } from "./ui/button";
 import { Select } from "./ui/input";
 import { StatusDot } from "./ui/status";
 
-const dateTime = new Intl.DateTimeFormat("en-GB", {
+const dateTime = formatDates({
   day: "numeric",
   month: "short",
   year: "numeric",
   hour: "2-digit",
   minute: "2-digit",
 });
-const shortDate = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
-const logTime = new Intl.DateTimeFormat("en-GB", {
+const shortDate = formatDates({ day: "numeric", month: "short" });
+const logTime = formatDates({
   day: "numeric",
   month: "short",
   hour: "2-digit",

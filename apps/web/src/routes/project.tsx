@@ -10,6 +10,7 @@ import { ProjectAccess } from "~/components/project-access";
 import { ProjectReviews } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
 import { type BrowserFilters, noFilters } from "~/lib/browser";
+import { formatDates } from "~/lib/locale";
 import {
   type Project,
   projectFoldersQuery,
@@ -60,7 +61,7 @@ function ProjectFrame({
   );
 }
 
-const dayFormat = new Intl.DateTimeFormat("en-GB", {
+const dayFormat = formatDates({
   day: "numeric",
   month: "long",
   year: "numeric",
