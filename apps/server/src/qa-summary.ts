@@ -1,9 +1,16 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { deliveryFindings, orderFindings, type QaFinding } from "@hekate/shared";
+import {
+  applyQaSettings,
+  deliveryFindings,
+  orderFindings,
+  type QaFinding,
+  qaSettingsOf,
+  ruleFindings,
+} from "@hekate/shared";
 import { and, eq } from "drizzle-orm";
 import { profilesForFiles } from "./delivery-profiles.ts";
 
-const { files, loudness, qaFindings } = schema;
+const { files, loudness, projects, qaFindings } = schema;
 
 /**
  * A project's audio files that fail a check, each with its worst finding's summary: the same
@@ -16,7 +23,11 @@ export async function failingChecks(
   organisationId: string,
   projectId: string,
 ): Promise<{ id: string; name: string; summary: string }[]> {
-  const [audio, signal] = await Promise.all([
+  const [[project], audio, signal] = await Promise.all([
+    db
+      .select({ qaSettings: projects.qaSettings })
+      .from(projects)
+      .where(inOrg(projects, organisationId, eq(projects.id, projectId))),
     db
       .select({
         id: files.id,
@@ -51,6 +62,7 @@ export async function failingChecks(
   const signalBy = new Map<string, QaFinding[]>();
   for (const { fileId, ...finding } of signal)
     signalBy.set(fileId, [...(signalBy.get(fileId) ?? []), finding]);
+  const settings = qaSettingsOf(project?.qaSettings);
   const profiles = await profilesForFiles(
     db,
     organisationId,
@@ -63,8 +75,14 @@ export async function failingChecks(
     if (!channels) continue;
     const { profile } = profiles.of(f.id, channels);
     const findings = orderFindings([
-      ...deliveryFindings(profile, f.mediaInfo, f.measured ?? null),
-      ...(signalBy.get(f.id) ?? []),
+      ...applyQaSettings(
+        [
+          ...deliveryFindings(profile, f.mediaInfo, f.measured ?? null),
+          ...(signalBy.get(f.id) ?? []),
+        ],
+        settings,
+      ),
+      ...ruleFindings(settings.rules, f, f.mediaInfo, f.measured ?? null),
     ]);
     const fail = findings.find((x) => x.severity === "fail");
     if (fail) out.push({ id: f.id, name: f.name, summary: fail.summary });

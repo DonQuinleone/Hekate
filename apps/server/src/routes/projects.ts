@@ -100,6 +100,7 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
                 deliveryProfile: projects.deliveryProfile,
                 checkTruePeak: projects.checkTruePeak,
                 requireEdl: projects.requireEdl,
+                qaSettings: projects.qaSettings,
               })
               .from(projects)
               .where(inOrg(projects, organisationId, eq(projects.id, access.projectId)));
@@ -279,7 +280,8 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
       const workflow =
         input.deliveryProfile !== undefined ||
         input.checkTruePeak !== undefined ||
-        input.requireEdl !== undefined;
+        input.requireEdl !== undefined ||
+        input.qaSettings !== undefined;
       const id = c.req.valid("param").id;
       if (workflow) await can(db, actorOf(c.var), "edit_workflows", id);
       const access = await can(db, actorOf(c.var), general ? "edit_project" : "edit_workflows", id);

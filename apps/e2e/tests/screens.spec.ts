@@ -204,6 +204,11 @@ const screens: Screen[] = [
     ready: "main >> text=Checks on a new version",
   },
   {
+    name: "project-settings-qa",
+    path: (s) => `/projects/${s.musicProjectId}/settings?section=qa`,
+    ready: "main >> text=Flattened peaks",
+  },
+  {
     name: "project-settings-delivery",
     path: (s) => `/projects/${s.musicProjectId}/settings?section=delivery`,
     ready: "main select[aria-label='Project default']",

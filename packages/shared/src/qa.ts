@@ -29,6 +29,8 @@ export const qaChecks = [
   "dead-channel",
   "imbalance",
   "phase",
+  /** One of the project's own rules (#144); its name is in the finding's details. */
+  "custom",
 ] as const;
 export type QaCheck = (typeof qaChecks)[number];
 
