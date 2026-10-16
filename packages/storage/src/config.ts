@@ -108,6 +108,7 @@ export function storageConfigFromEnv(
   if (problems.length > 0) {
     throw new StorageConfigError(
       `Invalid storage configuration:\n${problems.map((p) => `  ${p}`).join("\n")}`,
+      problems,
     );
   }
   return { backends, defaultBackend };

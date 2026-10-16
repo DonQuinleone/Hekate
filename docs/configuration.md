@@ -1,0 +1,88 @@
+# Configuration
+
+<!-- Written by `pnpm --filter @hekate/server config:reference` from apps/server/src/config.ts. Do not edit by hand. -->
+
+Hekate is configured through environment variables, in `.env` for the Compose file. Every one is checked at start-up: if any is missing or wrong, Hekate lists them all, says what would be valid, and does not start.
+
+A setting marked as secret may instead name a file that holds it, with `_FILE` added to its name (for Docker secrets): `AUTH_SECRET_FILE=/run/secrets/auth_secret`.
+
+## Server
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `NODE_ENV` | `development` | Set to production by the app image. |
+| `PORT` | `3000` | The port the server listens on. |
+| `PUBLIC_URL` | `http://localhost:3000` | The address people open Hekate at. Links in emails, sign-in callbacks and passkeys are bound to it. Example: `https://review.example.com`. |
+| `TRUST_PROXY` | `false` | Behind a reverse proxy (Caddy in the Compose file), take client addresses from X-Forwarded-For. |
+| `TRUSTED_ORIGINS` | unset | Extra origins allowed to call the API with credentials, comma separated: the Vite dev server, say. Example: `http://localhost:5173`. |
+| `WEB_DIST` | unset | Directory holding the built web app, served with a single-page fallback. Set in the app image. |
+
+## Database
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `DATABASE_URL` | **required** | The PostgreSQL connection URL. Example: `postgres://hekate:secret@db:5432/hekate`. Or `DATABASE_URL_FILE`, naming a file that holds it. |
+| `MIGRATE_ON_START` | `false` | Run pending migrations at start-up. On in the app image. |
+
+## Security
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `AUTH_SECRET` | **required** | Signs sessions and tokens, and keys the hashes of recovery codes. At least 32 random characters. Example: `(openssl rand -hex 32)`. Or `AUTH_SECRET_FILE`, naming a file that holds it. |
+| `MASTER_KEY` | **required** | The instance master key for encryption at rest: 32 random bytes, base64 encoded. It wraps every workspace key; losing it loses every stored file, so back it up apart from the database and storage. Example: `(openssl rand -base64 32)`. Or `MASTER_KEY_FILE`, naming a file that holds it. |
+| `MASTER_KEYS_PREVIOUS` | unset | Earlier master keys, comma separated, kept only while rotating (docs/security.md). Or `MASTER_KEYS_PREVIOUS_FILE`, naming a file that holds it. |
+
+## Sign-in
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `PASSWORD_LEAK_CHECK` | `true` | Check new passwords against Have I Been Pwned, sending only the first five characters of a hash. Turn off on an instance without internet access. |
+| `REQUIRE_SECOND_FACTOR` | `false` | Ask every account for a second factor, whatever its workspaces say. People without one are asked at their next sign-in. |
+| `MAX_PASSKEYS` | `5` | How many passkeys and hardware security keys one account may hold. |
+| `SSO_TRUSTED_ORIGINS` | unset | Origins of identity providers on a private network (an internal Keycloak, say), comma separated, that single sign-on may reach. Public ones need nothing. Example: `https://login.internal.example`. |
+
+## Mail
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `SMTP_URL` | unset | The SMTP server to send mail through. Without it, mail is written to the log instead. Example: `smtp://user:pass@mail.example.com:587`. Or `SMTP_URL_FILE`, naming a file that holds it. |
+| `MAIL_FROM` | `Hekate <hekate@localhost>` | The sender of every message. |
+
+## Media
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `WORKER` | `true` | Run background jobs (media processing, mail, reminders) in this process. Turn off for API-only replicas. |
+| `WORKER_CONCURRENCY` | `2` | Media jobs run at once in this process. ffmpeg is CPU-heavy; about half the cores is a good start. |
+| `WORK_DIR` | unset | Scratch space for decrypted media while a job runs; a tmpfs keeps it off disk. Defaults to hekate-work in the system's temporary directory. Example: `/tmp/hekate-work`. |
+| `STORAGE_RECONCILE` | `remove` | What the daily storage reconciliation does with bytes and blobs nothing uses, once a second run a day later still finds them: remove them, or only report them. |
+
+## Modules
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `HEKATE_BILLING` | `off` | Billing for a hosted offering (decision 041). Off for a self-hosted install, which shows none. |
+| `HEKATE_SUPPORT` | `off` | Support: off; app, tickets in the application; link, an external help desk; or mail, tickets sent to an address (decision 041). |
+| `HEKATE_SUPPORT_ADDRESS` | unset | Where support goes: the help desk's address when HEKATE_SUPPORT is link, or the mailbox when it is mail. Example: `support@example.com`. |
+| `HEKATE_DOCS_URL` | `https://docs.hekate.studio` | Where the help menu's documentation link goes. |
+| `HEKATE_STATUS_URL` | unset | A status page for the help menu to link to; none when unset. |
+
+## Storage
+
+Storage backends are named in `STORAGE_BACKENDS` (default `local`), and each is configured by settings carrying its name: for a backend called `archive`, `STORAGE_ARCHIVE_DRIVER` and so on. `STORAGE_DEFAULT` names the backend new files go to (the first listed, unless set). Every backend is checked at start-up; Hekate will not start with one it cannot reach or write to.
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `STORAGE_BACKENDS` | `local` | The backends, comma separated: lower-case letters, digits and hyphens. |
+| `STORAGE_DEFAULT` | the first listed | Where new files go. |
+| `STORAGE_<NAME>_DRIVER` | `local` or `s3` for backends of those names | `local` or `s3`. |
+| `STORAGE_<NAME>_PATH` | `data/storage` for `local` | Local: the directory objects are kept in. |
+| `STORAGE_<NAME>_BUCKET` | **required** for S3 | S3: the bucket. |
+| `STORAGE_<NAME>_REGION` | unset | S3: the region. |
+| `STORAGE_<NAME>_ENDPOINT` | unset | S3: the endpoint, for an S3-compatible service other than AWS. |
+| `STORAGE_<NAME>_FORCE_PATH_STYLE` | `false` | S3: address the bucket in the path, as most S3-compatible services need. |
+| `STORAGE_<NAME>_ACCESS_KEY_ID` | unset | S3: the access key; set with the secret, or neither to use the environment's credentials. Or `_FILE`. |
+| `STORAGE_<NAME>_SECRET_ACCESS_KEY` | unset | S3: the secret key. Or `_FILE`. |
+| `STORAGE_<NAME>_PREFIX` | unset | S3: a prefix for every object, to share a bucket. |
+
+Whatever the backend, it holds only ciphertext: every file is encrypted with its own key before it is written (docs/security.md).

@@ -1,5 +1,9 @@
 /**
- * Where "View documentation" goes. The server will hand over HEKATE_DOCS_URL once the
- * configuration reference lands (#128); until then the default (decision 041) is used.
+ * Where "View documentation" goes: HEKATE_DOCS_URL, which the server puts in the page as a
+ * meta tag (#128), or the default (decision 041) where there is none, as in development.
  */
-export const docsUrl = "https://docs.hekate.studio";
+export const docsUrl =
+  (typeof document === "undefined"
+    ? undefined
+    : document.querySelector<HTMLMetaElement>('meta[name="hekate-docs-url"]')?.content) ||
+  "https://docs.hekate.studio";
