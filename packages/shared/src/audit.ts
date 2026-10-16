@@ -37,6 +37,10 @@ export const auditActions = [
   /** Someone added a reviewer to a review, or removed one. */
   "review.reviewer_add",
   "review.reviewer_remove",
+  /** A new version was let in past the project's version checks. */
+  "version.let_through",
+  /** A version's file was replaced by another, its threads moving with it. */
+  "variation.replace",
   /** A guest was sent a magic link, used one, or had their links and sessions revoked. */
   "guest.link",
   "guest.sign_in",

@@ -1,18 +1,34 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, Navigate } from "@tanstack/react-router";
+import { useState } from "react";
+import { Icon } from "~/components/icons";
+import { Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
-import { TrackView } from "~/components/tracks";
-import { projectQuery, trackQuery } from "~/lib/queries";
+import { primaryOf, TrackVersions } from "~/components/track-versions";
+import { Button } from "~/components/ui/button";
+import { projectQuery, trackQuery, useProjectCan } from "~/lib/queries";
 
-export function TrackPage({ trackId }: { trackId: string }) {
+/**
+ * A track (#131): it opens in the player on its latest version's primary file, like a
+ * folder of its versions; its versions page is one step from there (`?view=versions`), and
+ * where a track without versions opens.
+ */
+export function TrackPage({ trackId, view }: { trackId: string; view?: "versions" }) {
   const { data: track, error } = useQuery(trackQuery(trackId));
   const { data: project } = useQuery({
     ...projectQuery(track?.projectId ?? ""),
     enabled: Boolean(track),
   });
+  const can = useProjectCan(track?.projectId);
+  const [adding, setAdding] = useState(false);
   if (error) return <p className="p-8 text-signal">{error.message}</p>;
-  if (!track) return <p className="p-8 text-ink-3">Loading</p>;
-  const count = track.versions.length;
+  if (!track || !project) return <p className="p-8 text-ink-3">Loading</p>;
+  const latest = track.versions.at(-1);
+  const playable = latest && primaryOf(latest);
+  if (view !== "versions" && playable) {
+    return <Navigate to="/files/$fileId" params={{ fileId: playable.fileId }} replace />;
+  }
+  const live = !project.archivedAt;
   return (
     <>
       <PageHeader
@@ -22,17 +38,39 @@ export function TrackPage({ trackId }: { trackId: string }) {
             key: "project",
             link: (
               <Link to="/projects/$projectId/files" params={{ projectId: track.projectId }}>
-                {project?.name ?? "Project"}
+                {project.name}
               </Link>
             ),
           },
         ]}
-        title={track.name}
-        meta={count === 0 ? "No versions yet" : `${count} ${count === 1 ? "version" : "versions"}`}
+        title={`${track.name}: versions`}
+        actions={
+          live ? (
+            <>
+              {can("request_reviews") && latest && (
+                <Button variant="secondary" size="sm" asChild>
+                  <Link
+                    to="/projects/$projectId/reviews/new"
+                    params={{ projectId: track.projectId }}
+                    search={{ item: `track:${track.id}` }}
+                  >
+                    Request a review
+                  </Link>
+                </Button>
+              )}
+              {can("upload") && !adding && (
+                <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
+                  <Icon name="upload" size={14} />
+                  {project.profile === "video" ? "Add cut" : "Add version"}
+                </Button>
+              )}
+            </>
+          ) : undefined
+        }
       />
-      <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-5 sm:px-6">
-        <TrackView trackId={track.id} />
-      </div>
+      <Page width="narrow" className="max-w-[1040px] gap-6">
+        <TrackVersions track={track} project={project} adding={adding} onAdding={setAdding} />
+      </Page>
     </>
   );
 }

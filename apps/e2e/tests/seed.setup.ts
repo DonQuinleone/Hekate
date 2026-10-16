@@ -116,6 +116,7 @@ setup("seed", async ({ page, browser }) => {
   recording(file("Maple Leaf Rag - Mix v1.wav"), 40, 0.6);
   recording(file("Maple Leaf Rag - Dry v2.wav"), 40, 0.8, true);
   recording(file("Maple Leaf Rag - Wet v2.wav"), 40, 1);
+  recording(file("Maple Leaf Rag - Dry v3.wav"), 40, 0.9);
   writeFileSync(file("Maple Leaf Rag - Score.pdf"), samplePdf(3));
   cut(file("Opening titles - Cut 3.mp4"));
 
@@ -167,6 +168,7 @@ setup("seed", async ({ page, browser }) => {
     file("Maple Leaf Rag - Mix v1.wav"),
     file("Maple Leaf Rag - Dry v2.wav"),
     file("Maple Leaf Rag - Wet v2.wav"),
+    file("Maple Leaf Rag - Dry v3.wav"),
     file("Maple Leaf Rag - Score.pdf"),
   ]);
   await upload(page, video.id, [file("Opening titles - Cut 3.mp4")]);
@@ -199,6 +201,8 @@ setup("seed", async ({ page, browser }) => {
       { fileId: named("Wet v2"), name: "Wet" },
     ],
   });
+  // From here on a version needs an edit decision list (#131): the next one is refused.
+  await api(page, "PATCH", `/api/projects/${music.id}`, { requireEdl: true });
   const { track: entertainer } = await api<{ track: { id: string } }>(
     page,
     "POST",

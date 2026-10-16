@@ -3425,6 +3425,7 @@ describe.runIf(url)("api", () => {
           accompanist,
           engineer,
           ids: {
+            owner: await idOf(owner),
             composer: await idOf(composer),
             accompanist: await idOf(accompanist),
             engineer: await idOf(engineer),
@@ -4902,6 +4903,223 @@ describe.runIf(url)("api", () => {
         );
         expect(changed).toMatchObject({ status: "completed", outcome: "approved" });
         expect(changed.decisions).toHaveLength(2);
+      });
+
+      it("checks a new version before it lands, carries as chosen, and replaces a file keeping its threads", async () => {
+        const s = await studio();
+        const send = (method: string, url: string, body: unknown, cookie: string) =>
+          app.request(url, { ...json(body, cookie), method });
+        const audioFile = async (name: string, analysisStatus: "pending" | "ready" = "ready") => {
+          const blob = await storage.put(s.organisationId, Buffer.from(name));
+          const [row] = await db
+            .insert(schema.files)
+            .values({
+              organisationId: s.organisationId,
+              projectId: s.projectId,
+              name,
+              kind: name.endsWith(".edl") || name.endsWith(".txt") ? "document" : "audio",
+              blobId: blob.id,
+              contentType: "application/octet-stream",
+              byteSize: blob.byteSize,
+              analysisStatus,
+              mediaInfo: name.endsWith(".wav")
+                ? { duration: 60, audio: { codec: "pcm_s24le", channels: 2, sampleRate: 48000 } }
+                : null,
+            })
+            .returning();
+          return row?.id ?? "";
+        };
+        const measure = async (fileId: string, truePeak: number) => {
+          const blob = await storage.put(s.organisationId, Buffer.from("series"));
+          await db.insert(schema.loudness).values({
+            organisationId: s.organisationId,
+            fileId,
+            summary: {
+              integrated: -14,
+              range: 6,
+              momentaryMax: -8,
+              shortTermMax: -10,
+              truePeak,
+              channels: [],
+            },
+            channels: 2,
+            sampleRate: 48000,
+            samplesPerFrame: 4800,
+            frameCount: 600,
+            blobId: blob.id,
+          });
+        };
+        // Two threads on version 1, for the new version to carry as chosen.
+        const thread = async (body: string) =>
+          (
+            (await (
+              await app.request(`/api/files/${s.mix}/comments`, json({ body }, s.owner))
+            ).json()) as {
+              comment: { id: string };
+            }
+          ).comment.id;
+        const hide = await thread("Hiss under the intro.");
+        const fixed = await thread("Clipped at 1:12.");
+        const carry = (await (
+          await getAs(`/api/tracks/${s.trackId}/carry`, s.engineer)
+        ).json()) as {
+          threads: { commentId: string; variation: string; authorName: string }[];
+        };
+        expect(carry.threads.map((t) => t.commentId).sort()).toEqual([hide, fixed].sort());
+        expect(carry.threads[0]?.variation).toBe("Mix");
+        expect(carry.threads[0]?.authorName).toEqual(expect.any(String));
+        expect((await getAs(`/api/tracks/${s.trackId}/carry`, s.composer)).status).toBe(403);
+
+        expect(
+          (
+            await send(
+              "PATCH",
+              `/api/projects/${s.projectId}`,
+              { checkTruePeak: true, requireEdl: true, deliveryProfile: "apple-digital-masters" },
+              s.owner,
+            )
+          ).status,
+        ).toBe(200);
+        const v2 = await audioFile("Mix v2.wav", "pending");
+        const add = (body: Record<string, unknown>, cookie = s.engineer) =>
+          app.request(
+            `/api/tracks/${s.trackId}/versions`,
+            json({ variations: [{ fileId: v2, name: "Mix" }], ...body }, cookie),
+          );
+        // Still being measured: try again shortly.
+        const edl = await audioFile("Cut.edl");
+        const early = await add({ edlFileId: edl });
+        expect(early.status).toBe(409);
+        expect(((await early.json()) as { error: { code: string } }).error.code).toBe(
+          "version_measuring",
+        );
+        // Measured, and over the ceiling, with no EDL: refused, saying why.
+        await measure(v2, 0.2);
+        const refused = await add({});
+        expect(refused.status).toBe(422);
+        const why = ((await refused.json()) as { error: { code: string; message: string } }).error;
+        expect(why.code).toBe("version_refused");
+        expect(why.message).toContain(
+          "true peak +0.2 dBTP is over the \u22121.0 dBTP ceiling of Apple Digital Masters",
+        );
+        expect(why.message).toContain("asks for an edit decision list");
+        // An engineer cannot let it through; an EDL must be an .edl file.
+        expect((await add({ letThrough: true })).status).toBe(403);
+        const notes = await audioFile("Cut.txt");
+        expect((await add({ edlFileId: notes, letThrough: true }, s.owner)).status).toBe(422);
+        // A producer can, on the record, with the EDL attached.
+        const landed = await add(
+          { edlFileId: edl, letThrough: true, carry: { [hide]: "hidden", [fixed]: "fixed" } },
+          s.owner,
+        );
+        expect(landed.status).toBe(201);
+        const [version] = await db
+          .select()
+          .from(schema.versions)
+          .where(and(eq(schema.versions.trackId, s.trackId), eq(schema.versions.number, 2)));
+        expect(version).toMatchObject({ edlFileId: edl, letThroughBy: s.ids.owner });
+        const logged = await audit.query(s.organisationId, {
+          action: "version.let_through",
+          limit: 5,
+        });
+        expect(logged.events[0]?.details).toMatchObject({ checks: ["true_peak"] });
+        // The carries: one hidden, one settled (and its thread resolved).
+        const carried = await db
+          .select()
+          .from(schema.commentCarries)
+          .where(eq(schema.commentCarries.fileId, v2));
+        expect(carried.find((c) => c.commentId === hide)).toMatchObject({
+          visible: false,
+          status: "open",
+        });
+        expect(carried.find((c) => c.commentId === fixed)).toMatchObject({ status: "fixed" });
+        const [settled] = await db
+          .select()
+          .from(schema.comments)
+          .where(eq(schema.comments.id, fixed));
+        expect(settled?.resolvedAt).not.toBeNull();
+
+        // A corrected export replaces version 2's file; its threads move with it.
+        const variation = (
+          await db.select().from(schema.variations).where(eq(schema.variations.fileId, v2))
+        )[0];
+        const corrected = await audioFile("Mix v2 fixed.wav");
+        const replace = (fileId: string, cookie = s.engineer) =>
+          app.request(`/api/variations/${variation?.id}/replace`, json({ fileId }, cookie));
+        expect((await replace(corrected, s.composer)).status).toBe(403);
+        expect((await replace(notes)).status).toBe(422);
+        expect((await replace(corrected)).status).toBe(200);
+        expect(
+          (
+            await db
+              .select()
+              .from(schema.commentCarries)
+              .where(eq(schema.commentCarries.fileId, corrected))
+          ).length,
+        ).toBe(2);
+        const replaced = await audit.query(s.organisationId, {
+          action: "variation.replace",
+          limit: 5,
+        });
+        expect(replaced.events[0]?.details).toMatchObject({ replaced: v2 });
+
+        // Changing the primary is for those who organise the project.
+        const primary = (id: string, cookie: string) =>
+          app.request(`/api/variations/${id}/primary`, json({}, cookie));
+        expect((await primary(variation?.id ?? "", s.composer)).status).toBe(403);
+        expect((await primary(variation?.id ?? "", s.owner)).status).toBe(200);
+
+        // Another workspace's track and variations do not exist from here.
+        const [elsewhere] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-versions" })
+          .returning();
+        const theirOrg = elsewhere?.id ?? "";
+        const [theirProject] = await db
+          .insert(schema.projects)
+          .values({ organisationId: theirOrg, name: "Theirs", profile: "music" })
+          .returning();
+        const blob = await storage.put(theirOrg, Buffer.from("theirs"));
+        const [theirFile] = await db
+          .insert(schema.files)
+          .values({
+            organisationId: theirOrg,
+            projectId: theirProject?.id ?? "",
+            name: "Theirs.wav",
+            kind: "audio",
+            blobId: blob.id,
+            contentType: "audio/wav",
+            byteSize: blob.byteSize,
+          })
+          .returning();
+        const [theirTrack] = await db
+          .insert(schema.tracks)
+          .values({ organisationId: theirOrg, projectId: theirProject?.id ?? "", name: "Theirs" })
+          .returning();
+        const [theirVersion] = await db
+          .insert(schema.versions)
+          .values({ organisationId: theirOrg, trackId: theirTrack?.id ?? "", number: 1 })
+          .returning();
+        const [theirVariation] = await db
+          .insert(schema.variations)
+          .values({
+            organisationId: theirOrg,
+            versionId: theirVersion?.id ?? "",
+            fileId: theirFile?.id ?? "",
+            name: "Mix",
+            isPrimary: true,
+          })
+          .returning();
+        expect((await getAs(`/api/tracks/${theirTrack?.id}/carry`, s.owner)).status).toBe(404);
+        expect((await primary(theirVariation?.id ?? "", s.owner)).status).toBe(404);
+        expect(
+          (
+            await app.request(
+              `/api/variations/${theirVariation?.id}/replace`,
+              json({ fileId: corrected }, s.owner),
+            )
+          ).status,
+        ).toBe(404);
       });
 
       it("asks a step of several together, names itself, settles on a share, and keeps overrides", async () => {
