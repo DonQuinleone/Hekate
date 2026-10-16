@@ -556,6 +556,8 @@ export function Shell({ children }: { children: ReactNode }) {
                     key={item.id}
                     to={item.to}
                     params={{ projectId: current.id }}
+                    // The overview's address sits above every other section's.
+                    activeOptions={{ exact: item.id === "" }}
                     title={collapsed ? item.label : undefined}
                     aria-current={
                       section === item.id && pathname.startsWith("/projects/") ? "page" : undefined
@@ -652,6 +654,7 @@ export function Shell({ children }: { children: ReactNode }) {
                     key={item.id}
                     to={item.to}
                     params={{ projectId: current.id }}
+                    activeOptions={{ exact: item.id === "" }}
                     aria-current={
                       section === item.id && pathname.startsWith("/projects/") ? "page" : undefined
                     }
