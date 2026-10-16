@@ -1,6 +1,7 @@
 import { type Database, schema } from "@hekate/db";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import type { Mailer } from "./mail.ts";
 
 export interface AuthOptions {
   db: Database;
@@ -9,6 +10,8 @@ export interface AuthOptions {
   trustedOrigins?: string[];
   /** Relaxed limits for tests. */
   testing?: boolean;
+  /** Sends the link that confirms a new email address; without it, addresses cannot change. */
+  mailer?: Mailer;
 }
 
 /**
@@ -39,6 +42,28 @@ export function createAuth(options: AuthOptions) {
       minPasswordLength: 12,
       maxPasswordLength: 256,
     },
+    // A new address takes effect only once its owner follows the link sent to it.
+    ...(options.mailer
+      ? {
+          emailVerification: {
+            expiresIn: 60 * 60 * 24,
+            sendVerificationEmail: async ({
+              user,
+              url,
+            }: {
+              user: { email: string };
+              url: string;
+            }) => {
+              await options.mailer?.send({
+                to: user.email,
+                subject: "Confirm your new email address for Hekate",
+                text: `Someone, probably you, asked for this address to be used to sign in to Hekate.\n\nTo confirm it, open this link within a day:\n${url}\n\nIf it was not you, ignore this message and nothing changes.`,
+              });
+            },
+          },
+          user: { changeEmail: { enabled: true } },
+        }
+      : {}),
     session: {
       expiresIn: 60 * 60 * 24 * 14,
       updateAge: 60 * 60 * 24,

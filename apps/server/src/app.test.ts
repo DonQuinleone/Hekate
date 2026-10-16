@@ -52,13 +52,14 @@ describe("config", () => {
 
 describe.runIf(url)("api", () => {
   const { db, close } = createDb(url ?? "", { max: 3 });
+  const mailer = memoryMailer();
   const auth = createAuth({
     db,
     secret: "test-secret-test-secret-test-secret-0",
     baseURL: "http://localhost:3000",
     testing: true,
+    mailer,
   });
-  const mailer = memoryMailer();
   const storageRoot = mkdtempSync(join(tmpdir(), "hekate-api-storage-"));
   const backends = createBackends(
     storageConfigFromEnv({
@@ -209,6 +210,111 @@ describe.runIf(url)("api", () => {
     expect(((await res.json()) as { organisation: { id: string } }).organisation.id).toBe(
       legacy?.id,
     );
+  });
+
+  it("keeps a member's profile, and lets them sign out their other sessions", async () => {
+    const first = cookieOf(await setup());
+    const me = async (cookie: string) => app.request("/api/me", { headers: { cookie } });
+    const patch = (cookie: string, body: unknown) =>
+      app.request("/api/me", { ...json(body, cookie), method: "PATCH" });
+    expect(
+      (await patch(first, { name: " Alex Rivera ", locale: "en-GB", timeZone: "Europe/London" }))
+        .status,
+    ).toBe(200);
+    expect(((await (await me(first)).json()) as { user: unknown }).user).toMatchObject({
+      name: "Alex Rivera",
+      locale: "en-GB",
+      timeZone: "Europe/London",
+    });
+    expect((await patch(first, { timeZone: "Mars/Olympus" })).status).toBe(400);
+    expect((await patch(first, { locale: "xx-XX" })).status).toBe(400);
+    expect((await patch(first, { email: "elsewhere@example.test" })).status).toBe(400);
+
+    // Preferences: the defaults, then a change to some that keeps the rest.
+    const prefs = async () =>
+      ((await (await me(first)).json()) as { user: { preferences: Record<string, unknown> } }).user
+        .preferences;
+    expect(await prefs()).toMatchObject({ skipSeconds: 5, preRoll: 1, showSpectrogram: true });
+    const setPrefs = (body: unknown) =>
+      app.request("/api/me/preferences", { ...json(body, first), method: "PATCH" });
+    expect((await setPrefs({ skipSeconds: 10 })).status).toBe(200);
+    expect((await setPrefs({ showSpectrogram: false })).status).toBe(200);
+    expect(await prefs()).toMatchObject({ skipSeconds: 10, showSpectrogram: false, preRoll: 1 });
+    expect((await setPrefs({ skipSeconds: 3 })).status).toBe(400);
+
+    // A second device, then signing it out from the first.
+    const second = cookieOf(
+      await app.request(
+        "/api/auth/sign-in/email",
+        json({ email: owner.email, password: owner.password }),
+      ),
+    );
+    type Listed = { sessions: { id: string; current: boolean; userAgent: string | null }[] };
+    const listed = (await (
+      await app.request("/api/me/sessions", { headers: { cookie: first } })
+    ).json()) as Listed;
+    expect(listed.sessions).toHaveLength(2);
+    const mine = listed.sessions.find((x) => x.current);
+    const other = listed.sessions.find((x) => !x.current);
+    expect(JSON.stringify(listed)).not.toContain("token");
+    const remove = (cookie: string, id: string) =>
+      app.request(`/api/me/sessions/${id}`, { method: "DELETE", headers: { cookie } });
+    expect((await remove(first, mine?.id ?? "")).status).toBe(409);
+    expect((await remove(first, "not-a-session")).status).toBe(404);
+    expect((await remove(first, other?.id ?? "")).status).toBe(204);
+    expect((await me(second)).status).toBe(401);
+    expect((await me(first)).status).toBe(200);
+
+    // Every other session at once.
+    const third = cookieOf(
+      await app.request(
+        "/api/auth/sign-in/email",
+        json({ email: owner.email, password: owner.password }),
+      ),
+    );
+    const all = await app.request("/api/me/sessions", {
+      method: "DELETE",
+      headers: { cookie: first },
+    });
+    expect(await all.json()).toEqual({ signedOut: 1 });
+    expect((await me(third)).status).toBe(401);
+  });
+
+  it("changes the address only once the new one is confirmed, and the password", async () => {
+    const cookie = cookieOf(await setup());
+    mailer.sent.length = 0;
+    const asked = await app.request(
+      "/api/auth/change-email",
+      json({ newEmail: "alex@example.test", callbackURL: "/account" }, cookie),
+    );
+    expect(asked.status).toBe(200);
+    const email = (
+      (await (await app.request("/api/me", { headers: { cookie } })).json()) as {
+        user: { email: string };
+      }
+    ).user.email;
+    expect(email).toBe(owner.email);
+    const message = mailer.sent.find((m) => m.to === "alex@example.test");
+    const link = message?.text.match(/https?:\/\/\S+verify-email\S+/)?.[0] ?? "";
+    expect(link).toContain("/api/auth/verify-email?token=");
+    await app.request(link.replace("http://localhost:3000", ""), { headers: { cookie } });
+    const changed = (
+      (await (await app.request("/api/me", { headers: { cookie } })).json()) as {
+        user: { email: string };
+      }
+    ).user.email;
+    expect(changed).toBe("alex@example.test");
+
+    const changedPassword = await app.request(
+      "/api/auth/change-password",
+      json({ currentPassword: owner.password, newPassword: "a brand new long password" }, cookie),
+    );
+    expect(changedPassword.status).toBe(200);
+    const signIn = await app.request(
+      "/api/auth/sign-in/email",
+      json({ email: "alex@example.test", password: "a brand new long password" }),
+    );
+    expect(signIn.status).toBe(200);
   });
 
   it("closes public sign-up", async () => {

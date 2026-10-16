@@ -3,7 +3,7 @@ import type Hls from "hls.js";
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
 import { type Loop, loopEntry, loopFrom, type Rolls, roll, wrapTarget } from "~/lib/loop";
-import type { Playback, Rendition } from "~/lib/queries";
+import { type Playback, type Rendition, usePreferences } from "~/lib/queries";
 import { Icon } from "./icons";
 import { LoopControls, LoopSurface } from "./loop";
 import { Spectrogram, type SpectrogramChannelChoice } from "./spectrogram";
@@ -52,14 +52,15 @@ interface PlayerView {
 const defaultPlayerView: PlayerView = { split: false, spectrogram: false, placement: "below" };
 const VIEW_KEY = "hekate.player.view";
 
-function usePlayerView(): [PlayerView, (next: PlayerView) => void] {
+/** `splitByDefault`: the member's choice, used until this browser remembers its own. */
+function usePlayerView(splitByDefault: boolean): [PlayerView, (next: PlayerView) => void] {
   const [view, setView] = useState<PlayerView>(() => {
     try {
       const saved = JSON.parse(
         localStorage.getItem(VIEW_KEY) ?? "null",
       ) as Partial<PlayerView> | null;
       return {
-        split: saved?.split === true,
+        split: saved ? saved.split === true : splitByDefault,
         spectrogram: saved?.spectrogram === true,
         placement:
           saved?.placement === "behind" || saved?.placement === "instead"
@@ -183,8 +184,10 @@ export function Player({
   /** The tools a guest's review allows; null for members, who have them all. */
   tools?: readonly ReviewerTool[] | null;
 }) {
+  const preferences = usePreferences();
   const canLoop = !tools || tools.includes("loops");
-  const canSpectrogram = !tools || tools.includes("spectrogram");
+  // The project grants the spectrogram; the member chooses whether to see it offered.
+  const canSpectrogram = (!tools || tools.includes("spectrogram")) && preferences.showSpectrogram;
   const media = useRef<HTMLVideoElement & HTMLAudioElement>(null);
   // Kept in a ref so a new callback from the parent does not restart playback.
   const announce = useRef(onMedia);
@@ -205,7 +208,7 @@ export function Player({
   const native = useRef(false);
   /** The media element once mounted, for the waveform to follow. */
   const [element, setElement] = useState<HTMLMediaElement | null>(null);
-  const [playerView, setPlayerView] = usePlayerView();
+  const [playerView, setPlayerView] = usePlayerView(preferences.splitChannels);
   const channels = info?.audio?.channels ?? 0;
   const view: WaveformView = playerView.split && channels > 1 ? "channels" : "combined";
   const display: Display = !(playerView.spectrogram && canSpectrogram)
@@ -395,10 +398,10 @@ export function Player({
       toggle();
     } else if (event.key === "ArrowLeft") {
       event.preventDefault();
-      seekBy(-5);
+      seekBy(-preferences.skipSeconds);
     } else if (event.key === "ArrowRight") {
       event.preventDefault();
-      seekBy(5);
+      seekBy(preferences.skipSeconds);
     } else if (canLoop && (event.key === "i" || event.key === "o")) {
       // Loop in and out at the playhead; the other edge stays, or the loop runs to the end.
       const element = media.current;

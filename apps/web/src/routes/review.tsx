@@ -9,17 +9,18 @@ import { Button } from "~/components/ui/button";
 import { ActionMenu } from "~/components/ui/menu";
 import { StatusPill } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
+import { formatDates } from "~/lib/locale";
 import { permissionSummary } from "~/lib/permissions";
 import { projectQuery, type ReviewDetail, reviewQuery, useReviewActions } from "~/lib/queries";
 import { useViewer } from "~/lib/viewer";
 
-const dateTime = new Intl.DateTimeFormat("en-GB", {
+const dateTime = formatDates({
   day: "numeric",
   month: "short",
   hour: "2-digit",
   minute: "2-digit",
 });
-const day = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric" });
+const day = formatDates({ day: "numeric", month: "long", year: "numeric" });
 
 const stateCopy: Record<ReviewDetail["reviewers"][number]["state"], string> = {
   waiting: "Waiting their turn",

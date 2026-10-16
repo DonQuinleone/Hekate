@@ -40,14 +40,14 @@ const backends = await (async () => {
 })();
 
 const { db, close } = createDb(config.DATABASE_URL);
+const mailer = createMailer({ smtpUrl: config.SMTP_URL, from: config.MAIL_FROM });
 const auth = createAuth({
   db,
   secret: config.AUTH_SECRET,
   baseURL: config.PUBLIC_URL,
   trustedOrigins: config.TRUSTED_ORIGINS,
+  mailer,
 });
-
-const mailer = createMailer({ smtpUrl: config.SMTP_URL, from: config.MAIL_FROM });
 const keyring = createKeyring(db, {
   current: config.MASTER_KEY,
   previous: config.MASTER_KEYS_PREVIOUS,

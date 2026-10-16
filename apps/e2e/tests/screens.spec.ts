@@ -60,6 +60,21 @@ const screens: Screen[] = [
     ready: "main >> text=mentioned you on Maple Leaf Rag - Dry v2.wav",
   },
   {
+    name: "account",
+    path: () => "/account/account",
+    ready: "main >> text=Endless Hall Records",
+  },
+  {
+    name: "account-sessions",
+    path: () => "/account/sessions",
+    ready: "main >> text=This browser",
+  },
+  {
+    name: "account-appearance",
+    path: () => "/account/appearance",
+    ready: "main >> text=Skip by",
+  },
+  {
     name: "account-notifications",
     path: () => "/account/notifications",
     ready: "main >> text=Maple Leaf Rag",
@@ -345,6 +360,16 @@ test("project-files-attach", async ({ page }) => {
   await settle(page, "main form[aria-label='Attach to a track']");
   await saveScreen(page, "project-files-attach");
   await checkScreen(page);
+});
+
+// The details sheet opens only when asked for.
+test("file-without-details", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "Once is enough");
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await expect(page.locator("aside[aria-label=Details]")).toHaveCount(0);
+  await page.getByRole("button", { name: "Details" }).click();
+  await expect(page.locator("aside[aria-label=Details]")).toBeVisible();
 });
 
 // A file's details beside it: facts, storage, renditions, where it is used, its own log.

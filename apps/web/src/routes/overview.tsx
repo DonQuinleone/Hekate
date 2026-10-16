@@ -23,6 +23,7 @@ import { Switch } from "~/components/ui/toggle";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
 import { dueIn } from "~/lib/home";
+import { formatDates } from "~/lib/locale";
 import {
   moveSection,
   type OverviewAttention,
@@ -41,7 +42,7 @@ import {
   useProjectCan,
 } from "~/lib/queries";
 
-const dateFormat = new Intl.DateTimeFormat("en-GB", {
+const dateFormat = formatDates({
   day: "numeric",
   month: "short",
   year: "numeric",

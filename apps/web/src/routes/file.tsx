@@ -28,6 +28,7 @@ import { ScorePane } from "~/components/score";
 import { FileContext } from "~/components/tracks";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/cn";
+import { formatDates } from "~/lib/locale";
 import type { Loop } from "~/lib/loop";
 import { initialFocus, type PageFocus } from "~/lib/pages";
 import {
@@ -36,11 +37,12 @@ import {
   playbackQuery,
   projectQuery,
   useMarks,
+  usePreferences,
   useProjectCan,
 } from "~/lib/queries";
 import { useViewer } from "~/lib/viewer";
 
-const dateFormat = new Intl.DateTimeFormat("en-GB", {
+const dateFormat = formatDates({
   day: "numeric",
   month: "long",
   year: "numeric",
@@ -181,6 +183,7 @@ export function FilePage({
   /** A source comparison should bring in and play first: before, for before and after. */
   const [focus, setFocus] = useState<CompareFocus | null>(null);
   const { guest } = useViewer();
+  const preferences = usePreferences();
   /** On a document: the page shown, and the region drawn or thread picked on it. */
   const [pageFocus, setPageFocus] = useState<PageFocus>(initialFocus);
   // Another file starts on its first page, with nothing drawn.
@@ -283,7 +286,9 @@ export function FilePage({
           )
         }
       />
-      {!guest && details && <FileDetailsSheet fileId={file.id} onClose={() => onDetails(false)} />}
+      {!guest && showDetails && (
+        <FileDetailsSheet fileId={file.id} onClose={() => onDetails(false)} />
+      )}
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-5 sm:px-6">
         {!guest && <FileContext file={file} />}
         {hasQa && (
@@ -387,7 +392,7 @@ export function FilePage({
                 media={media}
                 canChoose={!guest && can("edit_workflows")}
               />
-              {file.mediaInfo?.audio && (
+              {file.mediaInfo?.audio && preferences.showLoudness && (
                 <Loudness
                   fileId={file.id}
                   media={media}

@@ -1,6 +1,10 @@
 import { defaultReviewerPermissions as all } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
+import { setLocale } from "./locale";
 import { accessNote, fromLocalInput, permissionSummary, toLocalInput } from "./permissions";
+
+// Dates as a British member reads them, whatever the machine running the tests.
+setLocale("en-GB");
 
 describe("reviewer permissions in words", () => {
   it("names only what departs from the defaults", () => {
