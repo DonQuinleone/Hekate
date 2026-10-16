@@ -59,10 +59,9 @@ Requirements: Node.js 26, pnpm 12, and Docker for PostgreSQL.
 pnpm install
 docker compose -f deploy/compose.dev.yml up -d   # PostgreSQL on localhost:5432
 cp .env.example .env
-echo "MASTER_KEY=$(openssl rand -base64 32)" >> .env   # encryption at rest
-pnpm db:migrate
 pnpm dev                                         # API on :3000, web on :5173
-# Open http://localhost:5173 and complete first-run setup to create the owner account.
+# Open http://localhost:5173 and follow the installer with the setup code the API printed.
+# It keeps its settings in apps/server/data/hekate.env; set MASTER_KEY in .env to skip it.
 ```
 
 Checks:
@@ -76,9 +75,12 @@ pnpm check      # lint, typecheck and tests across the workspace
 The documentation (install, configuration, backups, the security model, and a guide to reviews and guests) is built from `docs/site` and published with each release.
 
 ```sh
-cp .env.example .env    # set HEKATE_DOMAIN, secrets, MASTER_KEY and storage
+cp .env.example .env    # set HEKATE_DOMAIN and POSTGRES_PASSWORD
 docker compose -f deploy/compose.yml up -d
+docker compose -f deploy/compose.yml logs app   # the setup code
 ```
+
+Open your domain and enter the setup code: the installer checks the requirements, the database, the storage and mail, makes the master key (or takes yours), and creates the first workspace and its owner. Anything set in `.env` instead is shown as fixed and never overwritten.
 
 The Compose file runs the released image, `ghcr.io/donquinleone/hekate`, for amd64 and arm64. Each release's image is scanned before it is published, carries an SBOM and SLSA provenance, and is signed with cosign; check the signature before you run it:
 

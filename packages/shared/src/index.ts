@@ -12,6 +12,7 @@ export * from "./file-columns.ts";
 export * from "./files.ts";
 export * from "./folders.ts";
 export * from "./format.ts";
+export * from "./install.ts";
 export * from "./loudness.ts";
 export * from "./media.ts";
 export * from "./notifications.ts";

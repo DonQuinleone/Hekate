@@ -39,6 +39,7 @@ import { deliverDigests, deliverInstant, tellProcessingFailed } from "./notifica
 import { playbackSecret, signPlayback } from "./playback.ts";
 import { admit } from "./rate-limit.ts";
 import { remindDue } from "./reminders.ts";
+import { createSetupGate, SETUP_CODE_HEADER } from "./setup-code.ts";
 import { createStorage } from "./storage.ts";
 import { expireUploads } from "./uploads.ts";
 
@@ -206,6 +207,35 @@ describe.runIf(url)("api", () => {
       json({ ...owner, email: "second@example.test", organisation: "Other" }),
     );
     expect(again.status).toBe(409);
+  });
+
+  it("asks for the setup code from the log before the first owner is made", async () => {
+    const gate = createSetupGate({ code: "7KQ2-M9XD-4HPW" });
+    const gated = createApp({
+      db,
+      auth,
+      mailer,
+      storage,
+      audit,
+      jobs,
+      keyring,
+      playbackSecret: playbackSecret("test-secret-test-secret-test-secret-0"),
+      publicUrl: "http://localhost:3000",
+      log: false,
+      setupGate: gate,
+    });
+    const body = { ...owner, organisation: "Studio" };
+    const withCode = (code: string) => {
+      const request = json(body);
+      return { ...request, headers: { ...request.headers, [SETUP_CODE_HEADER]: code } };
+    };
+    expect((await gated.request("/api/setup", json(body))).status).toBe(403);
+    expect((await gated.request("/api/setup", withCode("AAAA-AAAA-AAAA"))).status).toBe(403);
+    const right = withCode("7kq2m9xd4hpw");
+    expect((await gated.request("/api/setup", right)).status).toBe(201);
+    // Once it is set up, the installer has nothing left to do.
+    expect(await (await gated.request("/api/install")).json()).toEqual({ installing: false });
+    expect((await gated.request("/api/install/finish", { method: "POST" })).status).toBe(409);
   });
 
   it("adopts an organisation left by an install that predates authentication", async () => {

@@ -7,9 +7,9 @@ Every file Hekate stores is encrypted with its own data key; data keys are wrapp
 
 ## Keep it
 
-Generate it once (`openssl rand -base64 32`) and store a copy apart from the server and its backups: a password manager, or a sealed envelope. Without it, the media cannot be read by anyone, you included.
+The installer makes it in your browser (or takes yours) and keeps it in the settings file, `/config/hekate.env` on the `settings` volume; or generate it yourself (`openssl rand -base64 32`) and set it in `.env`, which wins. Either way, store a copy apart from the server and its backups: a password manager, or a sealed envelope. Without it, the media cannot be read by anyone, you included.
 
-The Compose file reads it from `.env`. Where the app runs with Docker secrets instead (Swarm, Kubernetes), `MASTER_KEY_FILE` can name the file that holds it.
+The Compose file reads it from `.env` or the settings file. Where the app runs with Docker secrets instead (Swarm, Kubernetes), `MASTER_KEY_FILE` can name the file that holds it.
 
 ## Rotate it
 
