@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { LoudnessSummary } from "./loudness.ts";
-import { deliveryFindings, deliveryProfiles, orderFindings, suggestedProfile } from "./qa.ts";
+import {
+  type CustomProfile,
+  customProfileInput,
+  customRef,
+  deliveryFindings,
+  deliveryProfiles,
+  effectiveProfile,
+  orderFindings,
+  profileFor,
+  profileRef,
+  suggestedProfile,
+} from "./qa.ts";
 
 const info = (sampleRate: number, bitDepth: number, channels: number) => ({
   audio: { codec: "pcm_s24le", channels, sampleRate, bitDepth },
@@ -88,5 +99,69 @@ describe("delivery checks", () => {
       summary(-9, 0.5),
     );
     expect(orderFindings(found).map((f) => f.severity)).toEqual(["fail", "fail", "pass"]);
+  });
+});
+
+describe("delivery profiles per file, track, project and workspace", () => {
+  const vinyl: CustomProfile = {
+    id: "0190a6f0-0000-7000-8000-0000000000aa",
+    label: "Vinyl cut",
+    loudness: null,
+    truePeakMax: -3,
+    sampleRates: { rates: [96_000], atLeast: false },
+    bitDepthMin: 24,
+    channels: null,
+  };
+  const customs = [vinyl];
+
+  it("takes the nearest choice: the file's, then the track's, the project's, the workspace's", () => {
+    const all = {
+      file: "cd",
+      track: "broadcast",
+      project: "atmos",
+      workspace: customRef(vinyl.id),
+    } as const;
+    expect(effectiveProfile(all, 2, customs)).toMatchObject({ ref: "cd", source: "file" });
+    expect(effectiveProfile({ ...all, file: null }, 2, customs).source).toBe("track");
+    expect(effectiveProfile({ ...all, file: null, track: null }, 2, customs).source).toBe(
+      "project",
+    );
+    const workspace = effectiveProfile({ workspace: all.workspace }, 2, customs);
+    expect(workspace).toMatchObject({ source: "workspace", profile: { label: "Vinyl cut" } });
+  });
+
+  it("suggests from the channels when nothing chooses, and passes over a deleted profile", () => {
+    expect(effectiveProfile({}, 6, customs)).toMatchObject({
+      ref: "surround",
+      source: "suggested",
+    });
+    const gone = customRef("0190a6f0-0000-7000-8000-0000000000bb");
+    expect(profileFor(gone, customs)).toBeNull();
+    expect(effectiveProfile({ track: gone, project: "cd" }, 2, customs).source).toBe("project");
+  });
+
+  it("names built-in and custom profiles alike, and checks a custom one's numbers", () => {
+    expect(profileRef.parse("streaming")).toBe("streaming");
+    expect(profileRef.parse(`custom:${vinyl.id.toUpperCase()}`)).toBe(customRef(vinyl.id));
+    expect(profileRef.safeParse("custom:nope").success).toBe(false);
+    // Thirty-six characters that are not an id are refused here, not by the database.
+    expect(profileRef.safeParse(`custom:${"-".repeat(36)}`).success).toBe(false);
+    expect(profileRef.safeParse("vinyl").success).toBe(false);
+    const { id: _, ...input } = vinyl;
+    expect(customProfileInput.safeParse(input).success).toBe(true);
+    expect(customProfileInput.safeParse({ ...input, truePeakMax: 3 }).success).toBe(false);
+    expect(
+      customProfileInput.safeParse({ ...input, sampleRates: { rates: [], atLeast: true } }).success,
+    ).toBe(false);
+  });
+
+  it("takes any layout where a profile names none", () => {
+    const info = {
+      container: "wav",
+      duration: 60,
+      audio: { codec: "pcm_s24le", sampleRate: 96_000, channels: 6, bitDepth: 24 },
+    };
+    const [format] = deliveryFindings(vinyl, info as never, null);
+    expect(format).toMatchObject({ check: "format", severity: "pass" });
   });
 });

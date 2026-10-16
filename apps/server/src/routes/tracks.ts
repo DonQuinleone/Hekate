@@ -3,12 +3,15 @@ import {
   addVariationInput,
   createTrackInput,
   createVersionInput,
+  deliveryProfileChoice,
+  effectiveProfile,
   isPdf,
   type ProjectPermission,
   replaceVariationInput,
   updateTrackInput,
   versionRefusals,
   withPrimary,
+  workspaceSettingsOf,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, eq, getTableColumns, inArray, max, ne, or } from "drizzle-orm";
@@ -18,6 +21,7 @@ import { z } from "zod";
 import { actorOf, can } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { carryPreview, carryThreads } from "../carry.ts";
+import { assertProfileRef, customProfilesOf } from "../delivery-profiles.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import type { Jobs } from "../jobs.ts";
 import type { Mailer } from "../mail.ts";
@@ -268,6 +272,23 @@ export const trackRoutes = (
       });
       return c.json({ track: await oneTrack(db, organisationId, id) });
     })
+    // What this track's versions are measured against (#144), over the project's; for whoever
+    // edits the project's workflow, as the project's own profile is.
+    .put("/:id/delivery-profile", idParam, zValidator("json", deliveryProfileChoice), async (c) => {
+      const organisationId = c.var.organisationId;
+      const { id } = c.req.valid("param");
+      const track = await trackOf(db, organisationId, id);
+      await canSeeTrack(db, c.var, track.projectId, "edit_workflows");
+      const { deliveryProfile } = c.req.valid("json");
+      await db.transaction(async (tx) => {
+        await assertProfileRef(tx, organisationId, deliveryProfile);
+        await tx
+          .update(tracks)
+          .set({ deliveryProfile, updatedAt: new Date() })
+          .where(inOrg(tracks, organisationId, eq(tracks.id, id)));
+      });
+      return c.json({ track: await oneTrack(db, organisationId, id) });
+    })
     // What a new version would carry over, for whoever adds it to confirm or correct.
     .get("/:id/carry", idParam, async (c) => {
       const organisationId = c.var.organisationId;
@@ -314,12 +335,22 @@ export const trackRoutes = (
           throw new HTTPException(422, { message: "An edit decision list is an .edl file" });
         }
       }
+      const [customs, [org]] = await Promise.all([
+        customProfilesOf(db, organisationId),
+        db
+          .select({ settings: schema.organisations.settings })
+          .from(schema.organisations)
+          .where(eq(schema.organisations.id, organisationId)),
+      ]);
+      const workspace = workspaceSettingsOf(org?.settings);
       // The project's checks run before the version lands (#131): a refusal says why, and
       // only someone who may edit workflows can let it through, on the record.
       const measured = await db
         .select({
+          id: files.id,
           name: files.name,
           kind: files.kind,
+          deliveryProfile: files.deliveryProfile,
           mediaInfo: files.mediaInfo,
           streamStatus: files.streamStatus,
           analysisStatus: files.analysisStatus,
@@ -342,8 +373,20 @@ export const trackRoutes = (
         );
       const refusals = versionRefusals(
         { truePeak: Boolean(project?.checkTruePeak), edl: Boolean(project?.requireEdl) },
-        project?.deliveryProfile ?? null,
+        // Each file against its own profile, else this track's, the project's or the workspace's.
+        (f) =>
+          effectiveProfile(
+            {
+              file: measured.find((m) => m.id === f.id)?.deliveryProfile ?? null,
+              track: track.deliveryProfile,
+              project: project?.deliveryProfile ?? null,
+              workspace: workspace.deliveryProfile,
+            },
+            f.channels,
+            customs,
+          ).profile,
         measured.map((f) => ({
+          id: f.id,
           name: f.name,
           // Audio and video are checked; until the worker has probed one, it is measuring.
           channels:

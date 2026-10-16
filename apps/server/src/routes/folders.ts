@@ -2,6 +2,7 @@ import { type Database, inOrg, schema } from "@hekate/db";
 import {
   canMoveFolder,
   createFolderInput,
+  deliveryProfileChoice,
   descendantsOf,
   updateFileInput,
   updateFolderInput,
@@ -13,6 +14,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { type Actor, actorOf, can, canOnFile, type MemberActor } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
+import { assertProfileRef } from "../delivery-profiles.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
 import type { TenantVariables } from "../tenancy.ts";
@@ -212,6 +214,21 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
       });
       if (!file) throw new NotFound("File");
       return c.json({ file });
+    })
+    // What this file alone is measured against (#144), over its track's and project's.
+    .put("/:id/delivery-profile", idParam, zValidator("json", deliveryProfileChoice), async (c) => {
+      const actor = memberOnly(c.var.actor);
+      const id = c.req.valid("param").id;
+      await canOnFile(db, actor, "edit_workflows", id);
+      const { deliveryProfile } = c.req.valid("json");
+      await db.transaction(async (tx) => {
+        await assertProfileRef(tx, actor.organisationId, deliveryProfile);
+        await tx
+          .update(files)
+          .set({ deliveryProfile, updatedAt: new Date() })
+          .where(inOrg(files, actor.organisationId, eq(files.id, id)));
+      });
+      return c.body(null, 204);
     })
     // A file that is part of a track's version, or under review, stays: removing it would
     // change what reviewers were asked about. Its stored bytes go at the next reconciliation.

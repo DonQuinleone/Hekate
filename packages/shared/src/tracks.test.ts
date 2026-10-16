@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { deliveryProfiles, suggestedProfile } from "./qa.ts";
 import { createVersionInput, variationNameFrom, versionRefusals, withPrimary } from "./tracks.ts";
 
 const a = "0190a6f0-0000-7000-8000-00000000000a";
@@ -46,15 +47,16 @@ describe("tracks", () => {
 });
 
 describe("version checks", () => {
+  const suggested = (f: { channels: number }) => deliveryProfiles[suggestedProfile(f.channels)];
   const off = { truePeak: false, edl: false };
   const hot = { name: "V3 dry.wav", channels: 2, truePeak: 0.2 };
   it("let everything in when the project asks nothing", () => {
-    expect(versionRefusals(off, null, [hot], false)).toEqual([]);
+    expect(versionRefusals(off, suggested, [hot], false)).toEqual([]);
   });
   it("refuse a true peak over the ceiling, saying by how much and against what", () => {
     const [refusal] = versionRefusals(
       { truePeak: true, edl: false },
-      "apple-digital-masters",
+      () => deliveryProfiles["apple-digital-masters"],
       [hot, { name: "notes.pdf", channels: null, truePeak: null }],
       false,
     );
@@ -63,14 +65,19 @@ describe("version checks", () => {
       "The upload workflow refused V3 dry.wav: true peak +0.2 dBTP is over the −1.0 dBTP ceiling of Apple Digital Masters. Fix the export and upload again, or ask a producer to let it through.",
     );
     expect(
-      versionRefusals({ truePeak: true, edl: false }, null, [{ ...hot, truePeak: -1.5 }], false),
+      versionRefusals(
+        { truePeak: true, edl: false },
+        suggested,
+        [{ ...hot, truePeak: -1.5 }],
+        false,
+      ),
     ).toEqual([]);
   });
   it("wait for a file still being measured, and ask for an EDL where the project does", () => {
     expect(
       versionRefusals(
         { truePeak: true, edl: true },
-        null,
+        suggested,
         [{ ...hot, truePeak: undefined }],
         false,
       ).map((r) => r.check),
@@ -79,11 +86,11 @@ describe("version checks", () => {
     expect(
       versionRefusals(
         { truePeak: true, edl: false },
-        null,
+        suggested,
         [{ ...hot, channels: undefined, truePeak: null }],
         false,
       ).map((r) => r.check),
     ).toEqual(["measuring"]);
-    expect(versionRefusals({ truePeak: false, edl: true }, null, [hot], true)).toEqual([]);
+    expect(versionRefusals({ truePeak: false, edl: true }, suggested, [hot], true)).toEqual([]);
   });
 });

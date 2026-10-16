@@ -3,6 +3,7 @@ import {
   applyWorkspaceSettings,
   atLeast,
   auditQuery,
+  customProfileInput,
   emailTemplateId,
   emailTestInput,
   inviteInput,
@@ -19,6 +20,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { type Audit, csvHeader, csvRow, requestInfo } from "../audit.ts";
+import { assertProfileRef, customProfilesOf, deleteCustomProfile } from "../delivery-profiles.ts";
 import { render } from "../email/render.ts";
 import { sampleData, workspaceEmail } from "../email/templates.ts";
 import { NotFound } from "../errors.ts";
@@ -38,8 +40,18 @@ const {
   guestSessions,
   files,
   reviews,
+  deliveryProfiles,
 } = schema;
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
+
+/** True when a statement failed on the named unique index. */
+function violates(error: unknown, index: string): boolean {
+  const cause = (error as { cause?: { code?: string; constraint_name?: string } }).cause;
+  return cause?.code === "23505" && cause.constraint_name === index;
+}
+
+const profileTaken = () =>
+  new HTTPException(409, { message: "The workspace already has a profile with that name" });
 
 async function ownerCount(db: Database, organisationId: string) {
   const [row] = await db
@@ -133,6 +145,7 @@ export const organisationRoutes = (
         }
         const who = await audit.member(c.var.userId);
         const settings = await db.transaction(async (tx) => {
+          await assertProfileRef(tx, organisationId, change.deliveryProfile);
           // Locked, so two admins changing different settings at once both keep their change.
           const [row] = await tx
             .select({ settings: organisations.settings })
@@ -157,6 +170,65 @@ export const organisationRoutes = (
         return c.json({ settings });
       },
     )
+    // The workspace's own delivery profiles (#144): every member reads them, since their
+    // projects measure against them; admins make, change and remove them.
+    .get("/delivery-profiles", async (c) =>
+      c.json({ profiles: await customProfilesOf(db, c.var.organisationId) }),
+    )
+    .post(
+      "/delivery-profiles",
+      requireRole("admin"),
+      zValidator("json", customProfileInput),
+      async (c) => {
+        const { label, ...spec } = c.req.valid("json");
+        try {
+          const [made] = await db
+            .insert(deliveryProfiles)
+            .values({ organisationId: c.var.organisationId, label, spec })
+            .returning();
+          if (!made) throw new Error("Profile insert returned no row");
+          return c.json({ profile: { id: made.id, label: made.label, ...made.spec } }, 201);
+        } catch (error) {
+          if (violates(error, "delivery_profiles_label_idx")) throw profileTaken();
+          throw error;
+        }
+      },
+    )
+    .put(
+      "/delivery-profiles/:id",
+      requireRole("admin"),
+      idParam,
+      zValidator("json", customProfileInput),
+      async (c) => {
+        const { label, ...spec } = c.req.valid("json");
+        try {
+          const [changed] = await db
+            .update(deliveryProfiles)
+            .set({ label, spec, updatedAt: new Date() })
+            .where(
+              inOrg(
+                deliveryProfiles,
+                c.var.organisationId,
+                eq(deliveryProfiles.id, c.req.valid("param").id),
+              ),
+            )
+            .returning();
+          if (!changed) throw new NotFound("Profile");
+          return c.json({ profile: { id: changed.id, label: changed.label, ...changed.spec } });
+        } catch (error) {
+          if (violates(error, "delivery_profiles_label_idx")) throw profileTaken();
+          throw error;
+        }
+      },
+    )
+    // Whatever chose it measures against the next choice up from now on.
+    .delete("/delivery-profiles/:id", requireRole("admin"), idParam, async (c) => {
+      const gone = await db.transaction((tx) =>
+        deleteCustomProfile(tx, c.var.organisationId, c.req.valid("param").id),
+      );
+      if (!gone) throw new NotFound("Profile");
+      return c.body(null, 204);
+    })
     // A template as the workspace sends it, with sample content: subject, plain text and HTML
     // for a light or a dark client.
     .get(

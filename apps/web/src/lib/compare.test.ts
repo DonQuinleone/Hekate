@@ -37,6 +37,7 @@ const track: Track = {
   scoreFileId: null,
   folderId: null,
   position: 0,
+  deliveryProfile: null,
   createdAt: "",
   versions: [
     {

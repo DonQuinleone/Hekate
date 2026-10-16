@@ -478,7 +478,6 @@ export function FilePage({
             <div className="flex min-w-0 flex-col gap-6 pt-8">
               <QualityChecks
                 fileId={file.id}
-                projectId={file.projectId}
                 media={media}
                 canChoose={!guest && can("edit_workflows")}
                 onLoop={allows("loops") ? hear : undefined}

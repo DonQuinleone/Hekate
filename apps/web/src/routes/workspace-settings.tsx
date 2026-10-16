@@ -1,10 +1,14 @@
 import {
   accessWindowDays,
   type CommentScope,
+  type CustomProfile,
+  deliveryProfileIds,
+  deliveryProfiles,
   formatBytes,
   type GuestVerification,
   guestLinkDays,
   locales,
+  type ProfileRef,
   type ProjectProfile,
   profiles,
   type SecondFactorPolicy,
@@ -14,6 +18,7 @@ import {
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Avatar } from "~/components/avatar";
+import { ProfileEditor, ProfileOptions, profileSummary } from "~/components/delivery-profiles";
 import { DirectorySection } from "~/components/directory";
 import { EmailTemplatesSection } from "~/components/email-templates";
 import { Empty } from "~/components/empty";
@@ -31,12 +36,14 @@ import { formatDates, languageNames } from "~/lib/locale";
 import {
   type AccessEvent,
   accessLogQuery,
+  customProfilesQuery,
   invitationsQuery,
   type Member,
   membersQuery,
   meQuery,
   type StorageUsage,
   storageUsageQuery,
+  useCustomProfileMutations,
   useOrganisationMutations,
   useReconcile,
   useRenameWorkspace,
@@ -86,6 +93,13 @@ const allSections: SectionSpec[] = [
     group: "Workspace",
     from: "admin",
     intro: "What reviews and new projects get unless someone says otherwise.",
+  },
+  {
+    id: "delivery",
+    label: "Delivery profiles",
+    group: "Workspace",
+    from: "admin",
+    intro: "What QA measures recordings against: the built-in profiles, and the workspace's own.",
   },
   {
     id: "email",
@@ -340,6 +354,106 @@ const scopeLabel: Record<CommentScope, string> = {
 };
 
 /** What a review grants unless its request says otherwise. */
+/** The built-in profiles and the workspace's own (#144), and which one projects start from. */
+function DeliveryProfiles() {
+  const { settings, change, pending, error } = useSettings();
+  const { data: customs = [] } = useQuery(customProfilesQuery);
+  const { remove } = useCustomProfileMutations();
+  const [editing, setEditing] = useState<CustomProfile | "new" | null>(null);
+  const [deleting, setDeleting] = useState<CustomProfile | null>(null);
+  if (!settings) return null;
+  return (
+    <>
+      <Section title="Workspace default">
+        <Row
+          name="Measured against"
+          hint="For projects, tracks and files that choose nothing nearer."
+        >
+          <Select
+            aria-label="Measured against"
+            className="w-full @3xl/app:w-60"
+            disabled={pending}
+            value={settings.deliveryProfile ?? ""}
+            onChange={(e) =>
+              change({ deliveryProfile: (e.target.value || null) as ProfileRef | null })
+            }
+          >
+            <option value="">Suggested from each file</option>
+            <ProfileOptions customs={customs} />
+          </Select>
+        </Row>
+      </Section>
+      {error}
+      {remove.error && <p className="-mt-6 text-[13px] text-signal">{remove.error.message}</p>}
+      <Section
+        title="Profiles"
+        intro="The built-in ones cannot be changed; add your own."
+        action={
+          <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
+            <Icon name="plus" size={14} />
+            Profile
+          </Button>
+        }
+      >
+        {customs.map((p) => (
+          <Row key={p.id} name={p.label} hint={profileSummary(p)} inline>
+            <ActionMenu
+              always
+              label={p.label}
+              actions={[
+                { label: "Edit…", onSelect: () => setEditing(p) },
+                "divider",
+                { label: "Delete…", danger: true, onSelect: () => setDeleting(p) },
+              ]}
+            />
+          </Row>
+        ))}
+        {deliveryProfileIds.map((id) => (
+          <Row
+            key={id}
+            name={deliveryProfiles[id].label}
+            hint={profileSummary(deliveryProfiles[id])}
+            inline
+          >
+            <span className="text-[12px] text-ink-3">Built in</span>
+          </Row>
+        ))}
+      </Section>
+      {editing && (
+        <ProfileEditor
+          profile={editing === "new" ? undefined : editing}
+          onClose={() => setEditing(null)}
+        />
+      )}
+      {deleting && (
+        <Dialog
+          title={`Delete ${deleting.label}?`}
+          description="Projects, tracks and files that chose it measure against the next choice up instead."
+          onClose={() => setDeleting(null)}
+          width="sm"
+          footer={
+            <>
+              <Button variant="ghost" size="md" onClick={() => setDeleting(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="md"
+                disabled={remove.isPending}
+                onClick={() => remove.mutate(deleting.id, { onSuccess: () => setDeleting(null) })}
+              >
+                Delete
+              </Button>
+            </>
+          }
+        >
+          {null}
+        </Dialog>
+      )}
+    </>
+  );
+}
+
 function Defaults() {
   const { settings, change, pending, error } = useSettings();
   if (!settings) return null;
@@ -907,6 +1021,7 @@ export function WorkspaceSettingsPage({ section }: { section: string }) {
       >
         {current.id === "general" && <General role={role} />}
         {current.id === "defaults" && <Defaults />}
+        {current.id === "delivery" && <DeliveryProfiles />}
         {current.id === "email" && <EmailTemplatesSection />}
         {current.id === "members" && <Members role={role} />}
         {current.id === "security" && (

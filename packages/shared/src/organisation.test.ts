@@ -24,6 +24,7 @@ describe("workspace settings", () => {
       locale: "tlh",
       reviewer: { decide: false, comments: "everyone", windowDays: 30 },
       emailSubjects: { invitation: "Join {workspace}", decision: "{nonsense}", stale: "x" },
+      deliveryProfile: "vinyl",
       stale: true,
     });
     expect(read).toEqual({
@@ -32,6 +33,7 @@ describe("workspace settings", () => {
       guestVerification: "link",
       locale: null,
       carriedCommentsShown: true,
+      deliveryProfile: null,
       emailSubjects: { invitation: "Join {workspace}" },
       secondFactor: "off",
       securityKeyForAdmins: false,

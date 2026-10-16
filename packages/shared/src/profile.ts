@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { AnchorKind } from "./anchor.ts";
-import { deliveryProfileId } from "./qa.ts";
+import { profileRef } from "./qa.ts";
 
 /**
  * A project's profile decides which tools and anchors appear. Any kind of file can live in any
@@ -72,7 +72,7 @@ export const updateProjectInput = z
     /** Whether threads carried to a new version show there until someone hides them. */
     carriedCommentsShown: z.boolean().optional(),
     /** What recordings are checked against; null suggests one from each file's channels. */
-    deliveryProfile: deliveryProfileId.nullable().optional(),
+    deliveryProfile: profileRef.nullable().optional(),
     /** Refuse a new version whose audio peaks over the delivery profile's ceiling. */
     checkTruePeak: z.boolean().optional(),
     /** Refuse a new version without an edit decision list. */

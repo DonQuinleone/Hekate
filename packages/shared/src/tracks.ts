@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type DeliveryProfileId, deliveryProfiles, suggestedProfile } from "./qa.ts";
+import type { DeliveryProfile } from "./qa.ts";
 
 const label = (what: string, max: number) =>
   z
@@ -104,6 +104,8 @@ export interface VersionChecks {
 
 /** A file of a new version, as the checks see it. */
 export interface CheckedFile {
+  /** Its id, where the caller needs to find the file again. */
+  id?: string;
   name: string;
   /** Audio channels; files without audio are not checked; undefined until it is probed. */
   channels: number | null | undefined;
@@ -125,7 +127,8 @@ const dB = (n: number) => `${n > 0 ? "+" : ""}${n.toFixed(1).replace("-", "\u221
  */
 export function versionRefusals(
   checks: VersionChecks,
-  profile: DeliveryProfileId | null,
+  /** The profile each file is measured against (see `effectiveProfile`). */
+  profileOf: (file: CheckedFile & { channels: number }) => DeliveryProfile,
   files: CheckedFile[],
   hasEdl: boolean,
 ): VersionRefusal[] {
@@ -141,7 +144,7 @@ export function versionRefusals(
         });
         continue;
       }
-      const chosen = deliveryProfiles[profile ?? suggestedProfile(f.channels)];
+      const chosen = profileOf({ ...f, channels: f.channels });
       if (f.truePeak !== null && f.truePeak > chosen.truePeakMax) {
         out.push({
           check: "true_peak",

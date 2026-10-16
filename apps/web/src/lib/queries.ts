@@ -9,8 +9,9 @@ import {
   type CreateProjectInput,
   type CreateReviewInput,
   type CreateVersionInput,
+  type CustomProfile,
+  type CustomProfileInput,
   type DeletionConfirmation,
-  type DeliveryProfileId,
   type DirectorySettings,
   type DirectorySettingsInput,
   type DownloadKind,
@@ -34,6 +35,8 @@ import {
   type OverviewSection,
   type Preferences,
   type ProfileInput,
+  type ProfileRef,
+  type ProfileSource,
   type ProjectPermission,
   type ProjectProfile,
   permissionsOfLevels,
@@ -203,7 +206,7 @@ export interface Project {
   /** Whether they may archive or unarchive it (on a single project, and in the list). */
   mayArchive?: boolean;
   /** What deliveries are checked against; null suggests one from each file's channels. */
-  deliveryProfile?: DeliveryProfileId | null;
+  deliveryProfile?: ProfileRef | null;
   /** The checks a new version must pass before it lands. */
   checkTruePeak?: boolean;
   requireEdl?: boolean;
@@ -556,6 +559,13 @@ export function useSaveWorkspaceSettings() {
       client.setQueryData(workspaceSettingsQuery.queryKey, settings);
       if (change.emailSubjects) client.invalidateQueries({ queryKey: ["organisation", "email"] });
       if (change.locale !== undefined) client.invalidateQueries({ queryKey: meQuery.queryKey });
+      // Every file that inherits the workspace's profile is measured afresh, in every project.
+      if (change.deliveryProfile !== undefined) {
+        void client.invalidateQueries({
+          predicate: (q) => q.queryKey[0] === "files" && q.queryKey[2] === "qa",
+        });
+        void client.invalidateQueries({ queryKey: ["projects"] });
+      }
     },
   });
 }
@@ -1139,7 +1149,9 @@ export function useCommentMutations(fileId: string) {
 /** A recording's quality checks (#41), against its project's delivery profile. */
 export interface QaReport {
   status: StreamStatus;
-  profile: { id: DeliveryProfileId; label: string; chosen: boolean };
+  profile: { id: ProfileRef; label: string; source: ProfileSource; chosen: boolean };
+  /** What the file would be measured against without a profile of its own. */
+  inherited: { id: ProfileRef; label: string; source: ProfileSource };
   findings: QaFinding[];
 }
 
@@ -1152,19 +1164,99 @@ export const qaQuery = (fileId: string) =>
     refetchInterval: (query) => (query.state.data?.status === "pending" ? 3000 : false),
   });
 
-/** Choose what a project's recordings are checked against; every file's report follows. */
-export function useDeliveryProfile(projectId: string) {
+/** Every file's QA report may change when a profile does. */
+const refreshReports = (client: ReturnType<typeof useQueryClient>) =>
+  client.invalidateQueries({
+    predicate: (q) => q.queryKey[0] === "files" && q.queryKey[2] === "qa",
+  });
+
+/** Choose what one file is measured against, over its track's and project's (#144). */
+export function useFileDeliveryProfile(fileId: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async (deliveryProfile: DeliveryProfileId | null) =>
-      json(
-        await api.projects[":id"].$patch({ param: { id: projectId }, json: { deliveryProfile } }),
-      ),
-    onSuccess: () =>
-      client.invalidateQueries({
-        predicate: (q) => q.queryKey[0] === "files" && q.queryKey[2] === "qa",
-      }),
+    mutationFn: async (deliveryProfile: ProfileRef | null) => {
+      const res = await api.files[":id"]["delivery-profile"].$put({
+        param: { id: fileId },
+        json: { deliveryProfile },
+      });
+      if (!res.ok) await json(res);
+    },
+    onSuccess: () => refreshReports(client),
   });
+}
+
+/** Choose what a track's versions are measured against, over the project's (#144). */
+export function useTrackDeliveryProfile(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      trackId,
+      deliveryProfile,
+    }: {
+      trackId: string;
+      deliveryProfile: ProfileRef | null;
+    }) =>
+      json(
+        await api.tracks[":id"]["delivery-profile"].$put({
+          param: { id: trackId },
+          json: { deliveryProfile },
+        }),
+      ),
+    onSuccess: () => {
+      void refreshReports(client);
+      void client.invalidateQueries({ queryKey: projectTracksQuery(projectId).queryKey });
+    },
+  });
+}
+
+/** The workspace's own delivery profiles, beside the built-in ones (#144). */
+export const customProfilesQuery = queryOptions({
+  queryKey: ["organisation", "delivery-profiles"],
+  queryFn: async () =>
+    (await json<{ profiles: CustomProfile[] }>(await api.organisation["delivery-profiles"].$get()))
+      .profiles,
+  staleTime: 60_000,
+});
+
+/** Make, change or remove one of the workspace's own profiles. Admins only. */
+export function useCustomProfileMutations() {
+  const client = useQueryClient();
+  const refresh = () => {
+    void client.invalidateQueries({ queryKey: customProfilesQuery.queryKey });
+    void refreshReports(client);
+  };
+  return {
+    create: useMutation({
+      mutationFn: async (input: CustomProfileInput) =>
+        (
+          await json<{ profile: CustomProfile }>(
+            await api.organisation["delivery-profiles"].$post({ json: input }),
+          )
+        ).profile,
+      onSuccess: refresh,
+    }),
+    update: useMutation({
+      mutationFn: async ({ id, ...input }: CustomProfileInput & { id: string }) =>
+        (
+          await json<{ profile: CustomProfile }>(
+            await api.organisation["delivery-profiles"][":id"].$put({ param: { id }, json: input }),
+          )
+        ).profile,
+      onSuccess: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api.organisation["delivery-profiles"][":id"].$delete({ param: { id } });
+        if (!res.ok) await json(res);
+      },
+      onSuccess: () => {
+        refresh();
+        // Whatever chose it chooses nothing now.
+        void client.invalidateQueries({ queryKey: ["projects"] });
+        void client.invalidateQueries({ queryKey: workspaceSettingsQuery.queryKey });
+      },
+    }),
+  };
 }
 
 /** Another file aligned with this one: where the same music sits there, from this file's times. */
@@ -1220,6 +1312,8 @@ export interface Track {
   /** The folder it sits in, like any folder; null is the top of the project. */
   folderId: string | null;
   position: number;
+  /** What its versions are measured against, over the project's; null takes the project's. */
+  deliveryProfile: ProfileRef | null;
   createdAt: string;
   versions: Version[];
   /** In a project's track list: where it stands, and who it waits on while in review. */
@@ -2152,6 +2246,8 @@ export interface ProjectOverview {
   }[];
   activity: HomeActivity[];
   deliveryProfile: string | null;
+  /** Its name, a workspace's own profile included. */
+  deliveryProfileLabel: string | null;
   createdAt: string | null;
   role: string | null;
   layout: OverviewSection[] | null;
