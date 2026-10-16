@@ -431,6 +431,12 @@ test("file-comment-sheet", async ({ page }, info) => {
   await expect(sheet.getByRole("textbox", { name: "Comment at the playhead" })).toBeVisible();
   await saveScreen(page, "file-comment-sheet");
   await checkScreen(page);
+  // With a keyboard, c opens the same sheet, ready to type in.
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press("c");
+  await expect(sheet.getByRole("textbox", { name: "Comment at the playhead" })).toBeFocused();
 });
 
 // A file whose preparation failed says so, with a way to try again; put back as seeded after.
