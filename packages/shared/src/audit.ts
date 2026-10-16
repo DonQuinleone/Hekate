@@ -57,12 +57,16 @@ export const auditActions = [
   "account.deleted",
   /** A member signed in with the workspace's directory; the first time also makes them one. */
   "account.directory_sign_in",
+  /** A member signed in with the workspace's single sign-on; the first time also makes them one. */
+  "account.sso_sign_in",
   /** An owner renamed the workspace. */
   "organisation.rename",
   /** An admin changed the workspace's settings. */
   "organisation.settings",
   /** An admin changed the workspace's directory (LDAP) settings. */
   "organisation.directory",
+  /** An admin changed the workspace's single sign-on settings. */
+  "organisation.sso",
   /** A project was archived (its open reviews closing), or brought back. */
   "project.archive",
   "project.unarchive",

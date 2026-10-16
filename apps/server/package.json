@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@better-auth/passkey": "1.7.7",
+    "@better-auth/sso": "1.7.7",
     "@hekate/db": "workspace:*",
     "@hekate/shared": "workspace:*",
     "@hekate/storage": "workspace:*",

@@ -1,0 +1,53 @@
+{
+  "realm": "hekate",
+  "enabled": true,
+  "sslRequired": "none",
+  "groups": [{ "name": "producers" }],
+  "users": [
+    {
+      "username": "mira",
+      "email": "mira@example.test",
+      "emailVerified": true,
+      "firstName": "Mira",
+      "lastName": "Solberg",
+      "enabled": true,
+      "groups": ["/producers"],
+      "credentials": [{ "type": "password", "value": "mira-sso-pass", "temporary": false }]
+    },
+    {
+      "username": "tomas",
+      "email": "tomas@example.test",
+      "emailVerified": true,
+      "firstName": "Tomas",
+      "lastName": "Varga",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "tomas-sso-pass", "temporary": false }]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "hekate",
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "oidc-client-secret-for-tests",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:3000/*"],
+      "webOrigins": ["http://localhost:3000"],
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

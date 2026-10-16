@@ -4,6 +4,7 @@ import {
   type CarryStatus,
   type CreateProjectInput,
   type CreateReviewInput,
+  type DeletionConfirmation,
   type DeliveryProfileId,
   type DirectorySettings,
   type DirectorySettingsInput,
@@ -36,6 +37,9 @@ import {
   type ReviewKind,
   type SavedSearchInput,
   type SearchRequest,
+  type SsoServiceProvider,
+  type SsoSettings,
+  type SsoSettingsInput,
   searchResponse,
   type TrackState,
   type UpdateCarryInput,
@@ -55,6 +59,8 @@ import { api } from "./api";
 export class SignedOutError extends Error {}
 /** The workspace asks for a second factor this member has not added yet. */
 export class SecondFactorDueError extends Error {}
+/** The workspace signs its members in only through its single sign-on. */
+export class SsoRequiredError extends Error {}
 /** A refusal with the server's code for it, for pages that answer each refusal differently. */
 export class ApiError extends Error {
   readonly code: string | undefined;
@@ -72,6 +78,7 @@ async function json<T>(res: Response): Promise<T> {
     } | null;
     const message = body?.error?.message ?? `Request failed (${res.status})`;
     if (body?.error?.code === "second_factor_required") throw new SecondFactorDueError(message);
+    if (body?.error?.code === "sso_required") throw new SsoRequiredError(message);
     throw new ApiError(message, body?.error?.code);
   }
   return res.json() as Promise<T>;
@@ -142,7 +149,8 @@ export const setupQuery = queryOptions({
 /** What the sign-in page offers beyond a password and a passkey. */
 export const signInMethodsQuery = queryOptions({
   queryKey: ["sign-in-methods"],
-  queryFn: async () => json<{ directory: boolean }>(await api["sign-in-methods"].$get()),
+  queryFn: async () =>
+    json<{ directory: boolean; sso: boolean }>(await api["sign-in-methods"].$get()),
   staleTime: 5 * 60_000,
 });
 
@@ -463,6 +471,26 @@ export function useTestDirectory() {
   return useMutation({
     mutationFn: async () =>
       json<{ ok: boolean; problem: string | null }>(await api.organisation.directory.test.$post()),
+  });
+}
+
+/** The workspace's single sign-on, and what its identity provider is to be told; admins only. */
+export const ssoQuery = queryOptions({
+  queryKey: ["organisation", "sso"],
+  queryFn: async () =>
+    json<{ sso: SsoSettings; serviceProvider: SsoServiceProvider }>(
+      await api.organisation.sso.$get(),
+    ),
+});
+
+export function useSaveSso() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: SsoSettingsInput) =>
+      json<{ sso: SsoSettings; serviceProvider: SsoServiceProvider }>(
+        await api.organisation.sso.$put({ json: input }),
+      ),
+    onSuccess: () => client.invalidateQueries({ queryKey: ssoQuery.queryKey }),
   });
 }
 
@@ -1329,9 +1357,15 @@ export const passkeysQuery = queryOptions({
 });
 
 /** Delete the signed-in account: its address typed out, and its password. */
+/** How deleting this account is confirmed: a password, or a fresh sign-in (#37). */
+export const deletionQuery = queryOptions({
+  queryKey: ["me", "deletion"],
+  queryFn: async () => json<DeletionConfirmation>(await api.me.deletion.$get()),
+});
+
 export function useDeleteAccount() {
   return useMutation({
-    mutationFn: async (input: { email: string; password: string }) => {
+    mutationFn: async (input: { email: string; password?: string }) => {
       const res = await api.me.$delete({ json: input });
       if (res.status !== 204) await json(res);
     },

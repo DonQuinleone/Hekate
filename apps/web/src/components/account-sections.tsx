@@ -8,6 +8,7 @@ import { ago } from "~/lib/comments";
 import { applyDensity } from "~/lib/density";
 import { languageNames } from "~/lib/locale";
 import {
+  deletionQuery,
   meQuery,
   sessionsQuery,
   useDeleteAccount,
@@ -212,7 +213,30 @@ function DeleteAccount({ email }: { email: string }) {
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
   const [password, setPassword] = useState("");
+  const [again, setAgain] = useState<{ pending?: boolean; error?: string }>({});
   const remove = useDeleteAccount();
+  // An account with no password here confirms with a fresh sign-in instead (#37).
+  const { data: confirm, refetch } = useQuery({ ...deletionQuery, enabled: open });
+  const asksPassword = confirm?.with === "password" || confirm?.with === "directory";
+  const signInAgain = async () => {
+    setAgain({ pending: true });
+    if (confirm?.with === "sign_in" && confirm.providerId) {
+      const { data, error } = await authClient.$fetch<{ url: string }>("/sign-in/sso", {
+        method: "POST",
+        body: {
+          providerId: confirm.providerId,
+          callbackURL: "/account/account",
+          errorCallbackURL: "/account/account",
+        },
+      });
+      if (data?.url) return window.location.assign(data.url);
+      return setAgain({ error: error?.message ?? "That did not go through. Try again." });
+    }
+    const { error } = await authClient.signIn.passkey();
+    if (error) return setAgain({ error: error.message ?? "That did not go through. Try again." });
+    setAgain({});
+    await refetch();
+  };
   const client = useQueryClient();
   const navigate = useNavigate();
   const close = () => {
@@ -225,7 +249,7 @@ function DeleteAccount({ email }: { email: string }) {
   const submit = (event: FormEvent) => {
     event.preventDefault();
     remove.mutate(
-      { email: typed, password },
+      { email: typed, ...(asksPassword ? { password } : {}) },
       {
         onSuccess: async () => {
           client.clear();
@@ -264,18 +288,41 @@ function DeleteAccount({ email }: { email: string }) {
                 onChange={(e) => setTyped(e.target.value)}
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="delete-password" className="label">
-                Password
-              </label>
-              <Input
-                id="delete-password"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
+            {asksPassword && (
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="delete-password" className="label">
+                  {confirm.with === "directory" ? "Directory password" : "Password"}
+                </label>
+                <Input
+                  id="delete-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
+            )}
+            {confirm?.with === "sign_in" &&
+              (confirm.fresh ? (
+                <Note>You signed in just now, so your address confirms it.</Note>
+              ) : (
+                <div className="flex flex-col items-start gap-2">
+                  <Note>
+                    {confirm.providerId
+                      ? "You sign in through your workspace's identity provider, so there is no password to give. Sign in again to confirm; for ten minutes after, your address alone confirms it."
+                      : "You sign in with a passkey, so there is no password to give. Sign in with it again to confirm; for ten minutes after, your address alone confirms it."}
+                  </Note>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={again.pending}
+                    onClick={signInAgain}
+                  >
+                    {again.pending ? "Signing in" : "Sign in again"}
+                  </Button>
+                  {again.error && <Note error>{again.error}</Note>}
+                </div>
+              ))}
             {remove.error && <Note error>{remove.error.message}</Note>}
             <span className="flex justify-end gap-2">
               <Button variant="ghost" onClick={close}>
@@ -285,7 +332,12 @@ function DeleteAccount({ email }: { email: string }) {
                 type="submit"
                 variant="secondary"
                 className="text-signal"
-                disabled={!matches || !password || remove.isPending}
+                disabled={
+                  !matches ||
+                  !confirm ||
+                  (asksPassword ? !password : !confirm.fresh) ||
+                  remove.isPending
+                }
               >
                 {remove.isPending ? "Deleting" : "Delete my account"}
               </Button>

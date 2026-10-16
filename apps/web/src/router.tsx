@@ -19,6 +19,7 @@ import {
   meQuery,
   SecondFactorDueError,
   SignedOutError,
+  SsoRequiredError,
   setupQuery,
 } from "~/lib/queries";
 import { useFollowSystemTheme } from "~/lib/theme";
@@ -57,6 +58,15 @@ function onSignedOut(error: unknown) {
     void router.navigate({ to: "/second-factor" });
     return;
   }
+  // The workspace now takes its members only through single sign-on: sign in that way.
+  if (error instanceof SsoRequiredError && !outside.test(window.location.pathname)) {
+    const here = window.location.pathname + window.location.search;
+    void router.navigate({
+      to: "/sign-in",
+      search: { view: "sso", reason: "sso", redirect: here },
+    });
+    return;
+  }
   if (!(error instanceof SignedOutError) || outside.test(window.location.pathname)) return;
   if (!queryClient.getQueryData(meQuery.queryKey)) return;
   const here = window.location.pathname + window.location.search;
@@ -74,7 +84,7 @@ export const queryClient = new QueryClient({
 const signInSearch = z.object({
   redirect: z.string().max(2000).optional().catch(undefined),
   view: z
-    .enum(["forgot", "sent", "reset", "code", "recovery", "directory"])
+    .enum(["forgot", "sent", "reset", "code", "recovery", "directory", "sso"])
     .optional()
     .catch(undefined),
   email: z.string().max(254).optional().catch(undefined),
@@ -83,7 +93,13 @@ const signInSearch = z.object({
     .regex(/^\d{6}$/)
     .optional()
     .catch(undefined),
-  reason: z.enum(["expired"]).optional().catch(undefined),
+  reason: z.enum(["expired", "sso"]).optional().catch(undefined),
+  /** What an identity provider's sign-in came back with, when it failed. */
+  error: z
+    .string()
+    .regex(/^[\w.-]{1,100}$/)
+    .optional()
+    .catch(undefined),
 });
 
 /** A file page's loop, from its address: kept only when it reads as one. */

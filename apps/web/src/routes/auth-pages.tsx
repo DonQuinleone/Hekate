@@ -66,14 +66,19 @@ export function ErrorLine({ message }: { message: string | null }) {
   );
 }
 
-export type SignInView = "forgot" | "sent" | "reset" | "code" | "recovery" | "directory";
+export type SignInView = "forgot" | "sent" | "reset" | "code" | "recovery" | "directory" | "sso";
 export interface SignInSearch {
   redirect?: string;
   view?: SignInView;
   email?: string;
   code?: string;
-  /** Why someone is back here: their session ended while they were away. */
-  reason?: "expired";
+  /**
+   * Why someone is back here: their session ended while they were away, or their workspace
+   * takes them only through single sign-on.
+   */
+  reason?: "expired" | "sso";
+  /** What an identity provider's sign-in came back with, when it failed. */
+  error?: string;
 }
 
 /** Sign in, and the forgotten password's states: each a query on /sign-in, so each can be linked. */
@@ -112,6 +117,7 @@ export function SignInPage() {
     );
   if (search.view === "directory")
     return <DirectorySignIn redirect={search.redirect} back={() => go({})} />;
+  if (search.view === "sso") return <SsoSignIn search={search} back={() => go({})} />;
   if (search.view === "reset")
     return (
       <Reset
@@ -220,18 +226,39 @@ function SignIn({ search, forgot }: { search: SignInSearch; forgot: (email: stri
         <Button variant="primary" size="lg" type="submit" disabled={pending}>
           {pending ? "Signing in" : "Sign in"}
         </Button>
-        <Button
-          variant="secondary"
-          size="lg"
-          className="gap-2"
-          disabled={key.pending}
-          onClick={async () => {
-            if (await key.signIn()) await arrive(search.redirect, navigate);
-          }}
-        >
-          <Icon name="key" size={16} />
-          {key.pending ? "Waiting for the key" : "Sign in with a passkey"}
-        </Button>
+        <div className={cn("grid gap-2", methods?.sso && "grid-cols-2")}>
+          <Button
+            variant="secondary"
+            size="lg"
+            className="gap-2"
+            disabled={key.pending}
+            onClick={async () => {
+              if (await key.signIn()) await arrive(search.redirect, navigate);
+            }}
+          >
+            <Icon name="key" size={16} />
+            {key.pending ? "Waiting" : methods?.sso ? "Passkey" : "Sign in with a passkey"}
+          </Button>
+          {methods?.sso && (
+            <Button
+              variant="secondary"
+              size="lg"
+              className="gap-2"
+              onClick={() =>
+                void navigate({
+                  to: "/sign-in",
+                  search: {
+                    ...(search.redirect ? { redirect: search.redirect } : {}),
+                    view: "sso",
+                  },
+                })
+              }
+            >
+              <Icon name="shield" size={16} />
+              Single sign-on
+            </Button>
+          )}
+        </div>
         {methods?.directory && (
           <button
             type="button"
@@ -253,6 +280,78 @@ function SignIn({ search, forgot }: { search: SignInSearch; forgot: (email: stri
       <p className="m-0 border-t border-hairline pt-4 text-xs leading-normal text-ink-3">
         Accounts are by invitation. Guests reviewing a file open the link in their email instead.
       </p>
+    </Frame>
+  );
+}
+
+/** An identity provider's refusal, in words: what Better Auth's error codes mean here. */
+const ssoProblem = (code: string | undefined) =>
+  !code
+    ? null
+    : /not_linked|account_not_linked/i.test(code)
+      ? "An account with this address already exists. Sign in with its password or passkey instead."
+      : "The identity provider did not sign you in. Try again, or ask an admin of your workspace.";
+
+/**
+ * Single sign-on: which workspace, then off to its identity provider (OIDC or SAML), which
+ * sends the person back signed in. The first sign-in makes the account.
+ */
+function SsoSignIn({ search, back }: { search: SignInSearch; back: () => void }) {
+  const [error, setError] = useState<string | null>(ssoProblem(search.error));
+  const [pending, setPending] = useState(false);
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const workspace = String(new FormData(e.currentTarget).get("workspace")).trim();
+    setPending(true);
+    setError(null);
+    const found = await api["sign-in-methods"].sso.$get({ query: { workspace } });
+    if (!found.ok) {
+      setPending(false);
+      setError("That workspace does not sign in with single sign-on.");
+      return;
+    }
+    const { providerId } = (await found.json()) as { providerId: string };
+    const back = search.redirect?.startsWith("/") && !search.redirect.startsWith("//");
+    const { data, error } = await authClient.$fetch<{ url: string }>("/sign-in/sso", {
+      method: "POST",
+      body: {
+        providerId,
+        callbackURL: back ? search.redirect : "/",
+        errorCallbackURL: "/sign-in?view=sso",
+      },
+    });
+    if (error || !data?.url) {
+      setPending(false);
+      setError(error?.message ?? "That did not go through. Try again.");
+      return;
+    }
+    window.location.assign(data.url);
+  };
+  return (
+    <Frame title="Single sign-on" intro="Which workspace are you signing in to?">
+      {search.reason === "sso" && (
+        <p
+          role="status"
+          className="m-0 rounded-panel border border-line bg-raised/40 px-3 py-2.5 text-[13px] text-ink-2"
+        >
+          Your workspace signs its members in through single sign-on. Sign in that way to carry on
+          where you were.
+        </p>
+      )}
+      <form onSubmit={submit} className="flex flex-col gap-4">
+        <Field
+          id="workspace"
+          label="Workspace"
+          autoComplete="organization"
+          autoFocus
+          placeholder="endless-hall-records"
+        />
+        <ErrorLine message={error} />
+        <Button variant="primary" size="lg" type="submit" disabled={pending}>
+          {pending ? "Opening the identity provider" : "Continue to the identity provider"}
+        </Button>
+      </form>
+      <Back onClick={back} />
     </Frame>
   );
 }

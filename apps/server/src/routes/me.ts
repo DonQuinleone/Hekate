@@ -12,7 +12,7 @@ import { and, asc, desc, eq, gt, ne } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { deleteAccount } from "../account-deletion.ts";
+import { deleteAccount, deletionConfirmation } from "../account-deletion.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import type { Auth } from "../auth.ts";
 import { CodedException } from "../errors.ts";
@@ -245,22 +245,29 @@ export const meRoutes = (db: Database, rule: SecondFactorRule, deps: { maxPasske
  * sole owner hands the workspace on first.
  */
 export const accountRoutes = (db: Database, deps: MeDeps) =>
-  new Hono<{ Variables: SessionVariables }>().delete(
-    "/",
-    requireSession(deps.auth),
-    zValidator("json", deleteAccountInput),
-    async (c) => {
+  new Hono<{ Variables: SessionVariables }>()
+    // How deleting is confirmed for this account: a password, or a fresh sign-in.
+    .get("/deletion", requireSession(deps.auth), async (c) =>
+      c.json(await deletionConfirmation(db, c.var.userId, c.var.sessionId)),
+    )
+    .delete("/", requireSession(deps.auth), zValidator("json", deleteAccountInput), async (c) => {
       const result = await deleteAccount(
         db,
         deps.auth,
         deps.keyring,
         deps.audit,
-        c.var.userId,
+        { userId: c.var.userId, sessionId: c.var.sessionId },
         c.req.valid("json"),
         requestInfo(c, deps.trustProxy),
       );
       if (result.status === "refused")
         throw new CodedException(403, "confirm_refused", "That address or password is not right.");
+      if (result.status === "sign_in_again")
+        throw new CodedException(
+          403,
+          "sign_in_again",
+          "Sign in again to confirm, then delete your account within ten minutes.",
+        );
       if (result.status === "sole_owner")
         throw new CodedException(
           409,
@@ -268,5 +275,4 @@ export const accountRoutes = (db: Database, deps: MeDeps) =>
           `You are the only owner of ${result.workspaces.join(", ")}. Make someone else an owner first.`,
         );
       return c.body(null, 204);
-    },
-  );
+    });
