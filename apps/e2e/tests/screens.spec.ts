@@ -244,6 +244,31 @@ test("project-files-columns", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Filters look across the project; the menu says what is on. On a phone the open menu covers
+// the list it filters, so that capture shows the list and its chips instead.
+test("project-files-filtered", async ({ page }, info) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/files?show=comments`);
+  await settle(page, "main ul[aria-label=Filters]");
+  if (info.project.name !== "phone") {
+    await page.getByRole("button", { name: /^Filter/ }).click();
+    await settle(page, "[role=dialog][aria-label='Filter files']");
+  }
+  await saveScreen(page, "project-files-filtered");
+  await checkScreen(page);
+});
+
+test("project-files-tags", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/files`);
+  await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
+  await page.getByRole("button", { name: "Actions for Maple Leaf Rag - Score.pdf" }).click();
+  await page.getByRole("menuitem", { name: "Tags…" }).click();
+  await settle(page, "main fieldset >> text=Reference");
+  await saveScreen(page, "project-files-tags");
+  await checkScreen(page);
+});
+
 test("project-files-grid", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/projects/${seeded().musicProjectId}/files`);

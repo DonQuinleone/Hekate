@@ -16,6 +16,7 @@ import { guestRoutes } from "./routes/guest.ts";
 import { health } from "./routes/health.ts";
 import { homeRoutes } from "./routes/home.ts";
 import { invitationRoutes } from "./routes/invitations.ts";
+import { projectMarkRoutes } from "./routes/marks.ts";
 import { meRoutes } from "./routes/me.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
 import { organisationRoutes } from "./routes/organisation.ts";
@@ -27,6 +28,7 @@ import { fileQaRoutes } from "./routes/qa.ts";
 import { projectReviewRoutes, reviewRoutes } from "./routes/reviews.ts";
 import { searchRoutes } from "./routes/search.ts";
 import { setupRoutes } from "./routes/setup.ts";
+import { fileTagRoutes, tagRoutes } from "./routes/tags.ts";
 import {
   projectTrackRoutes,
   trackRoutes,
@@ -109,6 +111,10 @@ export function createApi(deps: AppDeps) {
       .route("/projects", projectGroupRoutes(deps.db))
       .route("/projects", projectFolderRoutes(deps.db))
       .route("/projects", projectOverviewRoutes(deps.db))
+      .route("/projects", projectMarkRoutes(deps.db))
+      .use("/tags/*", ...member)
+      .use("/tags", ...member)
+      .route("/tags", tagRoutes(deps.db))
       .use("/folders/*", ...member)
       .route("/folders", folderRoutes(deps.db))
       .use("/tracks/*", ...member)
@@ -138,6 +144,7 @@ export function createApi(deps: AppDeps) {
       )
       .route("/files", fileManageRoutes(deps.db, deps.audit, deps.trustProxy ?? false))
       .route("/files", fileQaRoutes(deps.db))
+      .route("/files", fileTagRoutes(deps.db))
       .use("/reviews/*", viewer)
       .route("/reviews", reviewRoutes(reviewDeps))
       .route("/guest", guestRoutes(reviewDeps))

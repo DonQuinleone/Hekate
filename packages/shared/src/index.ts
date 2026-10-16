@@ -18,4 +18,5 @@ export * from "./reviews.ts";
 export * from "./roles.ts";
 export * from "./search.ts";
 export * from "./spectrogram.ts";
+export * from "./tags.ts";
 export * from "./tracks.ts";

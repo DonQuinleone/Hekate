@@ -10,6 +10,7 @@ import {
 import { useCallback } from "react";
 import { z } from "zod";
 import { Shell } from "~/components/shell";
+import { type BrowserFilters, filtersFrom, filtersTo } from "~/lib/browser";
 import { formatLoop, parseLoop } from "~/lib/loop";
 import { projectShows, projectSorts, projectViews } from "~/lib/projects";
 import { guestMeQuery, meQuery, setupQuery } from "~/lib/queries";
@@ -230,18 +231,38 @@ const project = createRoute({
 const projectFiles = createRoute({
   getParentRoute: () => app,
   path: "/projects/$projectId/files",
-  // The open folder lives in the address, so it survives a reload and can be shared.
-  validateSearch: folderSearch,
+  // The open folder and the filters live in the address, so they survive a reload and can be
+  // shared. Opening a folder leaves the filters behind.
+  validateSearch: (search: Record<string, unknown>) => ({
+    ...folderSearch(search),
+    ...filtersTo(filtersFrom(search)),
+  }),
   component: function ProjectFilesRoute() {
     const { projectId } = projectFiles.useParams();
-    const { folder } = projectFiles.useSearch();
+    const search = projectFiles.useSearch();
     const navigate = projectFiles.useNavigate();
     const open = useCallback(
       (next: string | null) =>
         void navigate({ search: next ? { folder: next } : {}, replace: false }),
       [navigate],
     );
-    return <ProjectFilesPage projectId={projectId} folderId={folder ?? null} onOpenFolder={open} />;
+    const filter = useCallback(
+      (next: BrowserFilters) =>
+        void navigate({
+          search: ({ folder }) => ({ ...(folder ? { folder } : {}), ...filtersTo(next) }),
+          replace: true,
+        }),
+      [navigate],
+    );
+    return (
+      <ProjectFilesPage
+        projectId={projectId}
+        folderId={search.folder ?? null}
+        onOpenFolder={open}
+        filters={filtersFrom(search)}
+        onFilter={filter}
+      />
+    );
   },
 });
 const projectReviews = createRoute({
@@ -323,6 +344,7 @@ const searchPageSchema = z.object({
   projectId: z.uuid().optional().catch(undefined),
   personId: z.string().min(1).max(100).optional().catch(undefined),
   fileKind: z.enum(fileKinds).optional().catch(undefined),
+  tagId: z.uuid().optional().catch(undefined),
   since: z.enum(searchSince).optional().catch(undefined),
 });
 const searchPage = createRoute({

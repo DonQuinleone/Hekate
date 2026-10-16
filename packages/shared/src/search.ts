@@ -32,7 +32,8 @@ export type SearchSince = (typeof searchSince)[number];
 
 /**
  * What narrows a search: one kind of thing, one project, one person (who uploaded a file,
- * wrote a comment or asked for a review), a kind of file, and how recent. All optional.
+ * wrote a comment or asked for a review), a kind of file, a tag (files only), and how recent.
+ * All optional.
  */
 export const searchFilters = z
   .object({
@@ -40,6 +41,7 @@ export const searchFilters = z
     projectId: z.uuid().optional(),
     personId: z.string().min(1).max(100).optional(),
     fileKind: z.enum(fileKinds).optional(),
+    tagId: z.uuid().optional(),
     since: z.enum(searchSince).optional(),
   })
   .strict();
@@ -51,7 +53,7 @@ export type SearchRequest = z.infer<typeof searchRequest>;
 
 /** Whether anything narrows the search beyond its words. */
 export const narrowed = (f: SearchFilters) =>
-  Boolean(f.kind || f.projectId || f.personId || f.fileKind || f.since);
+  Boolean(f.kind || f.projectId || f.personId || f.fileKind || f.tagId || f.since);
 
 /** The oldest moment a `since` filter lets through. */
 export function sinceDate(since: SearchSince, now = Date.now()): Date {

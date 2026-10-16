@@ -38,14 +38,14 @@ export const sinceLabels: Record<SearchSince, string> = {
 
 /**
  * A name for a search, to offer when keeping it: its words, then what narrows it.
- * `names` turns a project or person id into what people call it.
+ * `names` turns a project, person or tag id into what people call it.
  */
 export function describeSearch(search: SearchRequest, names: (id: string) => string | undefined) {
   const parts: string[] = [];
   if (search.q) parts.push(`“${search.q}”`);
   const kind = kindChoices.find((c) => c.value === kindChoice(search));
   if (kind?.value) parts.push(kind.label);
-  for (const id of [search.projectId, search.personId]) {
+  for (const id of [search.projectId, search.personId, search.tagId]) {
     const name = id && names(id);
     if (name) parts.push(name);
   }

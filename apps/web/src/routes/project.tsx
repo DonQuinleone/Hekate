@@ -9,6 +9,7 @@ import { PageHeader } from "~/components/page-header";
 import { ProjectAccess } from "~/components/project-access";
 import { ProjectReviews } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
+import { type BrowserFilters, noFilters } from "~/lib/browser";
 import {
   type Project,
   projectFoldersQuery,
@@ -110,11 +111,15 @@ export function ProjectFilesPage({
   projectId,
   folderId = null,
   onOpenFolder = () => {},
+  filters = noFilters,
+  onFilter = () => {},
 }: {
   projectId: string;
   /** The folder open in the file browser; null is the top of the project. */
   folderId?: string | null;
   onOpenFolder?: (folderId: string | null) => void;
+  filters?: BrowserFilters;
+  onFilter?: (filters: BrowserFilters) => void;
 }) {
   const { data: folders } = useQuery(projectFoldersQuery(projectId));
   const can = useProjectCan(projectId);
@@ -133,6 +138,8 @@ export function ProjectFilesPage({
               projectId={project.id}
               folderId={folderId}
               onOpenFolder={onOpenFolder}
+              filters={filters}
+              onFilter={onFilter}
               tracks={project.profile === "music"}
             />
           </div>

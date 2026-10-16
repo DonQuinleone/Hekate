@@ -30,6 +30,7 @@ import {
   type SavedSearch,
   savedSearchesQuery,
   searchQuery,
+  tagsQuery,
   useSavedSearchMutations,
 } from "~/lib/queries";
 import {
@@ -78,6 +79,7 @@ export function SearchPage({ search }: { search: SearchRequest }) {
   const { data: projects = [] } = useQuery(projectsQuery);
   const { data: members = [] } = useQuery(membersQuery);
   const { data: saved = [] } = useQuery(savedSearchesQuery);
+  const { data: tags = [] } = useQuery(tagsQuery);
 
   const go = (next: Partial<SearchRequest>) =>
     void navigate({ to: "/search", search: compact({ ...search, ...next }), replace: true });
@@ -87,7 +89,9 @@ export function SearchPage({ search }: { search: SearchRequest }) {
   const results = looking ? (found.data ?? []) : [];
 
   const names = (id: string) =>
-    projects.find((p) => p.id === id)?.name ?? members.find((m) => m.userId === id)?.name;
+    projects.find((p) => p.id === id)?.name ??
+    members.find((m) => m.userId === id)?.name ??
+    tags.find((t) => t.id === id)?.name;
 
   return (
     <>
@@ -171,6 +175,22 @@ export function SearchPage({ search }: { search: SearchRequest }) {
               </option>
             ))}
           </Select>
+          {/* Only files carry tags, so a tag narrows to files. */}
+          {(tags.length > 0 || search.tagId) && (
+            <Select
+              aria-label="Tag"
+              value={search.tagId ?? ""}
+              onChange={(e) => go({ tagId: e.target.value || undefined })}
+              className="@3xl/app:w-32"
+            >
+              <option value="">Any tag</option>
+              {tags.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </Select>
+          )}
           {filtered && (
             <Button
               variant="ghost"
@@ -182,6 +202,7 @@ export function SearchPage({ search }: { search: SearchRequest }) {
                   fileKind: undefined,
                   projectId: undefined,
                   personId: undefined,
+                  tagId: undefined,
                   since: undefined,
                 })
               }

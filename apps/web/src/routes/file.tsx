@@ -32,6 +32,7 @@ import {
   fileQuery,
   playbackQuery,
   projectQuery,
+  useMarks,
   useProjectCan,
 } from "~/lib/queries";
 import { useViewer } from "~/lib/viewer";
@@ -141,6 +142,16 @@ function technicalDetails(info: MediaInfo | null): [string, string][] {
 
 export type FileView = "review" | "qa";
 
+/** Opening a file is seeing it: the file browser stops showing it as new to this member. */
+function MarkViewed({ projectId, fileId }: { projectId: string; fileId: string }) {
+  const { mutate } = useMarks(projectId);
+  useEffect(
+    () => mutate({ items: [{ kind: "file", id: fileId }], viewed: true }),
+    [mutate, fileId],
+  );
+  return null;
+}
+
 export function FilePage({
   fileId,
   loop = null,
@@ -244,6 +255,7 @@ export function FilePage({
       ];
   return (
     <>
+      {!guest && <MarkViewed projectId={file.projectId} fileId={file.id} />}
       <PageHeader
         crumbs={crumbs}
         title={file.name}
