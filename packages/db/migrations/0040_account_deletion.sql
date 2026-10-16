@@ -29,3 +29,25 @@ BEGIN
 	RETURN OLD;
 END;
 $$;
+--> statement-breakpoint
+-- An entry written for an account already deleted is labelled as a former member's, whatever
+-- the writer thought the name was: a request in flight while the account is deleted cannot put
+-- the name back. The deletion locks the account's row first; this waits on that lock, so it
+-- sees the deletion once it has committed.
+CREATE OR REPLACE FUNCTION "access_events_former_member"() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+	gone timestamptz;
+BEGIN
+	IF NEW.user_id IS NOT NULL THEN
+		SELECT "deleted_at" INTO gone FROM "users" WHERE "id" = NEW.user_id FOR SHARE;
+		IF gone IS NOT NULL THEN
+			NEW.actor_label := 'A former member';
+		END IF;
+	END IF;
+	RETURN NEW;
+END;
+$$;
+--> statement-breakpoint
+CREATE TRIGGER "access_events_former_member" BEFORE INSERT ON "access_events"
+	FOR EACH ROW EXECUTE FUNCTION "access_events_former_member"();

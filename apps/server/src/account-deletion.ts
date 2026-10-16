@@ -10,6 +10,7 @@ const {
   authSessions,
   follows,
   groupMembers,
+  invitations,
   members,
   marks,
   notificationPreferences,
@@ -31,7 +32,8 @@ export type DeletionResult =
  * Delete an account (decision 047). What the member did stays, as a former member's: their
  * comments, decisions and access log entries keep their place, under "A former member". What
  * was theirs alone goes: sign-in, sessions, the second factor, memberships, preferences,
- * notifications, follows, marks and saved searches. The row itself stays, emptied, so what
+ * notifications, follows, marks and saved searches, and the address leaves every invitation
+ * that named it. The row itself stays, emptied, so what
  * they wrote keeps an author; no name, address or choice of theirs is left in it.
  *
  * Refused unless the address typed is the account's and the password is right, and refused
@@ -60,6 +62,10 @@ export async function deleteAccount(
     return { status: "refused" };
 
   return db.transaction(async (tx) => {
+    // The account's row, locked first: a request still writing to the access log for it waits
+    // here, and once this commits the log's trigger labels anything later "A former member"
+    // (migration 0040), so nothing written alongside the deletion keeps the name.
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
     // An account is no workspace's: go through every workspace (a global table) and ask each,
     // in its own scope, whether the account is a member there and whether it left a trail.
     const all = await tx
@@ -111,6 +117,21 @@ export async function deleteAccount(
           .where(inOrg(accessEvents, organisationId, eq(accessEvents.userId, userId)));
       }
     }
+    // Invitations to the address, in every workspace, joined or not: the address goes from
+    // each, and one still open can no longer be accepted.
+    const formerEmail = `former-${userId}@deleted.invalid`;
+    for (const workspace of all) {
+      await tx
+        .update(invitations)
+        .set({ email: formerEmail, revokedAt: sql`coalesce(${invitations.revokedAt}, now())` })
+        .where(
+          inOrg(
+            invitations,
+            workspace.id,
+            sql`lower(${invitations.email}) = ${user.email.toLowerCase()}`,
+          ),
+        );
+    }
     const former = { type: "member" as const, userId, label: FORMER_MEMBER };
     for (const organisationId of memberships.map((m) => m.organisationId)) {
       await audit.record(organisationId, former, { action: "account.deleted" }, request, tx);
@@ -138,7 +159,7 @@ export async function deleteAccount(
       .set({
         name: FORMER_MEMBER,
         // Unique, and nobody's: it can receive nothing and sign in as no one.
-        email: `former-${userId}@deleted.invalid`,
+        email: formerEmail,
         emailVerified: false,
         image: null,
         locale: null,

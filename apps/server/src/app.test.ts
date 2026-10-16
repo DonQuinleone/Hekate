@@ -2814,11 +2814,33 @@ describe.runIf(url)("api", () => {
           (await remove(s.composer, { email: "composer@example.test", password: "wrong password" }))
             .status,
         ).toBe(403);
+        // An invitation to their address waits in a workspace they never joined.
+        const [elsewhere] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere" })
+          .returning();
+        await db.insert(schema.invitations).values({
+          organisationId: elsewhere?.id ?? "",
+          email: "composer@example.test",
+          role: "member",
+          tokenHash: "pending-invitation-hash",
+          expiresAt: new Date(Date.now() + 86_400_000),
+        });
         const gone = await remove(s.composer, {
           email: "Composer@Example.test",
           password: "correct horse battery",
         });
         expect(gone.status).toBe(204);
+        // Their address has left every invitation, and the one still open is withdrawn.
+        const invited = await db.select().from(schema.invitations);
+        expect(invited.filter((i) => i.email.includes("composer"))).toEqual([]);
+        expect(invited.find((i) => i.organisationId === elsewhere?.id)?.revokedAt).not.toBeNull();
+        // A request that read their name before the deletion cannot write it back to the log.
+        await audit.record(
+          s.organisationId,
+          { type: "member", userId: s.ids.composer, label: "Composer <composer@example.test>" },
+          { action: "comment.create" },
+        );
 
         // Signed out everywhere, and no way back in.
         expect((await getAs("/api/me", s.composer)).status).toBe(401);
@@ -2883,6 +2905,30 @@ describe.runIf(url)("api", () => {
         expect(
           await db.select().from(schema.members).where(eq(schema.members.userId, s.ids.composer)),
         ).toEqual([]);
+      });
+
+      it("lets someone in no workspace delete their account", async () => {
+        const s = await studio();
+        // Removed from their only workspace, they are still signed in, with nowhere to go.
+        await db.delete(schema.members).where(eq(schema.members.userId, s.ids.composer));
+        expect((await getAs("/api/projects", s.composer)).status).toBe(403);
+        const gone = await app.request("/api/me", {
+          ...json(
+            { email: "composer@example.test", password: "correct horse battery" },
+            s.composer,
+          ),
+          method: "DELETE",
+        });
+        expect(gone.status).toBe(204);
+        // Without a session, nothing.
+        expect(
+          (
+            await app.request("/api/me", {
+              ...json({ email: "composer@example.test", password: "correct horse battery" }),
+              method: "DELETE",
+            })
+          ).status,
+        ).toBe(401);
       });
 
       it("sums up one project for its overview, as each role may see it, and keeps each person's layout", async () => {
