@@ -352,7 +352,7 @@ export function ProjectReviews({ projectId }: { projectId: string }) {
           {reviews.map((review) => (
             <li
               key={review.id}
-              className="grid min-h-12 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-hairline py-2.5 sm:grid-cols-[minmax(0,1fr)_120px_100px_auto]"
+              className="grid min-h-row-min grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-hairline py-row-tight sm:grid-cols-[minmax(0,1fr)_120px_100px_auto]"
             >
               <span className="flex min-w-0 flex-col">
                 <Link

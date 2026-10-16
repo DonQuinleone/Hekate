@@ -263,7 +263,7 @@ function ThreadView({
       ref={row}
       data-thread={comment.id}
       className={cn(
-        "group flex flex-col gap-3 border-b border-hairline py-4",
+        "group flex flex-col gap-3 border-b border-hairline py-row-loose",
         comment.resolvedAt && "opacity-70",
         picked && "-mx-3 rounded-panel border-transparent bg-raised px-3",
       )}

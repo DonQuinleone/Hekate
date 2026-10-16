@@ -1,10 +1,11 @@
-import { locales, preRolls, skipSteps, type Theme } from "@hekate/shared";
+import { type Density, locales, preRolls, skipSteps, type Theme } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { shortAgent } from "~/lib/agent";
 import { authClient } from "~/lib/auth";
 import { ago } from "~/lib/comments";
+import { applyDensity } from "~/lib/density";
 import { languageNames } from "~/lib/locale";
 import {
   meQuery,
@@ -662,6 +663,21 @@ export function AppearanceSection() {
               />
             ))}
           </div>
+        </Row>
+        <Row name="Density" hint="How much room each row of a list takes, everywhere.">
+          <Select
+            aria-label="Density"
+            className="w-40"
+            value={preferences.density}
+            onChange={(e) => {
+              const density = e.target.value as Density;
+              applyDensity(density);
+              save.mutate({ density });
+            }}
+          >
+            <option value="comfortable">Comfortable</option>
+            <option value="compact">Compact</option>
+          </Select>
         </Row>
       </Section>
       <Section title="Tools shown">

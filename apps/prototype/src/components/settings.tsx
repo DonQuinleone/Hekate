@@ -161,7 +161,7 @@ export function Row({
   return (
     <div
       className={cn(
-        "flex gap-4 px-4 py-3",
+        "flex gap-4 px-4 py-row",
         stacked
           ? "flex-col"
           : "flex-col @3xl/app:flex-row @3xl/app:items-center @3xl/app:justify-between",

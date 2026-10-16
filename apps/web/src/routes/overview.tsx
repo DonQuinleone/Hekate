@@ -363,7 +363,7 @@ export function ProjectOverview({ project }: { project: Project }) {
                 <Link
                   to="/reviews/$reviewId"
                   params={{ reviewId: r.id }}
-                  className="flex items-center gap-3 rounded-panel px-2.5 py-2 transition-colors hover:bg-raised/60"
+                  className="flex items-center gap-3 rounded-panel px-2.5 py-row-snug transition-colors hover:bg-raised/60"
                 >
                   <StatusDot state={reviewState(r)} />
                   <span className="min-w-0 flex-1">
