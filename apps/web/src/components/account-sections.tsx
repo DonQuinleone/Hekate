@@ -1,12 +1,19 @@
-import { locales } from "@hekate/shared";
+import { locales, preRolls, skipSteps } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { shortAgent } from "~/lib/agent";
 import { authClient } from "~/lib/auth";
 import { ago } from "~/lib/comments";
-import { meQuery, sessionsQuery, useSignOutSession, useUpdateProfile } from "~/lib/queries";
+import {
+  meQuery,
+  sessionsQuery,
+  usePreferences,
+  useSavePreferences,
+  useSignOutSession,
+  useUpdateProfile,
+} from "~/lib/queries";
 import { Avatar } from "./avatar";
-import { Row, Section } from "./settings";
+import { Row, Section, SwitchRow } from "./settings";
 import { Button } from "./ui/button";
 import { Input, Select } from "./ui/input";
 import { StatusDot } from "./ui/status";
@@ -323,5 +330,76 @@ export function SessionsSection() {
         </div>
       )}
     </Section>
+  );
+}
+
+/**
+ * What appears on the recording page and how the player behaves, for you alone. The project
+ * decides which tools you may have; this is which of them you want to see. Themes come with
+ * the light and alternative palettes.
+ */
+export function AppearanceSection() {
+  const preferences = usePreferences();
+  const save = useSavePreferences();
+  return (
+    <>
+      <Section title="Tools shown">
+        <SwitchRow
+          name="Spectrogram in the View menu"
+          checked={preferences.showSpectrogram}
+          onChange={(showSpectrogram) => save.mutate({ showSpectrogram })}
+        />
+        <SwitchRow
+          name="Split channels when a recording opens"
+          hint="Each channel in its own lane; a browser keeps its own choice once you change it there."
+          checked={preferences.splitChannels}
+          onChange={(splitChannels) => save.mutate({ splitChannels })}
+        />
+        <SwitchRow
+          name="Loudness under the transport"
+          checked={preferences.showLoudness}
+          onChange={(showLoudness) => save.mutate({ showLoudness })}
+        />
+      </Section>
+      <Section title="Player">
+        <Row name="Skip by" hint="How far the arrow keys move the playhead.">
+          <Select
+            aria-label="Skip by"
+            className="w-32"
+            value={String(preferences.skipSeconds)}
+            onChange={(e) =>
+              save.mutate({ skipSeconds: Number(e.target.value) as (typeof skipSteps)[number] })
+            }
+          >
+            {skipSteps.map((n) => (
+              <option key={n} value={n}>
+                {n} s
+              </option>
+            ))}
+          </Select>
+        </Row>
+        <Row name="Before a comment" hint="How much plays before the moment a comment marks.">
+          <Select
+            aria-label="Before a comment"
+            className="w-32"
+            value={String(preferences.preRoll)}
+            onChange={(e) =>
+              save.mutate({ preRoll: Number(e.target.value) as (typeof preRolls)[number] })
+            }
+          >
+            {preRolls.map((n) => (
+              <option key={n} value={n}>
+                {n === 0 ? "None" : `${n} s`}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        {save.error && (
+          <div className="px-4 py-2">
+            <Note error>{save.error.message}</Note>
+          </div>
+        )}
+      </Section>
+    </>
   );
 }

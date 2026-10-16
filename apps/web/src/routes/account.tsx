@@ -6,7 +6,7 @@ import {
   notificationKinds,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
-import { ProfileSection, SessionsSection } from "~/components/account-sections";
+import { AppearanceSection, ProfileSection, SessionsSection } from "~/components/account-sections";
 import { PageHeader } from "~/components/page-header";
 import { type NavSection, Row, Section, SettingsLayout } from "~/components/settings";
 import { Button } from "~/components/ui/button";
@@ -36,6 +36,11 @@ const sections: (NavSection & { intro: string })[] = [
     id: "notifications",
     label: "Notifications",
     intro: "What reaches you, and how. These choices are yours, in this workspace.",
+  },
+  {
+    id: "appearance",
+    label: "Appearance",
+    intro: "What the recording page shows you, and how the player behaves. Yours alone.",
   },
 ];
 
@@ -197,6 +202,7 @@ export function AccountPage({ section }: { section: string }) {
         {current.id === "account" && <ProfileSection />}
         {current.id === "sessions" && <SessionsSection />}
         {current.id === "notifications" && <Notifications />}
+        {current.id === "appearance" && <AppearanceSection />}
       </SettingsLayout>
     </>
   );

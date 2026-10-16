@@ -8,6 +8,7 @@ import {
   decodeLoudness,
   decodePeaks,
   decodeSpectrogram,
+  defaultPreferences,
   type FileColumnLayout,
   type FileKind,
   type GroupInput,
@@ -20,6 +21,7 @@ import {
   type NotificationPreferences,
   narrowed,
   type OverviewSection,
+  type Preferences,
   type ProfileInput,
   type ProjectPermission,
   type ProjectProfile,
@@ -73,6 +75,7 @@ export interface Me {
     emailVerified?: boolean;
     locale?: string | null;
     timeZone?: string | null;
+    preferences?: Preferences;
   };
   organisations: { id: string; name: string; role: "owner" | "admin" | "member" }[];
   activeOrganisationId: string;
@@ -1866,5 +1869,41 @@ export function useSignOutSession() {
       if (!res.ok) await json(res);
     },
     onSuccess: () => client.invalidateQueries({ queryKey: sessionsQuery.queryKey }),
+  });
+}
+
+/** The signed-in member's preferences; the defaults for guests and while loading. */
+export function usePreferences(): Preferences {
+  const { data: me } = useQuery(meQuery);
+  return me?.user.preferences ?? defaultPreferences;
+}
+
+/** Change some preferences: shown at once, put back if refused. */
+export function useSavePreferences() {
+  const client = useQueryClient();
+  const key = meQuery.queryKey;
+  return useMutation({
+    scope: { id: "preferences" },
+    mutationFn: async (change: Partial<Preferences>) => {
+      const res = await api.me.preferences.$patch({ json: change });
+      if (!res.ok) await json(res);
+    },
+    onMutate: async (change) => {
+      await client.cancelQueries({ queryKey: key });
+      const before = client.getQueryData(key);
+      client.setQueryData(key, (me) =>
+        me
+          ? {
+              ...me,
+              user: {
+                ...me.user,
+                preferences: { ...(me.user.preferences ?? defaultPreferences), ...change },
+              },
+            }
+          : me,
+      );
+      return { before };
+    },
+    onError: (_e, _c, ctx) => client.setQueryData(key, ctx?.before),
   });
 }

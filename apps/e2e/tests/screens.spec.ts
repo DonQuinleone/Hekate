@@ -70,6 +70,11 @@ const screens: Screen[] = [
     ready: "main >> text=This browser",
   },
   {
+    name: "account-appearance",
+    path: () => "/account/appearance",
+    ready: "main >> text=Skip by",
+  },
+  {
     name: "account-notifications",
     path: () => "/account/notifications",
     ready: "main >> text=Maple Leaf Rag",

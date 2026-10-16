@@ -21,6 +21,7 @@ import {
   fileQuery,
   meQuery,
   useCommentMutations,
+  usePreferences,
   useProjectCan,
 } from "~/lib/queries";
 import { useViewer } from "~/lib/viewer";
@@ -512,6 +513,7 @@ export function Comments({
   /** What a new comment on a page points at, given what has been drawn. */
   const pageAim = pageTarget === "region" && !draft ? "page" : pageTarget;
   /** Bars, typed by the reviewer: in music projects, on a recording or a score. */
+  const preferences = usePreferences();
   const [bars, setBars] = useState("");
   const barsId = useId();
   const offersBars =
@@ -523,7 +525,8 @@ export function Comments({
 
   const seek = (seconds: number) => {
     if (!media) return;
-    media.currentTime = seconds;
+    // A moment heard from a little before it, as the member chose.
+    media.currentTime = Math.max(0, seconds - preferences.preRoll);
     void media.play().catch(() => undefined);
   };
   const capture = () => {

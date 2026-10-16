@@ -1,5 +1,5 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { fileColumnsInput, profileInput } from "@hekate/shared";
+import { fileColumnsInput, preferencesInput, preferencesOf, profileInput } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, desc, eq, gt, ne } from "drizzle-orm";
 import { Hono } from "hono";
@@ -18,6 +18,7 @@ export const meRoutes = (db: Database) =>
           emailVerified: schema.users.emailVerified,
           locale: schema.users.locale,
           timeZone: schema.users.timeZone,
+          preferences: schema.users.preferences,
         })
         .from(schema.users)
         .where(eq(schema.users.id, c.var.userId));
@@ -31,7 +32,11 @@ export const meRoutes = (db: Database) =>
         .innerJoin(schema.organisations, eq(schema.members.organisationId, schema.organisations.id))
         .where(eq(schema.members.userId, c.var.userId))
         .orderBy(asc(schema.organisations.name));
-      return c.json({ user, organisations, activeOrganisationId: c.var.organisationId });
+      return c.json({
+        user: user && { ...user, preferences: preferencesOf(user.preferences) },
+        organisations,
+        activeOrganisationId: c.var.organisationId,
+      });
     })
     // Name, language and time zone. The email address changes through sign-in's own flow,
     // which confirms the new address first.
@@ -49,6 +54,25 @@ export const meRoutes = (db: Database) =>
           timeZone: schema.users.timeZone,
         });
       return c.json({ user });
+    })
+    // What they want to see and how the player behaves, merged into what they had. Under a
+    // row lock, so two changes at once both land.
+    .patch("/preferences", zValidator("json", preferencesInput), async (c) => {
+      const change = c.req.valid("json");
+      const preferences = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .select({ preferences: schema.users.preferences })
+          .from(schema.users)
+          .where(eq(schema.users.id, c.var.userId))
+          .for("update");
+        const next = { ...preferencesOf(row?.preferences), ...change };
+        await tx
+          .update(schema.users)
+          .set({ preferences: next, updatedAt: new Date() })
+          .where(eq(schema.users.id, c.var.userId));
+        return next;
+      });
+      return c.json({ preferences });
     })
     // Where this person is signed in. Tokens never leave the server.
     .get("/sessions", async (c) => {

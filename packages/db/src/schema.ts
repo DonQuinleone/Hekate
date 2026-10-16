@@ -124,6 +124,8 @@ export const users = pgTable("users", {
   locale: text("locale"),
   /** Their IANA time zone, for example "Europe/London"; null follows the browser. */
   timeZone: text("time_zone"),
+  /** What they want to see and how the player behaves for them; read with preferencesOf. */
+  preferences: jsonb("preferences"),
   ...timestamps,
 });
 

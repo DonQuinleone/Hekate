@@ -36,6 +36,7 @@ import {
   playbackQuery,
   projectQuery,
   useMarks,
+  usePreferences,
   useProjectCan,
 } from "~/lib/queries";
 import { useViewer } from "~/lib/viewer";
@@ -181,6 +182,7 @@ export function FilePage({
   /** A source comparison should bring in and play first: before, for before and after. */
   const [focus, setFocus] = useState<CompareFocus | null>(null);
   const { guest } = useViewer();
+  const preferences = usePreferences();
   /** On a document: the page shown, and the region drawn or thread picked on it. */
   const [pageFocus, setPageFocus] = useState<PageFocus>(initialFocus);
   // Another file starts on its first page, with nothing drawn.
@@ -334,7 +336,7 @@ export function FilePage({
               pages={pages}
               canComment={canComment}
             />
-            {shown === "review" && hasQa && (
+            {shown === "review" && hasQa && preferences.showLoudness && (
               <QaSummary fileId={file.id} onOpen={() => onView("qa")} />
             )}
           </div>

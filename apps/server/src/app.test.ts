@@ -230,6 +230,18 @@ describe.runIf(url)("api", () => {
     expect((await patch(first, { locale: "xx-XX" })).status).toBe(400);
     expect((await patch(first, { email: "elsewhere@example.test" })).status).toBe(400);
 
+    // Preferences: the defaults, then a change to some that keeps the rest.
+    const prefs = async () =>
+      ((await (await me(first)).json()) as { user: { preferences: Record<string, unknown> } }).user
+        .preferences;
+    expect(await prefs()).toMatchObject({ skipSeconds: 5, preRoll: 1, showSpectrogram: true });
+    const setPrefs = (body: unknown) =>
+      app.request("/api/me/preferences", { ...json(body, first), method: "PATCH" });
+    expect((await setPrefs({ skipSeconds: 10 })).status).toBe(200);
+    expect((await setPrefs({ showSpectrogram: false })).status).toBe(200);
+    expect(await prefs()).toMatchObject({ skipSeconds: 10, showSpectrogram: false, preRoll: 1 });
+    expect((await setPrefs({ skipSeconds: 3 })).status).toBe(400);
+
     // A second device, then signing it out from the first.
     const second = cookieOf(
       await app.request(
