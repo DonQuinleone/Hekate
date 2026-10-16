@@ -71,7 +71,8 @@ export default defineConfig({
       PUBLIC_URL: `http://localhost:${PORT}`,
       DATABASE_URL: process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL ?? "",
       AUTH_SECRET: randomBytes(32).toString("hex"),
-      MASTER_KEY: randomBytes(32).toString("base64"),
+      // Given, when CI restores the instance afterwards and needs the key that wrapped it.
+      MASTER_KEY: process.env.E2E_MASTER_KEY ?? randomBytes(32).toString("base64"),
       STORAGE_LOCAL_PATH: join(state, "storage"),
       WEB_DIST: join(import.meta.dirname, "../web/dist"),
       MIGRATE_ON_START: "true",
