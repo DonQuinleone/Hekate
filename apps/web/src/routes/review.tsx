@@ -254,11 +254,14 @@ export function ReviewBody({
   reviewId,
   embedded = false,
   titled = false,
+  markViewed = true,
 }: {
   reviewId: string;
   embedded?: boolean;
   /** Embedded, with the title already in the top bar: the pane leaves it out. */
   titled?: boolean;
+  /** Record that you have seen it. Off for a review shown only because it came first. */
+  markViewed?: boolean;
 }) {
   const { data: review, error } = useQuery(reviewQuery(reviewId));
   const { guest } = useViewer();
@@ -271,11 +274,11 @@ export function ReviewBody({
   const marked = useRef(false);
   const mine = review?.reviewers.find((r) => r.id === review.you.reviewerId);
   useEffect(() => {
-    if (!marked.current && mine?.state === "invited") {
+    if (markViewed && !marked.current && mine?.state === "invited") {
       marked.current = true;
       viewed.mutate();
     }
-  }, [mine?.state, viewed]);
+  }, [markViewed, mine?.state, viewed]);
 
   if (error) return <p className="p-8 text-signal">{error.message}</p>;
   if (!review) return <p className="p-8 text-ink-3">Loading</p>;

@@ -184,7 +184,14 @@ export function InboxPage({ item, show = "needs" }: { item?: string; show?: Inbo
           )}
         >
           {shown ? (
-            <ReviewBody key={shown} reviewId={shown} embedded titled={shown === selected} />
+            <ReviewBody
+              key={shown}
+              reviewId={shown}
+              embedded
+              titled={shown === selected}
+              // Shown only because it came first (and hidden on a phone): not yet looked at.
+              markViewed={shown === selected}
+            />
           ) : (
             <div className="flex h-full items-center justify-center p-8 text-[14px] text-ink-3">
               Choose a review on the left.

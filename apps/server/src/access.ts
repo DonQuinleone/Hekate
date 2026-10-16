@@ -267,10 +267,11 @@ export async function canOnFile(
 }
 
 /**
- * A condition for project lists: the projects the actor may see. Owners and admins see
- * every project in the organisation; members, those where their role allows viewing.
+ * A condition for project lists: the projects the actor may see, or (with another
+ * permission) may act in that way. Owners and admins have every project in the
+ * organisation; members, those where their role allows it.
  */
-export function visibleProjects(actor: MemberActor) {
+export function visibleProjects(actor: MemberActor, permission: ProjectPermission = "view") {
   if (actor.organisationRole === "owner" || actor.organisationRole === "admin") return undefined;
   return sql`exists (
     select 1 from ${projectMembers}
@@ -279,6 +280,6 @@ export function visibleProjects(actor: MemberActor) {
     where ${projectMembers.projectId} = ${projects.id}
       and ${projectMembers.organisationId} = ${actor.organisationId}
       and ${projectMembers.userId} = ${actor.userId}
-      and 'view' = any(${projectRoles.permissions})
+      and ${permission} = any(${projectRoles.permissions})
   )`;
 }

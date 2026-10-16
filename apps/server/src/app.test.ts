@@ -2072,6 +2072,24 @@ describe.runIf(url)("api", () => {
           expect.arrayContaining(["review", "version"]),
         );
 
+        // A version uploaded after the approval has not been reviewed.
+        await app.request(
+          `/api/tracks/${s.trackId}/versions`,
+          json({ variations: [{ fileId: s.artwork, name: "Mix" }] }, s.owner),
+        );
+        expect(
+          (await home(s.owner)).projects.find((p) => p.id === s.projectId)?.approvedTracks,
+        ).toBe(0);
+
+        // A file that failed to process is for those who can replace it, not for reviewers.
+        await db
+          .update(schema.files)
+          .set({ streamStatus: "failed" })
+          .where(eq(schema.files.id, s.mix));
+        expect((await home(s.owner)).failed).toMatchObject([{ id: s.mix }]);
+        expect((await home(s.engineer)).failed).toMatchObject([{ id: s.mix }]);
+        expect((await home(s.composer)).failed).toEqual([]);
+
         // Another workspace's projects never show, even to an owner here.
         const [other] = await db
           .insert(schema.organisations)

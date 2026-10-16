@@ -145,10 +145,12 @@ export const homeRoutes = (db: Database) =>
     }
     const inVisible = (column: Column) => inArray(column, ids);
     // A track counts as approved when an approval that settled as approved covers its latest
-    // version, either by naming it or by following the latest.
-    const latestVersion = sql`(select ${versions.id} from ${versions}
-      where ${versions.trackId} = ${tracks.id} and ${versions.organisationId} = ${organisationId}
-      order by ${versions.number} desc limit 1)`;
+    // version: by naming it, or by following the latest when that version was already there
+    // as the review settled (a version uploaded since has not been reviewed).
+    const latest = (column: typeof versions.id | typeof versions.createdAt) =>
+      sql`(select ${column} from ${versions}
+        where ${versions.trackId} = ${tracks.id} and ${versions.organisationId} = ${organisationId}
+        order by ${versions.number} desc limit 1)`;
 
     const [
       fileRows,
@@ -204,7 +206,13 @@ export const homeRoutes = (db: Database) =>
             eq(reviews.kind, "approval"),
             eq(reviews.status, "completed"),
             eq(reviews.outcome, "approved"),
-            or(isNull(reviewItems.versionId), sql`${reviewItems.versionId} = ${latestVersion}`),
+            or(
+              and(
+                isNull(reviewItems.versionId),
+                sql`${latest(versions.createdAt)} <= ${reviews.completedAt}`,
+              ),
+              sql`${reviewItems.versionId} = ${latest(versions.id)}`,
+            ),
           ),
         )
         .groupBy(tracks.projectId),
@@ -259,18 +267,24 @@ export const homeRoutes = (db: Database) =>
             gt(versions.createdAt, new Date(Date.now() - WEEK_MS)),
           ),
         ),
+      // Files that failed, for those who can replace them: all of them, newest first.
       db
         .select({ id: files.id, name: files.name, projectId: files.projectId })
         .from(files)
+        .innerJoin(
+          projects,
+          and(eq(projects.id, files.projectId), eq(projects.organisationId, organisationId)),
+        )
         .where(
           inOrg(
             files,
             organisationId,
             inVisible(files.projectId),
+            visibleProjects(actorOf(c.var), "upload"),
             or(eq(files.streamStatus, "failed"), eq(files.analysisStatus, "failed")),
           ),
         )
-        .limit(10),
+        .orderBy(desc(files.createdAt)),
       db
         .select({
           id: comments.id,
