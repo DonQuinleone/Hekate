@@ -53,6 +53,7 @@ pnpm build
 pnpm db:generate  # create a migration after changing the schema
 pnpm db:migrate
 pnpm --filter @hekate/server config:reference   # rewrite docs/configuration.md after changing a setting
+pnpm --filter @hekate/server cli backup verify  # check a restored database, storage and master key belong together
 pnpm --filter @hekate/e2e e2e   # the visual suite: needs E2E_DATABASE_URL (an empty database) and a web app built with VITE_REFERENCE=1
 ```
 

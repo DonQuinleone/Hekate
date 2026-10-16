@@ -12,7 +12,8 @@
     "start": "node src/index.ts",
     "typecheck": "tsc -p tsconfig.json",
     "build": "tsc -p tsconfig.json",
-    "config:reference": "node scripts/config-reference.ts"
+    "config:reference": "node scripts/config-reference.ts",
+    "cli": "node src/cli.ts"
   },
   "dependencies": {
     "@better-auth/passkey": "1.7.7",

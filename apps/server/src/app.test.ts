@@ -19,6 +19,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp, MAX_BODY_BYTES } from "./app.ts";
 import { createAudit, csvCell } from "./audit.ts";
 import { createAuth } from "./auth.ts";
+import { describeReport, verifyBackup } from "./backup-verify.ts";
 import { createClient } from "./client.ts";
 import { loadConfig } from "./config.ts";
 import { createKeyring } from "./keyring.ts";
@@ -1516,6 +1517,38 @@ describe.runIf(url)("api", () => {
         import("node:crypto").then(({ createHash }) =>
           createHash("sha256").update(data).digest("hex"),
         );
+
+      it("verifies that a database, its storage and the master key belong together", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const kept = await storage.put(organisationId, Buffer.from("the final master"));
+        await storage.put(organisationId, Buffer.from("the alternate take"));
+        const clean = await verifyBackup({ db, storage, keyring }, { sample: 5 });
+        expect(clean).toMatchObject({
+          ok: true,
+          keys: { checked: 1, failed: [] },
+          objects: { checked: 2, missing: [] },
+          sample: { checked: 2, failed: [] },
+        });
+        expect(describeReport(clean)).toContain("belong together");
+
+        // With another master key, no workspace key opens and no file decrypts.
+        const stranger = createKeyring(db, { current: Buffer.alloc(32, 9), previous: [] });
+        const wrongKey = await verifyBackup(
+          { db, storage: createStorage(db, backends, stranger), keyring: stranger },
+          { sample: 5 },
+        );
+        expect(wrongKey.ok).toBe(false);
+        expect(wrongKey.keys.failed).toHaveLength(1);
+        expect(wrongKey.sample.failed).toHaveLength(2);
+
+        // A file the storage lost is named.
+        await backends.get(kept.backend).delete(kept.key);
+        const lost = await verifyBackup({ db, storage, keyring }, { sample: 0 });
+        expect(lost.ok).toBe(false);
+        expect(lost.objects.missing).toEqual([`${kept.backend}:${kept.key}`]);
+        expect(describeReport(lost)).toContain("does not restore cleanly");
+      });
 
       it("stores, reads and removes blobs within an organisation", async () => {
         const owner = cookieOf(await setup());
