@@ -1,0 +1,31 @@
+/* Starlight on the Hekate tokens (apps/web/src/styles/tokens.css): near-black ground, one
+   signal colour, hairlines, Schibsted Grotesk. */
+:root {
+  --sl-font: "Schibsted Grotesk Variable", "Helvetica Neue", Arial, sans-serif;
+  --sl-color-accent-low: #3a1d0c;
+  --sl-color-accent: #f0762e;
+  --sl-color-accent-high: #ffd2b5;
+  --sl-color-white: #f4f4f5;
+  --sl-color-gray-1: #e4e4e7;
+  --sl-color-gray-2: #a1a1aa;
+  --sl-color-gray-3: #80808b;
+  --sl-color-gray-4: #2e2e33;
+  --sl-color-gray-5: #222226;
+  --sl-color-gray-6: #18181b;
+  --sl-color-black: #0a0a0b;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #f8dccb;
+  --sl-color-accent: #b53c0a;
+  --sl-color-accent-high: #5c1e04;
+  --sl-color-white: #111113;
+  --sl-color-gray-1: #26262b;
+  --sl-color-gray-2: #45454c;
+  --sl-color-gray-3: #5f5f67;
+  --sl-color-gray-4: #b5b5ae;
+  --sl-color-gray-5: #dcdcd7;
+  --sl-color-gray-6: #f0f0ed;
+  --sl-color-gray-7: #fafaf9;
+  --sl-color-black: #ffffff;
+}

@@ -40,7 +40,8 @@ pnpm workspace.
 | `packages/db` | Drizzle schema, migrations and client. Server-only. |
 | `packages/storage` | Storage backends (local disk, S3) behind one interface, with a shared conformance suite. Server-only. |
 | `brand/` | Mark, wordmark and icons. SVG is the source of truth. |
-| `docs/` | Decisions (`docs/decisions.md`), the brand system (`docs/brand.md`), security (`docs/security.md`) and the configuration reference (`docs/configuration.md`, generated). |
+| `docs/` | Decisions (`docs/decisions.md`), the brand system (`docs/brand.md`), security (`docs/security.md`), backups (`docs/backup.md`) and the configuration reference (`docs/configuration.md`, generated). |
+| `docs/site` | The documentation site (Starlight): install, operate, security, use. Operator pages are copied in from `docs/` at build time; a release publishes it to GitHub Pages. |
 | `deploy/` | Compose files and Caddy configuration. |
 
 Commands:
@@ -54,6 +55,7 @@ pnpm db:generate  # create a migration after changing the schema
 pnpm db:migrate
 pnpm --filter @hekate/server config:reference   # rewrite docs/configuration.md after changing a setting
 pnpm --filter @hekate/server cli backup verify  # check a restored database, storage and master key belong together
+pnpm --filter @hekate/docs dev    # the documentation site, locally
 pnpm --filter @hekate/e2e e2e   # the visual suite: needs E2E_DATABASE_URL (an empty database) and a web app built with VITE_REFERENCE=1
 ```
 
