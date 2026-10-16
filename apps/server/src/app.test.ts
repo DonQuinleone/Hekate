@@ -2115,6 +2115,72 @@ describe.runIf(url)("api", () => {
         expect((await app.request("/api/home")).status).toBe(401);
       });
 
+      it("searches what a member may see, and nothing else", async () => {
+        const s = await studio();
+        type Found = { results: { kind: string; label: string; link: string }[] };
+        const search = async (cookie: string, q: string) => {
+          const res = await getAs(`/api/search?q=${encodeURIComponent(q)}`, cookie);
+          expect(res.status).toBe(200);
+          return ((await res.json()) as Found).results;
+        };
+        await request(s.owner, s.projectId, {
+          kind: "feedback",
+          title: "Balance check",
+          message: "Listen for the left hand.",
+          items: [{ trackId: s.trackId }],
+          reviewers: [s.ids.composer],
+        });
+        await app.request(
+          `/api/files/${s.mix}/comments`,
+          json({ body: "The pedal blurs the bass line here." }, s.owner),
+        );
+
+        // Words as they are typed, each a prefix.
+        expect(await search(s.owner, "map le")).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ kind: "tracks", label: "Maple Leaf Rag" }),
+          ]),
+        );
+        expect((await search(s.owner, "mix v1")).map((r) => [r.kind, r.label])).toContainEqual([
+          "files",
+          "Mix v1.wav",
+        ]);
+        expect((await search(s.owner, "left hand")).map((r) => r.kind)).toContain("reviews");
+        expect(await search(s.owner, "blurs")).toEqual([
+          expect.objectContaining({
+            kind: "comments",
+            label: "The pedal blurs the bass line here.",
+            link: `/files/${s.mix}`,
+          }),
+        ]);
+        expect((await search(s.owner, "compos")).map((r) => [r.kind, r.label])).toEqual([
+          ["people", "composer"],
+        ]);
+        // A reviewer in the project finds it; a member without a role finds nothing in it.
+        expect((await search(s.composer, "maple")).length).toBeGreaterThan(0);
+        const newcomer = await joinAs(s.owner, "newcomer@example.test");
+        expect(await search(newcomer, "maple")).toEqual([]);
+
+        // Another workspace's project of the same name never surfaces.
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-search" })
+          .returning();
+        await db
+          .insert(schema.projects)
+          .values({ organisationId: other?.id ?? "", name: "Maple Theirs", profile: "music" });
+        expect((await search(s.owner, "maple")).map((r) => r.label)).not.toContain("Maple Theirs");
+        // Nor does an archived one, with what is in it.
+        await db
+          .update(schema.projects)
+          .set({ archivedAt: new Date() })
+          .where(eq(schema.projects.id, s.projectId));
+        expect(await search(s.owner, "maple")).toEqual([]);
+
+        expect((await getAs("/api/search?q=", s.owner)).status).toBe(400);
+        expect((await app.request("/api/search?q=maple")).status).toBe(401);
+      });
+
       describe("notifications", () => {
         type Listed = {
           notifications: { id: string; kind: string; actorName: string | null; text: string }[];
