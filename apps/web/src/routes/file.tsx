@@ -66,6 +66,7 @@ function Playback({
   onMedia,
   loop,
   onLoop,
+  cue,
   pages,
   canComment,
 }: {
@@ -73,6 +74,8 @@ function Playback({
   onMedia: (element: HTMLMediaElement | null) => void;
   loop: Loop | null;
   onLoop: (loop: Loop | null) => void;
+  /** Bumped each time the page asks to hear a passage, so a loop switched off comes back on. */
+  cue: number;
   pages: PageComments | undefined;
   canComment: boolean;
 }) {
@@ -122,6 +125,7 @@ function Playback({
       markers={markers}
       loop={loop}
       onLoop={onLoop}
+      cue={cue}
       tools={file.grant?.tools ?? null}
       onExpired={() => client.resetQueries({ queryKey: playbackQuery(file.id).queryKey })}
     />
@@ -186,6 +190,7 @@ export function FilePage({
   const { data: file, error } = useQuery(fileQuery(fileId));
   const tabsId = useId();
   const [media, setMedia] = useState<HTMLMediaElement | null>(null);
+  const [cue, setCue] = useState(0);
   /** A source comparison should bring in and play first: before, for before and after. */
   const [focus, setFocus] = useState<CompareFocus | null>(null);
   const { guest } = useViewer();
@@ -223,6 +228,16 @@ export function FilePage({
     onLoop(target.loop);
     if (media) {
       media.currentTime = target.loop.start;
+      void media.play().catch(() => undefined);
+    }
+  };
+  /** One action: the passage is looped and heard from its start. */
+  const hear = (next: Loop) => {
+    onLoop(next);
+    // The same passage again still switches its loop back on.
+    setCue((n) => n + 1);
+    if (media) {
+      media.currentTime = next.start;
       void media.play().catch(() => undefined);
     }
   };
@@ -283,6 +298,7 @@ export function FilePage({
       onMedia={setMedia}
       loop={passage}
       onLoop={onLoop}
+      cue={cue}
       pages={pages}
       canComment={canComment}
     />
@@ -413,18 +429,7 @@ export function FilePage({
                   loop={passage}
                   pages={file.streamStatus === "ready" ? pages : undefined}
                   onBeforeAfter={comparable ? beforeAfter : undefined}
-                  onLoop={
-                    allows("loops")
-                      ? (next) => {
-                          // One action: the passage is looped and heard from its start.
-                          onLoop(next);
-                          if (media) {
-                            media.currentTime = next.start;
-                            void media.play().catch(() => undefined);
-                          }
-                        }
-                      : undefined
-                  }
+                  onLoop={allows("loops") ? hear : undefined}
                 />
               </div>
               {file.variation?.scoreFileId && (file.kind === "audio" || file.kind === "video") && (
@@ -451,6 +456,7 @@ export function FilePage({
                 projectId={file.projectId}
                 media={media}
                 canChoose={!guest && can("edit_workflows")}
+                onLoop={allows("loops") ? hear : undefined}
               />
               {file.mediaInfo?.audio && preferences.showLoudness && (
                 <Loudness
