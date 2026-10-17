@@ -82,8 +82,9 @@ function Playback({
   canComment: boolean;
 }) {
   const client = useQueryClient();
-  const markers = useCommentMarkers(file.id);
-  const regions = useRegionMarkers(file.id);
+  // A take shared with a guest has no comments for them (#133).
+  const markers = useCommentMarkers(file.id, !file.grant?.listenOnly);
+  const regions = useRegionMarkers(file.id, !file.grant?.listenOnly);
   const ready = file.streamStatus === "ready";
   // Only a recording plays: asking for a document's playback would log a session for nothing.
   const plays = file.kind === "audio" || file.kind === "video";
@@ -444,17 +445,20 @@ export function FilePage({
           </div>
           {shown === "review" ? (
             <>
-              <div className="min-w-0 pt-8 lg:col-start-2 lg:row-span-4 lg:row-start-1 lg:pt-0">
-                <Comments
-                  fileId={file.id}
-                  projectId={file.projectId}
-                  media={media}
-                  loop={passage}
-                  pages={file.streamStatus === "ready" ? pages : undefined}
-                  onBeforeAfter={comparable ? beforeAfter : undefined}
-                  onLoop={allows("loops") ? hear : undefined}
-                />
-              </div>
+              {/* A take shared with a guest is theirs to hear, with no comments (#133). */}
+              {!file.grant?.listenOnly && (
+                <div className="min-w-0 pt-8 lg:col-start-2 lg:row-span-4 lg:row-start-1 lg:pt-0">
+                  <Comments
+                    fileId={file.id}
+                    projectId={file.projectId}
+                    media={media}
+                    loop={passage}
+                    pages={file.streamStatus === "ready" ? pages : undefined}
+                    onBeforeAfter={comparable ? beforeAfter : undefined}
+                    onLoop={allows("loops") ? hear : undefined}
+                  />
+                </div>
+              )}
               {file.variation?.scoreFileId &&
                 allows("score") &&
                 (file.kind === "audio" || file.kind === "video") && (

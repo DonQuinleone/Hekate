@@ -55,6 +55,9 @@ export const auditActions = [
   /** Someone attached a file to their comment (#133), or downloaded one attached to a comment. */
   "comment.attachment_add",
   "comment.attachment_download",
+  /** Someone shared takes on a thread (#133), which its guests may then hear, or unshared one. */
+  "comment.takes_share",
+  "comment.takes_unshare",
   /** Someone exported a file's comments as a marker list. */
   "comment.export",
   /** Too many failed sign-ins locked a member's account for a while. */

@@ -638,8 +638,25 @@ test("file-comment-other-takes", async ({ page }) => {
   const panel = page.getByRole("region", { name: "Other takes for bar 9" });
   await expect(panel.getByRole("listitem")).toHaveCount(2);
   await expect(panel).toContainText("Good opening");
+  // Those who triage choose which to share (#133); the one already shared says so.
+  await expect(panel.getByText("shared")).toHaveCount(1);
+  await panel.getByRole("checkbox", { name: "Tick take 2" }).check();
+  await expect(panel.getByRole("button", { name: "Share 1" })).toBeEnabled();
   await panel.evaluate((el) => el.scrollIntoView({ block: "center" }));
   await saveScreen(page, "file-comment-other-takes");
+  await checkScreen(page);
+});
+
+// Takes shared on a thread (#133): one line in it, opening the list to hear them.
+test("file-comment-shared-takes", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page.getByRole("button", { name: "1 take attached" }).click();
+  const dialog = page.getByRole("dialog", { name: "Takes for bar 9" });
+  await expect(dialog.getByRole("listitem")).toHaveCount(1);
+  await expect(dialog).toContainText("Warm-up run");
+  await saveScreen(page, "file-comment-shared-takes");
   await checkScreen(page);
 });
 

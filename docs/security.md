@@ -61,6 +61,12 @@ This is not DRM: a determined person can capture the key from a live session. Th
 - It reaches a browser only as a download: a one-time link made for the person asking, in their session, for five minutes, as for a file's downloads (decision 056). The comment is checked again as the link is made and as it is used: it must be among the threads the file shows that person, within a guest's scope. The download is in the access log (`comment.attachment_download`) before the first byte leaves, and is sent as an attachment, `no-store`, `nosniff`, never shown in the page.
 - Only a comment's author attaches to it (up to five files of 25 MB each), and only they remove them; adding one is logged (`comment.attachment_add`). Attachments are not watermarked: they are the reviewers' own material, not the media under review.
 
+### Takes shared on a thread
+
+- A take shared on a thread (#133, decision 072) is heard by everyone who sees the thread, a guest reviewer included, and is otherwise no different from any file: the same encrypted segments, short-lived signed URLs and session-bound keys, with every key in the access log.
+- A guest reaches a shared take only through a thread their review shows them: on a file of their review, or carried to one, and within their comment scope. They reach it as they reach that file, within the same window and play limit, but to listen only: no comment, no download, and none of the take's own comments, their own from an earlier review included, while a share is all that reaches it.
+- Only those who triage the thread's file and may see the project's takes share or unshare one, from takes of the same project. Both are in the access log (`comment.takes_share`, `comment.takes_unshare`), and unsharing closes the take to the guest at once.
+
 ## Watermarking
 
 ### Visible

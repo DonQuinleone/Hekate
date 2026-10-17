@@ -12,6 +12,7 @@ const comment = (id: string, extra: Partial<Comment> = {}): Comment => ({
   authorName: null,
   authorGuest: false,
   mine: false,
+  takes: [],
   authorLabel: null,
   resolvedAt: null,
   categoryId: null,

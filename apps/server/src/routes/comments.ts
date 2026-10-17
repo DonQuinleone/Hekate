@@ -35,6 +35,7 @@ import type { ViewerVariables } from "../guests.ts";
 import type { Mailer } from "../mail.ts";
 import { type NotificationActor, notifyNow, projectPeople } from "../notifications.ts";
 import type { TenantVariables } from "../tenancy.ts";
+import { sharedTakesOf } from "./takes.ts";
 
 const {
   comments,
@@ -248,6 +249,12 @@ export async function threadsOn(
           .orderBy(asc(commentAttachments.createdAt), asc(commentAttachments.id));
   const attachmentsOf = (id: string): CommentAttachment[] =>
     attached.filter((a) => a.commentId === id).map(({ commentId: _, ...a }) => a);
+  // Takes shared on each thread (#133), heard by everyone who sees it.
+  const shared = await sharedTakesOf(
+    db,
+    organisationId,
+    rows.filter((r) => !r.parentId).map((r) => r.id),
+  );
   // Who is to act on a thread, and whether it is a task, is the team's business, not a guest
   // reviewer's.
   const shown =
@@ -264,7 +271,14 @@ export async function threadsOn(
   return shown.map((row) => {
     const attachments = attachmentsOf(row.id);
     if (row.parentId)
-      return { ...publicComment(row, actor), attachments, carry: null, history: null };
+      return {
+        ...publicComment(row, actor),
+        attachments,
+        takes: [],
+        carry: null,
+        history: null,
+      };
+    const takes = shared.get(row.id) ?? [];
     const carry = here.get(row.id);
     const history = {
       versionNumber: origins.get(row.fileId) ?? null,
@@ -277,11 +291,12 @@ export async function threadsOn(
           moved: h.anchorPlaced,
         })),
     };
-    if (!carry) return { ...publicComment(row, actor), attachments, carry: null, history };
+    if (!carry) return { ...publicComment(row, actor), attachments, takes, carry: null, history };
     // On this version the thread points where it was mapped; where it began stays known.
     return {
       ...publicComment(row, actor),
       attachments,
+      takes,
       anchor: carry.anchor,
       carry: {
         id: carry.id,

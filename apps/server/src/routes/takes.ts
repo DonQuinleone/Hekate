@@ -1,6 +1,8 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
   addTakesInput,
+  type SharedTake,
+  shareTakesInput,
   type TakeRow,
   takeChangeInput,
   takeProblem,
@@ -11,11 +13,12 @@ import { and, asc, eq, inArray, max } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { actorOf, can, lockLiveProject } from "../access.ts";
+import { actorOf, can, canOnFile, lockLiveProject } from "../access.ts";
+import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
-const { files, takes, tracks, variations } = schema;
+const { comments, commentTakes, files, takes, tracks, variations } = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
@@ -226,3 +229,188 @@ export const takeRoutes = (db: Database) =>
       });
       return c.body(null, 204);
     });
+
+/** The takes shared on each of these threads (#133), in take order. */
+export async function sharedTakesOf(
+  db: Database,
+  organisationId: string,
+  commentIds: string[],
+): Promise<Map<string, SharedTake[]>> {
+  const shared = new Map<string, SharedTake[]>();
+  if (commentIds.length === 0) return shared;
+  const rows = await db
+    .select({ commentId: commentTakes.commentId, take: takes })
+    .from(commentTakes)
+    .innerJoin(
+      takes,
+      and(eq(takes.id, commentTakes.takeId), eq(takes.organisationId, organisationId)),
+    )
+    .where(inOrg(commentTakes, organisationId, inArray(commentTakes.commentId, commentIds)))
+    .orderBy(asc(takes.number));
+  if (rows.length === 0) return shared;
+  const heard = await db
+    .select({
+      takeId: files.takeId,
+      id: files.id,
+      name: files.name,
+      mediaInfo: files.mediaInfo,
+      streamStatus: files.streamStatus,
+    })
+    .from(files)
+    .where(
+      inOrg(
+        files,
+        organisationId,
+        inArray(
+          files.takeId,
+          rows.map((r) => r.take.id),
+        ),
+      ),
+    );
+  for (const { commentId, take: t } of rows) {
+    const file = heard.find((f) => f.takeId === t.id);
+    const list = shared.get(commentId) ?? [];
+    list.push({
+      id: t.id,
+      number: t.number,
+      label: t.label,
+      notes: t.notes,
+      rating: t.rating,
+      starred: t.starred,
+      barFrom: t.barFrom,
+      barTo: t.barTo,
+      file: file
+        ? {
+            id: file.id,
+            name: file.name,
+            duration: file.mediaInfo?.duration ?? null,
+            streamStatus: file.streamStatus,
+          }
+        : null,
+    });
+    shared.set(commentId, list);
+  }
+  return shared;
+}
+
+/**
+ * Sharing takes on a thread (#133), under `/api/comments/:id/takes`: by those who triage the
+ * thread's file and may see takes, from takes of the same project. Everyone who sees the
+ * thread then hears them, a guest reviewer included; each share is in the access log.
+ */
+export const sharedTakeRoutes = (deps: { db: Database; audit: Audit; trustProxy: boolean }) =>
+  new Hono<{ Variables: TenantVariables }>()
+    .post("/:id/takes", idParam, zValidator("json", shareTakesInput), async (c) => {
+      const { db, audit } = deps;
+      const organisationId = c.var.organisationId;
+      const { id } = c.req.valid("param");
+      const takeIds = [...new Set(c.req.valid("json").takeIds)];
+      const thread = await threadOf(db, organisationId, id);
+      const actor = actorOf(c.var);
+      const access = await mayShare(db, actor, thread.fileId);
+      await db.transaction(async (tx) => {
+        await lockLiveProject(tx, organisationId, access.projectId);
+        const found = await tx
+          .select({ id: takes.id })
+          .from(takes)
+          .innerJoin(
+            tracks,
+            and(eq(tracks.id, takes.trackId), eq(tracks.organisationId, organisationId)),
+          )
+          .where(
+            inOrg(
+              takes,
+              organisationId,
+              inArray(takes.id, takeIds),
+              eq(tracks.projectId, access.projectId),
+            ),
+          );
+        if (found.length !== takeIds.length) throw new NotFound("Take");
+        const added = await tx
+          .insert(commentTakes)
+          .values(
+            takeIds.map((takeId) => ({
+              organisationId,
+              commentId: id,
+              takeId,
+              sharedById: c.var.userId,
+            })),
+          )
+          .onConflictDoNothing()
+          .returning({ takeId: commentTakes.takeId });
+        // Only what was shared now: a take already on the thread changes nothing.
+        if (added.length === 0) return;
+        await audit.record(
+          organisationId,
+          await audit.actor(actor),
+          {
+            action: "comment.takes_share",
+            projectId: access.projectId,
+            fileId: thread.fileId,
+            details: { commentId: id, takeIds: added.map((a) => a.takeId) },
+          },
+          requestInfo(c, deps.trustProxy),
+          tx,
+        );
+      });
+      const shared = await sharedTakesOf(db, organisationId, [id]);
+      return c.json({ takes: shared.get(id) ?? [] }, 201);
+    })
+    .delete(
+      "/:id/takes/:takeId",
+      zValidator("param", z.object({ id: z.uuid(), takeId: z.uuid() })),
+      async (c) => {
+        const { db, audit } = deps;
+        const organisationId = c.var.organisationId;
+        const { id, takeId } = c.req.valid("param");
+        const thread = await threadOf(db, organisationId, id);
+        const actor = actorOf(c.var);
+        const access = await mayShare(db, actor, thread.fileId);
+        await db.transaction(async (tx) => {
+          await lockLiveProject(tx, organisationId, access.projectId);
+          const gone = await tx
+            .delete(commentTakes)
+            .where(
+              inOrg(
+                commentTakes,
+                organisationId,
+                eq(commentTakes.commentId, id),
+                eq(commentTakes.takeId, takeId),
+              ),
+            )
+            .returning({ id: commentTakes.id });
+          if (gone.length === 0) throw new NotFound("Take");
+          await audit.record(
+            organisationId,
+            await audit.actor(actor),
+            {
+              action: "comment.takes_unshare",
+              projectId: access.projectId,
+              fileId: thread.fileId,
+              details: { commentId: id, takeId },
+            },
+            requestInfo(c, deps.trustProxy),
+            tx,
+          );
+        });
+        return c.body(null, 204);
+      },
+    );
+
+/** A thread: a comment that is no one's reply. */
+async function threadOf(db: Database, organisationId: string, id: string) {
+  const [thread] = await db
+    .select({ fileId: comments.fileId, parentId: comments.parentId })
+    .from(comments)
+    .where(inOrg(comments, organisationId, eq(comments.id, id)));
+  if (!thread || thread.parentId) throw new NotFound("Thread");
+  return thread;
+}
+
+/** Sharing takes needs both triage on the thread's file and sight of the project's takes. */
+async function mayShare(db: Database, actor: ReturnType<typeof actorOf>, fileId: string) {
+  const access = await canOnFile(db, actor, "triage", fileId);
+  if (!access.permissions.has("view_takes"))
+    throw new HTTPException(403, { message: "Your role in this project does not show takes" });
+  return access;
+}
