@@ -23,6 +23,7 @@ import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { Page } from "~/components/page";
 import { ProjectRoles } from "~/components/project-access";
+import { QaRules } from "~/components/qa-rules";
 import { Danger, Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
@@ -75,6 +76,13 @@ const sections = [
     group: "Quality assurance",
     intro: "The numbers the checks measure against: loudness, peaks and formats.",
   },
+  {
+    id: "qa",
+    label: "QA rules",
+    group: "Quality assurance",
+    intro:
+      "Every check that runs on a recording, by category: plain errors always on, delivery checks and your own rules as you choose.",
+  },
 ] as const;
 export type ProjectSettingsSection = (typeof sections)[number]["id"];
 export const projectSettingsSections = sections.map((s) => s.id);
@@ -117,6 +125,7 @@ export function ProjectSettingsPage({
             {current.id === "roles" && <ProjectRoles projectId={project.id} />}
             {current.id === "workflow" && <Workflow project={project} />}
             {current.id === "delivery" && <Delivery project={project} />}
+            {current.id === "qa" && <QaRules project={project} />}
           </SettingsLayout>
         )
       }

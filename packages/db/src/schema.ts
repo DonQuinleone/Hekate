@@ -25,6 +25,7 @@ import {
   type ProjectProfile,
   type QaCheck,
   type QaFinding,
+  type QaSettings,
   type QaSeverity,
   type ReviewerPermissions,
   type ReviewOutcome,
@@ -409,6 +410,8 @@ export const projects = pgTable(
     checkTruePeak: boolean("check_true_peak").notNull().default(false),
     /** Refuse a new version without an edit decision list. */
     requireEdl: boolean("require_edl").notNull().default(false),
+    /** Its QA rules (#144): which checks run, how hard, and its own; null keeps the defaults. */
+    qaSettings: jsonb("qa_settings").$type<QaSettings>(),
     /**
      * Whether its comment categories have been made: a new project gets the defaults at once,
      * one made before categories existed the first time its categories are read.

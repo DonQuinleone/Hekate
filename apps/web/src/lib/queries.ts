@@ -41,6 +41,7 @@ import {
   type ProjectProfile,
   permissionsOfLevels,
   type QaFinding,
+  type QaSettings,
   type ReviewDecision,
   type ReviewerPermissions,
   type ReviewerPermissionsChange,
@@ -212,6 +213,8 @@ export interface Project {
   requireEdl?: boolean;
   /** Whether threads carried to a new version show there until someone hides them. */
   carriedCommentsShown?: boolean;
+  /** Its QA rules (#144); null keeps the defaults. */
+  qaSettings?: QaSettings | null;
   /** In the list: whether they are a member of it. */
   mine?: boolean;
 }
@@ -385,8 +388,8 @@ export function useUpdateProject(projectId: string) {
         before ? { ...before, ...project, permissions: before.permissions } : before,
       );
       void client.invalidateQueries({ queryKey: ["projects"] });
-      // Every file's report follows the delivery profile.
-      if (change.deliveryProfile !== undefined)
+      // Every file's report follows the delivery profile and the project's QA rules.
+      if (change.deliveryProfile !== undefined || change.qaSettings !== undefined)
         void client.invalidateQueries({
           predicate: (q) => q.queryKey[0] === "files" && q.queryKey[2] === "qa",
         });

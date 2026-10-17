@@ -24,8 +24,8 @@ const inheritedFrom: Record<ProfileSource, string> = {
   suggested: "suggested",
 };
 
-/** What each check is called in the list. */
-const checkNames: Record<QaCheck, string> = {
+/** What each check is called in the list, and in the project's QA rules. */
+export const checkNames: Record<QaCheck, string> = {
   format: "Format",
   loudness: "Loudness",
   "true-peak": "True peak",
@@ -38,6 +38,8 @@ const checkNames: Record<QaCheck, string> = {
   "dead-channel": "Dead channel",
   imbalance: "Balance",
   phase: "Phase",
+  // The project's own rules: the finding's summary starts with the rule's name.
+  custom: "Project rule",
 };
 
 const severityNames: Record<QaSeverity, string> = {

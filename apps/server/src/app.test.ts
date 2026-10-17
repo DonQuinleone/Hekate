@@ -2867,6 +2867,71 @@ describe.runIf(url)("api", () => {
         return { owner, organisationId, projectId: project.id, fileId: file?.id ?? "" };
       };
 
+      it("applies the project's QA rules to its reports: switches, severities and its own rules", async () => {
+        const { owner, projectId, fileId } = await studio();
+        type Report = { findings: { check: string; severity: string; summary: string }[] };
+        const report = async () =>
+          ((await (await getAs(`/api/files/${fileId}/qa`, owner)).json()) as Report).findings;
+        // A recording with no bit depth fails the format check of the profile it is suggested.
+        expect((await report()).find((f) => f.check === "format")?.severity).toBe("fail");
+        const rules = {
+          delivery: true,
+          checks: { format: { on: true, severity: "warn" } },
+          rules: [
+            {
+              id: "0190a6f0-0000-7000-8000-0000000000aa",
+              name: "Masters at 96 kHz",
+              appliesTo: "audio",
+              measure: "sampleRate",
+              operator: "atLeast",
+              value: "96",
+              severity: "fail",
+              on: true,
+            },
+          ],
+        };
+        const set = (body: unknown, cookie = owner) =>
+          app.request(`/api/projects/${projectId}`, { ...json(body, cookie), method: "PATCH" });
+        expect((await set({ qaSettings: rules })).status).toBe(200);
+        const after = await report();
+        expect(after.find((f) => f.check === "format")?.severity).toBe("warn");
+        expect(after.find((f) => f.check === "custom")).toMatchObject({
+          severity: "fail",
+          summary: "Masters at 96 kHz: 48 kHz, not at least 96",
+        });
+        // A rule that cannot be measured as written is refused, as is a lesser role.
+        const broken = { ...rules, rules: [{ ...rules.rules[0], value: "fast" }] };
+        expect((await set({ qaSettings: broken })).status).toBe(400);
+        const member = await joinAs(owner, "editor@example.test");
+        await grantRole(owner, projectId, member, "Editor");
+        expect((await set({ qaSettings: rules }, member)).status).toBe(403);
+        // Another workspace's project is not found.
+        const [elsewhere] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-qa-rules" })
+          .returning();
+        const [theirs] = await db
+          .insert(schema.projects)
+          .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+          .returning();
+        const theirRules = await app.request(`/api/projects/${theirs?.id}`, {
+          ...json({ qaSettings: rules }, owner),
+          method: "PATCH",
+        });
+        expect(theirRules.status).toBe(404);
+        // The delivery checks switched off together.
+        expect((await set({ qaSettings: { ...rules, delivery: false } })).status).toBe(200);
+        expect((await report()).some((f) => f.check === "format")).toBe(false);
+        expect((await set({ qaSettings: rules })).status).toBe(200);
+        // A template carries its rules to the projects made from it.
+        const copy = await app.request(
+          "/api/projects",
+          json({ name: "Second set", profile: "music", templateId: projectId }, owner),
+        );
+        const made = ((await copy.json()) as { project: { qaSettings: unknown } }).project;
+        expect(made.qaSettings).toEqual(rules);
+      });
+
       it("measures a file against the nearest profile: its own, its track's, the project's, the workspace's", async () => {
         const { owner, projectId, fileId } = await studio();
         const send = (method: string, url: string, body: unknown, cookie = owner) =>
