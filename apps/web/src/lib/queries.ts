@@ -1504,6 +1504,13 @@ export interface KnownGuest {
   name: string;
   email: string;
   label: string | null;
+  /** This project's reviews that ask them, and how many of those are open. */
+  reviews: number;
+  openReviews: number;
+  /** When they were last sent a link, anywhere in the workspace. */
+  lastLinkAt: string | null;
+  /** Whether a link or a signed-in browser still works for them. */
+  live: boolean;
 }
 
 export const projectGuestsQuery = (projectId: string) =>
@@ -1516,6 +1523,42 @@ export const projectGuestsQuery = (projectId: string) =>
         )
       ).guests,
   });
+
+/** Act on one of a project's guests from its People page. */
+export function useProjectGuestMutations(projectId: string) {
+  const client = useQueryClient();
+  const refresh = () =>
+    client.invalidateQueries({ queryKey: projectGuestsQuery(projectId).queryKey });
+  const ok = async (res: Response) => {
+    if (!res.ok) await json(res);
+  };
+  const param = (guestId: string) => ({ id: projectId, guestId });
+  return {
+    sendLink: useMutation({
+      mutationFn: async (guestId: string) =>
+        ok(await api.projects[":id"].guests[":guestId"].link.$post({ param: param(guestId) })),
+      onSuccess: refresh,
+    }),
+    relabel: useMutation({
+      mutationFn: async ({ guestId, label }: { guestId: string; label: string | null }) =>
+        ok(
+          await api.projects[":id"].guests[":guestId"].$patch({
+            param: param(guestId),
+            json: { label },
+          }),
+        ),
+      onSuccess: () => {
+        void refresh();
+        void client.invalidateQueries({ queryKey: ["projects", projectId, "groups"] });
+      },
+    }),
+    revoke: useMutation({
+      mutationFn: async (guestId: string) =>
+        ok(await api.projects[":id"].guests[":guestId"].revoke.$post({ param: param(guestId) })),
+      onSuccess: refresh,
+    }),
+  };
+}
 
 export function useCreateReview(projectId: string) {
   const client = useQueryClient();
@@ -1759,7 +1802,12 @@ export const projectGroupsQuery = (projectId: string) =>
 
 export function useGroupMutations(projectId: string) {
   const client = useQueryClient();
-  const refresh = () => client.invalidateQueries({ queryKey: ["projects", projectId, "groups"] });
+  // A group can bring guests into the project's reviewers, or leave them out of it.
+  const refresh = () =>
+    Promise.all([
+      client.invalidateQueries({ queryKey: ["projects", projectId, "groups"] }),
+      client.invalidateQueries({ queryKey: ["projects", projectId, "guests"] }),
+    ]);
   return {
     create: useMutation({
       mutationFn: async (input: GroupInput) =>

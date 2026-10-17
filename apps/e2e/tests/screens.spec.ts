@@ -179,6 +179,11 @@ const screens: Screen[] = [
     ready: "main >> text=Alex Rivera",
   },
   {
+    name: "project-people-empty",
+    path: (s) => `/projects/${s.videoProjectId}/people`,
+    ready: "main >> text=No guests yet",
+  },
+  {
     name: "project-settings",
     path: (s) => `/projects/${s.musicProjectId}/settings`,
     ready: "main input[aria-label=Name]",

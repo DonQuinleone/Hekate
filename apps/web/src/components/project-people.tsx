@@ -1,0 +1,388 @@
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import { type FormEvent, useState } from "react";
+import { Avatar } from "~/components/avatar";
+import { ReviewerGroups } from "~/components/groups";
+import { Icon } from "~/components/icons";
+import { Card, SectionHead } from "~/components/page";
+import { Button } from "~/components/ui/button";
+import { Dialog } from "~/components/ui/dialog";
+import { Input, Select } from "~/components/ui/input";
+import { ActionMenu } from "~/components/ui/menu";
+import { StatusDot } from "~/components/ui/status";
+import { formatDates } from "~/lib/locale";
+import {
+  type KnownGuest,
+  membersQuery,
+  meQuery,
+  projectGuestsQuery,
+  projectMembersQuery,
+  projectRolesQuery,
+  useProjectAccessMutations,
+  useProjectCan,
+  useProjectGuestMutations,
+} from "~/lib/queries";
+
+const dayFormat = formatDates({ day: "numeric", month: "short" });
+
+/**
+ * Two kinds of people, never conflated (#143): members have accounts and a role in the
+ * project; reviewers are guests, reaching only what a review gives them, by a link.
+ */
+export function ProjectPeople({ projectId }: { projectId: string }) {
+  return (
+    <div className="flex flex-col gap-8">
+      <Members projectId={projectId} />
+      <Reviewers projectId={projectId} />
+      <ReviewerGroups projectId={projectId} />
+    </div>
+  );
+}
+
+/** The members with a role here: change it, take it away, or give one to someone new. */
+function Members({ projectId }: { projectId: string }) {
+  const can = useProjectCan(projectId);
+  const manage = can("manage_roles");
+  const { data: holders, error: loadError } = useQuery(projectMembersQuery(projectId));
+  const { data: roles } = useQuery(projectRolesQuery(projectId));
+  const { data: me } = useQuery(meQuery);
+  const { assign, remove } = useProjectAccessMutations(projectId);
+  const [adding, setAdding] = useState(false);
+  const error = loadError ?? assign.error ?? remove.error;
+  return (
+    <section aria-label="Members" className="flex flex-col gap-3">
+      <SectionHead
+        title="Members"
+        hint={
+          holders
+            ? `${holders.length} with ${holders.length === 1 ? "an account" : "accounts"}`
+            : undefined
+        }
+        action={
+          manage && (
+            <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
+              <Icon name="userPlus" size={14} />
+              Add member
+            </Button>
+          )
+        }
+      />
+      {error && !adding && <p className="text-[13px] text-signal">{error.message}</p>}
+      <Card>
+        <ul className="m-0 list-none p-0">
+          {!holders && <li className="px-4 py-4 text-[13px] text-ink-3">Loading</li>}
+          {holders?.length === 0 && (
+            <li className="px-4 py-4 text-[13px] text-ink-3">
+              Nobody has a role here yet.{" "}
+              {manage ? "Add members to give them one." : "Workspace admins can add them."}
+            </li>
+          )}
+          {holders?.map((m) => {
+            const role = roles?.find((r) => r.id === m.roleId);
+            return (
+              <li
+                key={m.userId}
+                className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-line px-4 py-2.5 last:border-b-0 @3xl/app:grid-cols-[auto_minmax(0,1fr)_160px_auto]"
+              >
+                <Avatar id={m.userId} name={m.name} size={30} />
+                <span className="min-w-0">
+                  <span className="block truncate text-[14px] text-ink">
+                    {m.name}
+                    {m.userId === me?.user.id && <span className="text-ink-3"> · you</span>}
+                  </span>
+                  <span className="block truncate text-[13px] text-ink-3">{m.email}</span>
+                </span>
+                {manage && roles ? (
+                  <Select
+                    size="sm"
+                    value={m.roleId}
+                    aria-label={`Role of ${m.name}`}
+                    onChange={(event) =>
+                      assign.mutate({ userId: m.userId, roleId: event.target.value })
+                    }
+                    className="w-32 @3xl/app:w-full"
+                  >
+                    {roles.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </Select>
+                ) : (
+                  <span className="text-[13px] text-ink-2">{role?.name}</span>
+                )}
+                {manage ? (
+                  <ActionMenu
+                    always
+                    label={m.name}
+                    actions={[
+                      {
+                        label: "Remove from project",
+                        danger: true,
+                        onSelect: () => remove.mutate(m.userId),
+                      },
+                    ]}
+                  />
+                ) : (
+                  <span className="hidden @3xl/app:block" />
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </Card>
+      <p className="text-[12px] text-ink-3">
+        Workspace owners and admins can do everything in every project, with a role here or not.
+      </p>
+      {adding && <AddMember projectId={projectId} onClose={() => setAdding(false)} />}
+    </section>
+  );
+}
+
+/** Give a member of the workspace a role in this project. */
+function AddMember({ projectId, onClose }: { projectId: string; onClose: () => void }) {
+  const { data: people } = useQuery(membersQuery);
+  const { data: holders } = useQuery(projectMembersQuery(projectId));
+  const { data: roles } = useQuery(projectRolesQuery(projectId));
+  const { assign } = useProjectAccessMutations(projectId);
+  const here = new Set(holders?.map((h) => h.userId));
+  const candidates = people?.filter((p) => !here.has(p.userId)) ?? [];
+  // A new member starts at the least a project role usually gives: the reviewer's, if there is one.
+  const [userId, setUserId] = useState("");
+  const [roleId, setRoleId] = useState("");
+  const chosenRole = roleId || roles?.find((r) => r.name === "Reviewer")?.id || roles?.[0]?.id;
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (userId && chosenRole) assign.mutate({ userId, roleId: chosenRole }, { onSuccess: onClose });
+  };
+  return (
+    <Dialog title="Add a member to the project" onClose={onClose} width="sm">
+      <form onSubmit={submit} className="flex flex-col gap-3">
+        <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+          Who
+          <Select value={userId} required onChange={(event) => setUserId(event.target.value)}>
+            <option value="">Choose a member of the workspace</option>
+            {candidates.map((p) => (
+              <option key={p.userId} value={p.userId}>
+                {p.name}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+          Role
+          <Select value={chosenRole ?? ""} onChange={(event) => setRoleId(event.target.value)}>
+            {roles?.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <p className="text-[12px] text-ink-3">
+          {people && candidates.length === 0
+            ? "Everyone in the workspace has a role here already. "
+            : ""}
+          Someone not in the workspace yet is invited from{" "}
+          <Link
+            to="/settings/$section"
+            params={{ section: "members" }}
+            className="text-ink-2 underline decoration-edge underline-offset-2 hover:text-ink"
+          >
+            Members
+          </Link>{" "}
+          first.
+        </p>
+        {assign.error && <p className="text-[13px] text-signal">{assign.error.message}</p>}
+        <div className="mt-1 flex justify-end gap-2">
+          <Button type="button" variant="ghost" size="md" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            variant="primary"
+            size="md"
+            disabled={!userId || !chosenRole || assign.isPending}
+          >
+            Add
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+/** Guests this project has asked: in its reviews, or kept in its groups. */
+function Reviewers({ projectId }: { projectId: string }) {
+  const can = useProjectCan(projectId);
+  const manage = can("manage_reviewers");
+  const { data: guests, error: loadError } = useQuery(projectGuestsQuery(projectId));
+  const { sendLink, revoke } = useProjectGuestMutations(projectId);
+  const [labelling, setLabelling] = useState<KnownGuest | null>(null);
+  const [revoking, setRevoking] = useState<KnownGuest | null>(null);
+  const [sent, setSent] = useState<string | null>(null);
+  const error = loadError ?? sendLink.error ?? revoke.error;
+  return (
+    <section aria-label="Reviewers" className="flex flex-col gap-3">
+      <SectionHead
+        title="Reviewers"
+        hint="guests, by link"
+        action={
+          can("request_reviews") && (
+            <Button variant="secondary" size="md" asChild>
+              <Link to="/projects/$projectId/reviews/new" params={{ projectId }}>
+                <Icon name="mail" size={14} />
+                Invite a reviewer
+              </Link>
+            </Button>
+          )
+        }
+      />
+      {error && <p className="text-[13px] text-signal">{error.message}</p>}
+      {sent && <p className="text-[13px] text-ink-2">{sent}</p>}
+      <Card>
+        <ul className="m-0 list-none p-0">
+          {!guests && !loadError && <li className="px-4 py-4 text-[13px] text-ink-3">Loading</li>}
+          {guests?.length === 0 && (
+            <li className="px-4 py-4 text-[13px] text-ink-3">
+              No guests yet. Reviewers are invited when a review is requested.
+            </li>
+          )}
+          {guests?.map((g) => (
+            <li
+              key={g.id}
+              className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-line px-4 py-2.5 last:border-b-0 @3xl/app:grid-cols-[auto_minmax(0,1fr)_170px_170px_auto]"
+            >
+              <Avatar id={g.email} name={g.name} size={30} />
+              <span className="min-w-0">
+                <span className="block truncate text-[14px] text-ink">
+                  {g.name}
+                  {g.label && <span className="text-ink-3"> · {g.label}</span>}
+                </span>
+                <span className="block truncate text-[13px] text-ink-3">{g.email}</span>
+              </span>
+              <span className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
+                <StatusDot state={g.live ? "approved" : "cancelled"} />
+                {g.live
+                  ? g.lastLinkAt
+                    ? `Link sent ${dayFormat.format(new Date(g.lastLinkAt))}`
+                    : "Signed in"
+                  : g.lastLinkAt
+                    ? "No working link"
+                    : "Not sent a link"}
+              </span>
+              <span className="tabular hidden text-[13px] text-ink-3 @3xl/app:block">
+                {g.reviews === 0
+                  ? "In a group only"
+                  : `${g.openReviews} open of ${g.reviews} ${g.reviews === 1 ? "review" : "reviews"}`}
+              </span>
+              {manage ? (
+                <ActionMenu
+                  always
+                  label={g.name}
+                  actions={[
+                    // A link opens a review, so there is none to send without an open one.
+                    ...(g.openReviews > 0
+                      ? [
+                          {
+                            label: "Send a new link",
+                            hint: "For the newest open review that asks them",
+                            onSelect: () =>
+                              sendLink.mutate(g.id, {
+                                onSuccess: () => setSent(`A new link is on its way to ${g.name}.`),
+                              }),
+                          },
+                        ]
+                      : []),
+                    { label: "Change label…", onSelect: () => setLabelling(g) },
+                    "divider",
+                    { label: "Revoke access…", danger: true, onSelect: () => setRevoking(g) },
+                  ]}
+                />
+              ) : (
+                <span className="hidden @3xl/app:block" />
+              )}
+            </li>
+          ))}
+        </ul>
+      </Card>
+      <p className="text-[12px] text-ink-3">
+        A guest reaches only the items of the open reviews that ask them, for as long as each
+        allows.
+      </p>
+      {labelling && (
+        <LabelDialog projectId={projectId} guest={labelling} onClose={() => setLabelling(null)} />
+      )}
+      {revoking && (
+        <Dialog
+          title={`Revoke ${revoking.name}'s access?`}
+          description="Every link and signed-in browser they have stops working, in every project. A new review, or a new link, lets them back in."
+          onClose={() => setRevoking(null)}
+          width="sm"
+          footer={
+            <>
+              <Button variant="ghost" size="md" onClick={() => setRevoking(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="md"
+                disabled={revoke.isPending}
+                onClick={() => revoke.mutate(revoking.id, { onSuccess: () => setRevoking(null) })}
+              >
+                Revoke access
+              </Button>
+            </>
+          }
+        >
+          {revoke.error && <p className="text-[13px] text-signal">{revoke.error.message}</p>}
+        </Dialog>
+      )}
+    </section>
+  );
+}
+
+/** How a guest appears beside their name, such as Conductor. */
+function LabelDialog({
+  projectId,
+  guest,
+  onClose,
+}: {
+  projectId: string;
+  guest: KnownGuest;
+  onClose: () => void;
+}) {
+  const { relabel } = useProjectGuestMutations(projectId);
+  const [label, setLabel] = useState(guest.label ?? "");
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    relabel.mutate({ guestId: guest.id, label: label.trim() || null }, { onSuccess: onClose });
+  };
+  return (
+    <Dialog
+      title={`Label for ${guest.name}`}
+      description="Shown beside their name wherever the workspace shows them."
+      onClose={onClose}
+      width="sm"
+    >
+      <form onSubmit={submit} className="flex flex-col gap-3">
+        <Input
+          value={label}
+          maxLength={60}
+          aria-label="Label"
+          onChange={(event) => setLabel(event.target.value)}
+          placeholder="For example Conductor"
+        />
+        {relabel.error && <p className="text-[13px] text-signal">{relabel.error.message}</p>}
+        <div className="mt-1 flex justify-end gap-2">
+          <Button type="button" variant="ghost" size="md" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" size="md" disabled={relabel.isPending}>
+            Save
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}

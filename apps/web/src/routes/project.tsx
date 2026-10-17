@@ -3,10 +3,9 @@ import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { FileBrowser } from "~/components/file-browser";
 import { UploadProvider } from "~/components/files";
-import { ReviewerGroups } from "~/components/groups";
 import { Icon } from "~/components/icons";
 import { PageHeader } from "~/components/page-header";
-import { ProjectMembers } from "~/components/project-access";
+import { ProjectPeople } from "~/components/project-people";
 import { ProjectReviews } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
 import { type BrowserFilters, noFilters } from "~/lib/browser";
@@ -150,27 +149,26 @@ export function ProjectFilesPage({
   );
 }
 
-/** The project's reviews, and the groups that can be asked. */
+/** The project's reviews. */
 export function ProjectReviewsPage({ projectId }: { projectId: string }) {
   return (
     <ProjectFrame projectId={projectId} title="Reviews">
       {(project) => (
         <div className={body}>
           <ProjectReviews projectId={project.id} />
-          <ReviewerGroups projectId={project.id} />
         </div>
       )}
     </ProjectFrame>
   );
 }
 
-/** Who is in the project, and their roles; what each role may do is in its settings. */
+/** Who is in the project: members and their roles, guest reviewers, and groups. */
 export function ProjectPeoplePage({ projectId }: { projectId: string }) {
   return (
     <ProjectFrame projectId={projectId} title="People">
       {(project) => (
         <div className={body}>
-          <ProjectMembers projectId={project.id} />
+          <ProjectPeople projectId={project.id} />
         </div>
       )}
     </ProjectFrame>

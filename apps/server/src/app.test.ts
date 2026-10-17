@@ -11,6 +11,7 @@ import {
   decodeSpectrogram,
   defaultProjectRoles,
   type LoudnessSummary,
+  levelsOf,
   lookingPermissions,
   mapTime,
 } from "@hekate/shared";
@@ -5594,7 +5595,15 @@ describe.runIf(url)("api", () => {
         expect(((await known.json()) as { guests: { email: string }[] }).guests).toEqual([
           expect.objectContaining({ email: "conductor@example.test" }),
         ]);
+        // A role that neither sees the people nor asks for reviews cannot list them.
+        const listener = await app.request(
+          `/api/projects/${s.projectId}/roles`,
+          json({ name: "Listener", levels: levelsOf(["view"]) }, s.owner),
+        );
+        expect(listener.status).toBe(201);
+        await grantRole(s.owner, s.projectId, s.composer, "Listener");
         expect((await getAs(`/api/projects/${s.projectId}/guests`, s.composer)).status).toBe(403);
+        await grantRole(s.owner, s.projectId, s.composer, "Reviewer");
         // Another workspace's project does not exist from here.
         const [elsewhere] = await db
           .insert(schema.organisations)
@@ -6714,6 +6723,66 @@ describe.runIf(url)("api", () => {
           expect((await getAs(`/api/files/${s.mix}`, again)).status).toBe(404);
           // The review itself stays readable, as a record of what they were asked.
           expect((await getAs(`/api/reviews/${s.review.id}`, again)).status).toBe(200);
+        });
+
+        it("lists a project's guests on its People page, and acts on them from there", async () => {
+          const s = await invited();
+          const known = (await (
+            await getAs(`/api/projects/${s.projectId}/guests`, s.composer)
+          ).json()) as {
+            guests: {
+              id: string;
+              label: string | null;
+              reviews: number;
+              openReviews: number;
+              lastLinkAt: string | null;
+              live: boolean;
+            }[];
+          };
+          // Seeing the people is enough to see them, with what this project asks of them.
+          const conductor = known.guests[0];
+          expect(conductor).toMatchObject({ reviews: 1, openReviews: 1, live: true });
+          expect(conductor?.lastLinkAt).not.toBeNull();
+          const base = `/api/projects/${s.projectId}/guests/${conductor?.id}`;
+          // Acting on them is for whoever manages reviewers.
+          expect((await app.request(`${base}/link`, json({}, s.engineer))).status).toBe(403);
+          mailer.sent.length = 0;
+          expect((await app.request(`${base}/link`, json({}, s.owner))).status).toBe(204);
+          expect(linkFor("conductor@example.test")).not.toBe(s.token);
+          const relabel = (label: string | null, cookie: string) =>
+            app.request(base, { ...json({ label }, cookie), method: "PATCH" });
+          expect((await relabel("Soloist", s.engineer)).status).toBe(403);
+          expect((await relabel("Soloist", s.owner)).status).toBe(204);
+          const [row] = await db
+            .select({ label: schema.guests.label })
+            .from(schema.guests)
+            .where(eq(schema.guests.id, conductor?.id ?? ""));
+          expect(row?.label).toBe("Soloist");
+          // Another project does not know them.
+          const other = (
+            (await (
+              await app.request(
+                "/api/projects",
+                json({ name: "Opening titles", profile: "video" }, s.owner),
+              )
+            ).json()) as { project: { id: string } }
+          ).project.id;
+          expect(
+            (
+              await app.request(
+                `/api/projects/${other}/guests/${conductor?.id}/revoke`,
+                json({}, s.owner),
+              )
+            ).status,
+          ).toBe(404);
+          // Revoking signs them out everywhere, and is logged against the project.
+          expect((await app.request(`${base}/revoke`, json({}, s.owner))).status).toBe(204);
+          expect((await getAs("/api/guest/me", s.cookie)).status).toBe(401);
+          const logged = await audit.query(s.organisationId, { action: "guest.revoke", limit: 1 });
+          expect(logged.events[0]).toMatchObject({ projectId: s.projectId });
+          // With the review closed, no review asks them, so there is no link to send.
+          await app.request(`/api/reviews/${s.review.id}/cancel`, json({}, s.owner));
+          expect((await app.request(`${base}/link`, json({}, s.owner))).status).toBe(409);
         });
 
         it("keeps a guest to their own organisation", async () => {
