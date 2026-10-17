@@ -17,6 +17,7 @@ import {
 } from "@hekate/shared";
 import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
 import { and, eq, like, ne, sql } from "drizzle-orm";
+import { Hono } from "hono";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, MAX_BODY_BYTES } from "./app.ts";
 import { createAudit, csvCell } from "./audit.ts";
@@ -24,7 +25,10 @@ import { createAuth } from "./auth.ts";
 import { describeReport, verifyBackup } from "./backup-verify.ts";
 import { createClient } from "./client.ts";
 import { loadConfig } from "./config.ts";
+import { failureOfJob, purgeErrorReports, recordFailure } from "./error-reports.ts";
+import { errorHandler, requestId } from "./errors.ts";
 import { issueGuestLink } from "./guests.ts";
+import { type JobFailure, runJob } from "./jobs.ts";
 import { createKeyring } from "./keyring.ts";
 import { memoryMailer } from "./mail.ts";
 import { probe, run } from "./media/ffmpeg.ts";
@@ -767,6 +771,138 @@ describe.runIf(url)("api", () => {
           .from(schema.instanceEvents)
           .where(eq(schema.instanceEvents.target, "ops@example.test"));
         expect(named).toEqual([]);
+      });
+
+      it("gives every failure a reference that an operator looks up (#159)", async () => {
+        const operator = cookieOf(await setup());
+        const [user] = await db
+          .select({ id: schema.users.id })
+          .from(schema.users)
+          .where(eq(schema.users.email, owner.email));
+        const [studio] = await db
+          .select({ id: schema.organisations.id })
+          .from(schema.organisations)
+          .where(eq(schema.organisations.slug, "studio"));
+        // A request that fails after the session is known, as a route's own bug would.
+        const failing = new Hono<{ Variables: { userId: string; organisationId: string } }>()
+          .use("*", requestId)
+          .use("*", async (c, next) => {
+            c.set("userId", user?.id ?? "");
+            c.set("organisationId", studio?.id ?? "");
+            await next();
+          })
+          .get("/api/files/:id", () => {
+            throw new Error("xref entry 41 points outside the file");
+          })
+          .onError(errorHandler(db));
+        const failed = await failing.request("/api/files/f-1");
+        expect(failed.status).toBe(500);
+        const body = (await failed.json()) as {
+          error: { code: string; message: string; reference: string };
+        };
+        expect(body.error).toMatchObject({ code: "internal", message: "Something went wrong" });
+        expect(body.error.reference).toMatch(/^HK-[0-9A-F]{4}-[0-9A-F]{2}$/);
+
+        // A job that fails on its last attempt is recorded too; earlier attempts are not.
+        const boom = async () => {
+          throw new Error("damaged cross-reference table");
+        };
+        const reported: string[] = [];
+        const onFailure = async (failure: JobFailure) => {
+          const reference = await recordFailure(db, failureOfJob(failure));
+          if (reference) reported.push(reference);
+        };
+        const job = {
+          id: "j-8f1c",
+          data: {
+            organisationId: studio?.id ?? "",
+            fileId: "0199f000-0000-7000-8000-000000000001",
+          },
+          signal: new AbortController().signal,
+        };
+        await expect(
+          runJob("document-render", { ...job, retryCount: 0 }, boom, onFailure),
+        ).rejects.toThrow("damaged");
+        expect(reported).toEqual([]);
+        await expect(
+          runJob("document-render", { ...job, retryCount: 3 }, boom, onFailure),
+        ).rejects.toThrow("damaged");
+        expect(reported).toHaveLength(1);
+
+        // The lookup resolves it, however the reference was pasted.
+        const pasted = ` ${body.error.reference.toLowerCase()} `;
+        const found = await get(`/api/instance/errors/${encodeURIComponent(pasted)}`, operator);
+        expect(found.status).toBe(200);
+        const report = (await found.json()) as Record<string, unknown>;
+        expect(report).toMatchObject({
+          reference: body.error.reference,
+          source: "api",
+          location: "GET /api/files/:id",
+          message: "xref entry 41 points outside the file",
+          status: 500,
+          requestId: failed.headers.get("x-request-id"),
+          workspace: "Studio",
+          workspaceId: studio?.id,
+          who: { name: owner.name, email: owner.email },
+        });
+        expect(report.stack).toContain("Error: xref entry 41");
+        // Nothing personal beyond the name and the address.
+        expect(Object.keys(report.who as object).sort()).toEqual(["email", "name"]);
+        const worker = (await (
+          await get(`/api/instance/errors/${reported[0]}`, operator)
+        ).json()) as Record<string, unknown>;
+        expect(worker).toMatchObject({
+          source: "worker",
+          location: "document-render",
+          jobId: "j-8f1c",
+          workspace: "Studio",
+          who: null,
+          context: job.data,
+        });
+
+        // Both are among today's, newest first.
+        const today = (await (await get("/api/instance/errors", operator)).json()) as {
+          errors: { reference: string }[];
+        };
+        expect(today.errors.map((e) => e.reference)).toEqual([reported[0], body.error.reference]);
+        const later = new Date(Date.now() + 60_000).toISOString();
+        const none = (await (
+          await get(`/api/instance/errors?since=${encodeURIComponent(later)}`, operator)
+        ).json()) as { errors: unknown[] };
+        expect(none.errors).toEqual([]);
+        expect((await get("/api/instance/errors?since=yesterday", operator)).status).toBe(400);
+
+        // An unknown reference, and something that is not one.
+        expect((await get("/api/instance/errors/HK-0000-00", operator)).status).toBe(404);
+        expect((await get("/api/instance/errors/req_01HX", operator)).status).toBe(400);
+
+        // Only operators: a workspace owner who is not one, and a member, are refused.
+        const member = await join(operator, "member@example.test");
+        expect((await get("/api/instance/errors", member)).status).toBe(403);
+        const theirOwner = await join(operator, "label@example.test", "owner");
+        expect((await get("/api/instance/errors", theirOwner)).status).toBe(403);
+        expect((await get(`/api/instance/errors/${body.error.reference}`, theirOwner)).status).toBe(
+          403,
+        );
+
+        // Kept for thirty days, then forgotten.
+        expect(await purgeErrorReports(db, new Date(Date.now() + 29 * 86_400_000))).toBe(0);
+        expect(await purgeErrorReports(db, new Date(Date.now() + 31 * 86_400_000))).toBe(2);
+      });
+
+      it("keeps a report when the workspace it names does not exist", async () => {
+        const reference = await recordFailure(db, {
+          source: "worker",
+          location: "media-probe",
+          error: "not an Error",
+          organisationId: "0199f000-0000-7000-8000-00000000dead",
+        });
+        expect(reference).toMatch(/^HK-/);
+        const [row] = await db
+          .select()
+          .from(schema.errorReports)
+          .where(eq(schema.errorReports.reference, reference ?? ""));
+        expect(row).toMatchObject({ organisationId: null, message: "not an Error" });
       });
 
       describe("workspaces", () => {

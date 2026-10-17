@@ -45,6 +45,7 @@ const instanceIcons: Record<InstanceSection, IconName> = {
   overview: "dashboard",
   workspaces: "building",
   operators: "fingerprint",
+  debug: "sliders",
 };
 
 /** The lamps in the room: slow, warm and cool, behind the chrome. */

@@ -1715,3 +1715,33 @@ export const instanceEvents = pgTable(
   },
   (t) => [index("instance_events_created_idx").on(t.createdAt)],
 );
+
+/**
+ * What failed, behind each error reference a person sees (#159). Global: a failure may belong to
+ * no workspace, and only operators read it. Who it happened to is the account, nothing more
+ * about them; a workspace's reports go with it, and every report goes after ERROR_REPORT_DAYS.
+ */
+export const errorReports = pgTable(
+  "error_reports",
+  {
+    id: id(),
+    reference: text("reference").notNull().unique(),
+    /** `api` or `worker`. */
+    source: text("source").notNull(),
+    /** The route (`GET /api/files/:id`) or the job's name. */
+    location: text("location").notNull(),
+    message: text("message").notNull(),
+    stack: text("stack"),
+    status: integer("status"),
+    requestId: text("request_id"),
+    jobId: text("job_id"),
+    /** The job's data: identifiers only. */
+    context: jsonb("context"),
+    organisationId: uuid("organisation_id").references(() => organisations.id, {
+      onDelete: "cascade",
+    }),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("error_reports_occurred_idx").on(t.occurredAt)],
+);

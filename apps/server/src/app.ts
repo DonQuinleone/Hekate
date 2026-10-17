@@ -5,7 +5,7 @@ import { HTTPException } from "hono/http-exception";
 import { logger } from "hono/logger";
 import type { Audit } from "./audit.ts";
 import type { Auth } from "./auth.ts";
-import { onError } from "./errors.ts";
+import { errorHandler, requestId } from "./errors.ts";
 import { requirePlaySession, requireViewer } from "./guests.ts";
 import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
@@ -300,6 +300,7 @@ export const MAX_BODY_BYTES = 2 * 1024 * 1024;
 export function createApp(deps: AppDeps) {
   const app = new Hono();
   app.use("*", securityHeaders({ https: deps.publicUrl.startsWith("https://") }));
+  app.use("/api/*", requestId);
   if (deps.log !== false) app.use("/api/*", logger());
   // Every other body is small: settings, comments, sign-in. A chunk's limit is its own.
   app.use("/api/*", async (c, next) =>
@@ -318,6 +319,6 @@ export function createApp(deps: AppDeps) {
   app.on(["GET", "POST"], "/api/auth/*", (c) => deps.auth.handler(c.req.raw));
   app.route("/api", createApi(deps));
   app.notFound((c) => c.json({ error: { code: "not_found", message: "Not found" } }, 404));
-  app.onError(onError);
+  app.onError(errorHandler(deps.db));
   return app;
 }

@@ -21,6 +21,8 @@ import {
   decodeSpectrogram,
   defaultPreferences,
   type EmailTemplateId,
+  type ErrorReport,
+  type ErrorReportRow,
   type FileColumnLayout,
   type FileKind,
   type GroupInput,
@@ -91,23 +93,33 @@ export class WorkspaceSuspendedError extends Error {}
 /** A refusal with the server's code for it, for pages that answer each refusal differently. */
 export class ApiError extends Error {
   readonly code: string | undefined;
-  constructor(message: string, code?: string) {
+  /** A failure's reference (#159), which the message asks them to quote. */
+  readonly reference: string | undefined;
+  constructor(message: string, code?: string, reference?: string) {
     super(message);
     this.code = code;
+    this.reference = reference;
   }
 }
+
+/** A failure's message, with the reference to quote when it has one. */
+export const quoting = (message: string, reference?: string) =>
+  reference
+    ? `${message.endsWith(".") ? message.slice(0, -1) : message}. Quote ${reference} to support.`
+    : message;
 
 export async function json<T>(res: Response): Promise<T> {
   if (res.status === 401) throw new SignedOutError("Your session has ended. Sign in again.");
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as {
-      error?: { code?: string; message?: string };
+      error?: { code?: string; message?: string; reference?: string };
     } | null;
-    const message = body?.error?.message ?? `Request failed (${res.status})`;
+    const reference = body?.error?.reference;
+    const message = quoting(body?.error?.message ?? `Request failed (${res.status})`, reference);
     if (body?.error?.code === "second_factor_required") throw new SecondFactorDueError(message);
     if (body?.error?.code === "sso_required") throw new SsoRequiredError(message);
     if (body?.error?.code === "workspace_suspended") throw new WorkspaceSuspendedError(message);
-    throw new ApiError(message, body?.error?.code);
+    throw new ApiError(message, body?.error?.code, reference);
   }
   // Done, with nothing to say.
   if (res.status === 204) return undefined as T;
@@ -2692,6 +2704,29 @@ export const instanceProjectsQuery = (id: string) =>
           await api.instance.workspaces[":id"].projects.$get({ param: { id } }),
         )
       ).projects,
+  });
+
+/** What failed since a moment, a day ago by this browser's clock (#159). */
+export const instanceErrorsQuery = (since: string) =>
+  queryOptions({
+    queryKey: ["instance", "errors", "since", since],
+    queryFn: async () =>
+      (
+        await json<{ errors: ErrorReportRow[] }>(
+          await api.instance.errors.$get({ query: { since } }),
+        )
+      ).errors,
+  });
+
+/** The whole story behind a reference; null when none has it. */
+export const instanceErrorQuery = (reference: string) =>
+  queryOptions({
+    queryKey: ["instance", "errors", reference],
+    queryFn: async () => {
+      const res = await api.instance.errors[":reference"].$get({ param: { reference } });
+      if (res.status === 404) return null;
+      return json<ErrorReport>(res);
+    },
   });
 
 export const instanceOperatorsQuery = queryOptions({

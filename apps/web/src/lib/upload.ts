@@ -1,3 +1,5 @@
+import { quoting } from "./queries";
+
 /**
  * Resumable uploads (server: apps/server/src/routes/uploads.ts). A file is sent as
  * 8 MiB chunks, three at a time, each with a SHA-256 digest. Failed chunks are
@@ -45,9 +47,11 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers: { "content-type": "application/json", ...init.headers },
   });
   if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+    const body = (await res.json().catch(() => null)) as {
+      error?: { message?: string; reference?: string };
+    } | null;
     throw new UploadError(
-      body?.error?.message ?? `Request failed (${res.status})`,
+      quoting(body?.error?.message ?? `Request failed (${res.status})`, body?.error?.reference),
       res.status >= 500,
     );
   }
@@ -104,7 +108,10 @@ function sendChunk(
       if (xhr.status === 204) return resolve();
       let message = `Chunk ${index} failed (${xhr.status})`;
       try {
-        message = (JSON.parse(xhr.responseText) as { error: { message: string } }).error.message;
+        const { error } = JSON.parse(xhr.responseText) as {
+          error: { message: string; reference?: string };
+        };
+        message = quoting(error.message, error.reference);
       } catch {}
       // Damaged in transit (400 with a digest) and server errors are worth another try.
       const retryable =

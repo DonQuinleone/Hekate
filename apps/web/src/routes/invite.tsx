@@ -3,7 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { Button } from "~/components/ui/button";
 import { api } from "~/lib/api";
-import { meQuery } from "~/lib/queries";
+import { meQuery, quoting } from "~/lib/queries";
 import { ErrorLine, Field, Frame } from "./auth-pages";
 
 const roleLabel = { owner: "an owner", admin: "an admin", member: "a member" } as const;
@@ -30,8 +30,12 @@ export function InvitePage({ token }: { token: string }) {
     const res = await api.invitations[":token"].accept.$post({ param: { token }, json: body });
     setPending(false);
     if (!res.ok) {
-      const b = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-      setError(b?.error?.message ?? "Could not accept the invitation.");
+      const b = (await res.json().catch(() => null)) as {
+        error?: { message?: string; reference?: string };
+      } | null;
+      setError(
+        quoting(b?.error?.message ?? "Could not accept the invitation.", b?.error?.reference),
+      );
       return;
     }
     await client.invalidateQueries();

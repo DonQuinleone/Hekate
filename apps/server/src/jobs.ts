@@ -38,7 +38,10 @@ export const jobDefinitions = {
     data: z.object({ organisationId: z.uuid(), blobId: z.uuid() }),
     options: { retryLimit: 4, retryDelay: 30, retryBackoff: true, expireInSeconds: 60 * 60 },
   },
-  /** Forget sign-in attempts a day old that hold no lock, so they do not pile up. Hourly. */
+  /**
+   * Forget sign-in attempts a day old that hold no lock, so they do not pile up, and error
+   * reports past their time. Hourly.
+   */
   "sign-in-attempts-purge": {
     data: z.object({}),
     options: { retryLimit: 1, expireInSeconds: 10 * 60 },
@@ -132,7 +135,45 @@ export interface Jobs {
   state(name: JobName, id: string): Promise<string | undefined>;
 }
 
-export function createJobs(options: { connectionString: string; schema?: string }): Jobs {
+/** A job that failed for the last time: no retry follows. */
+export interface JobFailure {
+  name: JobName;
+  id: string;
+  data: unknown;
+  error: unknown;
+}
+
+/**
+ * Runs one attempt of a job. When it fails and no retry is left, `onFailure` hears of it before
+ * the queue does (#159); the error still reaches the queue, which marks the job failed.
+ */
+export async function runJob<N extends JobName>(
+  name: N,
+  job: { id: string; data: unknown; signal: AbortSignal; retryCount: number },
+  handler: JobHandler<N>,
+  onFailure?: (failure: JobFailure) => Promise<void>,
+): Promise<void> {
+  try {
+    // Validate again on the way out: the queue is a database table, not a trusted channel.
+    const data = jobDefinitions[name].data.parse(job.data) as JobData<N>;
+    await handler(data, { id: job.id, signal: job.signal, retryCount: job.retryCount });
+  } catch (error) {
+    const options: QueueOptions = jobDefinitions[name].options;
+    // pg-boss retries twice when a queue does not say.
+    if (onFailure && job.retryCount >= (options.retryLimit ?? 2))
+      await onFailure({ name, id: job.id, data: job.data, error }).catch((cause) =>
+        console.error("Could not report a failed job:", cause),
+      );
+    throw error;
+  }
+}
+
+export function createJobs(options: {
+  connectionString: string;
+  schema?: string;
+  /** Hears of each job that failed for the last time. */
+  onFailure?: (failure: JobFailure) => Promise<void>;
+}): Jobs {
   const boss = new PgBoss({
     connectionString: options.connectionString,
     schema: options.schema ?? "pgboss",
@@ -165,15 +206,12 @@ export function createJobs(options: { connectionString: string; schema?: string 
     },
 
     async work(name, handler, workOptions) {
-      const schema = jobDefinitions[name].data;
       await boss.work(
         name,
         { localConcurrency: workOptions?.concurrency ?? 1, batchSize: 1 },
         async ([job]: Job<unknown>[]) => {
           if (!job) return;
-          // Validate again on the way out: the queue is a database table, not a trusted channel.
-          const data = schema.parse(job.data) as JobData<typeof name>;
-          await handler(data, { id: job.id, signal: job.signal, retryCount: job.retryCount });
+          await runJob(name, job, handler, options.onFailure);
         },
       );
     },
