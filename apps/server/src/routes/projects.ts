@@ -20,7 +20,8 @@ import { assertProfileRef } from "../delivery-profiles.ts";
 import { NotFound } from "../errors.ts";
 import { projectFigures } from "../project-figures.ts";
 import type { TenantVariables } from "../tenancy.ts";
-import { seedCategories } from "./categories.ts";
+import { categoriesOf, seedCategories } from "./categories.ts";
+import { copyCategories, templateFor } from "./templates.ts";
 
 const { projects, files, users, projectRoles, projectMembers, reviews } = schema;
 
@@ -87,7 +88,7 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
     // Any member may start a project. It comes with the default roles, or a template's, and its
     // creator is its first Producer.
     .post("/", zValidator("json", createProjectInput), async (c) => {
-      const { templateId, ...input } = c.req.valid("json");
+      const { templateId, savedTemplateId, ...input } = c.req.valid("json");
       const organisationId = c.var.organisationId;
       // A template must be a project the creator can see; its settings and roles are copied,
       // never its content.
@@ -111,9 +112,15 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
                 inOrg(projectRoles, organisationId, eq(projectRoles.projectId, access.projectId)),
               )
               .orderBy(asc(projectRoles.position));
-            return { settings, roles };
+            const categories = (await categoriesOf(db, organisationId, access.projectId)).map(
+              (k) => ({ name: k.name, handling: k.handling, stage: k.stage }),
+            );
+            return { settings, roles, categories };
           })()
-        : null;
+        : savedTemplateId
+          ? // A saved template (#240): its copy of a project's set-up.
+            await db.transaction((tx) => templateFor(tx, organisationId, savedTemplateId))
+          : null;
       const roles = template?.roles.length ? template.roles : defaultProjectRoles;
       // Without a template, the workspace's defaults.
       const [workspace] = template
@@ -137,8 +144,9 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
           })
           .returning();
         if (!created) throw new Error("Project insert returned no row");
-        // Its comment categories, the defaults (#36).
-        await seedCategories(tx, organisationId, created.id);
+        // Its comment categories: the template's, else the defaults (#36).
+        if (template) await copyCategories(tx, organisationId, created.id, template.categories);
+        else await seedCategories(tx, organisationId, created.id);
         const made = await tx
           .insert(projectRoles)
           .values(

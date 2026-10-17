@@ -463,6 +463,13 @@
       "when": 1792226415529,
       "tag": "0065_comment_takes",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1792230145714,
+      "tag": "0066_project_templates",
+      "breakpoints": true
     }
   ]
 }

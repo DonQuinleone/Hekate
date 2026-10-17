@@ -262,6 +262,8 @@ setup("seed", async ({ page, browser }) => {
   }
   // From here on a version needs an edit decision list (#131): the next one is refused.
   await api(page, "PATCH", `/api/projects/${music.id}`, { requireEdl: true });
+  // Its set-up, saved for the next recording to start from (#240).
+  await api(page, "POST", `/api/projects/${music.id}/template`, { name: "Solo recital" });
   const { track: entertainer } = await api<{ track: { id: string } }>(
     page,
     "POST",

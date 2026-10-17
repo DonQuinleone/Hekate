@@ -37,6 +37,7 @@ import {
   type SearchRequest,
   type SessionFactor,
   type SsoProtocol,
+  type TemplateContent,
 } from "@hekate/shared";
 import { type SQL, sql } from "drizzle-orm";
 import {
@@ -454,6 +455,28 @@ export const projectRoles = pgTable(
     ...timestamps,
   },
   (t) => [uniqueIndex("project_roles_name_idx").on(t.organisationId, t.projectId, t.name)],
+);
+
+/**
+ * A project's set-up saved to start others from (#240): its roles, categories, delivery
+ * profile, QA rules and version checks, as one validated value (`templateContent`). It is a
+ * copy, so changing the project afterwards leaves the template as it was.
+ */
+export const projectTemplates = pgTable(
+  "project_templates",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    name: text("name").notNull(),
+    content: jsonb("content").notNull().$type<TemplateContent>(),
+    /** The project it was saved from, while it exists. */
+    fromProjectId: uuid("from_project_id").references(() => projects.id, {
+      onDelete: "set null",
+    }),
+    createdById: text("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("project_templates_name_idx").on(t.organisationId, sql`lower(${t.name})`)],
 );
 
 /**

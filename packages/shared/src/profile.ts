@@ -52,9 +52,16 @@ export const createProjectInput = z
     name: z.string().trim().min(1).max(120),
     profile: projectProfile,
     description: projectDescription.optional(),
+    /** Another project to copy roles and settings from. */
     templateId: z.uuid().optional(),
+    /** Or a saved template (#240). */
+    savedTemplateId: z.uuid().optional(),
   })
-  .strict();
+  .strict()
+  .refine((p) => !(p.templateId && p.savedTemplateId), {
+    message: "Start from a project or a template, not both",
+    path: ["savedTemplateId"],
+  });
 export type CreateProjectInput = z.infer<typeof createProjectInput>;
 
 /** Which projects the list shows: those in use, or those archived; with their figures or not. */

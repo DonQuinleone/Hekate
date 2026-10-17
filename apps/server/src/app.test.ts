@@ -4396,6 +4396,137 @@ describe.runIf(url)("api", () => {
         expect(members.members.map((m) => m.name)).toEqual(["Producer"]);
       });
 
+      it("saves a project's set-up as a template, and starts others from it (#240)", async () => {
+        const { owner, projectId } = await studio();
+        // What it is set up with: a role, a category and a check of its own.
+        await app.request(
+          `/api/projects/${projectId}/roles`,
+          json({ name: "Mixer", permissions: ["view", "comment"] }, owner),
+        );
+        await app.request(
+          `/api/projects/${projectId}/categories`,
+          json({ name: "Tuning", handling: "normal" }, owner),
+        );
+        await send("PATCH", `/api/projects/${projectId}`, { requireEdl: true }, owner);
+        const save = (name: string, cookie: string) =>
+          app.request(`/api/projects/${projectId}/template`, json({ name }, cookie));
+
+        // Only those who edit the project save it; others in the workspace find nothing.
+        const reviewer = await joinAs(owner, "reviewer-template@example.test");
+        await grantRole(owner, projectId, reviewer, "Reviewer");
+        expect((await save("Recital", reviewer)).status).toBe(403);
+        const outsider = await joinAs(owner, "outsider-template-save@example.test");
+        expect((await save("Recital", outsider)).status).toBe(404);
+        const saved = await save("Recital", owner);
+        expect(saved.status).toBe(201);
+        const { template } = (await saved.json()) as {
+          template: { id: string; roles: string[]; categories: number; removable: boolean };
+        };
+        expect(template.roles).toContain("Mixer");
+        expect(template.removable).toBe(true);
+        expect((await save("recital", owner)).status).toBe(409);
+
+        // A copy: what the project gains later is not in it.
+        await app.request(
+          `/api/projects/${projectId}/roles`,
+          json({ name: "Late", permissions: ["view"] }, owner),
+        );
+        const made = await app.request(
+          "/api/projects",
+          json({ name: "Recital II", profile: "music", savedTemplateId: template.id }, reviewer),
+        );
+        expect(made.status).toBe(201);
+        const copy = ((await made.json()) as { project: { id: string; requireEdl: boolean } })
+          .project;
+        expect(copy.requireEdl).toBe(true);
+        const roles = (
+          (await (await getAs(`/api/projects/${copy.id}/roles`, reviewer)).json()) as {
+            roles: { name: string; members: number }[];
+          }
+        ).roles;
+        expect(roles.map((r) => r.name)).toContain("Mixer");
+        expect(roles.map((r) => r.name)).not.toContain("Late");
+        expect(roles.find((r) => r.name === "Producer")?.members).toBe(1);
+        const categories = (
+          (await (await getAs(`/api/projects/${copy.id}/categories`, reviewer)).json()) as {
+            categories: { name: string }[];
+          }
+        ).categories;
+        expect(categories.map((k) => k.name)).toContain("Tuning");
+        const files = (await (await getAs(`/api/projects/${copy.id}/files`, reviewer)).json()) as {
+          files: unknown[];
+        };
+        expect(files.files).toEqual([]);
+        // From a project or from a template, not both.
+        expect(
+          (
+            await app.request(
+              "/api/projects",
+              json(
+                {
+                  name: "Both",
+                  profile: "music",
+                  templateId: projectId,
+                  savedTemplateId: template.id,
+                },
+                owner,
+              ),
+            )
+          ).status,
+        ).toBe(400);
+
+        // Every member sees the workspace's templates; only who saved one, or an admin, removes it.
+        const listed = (
+          (await (await getAs("/api/templates", reviewer)).json()) as {
+            templates: { id: string; name: string; removable: boolean }[];
+          }
+        ).templates;
+        expect(listed).toMatchObject([{ id: template.id, name: "Recital", removable: false }]);
+        const remove = (cookie: string) =>
+          app.request(`/api/templates/${template.id}`, {
+            method: "DELETE",
+            headers: { cookie, origin: "http://localhost:3000" },
+          });
+        expect((await remove(reviewer)).status).toBe(403);
+        // Another workspace knows nothing of it: the outsider, as owner of a workspace of their own.
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Saltmarsh Films", slug: "saltmarsh-templates" })
+          .returning({ id: schema.organisations.id });
+        const outsiderId = (
+          (await (await getAs("/api/me", outsider)).json()) as { user: { id: string } }
+        ).user.id;
+        await db
+          .insert(schema.members)
+          .values({ organisationId: other?.id ?? "", userId: outsiderId, role: "owner" });
+        expect(
+          (
+            await app.request("/api/me/organisation", {
+              ...json({ organisationId: other?.id }, outsider),
+              method: "PUT",
+            })
+          ).status,
+        ).toBe(200);
+        const elsewhere = { owner: outsider };
+        expect((await remove(elsewhere.owner)).status).toBe(404);
+        expect(
+          (
+            await app.request(
+              "/api/projects",
+              json(
+                { name: "Borrowed", profile: "music", savedTemplateId: template.id },
+                elsewhere.owner,
+              ),
+            )
+          ).status,
+        ).toBe(404);
+        expect((await remove(owner)).status).toBe(204);
+        expect(
+          ((await (await getAs("/api/templates", owner)).json()) as { templates: unknown[] })
+            .templates,
+        ).toEqual([]);
+      });
+
       it("hides a project from members without a role, and shows it to admins", async () => {
         const { owner, projectId, fileId } = await studio();
         const member = await joinAs(owner, "outsider@example.test");

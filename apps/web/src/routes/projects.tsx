@@ -28,6 +28,7 @@ import {
   type ProjectWithFigures,
   projectCardsQuery,
   projectsQuery,
+  templatesQuery,
   useArchiveProject,
   useCreateProject,
   workspaceSettingsQuery,
@@ -61,8 +62,11 @@ export function NewProject({
   const [chosen, setProfile] = useState<ProjectProfile | null>(null);
   // The workspace's default profile until someone picks one.
   const profile = chosen ?? settings?.defaultProfile ?? "music";
-  const [templateId, setTemplateId] = useState("");
-  const { data: templates = [] } = useQuery(projectsQuery);
+  // "project:<id>" or "template:<id>" (#240), or nothing for the defaults.
+  const [startFrom, setStartFrom] = useState("");
+  const { data: projects = [] } = useQuery(projectsQuery);
+  const { data: saved = [] } = useQuery(templatesQuery);
+  const [kind, fromId] = startFrom.split(":");
   const create = useCreateProject();
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -71,7 +75,8 @@ export function NewProject({
         name,
         profile,
         ...(description.trim() ? { description } : {}),
-        ...(templateId ? { templateId } : {}),
+        ...(kind === "project" && fromId ? { templateId: fromId } : {}),
+        ...(kind === "template" && fromId ? { savedTemplateId: fromId } : {}),
       },
       {
         onSuccess: (project) => {
@@ -133,16 +138,29 @@ export function NewProject({
           ))}
         </div>
       </fieldset>
-      {templates.length > 0 && (
+      {(projects.length > 0 || saved.length > 0) && (
         <label className="flex flex-col gap-1.5 text-[14px] text-ink-2">
           Start from
-          <Select value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
+          <Select value={startFrom} onChange={(e) => setStartFrom(e.target.value)}>
             <option value="">The default roles and settings</option>
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}'s roles and settings
-              </option>
-            ))}
+            {saved.length > 0 && (
+              <optgroup label="Templates">
+                {saved.map((t) => (
+                  <option key={t.id} value={`template:${t.id}`}>
+                    {t.name}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {projects.length > 0 && (
+              <optgroup label="Projects">
+                {projects.map((p) => (
+                  <option key={p.id} value={`project:${p.id}`}>
+                    {p.name}'s roles and settings
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </Select>
           <span className="text-[13px] text-ink-3">
             Nothing else is copied: no files, no people.
