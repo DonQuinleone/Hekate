@@ -199,6 +199,11 @@ const screens: Screen[] = [
     ready: "main select[aria-label='Files for Producer']",
   },
   {
+    name: "project-settings-storage",
+    path: (s) => `/projects/${s.musicProjectId}/settings?section=storage`,
+    ready: "main >> text=Used by this project",
+  },
+  {
     name: "project-settings-workflow",
     path: (s) => `/projects/${s.musicProjectId}/settings?section=workflow`,
     ready: "main >> text=Checks on a new version",

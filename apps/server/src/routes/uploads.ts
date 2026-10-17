@@ -130,7 +130,13 @@ export const uploadRoutes = (
         });
       }
       const contentType = cleanContentType(input.contentType);
-      const session = await storage.beginUpload(organisationId, input.size, contentType);
+      // Into the project's own backend, if it has one (#240).
+      const session = await storage.beginUpload(
+        organisationId,
+        input.size,
+        contentType,
+        project.id,
+      );
       let row: UploadRow | undefined;
       try {
         [row] = await db

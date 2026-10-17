@@ -3,6 +3,7 @@ import {
   categoryHandlings,
   customRef,
   defaultReferences,
+  formatBytes,
   handlingWords,
   type NormalisationMode,
   normalisationModes,
@@ -41,13 +42,16 @@ import {
   type CommentCategory,
   categoriesQuery,
   customProfilesQuery,
+  meQuery,
   type Project,
+  projectStorageQuery,
   projectTracksQuery,
   templatesQuery,
   useArchiveProject,
   useCategoryMutations,
   useProjectCan,
   useProjectDeletion,
+  useProjectStorage,
   useTemplateMutations,
   useTrackDeliveryProfile,
   useTrackReferences,
@@ -83,6 +87,13 @@ const sections = [
     intro: "What a new version must pass before it lands.",
   },
   {
+    id: "storage",
+    label: "Storage",
+    group: "Protection",
+    intro:
+      "Where new files go. Existing files stay where they are. Everything is encrypted at rest with a key per file.",
+  },
+  {
     id: "delivery",
     label: "Delivery profile",
     group: "Quality assurance",
@@ -111,7 +122,10 @@ export function ProjectSettingsPage({
   section?: ProjectSettingsSection;
 }) {
   const can = useProjectCan(projectId);
-  const current = sections.find((s) => s.id === section) ?? sections[0];
+  // Storage is the workspace's business: its admins see it (#240).
+  const admin = useWorkspaceAdmin();
+  const shown = sections.filter((s) => s.id !== "storage" || admin);
+  const current = shown.find((s) => s.id === section) ?? shown[0] ?? sections[0];
   return (
     <ProjectFrame projectId={projectId} title="Settings">
       {(project) =>
@@ -124,7 +138,7 @@ export function ProjectSettingsPage({
           </Page>
         ) : (
           <SettingsLayout
-            sections={[...sections]}
+            sections={shown}
             current={current.id}
             base="/projects/$projectId/settings"
             param="section"
@@ -136,6 +150,7 @@ export function ProjectSettingsPage({
             {current.id === "comments" && <Comments project={project} />}
             {current.id === "roles" && <ProjectRoles projectId={project.id} />}
             {current.id === "workflow" && <Workflow project={project} />}
+            {current.id === "storage" && <ProjectStorageSection project={project} />}
             {current.id === "delivery" && <Delivery project={project} />}
             {current.id === "qa" && <QaRules project={project} />}
           </SettingsLayout>
@@ -543,6 +558,47 @@ function DeleteProject({ project }: { project: Project }) {
           </Field>
         </Dialog>
       )}
+    </>
+  );
+}
+
+/** Where the project's new files go, and how much it keeps (#240). Owners choose. */
+function ProjectStorageSection({ project }: { project: Project }) {
+  const { data } = useQuery(projectStorageQuery(project.id));
+  const { data: me } = useQuery(meQuery);
+  const owner = me?.organisations.find((o) => o.id === me.activeOrganisationId)?.role === "owner";
+  const choose = useProjectStorage(project.id);
+  if (!data) return null;
+  return (
+    <>
+      <Section title="Backend">
+        <Row
+          name="Backend for new files"
+          hint={owner ? undefined : "Only a workspace owner can change it."}
+        >
+          {owner ? (
+            <Select
+              aria-label="Backend for new files"
+              value={data.backend ?? ""}
+              onChange={(e) => choose.mutate(e.target.value || null)}
+              className="w-full @3xl/app:w-64"
+            >
+              <option value="">Workspace default ({data.workspaceBackend})</option>
+              {data.available.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <span className="text-[14px] text-ink-2">{data.backend ?? data.workspaceBackend}</span>
+          )}
+        </Row>
+        <Row name="Used by this project" hint="Originals, renditions, pages and peaks">
+          <span className="tabular text-[14px] text-ink">{formatBytes(data.bytes)}</span>
+        </Row>
+      </Section>
+      {choose.error && <p className="-mt-6 text-[13px] text-signal">{choose.error.message}</p>}
     </>
   );
 }

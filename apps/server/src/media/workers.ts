@@ -168,7 +168,11 @@ export function proxyHandler(deps: MediaWorkerDeps): JobHandler<"media-proxy"> {
 
     const stored: string[] = [];
     const store = async (bytes: Buffer, contentType: string) => {
-      const blob = await deps.storage.put(organisationId, bytes, { contentType });
+      // Made from the file, so kept where its project keeps new files (#240).
+      const blob = await deps.storage.put(organisationId, bytes, {
+        contentType,
+        projectId: file.projectId,
+      });
       stored.push(blob.id);
       return blob.id;
     };
@@ -272,6 +276,7 @@ export function analysisHandler(deps: MediaWorkerDeps): JobHandler<"media-analys
     const store = async (bytes: Uint8Array) => {
       const blob = await deps.storage.put(organisationId, Buffer.from(bytes), {
         contentType: "application/octet-stream",
+        projectId: file.projectId,
       });
       stored.push(blob.id);
       return blob.id;
@@ -363,6 +368,7 @@ export function renderHandler(deps: MediaWorkerDeps): JobHandler<"document-rende
         name: files.name,
         contentType: files.contentType,
         blobId: files.blobId,
+        projectId: files.projectId,
       })
       .from(files)
       .where(inOrg(files, organisationId, eq(files.id, fileId)));
@@ -394,9 +400,13 @@ export function renderHandler(deps: MediaWorkerDeps): JobHandler<"document-rende
         const path = await materialise(deps.storage, organisationId, file.blobId, dir, job.signal);
         // Each page is stored as it is drawn; only its row is kept until the end.
         return renderPages(path, source, dir, job.signal, async (page) => {
-          const view = await deps.storage.put(organisationId, page.view);
+          const view = await deps.storage.put(organisationId, page.view, {
+            projectId: file.projectId,
+          });
           stored.push(view.id);
-          const thumb = await deps.storage.put(organisationId, page.thumb);
+          const thumb = await deps.storage.put(organisationId, page.thumb, {
+            projectId: file.projectId,
+          });
           stored.push(thumb.id);
           rows.push({
             organisationId,
