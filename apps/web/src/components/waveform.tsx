@@ -1,4 +1,12 @@
-import { channelNames, combineChannels, levelFor, type PeakLevel } from "@hekate/shared";
+import {
+  channelNames,
+  combineChannels,
+  defaultWaveLook,
+  levelFor,
+  type PeakLevel,
+  type WaveColour,
+  type WaveLook,
+} from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type WaveSurfer from "wavesurfer.js";
@@ -12,9 +20,6 @@ export type WaveformView = "channels" | "combined";
 export const WAVEFORM_HEIGHT = 168;
 const HEIGHT = WAVEFORM_HEIGHT;
 
-/** The colours a waveform may be drawn in, each a design token. */
-export const waveColours = ["ink", "signal", "cool", "warm"] as const;
-export type WaveColour = (typeof waveColours)[number];
 export const waveTokens: Record<WaveColour, string> = {
   ink: "--hk-ink",
   signal: "--hk-signal",
@@ -27,34 +32,6 @@ export const waveColourNames: Record<WaveColour, string> = {
   cool: "Cool",
   warm: "Warm",
 };
-
-/**
- * How a listener likes the waveform drawn (#135): its colour, how bright, and how tall the
- * wave stands in its lane, both as shares from 0.15 to 1. The default draws it as it always was.
- */
-export interface WaveLook {
-  colour: WaveColour;
-  opacity: number;
-  height: number;
-}
-export const defaultWaveLook: WaveLook = { colour: "ink", opacity: 0.5, height: 0.32 };
-export const WAVE_LOOK_MIN = 0.15;
-
-/** A remembered look, kept within its range; anything unknown falls back to the default. */
-export function waveLookOf(saved: unknown): WaveLook {
-  const value = (saved ?? {}) as Partial<Record<keyof WaveLook, unknown>>;
-  const share = (n: unknown, fallback: number) =>
-    typeof n === "number" && Number.isFinite(n)
-      ? Math.min(1, Math.max(WAVE_LOOK_MIN, n))
-      : fallback;
-  return {
-    colour: waveColours.includes(value.colour as WaveColour)
-      ? (value.colour as WaveColour)
-      : defaultWaveLook.colour,
-    opacity: share(value.opacity, defaultWaveLook.opacity),
-    height: share(value.height, defaultWaveLook.height),
-  };
-}
 
 /**
  * wavesurfer's colours and scale for a look: the played part at the chosen brightness, the

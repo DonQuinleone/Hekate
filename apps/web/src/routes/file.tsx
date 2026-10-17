@@ -35,6 +35,7 @@ import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
 import type { Loop } from "~/lib/loop";
 import { initialFocus, type PageFocus } from "~/lib/pages";
+import { usePlayerView } from "~/lib/player-view";
 import {
   downloadsQuery,
   type FileDetail,
@@ -209,6 +210,8 @@ export function FilePage({
   const [focus, setFocus] = useState<CompareFocus | null>(null);
   const { guest } = useViewer();
   const preferences = usePreferences();
+  // The line of loudness and issues follows the player's View menu, as it changes (#135).
+  const loudnessShown = usePlayerView().view.loudness;
   /** On a document: the page shown, and the region drawn or thread picked on it. */
   const [pageFocus, setPageFocus] = useState<PageFocus>(initialFocus);
   const [exporting, setExporting] = useState(false);
@@ -464,7 +467,7 @@ export function FilePage({
             {/* Comparison sets the volume while it is shown; otherwise, this does. */}
             {!comparing && <PageVolume media={media} gain={gain} />}
             {playback}
-            {shown === "review" && hasQa && allows("qa") && (
+            {shown === "review" && hasQa && allows("qa") && loudnessShown && (
               <QaSummary fileId={file.id} onOpen={() => onView("qa")} />
             )}
           </div>

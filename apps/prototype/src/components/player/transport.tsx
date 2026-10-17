@@ -20,6 +20,8 @@ export interface View {
   scale: "linear" | "log" | "mel";
   downmix: boolean;
   normalised: boolean;
+  /** The line of loudness and issues under the player. */
+  loudness: boolean;
 }
 
 export const defaultView: View = {
@@ -30,6 +32,7 @@ export const defaultView: View = {
   scale: "log",
   downmix: false,
   normalised: false,
+  loudness: true,
 };
 
 export function Seg<T extends string>({
@@ -254,6 +257,14 @@ export function ViewMenu({
           ) : (
             <p className="text-[13px] text-ink-3">The spectrogram is not among your tools here.</p>
           )}
+          <div className={row}>
+            Loudness and issues
+            <Switch
+              label="Loudness and issues"
+              checked={view.loudness}
+              onChange={(v) => onView({ ...view, loudness: v })}
+            />
+          </div>
           {normaliseAllowed && (
             <div className={row}>
               <span>
@@ -269,6 +280,29 @@ export function ViewMenu({
               />
             </div>
           )}
+          {/* Views kept with the account under a name; removed from Account, Appearance. */}
+          <div className={cn(row, "border-t border-hairline pt-3")}>
+            Presets
+            <span className="flex items-center gap-1.5">
+              <select
+                aria-label="Apply a preset"
+                defaultValue=""
+                className="h-7 rounded-control border border-line bg-raised/40 px-2 text-[12px] text-ink-2"
+              >
+                <option value="" disabled>
+                  Apply…
+                </option>
+                <option>Edit</option>
+                <option>Noise hunt</option>
+              </select>
+              <button
+                type="button"
+                className="h-7 rounded-control px-2 text-[13px] text-ink-2 hover:bg-raised hover:text-ink"
+              >
+                Save as…
+              </button>
+            </span>
+          </div>
         </div>
       )}
     </div>

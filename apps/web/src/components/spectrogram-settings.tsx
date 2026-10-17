@@ -1,43 +1,16 @@
 import { channelNames, type FrequencyScale, frequencyScales } from "@hekate/shared";
-import { type ReactNode, useCallback, useState } from "react";
+import type { ReactNode } from "react";
 import {
   type ColourMap,
   colourMapNames,
   colourMaps,
   defaultView,
-  readView,
   type SpectrogramView,
   scaleNames,
 } from "~/lib/spectrogram";
 import type { SpectrogramChannelChoice } from "./spectrogram";
 import { Button } from "./ui/button";
 import { Input, Select } from "./ui/input";
-
-const STORAGE_KEY = "hekate.spectrogram.view";
-
-/**
- * The spectrogram view, remembered in this browser. Saving named presets to the account
- * is a follow-up; until then a reviewer's settings survive reloads on their own machine.
- */
-export function useSpectrogramView(): [SpectrogramView, (view: SpectrogramView) => void] {
-  const [view, setView] = useState<SpectrogramView>(() => {
-    try {
-      return readView(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null"));
-    } catch {
-      return defaultView;
-    }
-  });
-  const update = useCallback((next: SpectrogramView) => {
-    const clean = readView(next);
-    setView(clean);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
-    } catch {
-      // Storage may be unavailable (a private window); the view still applies for this visit.
-    }
-  }, []);
-  return [view, update];
-}
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (

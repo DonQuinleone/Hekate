@@ -9,6 +9,7 @@ import {
   decodeLoudness,
   decodePeaks,
   decodeSpectrogram,
+  defaultPlayerViewSettings,
   defaultProjectRoles,
   type LoudnessSummary,
   levelsOf,
@@ -291,6 +292,23 @@ describe.runIf(url)("api", () => {
     expect((await setPrefs({ showSpectrogram: false })).status).toBe(200);
     expect(await prefs()).toMatchObject({ skipSeconds: 10, showSpectrogram: false, preRoll: 1 });
     expect((await setPrefs({ skipSeconds: 3 })).status).toBe(400);
+    // The player's view and its presets go with the account (#135), within their ranges.
+    expect(await prefs()).toMatchObject({ playerView: null, viewPresets: [] });
+    const view = { ...defaultPlayerViewSettings, spectrogram: "behind" };
+    expect((await setPrefs({ playerView: view })).status).toBe(200);
+    expect((await setPrefs({ viewPresets: [{ name: "Noise hunt", view }] })).status).toBe(200);
+    expect(await prefs()).toMatchObject({
+      playerView: view,
+      viewPresets: [{ name: "Noise hunt", view }],
+      skipSeconds: 10,
+    });
+    const faint = { ...view, wave: { ...view.wave, opacity: 0 } };
+    expect((await setPrefs({ playerView: faint })).status).toBe(400);
+    const twice = [
+      { name: "Edit", view },
+      { name: "edit", view },
+    ];
+    expect((await setPrefs({ viewPresets: twice })).status).toBe(400);
 
     // A second device, then signing it out from the first.
     const second = cookieOf(

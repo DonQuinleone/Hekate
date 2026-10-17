@@ -1,5 +1,6 @@
+import { defaultWaveLook } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
-import { defaultWaveLook, toChannelArrays, waveStyle } from "./waveform";
+import { toChannelArrays, waveStyle } from "./waveform";
 
 describe("waveform", () => {
   it("splits interleaved peaks into one min/max series per channel", () => {

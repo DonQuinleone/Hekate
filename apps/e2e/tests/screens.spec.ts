@@ -719,7 +719,7 @@ for (const [place, wave] of [
   ["behind", { colour: "cool", opacity: 0.8, height: 0.5 }],
   ["instead", { colour: "warm", opacity: 0.5, height: 0.32 }],
 ] as const) {
-  test(`player-view-${place}`, async ({ page }) => {
+  test(`player-view-${place}`, async ({ page }, info) => {
     await page.addInitScript(
       (view) => localStorage.setItem("hekate.player.view", JSON.stringify(view)),
       { split: false, spectrogram: place, wave },
@@ -728,7 +728,19 @@ for (const [place, wave] of [
     await settle(page, "[role=img][aria-label^=Spectrogram]:not(.animate-pulse) canvas");
     await page.getByRole("button", { name: "View" }).click();
     await settle(page, "section#player-view");
+    // On a phone the menu runs on below the fold: shown, rather than left against the tab bar.
+    if (info.project.name === "phone") {
+      await page
+        .locator("section#player-view")
+        .evaluate((el) => el.scrollIntoView({ block: "center" }));
+    }
     await saveScreen(page, `player-view-${place}`);
+    await checkScreen(page);
+    if (place !== "below") return;
+    // Naming the view to keep it as a preset; not saved, so no other capture sees it.
+    await page.getByRole("button", { name: "Save as…" }).click();
+    await page.getByRole("textbox", { name: "Preset name" }).fill("Noise hunt");
+    await saveScreen(page, "player-view-preset");
     await checkScreen(page);
   });
 }

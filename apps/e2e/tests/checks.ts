@@ -73,6 +73,28 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
     // Whether a box outside the layers lies under one of them, out of sight.
     const covered = (el: Element, box: DOMRect) =>
       !layerOf(el) && layers.some((l) => intersect(l.getBoundingClientRect(), box, 0));
+    // What shows of a box: cut to every box around it that hides its overflow (an ellipsis, a
+    // scrolling list, the page's own scrolling pane), since the hidden part touches nothing.
+    const clipped = (el: Element, r: DOMRect) => {
+      const clips: DOMRect[] = [];
+      for (let a: Element | null = el; a && a !== document.body; a = a.parentElement) {
+        const style = getComputedStyle(a);
+        if (style.overflowX !== "visible" || style.overflowY !== "visible")
+          clips.push(a.getBoundingClientRect());
+      }
+      return clips.reduce(
+        (cut, c) =>
+          // Never below nothing: a DOMRect with a negative size turns itself round, and a
+          // line cut away by one box would come back at the next.
+          new DOMRect(
+            Math.max(cut.left, c.left),
+            Math.max(cut.top, c.top),
+            Math.max(0, Math.min(cut.right, c.right) - Math.max(cut.left, c.left)),
+            Math.max(0, Math.min(cut.bottom, c.bottom) - Math.max(cut.top, c.top)),
+          ),
+        r,
+      );
+    };
     const texts: { el: Element; rects: DOMRect[] }[] = [];
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -83,29 +105,9 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
       if (modal && !modal.contains(el)) continue;
       const range = document.createRange();
       range.selectNodeContents(node);
-      // What shows of the text: its lines, cut to every box that hides its overflow (an
-      // ellipsis, a scrolling list), since the hidden part cannot run into anything.
-      const clips: DOMRect[] = [];
-      for (let a: Element | null = el; a && a !== document.body; a = a.parentElement) {
-        const style = getComputedStyle(a);
-        if (style.overflowX !== "visible" || style.overflowY !== "visible")
-          clips.push(a.getBoundingClientRect());
-      }
+      // What shows of the text: its lines, cut to every box that hides its overflow.
       const rects = [...range.getClientRects()]
-        .map((r) =>
-          clips.reduce(
-            (cut, c) =>
-              // Never below nothing: a DOMRect with a negative size turns itself round, and a
-              // line cut away by one box would come back at the next.
-              new DOMRect(
-                Math.max(cut.left, c.left),
-                Math.max(cut.top, c.top),
-                Math.max(0, Math.min(cut.right, c.right) - Math.max(cut.left, c.left)),
-                Math.max(0, Math.min(cut.bottom, c.bottom) - Math.max(cut.top, c.top)),
-              ),
-            r,
-          ),
-        )
+        .map((r) => clipped(el, r))
         .filter((r) => r.width > 1 && r.height > 1 && !covered(el, r));
       if (rects.length) texts.push({ el, rects });
     }
@@ -133,6 +135,9 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
       const box = el.getBoundingClientRect();
       const thin = (box.width <= 2 && box.height >= 6) || (box.height <= 2 && box.width >= 6);
       if (!thin || covered(el, box)) continue;
+      // A line scrolled out of its pane crosses nothing.
+      const seen = clipped(el, box);
+      if (seen.width <= 0 || seen.height <= 0) continue;
       const style = getComputedStyle(el);
       const painted =
         style.backgroundColor !== "rgba(0, 0, 0, 0)" && style.backgroundColor !== "transparent";
@@ -143,7 +148,7 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
           layerOf(t.el) === layerOf(el) &&
           !el.contains(t.el) &&
           !t.el.contains(el) &&
-          t.rects.some((r) => intersect(r, box, 0.5)),
+          t.rects.some((r) => intersect(r, seen, 0.5)),
       );
       if (crossed) {
         problems.push({
