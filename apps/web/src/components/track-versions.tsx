@@ -818,16 +818,49 @@ function ScoreChoice({ track, canEdit }: { track: Track; canEdit: boolean }) {
  * variations with the primary marked, and adding the next. The track itself opens in the
  * player on its latest version; this page is one step from there.
  */
+/** A track's name, how many versions it has, and a way into the player. */
+export function TrackHeading({ track, aside }: { track: Track; aside?: ReactNode }) {
+  const latest = track.versions.at(-1);
+  const primary = latest && primaryOf(latest);
+  const count = track.versions.length;
+  return (
+    <div className="flex flex-wrap items-end gap-3">
+      <div className="min-w-0 flex-1">
+        <h1 className="text-[22px] font-medium tracking-tight text-ink">{track.name}</h1>
+        <p className="mt-1 text-[13px] text-ink-3">
+          {count} {count === 1 ? "version" : "versions"}
+          {latest && primary && (
+            <>
+              {" · "}
+              <Link
+                to="/files/$fileId"
+                params={{ fileId: primary.fileId }}
+                className="text-ink-2 hover:text-ink"
+              >
+                open V{latest.number} in the player
+              </Link>
+            </>
+          )}
+        </p>
+      </div>
+      {aside}
+    </div>
+  );
+}
+
 export function TrackVersions({
   track,
   project,
   adding,
   onAdding,
+  aside,
 }: {
   track: Track;
   project: Project;
   adding: boolean;
   onAdding: (adding: boolean) => void;
+  /** Beside the heading: the switch to the track's takes. */
+  aside?: ReactNode;
 }) {
   const can = useProjectCan(track.projectId);
   const { data: files = [] } = useQuery(projectFilesQuery(track.projectId));
@@ -846,24 +879,7 @@ export function TrackVersions({
   );
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-[22px] font-medium tracking-tight text-ink">{track.name}</h1>
-        <p className="mt-1 text-[13px] text-ink-3">
-          {newest.length} {newest.length === 1 ? "version" : "versions"}
-          {latest && primaryOf(latest) && (
-            <>
-              {" · "}
-              <Link
-                to="/files/$fileId"
-                params={{ fileId: primaryOf(latest)?.fileId ?? "" }}
-                className="text-ink-2 hover:text-ink"
-              >
-                open V{latest.number} in the player
-              </Link>
-            </>
-          )}
-        </p>
-      </div>
+      <TrackHeading track={track} aside={aside} />
       {adding && <NewVersion track={track} project={project} onClose={() => onAdding(false)} />}
       {newest.length === 0 ? (
         !adding && (

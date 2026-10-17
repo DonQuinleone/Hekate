@@ -89,8 +89,8 @@ interface SeededFile {
   analysisStatus: string;
 }
 
-async function upload(page: Page, projectId: string, paths: string[]) {
-  await page.goto(`/projects/${projectId}/files`);
+async function upload(page: Page, projectId: string, paths: string[], folderId?: string) {
+  await page.goto(`/projects/${projectId}/files${folderId ? `?folder=${folderId}` : ""}`);
   await page.setInputFiles("input[type=file]", paths);
   await expect(page.locator("ul[aria-label='Uploads in progress']")).toBeHidden({
     timeout: 120_000,
@@ -121,6 +121,10 @@ setup("seed", async ({ page, browser }) => {
   recording(file("Maple Leaf Rag - Wet v2.wav"), 40, 1);
   recording(file("Maple Leaf Rag - Dry v3.wav"), 40, 0.9);
   writeFileSync(file("Maple Leaf Rag - Score.pdf"), samplePdf(3));
+  const takeFiles = [1, 2, 3, 4].map((n) => file(`Maple Leaf Rag - T${n}.wav`));
+  takeFiles.forEach((path, i) => {
+    recording(path, 6 + i * 2, 0.7);
+  });
   cut(file("Opening titles - Cut 3.mp4"));
 
   // The first person sets up the organisation; the form is only there once, so it is
@@ -206,6 +210,56 @@ setup("seed", async ({ page, browser }) => {
       { fileId: named("Wet v2"), name: "Wet" },
     ],
   });
+  // Four takes of it from the sessions (#21), in a folder of their own: three with bars, rated
+  // and noted, and one without.
+  const { folder: sessionFolder } = await api<{ folder: { id: string } }>(
+    page,
+    "POST",
+    `/api/projects/${music.id}/folders`,
+    { name: "Session takes" },
+  );
+  await upload(page, music.id, takeFiles, sessionFolder.id);
+  const takeIds = (await settled(page, music.id))
+    .filter((f) => /T\d\.wav$/.test(f.name))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((f) => f.id);
+  const { takes } = await api<{ takes: { id: string }[] }>(
+    page,
+    "POST",
+    `/api/tracks/${track.id}/takes`,
+    { fileIds: takeIds },
+  );
+  const takeDetails = [
+    {
+      barFrom: 1,
+      barTo: 32,
+      page: 1,
+      rating: 2,
+      notes: "Warm-up run. Tempo settles after the repeat.",
+    },
+    {
+      barFrom: 1,
+      barTo: 16,
+      page: 1,
+      rating: 4,
+      starred: true,
+      notes: "Good opening, pedal noise at bar 5.",
+    },
+    {
+      barFrom: 17,
+      barTo: 48,
+      page: 2,
+      rating: 5,
+      starred: true,
+      label: "Insert",
+      notes: "Keeper into the trio. Lovely rubato.",
+    },
+    { rating: 3, notes: "Safety through the coda." },
+  ];
+  for (const [i, change] of takeDetails.entries()) {
+    const take = takes[i];
+    if (take) await api(page, "PATCH", `/api/takes/${take.id}`, change);
+  }
   // From here on a version needs an edit decision list (#131): the next one is refused.
   await api(page, "PATCH", `/api/projects/${music.id}`, { requireEdl: true });
   const { track: entertainer } = await api<{ track: { id: string } }>(

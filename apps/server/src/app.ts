@@ -43,6 +43,7 @@ import { signInMethodRoutes } from "./routes/sign-in-methods.ts";
 import { ssoRoutes } from "./routes/sso.ts";
 import { storageSettingsRoutes } from "./routes/storage-settings.ts";
 import { fileTagRoutes, tagRoutes } from "./routes/tags.ts";
+import { takeRoutes, trackTakeRoutes } from "./routes/takes.ts";
 import {
   projectTrackRoutes,
   trackRoutes,
@@ -223,6 +224,9 @@ export function createApi(deps: AppDeps) {
           deps.trustProxy ?? false,
         ),
       )
+      .route("/tracks", trackTakeRoutes(deps.db))
+      .use("/takes/*", ...member)
+      .route("/takes", takeRoutes(deps.db))
       .use("/versions/*", ...member)
       .route("/versions", versionRoutes(deps.db))
       .use("/variations/*", ...member)

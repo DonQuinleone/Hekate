@@ -1,34 +1,52 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, Navigate } from "@tanstack/react-router";
+import { Link, Navigate, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Icon } from "~/components/icons";
 import { Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
-import { primaryOf, TrackVersions } from "~/components/track-versions";
+import { TakeManager } from "~/components/takes";
+import { primaryOf, TrackHeading, TrackVersions } from "~/components/track-versions";
 import { Button } from "~/components/ui/button";
+import { Segmented } from "~/components/ui/segmented";
 import { projectQuery, trackQuery, useProjectCan } from "~/lib/queries";
 
 /**
  * A track (#131): it opens in the player on its latest version's primary file, like a
  * folder of its versions; its versions page is one step from there (`?view=versions`), and
- * where a track without versions opens.
+ * where a track without versions opens. Its takes (#21) sit beside its versions, for those
+ * who may see them.
  */
-export function TrackPage({ trackId, view }: { trackId: string; view?: "versions" }) {
+export function TrackPage({ trackId, view }: { trackId: string; view?: "versions" | "takes" }) {
   const { data: track, error } = useQuery(trackQuery(trackId));
   const { data: project } = useQuery({
     ...projectQuery(track?.projectId ?? ""),
     enabled: Boolean(track),
   });
   const can = useProjectCan(track?.projectId);
+  const navigate = useNavigate();
   const [adding, setAdding] = useState(false);
   if (error) return <p className="p-8 text-signal">{error.message}</p>;
   if (!track || !project) return <p className="p-8 text-ink-3">Loading</p>;
   const latest = track.versions.at(-1);
   const playable = latest && primaryOf(latest);
-  if (view !== "versions" && playable) {
+  const takes = view === "takes" && can("view_takes");
+  if (!view && playable) {
     return <Navigate to="/files/$fileId" params={{ fileId: playable.fileId }} replace />;
   }
   const live = !project.archivedAt;
+  const switcher = can("view_takes") ? (
+    <Segmented
+      label="Versions or takes"
+      value={takes ? "takes" : "versions"}
+      onChange={(next) =>
+        navigate({ to: "/tracks/$trackId", params: { trackId }, search: { view: next } })
+      }
+      options={[
+        { value: "versions", label: "Versions" },
+        { value: "takes", label: "Takes" },
+      ]}
+    />
+  ) : undefined;
   return (
     <>
       <PageHeader
@@ -43,7 +61,7 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
             ),
           },
         ]}
-        title={`${track.name}: versions`}
+        title={`${track.name}: ${takes ? "takes" : "versions"}`}
         actions={
           live ? (
             <>
@@ -58,7 +76,7 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
                   </Link>
                 </Button>
               )}
-              {can("upload") && !adding && (
+              {can("upload") && !adding && !takes && (
                 <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
                   <Icon name="upload" size={14} />
                   {project.profile === "video" ? "Add cut" : "Add version"}
@@ -69,7 +87,20 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
         }
       />
       <Page width="narrow" className="max-w-[1040px] gap-6">
-        <TrackVersions track={track} project={project} adding={adding} onAdding={setAdding} />
+        {takes ? (
+          <>
+            <TrackHeading track={track} aside={switcher} />
+            <TakeManager track={track} />
+          </>
+        ) : (
+          <TrackVersions
+            track={track}
+            project={project}
+            adding={adding}
+            onAdding={setAdding}
+            aside={switcher}
+          />
+        )}
       </Page>
     </>
   );

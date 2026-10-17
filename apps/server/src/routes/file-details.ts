@@ -23,7 +23,6 @@ const {
   versions,
   tracks,
   takes,
-  sessions,
   reviewItems,
   reviews,
 } = schema;
@@ -66,8 +65,6 @@ export const fileDetailRoutes = (db: Database) =>
           sha256: blobs.sha256,
           keyVersion: blobs.keyVersion,
           takeId: files.takeId,
-          takeChannel: files.takeChannel,
-          isTakeMix: files.isTakeMix,
         })
         .from(files)
         .innerJoin(blobs, and(eq(blobs.id, files.blobId), eq(blobs.organisationId, org)))
@@ -135,13 +132,19 @@ export const fileDetailRoutes = (db: Database) =>
             )
             .innerJoin(tracks, and(eq(tracks.id, versions.trackId), eq(tracks.organisationId, org)))
             .where(inOrg(variations, org, eq(variations.fileId, fileId))),
-          file.takeId
+          // A take's place, for those who may see takes (#21).
+          file.takeId && access.permissions.has("view_takes")
             ? db
-                .select({ number: takes.number, label: takes.label, session: sessions.name })
+                .select({
+                  number: takes.number,
+                  label: takes.label,
+                  trackId: tracks.id,
+                  track: tracks.name,
+                })
                 .from(takes)
                 .innerJoin(
-                  sessions,
-                  and(eq(sessions.id, takes.sessionId), eq(sessions.organisationId, org)),
+                  tracks,
+                  and(eq(tracks.id, takes.trackId), eq(tracks.organisationId, org)),
                 )
                 .where(inOrg(takes, org, eq(takes.id, file.takeId)))
             : Promise.resolve([]),
@@ -172,7 +175,7 @@ export const fileDetailRoutes = (db: Database) =>
           ),
         );
 
-      const { keyVersion, backend, sha256, takeId, takeChannel, isTakeMix, ...rest } = file;
+      const { keyVersion, backend, sha256, takeId, ...rest } = file;
       const [inTake] = take;
       const admin = actor.organisationRole === "owner" || actor.organisationRole === "admin";
       return c.json({
@@ -195,7 +198,7 @@ export const fileDetailRoutes = (db: Database) =>
         },
         usedIn: {
           versions: usedInVersions.map(({ versionId: _, ...v }) => v),
-          take: inTake && takeId ? { ...inTake, channel: takeChannel, mix: isTakeMix } : null,
+          take: inTake && takeId ? inTake : null,
           reviews: asked,
         },
         can: {

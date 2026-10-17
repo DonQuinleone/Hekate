@@ -15,8 +15,8 @@ The words in this document are used exactly as defined, in code, in the interfac
 | **Track** | A piece of music in review, for example *Maple Tree Rag*. A track groups the files that relate to that piece. A track has versions. |
 | **Version** | One edit of a track, numbered in order (Version 1 to Version 5). A new edit is a new version, never a replacement file. |
 | **Variation** | One file within a version that differs in treatment, not in edit: for example the dry mix and the wet mix of Version 4. Every version has at least one variation, and one is primary. |
-| **Take** | A snippet of audio captured in the recording session, usually not a complete run of the music. Takes are reference material for the producer and editor: they show what is available for each passage and what has been stitched into the edit. A take groups its files: one per microphone, plus an optional summed mix. Takes are **not** versions and do not normally appear in review. |
-| **Session** | A recording session, grouping takes (for example "Day 2 · St John's"). |
+| **Take** | A snippet of audio captured in a recording session, usually not a complete run of the music. A take belongs to one track (a track has many takes), never to the session it was recorded in. Takes are reference material for the producer and editor: they show what is available for each passage and what has been stitched into the edit. A take is one file for now, its scratch mix; uploading one file per microphone follows. Its rating, star, notes, score page, bar range and in and out points are all optional: bars matter for classical music and rarely for pop. Takes are **not** versions and do not normally appear in review. |
+| **Session** | A recording session (for example "Day 2 · St John's"), with its date and venue. Sessions and tracks are linked many to many: a session records several tracks, and a track may be recorded across several sessions. |
 | **Deliverable** | The video equivalent of a track: something delivered and reviewed, such as "Trailer 60s" or "Episode 3". A deliverable has versions (cuts), and each version has renditions. |
 | **Rendition** | One file within a video version that differs in format or treatment: 16:9 or 9:16, subtitled or clean, graded or ungraded. One is primary. |
 | **Edit decision** | Which takes a version uses for which bars or time ranges, optionally imported from the editor's edit decision list (EDL). |
@@ -64,11 +64,11 @@ Workspace (organisation)
     ├── Folder (nested)
     │   └── File
     ├── Track
-    │   └── Version (1, 2, 3 …)
-    │       └── Variation → File (dry mix, wet mix …; one primary)
-    └── Session
-        └── Take (Take 1 … Take 70)
-            └── File (one per microphone, plus a summed mix)
+    │   ├── Version (1, 2, 3 …)
+    │   │   └── Variation → File (dry mix, wet mix …; one primary)
+    │   └── Take (Take 1 … Take 70)
+    │       └── File (its scratch mix; one per microphone later)
+    └── Session ↔ Track (many to many)
 ```
 
 - Files are the only thing stored. Tracks, versions, variations and takes organise files; they never copy them.
@@ -103,7 +103,7 @@ A tool for producers and editors, mostly used while editing and before material 
 
 - Reads Broadcast Wave and iXML metadata (scene, take, tape, track names, timecode, sample rate) and file names, with configurable name patterns
 - Groups files into takes: files sharing a take number and overlapping timecode are one take; one file per microphone, and a file whose channel name or level suggests a mix becomes the take's summed mix
-- Groups takes into sessions by date, tape or folder
+- Links each session, found by date, tape or folder, to the tracks recorded in it
 - Assigns takes to tracks by matching their audio against the track's versions, and flags what it could not place
 
 **Coverage.** Each take, or a set of takes, can carry score references: a page and bar range (for example *p. 7, bars 64–88*). References can be entered by hand, adjusted, or proposed automatically by aligning the take's audio against a synced version of the track.

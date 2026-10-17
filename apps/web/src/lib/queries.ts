@@ -72,6 +72,8 @@ import {
   type SsoSettings,
   type SsoSettingsInput,
   searchResponse,
+  type TakeChange,
+  type TakeRow,
   type TrackState,
   type TriageInput,
   type UpdateCarryInput,
@@ -1481,6 +1483,62 @@ export const trackQuery = (trackId: string) =>
         .track,
   });
 
+/** A track's takes (#21, #46), in order. */
+export const trackTakesQuery = (trackId: string) =>
+  queryOptions({
+    queryKey: ["tracks", trackId, "takes"],
+    queryFn: async () =>
+      (
+        await json<{ takes: TakeRow[] }>(
+          await api.tracks[":id"].takes.$get({ param: { id: trackId }, query: {} }),
+        )
+      ).takes,
+  });
+
+/** Making files into a track's takes, changing a take, and no longer counting one. */
+export function useTakeMutations(trackId: string) {
+  const client = useQueryClient();
+  const key = trackTakesQuery(trackId).queryKey;
+  const refresh = () => {
+    void client.invalidateQueries({ queryKey: key });
+    void client.invalidateQueries({ queryKey: ["files"] });
+  };
+  return {
+    add: useMutation({
+      mutationFn: async (fileIds: string[]) =>
+        (
+          await json<{ takes: TakeRow[] }>(
+            await api.tracks[":id"].takes.$post({ param: { id: trackId }, json: { fileIds } }),
+          )
+        ).takes,
+      onSuccess: (takes) => {
+        client.setQueryData(key, takes);
+        refresh();
+      },
+    }),
+    change: useMutation({
+      mutationFn: async ({ id, ...change }: TakeChange & { id: string }) =>
+        (
+          await json<{ take: TakeRow }>(
+            await api.takes[":id"].$patch({ param: { id }, json: change }),
+          )
+        ).take,
+      onSuccess: (take) => {
+        client.setQueryData(key, (list: TakeRow[] | undefined) =>
+          list?.map((t) => (t.id === take.id ? take : t)),
+        );
+      },
+    }),
+    remove: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api.takes[":id"].$delete({ param: { id } });
+        if (!res.ok) await json(res);
+      },
+      onSuccess: refresh,
+    }),
+  };
+}
+
 export function useTrackMutations(projectId: string) {
   const client = useQueryClient();
   const refresh = (track?: Track) => {
@@ -2598,13 +2656,8 @@ export interface FileDetails {
       primary: boolean;
       latest: boolean;
     }[];
-    take: {
-      number: number;
-      label: string | null;
-      session: string;
-      channel: string | null;
-      mix: boolean;
-    } | null;
+    /** The take it is, for those who may see takes. */
+    take: { number: number; label: string | null; trackId: string; track: string } | null;
     reviews: { id: string; title: string; status: "open" | "completed" | "cancelled" }[];
   };
   can: { organise: boolean; upload: boolean; log: boolean; delete: boolean };
