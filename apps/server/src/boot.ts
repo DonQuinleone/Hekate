@@ -19,6 +19,8 @@ import { settingsOrExit } from "./startup.ts";
 import { serveWeb } from "./static.ts";
 import { createStorage } from "./storage.ts";
 import { recordedReconciliation } from "./storage-usage.ts";
+import { rewrapBehind, rewrapOrganisation } from "./workspace-keys.ts";
+import { purgeDueWorkspaces } from "./workspace-purge.ts";
 
 /**
  * Starts everything a configured server runs: migrations, storage, keys, the job workers and the
@@ -117,6 +119,17 @@ export async function boot(
       await purgeAttempts(db);
       await purgeRequestLimits(db);
       await purgeDownloadTickets(db);
+    });
+    await jobs.work("organisation-rewrap", async ({ organisationId }) => {
+      const rewrapped = await rewrapOrganisation(db, keyring, organisationId);
+      if (rewrapped > 0)
+        console.log(`Rewrapped ${rewrapped} key(s) of workspace ${organisationId}`);
+    });
+    await jobs.work("workspaces-purge", async () => {
+      const purged = await purgeDueWorkspaces(db, backends);
+      if (purged > 0) console.log(`Purged ${purged} deleted workspace(s)`);
+      const rewrapped = await rewrapBehind(db, keyring);
+      if (rewrapped > 0) console.log(`Rewrapped ${rewrapped} key(s) a rotation left behind`);
     });
     await jobs.work("reviews-remind", async () => {
       await remindDue({ db, mailer, audit, publicUrl: config.PUBLIC_URL });

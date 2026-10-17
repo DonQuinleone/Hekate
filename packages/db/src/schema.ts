@@ -127,6 +127,11 @@ export const organisations = pgTable("organisations", {
    */
   suspendedAt: timestamp("suspended_at", { withTimezone: true }),
   suspendedReason: text("suspended_reason"),
+  /**
+   * When a suspended workspace is to be purged, with everything in it: set by an operator,
+   * a grace period ahead, and cleared if it is reinstated first.
+   */
+  deleteAfter: timestamp("delete_after", { withTimezone: true }),
   ...timestamps,
 });
 

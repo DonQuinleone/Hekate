@@ -401,22 +401,26 @@ test("bell", async ({ page }) => {
   await checkScreen(page);
 });
 
-// A workspace on the instance side (#174): its members, a suspended one, and making one.
-for (const [name, open, ready] of [
-  ["instance-workspace-members", "Members", "main >> text=second factor: none >> nth=0"],
+// A workspace on the instance side (#174): its tabs, a suspended one, and making one.
+for (const [name, role, open, ready] of [
+  ["instance-workspace-members", "tab", "Members", "main >> text=second factor: none >> nth=0"],
+  ["instance-workspace-storage", "tab", "Storage", "main >> text=New objects go to"],
+  ["instance-workspace-settings", "tab", "Settings", "main >> text=Danger zone"],
+  ["instance-workspace-keys", "tab", "Keys", "main >> text=Workspace key"],
   [
     "instance-workspace-suspended",
+    "button",
     "Lantern Pictures",
     "main >> text=The invoice for October is unpaid.",
   ],
-  ["instance-workspace-new", "Workspace", "[role=dialog] >> text=First owner’s email"],
+  ["instance-workspace-new", "button", "Workspace", "[role=dialog] >> text=First owner’s email"],
 ] as const) {
   test(name, async ({ page }) => {
     await page.clock.setFixedTime(FIXED_TIME);
     await page.goto("/instance/workspaces");
     await settle(page, "main >> text=Recently in this workspace");
     await page
-      .getByRole(open === "Members" ? "tab" : "button", { name: new RegExp(`^${open}`) })
+      .getByRole(role, { name: new RegExp(`^${open}`) })
       .first()
       .click();
     await settle(page, ready);

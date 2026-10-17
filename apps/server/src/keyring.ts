@@ -21,11 +21,19 @@ export interface Keyring {
   /** A specific version of the organisation's key, for reading older blobs. */
   version(organisationId: string, version: number): Promise<Buffer>;
   /**
+   * A new version of the organisation's key, which everything wraps with from now on. The
+   * earlier versions stay, so what they wrap still opens until it is rewrapped (#174).
+   */
+  rotate(organisationId: string, tx?: Writer): Promise<number>;
+  /**
    * Check every organisation key against the configured master keys, and re-wrap
    * any wrapped by a previous master key with the current one. Run at start-up.
    */
   reconcile(): Promise<{ rewrapped: number }>;
 }
+
+/** A transaction, or the database itself, to write a new key version with. */
+type Writer = Pick<Database, "insert">;
 
 export class UnknownMasterKeyError extends Error {
   override name = "UnknownMasterKeyError";
@@ -67,40 +75,63 @@ export function createKeyring(db: Database, master: MasterKeys): Keyring {
     return remember(organisationId, v, unwrapRow(row));
   }
 
+  async function current(organisationId: string) {
+    const latest = async () => {
+      const [row] = await db
+        .select()
+        .from(organisationKeys)
+        .where(inOrg(organisationKeys, organisationId))
+        .orderBy(desc(organisationKeys.version))
+        .limit(1);
+      return row;
+    };
+    let row = await latest();
+    if (!row) {
+      const key = generateKey();
+      // Two requests may race to create the first key; the unique index keeps one.
+      await db
+        .insert(organisationKeys)
+        .values({
+          organisationId,
+          version: 1,
+          masterKeyId: currentId,
+          wrappedKey: wrapKey(master.current, key, context(organisationId, 1)),
+        })
+        .onConflictDoNothing();
+      row = await latest();
+      if (!row) throw new Error(`Could not create a key for organisation ${organisationId}`);
+    }
+    const cached = cache.get(`${organisationId}:${row.version}`);
+    return {
+      version: row.version,
+      key: cached ?? remember(organisationId, row.version, unwrapRow(row)),
+    };
+  }
+
   return {
     version,
 
-    async current(organisationId) {
-      const latest = async () => {
-        const [row] = await db
-          .select()
-          .from(organisationKeys)
-          .where(inOrg(organisationKeys, organisationId))
-          .orderBy(desc(organisationKeys.version))
-          .limit(1);
-        return row;
-      };
-      let row = await latest();
-      if (!row) {
-        const key = generateKey();
-        // Two requests may race to create the first key; the unique index keeps one.
-        await db
-          .insert(organisationKeys)
-          .values({
-            organisationId,
-            version: 1,
-            masterKeyId: currentId,
-            wrappedKey: wrapKey(master.current, key, context(organisationId, 1)),
-          })
-          .onConflictDoNothing();
-        row = await latest();
-        if (!row) throw new Error(`Could not create a key for organisation ${organisationId}`);
-      }
-      const cached = cache.get(`${organisationId}:${row.version}`);
-      return {
-        version: row.version,
-        key: cached ?? remember(organisationId, row.version, unwrapRow(row)),
-      };
+    current,
+
+    async rotate(organisationId, tx) {
+      const { version: from } = await current(organisationId);
+      const next = from + 1;
+      const key = generateKey();
+      // Two rotations at once make one version; the unique index refuses the second.
+      const [made] = await (tx ?? db)
+        .insert(organisationKeys)
+        .values({
+          organisationId,
+          version: next,
+          masterKeyId: currentId,
+          wrappedKey: wrapKey(master.current, key, context(organisationId, next)),
+        })
+        .onConflictDoNothing()
+        .returning({ version: organisationKeys.version });
+      // Inside a caller's transaction the key is not cached: if it rolls back, the version never
+      // existed, and the next read loads whichever version did.
+      if (made && !tx) remember(organisationId, next, key);
+      return next;
     },
 
     async reconcile() {

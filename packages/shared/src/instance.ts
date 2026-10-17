@@ -81,6 +81,8 @@ export interface InstanceWorkspace {
   state: WorkspaceState;
   suspendedAt: string | null;
   suspendedReason: string | null;
+  /** When it is purged, with everything in it, unless reinstated first. */
+  deleteAfter: string | null;
   members: number;
   projects: number;
   storageBytes: number;
@@ -135,6 +137,42 @@ export interface InstanceWorkspaceDetail extends InstanceWorkspace {
   recent: { at: string; actor: string; action: string }[];
 }
 
+/** How long a workspace waits, suspended, between an operator deleting it and its purge. */
+export const WORKSPACE_DELETE_GRACE_DAYS = 30;
+
+/** Where a workspace's bytes are, as its Storage tab shows them. */
+export interface InstanceWorkspaceStorage {
+  /** Before encryption: uploaded originals, and what Hekate made from them. */
+  originalBytes: number;
+  derivedBytes: number;
+  /** The backend its new objects go to, and whether that is the instance's default. */
+  backend: string;
+  backendIsDefault: boolean;
+  backends: { name: string; objects: number; bytes: number }[];
+  /** What the last reconciliations found and have not yet resolved. */
+  findings: { missing: number; orphans: number };
+}
+
+/** What the workspace's owner sees in its settings, for an operator to read. */
+export interface InstanceWorkspaceSettings {
+  guestLinkDays: number;
+  guestVerification: string;
+  secondFactor: string;
+  securityKeyForAdmins: boolean;
+  locale: string | null;
+  defaultProfile: string;
+  sso: { protocol: string; enforced: boolean } | null;
+  directory: boolean;
+}
+
+/** The workspace's key: each version, and how much is still wrapped by an older one. */
+export interface InstanceWorkspaceKeys {
+  versions: { version: number; createdAt: string }[];
+  current: number | null;
+  /** Data keys still wrapped by an earlier version; the rewrap brings them to zero. */
+  pending: number;
+}
+
 export interface InstanceMemberRow {
   userId: string;
   name: string;
@@ -163,6 +201,10 @@ export const instanceActions: Record<string, string> = {
   "workspace.created": "made, its owner invited",
   "workspace.suspended": "suspended",
   "workspace.reinstated": "reinstated",
+  "workspace.deletion_scheduled": "set to be deleted",
+  "workspace.deletion_cancelled": "kept, its deletion cancelled",
+  "workspace.purged": "deleted, with everything in it",
+  "workspace.key_rotated": "given a new key",
   "member.sessions_revoked": "signed out everywhere by an operator",
   "member.password_reset": "sent a password reset by an operator",
   "member.second_factor_reset": "had their second factor reset by an operator",

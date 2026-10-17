@@ -690,6 +690,33 @@ function NewOrganisation({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** Deleting waits 30 days, suspended; its name is typed to confirm (#174). */
+function DeleteOrganisation({ name, onClose }: { name: string; onClose: () => void }) {
+  const [typed, setTyped] = useState("");
+  return (
+    <Dialog
+      title={`Delete ${name}`}
+      description="In 30 days its members, projects, files, reviews, keys and access log are deleted, and its stored files with them. Until then it stays suspended, and keeping it changes nothing."
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" disabled={typed !== name} onClick={onClose}>
+            Delete in 30 days
+          </Button>
+        </>
+      }
+    >
+      <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+        Type {name} to confirm
+        <Input value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus />
+      </label>
+    </Dialog>
+  );
+}
+
 /* ---------- The page ---------- */
 
 type OrgTab = "overview" | "members" | "projects" | "storage" | "billing" | "settings" | "keys";
@@ -708,6 +735,7 @@ export function InstancePage({ section }: { section: string }) {
   const operator = viewer.isInstance;
   const sections = instanceSectionsFor(operator);
   const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("");
   const [orgId, setOrgId] = useState("t-1");
@@ -778,6 +806,7 @@ export function InstancePage({ section }: { section: string }) {
     return (
       <div className="flex h-full min-h-0 flex-col @3xl/app:flex-row">
         {creating && <NewOrganisation onClose={() => setCreating(false)} />}
+        {deleting && <DeleteOrganisation name={org.name} onClose={() => setDeleting(false)} />}
         <div className="flex w-full shrink-0 flex-col border-b border-line @3xl/app:w-[300px] @3xl/app:border-r @3xl/app:border-b-0">
           <div className="flex flex-col gap-2 p-3">
             <Input
@@ -1151,8 +1180,20 @@ export function InstancePage({ section }: { section: string }) {
                       {org.state === "suspended" ? "Reinstate" : "Suspend"}
                     </Button>
                   </Row>
-                  <Row name="Delete" hint="Thirty days after a suspension, with an export first.">
-                    <Button variant="ghost" size="md" disabled={org.state !== "suspended"}>
+                  <Row
+                    name="Delete"
+                    hint={
+                      org.state === "suspended"
+                        ? "30 days after you ask, with everything in it."
+                        : "Suspend it first; it is deleted after a grace period."
+                    }
+                  >
+                    <Button
+                      variant="ghost"
+                      size="md"
+                      disabled={org.state !== "suspended"}
+                      onClick={() => setDeleting(true)}
+                    >
                       Delete…
                     </Button>
                   </Row>
