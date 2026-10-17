@@ -57,7 +57,7 @@ A setting marked as secret may instead name a file that holds it, with `_FILE` a
 | --- | --- | --- |
 | `WORKER` | `true` | Run background jobs (media processing, mail, reminders) in this process. Turn off for API-only replicas. |
 | `WORKER_CONCURRENCY` | `2` | Media jobs run at once in this process. ffmpeg is CPU-heavy; about half the cores is a good start. |
-| `WORK_DIR` | unset | Scratch space for decrypted media while a job runs; a tmpfs keeps it off disk. Defaults to hekate-work in the system's temporary directory. Example: `/tmp/hekate-work`. |
+| `WORK_DIR` | unset | Scratch space for decrypted media while a job runs, or a page or download is marked; a tmpfs keeps it off disk. Defaults to hekate-work in the system's temporary directory. Example: `/tmp/hekate-work`. |
 | `STORAGE_RECONCILE` | `remove` | What the daily storage reconciliation does with bytes and blobs nothing uses, once a second run a day later still finds them: remove them, or only report them. |
 
 ## Modules

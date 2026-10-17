@@ -67,6 +67,8 @@ export interface PlaybackDeps {
   trustProxy: boolean;
   /** What the instance asks of every account's sign-in. */
   secondFactor: SecondFactorRule;
+  /** Scratch space for marking pages (WORK_DIR). */
+  workDir?: string;
 }
 
 /** Nothing about playback may be cached or shared: every response is per viewer, per session. */
@@ -786,7 +788,15 @@ export const playRoutes = (deps: PlaybackDeps) => {
         if (!text) throw new NotFound("Page");
         const { stream } = await deps.storage.open(claims.organisationId, blobId);
         const stored = Buffer.concat(await stream.toArray());
-        const marked = await watermark(stored, text, size, c.req.raw.signal, style);
+        const marked = await watermark(
+          stored,
+          text,
+          size,
+          c.req.raw.signal,
+          style,
+          "webp",
+          deps.workDir,
+        );
         return c.body(new Uint8Array(marked), 200, {
           ...PRIVATE,
           "content-type": "image/webp",

@@ -1,14 +1,20 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { InvalidMediaError, run } from "./ffmpeg.ts";
 import {
+  PRINT_DPI,
+  PRINT_LONGEST,
   pageSourceOf,
+  parsePageSizes,
+  pdfPageSizes,
   pngSize,
+  printDpi,
   type RenderedPage,
   renderPages,
+  renderPdfPage,
   THUMB_SIZE,
   VIEW_SIZE,
   webpComplete,
@@ -28,6 +34,34 @@ describe("which files become pages", () => {
   });
 });
 
+describe("pages drawn for print", () => {
+  it("reads each page's size, turned pages turned", () => {
+    const text = [
+      "Pages:          3",
+      "Page    1 size: 595.276 x 841.89 pts (A4)",
+      "Page    1 rot:  0",
+      "Page    2 size: 595.276 x 841.89 pts (A4)",
+      "Page    2 rot:  90",
+      "Page    3 size: 1190.55 x 1683.78 pts (A2)",
+      "Page    3 rot:  270",
+    ].join("\n");
+    expect(parsePageSizes(text, 3)).toEqual([
+      { width: 595.276, height: 841.89 },
+      { width: 841.89, height: 595.276 },
+      { width: 1683.78, height: 1190.55 },
+    ]);
+    expect(() => parsePageSizes(text, 4)).toThrow(InvalidMediaError);
+  });
+
+  it("draws at print resolution, and a poster smaller", () => {
+    expect(printDpi({ width: 595, height: 842 })).toBe(PRINT_DPI);
+    // A0: drawn at the size limit instead.
+    const dpi = printDpi({ width: 2384, height: 3370 });
+    expect(dpi).toBeLessThan(PRINT_DPI);
+    expect(Math.round((3370 * dpi) / 72)).toBe(PRINT_LONGEST);
+  });
+});
+
 describe.runIf(hasTools || process.env.CI)("drawing pages", () => {
   const dir = mkdtempSync(join(tmpdir(), "hekate-pages-"));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -40,6 +74,22 @@ describe.runIf(hasTools || process.env.CI)("drawing pages", () => {
     });
     return { pages, ...result };
   };
+
+  it("draws one page of a PDF for print, at its own size", async () => {
+    const pdf = join(dir, "print.pdf");
+    writeFileSync(pdf, samplePdf(2));
+    const sizes = await pdfPageSizes(pdf, 2);
+    expect(sizes).toEqual([
+      { width: 595, height: 842 },
+      { width: 595, height: 842 },
+    ]);
+    const out = join(dir, "print-2.png");
+    await renderPdfPage(pdf, 2, 150, out);
+    // 595 by 842 points at 150 dots an inch, give or take Poppler's rounding.
+    const size = pngSize(readFileSync(out));
+    expect(Math.abs(size.width - 1240)).toBeLessThanOrEqual(1);
+    expect(Math.abs(size.height - 1754)).toBeLessThanOrEqual(1);
+  });
 
   it("draws every page of a PDF at review size, with a thumbnail", async () => {
     const pdf = join(dir, "score.pdf");

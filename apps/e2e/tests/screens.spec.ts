@@ -1304,6 +1304,33 @@ test("file-download", async ({ page }) => {
   expect(bytes.length).toBeGreaterThan(50_000);
 });
 
+// A document's download (#136): its pages as reviewed, or drawn again for print, each marked
+// with the name of whoever asked, as a PDF.
+test("file-download-document", async ({ page }) => {
+  await page.goto(`/files/${seeded().scoreFileId}`);
+  await page.getByRole("button", { name: "Download", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Download" });
+  await expect(dialog.getByText(/at print resolution/)).toBeVisible();
+  await expect(dialog.getByRole("radio", { name: /Original/ })).toBeChecked();
+  await saveScreen(page, "file-download-document");
+  await checkScreen(page);
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    dialog.getByRole("button", { name: "Download" }).click(),
+  ]);
+  expect(download.suggestedFilename()).toBe("Maple Leaf Rag - Score.pdf");
+  const bytes = await new Promise<Buffer>((resolve, reject) => {
+    void download.createReadStream().then((stream) => {
+      const chunks: Buffer[] = [];
+      stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+      stream.on("end", () => resolve(Buffer.concat(chunks)));
+      stream.on("error", reject);
+    });
+  });
+  expect(bytes.toString("latin1", 0, 5)).toBe("%PDF-");
+  expect(bytes.toString("latin1").trimEnd().endsWith("%%EOF")).toBe(true);
+});
+
 // Per-reviewer permissions (#55): a guest's items, earlier versions, tools, download and plays.
 test("review-reviewer-permissions", async ({ page }) => {
   await page.goto(`/reviews/${seeded().reviewId}`);

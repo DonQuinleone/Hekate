@@ -298,7 +298,7 @@ const schema = z.object({
       info({
         group: "Media",
         description:
-          "Scratch space for decrypted media while a job runs; a tmpfs keeps it off disk. Defaults to hekate-work in the system's temporary directory.",
+          "Scratch space for decrypted media while a job runs, or a page or download is marked; a tmpfs keeps it off disk. Defaults to hekate-work in the system's temporary directory.",
         example: "/tmp/hekate-work",
       }),
     ),

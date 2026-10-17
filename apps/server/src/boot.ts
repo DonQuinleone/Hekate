@@ -168,6 +168,7 @@ export async function boot(
     storageReconcile: config.STORAGE_RECONCILE,
     setupGate: options.gate,
     operatorSecurityKey: config.OPERATOR_SECURITY_KEY,
+    workDir: config.WORK_DIR,
   });
   if (config.WEB_DIST) serveWeb(app, config.WEB_DIST, { docsUrl: config.HEKATE_DOCS_URL });
 
