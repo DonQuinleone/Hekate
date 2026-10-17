@@ -609,6 +609,34 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
               </Select>
             </Row>
           </Section>
+          <Section
+            title="Normalised playback by track"
+            intro="Tracks that play otherwise than the project."
+          >
+            {tracks
+              .filter((t) => t.projectId === project.id)
+              .map((t) => (
+                <Row
+                  key={t.id}
+                  name={
+                    <Link
+                      to="/tracks/$trackId"
+                      params={{ trackId: t.id }}
+                      className="hover:text-signal"
+                    >
+                      {t.name}
+                    </Link>
+                  }
+                >
+                  <Select defaultValue="" className="w-56">
+                    <option value="">Project default</option>
+                    <option value="off">Off</option>
+                    <option value="optional">Each person's choice</option>
+                    <option value="forced">Always</option>
+                  </Select>
+                </Row>
+              ))}
+          </Section>
         </>
       )}
       {sec === "roles" && (

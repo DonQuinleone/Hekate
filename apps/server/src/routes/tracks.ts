@@ -8,6 +8,7 @@ import {
   isPdf,
   type ProjectPermission,
   replaceVariationInput,
+  trackNormalisationInput,
   trackReferencesInput,
   updateTrackInput,
   versionRefusals,
@@ -301,6 +302,20 @@ export const trackRoutes = (
       await db
         .update(tracks)
         .set({ commentReferences: references, updatedAt: new Date() })
+        .where(inOrg(tracks, organisationId, eq(tracks.id, id)));
+      return c.json({ track: await oneTrack(db, organisationId, id) });
+    })
+    // How its recordings play normalised (#98), over the project's; for whoever edits the
+    // project, as the project's own choice is.
+    .put("/:id/normalisation", idParam, zValidator("json", trackNormalisationInput), async (c) => {
+      const organisationId = c.var.organisationId;
+      const { id } = c.req.valid("param");
+      const track = await trackOf(db, organisationId, id);
+      await canSeeTrack(db, c.var, track.projectId, "edit_project");
+      const { normalisation } = c.req.valid("json");
+      await db
+        .update(tracks)
+        .set({ normalisation, updatedAt: new Date() })
         .where(inOrg(tracks, organisationId, eq(tracks.id, id)));
       return c.json({ track: await oneTrack(db, organisationId, id) });
     })

@@ -42,3 +42,15 @@ export function normalisationLabel(normalisation: Pick<Normalisation, "target" |
   const target = `${normalisation.target.toFixed(0).replace("-", "−")} LUFS`;
   return normalisation.gain < 1 ? `Normalised to ${target}` : `As it is: at or under ${target}`;
 }
+
+/** A track's own choice (#98), or null to keep its project's. */
+export const trackNormalisationInput = z
+  .object({ normalisation: normalisationMode.nullable() })
+  .strict();
+export type TrackNormalisationInput = z.infer<typeof trackNormalisationInput>;
+
+/** How a recording plays: its track's choice where it has one, else its project's. */
+export const effectiveNormalisation = (
+  track: NormalisationMode | null | undefined,
+  project: NormalisationMode,
+): NormalisationMode => track ?? project;

@@ -39,6 +39,7 @@ const track: Track = {
   position: 0,
   deliveryProfile: null,
   commentReferences: null,
+  normalisation: null,
   createdAt: "",
   versions: [
     {

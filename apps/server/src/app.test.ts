@@ -10788,6 +10788,118 @@ describe.runIf(url)("api", () => {
         ).toBe("forced");
       });
 
+      it("lets a track play normalised otherwise than its project (#98)", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const fileId = await recording(organisationId);
+        const projectId = await projectOfFile(fileId);
+        const blob = await storage.put(organisationId, Buffer.from("not really loudness"));
+        // A take of the track, measured as the mix is.
+        const [takeFile] = await db
+          .insert(schema.files)
+          .values({
+            organisationId,
+            projectId,
+            name: "Take 1.wav",
+            kind: "audio",
+            blobId: (await storage.put(organisationId, Buffer.from("take"))).id,
+            contentType: "audio/wav",
+            byteSize: 4,
+            mediaInfo: {
+              duration: 60,
+              audio: { codec: "pcm_s24le", channels: 2, sampleRate: 48000 },
+            },
+          })
+          .returning({ id: schema.files.id });
+        const takeId = takeFile?.id ?? "";
+        await db.insert(schema.loudness).values(
+          [fileId, takeId].map((id) => ({
+            organisationId,
+            fileId: id,
+            summary: {
+              integrated: -8,
+              range: 6,
+              momentaryMax: -4,
+              shortTermMax: -6,
+              truePeak: -1,
+              channels: [],
+            },
+            channels: 2,
+            sampleRate: 48000,
+            samplesPerFrame: 4800,
+            frameCount: 600,
+            blobId: blob.id,
+          })),
+        );
+        await db
+          .update(schema.projects)
+          .set({ deliveryProfile: "streaming" })
+          .where(eq(schema.projects.id, projectId));
+        const made = await app.request(
+          `/api/projects/${projectId}/tracks`,
+          json({ name: "Maple Leaf Rag" }, owner),
+        );
+        const trackId = ((await made.json()) as { track: { id: string } }).track.id;
+        expect(
+          (
+            await app.request(
+              `/api/tracks/${trackId}/versions`,
+              json({ variations: [{ fileId, name: "Mix" }] }, owner),
+            )
+          ).status,
+        ).toBe(201);
+        const heard = async (cookie: string, id = fileId) =>
+          (
+            (await (await app.request(`/api/files/${id}`, { headers: { cookie } })).json()) as {
+              file: { normalisation: { mode: string } | null; variation: Record<string, unknown> };
+            }
+          ).file;
+        const choose = (normalisation: string | null, who = owner) =>
+          send("PUT", `/api/tracks/${trackId}/normalisation`, { normalisation }, who);
+        const viewer = await joinAs(owner, "viewer@example.test", "member");
+        await grantRole(owner, projectId, viewer, "Viewer");
+
+        // The project has it off; the track plays it always, so everyone hears it normalised.
+        expect((await heard(viewer)).normalisation).toBeNull();
+        const chosen = await choose("forced");
+        expect(chosen.status).toBe(200);
+        expect(
+          ((await chosen.json()) as { track: { normalisation: string } }).track.normalisation,
+        ).toBe("forced");
+        const file = await heard(viewer);
+        expect(file.normalisation).toMatchObject({ mode: "forced", target: -14 });
+        // The track's takes play as it does.
+        expect(
+          (await app.request(`/api/tracks/${trackId}/takes`, json({ fileIds: [takeId] }, owner)))
+            .status,
+        ).toBe(201);
+        expect((await heard(viewer, takeId)).normalisation).toMatchObject({ mode: "forced" });
+        // The track's setting stays on the server.
+        expect(file.variation).not.toHaveProperty("trackNormalisation");
+
+        // A track can also turn it off where the project has it always.
+        await send("PATCH", `/api/projects/${projectId}`, { normalisation: "forced" }, owner);
+        expect((await choose("off")).status).toBe(200);
+        expect((await heard(owner)).normalisation).toBeNull();
+        // Back to the project's.
+        expect((await choose(null)).status).toBe(200);
+        expect((await heard(owner)).normalisation).toMatchObject({ mode: "forced" });
+
+        // Only those who edit the project choose; nothing else is accepted.
+        expect((await choose("forced", viewer)).status).toBe(403);
+        expect((await choose("loud")).status).toBe(400);
+        expect(
+          (
+            await send(
+              "PUT",
+              "/api/tracks/0190a6f0-0000-7000-8000-0000000000ff/normalisation",
+              { normalisation: "off" },
+              owner,
+            )
+          ).status,
+        ).toBe(404);
+      });
+
       it("lets only the author edit, anyone who triages resolve, and no one reach another organisation", async () => {
         const owner = cookieOf(await setup());
         const organisationId = await organisationOf(owner);
