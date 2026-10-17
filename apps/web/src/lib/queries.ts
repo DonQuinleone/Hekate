@@ -6,6 +6,7 @@ import {
   type CarryStatus,
   type CategoryHandling,
   type CategoryInput,
+  type CommentAttachment,
   type CommentMention,
   type CreateProjectInput,
   type CreateReviewInput,
@@ -1008,6 +1009,8 @@ export interface Comment {
   /** Written by a guest reviewer; their label (for example "Conductor") reads beside the name. */
   authorGuest: boolean;
   authorLabel: string | null;
+  /** Written by the viewer, whether a member or a guest. */
+  mine: boolean;
   resolvedAt: string | null;
   resolvedByName: string | null;
   editedAt: string | null;
@@ -1023,6 +1026,8 @@ export interface Comment {
   assigneeName: string | null;
   /** The members it mentions (#133), named as they were when it was written. */
   mentions: CommentMention[];
+  /** Files attached to it (#133): names and sizes; the bytes only by a download. */
+  attachments: CommentAttachment[];
   /** A thread made a task (#133), and when and by whom it was done. */
   todo: boolean;
   todoDoneAt: string | null;
@@ -1169,6 +1174,42 @@ export function useCommentMutations(fileId: string) {
           await api.comments[":id"].$patch({ param: { id }, json: change }),
         ),
       onSuccess: refresh,
+    }),
+    /** A file attached to a comment just written (#133). */
+    attach: useMutation({
+      mutationFn: async ({ commentId, file }: { commentId: string; file: File }) =>
+        json(
+          await fetch(`/api/files/${fileId}/comments/${commentId}/attachments`, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+              "content-type": file.type || "application/octet-stream",
+              "x-file-name": encodeURIComponent(file.name),
+            },
+            body: file,
+          }),
+        ),
+      onSettled: refresh,
+    }),
+    /** Removing a file from your own comment. */
+    detach: useMutation({
+      mutationFn: async (attachmentId: string) =>
+        json(
+          await api.files[":id"].attachments[":attachmentId"].$delete({
+            param: { id: fileId, attachmentId },
+          }),
+        ),
+      onSuccess: refresh,
+    }),
+    /** A one-time download of an attachment, made for this person, opened at once. */
+    download: useMutation({
+      mutationFn: async (attachmentId: string) =>
+        json<{ url: string }>(
+          await api.files[":id"].attachments[":attachmentId"].download.$post({
+            param: { id: fileId, attachmentId },
+          }),
+        ),
+      onSuccess: ({ url }) => window.location.assign(url),
     }),
     /** A thread as a task (#133), and done or not. */
     todo: useMutation({

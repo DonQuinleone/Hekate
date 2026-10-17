@@ -801,6 +801,29 @@ export const comments = pgTable(
 );
 
 /**
+ * A file attached to a comment (#133): its bytes an encrypted blob like any other, reached only
+ * through a one-time download made for the person asking. It goes with its comment.
+ */
+export const commentAttachments = pgTable(
+  "comment_attachments",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    commentId: uuid("comment_id")
+      .notNull()
+      .references(() => comments.id, { onDelete: "cascade" }),
+    blobId: uuid("blob_id")
+      .notNull()
+      .references(() => blobs.id, { onDelete: "no action" }),
+    name: text("name").notNull(),
+    contentType: text("content_type").notNull(),
+    byteSize: bigint("byte_size", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("comment_attachments_comment_idx").on(t.organisationId, t.commentId)],
+);
+
+/**
  * A comment thread carried to a later version (docs/domain.md, Comments across versions):
  * where it points on that version's file, whether it shows there, and its status there.
  * The thread itself stays on the file it was raised on; replies join it from any version.
@@ -1270,8 +1293,12 @@ export const downloadTickets = pgTable(
     fileId: uuid("file_id")
       .notNull()
       .references(() => files.id, { onDelete: "cascade" }),
-    /** "proxy" or "original" (packages/shared, downloads.ts). */
-    kind: text("kind").$type<DownloadKind>().notNull(),
+    /** "proxy" or "original" (packages/shared, downloads.ts), or a comment's "attachment". */
+    kind: text("kind").$type<DownloadKind | "attachment">().notNull(),
+    /** For an attachment: which one; `fileId` is then the file whose thread holds it. */
+    attachmentId: uuid("attachment_id").references(() => commentAttachments.id, {
+      onDelete: "cascade",
+    }),
     tokenHash: text("token_hash").notNull(),
     /** The member's sign-in or the guest's session that asked; no other may use it. */
     sessionId: text("session_id").notNull(),

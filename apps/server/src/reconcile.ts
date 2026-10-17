@@ -4,6 +4,7 @@ import { type Audit, systemActor } from "./audit.ts";
 import type { Storage } from "./storage.ts";
 
 const {
+  commentAttachments,
   blobs,
   files,
   renditions,
@@ -199,7 +200,7 @@ export async function reconcileStorage(
       if (!living.has(owner)) continue;
 
       // Blobs nothing uses: no file, rendition, segment, peak level, loudness series,
-      // spectrogram or live upload points at them.
+      // spectrogram, page, comment attachment or live upload points at them.
       const unused = await db
         .select({ id: blobs.id, key: blobs.key })
         .from(blobs)
@@ -256,6 +257,13 @@ export async function reconcileStorage(
                     or(eq(filePages.blobId, blobs.id), eq(filePages.thumbBlobId, blobs.id)),
                   ),
                 ),
+            ),
+            // Nor a comment's attachment (#133).
+            notExists(
+              db
+                .select({ x: sql`1` })
+                .from(commentAttachments)
+                .where(inOrg(commentAttachments, owner, eq(commentAttachments.blobId, blobs.id))),
             ),
             // Nor an upload that may still finish and make a file of it.
             notExists(

@@ -435,6 +435,13 @@
       "when": 1792217610799,
       "tag": "0061_instance_flags",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1792220774953,
+      "tag": "0062_comment_attachments",
+      "breakpoints": true
     }
   ]
 }

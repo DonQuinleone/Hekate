@@ -32,6 +32,7 @@ describe("tenancy", () => {
       "access_events",
       "alignments",
       "blobs",
+      "comment_attachments",
       "comment_carries",
       "comment_categories",
       "comments",

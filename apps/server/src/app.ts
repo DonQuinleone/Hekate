@@ -1,4 +1,5 @@
 import type { Database } from "@hekate/db";
+import { COMMENT_ATTACHMENT_MAX_BYTES } from "@hekate/shared";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
@@ -11,6 +12,7 @@ import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
 import type { Mailer } from "./mail.ts";
 import { rateLimit } from "./rate-limit.ts";
+import { attachmentRoutes } from "./routes/attachments.ts";
 import { categoryRoutes, projectCategoryRoutes } from "./routes/categories.ts";
 import { carryRoutes, commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
 import { directoryRoutes } from "./routes/directory.ts";
@@ -263,6 +265,7 @@ export function createApi(deps: AppDeps) {
       .route("/files", fileRetryRoutes(deps.db, deps.jobs))
       .route("/files", fileDetailRoutes(deps.db))
       .route("/files", fileDownloadRoutes(downloads))
+      .route("/files", attachmentRoutes(downloads))
       .use("/downloads/*", viewer)
       .route("/downloads", downloadRoutes(downloads))
       .use("/reviews/*", viewer)
@@ -297,6 +300,9 @@ export function createApi(deps: AppDeps) {
 
 export type Api = ReturnType<typeof createApi>;
 
+/** Where a comment's attachment is sent, which takes up to its own limit. */
+const ATTACHMENT_PATH = /^\/api\/files\/[^/]+\/comments\/[^/]+\/attachments$/;
+
 /** The largest request body outside the upload chunks, which carry their own limit. */
 export const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
@@ -309,11 +315,20 @@ export function createApp(deps: AppDeps) {
   app.use("/api/*", async (c, next) =>
     /^\/api\/uploads\/[^/]+\/chunks\//.test(c.req.path)
       ? next()
-      : bodyLimit({
-          maxSize: MAX_BODY_BYTES,
-          onError: (c) =>
-            c.json({ error: { code: "too_large", message: "That request is too large." } }, 413),
-        })(c, next),
+      : ATTACHMENT_PATH.test(c.req.path)
+        ? bodyLimit({
+            maxSize: COMMENT_ATTACHMENT_MAX_BYTES,
+            onError: (c) =>
+              c.json(
+                { error: { code: "too_large", message: "An attachment can be at most 25 MB" } },
+                413,
+              ),
+          })(c, next)
+        : bodyLimit({
+            maxSize: MAX_BODY_BYTES,
+            onError: (c) =>
+              c.json({ error: { code: "too_large", message: "That request is too large." } }, 413),
+          })(c, next),
   );
   // Public sign-up is closed: accounts come from setup and, later, invitations.
   app.all("/api/auth/sign-up/*", () => {

@@ -4,10 +4,13 @@ import {
   anchorShift,
   anchorTime,
   type CarryStatus,
+  COMMENT_ATTACHMENT_MAX_BYTES,
+  COMMENT_ATTACHMENTS_MAX,
   type CommentMention,
   carryStatuses,
   carryStatusLabel,
   formatAnchor,
+  formatBytes,
   mentionAt,
   mentionedIn,
   mentionRanges,
@@ -52,7 +55,7 @@ import { Button } from "./ui/button";
 import { Chip, ToggleChip } from "./ui/chip";
 import { Dialog } from "./ui/dialog";
 import { Field } from "./ui/field";
-import { Input, Select, Textarea } from "./ui/input";
+import { FileInput, Input, Select, Textarea } from "./ui/input";
 import { ActionMenu, type MenuAction } from "./ui/menu";
 
 const fullTime = formatDates({ dateStyle: "medium", timeStyle: "short" });
@@ -110,6 +113,9 @@ export interface BeforeAfter {
   loop: Loop;
 }
 
+/** One chosen file, told apart from another. */
+const fileKey = (f: File) => `${f.name}:${f.size}:${f.lastModified}`;
+
 /** Whom a comment here may mention (#133): the project's people; none for a guest. */
 const Mentionable = createContext<CommentMention[]>([]);
 
@@ -117,19 +123,31 @@ function Composer({
   placeholder,
   initial = "",
   initialMentions = [],
+  attachable = false,
   submitLabel,
   pending,
   onSubmit,
+  onAttach,
+  onSaved,
   onCancel,
   children,
 }: {
   placeholder: string;
   initial?: string;
   initialMentions?: CommentMention[];
+  /** Files may go with it (#133): chosen here, sent once the comment is saved. */
+  attachable?: boolean;
   submitLabel: string;
   pending: boolean;
-  /** The text, and the members it mentions as the picker chose them. */
-  onSubmit: (body: string, mentions: string[]) => Promise<unknown>;
+  /**
+   * The text and the members it mentions as the picker chose them; for an attachable comment,
+   * resolves to the comment saved, which the files are then attached to.
+   */
+  onSubmit: (body: string, mentions: string[]) => Promise<string | undefined>;
+  /** Attaches one chosen file to the comment saved. */
+  onAttach?: (commentId: string, file: File) => Promise<unknown>;
+  /** Once the comment and all its files are saved. */
+  onSaved?: () => void;
   onCancel?: () => void;
   children?: React.ReactNode;
 }) {
@@ -137,6 +155,31 @@ function Composer({
   const [body, setBody] = useState(initial);
   const [error, setError] = useState<string | null>(null);
   const [chosen, setChosen] = useState<CommentMention[]>(initialMentions);
+  const [files, setFiles] = useState<File[]>([]);
+  // Busy from saving the comment until its last file is attached.
+  const [sending, setSending] = useState(false);
+  // A comment saved whose files did not all attach: trying again attaches the rest to it.
+  const [saved, setSaved] = useState<string | null>(null);
+  const chooser = useRef<HTMLInputElement>(null);
+  /** Files chosen, within what a comment may carry; anything past it is said, not taken. */
+  const choose = (picked: File[]) => {
+    const fits = picked.filter(
+      (f) =>
+        f.size > 0 &&
+        f.size <= COMMENT_ATTACHMENT_MAX_BYTES &&
+        // The same file chosen twice goes once.
+        !files.some((g) => fileKey(g) === fileKey(f)),
+    );
+    const next = [...files, ...fits].slice(0, COMMENT_ATTACHMENTS_MAX);
+    setFiles(next);
+    setError(
+      fits.length < picked.length
+        ? "A file can be at most 25 MB"
+        : files.length + fits.length > COMMENT_ATTACHMENTS_MAX
+          ? `A comment can carry at most ${COMMENT_ATTACHMENTS_MAX} files`
+          : null,
+    );
+  };
   /** The mention being typed at the caret, and the person highlighted in the list. */
   const [typing, setTyping] = useState<{ start: number; query: string } | null>(null);
   const [index, setIndex] = useState(0);
@@ -180,18 +223,36 @@ function Composer({
   };
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
-    if (!body.trim()) return;
+    if (!body.trim() || sending) return;
+    setSending(true);
+    let id: string | null | undefined = saved;
     try {
       // Only those still named in the text: a mention deleted while writing is gone.
-      await onSubmit(
-        body,
-        mentionedIn(body, chosen).map((p) => p.id),
-      );
+      id =
+        saved ??
+        (await onSubmit(
+          body,
+          mentionedIn(body, chosen).map((p) => p.id),
+        ));
+      if (id && onAttach && files.length > 0) {
+        setSaved(id);
+        // One at a time, each let go of once it is attached, so trying again sends only the rest.
+        for (const file of files) {
+          await onAttach(id, file);
+          setFiles((list) => list.filter((f) => f !== file));
+        }
+      }
       setBody("");
       setChosen([]);
+      setFiles([]);
+      setSaved(null);
       setError(null);
+      onSaved?.();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save the comment");
+      const message = e instanceof Error ? e.message : "Could not save the comment";
+      setError(id ? `The comment is saved. ${message}` : message);
+    } finally {
+      setSending(false);
     }
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -269,9 +330,53 @@ function Composer({
           </div>
         )}
       </div>
+      {files.length > 0 && (
+        <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label="Files to attach">
+          {files.map((f) => (
+            <li key={fileKey(f)}>
+              <Chip className="h-6 gap-1 text-[12px] text-ink-2">
+                <Icon name="link" size={11} />
+                <span className="max-w-48 truncate">{f.name}</span>
+                <span className="text-ink-3">{formatBytes(f.size)}</span>
+                <Button
+                  size="iconSm"
+                  variant="quiet"
+                  className="-mr-1 size-5"
+                  aria-label={`Leave out ${f.name}`}
+                  onClick={() => setFiles(files.filter((g) => fileKey(g) !== fileKey(f)))}
+                >
+                  <Icon name="close" size={11} />
+                </Button>
+              </Chip>
+            </li>
+          ))}
+        </ul>
+      )}
       {error && <p className="m-0 text-xs text-signal">{error}</p>}
       <div className="flex flex-wrap items-center gap-2">
         {children}
+        {attachable && (
+          <>
+            <FileInput
+              ref={chooser}
+              multiple
+              aria-label="Files to attach"
+              onChange={(e) => {
+                choose([...(e.target.files ?? [])]);
+                e.target.value = "";
+              }}
+            />
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={files.length >= COMMENT_ATTACHMENTS_MAX}
+              onClick={() => chooser.current?.click()}
+            >
+              <Icon name="link" size={12} />
+              Attach
+            </Button>
+          </>
+        )}
         {people.length > 0 && (
           <Button
             size="sm"
@@ -288,8 +393,13 @@ function Composer({
               Cancel
             </Button>
           )}
-          <Button size="sm" variant="primary" type="submit" disabled={pending || !body.trim()}>
-            {submitLabel}
+          <Button
+            size="sm"
+            variant="primary"
+            type="submit"
+            disabled={pending || sending || !body.trim()}
+          >
+            {saved ? "Attach the rest" : submitLabel}
           </Button>
         </span>
       </div>
@@ -321,11 +431,21 @@ function Words({ comment }: { comment: Comment }) {
 function CommentBody({
   comment,
   own,
+  editable,
   onEdit,
+  onDownload,
+  onRemove,
 }: {
   comment: Comment;
+  /** Written by the viewer, member or guest: they may take their own files off it. */
   own: boolean;
+  /** They may change its words, which a guest may not. */
+  editable: boolean;
   onEdit: (id: string, body: string, mentions: string[]) => Promise<unknown>;
+  /** A one-time download of one of its files, made for this person (#133). */
+  onDownload: (attachmentId: string) => void;
+  /** Taking one of your own files off it. */
+  onRemove: (attachmentId: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
   return (
@@ -341,7 +461,7 @@ function CommentBody({
           {ago(comment.createdAt)}
           {comment.editedAt && " · edited"}
         </span>
-        {own && !editing && (
+        {editable && !editing && (
           <button
             type="button"
             onClick={() => setEditing(true)}
@@ -361,11 +481,41 @@ function CommentBody({
           onSubmit={async (body, mentions) => {
             await onEdit(comment.id, body, mentions);
             setEditing(false);
+            return undefined;
           }}
           onCancel={() => setEditing(false)}
         />
       ) : (
         <Words comment={comment} />
+      )}
+      {comment.attachments.length > 0 && (
+        <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label="Attached files">
+          {comment.attachments.map((a) => (
+            <li key={a.id} className="flex items-center">
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-7 max-w-full gap-1.5 text-[12px]"
+                aria-label={`Download ${a.name}`}
+                onClick={() => onDownload(a.id)}
+              >
+                <Icon name="download" size={12} />
+                <span className="max-w-48 truncate">{a.name}</span>
+                <span className="text-ink-3">{formatBytes(a.byteSize)}</span>
+              </Button>
+              {own && (
+                <Button
+                  size="iconSm"
+                  variant="quiet"
+                  aria-label={`Remove ${a.name}`}
+                  onClick={() => onRemove(a.id)}
+                >
+                  <Icon name="close" size={12} />
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
@@ -465,6 +615,7 @@ function ThreadView({
   thread,
   fileId,
   me,
+  guest,
   onSeek,
   onLoop,
   loop,
@@ -481,6 +632,8 @@ function ThreadView({
   /** The file being looked at, which a carried thread was brought to. */
   fileId: string;
   me: string | undefined;
+  /** A guest reviewer is looking: they may not change a comment's words. */
+  guest: boolean;
   onSeek: (seconds: number) => void;
   /** Loop a comment's passage, when it covers one. */
   onLoop?: (loop: Loop) => void;
@@ -512,6 +665,8 @@ function ThreadView({
     carry && mutations.carry.mutate({ id: carry.id, ...change });
   const edit = (id: string, body: string, mentions: string[]) =>
     mutations.edit.mutateAsync({ id, body, mentions });
+  const download = (attachmentId: string) => mutations.download.mutate(attachmentId);
+  const remove = (attachmentId: string) => mutations.detach.mutate(attachmentId);
   const picked = pages?.focus.selected === comment.id;
   const row = useRef<HTMLLIElement>(null);
   // Picked on the page, the thread comes into view here.
@@ -761,15 +916,25 @@ function ThreadView({
           {path}
         </p>
       )}
-      <CommentBody comment={comment} own={canComment && comment.authorId === me} onEdit={edit} />
+      <CommentBody
+        comment={comment}
+        own={canComment && comment.mine}
+        editable={canComment && comment.mine && !guest}
+        onEdit={edit}
+        onDownload={download}
+        onRemove={remove}
+      />
       {replies.length > 0 && (
         <ul className="m-0 flex list-none flex-col gap-3 border-l border-hairline p-0 pl-3">
           {replies.map((reply) => (
             <li key={reply.id}>
               <CommentBody
                 comment={reply}
-                own={canComment && reply.authorId === me}
+                own={canComment && reply.mine}
+                editable={canComment && reply.mine && !guest}
                 onEdit={edit}
+                onDownload={download}
+                onRemove={remove}
               />
             </li>
           ))}
@@ -780,10 +945,17 @@ function ThreadView({
           placeholder="Reply"
           submitLabel="Reply"
           pending={mutations.create.isPending}
+          attachable
           onSubmit={async (body, mentions) => {
-            await mutations.create.mutateAsync({ body, parentId: comment.id, mentions });
-            setReplying(false);
+            const { comment: made } = await mutations.create.mutateAsync({
+              body,
+              parentId: comment.id,
+              mentions,
+            });
+            return made.id;
           }}
+          onAttach={(commentId, file) => mutations.attach.mutateAsync({ commentId, file })}
+          onSaved={() => setReplying(false)}
           onCancel={() => setReplying(false)}
         />
       ) : (
@@ -968,8 +1140,17 @@ export function Comments({
       placeholder={composerLabel}
       submitLabel="Comment"
       pending={mutations.create.isPending}
+      attachable
       onSubmit={async (body, mentions) => {
-        await mutations.create.mutateAsync({ body, anchor: anchorNow(), mentions });
+        const { comment: made } = await mutations.create.mutateAsync({
+          body,
+          anchor: anchorNow(),
+          mentions,
+        });
+        return made.id;
+      }}
+      onAttach={(commentId, file) => mutations.attach.mutateAsync({ commentId, file })}
+      onSaved={() => {
         setAt(null);
         setWholeFile(false);
         setSheet(false);
@@ -1109,6 +1290,7 @@ export function Comments({
       thread={t}
       fileId={fileId}
       me={me?.user.id}
+      guest={Boolean(guest)}
       onSeek={seek}
       onLoop={onLoop}
       loop={loop}
