@@ -77,6 +77,20 @@ export const jobDefinitions = {
     options: { retryLimit: 1, expireInSeconds: 30 * 60 },
     schedule: "29 * * * *",
   },
+  /** After a workspace's key is rotated, wrap everything it holds with the new key (#174). */
+  "organisation-rewrap": {
+    data: z.object({ organisationId: z.uuid() }),
+    options: { retryLimit: 5, retryDelay: 60, retryBackoff: true, expireInSeconds: 2 * 60 * 60 },
+  },
+  /**
+   * Delete the workspaces whose grace period after an operator deleted them is over, and rewrap
+   * any a key rotation left behind. Hourly.
+   */
+  "workspaces-purge": {
+    data: z.object({}),
+    options: { retryLimit: 1, expireInSeconds: 2 * 60 * 60 },
+    schedule: "37 * * * *",
+  },
   /** Compare storage with the database: remove what nothing uses, report what is missing. Daily. */
   "storage-reconcile": {
     data: z.object({}),

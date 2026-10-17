@@ -6,16 +6,21 @@ import {
   type InstanceProjectRow,
   type InstanceWorkspace,
   type InstanceWorkspaceDetail,
+  type InstanceWorkspaceKeys,
   type InstanceWorkspacePage,
+  type InstanceWorkspaceSettings,
+  type InstanceWorkspaceStorage,
   instanceWorkspacesQuery,
   newWorkspaceInput,
   type OperatorRow,
   operatorInput,
   operatorParam as operatorParamSchema,
   suspendWorkspaceInput,
+  WORKSPACE_DELETE_GRACE_DAYS,
   workspaceSettingsOf,
   workspaceStateOf,
 } from "@hekate/shared";
+import type { Backends } from "@hekate/storage";
 import { zValidator } from "@hono/zod-validator";
 import {
   and,
@@ -43,8 +48,11 @@ import type { Auth } from "../auth.ts";
 import { workspaceEmail } from "../email/templates.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import { INVITATION_LIFETIME_MS, newInvitationToken } from "../invitation-token.ts";
+import type { Jobs } from "../jobs.ts";
+import type { Keyring } from "../keyring.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { factorStanding, type SecondFactorRule } from "../tenancy.ts";
+import { pendingRewrap } from "../workspace-keys.ts";
 
 /**
  * The instance side (#155, decision 062). Operators manage every workspace; a workspace's
@@ -60,6 +68,9 @@ export interface InstanceOptions {
   trustProxy: boolean;
   mailer: Mailer;
   publicUrl: string;
+  keyring: Keyring;
+  jobs: Pick<Jobs, "send">;
+  backends: Pick<Backends, "defaultBackend">;
 }
 
 interface InstanceVariables {
@@ -282,6 +293,7 @@ function workspaceOf(
     createdAt: Date;
     suspendedAt: Date | null;
     suspendedReason: string | null;
+    deleteAfter: Date | null;
   },
   figures: Awaited<ReturnType<typeof figuresOf>>,
 ): InstanceWorkspace {
@@ -293,6 +305,7 @@ function workspaceOf(
     state: workspaceStateOf(r),
     suspendedAt: r.suspendedAt?.toISOString() ?? null,
     suspendedReason: r.suspendedReason,
+    deleteAfter: r.deleteAfter?.toISOString() ?? null,
     members: figures.members.get(r.id) ?? 0,
     projects: figures.projects.get(r.id) ?? 0,
     storageBytes: figures.bytes.get(r.id) ?? 0,
@@ -337,6 +350,7 @@ export function instanceRoutes(options: InstanceOptions) {
             createdAt: o.createdAt,
             suspendedAt: o.suspendedAt,
             suspendedReason: o.suspendedReason,
+            deleteAfter: o.deleteAfter,
           })
           .from(o)
           .where(
@@ -431,6 +445,7 @@ export function instanceRoutes(options: InstanceOptions) {
             createdAt: o.createdAt,
             suspendedAt: o.suspendedAt,
             suspendedReason: o.suspendedReason,
+            deleteAfter: o.deleteAfter,
             settings: o.settings,
           })
           .from(o)
@@ -593,7 +608,199 @@ export function instanceRoutes(options: InstanceOptions) {
           }),
         });
       })
+      // Where its bytes are: originals and what was made from them, by backend.
+      .get("/workspaces/:id/storage", idParam, async (c) => {
+        const id = await reachable(c.var.access, c.req.valid("param").id);
+        const b = schema.blobs;
+        const [[org], byBackend, [originals], findings] = await Promise.all([
+          db
+            .select({ backend: schema.organisations.storageBackend })
+            .from(schema.organisations)
+            .where(eq(schema.organisations.id, id)),
+          db
+            .select({ name: b.backend, objects: count(), bytes: sum(b.byteSize) })
+            .from(b)
+            .where(inOrg(b, id))
+            .groupBy(b.backend)
+            .orderBy(b.backend),
+          db
+            .select({ bytes: sum(b.byteSize) })
+            .from(b)
+            .where(
+              inOrg(
+                b,
+                id,
+                sql`exists (select 1 from ${schema.files} where ${schema.files.organisationId} = ${id} and ${schema.files.blobId} = ${b.id})`,
+              ),
+            ),
+          db
+            .select({ kind: schema.storageFindings.kind, n: count() })
+            .from(schema.storageFindings)
+            .where(
+              and(
+                eq(schema.storageFindings.ownerOrganisationId, id),
+                isNull(schema.storageFindings.resolvedAt),
+              ),
+            )
+            .groupBy(schema.storageFindings.kind),
+        ]);
+        if (!org) throw new NotFound("Workspace");
+        const total = byBackend.reduce((t, r) => t + Number(r.bytes ?? 0), 0);
+        const original = Number(originals?.bytes ?? 0);
+        const of = (kind: string) => findings.find((f) => f.kind === kind)?.n ?? 0;
+        const storage: InstanceWorkspaceStorage = {
+          originalBytes: original,
+          derivedBytes: Math.max(0, total - original),
+          backend: org.backend ?? options.backends.defaultBackend,
+          backendIsDefault: org.backend === null,
+          backends: byBackend.map((r) => ({
+            name: r.name,
+            objects: r.objects,
+            bytes: Number(r.bytes ?? 0),
+          })),
+          findings: { missing: of("missing_object"), orphans: of("orphan_object") },
+        };
+        return c.json(storage);
+      })
+      // What its owner sees in its settings, read-only: operators change none of it.
+      .get("/workspaces/:id/settings", idParam, async (c) => {
+        const id = await reachable(c.var.access, c.req.valid("param").id);
+        const [[org], [sso], [directory]] = await Promise.all([
+          db
+            .select({ settings: schema.organisations.settings })
+            .from(schema.organisations)
+            .where(eq(schema.organisations.id, id)),
+          db
+            .select({
+              protocol: schema.ssoProviders.protocol,
+              enforce: schema.ssoProviders.enforce,
+            })
+            .from(schema.ssoProviders)
+            .where(inOrg(schema.ssoProviders, id, eq(schema.ssoProviders.enabled, true))),
+          db
+            .select({ enabled: schema.directories.enabled })
+            .from(schema.directories)
+            .where(inOrg(schema.directories, id)),
+        ]);
+        if (!org) throw new NotFound("Workspace");
+        const w = workspaceSettingsOf(org.settings);
+        const settings: InstanceWorkspaceSettings = {
+          guestLinkDays: w.guestLinkDays,
+          guestVerification: w.guestVerification,
+          secondFactor: w.secondFactor,
+          securityKeyForAdmins: w.securityKeyForAdmins,
+          locale: w.locale,
+          defaultProfile: w.defaultProfile,
+          sso: sso ? { protocol: sso.protocol.toUpperCase(), enforced: sso.enforce } : null,
+          directory: directory?.enabled ?? false,
+        };
+        return c.json(settings);
+      })
+      // Its key's versions, and how much an earlier version still wraps.
+      .get("/workspaces/:id/keys", idParam, async (c) => {
+        const id = await reachable(c.var.access, c.req.valid("param").id);
+        await workspaceName(db, id);
+        const versions = await db
+          .select({
+            version: schema.organisationKeys.version,
+            createdAt: schema.organisationKeys.createdAt,
+          })
+          .from(schema.organisationKeys)
+          .where(inOrg(schema.organisationKeys, id))
+          .orderBy(desc(schema.organisationKeys.version));
+        const current = versions[0]?.version ?? null;
+        const keys: InstanceWorkspaceKeys = {
+          versions: versions.map((v) => ({
+            version: v.version,
+            createdAt: v.createdAt.toISOString(),
+          })),
+          current,
+          pending: current === null ? 0 : await pendingRewrap(db, id, current),
+        };
+        return c.json(keys);
+      })
       .use("/workspaces/:id/*", operatorsOnly)
+      // A new version of its key; everything it holds is rewrapped in the background.
+      .post("/workspaces/:id/keys/rotate", idParam, async (c) => {
+        const { id } = c.req.valid("param");
+        const name = await workspaceName(db, id);
+        // The new version and its record together.
+        const version = await db.transaction(async (tx) => {
+          const made = await options.keyring.rotate(id, tx);
+          await recordInstanceEvent(tx, {
+            actorId: c.var.userId,
+            action: "workspace.key_rotated",
+            target: name,
+            details: { organisationId: id, version: made },
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+          return made;
+        });
+        // Queued once it is committed; should the queue be down, the hourly sweep rewraps it.
+        await options.jobs
+          .send("organisation-rewrap", { organisationId: id }, { singletonKey: `rewrap:${id}` })
+          .catch((error) => console.error("The rewrap could not be queued:", error));
+        return c.json({ version });
+      })
+      // Deleting is for a suspended workspace, and waits out a grace period: until then,
+      // reinstating it, or cancelling, keeps everything.
+      .post("/workspaces/:id/delete", idParam, async (c) => {
+        const { id } = c.req.valid("param");
+        const after = new Date(Date.now() + WORKSPACE_DELETE_GRACE_DAYS * 24 * 60 * 60 * 1000);
+        await db.transaction(async (tx) => {
+          const [row] = await tx
+            .update(schema.organisations)
+            .set({ deleteAfter: after, updatedAt: new Date() })
+            .where(
+              and(
+                eq(schema.organisations.id, id),
+                isNotNull(schema.organisations.suspendedAt),
+                isNull(schema.organisations.deleteAfter),
+              ),
+            )
+            .returning({ name: schema.organisations.name });
+          if (!row) {
+            await workspaceName(tx, id);
+            throw new CodedException(
+              409,
+              "not_deletable",
+              "Only a suspended workspace can be deleted, and only once",
+            );
+          }
+          await recordInstanceEvent(tx, {
+            actorId: c.var.userId,
+            action: "workspace.deletion_scheduled",
+            target: row.name,
+            details: { organisationId: id, deleteAfter: after.toISOString() },
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+        });
+        return c.json({ deleteAfter: after.toISOString() });
+      })
+      .post("/workspaces/:id/delete/cancel", idParam, async (c) => {
+        const { id } = c.req.valid("param");
+        await db.transaction(async (tx) => {
+          const [row] = await tx
+            .update(schema.organisations)
+            .set({ deleteAfter: null, updatedAt: new Date() })
+            .where(
+              and(eq(schema.organisations.id, id), isNotNull(schema.organisations.deleteAfter)),
+            )
+            .returning({ name: schema.organisations.name });
+          if (!row) {
+            await workspaceName(tx, id);
+            throw new CodedException(409, "not_deleting", "It is not set to be deleted");
+          }
+          await recordInstanceEvent(tx, {
+            actorId: c.var.userId,
+            action: "workspace.deletion_cancelled",
+            target: row.name,
+            details: { organisationId: id },
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+        });
+        return c.body(null, 204);
+      })
       // Suspending keeps everything and lets nobody in: members are told why, guests' links stop.
       .post(
         "/workspaces/:id/suspend",
@@ -629,7 +836,12 @@ export function instanceRoutes(options: InstanceOptions) {
         await db.transaction(async (tx) => {
           const [row] = await tx
             .update(schema.organisations)
-            .set({ suspendedAt: null, suspendedReason: null, updatedAt: new Date() })
+            .set({
+              suspendedAt: null,
+              suspendedReason: null,
+              deleteAfter: null,
+              updatedAt: new Date(),
+            })
             .where(
               and(eq(schema.organisations.id, id), isNotNull(schema.organisations.suspendedAt)),
             )
