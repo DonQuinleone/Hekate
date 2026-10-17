@@ -3,6 +3,7 @@ import {
   formatChannels,
   formatDuration,
   type MediaInfo,
+  metadataRows,
   type QaFinding,
   type ReviewerTool,
 } from "@hekate/shared";
@@ -564,6 +565,26 @@ export function FilePage({
                 />
               )}
               <dl className="m-0 flex flex-col border-t border-hairline">{detailRows}</dl>
+              {file.mediaInfo?.metadata && (
+                <section aria-label="Embedded metadata" className="flex flex-col gap-3 pt-2">
+                  <h2 className="m-0 text-[15px] font-medium">Embedded metadata</h2>
+                  <dl className="m-0 flex flex-col border-t border-hairline">
+                    {metadataRows(file.mediaInfo.metadata, file.mediaInfo.audio?.sampleRate).map(
+                      ([term, value]) => (
+                        <div
+                          key={term}
+                          className="grid grid-cols-[minmax(0,140px)_1fr] gap-x-6 border-b border-hairline py-2.5"
+                        >
+                          <dt className="label">{term}</dt>
+                          <dd className="tabular m-0 truncate text-[13px] text-ink-2" title={value}>
+                            {value}
+                          </dd>
+                        </div>
+                      ),
+                    )}
+                  </dl>
+                </section>
+              )}
             </div>
           )}
         </div>

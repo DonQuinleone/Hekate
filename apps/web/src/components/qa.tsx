@@ -8,8 +8,8 @@ import {
   qaCheckNames,
   qaSeverityNames,
 } from "@hekate/shared";
-import { useQuery } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useId, useState } from "react";
 import { cn } from "~/lib/cn";
 import { type Loop, MIN_LOOP } from "~/lib/loop";
 import {
@@ -197,8 +197,11 @@ function FindingGroup({
   onSeek,
   onLoop,
   onComment,
+  fresh,
 }: {
   group: QaFinding[];
+  /** The problems not found in the previous version, by `findingKey` (#43). */
+  fresh: ReadonlySet<string>;
   onSeek: (t: number) => void;
   onLoop?: (loop: Loop) => void;
   onComment?: (finding: QaFinding) => void;
@@ -218,6 +221,8 @@ function FindingGroup({
       <FindingRow
         finding={{ ...first, summary: `${what} in ${group.length} places${across}`, end: null }}
         onSeek={onSeek}
+        // New in this version when any of the places is.
+        isNew={group.some((f) => fresh.has(findingKey(f)))}
         action={
           <button
             type="button"
@@ -237,6 +242,7 @@ function FindingGroup({
             onSeek={onSeek}
             onLoop={onLoop}
             onComment={onComment}
+            isNew={fresh.has(findingKey(f))}
             nested
           />
         ))}
@@ -271,6 +277,12 @@ export function QualityChecks({
   const [showPassed, setShowPassed] = useState(false);
   const [report, setReport] = useState(false);
   const { data: changes } = useQuery(qaChangesQuery(fileId));
+  // Once this version is measured, what changed since the last can be said at once.
+  const client = useQueryClient();
+  const measured = data?.status === "ready";
+  useEffect(() => {
+    if (measured) void client.invalidateQueries({ queryKey: qaChangesQuery(fileId).queryKey });
+  }, [measured, fileId, client]);
   /** The problems not found in the previous version, to label as new. */
   const fresh = new Set((changes?.new ?? []).map(findingKey));
   const id = useId();
@@ -331,6 +343,7 @@ export function QualityChecks({
                 group={group}
                 onSeek={seek}
                 onLoop={onLoop}
+                fresh={fresh}
               />
             ) : (
               group.map((f) => (

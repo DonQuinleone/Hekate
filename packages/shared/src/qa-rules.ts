@@ -62,8 +62,16 @@ export const ruleMeasures = {
   range: { label: "Loudness range", unit: "LU", kind: "number" },
   codec: { label: "Codec", unit: "", kind: "text" },
   fileName: { label: "File name", unit: "", kind: "text" },
+  // What the file says about itself (#41); a field it lacks reads as empty, so "matches ?*"
+  // asks for one to be there.
+  isrc: { label: "ISRC", unit: "", kind: "text" },
+  title: { label: "Title", unit: "", kind: "text" },
+  artist: { label: "Artist", unit: "", kind: "text" },
+  originator: { label: "Originator (bext)", unit: "", kind: "text" },
 } as const;
 export type RuleMeasure = keyof typeof ruleMeasures;
+/** The measures read from a file's embedded metadata (#41). */
+export const metadataMeasures: readonly RuleMeasure[] = ["isrc", "title", "artist", "originator"];
 export const ruleMeasureIds = Object.keys(ruleMeasures) as RuleMeasure[];
 
 export const ruleOperators = {
@@ -241,6 +249,13 @@ function measured(
       return info?.audio?.codec;
     case "fileName":
       return file.name;
+    // Only once the file's metadata has been read: before that, nothing is known of it.
+    case "isrc":
+    case "title":
+    case "artist":
+      return info?.metadata ? (info.metadata.tags[measure] ?? "") : undefined;
+    case "originator":
+      return info?.metadata ? (info.metadata.bext?.originator ?? "") : undefined;
   }
 }
 
@@ -283,7 +298,7 @@ export function meetsRule(rule: Pick<CustomRule, "operator" | "value">, actual: 
 }
 
 const shown = (measure: RuleMeasure, value: number | string) => {
-  if (typeof value === "string") return value;
+  if (typeof value === "string") return value || "none";
   const { unit } = ruleMeasures[measure];
   const text = Number.isInteger(value) ? String(value) : value.toFixed(1);
   return `${text.replace("-", "−")}${unit ? ` ${unit}` : ""}`;
@@ -333,7 +348,7 @@ export const categoryOf = (check: BuiltInCheck): QaCategory =>
 export const ruleCategory = (rule: Pick<CustomRule, "appliesTo" | "measure">): QaCategory =>
   rule.measure === "fileName"
     ? "naming"
-    : rule.measure === "codec"
+    : rule.measure === "codec" || metadataMeasures.includes(rule.measure)
       ? "metadata"
       : rule.appliesTo === "immersive"
         ? "immersive"

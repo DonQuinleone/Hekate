@@ -1,6 +1,6 @@
 import { SPECTROGRAM_FLOOR, type Spectrogram } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
-import { integrityFinding } from "./analysis.ts";
+import { declaredLength, integrityFinding } from "./analysis.ts";
 import { averageSpectrum, bandwidthFinding } from "./bandwidth.ts";
 
 /** A level in dB as a spectrogram stores it. */
@@ -87,6 +87,15 @@ describe("whether a file decodes whole (#41)", () => {
     });
   });
 
+  it("judges a recording's sound by its own length, never a video's picture (#41)", () => {
+    const sound = { duration: 58.5 };
+    expect(declaredLength({ kind: "video", mediaInfo: { duration: 60, audio: sound } })).toBe(58.5);
+    expect(
+      declaredLength({ kind: "video", mediaInfo: { duration: 60, audio: {} } }),
+    ).toBeUndefined();
+    expect(declaredLength({ kind: "audio", mediaInfo: { duration: 60, audio: {} } })).toBe(60);
+    expect(declaredLength({ kind: "audio", mediaInfo: null })).toBeUndefined();
+  });
   it("passes a whole file, allowing the last fraction of a second", () => {
     expect(integrityFinding(179.7, 180, 0)).toMatchObject({ severity: "pass" });
     expect(integrityFinding(42, undefined, 0)).toMatchObject({ severity: "pass" });

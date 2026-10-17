@@ -111,7 +111,10 @@ export function bandwidthFinding(spectrum: AverageSpectrum | null): QaFinding | 
 }
 
 /** The bandwidth finding from the encoded spectrograms of each channel. */
-export function bandwidthOf(spectra: readonly EncodedSpectrogram[]): QaFinding | null {
+export function bandwidthOf(
+  /** Each as made or as stored: its channel ("0", "1", or a mix such as "mid") and bytes. */
+  spectra: readonly { channel: EncodedSpectrogram["channel"] | string; bytes: Uint8Array }[],
+): QaFinding | null {
   // The channels as recorded, not their mixes.
   const own = spectra.filter((s) => /^\d+$/.test(String(s.channel)));
   return bandwidthFinding(averageSpectrum(own.map((s) => decodeSpectrogram(s.bytes))));

@@ -40,6 +40,27 @@ function recording(path: string, seconds: number, brightness: number, damage = f
           "volume=enable='between(t,12,12.5)':volume=8,volume=enable='between(t,31,31.04)':volume=0",
         ]
       : []),
+    // The file under review says what it is, as a studio's Broadcast Wave would (#41).
+    ...(damage
+      ? [
+          "-write_bext",
+          "1",
+          "-metadata",
+          "description=Maple Leaf Rag, V2 dry",
+          "-metadata",
+          "originator=Endless Hall Records",
+          "-metadata",
+          "origination_date=2026-10-14",
+          "-metadata",
+          "origination_time=09:58:00",
+          "-metadata",
+          `time_reference=${10 * 3600 * 44_100}`,
+          "-metadata",
+          "title=Maple Leaf Rag",
+          "-metadata",
+          "artist=Endless Hall Records",
+        ]
+      : []),
     "-c:a",
     "pcm_s16le",
     path,

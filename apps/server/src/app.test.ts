@@ -12131,6 +12131,42 @@ describe.runIf(url)("api", () => {
               .where(eq(schema.peakLevels.fileId, fileId)),
           ).toEqual(peakRows);
 
+          // One analysed before integrity and bandwidth (#41) gains those alone: integrity
+          // decoded again, how high it reaches read from its stored spectrograms.
+          const checks = async () =>
+            (
+              await db
+                .select({ check: schema.qaFindings.check })
+                .from(schema.qaFindings)
+                .where(eq(schema.qaFindings.fileId, fileId))
+            )
+              .map((f) => f.check)
+              .sort();
+          const whole = await checks();
+          expect(whole).toContain("integrity");
+          await db
+            .delete(schema.qaFindings)
+            .where(
+              and(
+                eq(schema.qaFindings.fileId, fileId),
+                inArray(schema.qaFindings.check, ["integrity", "bandwidth"]),
+              ),
+            );
+          queued.length = 0;
+          expect(
+            await requeueMissingFindings(db, {
+              send: async (_name, data) => {
+                queued.push((data as { fileId: string }).fileId);
+                return null;
+              },
+            }),
+          ).toBe(1);
+          await analysisHandler({ db, storage, keyring, jobs, workDir: join(storageRoot, "work") })(
+            { organisationId, fileId },
+            { id: "job", signal: new AbortController().signal, retryCount: 0 },
+          );
+          expect(await checks()).toEqual(whole);
+
           // A file not yet analysed has no series, and another organisation's is not there.
           expect((await get(`/api/files/${other.fileId}/loudness/series`, owner)).status).toBe(404);
           const [elsewhere] = await db

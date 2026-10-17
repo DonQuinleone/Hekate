@@ -7,6 +7,7 @@ import {
   defaultQaSettings,
   meetsRule,
   qaSettingsOf,
+  ruleCategory,
   ruleFindings,
   wildcardMatches,
 } from "./qa-rules.ts";
@@ -98,6 +99,37 @@ describe("QA rules", () => {
     expect(
       ruleFindings([rule({ measure: "truePeak", value: "-1" })], { name: "x" }, info, null),
     ).toEqual([]);
+  });
+
+  it("asks what a file says about itself, once that has been read (#41)", () => {
+    const isrc = rule({
+      name: "ISRC embedded",
+      measure: "isrc",
+      operator: "matches",
+      value: "????????????",
+      severity: "warn",
+    });
+    const tagged = {
+      ...info,
+      metadata: { tags: { isrc: "GBEHR2600001" }, bext: { originator: "Endless Hall Records" } },
+    };
+    expect(ruleFindings([isrc], { name: "x" }, tagged, summary)[0]?.severity).toBe("pass");
+    // A field the file lacks reads as empty, and is said to be missing.
+    const [missing] = ruleFindings(
+      [isrc],
+      { name: "x" },
+      { ...info, metadata: { tags: {} } },
+      null,
+    );
+    expect(missing).toMatchObject({
+      severity: "warn",
+      summary: "ISRC embedded: none, not matches ????????????",
+    });
+    // A file whose metadata was never read is not judged on it.
+    expect(ruleFindings([isrc], { name: "x" }, info, summary)).toEqual([]);
+    const originator = rule({ measure: "originator", operator: "matches", value: "?*" });
+    expect(ruleFindings([originator], { name: "x" }, tagged, null)[0]?.severity).toBe("pass");
+    expect(ruleCategory(isrc)).toBe("metadata");
   });
 
   it("compares numbers, lists, ranges and names", () => {

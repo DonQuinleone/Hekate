@@ -13,7 +13,7 @@ import { tellProcessingFailed } from "../notifications.ts";
 import type { Storage } from "../storage.ts";
 import { expireUploads } from "../uploads.ts";
 import { alignInThread } from "./align.ts";
-import { analyseAudio } from "./analysis.ts";
+import { analyseAudio, declaredLength } from "./analysis.ts";
 import { InvalidMediaError, probe } from "./ffmpeg.ts";
 import { pageSourceOf, renderPages } from "./pages.ts";
 import { type PackagedRendition, packageRendition, planRenditions } from "./proxy.ts";
@@ -267,9 +267,9 @@ export function analysisHandler(deps: MediaWorkerDeps): JobHandler<"media-analys
       .where(inOrg(peakLevels, organisationId, eq(peakLevels.fileId, fileId)))
       .limit(1);
     if (existing.length > 0) {
-      // Analysed already. A file analysed before the signal checks existed has no findings
-      // (every check records its pass), so measure those alone and keep the rest.
-      await backfillFindings(deps, organisationId, fileId, file.blobId, audio, job.signal);
+      // Analysed already. A file analysed before some of the signal checks existed lacks
+      // their findings (every check records its pass), so measure those alone and keep the rest.
+      await backfillFindings(deps, organisationId, file, audio, job.signal);
       return;
     }
 
@@ -287,7 +287,7 @@ export function analysisHandler(deps: MediaWorkerDeps): JobHandler<"media-analys
         const input = await materialise(deps.storage, organisationId, file.blobId, dir, job.signal);
         // Two decodes side by side, the spectrograms on their own thread.
         return together(job.signal, [
-          (signal) => analyseAudio(input, audio, dir, signal, file.mediaInfo?.duration),
+          (signal) => analyseAudio(input, audio, dir, signal, declaredLength(file)),
           (signal) => spectrogramsInThread(input, audio, file.mediaInfo?.duration, signal),
         ] as const);
       });
@@ -562,48 +562,77 @@ export function checksumHandler(deps: MediaWorkerDeps): JobHandler<"blob-checksu
 }
 
 /** Start every background worker in this process. */
-const hasFindings = async (db: Database | Tx, organisationId: string, fileId: string) =>
-  (
-    await db
-      .select({ id: qaFindings.id })
-      .from(qaFindings)
-      .where(inOrg(qaFindings, organisationId, eq(qaFindings.fileId, fileId)))
-      .limit(1)
-  ).length > 0;
 
-/** The signal checks for a file analysed before they existed; nothing if it has them. */
+/** The signal checks a file has findings for. */
+const checksOf = async (db: Database | Tx, organisationId: string, fileId: string) =>
+  new Set(
+    (
+      await db
+        .selectDistinct({ check: qaFindings.check })
+        .from(qaFindings)
+        .where(inOrg(qaFindings, organisationId, eq(qaFindings.fileId, fileId)))
+    ).map((f) => f.check as string),
+  );
+
+/** How high a file's content reaches, from the spectrograms stored when it was analysed. */
+async function storedBandwidth(deps: MediaWorkerDeps, organisationId: string, fileId: string) {
+  const rows = await deps.db
+    .select({ channel: spectrograms.channel, blobId: spectrograms.blobId })
+    .from(spectrograms)
+    .where(inOrg(spectrograms, organisationId, eq(spectrograms.fileId, fileId)));
+  const spectra = [];
+  for (const row of rows) {
+    const { stream } = await deps.storage.open(organisationId, row.blobId);
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(chunk as Buffer);
+    spectra.push({ channel: row.channel, bytes: new Uint8Array(Buffer.concat(chunks)) });
+  }
+  return bandwidthOf(spectra);
+}
+
+/**
+ * The signal checks for a file analysed before they existed (#41); nothing if it has them.
+ * Integrity is recorded for every file analysed since, so its absence marks such a file:
+ * the file is decoded again for what that needs, and how high it reaches is read from its
+ * stored spectrograms. Only the checks it lacks are added.
+ */
 async function backfillFindings(
   deps: MediaWorkerDeps,
   organisationId: string,
-  fileId: string,
-  blobId: string,
+  file: { id: string; blobId: string; kind: string; mediaInfo: MediaInfo | null },
   audio: NonNullable<MediaInfo["audio"]>,
   signal: AbortSignal,
 ) {
-  if (await hasFindings(deps.db, organisationId, fileId)) return;
+  if ((await checksOf(deps.db, organisationId, file.id)).has("integrity")) return;
   const analysis = await withWorkspace(deps.workDir, async (dir) => {
-    const input = await materialise(deps.storage, organisationId, blobId, dir, signal);
-    return analyseAudio(input, audio, dir, signal);
+    const input = await materialise(deps.storage, organisationId, file.blobId, dir, signal);
+    return analyseAudio(input, audio, dir, signal, declaredLength(file));
   });
+  const bandwidth = await storedBandwidth(deps, organisationId, file.id);
   await deps.db.transaction(async (tx) => {
     // Locked, so two runs at once write the findings only once.
     await tx
       .select({ id: files.id })
       .from(files)
-      .where(inOrg(files, organisationId, eq(files.id, fileId)))
+      .where(inOrg(files, organisationId, eq(files.id, file.id)))
       .for("update");
-    if (await hasFindings(tx, organisationId, fileId)) return;
-    if (analysis.findings.length > 0) {
+    const have = await checksOf(tx, organisationId, file.id);
+    if (have.has("integrity")) return;
+    const missing = [...analysis.findings, ...(bandwidth ? [bandwidth] : [])].filter(
+      (f) => !have.has(f.check),
+    );
+    if (missing.length > 0) {
       await tx
         .insert(qaFindings)
-        .values(analysis.findings.map((f) => ({ organisationId, fileId, ...f })));
+        .values(missing.map((f) => ({ organisationId, fileId: file.id, ...f })));
     }
   });
 }
 
 /**
- * Queue analysis for files measured before the signal checks existed, so their QA view
- * fills in after an upgrade. Instance-wide, a batch at a time; each job reads only its file.
+ * Queue analysis for files measured before the signal checks existed, or before some of them
+ * (#41), so their QA view fills in after an upgrade. Instance-wide, a batch at a time; each
+ * job reads only its file. Integrity is always recorded, so its absence is what marks them.
  */
 export async function requeueMissingFindings(db: Database, jobs: Pick<Jobs, "send">) {
   const waiting = await db
@@ -611,7 +640,8 @@ export async function requeueMissingFindings(db: Database, jobs: Pick<Jobs, "sen
     .from(peakLevels)
     .where(
       sql`not exists (select 1 from ${qaFindings} where ${qaFindings.fileId} = ${peakLevels.fileId}
-        and ${qaFindings.organisationId} = ${peakLevels.organisationId})`,
+        and ${qaFindings.organisationId} = ${peakLevels.organisationId}
+        and ${qaFindings.check} = 'integrity')`,
     )
     .limit(500);
   for (const { organisationId, fileId } of waiting) {

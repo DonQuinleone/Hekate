@@ -1450,6 +1450,12 @@ export const qaChangesQuery = (fileId: string) =>
     queryFn: async () =>
       json<QaChanges>(await api.files[":id"].qa.changes.$get({ param: { id: fileId } })),
     staleTime: 60_000,
+    // While either version is still being measured, look again now and then, for a few
+    // minutes: one whose analysis failed is never measured, and is not waited on for ever.
+    refetchInterval: (query) =>
+      query.state.data?.previous && !query.state.data.measured && query.state.dataUpdateCount < 40
+        ? 5000
+        : false,
   });
 
 /** Every file's QA report may change when a profile does. */

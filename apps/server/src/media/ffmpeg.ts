@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { type MediaInfo, mediaInfo } from "@hekate/shared";
+import { type EmbeddedMetadata, type MediaInfo, mediaInfo } from "@hekate/shared";
+import { readWaveChunks, tagsOf } from "./metadata.ts";
 
 /**
  * Running ffmpeg and ffprobe on untrusted uploads.
@@ -164,10 +165,17 @@ interface ProbeStream {
   r_frame_rate?: string;
   pix_fmt?: string;
   disposition?: { attached_pic?: number };
+  tags?: Record<string, string>;
+  duration?: string;
 }
 
 interface ProbeOutput {
-  format?: { format_name?: string; duration?: string; bit_rate?: string };
+  format?: {
+    format_name?: string;
+    duration?: string;
+    bit_rate?: string;
+    tags?: Record<string, string>;
+  };
   streams?: ProbeStream[];
 }
 
@@ -191,12 +199,19 @@ function bitDepth(stream: ProbeStream): number | undefined {
   return undefined;
 }
 
-/** Turn ffprobe's JSON into Hekate's media info. Exported for tests. */
-export function parseProbe(output: ProbeOutput): MediaInfo {
+/**
+ * Turn ffprobe's JSON into Hekate's media info, with the bext and iXML chunks a wave file
+ * holds where they were read. Exported for tests.
+ */
+export function parseProbe(
+  output: ProbeOutput,
+  wave: Pick<EmbeddedMetadata, "bext" | "ixml"> = {},
+): MediaInfo {
   const streams = output.streams ?? [];
   const audio = streams.find((s) => s.codec_type === "audio");
   // Cover art in audio files appears as a video stream; it is not video.
   const video = streams.find((s) => s.codec_type === "video" && !s.disposition?.attached_pic);
+  const artwork = streams.find((s) => s.codec_type === "video" && s.disposition?.attached_pic);
   const duration = Number.parseFloat(output.format?.duration ?? "");
   const info: MediaInfo = {};
   if (output.format?.format_name) info.format = output.format.format_name;
@@ -210,6 +225,8 @@ export function parseProbe(output: ProbeOutput): MediaInfo {
     if (audio.channel_layout) info.audio.channelLayout = audio.channel_layout;
     const depth = bitDepth(audio);
     if (depth) info.audio.bitDepth = depth;
+    const length = Number.parseFloat(audio.duration ?? "");
+    if (Number.isFinite(length) && length >= 0) info.audio.duration = length;
   }
   if (video?.codec_name && video.width && video.height) {
     info.video = { codec: video.codec_name, width: video.width, height: video.height };
@@ -221,6 +238,21 @@ export function parseProbe(output: ProbeOutput): MediaInfo {
     if (fps) info.video.fps = fps;
     if (rate && fps) info.video.frameRate = rate;
     if (video.pix_fmt) info.video.pixelFormat = video.pix_fmt;
+  }
+  if (info.audio || info.video) {
+    const tags = tagsOf(output.format?.tags, audio?.tags, video?.tags);
+    // ffprobe reads a wave file's origination date as its date; it is shown with the bext.
+    if (wave.bext?.originationDate && tags.date === wave.bext.originationDate) delete tags.date;
+    const metadata: EmbeddedMetadata = { tags };
+    if (wave.bext) metadata.bext = wave.bext;
+    if (wave.ixml) metadata.ixml = wave.ixml;
+    if (artwork?.codec_name && artwork.width && artwork.height)
+      metadata.artwork = {
+        codec: artwork.codec_name,
+        width: artwork.width,
+        height: artwork.height,
+      };
+    info.metadata = metadata;
   }
   return mediaInfo.parse(info);
 }
@@ -248,5 +280,9 @@ export async function probe(path: string, options: RunOptions = {}): Promise<Med
   } catch {
     throw new MediaToolError("ffprobe returned output that is not JSON");
   }
-  return parseProbe(parsed);
+  // A wave file's bext and iXML are read from the file; metadata never stops a probe.
+  const wave = parsed.format?.format_name?.split(",").includes("wav")
+    ? await readWaveChunks(path).catch(() => ({}))
+    : {};
+  return parseProbe(parsed, wave);
 }

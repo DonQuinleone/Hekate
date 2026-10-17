@@ -311,6 +311,10 @@ const placeholders: Record<RuleMeasure, string> = {
   range: "20",
   codec: "flac, pcm_s24le",
   fileName: "*_master.wav",
+  isrc: "????????????",
+  title: "?*",
+  artist: "?*",
+  originator: "?*",
 };
 
 /** A rule of the project's own, new or changed. */
@@ -432,8 +436,8 @@ function RuleDialog({
           </label>
         </div>
         <p className="text-[12px] text-ink-3">
-          A list is separated by commas; a range reads −16 to −14; a name pattern takes * for
-          anything and ? for one character.
+          A list is separated by commas; a range reads −16 to −14; a pattern takes * for anything
+          and ? for one character, so ?* asks for a field to be filled in.
         </p>
         {invalid && <p className="text-[13px] text-signal">{invalid}</p>}
         <div className="flex justify-end gap-2">

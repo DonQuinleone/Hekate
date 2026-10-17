@@ -96,6 +96,17 @@ export const decodeErrors = (stderr: string) =>
   stderr.split("\n").filter((line) => line.trim() !== "").length;
 
 /**
+ * The length a recording's audio declares, to judge whether it decodes whole: its stream's
+ * own, else an audio file's whole length. A video's sound may start late or end early, so
+ * the file's length says nothing of it.
+ */
+export const declaredLength = (file: {
+  kind: string;
+  mediaInfo: { duration?: number; audio?: { duration?: number } } | null;
+}) =>
+  file.mediaInfo?.audio?.duration ?? (file.kind === "audio" ? file.mediaInfo?.duration : undefined);
+
+/**
  * Whether the file decoded cleanly to its declared length (#41): a file cut short, or one the
  * decoder stumbled through, fails.
  */
