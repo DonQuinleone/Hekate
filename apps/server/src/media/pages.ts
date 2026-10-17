@@ -18,7 +18,7 @@ export const THUMB_SIZE = 320;
 export const MAX_PAGES = 300;
 
 /** Single-picture demuxers only: no image sequences, playlists or devices. */
-const IMAGE_DEMUXERS = [
+export const IMAGE_DEMUXERS = [
   "png_pipe",
   "jpeg_pipe",
   "webp_pipe",
@@ -188,4 +188,75 @@ export async function renderPages(
     });
   }
   return { drawn: pngs.length, total };
+}
+
+/** Pages of a document downloaded as its original are drawn at this resolution (#136)... */
+export const PRINT_DPI = 300;
+/** ...unless their longest side would pass this many pixels, as a poster's would. */
+export const PRINT_LONGEST = 4200;
+
+/**
+ * Each page's size in points, as it is shown (turned pages turned), for the first `pages`
+ * pages of a PDF, from Poppler's own reading.
+ */
+export async function pdfPageSizes(
+  path: string,
+  pages: number,
+  signal?: AbortSignal,
+): Promise<{ width: number; height: number }[]> {
+  const { stdout } = await run("pdfinfo", ["-f", "1", "-l", String(pages), path], {
+    signal,
+    timeoutMs: 60_000,
+    maxOutput: 16 * 1024 * 1024,
+  });
+  return parsePageSizes(stdout, pages);
+}
+
+/** Page sizes from what `pdfinfo -f -l` prints: a `size` line and a `rot` line a page. */
+export function parsePageSizes(text: string, pages: number): { width: number; height: number }[] {
+  const sizes: { width: number; height: number }[] = [];
+  for (const m of text.matchAll(/^Page\s+(\d+)\s+size:\s+([\d.]+) x ([\d.]+) pts/gm)) {
+    sizes[Number(m[1]) - 1] = { width: Number(m[2]), height: Number(m[3]) };
+  }
+  for (const m of text.matchAll(/^Page\s+(\d+)\s+rot:\s+(\d+)/gm)) {
+    const size = sizes[Number(m[1]) - 1];
+    if (size && Number(m[2]) % 180 === 90)
+      sizes[Number(m[1]) - 1] = { width: size.height, height: size.width };
+  }
+  const out = Array.from({ length: pages }, (_, i) => sizes[i]);
+  if (out.some((s) => !s || !(s.width > 0) || !(s.height > 0)))
+    throw new InvalidMediaError("The PDF's page sizes could not be read");
+  return out as { width: number; height: number }[];
+}
+
+/** The resolution a page of this size is drawn at for print. */
+export const printDpi = (points: { width: number; height: number }) =>
+  Math.min(PRINT_DPI, (PRINT_LONGEST * 72) / Math.max(points.width, points.height));
+
+/** One page of a PDF drawn at `dpi`, as a PNG at `out`. */
+export async function renderPdfPage(
+  path: string,
+  page: number,
+  dpi: number,
+  out: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  // Poppler adds the extension itself.
+  const stem = out.replace(/\.png$/, "");
+  await run(
+    "pdftoppm",
+    [
+      "-png",
+      "-r",
+      dpi.toFixed(2),
+      "-f",
+      String(page),
+      "-l",
+      String(page),
+      "-singlefile",
+      path,
+      stem,
+    ],
+    { signal, timeoutMs: 5 * 60_000 },
+  );
 }

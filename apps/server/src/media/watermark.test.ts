@@ -5,8 +5,9 @@ import { join } from "node:path";
 import { watermarkText } from "@hekate/shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { run } from "./ffmpeg.ts";
-import { webpComplete } from "./pages.ts";
-import { watermark } from "./watermark.ts";
+import { IMAGE_DEMUXERS, pngSize, webpComplete } from "./pages.ts";
+import { jpegSize } from "./pdf.ts";
+import { markedFormatOf, markPicture, watermark } from "./watermark.ts";
 
 const hasFfmpeg = spawnSync("ffmpeg", ["-version"]).status === 0;
 
@@ -39,6 +40,45 @@ describe("watermarks", () => {
       ),
     ).toBe("Ines Arlow · ines@example.test\nEndless Hall Records · 14 October 2026");
   });
+
+  it("writes a marked original back in its own format where it can, else as PNG", () => {
+    expect(markedFormatOf("Cover.JPG", "")).toBe("jpeg");
+    expect(markedFormatOf("cover", "image/jpeg")).toBe("jpeg");
+    expect(markedFormatOf("Cover.webp", "image/webp")).toBe("webp");
+    expect(markedFormatOf("Scan.tif", "image/tiff")).toBe("tiff");
+    expect(markedFormatOf("Cover.png", "image/png")).toBe("png");
+    expect(markedFormatOf("Cover.gif", "image/gif")).toBe("png");
+    expect(markedFormatOf("Cover.bmp", "image/bmp")).toBe("png");
+  });
+
+  it.runIf(hasFfmpeg || process.env.CI)(
+    "marks a picture at full size, written as asked",
+    async () => {
+      const input = join(dir, "original.png");
+      await run("ffmpeg", [
+        ...["-hide_banner", "-nostdin", "-v", "error", "-f", "lavfi"],
+        ...["-i", "color=white:s=1200x900", "-frames:v", "1", input],
+      ]);
+      const text = "Tomas Varga · tomas@example.test\nEndless Hall Records · 17 October 2026";
+      const out = (ext: string) => join(dir, `marked.${ext}`);
+      await markPicture(input, out("jpg"), { text, demuxers: IMAGE_DEMUXERS, format: "jpeg" });
+      expect(jpegSize(readFileSync(out("jpg")))).toEqual({ width: 1200, height: 900 });
+      await markPicture(input, out("png"), { text, demuxers: IMAGE_DEMUXERS, format: "png" });
+      expect(pngSize(readFileSync(out("png")))).toEqual({ width: 1200, height: 900 });
+      expect(await ink(readFileSync(out("png")))).toBeGreaterThan(10_000);
+      await markPicture(input, out("tif"), { text, demuxers: IMAGE_DEMUXERS, format: "tiff" });
+      expect(readFileSync(out("tif")).subarray(0, 2).toString()).toMatch(/II|MM/);
+      // Only a picture is read: a PDF is not one.
+      writeFileSync(join(dir, "not.png"), "%PDF-1.4");
+      await expect(
+        markPicture(join(dir, "not.png"), out("x.png"), {
+          text,
+          demuxers: IMAGE_DEMUXERS,
+          format: "png",
+        }),
+      ).rejects.toThrow();
+    },
+  );
 
   it.runIf(hasFfmpeg || process.env.CI)(
     "draws the mark over a page, and reads awkward names as plain text",

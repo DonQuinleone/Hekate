@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { InvalidMediaError, MediaToolError, parseProbe, probe, run } from "./ffmpeg.ts";
-import { sweepWorkspaces, withWorkspace } from "./workspace.ts";
+import { streamInWorkspace, sweepWorkspaces, withWorkspace } from "./workspace.ts";
 
 const hasFfmpeg = spawnSync("ffprobe", ["-version"]).status === 0;
 
@@ -221,5 +221,23 @@ describe.runIf(hasFfmpeg || process.env.CI)("media tools", () => {
     ).rejects.toThrow("job failed");
     expect(existsSync(seen)).toBe(false);
     expect(await readdir(join(seen, ".."))).not.toContain(seen.split("/").pop());
+  });
+
+  it("keeps a streamed workspace in the configured place until the reader stops", async () => {
+    const root = await mkdtemp(join(tmpdir(), "hekate-stream-"));
+    let seen = "";
+    const pieces = streamInWorkspace(root, async function* (dir) {
+      seen = dir;
+      await writeFile(join(dir, "decrypted.pdf"), "secret");
+      yield 1;
+      yield 2;
+    });
+    expect((await pieces.next()).value).toBe(1);
+    expect(seen.startsWith(`${root}/job-${process.pid}-`)).toBe(true);
+    expect(existsSync(join(seen, "decrypted.pdf"))).toBe(true);
+    // A browser that goes stops the download early: the workspace goes with it.
+    await pieces.return(undefined);
+    expect(existsSync(seen)).toBe(false);
+    await rm(root, { recursive: true, force: true });
   });
 });

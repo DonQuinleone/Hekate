@@ -88,6 +88,11 @@ export interface AppDeps {
   setupGate?: SetupGate;
   /** Operators act only from a session signed in with a key (OPERATOR_SECURITY_KEY). */
   operatorSecurityKey?: boolean;
+  /**
+   * Scratch space for decrypted media while a page or download is marked (WORK_DIR), as for
+   * the media workers; the system's temporary directory if unset.
+   */
+  workDir?: string;
 }
 
 export function createApi(deps: AppDeps) {
@@ -105,6 +110,7 @@ export function createApi(deps: AppDeps) {
     secret: deps.playbackSecret,
     trustProxy: deps.trustProxy ?? false,
     secondFactor: rule,
+    workDir: deps.workDir,
   };
   const downloads = {
     db: deps.db,
@@ -112,6 +118,7 @@ export function createApi(deps: AppDeps) {
     keyring: deps.keyring,
     audit: deps.audit,
     trustProxy: deps.trustProxy ?? false,
+    workDir: deps.workDir,
   };
   const reviewDeps = {
     db: deps.db,
