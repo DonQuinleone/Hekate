@@ -9,6 +9,8 @@ import {
   downloadInput,
   downloadLevelOf,
   formatBytes,
+  watermarkOf,
+  watermarkText,
 } from "@hekate/shared";
 import { unwrapKey } from "@hekate/storage";
 import { zValidator } from "@hono/zod-validator";
@@ -21,7 +23,7 @@ import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
 import type { Keyring } from "../keyring.ts";
-import { watermark, watermarkText } from "../media/watermark.ts";
+import { watermark } from "../media/watermark.ts";
 import { admit, tooMany } from "../rate-limit.ts";
 import type { Storage } from "../storage.ts";
 import { sendAttachment } from "./attachments.ts";
@@ -33,6 +35,7 @@ const {
   files,
   guests,
   organisations,
+  projects,
   renditionSegments,
   renditions,
   users,
@@ -339,12 +342,19 @@ export const downloadRoutes = (deps: DownloadDeps) =>
         const page = await firstPage(deps.db, organisationId, file.id);
         if (!page) throw new NotFound("Page");
         const who = await recipientOf(deps.db, actor);
+        // Always marked for whoever asked, whatever the project's scope; drawn where and as
+        // strongly as the project chose (#31).
+        const [project] = await deps.db
+          .select({ watermark: projects.watermark })
+          .from(projects)
+          .where(inOrg(projects, organisationId, eq(projects.id, file.projectId)));
         const { stream } = await deps.storage.open(organisationId, page.blobId);
         const marked = await watermark(
           Buffer.concat(await stream.toArray()),
           watermarkText(who, who.organisation, new Date()),
           "view",
           c.req.raw.signal,
+          watermarkOf(project?.watermark),
         );
         return c.body(new Uint8Array(marked), 200, {
           ...PRIVATE,

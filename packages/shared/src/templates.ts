@@ -5,6 +5,7 @@ import { profileRef } from "./qa.ts";
 import { qaSettings } from "./qa-rules.ts";
 import { commentReferences } from "./references.ts";
 import { playerTool, projectPermission } from "./roles.ts";
+import { watermarkSettings } from "./watermark.ts";
 
 /**
  * Project templates (#240): what a project is set up with, saved from one project to start
@@ -29,6 +30,8 @@ export const templateContent = z.object({
     commentReferences: commentReferences.nullable().optional(),
     /** Normalised playback (#240); left out, off. */
     normalisation: normalisationMode.optional(),
+    /** The visible watermark (#31); left out, the default. */
+    watermark: watermarkSettings.nullable().optional(),
   }),
   // No limits of their own: whatever a project may hold, its template holds.
   roles: z.array(
