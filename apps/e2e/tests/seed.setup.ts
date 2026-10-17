@@ -211,7 +211,7 @@ setup("seed", async ({ page, browser }) => {
     ],
   });
   // Four takes of it from the sessions (#21), in a folder of their own: three with bars, rated
-  // and noted, and one without.
+  // and noted, leaving bars 17 to 24 uncovered, and one without bars.
   const { folder: sessionFolder } = await api<{ folder: { id: string } }>(
     page,
     "POST",
@@ -232,7 +232,7 @@ setup("seed", async ({ page, browser }) => {
   const takeDetails = [
     {
       barFrom: 1,
-      barTo: 32,
+      barTo: 16,
       page: 1,
       rating: 2,
       notes: "Warm-up run. Tempo settles after the repeat.",
@@ -246,7 +246,7 @@ setup("seed", async ({ page, browser }) => {
       notes: "Good opening, pedal noise at bar 5.",
     },
     {
-      barFrom: 17,
+      barFrom: 25,
       barTo: 48,
       page: 2,
       rating: 5,

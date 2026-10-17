@@ -109,6 +109,14 @@ export function coverageGaps(all: Pick<TakePlace, "barFrom" | "barTo">[]): [numb
   return gaps;
 }
 
+/** Uncovered bars as said: "bars 33 to 40 and 52", or "bars 9 to 12, 20 and 33 to 40". */
+export function gapsLabel(gaps: [number, number][]): string {
+  const parts = gaps.map(([a, b]) => (a === b ? `${a}` : `${a} to ${b}`));
+  const single = gaps.length === 1 && gaps[0]?.[0] === gaps[0]?.[1];
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
+  return `${single ? "bar" : "bars"} ${list}`;
+}
+
 /** "bars 64 to 88", "bar 12", or null for a take without bars. */
 export function barsLabel(t: Pick<TakePlace, "barFrom" | "barTo">): string | null {
   const r = barsOf(t);

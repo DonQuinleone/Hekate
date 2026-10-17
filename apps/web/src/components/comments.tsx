@@ -51,6 +51,7 @@ import { useViewer } from "~/lib/viewer";
 import { Avatar } from "./avatar";
 import type { RegionMarker } from "./document-viewer";
 import { Icon } from "./icons";
+import { OtherTakes } from "./takes";
 import { Button } from "./ui/button";
 import { Chip, ToggleChip } from "./ui/chip";
 import { Dialog } from "./ui/dialog";
@@ -627,6 +628,7 @@ function ThreadView({
   people,
   marker,
   pages,
+  takesOf,
 }: {
   thread: Thread;
   /** The file being looked at, which a carried thread was brought to. */
@@ -651,8 +653,11 @@ function ThreadView({
   /** The thread's number on the page, when it points at a region of it. */
   marker?: RegionMarker;
   pages?: PageComments;
+  /** The track whose takes a thread on a bar can list (#46), for those who may see takes. */
+  takesOf?: string;
 }) {
   const [replying, setReplying] = useState(false);
+  const [takesOpen, setTakesOpen] = useState(false);
   const [asking, setAsking] = useState<"defer" | "assign" | null>(null);
   const { comment, replies } = thread;
   const anchor = comment.anchor;
@@ -940,6 +945,9 @@ function ThreadView({
           ))}
         </ul>
       )}
+      {takesOpen && takesOf && anchor?.kind === "bar" && (
+        <OtherTakes trackId={takesOf} bar={anchor.from.bar} onClose={() => setTakesOpen(false)} />
+      )}
       {replying ? (
         <Composer
           placeholder="Reply"
@@ -963,6 +971,16 @@ function ThreadView({
           {!comment.resolvedAt && canComment && (
             <button type="button" onClick={() => setReplying(true)} className={textButton}>
               Reply
+            </button>
+          )}
+          {takesOf && anchor?.kind === "bar" && (
+            <button
+              type="button"
+              aria-expanded={takesOpen}
+              onClick={() => setTakesOpen((open) => !open)}
+              className={textButton}
+            >
+              Other takes
             </button>
           )}
           {carry && onBeforeAfter && from?.kind === "time" && anchor?.kind === "time" && (
@@ -1020,6 +1038,8 @@ export function Comments({
   const { data: file } = useQuery(fileQuery(fileId));
   const canComment = guest ? Boolean(file?.grant?.comment) : can("comment");
   const canTriage = !guest && can("triage");
+  // A thread on a bar of a track's version can list the track's takes of that bar (#46).
+  const takesOf = !guest && can("view_takes") ? file?.variation?.trackId : undefined;
   const { data: me } = useQuery(meQuery);
   const mutations = useCommentMutations(fileId);
   // Categories name each thread's kind for members; whom to assign to, for those who triage.
@@ -1302,6 +1322,7 @@ export function Comments({
       people={people}
       marker={markers.find((m) => m.id === t.comment.id)}
       pages={pages}
+      takesOf={takesOf}
     />
   );
 
