@@ -11,6 +11,7 @@ import { requirePlaySession, requireViewer } from "./guests.ts";
 import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
 import type { Mailer } from "./mail.ts";
+import { countRequests, metricsHandler } from "./metrics/index.ts";
 import { rateLimit } from "./rate-limit.ts";
 import { attachmentRoutes } from "./routes/attachments.ts";
 import { categoryRoutes, projectCategoryRoutes } from "./routes/categories.ts";
@@ -94,6 +95,8 @@ export interface AppDeps {
    * the media workers; the system's temporary directory if unset.
    */
   workDir?: string;
+  /** The bearer token a Prometheus scraper sends to read `/metrics`; none turns it off. */
+  metricsToken?: string;
 }
 
 export function createApi(deps: AppDeps) {
@@ -332,6 +335,9 @@ export const MAX_BODY_BYTES = 2 * 1024 * 1024;
 export function createApp(deps: AppDeps) {
   const app = new Hono();
   app.use("*", securityHeaders({ https: deps.publicUrl.startsWith("https://") }));
+  // For Prometheus (#70): only with a token, and never through the API's own middleware.
+  app.get("/metrics", metricsHandler(deps.metricsToken));
+  app.use("/api/*", countRequests);
   app.use("/api/*", requestId);
   if (deps.log !== false) app.use("/api/*", logger());
   // Every other body is small: settings, comments, sign-in. A chunk's limit is its own.

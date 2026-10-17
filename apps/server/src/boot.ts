@@ -6,10 +6,11 @@ import { createAudit } from "./audit.ts";
 import { createAuth } from "./auth.ts";
 import { failureOfJob, purgeErrorReports, recordFailure } from "./error-reports.ts";
 import { createFlags } from "./flags.ts";
-import { createJobs } from "./jobs.ts";
+import { createJobs, jobDefinitions } from "./jobs.ts";
 import { createKeyring, UnknownMasterKeyError } from "./keyring.ts";
 import { createMailer } from "./mail.ts";
 import { startWorkers } from "./media/workers.ts";
+import { collectFromDatabase, collectQueues, countedMailer } from "./metrics/index.ts";
 import { deliverDigests, deliverInstant } from "./notifications.ts";
 import { playbackSecret } from "./playback.ts";
 import { purgeDueProjects } from "./project-purge.ts";
@@ -57,7 +58,10 @@ export async function boot(
   })();
 
   const { db, close } = createDb(config.DATABASE_URL);
-  const mailer = createMailer({ smtpUrl: config.SMTP_URL, from: config.MAIL_FROM });
+  const mailer = countedMailer(createMailer({ smtpUrl: config.SMTP_URL, from: config.MAIL_FROM }));
+  // Read at each scrape of /metrics (#70).
+  collectFromDatabase(db);
+  collectQueues(db, Object.keys(jobDefinitions));
   const keyring = createKeyring(db, {
     current: config.MASTER_KEY,
     previous: config.MASTER_KEYS_PREVIOUS,
@@ -169,6 +173,7 @@ export async function boot(
     setupGate: options.gate,
     operatorSecurityKey: config.OPERATOR_SECURITY_KEY,
     workDir: config.WORK_DIR,
+    metricsToken: config.METRICS_TOKEN,
   });
   if (config.WEB_DIST) serveWeb(app, config.WEB_DIST, { docsUrl: config.HEKATE_DOCS_URL });
 

@@ -45,6 +45,7 @@ import {
   requeueAlignments,
   requeueMissingFindings,
 } from "./media/workers.ts";
+import { collectFromDatabase, collectQueues } from "./metrics/index.ts";
 import { deliverDigests, deliverInstant, tellProcessingFailed } from "./notifications.ts";
 import { playbackSecret, signPlayback } from "./playback.ts";
 import { purgeDueProjects } from "./project-purge.ts";
@@ -198,6 +199,64 @@ describe.runIf(url)("api", () => {
     const res = await app.request("/api/health");
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ status: "ok", database: "ok" });
+  });
+
+  it("tells Prometheus how it is doing, only with the token (#70)", async () => {
+    const token = "metrics-token-metrics-token-metrics-0";
+    const scraped = createApp({
+      db,
+      auth,
+      mailer,
+      storage,
+      audit,
+      jobs,
+      keyring,
+      playbackSecret: playbackSecret("test-secret-test-secret-test-secret-0"),
+      publicUrl: "http://localhost:3000",
+      log: false,
+      metricsToken: token,
+    });
+    collectFromDatabase(db);
+    collectQueues(db, ["media-probe", "media-proxy"]);
+    const scrape = (headers: Record<string, string> = {}) =>
+      scraped.request("/metrics", { headers });
+
+    // Without a token configured there is nothing there; with one, only its bearer reads it.
+    expect((await app.request("/metrics")).status).toBe(404);
+    const anonymous = await scrape();
+    expect(anonymous.status).toBe(401);
+    expect(anonymous.headers.get("www-authenticate")).toContain("Bearer");
+    expect((await scrape({ authorization: "Bearer not-the-token" })).status).toBe(401);
+    expect((await scrape({ authorization: token })).status).toBe(401);
+
+    // Requests are counted by the route that answered them, never by their path.
+    await scraped.request("/api/health");
+    await scraped.request("/api/files/0190a6f0-0000-7000-8000-0000000000ff");
+    await scraped.request("/api/no-such-thing");
+    const res = await scrape({ authorization: `Bearer ${token}` });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/plain; version=0.0.4");
+    const text = await res.text();
+    expect(text).toMatch(/^hekate_build_info\{version="[^"]+"\} 1$/m);
+    expect(text).toMatch(
+      /^hekate_http_requests_total\{route="\/api\/health",method="GET",status="200"\} \d+$/m,
+    );
+    expect(text).toMatch(
+      /^hekate_http_requests_total\{route="\/api\/files\/:id",method="GET",status="401"\} \d+$/m,
+    );
+    expect(text).toMatch(
+      /^hekate_http_requests_total\{route="unmatched",method="GET",status="404"\} \d+$/m,
+    );
+    expect(text).toContain(
+      'hekate_http_request_duration_seconds_bucket{route="/api/health",le="+Inf"}',
+    );
+    expect(text).not.toContain("0190a6f0-0000-7000-8000-0000000000ff");
+    expect(text).toMatch(/^hekate_database_up 1$/m);
+    // An idle queue reads zero, not nothing.
+    expect(text).toMatch(/^hekate_jobs_waiting\{queue="media-proxy"\} 0$/m);
+    expect(text).toMatch(/^hekate_jobs_active\{queue="media-probe"\} 0$/m);
+    // The scrape itself is not an API request.
+    expect(text).not.toContain('route="/metrics"');
   });
 
   it("runs first-run setup once and signs the owner in", async () => {

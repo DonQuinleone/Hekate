@@ -21,6 +21,7 @@ export const fileSettings = [
   "SMTP_URL",
   "MASTER_KEY",
   "MASTER_KEYS_PREVIOUS",
+  "METRICS_TOKEN",
 ];
 
 export function withFileSettings(env: Record<string, string | undefined>) {
@@ -108,6 +109,19 @@ const schema = z.object({
         "Behind a reverse proxy (Caddy in the Compose file), take client addresses from X-Forwarded-For.",
     }),
   ),
+  METRICS_TOKEN: z
+    .string()
+    .min(32, "must be at least 32 characters (openssl rand -hex 32)")
+    .optional()
+    .meta(
+      info({
+        group: "Server",
+        description:
+          "Turns on `/metrics` for Prometheus (#70): a scraper sends it as a bearer token. Unset, there is no `/metrics`.",
+        example: "(openssl rand -hex 32)",
+        secret: true,
+      }),
+    ),
   TRUSTED_ORIGINS: list.meta(
     info({
       group: "Server",

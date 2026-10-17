@@ -14,6 +14,7 @@ A setting marked as secret may instead name a file that holds it, with `_FILE` a
 | `PORT` | `3000` | The port the server listens on. |
 | `PUBLIC_URL` | `http://localhost:3000` | The address people open Hekate at. Links in emails, sign-in callbacks and passkeys are bound to it. Example: `https://review.example.com`. |
 | `TRUST_PROXY` | `false` | Behind a reverse proxy (Caddy in the Compose file), take client addresses from X-Forwarded-For. |
+| `METRICS_TOKEN` | unset | Turns on `/metrics` for Prometheus (#70): a scraper sends it as a bearer token. Unset, there is no `/metrics`. Example: `(openssl rand -hex 32)`. Or `METRICS_TOKEN_FILE`, naming a file that holds it. |
 | `TRUSTED_ORIGINS` | unset | Extra origins allowed to call the API with credentials, comma separated: the Vite dev server, say. Example: `http://localhost:5173`. |
 | `WEB_DIST` | unset | Directory holding the built web app, served with a single-page fallback. Set in the app image. |
 | `HEKATE_SETTINGS_FILE` | unset | The file the installer writes its settings to, read at every start beneath the environment (which wins). Set to /config/hekate.env in the app image; data/hekate.env otherwise. Example: `/config/hekate.env`. |

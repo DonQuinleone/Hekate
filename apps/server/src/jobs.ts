@@ -1,5 +1,6 @@
 import { type Job, PgBoss, type QueueOptions } from "pg-boss";
 import { z } from "zod";
+import { metrics } from "./metrics/index.ts";
 
 /**
  * Background work, queued in PostgreSQL with pg-boss. Every job has a name, a
@@ -164,8 +165,17 @@ export async function runJob<N extends JobName>(
     const data = jobDefinitions[name].data.parse(job.data) as JobData<N>;
     await handler(data, { id: job.id, signal: job.signal, retryCount: job.retryCount });
     if (loud) console.log(`Job ${name} ${job.id} finished in ${took()}`);
+    metrics.jobDuration.observe(
+      { queue: name, outcome: "completed" },
+      (performance.now() - started) / 1000,
+    );
   } catch (error) {
     if (loud) console.log(`Job ${name} ${job.id} failed after ${took()}: ${String(error)}`);
+    metrics.jobDuration.observe(
+      { queue: name, outcome: "failed" },
+      (performance.now() - started) / 1000,
+    );
+    metrics.jobsFailed.inc({ queue: name });
     const options: QueueOptions = jobDefinitions[name].options;
     // pg-boss retries twice when a queue does not say.
     if (onFailure && job.retryCount >= (options.retryLimit ?? 2))

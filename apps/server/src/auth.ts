@@ -12,6 +12,7 @@ import { directorySignIn } from "./directory-sign-in.ts";
 import type { Keyring } from "./keyring.ts";
 import { waitMessage } from "./lockout.ts";
 import { type Mailer, sendEmail } from "./mail.ts";
+import { metrics } from "./metrics/index.ts";
 import {
   factorFor,
   hashedRecoveryCodes,
@@ -255,6 +256,7 @@ export function createAuth(options: AuthOptions) {
         if (ctx.path === "/sign-in/email" && typeof ctx.body?.email === "string") {
           const admitted = await admitAttempt(options.db, ctx.body.email);
           if (admitted.wait > 0) {
+            metrics.signInsRefused.inc({ method: "password" });
             throw new APIError(
               "TOO_MANY_REQUESTS",
               { message: waitMessage(admitted.wait, admitted.locked) },
@@ -266,6 +268,14 @@ export function createAuth(options: AuthOptions) {
       }),
       after: createAuthMiddleware(async (ctx) => {
         const succeeded = !isAPIError(ctx.context.returned);
+        // Sign-ins for Prometheus (#70); directory and single sign-on count where they are logged.
+        const method =
+          ctx.path === "/sign-in/email"
+            ? "password"
+            : ctx.path === "/passkey/verify-authentication"
+              ? "passkey"
+              : null;
+        if (method) (succeeded ? metrics.signIns : metrics.signInsRefused).inc({ method });
         // When each key was last used, for the account page.
         if (ctx.path === "/passkey/verify-authentication" && succeeded) {
           const credential = (ctx.body as { response?: { id?: unknown } } | undefined)?.response
