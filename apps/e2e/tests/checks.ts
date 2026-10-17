@@ -242,12 +242,16 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
 
 /** Axe's WCAG 2.2 AA rules; each violation as one line naming the rule and where. */
 export async function accessibilityProblems(page: Page): Promise<string[]> {
-  const result = await new AxeBuilder({ page })
+  const builder = new AxeBuilder({ page })
     // A sandboxed frame runs no scripts, so axe cannot look inside it; what it shows (an
     // email preview) is not the app's interface and is tested on its own.
     .exclude("iframe[sandbox]")
-    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
-    .analyze();
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]);
+  // While a modal is open, only the modal: the page behind it is out of reach, and a target
+  // that happens to sit at the modal's edge would read as crowded by it. The page itself is
+  // checked on its own screens.
+  if ((await page.locator("[aria-modal=true]").count()) > 0) builder.include("[aria-modal=true]");
+  const result = await builder.analyze();
   return result.violations.flatMap((v) =>
     v.nodes.map((n) => `${v.id}: ${n.target.join(" ")} (${v.help})`),
   );

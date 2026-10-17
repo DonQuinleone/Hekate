@@ -1,5 +1,6 @@
 import {
   type CommentScope,
+  type DownloadLevel,
   type ReviewerPermissions,
   type ReviewerPermissionsChange,
   type ReviewerTool,
@@ -32,6 +33,12 @@ const off = "border-transparent bg-transparent text-ink-3 hover:text-ink";
  * What one reviewer may do in this review, edited in place: whose comments they see,
  * whether they comment and decide, which tools they have, and when they have access.
  */
+const downloadChoices: { value: DownloadLevel; label: string }[] = [
+  { value: "none", label: "No download" },
+  { value: "proxy", label: "Proxy" },
+  { value: "original", label: "Original" },
+];
+
 export function ReviewerPermissionsEditor({
   name,
   kind,
@@ -68,6 +75,7 @@ export function ReviewerPermissionsEditor({
       decide: p.decide,
       comments: p.comments,
       tools: reviewerTools.filter((t) => p.tools.includes(t)),
+      ...(guest ? { download: p.download ?? "none" } : {}),
       startsAt: fromLocalInput(from),
       expiresAt: fromLocalInput(until),
     });
@@ -128,6 +136,29 @@ export function ReviewerPermissionsEditor({
               </button>
             ))}
           </div>
+        </fieldset>
+      )}
+      {guest && (
+        <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
+          <legend className="label mb-2">Download</legend>
+          <div className="flex flex-wrap gap-1">
+            {downloadChoices.map((d) => (
+              <button
+                key={d.value}
+                type="button"
+                aria-pressed={(p.download ?? "none") === d.value}
+                onClick={() => setP({ ...p, download: d.value })}
+                className={cn(chip, (p.download ?? "none") === d.value ? on : off)}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
+          {(p.download ?? "none") !== "none" && (
+            <span className="text-xs text-ink-3">
+              Made for them, marked where the file allows, and logged.
+            </span>
+          )}
         </fieldset>
       )}
       <fieldset className="m-0 grid grid-cols-1 gap-3 border-0 p-0 sm:grid-cols-2">

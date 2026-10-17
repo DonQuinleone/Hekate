@@ -12,6 +12,7 @@ import { deliverDigests, deliverInstant } from "./notifications.ts";
 import { playbackSecret } from "./playback.ts";
 import { purgeRequestLimits } from "./rate-limit.ts";
 import { remindDue } from "./reminders.ts";
+import { purgeDownloadTickets } from "./routes/downloads.ts";
 import { purgeAttempts } from "./sign-in.ts";
 import { settingsOrExit } from "./startup.ts";
 import { serveWeb } from "./static.ts";
@@ -100,6 +101,7 @@ if (config.WORKER) {
   await jobs.work("sign-in-attempts-purge", async () => {
     await purgeAttempts(db);
     await purgeRequestLimits(db);
+    await purgeDownloadTickets(db);
   });
   await jobs.work("reviews-remind", async () => {
     await remindDue({ db, mailer, audit, publicUrl: config.PUBLIC_URL });

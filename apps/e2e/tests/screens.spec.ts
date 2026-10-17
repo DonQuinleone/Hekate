@@ -967,3 +967,31 @@ test("file-triage", async ({ page }) => {
   await expect(page.getByText("Yours", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /their list/ })).toHaveCount(0);
 });
+
+// Downloads (#136): what you may take, made for you; the proxy is the stream's own AAC, whole.
+test("file-download", async ({ page }) => {
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await page.getByRole("button", { name: "Download" }).click();
+  const dialog = page.getByRole("dialog", { name: "Download" });
+  await expect(dialog.getByText(/AAC \d+ kb\/s/)).toBeVisible();
+  await expect(dialog.getByRole("radio", { name: /Original/ })).toBeChecked();
+  await saveScreen(page, "file-download");
+  await checkScreen(page);
+  await dialog.getByText("Proxy").click();
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    dialog.getByRole("button", { name: "Download" }).click(),
+  ]);
+  expect(download.suggestedFilename()).toBe("Maple Leaf Rag - Dry v2.m4a");
+  const bytes = await new Promise<Buffer>((resolve, reject) => {
+    void download.createReadStream().then((stream) => {
+      const chunks: Buffer[] = [];
+      stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+      stream.on("end", () => resolve(Buffer.concat(chunks)));
+      stream.on("error", reject);
+    });
+  });
+  // A real MP4: the decrypted initialisation section opens with its file type box.
+  expect(bytes.toString("latin1", 4, 8)).toBe("ftyp");
+  expect(bytes.length).toBeGreaterThan(50_000);
+});

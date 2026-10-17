@@ -24,6 +24,8 @@ describe("default project roles", () => {
       decide: ["Producer", "Reviewer"],
       edit_workflows: ["Producer"],
       manage_roles: ["Producer"],
+      download_proxy: ["Producer", "Engineer", "Editor"],
+      download_original: ["Producer", "Engineer", "Editor"],
     };
     for (const permission of projectPermissions) {
       const holders = defaultProjectRoles.map((r) => r.name).filter((n) => can(n, permission));

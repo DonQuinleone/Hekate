@@ -17,6 +17,7 @@ import {
 } from "~/components/comments";
 import { Compare, type CompareFocus } from "~/components/compare";
 import { DocumentViewer } from "~/components/document-viewer";
+import { DownloadDialog } from "~/components/downloads";
 import { ExportCommentsDialog } from "~/components/exports";
 import { FileDetailsSheet } from "~/components/file-details";
 import { mediaSummary } from "~/components/files";
@@ -35,6 +36,7 @@ import { formatDates } from "~/lib/locale";
 import type { Loop } from "~/lib/loop";
 import { initialFocus, type PageFocus } from "~/lib/pages";
 import {
+  downloadsQuery,
   type FileDetail,
   fileQuery,
   playbackQuery,
@@ -188,6 +190,9 @@ export function FilePage({
   onLoop?: (loop: Loop | null) => void;
 }) {
   const { data: file, error } = useQuery(fileQuery(fileId));
+  // Whether this person may download it at all, and so whether to offer it (#136).
+  const { data: downloads } = useQuery(downloadsQuery(fileId));
+  const [downloading, setDownloading] = useState(false);
   const tabsId = useId();
   const [media, setMedia] = useState<HTMLMediaElement | null>(null);
   const [cue, setCue] = useState(0);
@@ -334,17 +339,35 @@ export function FilePage({
         />
       </>
     );
+  const downloadButton =
+    downloads && downloads.level !== "none" ? (
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setDownloading(true)}
+        title={`Download the ${downloads.level}, made for you and logged`}
+      >
+        <Icon name="download" size={14} />
+        Download
+      </Button>
+    ) : undefined;
   return (
     <>
       {!guest && <MarkViewed projectId={file.projectId} fileId={file.id} />}
+      {downloading && (
+        <DownloadDialog fileId={file.id} name={file.name} onClose={() => setDownloading(false)} />
+      )}
       <PageHeader
         crumbs={crumbs}
         title={file.name}
         // Media formats show in the player; other files say what they are here.
         meta={summary ? undefined : file.contentType}
         actions={
-          guest ? undefined : (
+          guest ? (
+            downloadButton
+          ) : (
             <>
+              {downloadButton}
               <Button
                 variant="ghost"
                 size="sm"
