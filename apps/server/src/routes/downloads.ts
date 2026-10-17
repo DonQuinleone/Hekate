@@ -24,6 +24,7 @@ import type { Keyring } from "../keyring.ts";
 import { watermark, watermarkText } from "../media/watermark.ts";
 import { admit, tooMany } from "../rate-limit.ts";
 import type { Storage } from "../storage.ts";
+import { sendAttachment } from "./attachments.ts";
 import { attachment } from "./comments.ts";
 
 const {
@@ -286,8 +287,16 @@ export const downloadRoutes = (deps: DownloadDeps) =>
         throw new HTTPException(410, {
           message: "That download link has been used or has expired",
         });
+      // A comment's attachment (#133): its own checks, its own record.
+      if (ticket.attachmentId)
+        return sendAttachment(deps, c, {
+          fileId: ticket.fileId,
+          attachmentId: ticket.attachmentId,
+        });
       const actor = c.var.actor;
       const { level } = await levelFor(deps.db, actor, ticket.fileId);
+      if (ticket.kind === "attachment")
+        throw new HTTPException(410, { message: "That download link no longer works" });
       const kind: DownloadKind = ticket.kind;
       if (!allowsDownload(level, kind))
         throw new HTTPException(403, { message: "Your access to this file does not allow that" });

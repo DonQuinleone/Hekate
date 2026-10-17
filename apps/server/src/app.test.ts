@@ -16,7 +16,7 @@ import {
   mapTime,
 } from "@hekate/shared";
 import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
-import { and, eq, like, ne, sql } from "drizzle-orm";
+import { and, count, eq, like, ne, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, MAX_BODY_BYTES } from "./app.ts";
@@ -44,6 +44,7 @@ import {
 import { deliverDigests, deliverInstant, tellProcessingFailed } from "./notifications.ts";
 import { playbackSecret, signPlayback } from "./playback.ts";
 import { admit } from "./rate-limit.ts";
+import { reconcileStorage } from "./reconcile.ts";
 import { remindDue } from "./reminders.ts";
 import { createSetupGate, SETUP_CODE_HEADER } from "./setup-code.ts";
 import { createStorage } from "./storage.ts";
@@ -6430,6 +6431,132 @@ describe.runIf(url)("api", () => {
           expect((await todo({ todo: true, done: true }, s.composer)).status).toBe(403);
         });
 
+        it("carries files attached to a comment, downloaded once each and logged (#133)", async () => {
+          const s = await studio();
+          const post = (body: unknown, cookie = s.owner) =>
+            app.request(`/api/files/${s.mix}/comments`, json(body, cookie));
+          const { comment } = (await (await post({ body: "Markings for bar 12" })).json()) as {
+            comment: { id: string };
+          };
+          const attach = (bytes: Buffer, name: string, cookie = s.owner, commentId = comment.id) =>
+            app.request(`/api/files/${s.mix}/comments/${commentId}/attachments`, {
+              method: "POST",
+              headers: {
+                cookie,
+                origin: "http://localhost:3000",
+                "content-type": "image/png",
+                "x-file-name": encodeURIComponent(name),
+              },
+              body: new Uint8Array(bytes),
+            });
+          const picture = Buffer.from("not really a picture, but bytes all the same");
+          const added = await attach(picture, "Bar 12 markings.png");
+          expect(added.status).toBe(201);
+          const { attachment } = (await added.json()) as { attachment: { id: string } };
+          type Listed = {
+            comments: {
+              id: string;
+              attachments: { id: string; name: string; byteSize: number }[];
+            }[];
+          };
+          const listed = async (cookie: string) =>
+            ((await (await getAs(`/api/files/${s.mix}/comments`, cookie)).json()) as Listed)
+              .comments;
+          expect((await listed(s.composer)).find((c) => c.id === comment.id)?.attachments).toEqual([
+            {
+              id: attachment.id,
+              name: "Bar 12 markings.png",
+              contentType: "image/png",
+              byteSize: picture.length,
+            },
+          ]);
+          // Stored like any other bytes: encrypted, never as they came.
+          const [row] = await db
+            .select({ blobId: schema.commentAttachments.blobId })
+            .from(schema.commentAttachments)
+            .where(eq(schema.commentAttachments.id, attachment.id));
+          const [blob] = await db
+            .select()
+            .from(schema.blobs)
+            .where(eq(schema.blobs.id, row?.blobId ?? ""));
+          expect(blob?.wrappedKey).toBeTruthy();
+
+          // Only its author attaches to a comment; names, sizes and the count are checked, and a
+          // refusal is made before anything is stored.
+          const stored = async () =>
+            (
+              await db
+                .select({ n: count() })
+                .from(schema.blobs)
+                .where(eq(schema.blobs.organisationId, s.organisationId))
+            )[0]?.n;
+          const before = await stored();
+          expect((await attach(picture, "Mine.png", s.composer)).status).toBe(403);
+          expect(await stored()).toBe(before);
+          expect((await attach(Buffer.alloc(0), "Empty.png")).status).toBe(400);
+          expect((await attach(picture, "../etc/passwd")).status).toBe(400);
+          expect((await attach(Buffer.alloc(25 * 1024 * 1024 + 1), "Too large.wav")).status).toBe(
+            413,
+          );
+          for (let i = 2; i <= 5; i++)
+            expect((await attach(picture, `Page ${i}.png`)).status).toBe(201);
+          const full = await stored();
+          expect((await attach(picture, "Page 6.png")).status).toBe(409);
+          expect(await stored()).toBe(full);
+
+          // A download is made for one person, works once, and is logged first.
+          const ticket = (cookie: string, id = attachment.id) =>
+            app.request(`/api/files/${s.mix}/attachments/${id}/download`, json({}, cookie));
+          const made = await ticket(s.composer);
+          expect(made.status).toBe(201);
+          const { url } = (await made.json()) as { url: string };
+          expect((await getAs(url, s.owner)).status).toBe(410);
+          const fetched = await getAs(url, s.composer);
+          expect(fetched.status).toBe(200);
+          expect(fetched.headers.get("content-disposition")).toContain("attachment;");
+          expect(fetched.headers.get("cache-control")).toContain("no-store");
+          expect(Buffer.from(await fetched.arrayBuffer())).toEqual(picture);
+          expect((await getAs(url, s.composer)).status).toBe(410);
+          const logged = await db
+            .select({ action: schema.accessEvents.action })
+            .from(schema.accessEvents)
+            .where(
+              sql`${schema.accessEvents.action} in ('comment.attachment_add', 'comment.attachment_download')`,
+            );
+          expect(logged.map((e) => e.action).sort()).toEqual([
+            ...Array(5).fill("comment.attachment_add"),
+            "comment.attachment_download",
+          ]);
+          // Someone who cannot see the project finds nothing.
+          const newcomer = await joinAs(s.owner, "newcomer@example.test");
+          expect((await ticket(newcomer)).status).toBe(404);
+
+          // Reconciliation counts the bytes as in use.
+          const [report] = await reconcileStorage(
+            { db, storage, audit },
+            { graceMs: 0, remove: false, organisations: [s.organisationId] },
+          );
+          expect(report?.unreferencedBlobs).toBe(0);
+
+          // Its author removes one; nobody else may.
+          const remove = (cookie: string) =>
+            app.request(`/api/files/${s.mix}/attachments/${attachment.id}`, {
+              method: "DELETE",
+              headers: { cookie, origin: "http://localhost:3000" },
+            });
+          expect((await remove(s.composer)).status).toBe(403);
+          expect((await remove(s.owner)).status).toBe(204);
+          expect(
+            (await listed(s.owner)).find((c) => c.id === comment.id)?.attachments,
+          ).toHaveLength(4);
+          const [gone] = await db
+            .select()
+            .from(schema.blobs)
+            .where(eq(schema.blobs.id, row?.blobId ?? ""));
+          expect(gone).toBeUndefined();
+          expect((await ticket(s.owner)).status).toBe(404);
+        });
+
         it("tells a track's followers of new versions, if they can still see it", async () => {
           const s = await studio();
           // The owner made the track, so follows it; the composer chooses to.
@@ -7350,6 +7477,51 @@ describe.runIf(url)("api", () => {
           expect(res.status).toBe(201);
           return { ...s, review, token, cookie: cookieOf(res) };
         };
+
+        it("lets a guest download what a thread carries, and attach to their own (#133)", async () => {
+          const s = await invited();
+          const attach = (commentId: string, cookie: string) =>
+            app.request(`/api/files/${s.mix}/comments/${commentId}/attachments`, {
+              method: "POST",
+              headers: {
+                cookie,
+                origin: "http://localhost:3000",
+                "content-type": "application/pdf",
+                "x-file-name": encodeURIComponent("Bowings.pdf"),
+              },
+              body: new Uint8Array(Buffer.from("%PDF-1.4 bowings")),
+            });
+          const theirs = async (body: string, cookie: string) =>
+            (
+              (await (
+                await app.request(`/api/files/${s.mix}/comments`, json({ body }, cookie))
+              ).json()) as { comment: { id: string } }
+            ).comment.id;
+          const owners = await theirs("The bowings for the second page", s.owner);
+          const added = (await (await attach(owners, s.owner)).json()) as {
+            attachment: { id: string };
+          };
+          // The guest sees the thread, so may download what it carries, but not add to it.
+          const made = await app.request(
+            `/api/files/${s.mix}/attachments/${added.attachment.id}/download`,
+            json({}, s.cookie),
+          );
+          expect(made.status).toBe(201);
+          const { url } = (await made.json()) as { url: string };
+          const fetched = await getAs(url, s.cookie);
+          expect(fetched.status).toBe(200);
+          expect(await fetched.text()).toBe("%PDF-1.4 bowings");
+          expect((await attach(owners, s.cookie)).status).toBe(403);
+          const mine = await theirs("Mine, marked", s.cookie);
+          expect((await attach(mine, s.cookie)).status).toBe(201);
+          // Which comments are theirs is said outright, since a guest's author is not shown.
+          const listed = (await (await getAs(`/api/files/${s.mix}/comments`, s.cookie)).json()) as {
+            comments: { id: string; mine: boolean; authorId: string | null }[];
+          };
+          const flag = (id: string) => listed.comments.find((c) => c.id === id);
+          expect(flag(mine)).toMatchObject({ mine: true, authorId: null });
+          expect(flag(owners)?.mine).toBe(false);
+        });
 
         it("lets a guest mention nobody, and keeps tasks from them (#133)", async () => {
           const s = await invited();

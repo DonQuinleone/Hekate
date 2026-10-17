@@ -3,6 +3,7 @@ import {
   type Anchor,
   anchorProblem,
   type CarryStatus,
+  type CommentAttachment,
   type CommentMention,
   carrySettles,
   commentExportQuery,
@@ -35,7 +36,16 @@ import type { Mailer } from "../mail.ts";
 import { type NotificationActor, notifyNow, projectPeople } from "../notifications.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
-const { comments, commentCarries, commentCategories, files, projects, users, guests } = schema;
+const {
+  comments,
+  commentAttachments,
+  commentCarries,
+  commentCategories,
+  files,
+  projects,
+  users,
+  guests,
+} = schema;
 const resolver = alias(users, "resolver");
 const assignee = alias(users, "assignee");
 const doneBy = alias(users, "done_by");
@@ -94,12 +104,22 @@ function selectComments(db: Database, organisationId: string, where: SQL | undef
     .where(inOrg(comments, organisationId, where));
 }
 
-/** A comment as it leaves the server: which guest wrote it stays inside. */
-function publicComment<C extends { guestAuthorId: string | null }>({
-  guestAuthorId: _,
-  ...rest
-}: C) {
-  return rest;
+/** Whether the actor wrote a comment, as a member or as a guest. */
+export const wroteIt = (
+  actor: ViewerVariables["actor"],
+  c: { authorId: string | null; guestAuthorId: string | null },
+) => (actor.kind === "guest" ? c.guestAuthorId === actor.guestId : c.authorId === actor.userId);
+
+/**
+ * A comment as it leaves the server: which guest wrote it stays inside, and whether it is the
+ * viewer's own is said instead, since a guest cannot tell from its author.
+ */
+function publicComment<C extends { authorId: string | null; guestAuthorId: string | null }>(
+  row: C,
+  actor: ViewerVariables["actor"],
+) {
+  const { guestAuthorId: _, ...rest } = row;
+  return { ...rest, mine: wroteIt(actor, row) };
 }
 
 /**
@@ -138,7 +158,7 @@ async function commentOf(db: Database, organisationId: string, id: string) {
  * earlier versions (pointing where they were mapped), with their replies, oldest first.
  * Hidden carries reach only those who triage; a guest sees what their review lets them.
  */
-async function threadsOn(
+export async function threadsOn(
   db: Database,
   organisationId: string,
   actor: ViewerVariables["actor"],
@@ -202,6 +222,32 @@ async function threadsOn(
     ...new Set(roots.map((r) => r.fileId)),
   ]);
   const here = new Map(carriedHere.map((k) => [k.commentId, k]));
+  // What each comment carries (#133): names and sizes; the bytes only by a download.
+  const attached =
+    rows.length === 0
+      ? []
+      : await db
+          .select({
+            id: commentAttachments.id,
+            commentId: commentAttachments.commentId,
+            name: commentAttachments.name,
+            contentType: commentAttachments.contentType,
+            byteSize: commentAttachments.byteSize,
+          })
+          .from(commentAttachments)
+          .where(
+            inOrg(
+              commentAttachments,
+              organisationId,
+              inArray(
+                commentAttachments.commentId,
+                rows.map((r) => r.id),
+              ),
+            ),
+          )
+          .orderBy(asc(commentAttachments.createdAt), asc(commentAttachments.id));
+  const attachmentsOf = (id: string): CommentAttachment[] =>
+    attached.filter((a) => a.commentId === id).map(({ commentId: _, ...a }) => a);
   // Who is to act on a thread, and whether it is a task, is the team's business, not a guest
   // reviewer's.
   const shown =
@@ -216,7 +262,9 @@ async function threadsOn(
         }))
       : rows;
   return shown.map((row) => {
-    if (row.parentId) return { ...publicComment(row), carry: null, history: null };
+    const attachments = attachmentsOf(row.id);
+    if (row.parentId)
+      return { ...publicComment(row, actor), attachments, carry: null, history: null };
     const carry = here.get(row.id);
     const history = {
       versionNumber: origins.get(row.fileId) ?? null,
@@ -229,10 +277,11 @@ async function threadsOn(
           moved: h.anchorPlaced,
         })),
     };
-    if (!carry) return { ...publicComment(row), carry: null, history };
+    if (!carry) return { ...publicComment(row, actor), attachments, carry: null, history };
     // On this version the thread points where it was mapped; where it began stays known.
     return {
-      ...publicComment(row),
+      ...publicComment(row, actor),
+      attachments,
       anchor: carry.anchor,
       carry: {
         id: carry.id,
@@ -621,7 +670,12 @@ export const fileCommentRoutes = (
         console.warn(`Could not tell people about a comment: ${String(error)}`),
       );
       return c.json(
-        { comment: publicComment(await commentOf(db, organisationId, created?.id ?? "")) },
+        {
+          comment: publicComment(
+            await commentOf(db, organisationId, created?.id ?? ""),
+            c.var.actor,
+          ),
+        },
         201,
       );
     });
@@ -761,7 +815,9 @@ export const commentRoutes = (db: Database, mail: { mailer: Mailer; publicUrl: s
         ).catch((error: unknown) =>
           console.warn(`Could not tell people about a mention: ${String(error)}`),
         );
-      return c.json({ comment: publicComment(await commentOf(db, organisationId, id)) });
+      return c.json({
+        comment: publicComment(await commentOf(db, organisationId, id), actorOf(c.var)),
+      });
     })
     // A thread as a task (#133): triage makes it one; triage, or whoever it is for, marks it done.
     .post("/:id/todo", idParam, zValidator("json", commentTodoInput), async (c) => {
@@ -808,7 +864,9 @@ export const commentRoutes = (db: Database, mail: { mailer: Mailer; publicUrl: s
         .returning({ id: comments.id });
       if (!changed)
         throw new HTTPException(409, { message: "This task has been given to someone else" });
-      return c.json({ comment: publicComment(await commentOf(db, organisationId, id)) });
+      return c.json({
+        comment: publicComment(await commentOf(db, organisationId, id), actorOf(c.var)),
+      });
     })
     .post("/:id/resolve", idParam, zValidator("json", resolveCommentInput), async (c) => {
       const organisationId = c.var.organisationId;
@@ -835,7 +893,9 @@ export const commentRoutes = (db: Database, mail: { mailer: Mailer; publicUrl: s
         return row;
       });
       if (!updated) throw new NotFound("Thread");
-      return c.json({ comment: publicComment(await commentOf(db, organisationId, id)) });
+      return c.json({
+        comment: publicComment(await commentOf(db, organisationId, id), actorOf(c.var)),
+      });
     });
 
 /**
