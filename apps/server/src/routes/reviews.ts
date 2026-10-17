@@ -6,6 +6,7 @@ import {
   createReviewInput,
   decisionInput,
   guestInput,
+  guestLabelInput,
   type PersonInput,
   type ReviewDecision,
   type ReviewerFacts,
@@ -66,6 +67,8 @@ const {
   guests,
   groups,
   groupMembers,
+  guestLinks,
+  guestSessions,
   projects,
 } = schema;
 
@@ -79,6 +82,44 @@ const addReviewerInput = z.union([
   guestInput,
 ]);
 const reviewerParam = zValidator("param", z.object({ id: z.uuid(), reviewerId: z.uuid() }));
+const projectGuestParam = zValidator("param", z.object({ id: z.uuid(), guestId: z.uuid() }));
+
+/**
+ * A guest this project knows, through its reviews or its groups, or 404: a project's People
+ * page acts only on its own guests.
+ */
+async function projectGuest(
+  db: Database,
+  organisationId: string,
+  projectId: string,
+  guestId: string,
+) {
+  const [known] = await db
+    .select({ id: guests.id })
+    .from(guests)
+    .where(
+      inOrg(
+        guests,
+        organisationId,
+        eq(guests.id, guestId),
+        or(
+          sql`exists (select 1 from ${reviewReviewers} join ${reviews}
+            on ${reviews.id} = ${reviewReviewers.reviewId}
+            and ${reviews.organisationId} = ${organisationId}
+            where ${reviewReviewers.guestId} = ${guests.id}
+            and ${reviewReviewers.organisationId} = ${organisationId}
+            and ${reviews.projectId} = ${projectId})`,
+          sql`exists (select 1 from ${groupMembers} join ${groups}
+            on ${groups.id} = ${groupMembers.groupId}
+            and ${groups.organisationId} = ${organisationId}
+            where ${groupMembers.guestId} = ${guests.id}
+            and ${groupMembers.organisationId} = ${organisationId}
+            and ${groups.projectId} = ${projectId})`,
+        ),
+      ),
+    );
+  if (!known) throw new NotFound("Guest");
+}
 
 export interface ReviewDeps {
   db: Database;
@@ -928,15 +969,17 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
       });
     })
     // The guests this project has asked before, in its reviews or its groups: whom a new
-    // request can ask again without typing their address. For those who may request reviews.
+    // request can ask again without typing their address, and whom its People page lists,
+    // with how many of its reviews ask them and whether a link still works for them. For
+    // those who may see the project's people, or request reviews.
     .get("/:id/guests", idParam, async (c) => {
       const organisationId = c.var.organisationId;
-      const { projectId } = await can(
-        deps.db,
-        actorOf(c.var),
-        "request_reviews",
-        c.req.valid("param").id,
-      );
+      const access = await projectAccess(deps.db, actorOf(c.var), c.req.valid("param").id);
+      if (!access) throw new NotFound("Project");
+      if (!access.permissions.has("view_people") && !access.permissions.has("request_reviews")) {
+        throw new HTTPException(403, { message: "Your role in this project does not allow that" });
+      }
+      const { projectId } = access;
       const fields = { id: guests.id, name: guests.name, email: guests.email, label: guests.label };
       const asked = await deps.db
         .selectDistinct(fields)
@@ -963,9 +1006,158 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
           ),
         );
       const byId = new Map([...asked, ...grouped].map((g) => [g.id, g]));
+      const ids = [...byId.keys()];
+      // How many of this project's reviews ask each of them, and how many are still open.
+      const counted =
+        ids.length === 0
+          ? []
+          : await deps.db
+              .select({
+                guestId: reviewReviewers.guestId,
+                reviews: count(),
+                open: sql<number>`(count(*) filter (where ${reviews.status} = 'open'))::int`,
+              })
+              .from(reviewReviewers)
+              .innerJoin(reviews, eq(reviews.id, reviewReviewers.reviewId))
+              .where(
+                and(
+                  inOrg(reviewReviewers, organisationId, inArray(reviewReviewers.guestId, ids)),
+                  inOrg(reviews, organisationId, eq(reviews.projectId, projectId)),
+                ),
+              )
+              .groupBy(reviewReviewers.guestId);
+      // When each was last sent a link, and whether a link or signed-in browser still works.
+      const now = new Date().toISOString();
+      const lastLink = deps.db
+        .select({ guestId: guestLinks.guestId, at: max(guestLinks.createdAt).as("at") })
+        .from(guestLinks)
+        .where(eq(guestLinks.organisationId, organisationId))
+        .groupBy(guestLinks.guestId)
+        .as("last_link");
+      const links =
+        ids.length === 0
+          ? []
+          : await deps.db
+              .select({
+                guestId: guests.id,
+                lastLinkAt: lastLink.at,
+                live: sql<boolean>`exists (
+                  select 1 from ${guestLinks} where ${guestLinks.guestId} = ${guests.id}
+                    and ${guestLinks.organisationId} = ${organisationId}
+                    and ${guestLinks.usedAt} is null and ${guestLinks.revokedAt} is null
+                    and ${guestLinks.expiresAt} > ${now}
+                ) or exists (
+                  select 1 from ${guestSessions} where ${guestSessions.guestId} = ${guests.id}
+                    and ${guestSessions.organisationId} = ${organisationId}
+                    and ${guestSessions.revokedAt} is null and ${guestSessions.expiresAt} > ${now}
+                )`,
+              })
+              .from(guests)
+              // Joined, so the conditions below name the guest's columns in full.
+              .leftJoin(lastLink, eq(lastLink.guestId, guests.id))
+              .where(inOrg(guests, organisationId, inArray(guests.id, ids)));
+      const countOf = new Map(counted.map((r) => [r.guestId, r]));
+      const linkOf = new Map(links.map((r) => [r.guestId, r]));
       return c.json({
-        guests: [...byId.values()].sort((a, b) => a.name.localeCompare(b.name)),
+        guests: [...byId.values()]
+          .map((g) => ({
+            ...g,
+            reviews: countOf.get(g.id)?.reviews ?? 0,
+            openReviews: countOf.get(g.id)?.open ?? 0,
+            lastLinkAt: linkOf.get(g.id)?.lastLinkAt ?? null,
+            live: linkOf.get(g.id)?.live ?? false,
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
       });
+    })
+    // Send a guest a fresh link for the newest open review in this project that asks them.
+    .post("/:id/guests/:guestId/link", projectGuestParam, async (c) => {
+      const actor = actorOf(c.var);
+      const { id, guestId } = c.req.valid("param");
+      const { projectId } = await can(deps.db, actor, "manage_reviewers", id);
+      const [found] = await deps.db
+        .select({
+          review: {
+            id: reviews.id,
+            createdBy: reviews.createdBy,
+            organisationId: reviews.organisationId,
+            projectId: reviews.projectId,
+            title: reviews.title,
+            kind: reviews.kind,
+            message: reviews.message,
+            dueAt: reviews.dueAt,
+          },
+          email: guests.email,
+        })
+        .from(reviewReviewers)
+        .innerJoin(reviews, eq(reviews.id, reviewReviewers.reviewId))
+        .innerJoin(guests, eq(guests.id, reviewReviewers.guestId))
+        .where(
+          and(
+            inOrg(reviewReviewers, actor.organisationId, eq(reviewReviewers.guestId, guestId)),
+            inOrg(
+              reviews,
+              actor.organisationId,
+              eq(reviews.projectId, projectId),
+              eq(reviews.status, "open"),
+            ),
+            inOrg(guests, actor.organisationId),
+          ),
+        )
+        .orderBy(desc(reviews.createdAt))
+        .limit(1);
+      if (!found) {
+        throw new HTTPException(409, {
+          message: "No open review in this project asks them; ask them in a review",
+        });
+      }
+      const requester = { userId: actor.userId, name: await nameOf(deps.db, actor.userId) };
+      await notify(
+        deps,
+        [{ email: found.email, guestId, userId: null }],
+        found.review,
+        false,
+        requester,
+      );
+      return c.body(null, 204);
+    })
+    // How a guest appears beside their name. Guests belong to the workspace, so the label
+    // follows them into its other projects.
+    .patch(
+      "/:id/guests/:guestId",
+      projectGuestParam,
+      zValidator("json", guestLabelInput),
+      async (c) => {
+        const actor = actorOf(c.var);
+        const { id, guestId } = c.req.valid("param");
+        const { projectId } = await can(deps.db, actor, "manage_reviewers", id);
+        await projectGuest(deps.db, actor.organisationId, projectId, guestId);
+        const { label } = c.req.valid("json");
+        await deps.db
+          .update(guests)
+          .set({ label: label || null, updatedAt: new Date() })
+          .where(inOrg(guests, actor.organisationId, eq(guests.id, guestId)));
+        return c.body(null, 204);
+      },
+    )
+    // End every link and signed-in browser a guest has, as revoking them from a review does.
+    .post("/:id/guests/:guestId/revoke", projectGuestParam, async (c) => {
+      const actor = actorOf(c.var);
+      const { id, guestId } = c.req.valid("param");
+      const who = await deps.audit.member(actor.userId);
+      const { projectId } = await can(deps.db, actor, "manage_reviewers", id);
+      await projectGuest(deps.db, actor.organisationId, projectId, guestId);
+      await deps.db.transaction(async (tx) => {
+        await revokeGuest(tx, actor.organisationId, guestId);
+        await deps.audit.record(
+          actor.organisationId,
+          who,
+          { action: "guest.revoke", projectId, details: { guestId } },
+          requestInfo(c, deps.trustProxy),
+          tx,
+        );
+      });
+      return c.body(null, 204);
     })
     .post("/:id/reviews", idParam, zValidator("json", createReviewInput), async (c) => {
       const organisationId = c.var.organisationId;

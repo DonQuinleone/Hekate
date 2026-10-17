@@ -8,10 +8,15 @@ import {
   useGroupMutations,
   useProjectCan,
 } from "~/lib/queries";
+import { AvatarRow } from "./avatar";
 import { GuestFields } from "./guest-fields";
+import { Icon } from "./icons";
+import { Card, SectionHead } from "./page";
 import { Button } from "./ui/button";
 import { Choice } from "./ui/choice";
+import { Dialog } from "./ui/dialog";
 import { Input } from "./ui/input";
+import { ActionMenu } from "./ui/menu";
 
 const keyOf = (p: PersonInput) =>
   typeof p === "string" ? `member:${p}` : `guest:${p.email.toLowerCase()}`;
@@ -58,7 +63,7 @@ function GroupEditor({
     <form
       onSubmit={submit}
       aria-label={group ? `Edit ${group.name}` : "New group"}
-      className="flex flex-col gap-4 rounded-panel border border-hairline bg-surface p-5"
+      className="flex flex-col gap-4"
     >
       <label className="flex max-w-80 flex-col gap-1.5">
         <span className="label">Name</span>
@@ -126,65 +131,78 @@ export function ReviewerGroups({ projectId }: { projectId: string }) {
   const { data: groups, error } = useQuery(projectGroupsQuery(projectId));
   const can = useProjectCan(projectId);
   const { remove } = useGroupMutations(projectId);
-  const [editing, setEditing] = useState<string | null>(null);
+  const [editing, setEditing] = useState<ProjectGroup | "new" | null>(null);
   const manage = can("manage_reviewers");
+  const close = () => setEditing(null);
   return (
-    <section aria-label="Groups" className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h2 className="m-0 text-[15px] font-medium">Groups</h2>
-          <p className="m-0 text-[13px] text-ink-3">
-            Named sets of members and guests, asked together as one step of a review.
-          </p>
-        </div>
-        {manage && editing === null && <Button onClick={() => setEditing("new")}>New group</Button>}
-      </div>
-      {editing === "new" && <GroupEditor projectId={projectId} onDone={() => setEditing(null)} />}
+    <section aria-label="Groups" className="flex flex-col gap-3">
+      <SectionHead
+        title="Groups"
+        hint="asked as one step"
+        action={
+          manage && (
+            <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
+              <Icon name="plus" size={14} />
+              New group
+            </Button>
+          )
+        }
+      />
       {(error ?? remove.error) && (
         <p className="m-0 text-xs text-signal">{(error ?? remove.error)?.message}</p>
       )}
-      {groups && groups.length === 0 && editing !== "new" && (
-        <p className="m-0 text-[13px] text-ink-3">No groups yet.</p>
+      {groups && groups.length === 0 && (
+        <Card className="px-4 py-4 text-[13px] text-ink-3">
+          No groups yet. A group, such as Soloists, is asked as one step of a review.
+        </Card>
       )}
       {groups && groups.length > 0 && (
-        <ul className="m-0 flex list-none flex-col border-t border-hairline p-0">
-          {groups.map((group) =>
-            editing === group.id ? (
-              <li key={group.id} className="border-b border-hairline py-3">
-                <GroupEditor projectId={projectId} group={group} onDone={() => setEditing(null)} />
-              </li>
-            ) : (
-              <li
-                key={group.id}
-                className="grid min-h-12 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-hairline py-2.5"
-              >
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate text-sm font-medium text-ink">{group.name}</span>
-                  <span className="truncate text-xs text-ink-3">{peopleOf(group)}</span>
+        <ul className="m-0 grid list-none grid-cols-1 gap-3 p-0 @3xl/app:grid-cols-2 @6xl/app:grid-cols-3">
+          {groups.map((group) => (
+            <li key={group.id} className="min-w-0">
+              <Card className="flex items-center gap-3 px-4 py-3">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-panel bg-raised text-ink-2">
+                  <Icon name="users" size={16} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[14px] text-ink">{group.name}</span>
+                  <span className="block truncate text-[12px] text-ink-3">{peopleOf(group)}</span>
+                </span>
+                <span className="hidden @3xl/app:inline-flex">
+                  <AvatarRow
+                    people={group.members.map((m) => ({ id: m.userId ?? m.email, name: m.name }))}
+                    max={3}
+                  />
                 </span>
                 {manage && (
-                  <span className="flex gap-3 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => setEditing(group.id)}
-                      className="cursor-pointer border-0 bg-transparent p-0 text-ink-3 hover:text-ink"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      disabled={remove.isPending}
-                      onClick={() => remove.mutate(group.id)}
-                      className="cursor-pointer border-0 bg-transparent p-0 text-ink-3 hover:text-signal"
-                    >
-                      Delete
-                    </button>
-                  </span>
+                  <ActionMenu
+                    always
+                    label={group.name}
+                    actions={[
+                      { label: "Edit…", onSelect: () => setEditing(group) },
+                      "divider",
+                      { label: "Delete", danger: true, onSelect: () => remove.mutate(group.id) },
+                    ]}
+                  />
                 )}
-              </li>
-            ),
-          )}
+              </Card>
+            </li>
+          ))}
         </ul>
+      )}
+      {editing && (
+        <Dialog
+          title={editing === "new" ? "New group" : `Edit ${editing.name}`}
+          description="A group is one step of a review: everyone in it is asked together."
+          onClose={close}
+          width="md"
+        >
+          <GroupEditor
+            projectId={projectId}
+            group={editing === "new" ? undefined : editing}
+            onDone={close}
+          />
+        </Dialog>
       )}
     </section>
   );
