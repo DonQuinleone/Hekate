@@ -30,7 +30,10 @@ import {
   type InstanceOverview,
   type InstanceProjectRow,
   type InstanceWorkspaceDetail,
+  type InstanceWorkspaceKeys,
   type InstanceWorkspacePage,
+  type InstanceWorkspaceSettings,
+  type InstanceWorkspaceStorage,
   type LoudnessSummary,
   type Mark,
   type MarkInput,
@@ -2649,6 +2652,35 @@ export const instanceMembersQuery = (id: string) =>
           await api.instance.workspaces[":id"].members.$get({ param: { id } }),
         )
       ).members,
+  });
+
+export const instanceStorageQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["instance", "workspace", id, "storage"],
+    queryFn: async () =>
+      json<InstanceWorkspaceStorage>(
+        await api.instance.workspaces[":id"].storage.$get({ param: { id } }),
+      ),
+  });
+
+export const instanceSettingsQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["instance", "workspace", id, "settings"],
+    queryFn: async () =>
+      json<InstanceWorkspaceSettings>(
+        await api.instance.workspaces[":id"].settings.$get({ param: { id } }),
+      ),
+  });
+
+export const instanceKeysQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["instance", "workspace", id, "keys"],
+    queryFn: async () =>
+      json<InstanceWorkspaceKeys>(
+        await api.instance.workspaces[":id"].keys.$get({ param: { id } }),
+      ),
+    // While a rewrap runs, its progress shows.
+    refetchInterval: (q) => ((q.state.data?.pending ?? 0) > 0 ? 5000 : false),
   });
 
 export const instanceProjectsQuery = (id: string) =>

@@ -43,6 +43,8 @@ import { remindDue } from "./reminders.ts";
 import { createSetupGate, SETUP_CODE_HEADER } from "./setup-code.ts";
 import { createStorage } from "./storage.ts";
 import { expireUploads } from "./uploads.ts";
+import { rewrapBehind, rewrapOrganisation } from "./workspace-keys.ts";
+import { purgeDueWorkspaces } from "./workspace-purge.ts";
 
 const url = process.env.DATABASE_URL;
 
@@ -1100,6 +1102,206 @@ describe.runIf(url)("api", () => {
             { action: "member.second_factor_reset", target: "member@example.test" },
             { action: "member.sessions_revoked", target: "member@example.test" },
           ]);
+        });
+
+        const studioId = async () => {
+          const [studio] = await db
+            .select({ id: schema.organisations.id })
+            .from(schema.organisations)
+            .where(eq(schema.organisations.slug, "studio"));
+          return studio?.id ?? "";
+        };
+
+        it("shows a workspace's storage and settings to an operator and its own owner alone", async () => {
+          const operator = cookieOf(await setup());
+          const id = await studioId();
+          const [project] = await db
+            .insert(schema.projects)
+            .values({ organisationId: id, name: "Joplin Rags", profile: "music" })
+            .returning();
+          const original = await storage.put(id, Buffer.from("an original recording"));
+          await storage.put(id, Buffer.from("a rendition"));
+          await db.insert(schema.files).values({
+            organisationId: id,
+            projectId: project?.id ?? "",
+            name: "Maple Leaf Rag.wav",
+            kind: "audio",
+            blobId: original.id,
+            contentType: "audio/wav",
+            byteSize: original.byteSize,
+          });
+          const stored = (await (
+            await get(`/api/instance/workspaces/${id}/storage`, operator)
+          ).json()) as {
+            originalBytes: number;
+            derivedBytes: number;
+            backend: string;
+            backends: { name: string; objects: number }[];
+          };
+          expect(stored).toMatchObject({
+            originalBytes: original.byteSize,
+            derivedBytes: "a rendition".length,
+            backend: "local",
+            backends: [{ name: "local", objects: 2 }],
+          });
+          await app.request("/api/organisation/settings", {
+            ...json({ guestLinkDays: 14 }, operator),
+            method: "PATCH",
+          });
+          const settings = (await (
+            await get(`/api/instance/workspaces/${id}/settings`, operator)
+          ).json()) as { guestLinkDays: number; sso: unknown; directory: boolean };
+          expect(settings).toMatchObject({ guestLinkDays: 14, sso: null, directory: false });
+
+          // Another workspace's owner finds none of it.
+          const owner = await join(operator, "member@example.test");
+          const [user] = await db
+            .select({ id: schema.users.id })
+            .from(schema.users)
+            .where(eq(schema.users.email, "member@example.test"));
+          const elsewhere = await another("Saltmarsh Films", "elsewhere-storage-tab");
+          await db
+            .insert(schema.members)
+            .values({ organisationId: elsewhere, userId: user?.id ?? "", role: "owner" });
+          for (const path of ["/storage", "/settings", "/keys"]) {
+            expect((await get(`/api/instance/workspaces/${id}${path}`, owner)).status).toBe(404);
+            expect((await get(`/api/instance/workspaces/${elsewhere}${path}`, owner)).status).toBe(
+              200,
+            );
+          }
+        });
+
+        it("rotates a workspace's key and rewraps everything it holds, which still opens", async () => {
+          const operator = cookieOf(await setup());
+          const id = await studioId();
+          const blob = await storage.put(id, Buffer.from("the album master"));
+          type Keys = { current: number; pending: number; versions: { version: number }[] };
+          const keys = async () =>
+            (await (await get(`/api/instance/workspaces/${id}/keys`, operator)).json()) as Keys;
+          expect(await keys()).toMatchObject({ current: 1, pending: 0 });
+
+          sent.length = 0;
+          const rotated = await send(
+            "POST",
+            `/api/instance/workspaces/${id}/keys/rotate`,
+            {},
+            operator,
+          );
+          expect(await rotated.json()).toEqual({ version: 2 });
+          expect(sent).toEqual([{ name: "organisation-rewrap", data: { organisationId: id } }]);
+          expect(await keys()).toMatchObject({ current: 2, pending: 1 });
+          // What the old version wraps opens until it is rewrapped, and after.
+          const read = async () =>
+            (await buffer((await storage.open(id, blob.id)).stream)).toString();
+          expect(await read()).toBe("the album master");
+          expect(await rewrapOrganisation(db, keyring, id)).toBe(1);
+          expect(await keys()).toMatchObject({ current: 2, pending: 0 });
+          expect(await read()).toBe("the album master");
+          // New bytes are wrapped with the new version.
+          const later = await storage.put(id, Buffer.from("a later mix"));
+          const [row] = await db
+            .select({ keyVersion: schema.blobs.keyVersion })
+            .from(schema.blobs)
+            .where(eq(schema.blobs.id, later.id));
+          expect(row?.keyVersion).toBe(2);
+          // A rotation whose job never ran is caught by the hourly sweep.
+          await send("POST", `/api/instance/workspaces/${id}/keys/rotate`, {}, operator);
+          expect(await keys()).toMatchObject({ current: 3, pending: 2 });
+          expect(await rewrapBehind(db, keyring)).toBe(2);
+          expect(await keys()).toMatchObject({ current: 3, pending: 0 });
+          expect(await read()).toBe("the album master");
+
+          const owner = await join(operator, "label@example.test", "owner");
+          expect((await get(`/api/instance/workspaces/${id}/keys`, owner)).status).toBe(200);
+          expect(
+            (await send("POST", `/api/instance/workspaces/${id}/keys/rotate`, {}, owner)).status,
+          ).toBe(403);
+        });
+
+        it("deletes a suspended workspace once its grace period is over, with everything in it", async () => {
+          const operator = cookieOf(await setup());
+          // A second workspace, whose content is a studio's: a track with a version, its file,
+          // and the access log.
+          const id = await another("Lantern Pictures", "elsewhere-purge");
+          const [project] = await db
+            .insert(schema.projects)
+            .values({ organisationId: id, name: "Opening titles", profile: "music" })
+            .returning();
+          const blob = await storage.put(id, Buffer.from("the cut"));
+          const [file] = await db
+            .insert(schema.files)
+            .values({
+              organisationId: id,
+              projectId: project?.id ?? "",
+              name: "Cut 3.wav",
+              kind: "audio",
+              blobId: blob.id,
+              contentType: "audio/wav",
+              byteSize: blob.byteSize,
+            })
+            .returning();
+          const [track] = await db
+            .insert(schema.tracks)
+            .values({ organisationId: id, projectId: project?.id ?? "", name: "Main titles" })
+            .returning();
+          const [version] = await db
+            .insert(schema.versions)
+            .values({ organisationId: id, trackId: track?.id ?? "", number: 1 })
+            .returning();
+          await db.insert(schema.variations).values({
+            organisationId: id,
+            versionId: version?.id ?? "",
+            fileId: file?.id ?? "",
+            name: "Mix",
+            isPrimary: true,
+          });
+          await audit.record(id, { type: "system", label: "Hekate" }, { action: "file.upload" });
+
+          const del = (path = "") =>
+            send("POST", `/api/instance/workspaces/${id}/delete${path}`, {}, operator);
+          expect((await del()).status).toBe(409);
+          await send(
+            "POST",
+            `/api/instance/workspaces/${id}/suspend`,
+            { reason: "Closed" },
+            operator,
+          );
+          const scheduled = await del();
+          expect(scheduled.status).toBe(200);
+          const { deleteAfter } = (await scheduled.json()) as { deleteAfter: string };
+          const days = (new Date(deleteAfter).getTime() - Date.now()) / 86_400_000;
+          expect(Math.round(days)).toBe(30);
+          expect((await del()).status).toBe(409);
+          expect((await del("/cancel")).status).toBe(204);
+          expect((await del("/cancel")).status).toBe(409);
+          expect((await del()).status).toBe(200);
+
+          // Not before its time.
+          expect(await purgeDueWorkspaces(db, backends)).toBe(0);
+          const owner = await join(operator, "label@example.test", "owner");
+          expect((await del("/cancel")).status).toBe(204);
+          expect(
+            (await send("POST", `/api/instance/workspaces/${id}/delete`, {}, owner)).status,
+          ).toBe(403);
+          expect((await del()).status).toBe(200);
+          const after = new Date(Date.now() + 31 * 86_400_000);
+          expect(await purgeDueWorkspaces(db, backends, after)).toBe(1);
+          const [gone] = await db
+            .select()
+            .from(schema.organisations)
+            .where(eq(schema.organisations.id, id));
+          expect(gone).toBeUndefined();
+          const left = [];
+          for await (const object of backends.get(blob.backend).list(`org/${id}/`))
+            left.push(object);
+          expect(left).toEqual([]);
+          const [event] = await db
+            .select({ target: schema.instanceEvents.target })
+            .from(schema.instanceEvents)
+            .where(eq(schema.instanceEvents.action, "workspace.purged"));
+          expect(event?.target).toBe("Lantern Pictures");
+          // The other workspace is untouched.
+          expect((await getAs("/api/projects", operator)).status).toBe(200);
         });
       });
     });
