@@ -731,6 +731,8 @@ export const tracks = pgTable(
     scoreFileId: uuid("score_file_id").references(() => files.id, { onDelete: "set null" }),
     /** What its versions are measured against, over the project's (#144). */
     deliveryProfile: text("delivery_profile").$type<ProfileRef>(),
+    /** The references its comments may name, over the project's; null keeps the project's (#240). */
+    commentReferences: jsonb("comment_references").$type<CommentReferences>(),
     position: integer("position").notNull().default(0),
     ...timestamps,
   },

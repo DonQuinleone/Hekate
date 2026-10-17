@@ -1,5 +1,5 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { type PlayerTool, referencesOf } from "@hekate/shared";
+import type { PlayerTool } from "@hekate/shared";
 import { unwrapKey } from "@hekate/storage";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, count, eq, sql } from "drizzle-orm";
@@ -29,6 +29,7 @@ import {
   verifyPlayback,
 } from "../playback.ts";
 import { admit, tooMany } from "../rate-limit.ts";
+import { referencesOfFile } from "../references.ts";
 import type { Storage } from "../storage.ts";
 import {
   assertOpen,
@@ -170,7 +171,10 @@ export const fileRoutes = (deps: PlaybackDeps) =>
         file: {
           ...shownFile,
           // What reviewers may type beside a comment (#240).
-          references: referencesOf(commentReferences, file.profile),
+          references: await referencesOfFile(deps.db, c.var.organisationId, file.id, {
+            profile: file.profile,
+            commentReferences,
+          }),
           variation: variation ?? null,
           grant: access?.grant ?? null,
           // A member's player tools, from their role (#240); a guest's come with their grant.

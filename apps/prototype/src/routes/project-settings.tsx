@@ -517,6 +517,35 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
             />
             <SwitchRow name="Beats" checked={project.references.beat} />
           </Section>
+          {tracks.some((t) => t.projectId === project.id) && (
+            <Section title="Overrides" intro="Tracks whose comments name other references.">
+              {tracks
+                .filter((t) => t.projectId === project.id)
+                .map((t) => (
+                  <Row
+                    key={t.id}
+                    name={
+                      <Link
+                        to="/tracks/$trackId"
+                        params={{ trackId: t.id }}
+                        className="hover:text-signal"
+                      >
+                        {t.name}
+                      </Link>
+                    }
+                  >
+                    <Select defaultValue="" className="w-56">
+                      <option value="">Project default</option>
+                      <option value="none">None</option>
+                      <option value="bars">Bars</option>
+                      <option value="bars-beats">Bars and beats</option>
+                      <option value="pages-bars">Pages and bars</option>
+                      <option value="pages-bars-beats">Pages, bars and beats</option>
+                    </Select>
+                  </Row>
+                ))}
+            </Section>
+          )}
           <Section
             title="Categories"
             intro="Producers mark comments so each kind goes where it belongs."

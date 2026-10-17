@@ -9,6 +9,8 @@ import {
   type ProjectProfile,
   profileFor,
   profiles,
+  referenceSetOf,
+  referenceSets,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -43,6 +45,7 @@ import {
   useProjectCan,
   useTemplateMutations,
   useTrackDeliveryProfile,
+  useTrackReferences,
   useUpdateProject,
   workspaceSettingsQuery,
 } from "~/lib/queries";
@@ -383,6 +386,9 @@ function Comments({ project }: { project: Project }) {
   const update = useUpdateProject(project.id);
   // The profile's references until the project chooses its own (#240).
   const references = project.references ?? defaultReferences(project.profile);
+  // Tracks may choose their own (#240).
+  const { data: tracks } = useQuery(projectTracksQuery(project.id));
+  const onTrack = useTrackReferences(project.id);
   const { data: categories } = useQuery(categoriesQuery(project.id));
   const { remove } = useCategoryMutations(project.id);
   const [editing, setEditing] = useState<CommentCategory | "new" | null>(null);
@@ -392,7 +398,7 @@ function Comments({ project }: { project: Project }) {
     <>
       <Section
         title="References"
-        intro="What reviewers can type beside a comment, as they read it from the score or the document. Never derived from the time; never on the scrub bar."
+        intro="What reviewers can type beside a comment, as they read it from the score or the document. Never derived from the time; never on the scrub bar. Each track can also have its own."
       >
         <SwitchRow
           name="Pages"
@@ -415,6 +421,48 @@ function Comments({ project }: { project: Project }) {
           onChange={(beat) => update.mutate({ references: { ...references, beat } })}
         />
       </Section>
+      {onTrack.error && <p className="-mt-6 text-[13px] text-signal">{onTrack.error.message}</p>}
+      {tracks && tracks.length > 0 && (
+        <Section title="Overrides" intro="Tracks whose comments name other references.">
+          {tracks.map((t) => (
+            <Row
+              key={t.id}
+              name={
+                <Link
+                  to="/tracks/$trackId"
+                  params={{ trackId: t.id }}
+                  className="transition-colors hover:text-signal"
+                >
+                  {t.name}
+                </Link>
+              }
+            >
+              <Select
+                size="sm"
+                value={t.commentReferences ? (referenceSetOf(t.commentReferences) ?? "") : ""}
+                aria-label={`References of ${t.name}`}
+                disabled={!can("edit_project")}
+                onChange={(event) =>
+                  onTrack.mutate({
+                    trackId: t.id,
+                    references:
+                      referenceSets.find((set) => set.id === event.target.value)?.references ??
+                      null,
+                  })
+                }
+                className="w-full @3xl/app:w-56"
+              >
+                <option value="">Project default</option>
+                {referenceSets.map((set) => (
+                  <option key={set.id} value={set.id}>
+                    {set.label}
+                  </option>
+                ))}
+              </Select>
+            </Row>
+          ))}
+        </Section>
+      )}
       <Section
         title="Categories"
         intro="Triage marks comments with a category, so each kind goes where it belongs."
