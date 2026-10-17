@@ -1,7 +1,14 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { deliveryFindings, orderFindings, type QaFinding } from "@hekate/shared";
+import {
+  applyQaSettings,
+  deliveryFindings,
+  orderFindings,
+  type QaFinding,
+  qaSettingsOf,
+  ruleFindings,
+} from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -10,7 +17,7 @@ import { profilesForFiles } from "../delivery-profiles.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
 
-const { files, loudness, qaFindings } = schema;
+const { files, loudness, projects, qaFindings } = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
@@ -29,11 +36,17 @@ export const fileQaRoutes = (db: Database) =>
     const organisationId = c.var.organisationId;
     const [file] = await db
       .select({
+        name: files.name,
         kind: files.kind,
         mediaInfo: files.mediaInfo,
         analysisStatus: files.analysisStatus,
+        qaSettings: projects.qaSettings,
       })
       .from(files)
+      .innerJoin(
+        projects,
+        and(eq(projects.id, files.projectId), eq(projects.organisationId, organisationId)),
+      )
       .where(inOrg(files, organisationId, eq(files.id, id)));
     if (!file) throw new NotFound("File");
     const channels = file.mediaInfo?.audio?.channels;
@@ -59,9 +72,14 @@ export const fileQaRoutes = (db: Database) =>
       })
       .from(qaFindings)
       .where(inOrg(qaFindings, organisationId, eq(qaFindings.fileId, id)));
+    // As the project wants them (#144): its switches and severities, and its own rules.
+    const settings = qaSettingsOf(file.qaSettings);
     const findings: QaFinding[] = [
-      ...deliveryFindings(chosen.profile, file.mediaInfo, measured?.summary ?? null),
-      ...signal,
+      ...applyQaSettings(
+        [...deliveryFindings(chosen.profile, file.mediaInfo, measured?.summary ?? null), ...signal],
+        settings,
+      ),
+      ...ruleFindings(settings.rules, file, file.mediaInfo, measured?.summary ?? null),
     ];
     return c.json({
       status: file.analysisStatus,

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AnchorKind } from "./anchor.ts";
 import { profileRef } from "./qa.ts";
+import { qaSettings } from "./qa-rules.ts";
 
 /**
  * A project's profile decides which tools and anchors appear. Any kind of file can live in any
@@ -77,6 +78,8 @@ export const updateProjectInput = z
     checkTruePeak: z.boolean().optional(),
     /** Refuse a new version without an edit decision list. */
     requireEdl: z.boolean().optional(),
+    /** Its QA rules, as a whole (#144). */
+    qaSettings: qaSettings.optional(),
   })
   .refine(
     (u) =>
@@ -86,7 +89,8 @@ export const updateProjectInput = z
       u.carriedCommentsShown !== undefined ||
       u.deliveryProfile !== undefined ||
       u.checkTruePeak !== undefined ||
-      u.requireEdl !== undefined,
+      u.requireEdl !== undefined ||
+      u.qaSettings !== undefined,
     { message: "Nothing to change" },
   );
 export type UpdateProjectInput = z.infer<typeof updateProjectInput>;
