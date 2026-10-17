@@ -2882,6 +2882,71 @@ describe.runIf(url)("api", () => {
         expect((await storage.put(organisationId, Buffer.from("third"))).backend).toBe("local");
       });
 
+      it("lets owners choose a project's backend for its new files, over the workspace's (#240)", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const made = await app.request(
+          "/api/projects",
+          json({ name: "Opening titles", profile: "video" }, owner),
+        );
+        const projectId = ((await made.json()) as { project: { id: string } }).project.id;
+        const path = `/api/projects/${projectId}/storage`;
+        const put = (backend: string | null, cookie: string, url = path) =>
+          app.request(url, { ...json({ backend }, cookie), method: "PUT" });
+        const before = await storage.put(organisationId, Buffer.from("first"), { projectId });
+
+        expect(await (await app.request(path, { headers: { cookie: owner } })).json()).toEqual({
+          backend: null,
+          workspaceBackend: "local",
+          available: ["local", "spare"],
+          bytes: 0,
+        });
+        expect((await put("tape", owner)).status).toBe(400);
+        expect((await put("spare", owner)).status).toBe(200);
+        // The project's files go to its own backend; the workspace's others stay on the default.
+        expect((await storage.put(organisationId, Buffer.from("x"), { projectId })).backend).toBe(
+          "spare",
+        );
+        expect((await storage.put(organisationId, Buffer.from("y"))).backend).toBe("local");
+        const session = await storage.beginUpload(organisationId, 5, "audio/wav", projectId);
+        expect(session.backend).toBe("spare");
+        await storage.abortUpload(session);
+        // Existing objects stay readable where they are.
+        expect(
+          (await buffer((await storage.open(organisationId, before.id)).stream)).toString(),
+        ).toBe("first");
+
+        // Admins see it; only owners choose; members see nothing.
+        const admin = await joinAs(owner, "engineer@example.test", "admin");
+        expect((await app.request(path, { headers: { cookie: admin } })).status).toBe(200);
+        expect((await put(null, admin)).status).toBe(403);
+        const member = await joinAs(owner, "player@example.test", "member");
+        expect((await app.request(path, { headers: { cookie: member } })).status).toBe(403);
+
+        // Another workspace's project cannot be found.
+        const [elsewhere] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-storage" })
+          .returning();
+        const [foreign] = await db
+          .insert(schema.projects)
+          .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+          .returning();
+        expect((await put("spare", owner, `/api/projects/${foreign?.id}/storage`)).status).toBe(
+          404,
+        );
+
+        expect((await put(null, owner)).status).toBe(200);
+        expect((await storage.put(organisationId, Buffer.from("z"), { projectId })).backend).toBe(
+          "local",
+        );
+        // An archived project is read-only: its storage too.
+        expect(
+          (await app.request(`/api/projects/${projectId}/archive`, json({}, owner))).status,
+        ).toBe(204);
+        expect((await put("spare", owner)).status).toBe(409);
+      });
+
       it("lets only owners rename the workspace", async () => {
         const owner = cookieOf(await setup());
         const rename = (name: string, cookie: string) =>

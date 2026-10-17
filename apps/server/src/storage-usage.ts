@@ -40,40 +40,7 @@ export async function workspaceStorage(
   const byBackend = await db.execute<{ name: string; bytes: string; objects: string }>(sql`
     select backend as name, coalesce(sum(byte_size), 0)::text as bytes, count(*)::text as objects
     from blobs where organisation_id = ${org} group by backend order by backend`);
-  const byProject = await db.execute<{ id: string; name: string; bytes: string }>(sql`
-    with used as (
-      select f.project_id, f.blob_id from files f
-        where f.organisation_id = ${org} and f.blob_id is not null
-      union select f.project_id, r.init_blob_id from renditions r
-        join files f on f.id = r.file_id and f.organisation_id = ${org}
-        where r.organisation_id = ${org}
-      union select f.project_id, s.blob_id from rendition_segments s
-        join renditions r on r.id = s.rendition_id and r.organisation_id = ${org}
-        join files f on f.id = r.file_id and f.organisation_id = ${org}
-        where s.organisation_id = ${org}
-      union select f.project_id, p.blob_id from peak_levels p
-        join files f on f.id = p.file_id and f.organisation_id = ${org}
-        where p.organisation_id = ${org}
-      union select f.project_id, p.blob_id from file_pages p
-        join files f on f.id = p.file_id and f.organisation_id = ${org}
-        where p.organisation_id = ${org}
-      union select f.project_id, p.thumb_blob_id from file_pages p
-        join files f on f.id = p.file_id and f.organisation_id = ${org}
-        where p.organisation_id = ${org} and p.thumb_blob_id is not null
-      union select f.project_id, l.blob_id from loudness l
-        join files f on f.id = l.file_id and f.organisation_id = ${org}
-        where l.organisation_id = ${org} and l.blob_id is not null
-      union select f.project_id, s.blob_id from spectrograms s
-        join files f on f.id = s.file_id and f.organisation_id = ${org}
-        where s.organisation_id = ${org} and s.blob_id is not null
-    )
-    select p.id, p.name, coalesce(sum(b.byte_size), 0)::text as bytes
-    from projects p
-    left join used u on u.project_id = p.id
-    left join blobs b on b.id = u.blob_id and b.organisation_id = ${org}
-    where p.organisation_id = ${org}
-    group by p.id, p.name
-    order by sum(b.byte_size) desc nulls last, p.name`);
+  const byProject = await projectBytes(db, org);
 
   // Findings and runs are instance-wide records; these read only this workspace's.
   const open = (kind: "orphan_object" | "unreferenced_blob" | "missing_object") =>
@@ -165,4 +132,46 @@ export async function recordedReconciliation(
       .set({ finishedAt: new Date() })
       .where(eq(storageReconciliations.id, run.id));
   return reports;
+}
+
+/**
+ * Bytes per project, or for one project: every blob its files use, originals, renditions and
+ * their segments, pages, peaks, loudness and spectrograms. Read within the workspace.
+ */
+export function projectBytes(db: Database, organisationId: string, projectId?: string) {
+  const org = organisationId;
+  return db.execute<{ id: string; name: string; bytes: string }>(sql`
+    with used as (
+      select f.project_id, f.blob_id from files f
+        where f.organisation_id = ${org} and f.blob_id is not null
+      union select f.project_id, r.init_blob_id from renditions r
+        join files f on f.id = r.file_id and f.organisation_id = ${org}
+        where r.organisation_id = ${org}
+      union select f.project_id, s.blob_id from rendition_segments s
+        join renditions r on r.id = s.rendition_id and r.organisation_id = ${org}
+        join files f on f.id = r.file_id and f.organisation_id = ${org}
+        where s.organisation_id = ${org}
+      union select f.project_id, p.blob_id from peak_levels p
+        join files f on f.id = p.file_id and f.organisation_id = ${org}
+        where p.organisation_id = ${org}
+      union select f.project_id, p.blob_id from file_pages p
+        join files f on f.id = p.file_id and f.organisation_id = ${org}
+        where p.organisation_id = ${org}
+      union select f.project_id, p.thumb_blob_id from file_pages p
+        join files f on f.id = p.file_id and f.organisation_id = ${org}
+        where p.organisation_id = ${org} and p.thumb_blob_id is not null
+      union select f.project_id, l.blob_id from loudness l
+        join files f on f.id = l.file_id and f.organisation_id = ${org}
+        where l.organisation_id = ${org} and l.blob_id is not null
+      union select f.project_id, s.blob_id from spectrograms s
+        join files f on f.id = s.file_id and f.organisation_id = ${org}
+        where s.organisation_id = ${org} and s.blob_id is not null
+    )
+    select p.id, p.name, coalesce(sum(b.byte_size), 0)::text as bytes
+    from projects p
+    left join used u on u.project_id = p.id
+    left join blobs b on b.id = u.blob_id and b.organisation_id = ${org}
+    where p.organisation_id = ${org} ${projectId ? sql`and p.id = ${projectId}` : sql``}
+    group by p.id, p.name
+    order by sum(b.byte_size) desc nulls last, p.name`);
 }

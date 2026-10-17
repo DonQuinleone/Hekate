@@ -439,6 +439,8 @@ export const projects = pgTable(
     deletionRequestedAt: timestamp("deletion_requested_at", { withTimezone: true }),
     /** Once a second owner confirms, when it goes for good; kept until then, read-only (#240). */
     deleteAfter: timestamp("delete_after", { withTimezone: true }),
+    /** The storage backend for this project's new files (#240); null follows the workspace's. */
+    storageBackend: text("storage_backend"),
     /**
      * Whether its comment categories have been made: a new project gets the defaults at once,
      * one made before categories existed the first time its categories are read.

@@ -23,7 +23,7 @@ import { eq } from "drizzle-orm";
 import { NotFound } from "./errors.ts";
 import type { Keyring } from "./keyring.ts";
 
-const { blobs, organisations } = schema;
+const { blobs, organisations, projects } = schema;
 
 export type Blob = typeof blobs.$inferSelect;
 
@@ -34,13 +34,13 @@ export type Blob = typeof blobs.$inferSelect;
  */
 export interface Storage {
   readonly backends: Backends;
-  /** The backend new objects for this organisation go to. */
-  backendFor(organisationId: string): Promise<string>;
-  /** Store bytes for an organisation and record the blob. */
+  /** The backend new objects for this organisation, or one of its projects, go to. */
+  backendFor(organisationId: string, projectId?: string): Promise<string>;
+  /** Store bytes for an organisation and record the blob, in the project's backend if given. */
   put(
     organisationId: string,
     body: Readable | Uint8Array,
-    options?: { contentType?: string },
+    options?: { contentType?: string; projectId?: string },
   ): Promise<Blob>;
   /** Read a blob, or a byte range of it, within its organisation. */
   open(
@@ -56,6 +56,7 @@ export interface Storage {
     organisationId: string,
     byteSize: number,
     contentType: string,
+    projectId?: string,
   ): Promise<UploadSession>;
   /** Encrypt and store one chunk. Returns the tag needed to complete. */
   putUploadChunk(
@@ -98,12 +99,19 @@ export function createStorage(db: Database, backends: Backends, keyring: Keyring
     return blob;
   };
 
-  const backendFor = async (organisationId: string) => {
+  const backendFor = async (organisationId: string, projectId?: string) => {
     const [organisation] = await db
       .select({ storageBackend: organisations.storageBackend })
       .from(organisations)
       .where(eq(organisations.id, organisationId));
-    const name = organisation?.storageBackend ?? backends.defaultBackend;
+    // A project's own choice comes first (#240), then the workspace's, then the instance's.
+    const [project] = projectId
+      ? await db
+          .select({ storageBackend: projects.storageBackend })
+          .from(projects)
+          .where(inOrg(projects, organisationId, eq(projects.id, projectId)))
+      : [];
+    const name = project?.storageBackend ?? organisation?.storageBackend ?? backends.defaultBackend;
     if (!backends.has(name)) {
       // The organisation chose a backend the operator has since removed: fail loudly, never fall back silently.
       throw new StorageConfigError(
@@ -118,7 +126,7 @@ export function createStorage(db: Database, backends: Backends, keyring: Keyring
     backendFor,
 
     async put(organisationId, body, options) {
-      const name = await backendFor(organisationId);
+      const name = await backendFor(organisationId, options?.projectId);
       const backend = backends.get(name);
       const id = uuidv7();
       const key = objectKey(organisationId, id);
@@ -212,8 +220,8 @@ export function createStorage(db: Database, backends: Backends, keyring: Keyring
       return { blob, stream: ciphertext.pipe(decrypt) };
     },
 
-    async beginUpload(organisationId, byteSize, contentType) {
-      const name = await backendFor(organisationId);
+    async beginUpload(organisationId, byteSize, contentType, projectId) {
+      const name = await backendFor(organisationId, projectId);
       const blobId = uuidv7();
       const key = objectKey(organisationId, blobId);
       const organisationKey = await keyring.current(organisationId);

@@ -37,11 +37,18 @@ function shown<
     deletionRequestedBy?: unknown;
     deletionRequestedAt?: unknown;
     deleteAfter?: unknown;
+    storageBackend?: unknown;
   },
 >(project: P) {
-  // A deletion waiting is shown on its own, to those it concerns (#240).
-  const { commentReferences, deletionRequestedBy, deletionRequestedAt, deleteAfter, ...rest } =
-    project;
+  // A deletion waiting is shown on its own, to those it concerns (#240); storage, to admins.
+  const {
+    commentReferences,
+    deletionRequestedBy,
+    deletionRequestedAt,
+    deleteAfter,
+    storageBackend,
+    ...rest
+  } = project;
   return { ...rest, references: referencesOf(commentReferences, project.profile) };
 }
 

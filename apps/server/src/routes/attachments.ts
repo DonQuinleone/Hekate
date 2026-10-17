@@ -124,7 +124,10 @@ export const attachmentRoutes = (deps: AttachmentDeps) =>
         if (bytes.length > COMMENT_ATTACHMENT_MAX_BYTES)
           throw new HTTPException(413, { message: "An attachment can be at most 25 MB" });
         const contentType = contentTypeOf(c.req.header("content-type"));
-        const blob = await storage.put(organisationId, bytes, { contentType });
+        const blob = await storage.put(organisationId, bytes, {
+          contentType,
+          projectId: access.projectId,
+        });
         try {
           const made = await db.transaction(async (tx) => {
             // Again under the comment's lock, so two at once cannot pass the limit together.
