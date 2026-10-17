@@ -89,6 +89,14 @@ export const auditActions = [
   /** A project was archived (its open reviews closing), or brought back. */
   "project.archive",
   "project.unarchive",
+  /**
+   * Someone asked to delete a project; a second owner confirmed it, so it goes in seven days;
+   * the request was withdrawn, or the project kept; it was deleted for good.
+   */
+  "project.deletion_request",
+  "project.deletion_confirm",
+  "project.deletion_cancel",
+  "project.delete",
 ] as const;
 export const auditAction = z.enum(auditActions);
 export type AuditAction = z.infer<typeof auditAction>;

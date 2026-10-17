@@ -44,4 +44,8 @@ export const actionCopy: Record<string, string> = {
   "account.sso_sign_in": "Signed in with single sign-on",
   "project.archive": "Project archived",
   "project.unarchive": "Project brought back",
+  "project.deletion_request": "Project deletion asked for",
+  "project.deletion_confirm": "Project deletion confirmed",
+  "project.deletion_cancel": "Project deletion withdrawn",
+  "project.delete": "Project deleted",
 };

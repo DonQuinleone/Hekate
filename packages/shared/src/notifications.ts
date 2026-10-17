@@ -22,6 +22,8 @@ export const notificationKinds = [
   "guest_opened",
   /** A review waiting on you is due tomorrow. */
   "due_soon",
+  /** Someone asked to delete a project, for a workspace owner to confirm (#240). */
+  "deletion_requested",
   /** Someone sent you the comments assigned to you on a file. */
   "assigned",
 ] as const;
@@ -48,6 +50,7 @@ export const notificationDefaults: Record<NotificationKind, NotificationChannels
   version: { app: true, mail: false },
   processing_failed: { app: true, mail: true },
   guest_opened: { app: false, mail: false },
+  deletion_requested: { app: true, mail: true },
   due_soon: { app: true, mail: true },
   assigned: { app: true, mail: true },
 };

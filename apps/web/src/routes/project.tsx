@@ -16,6 +16,7 @@ import {
   projectQuery,
   useArchiveProject,
   useProjectCan,
+  useProjectDeletion,
 } from "~/lib/queries";
 import { ProjectOverview } from "~/routes/overview";
 
@@ -66,9 +67,33 @@ const dayFormat = formatDates({
   year: "numeric",
 });
 
-/** An archived project opens as it was, read-only; those who run it can bring it back. */
+/**
+ * An archived project opens as it was, read-only; those who run it can bring it back. One whose
+ * deletion was confirmed says when it goes, and can be kept until then (#240).
+ */
 function ArchivedNotice({ project }: { project: Project }) {
   const archive = useArchiveProject();
+  const { cancel } = useProjectDeletion(project.id);
+  const deleteAfter = project.deletion?.deleteAfter;
+  if (deleteAfter)
+    return (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-raised/40 px-5 py-2 text-[13px] text-ink-2 @3xl/app:px-10">
+        <Icon name="warning" size={14} className="text-signal" />
+        <span className="min-w-0 flex-1">
+          To be deleted for good on {dayFormat.format(new Date(deleteAfter))}. Read-only until then.
+        </span>
+        {project.deletion?.mayCancel && (
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={cancel.isPending}
+            onClick={() => cancel.mutate()}
+          >
+            Keep it
+          </Button>
+        )}
+      </div>
+    );
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-raised/40 px-5 py-2 text-[13px] text-ink-2 @3xl/app:px-10">
       <Icon name="archive" size={14} className="text-ink-3" />
