@@ -5,6 +5,8 @@ import {
   type ErrorSource,
   errorReferenceParam,
   errorReportsQuery,
+  flagInput,
+  flagParam,
   type InspectKind,
   type InstanceAccess,
   type InstanceMemberRow,
@@ -19,6 +21,7 @@ import {
   inspectFileParam,
   inspectReviewParam,
   inspectSessionParam,
+  instanceFlags,
   instanceWorkspacesQuery,
   newWorkspaceInput,
   type OperatorRow,
@@ -56,13 +59,15 @@ import { requestInfo } from "../audit.ts";
 import type { Auth } from "../auth.ts";
 import { workspaceEmail } from "../email/templates.ts";
 import { CodedException, NotFound } from "../errors.ts";
+import { createFlags } from "../flags.ts";
 import { inspectFile, inspectReview, inspectSession } from "../inspect.ts";
 import { INVITATION_LIFETIME_MS, newInvitationToken } from "../invitation-token.ts";
-import type { Jobs } from "../jobs.ts";
+import { type JobName, type Jobs, jobDefinitions } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { factorStanding, type SecondFactorRule } from "../tenancy.ts";
 import { pendingRewrap } from "../workspace-keys.ts";
+import { retryFile } from "./retry.ts";
 
 /**
  * The instance side (#155, decision 062). Operators manage every workspace; a workspace's
@@ -335,6 +340,7 @@ function workspaceOf(
 }
 
 export function instanceRoutes(options: InstanceOptions) {
+  const flags = createFlags(options.db);
   /**
    * An operator looked into a workspace: what, and where. The workspace's id is kept beside
    * its name, which can change or be shared by another.
@@ -1261,5 +1267,69 @@ export function instanceRoutes(options: InstanceOptions) {
         await inspected(c, "session", id, found.workspace, found.who.email);
         return c.json(found);
       })
+      // A job's failure, run again (#159): a file's preparation by its retry plan, any other job
+      // with the data it had. Written to the instance's events.
+      .post("/errors/:reference/retry", zValidator("param", errorReferenceParam), async (c) => {
+        const { reference } = c.req.valid("param");
+        const [report] = await db
+          .select({
+            source: schema.errorReports.source,
+            location: schema.errorReports.location,
+            context: schema.errorReports.context,
+            organisationId: schema.errorReports.organisationId,
+          })
+          .from(schema.errorReports)
+          .where(eq(schema.errorReports.reference, reference));
+        if (!report) throw new NotFound("Error report");
+        if (report.source !== "worker")
+          throw new CodedException(409, "not_a_job", "Only a job's failure can be run again");
+        const context = (report.context ?? {}) as Record<string, unknown>;
+        let queued: string[];
+        if (typeof context.fileId === "string" && report.organisationId) {
+          queued = await retryFile(db, options.jobs, report.organisationId, context.fileId);
+        } else {
+          const name = report.location as JobName;
+          const parsed = jobDefinitions[name]?.data.safeParse(context);
+          if (!parsed?.success)
+            throw new CodedException(409, "not_retryable", "This job cannot be run again");
+          // The data is the job's own, checked against its schema; the queue checks it again.
+          const id = await options.jobs.send(name, parsed.data as never).catch(() => null);
+          if (!id)
+            throw new HTTPException(503, { message: "The queue would not take it; try again" });
+          queued = [name];
+        }
+        await recordInstanceEvent(db, {
+          actorId: c.var.userId,
+          action: "debug.job_retried",
+          target: reference,
+          details: { jobs: queued, organisationId: report.organisationId },
+          ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+        });
+        return c.json({ jobs: queued }, 202);
+      })
+      // The instance's flags (#159): read as the server runs, so turning one needs no restart.
+      .use("/flags", operatorsOnly)
+      .use("/flags/*", operatorsOnly)
+      .get("/flags", async (c) => c.json({ flags: await flags.list() }))
+      .put(
+        "/flags/:key",
+        zValidator("param", flagParam),
+        zValidator("json", flagInput),
+        async (c) => {
+          const { key } = c.req.valid("param");
+          const { on } = c.req.valid("json");
+          await db.transaction(async (tx) => {
+            await flags.set(key, on, c.var.userId, tx);
+            await recordInstanceEvent(tx, {
+              actorId: c.var.userId,
+              action: on ? "flag.on" : "flag.off",
+              target: instanceFlags[key].label,
+              details: { key },
+              ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+            });
+          });
+          return c.json({ flags: await flags.list() });
+        },
+      )
   );
 }

@@ -31,6 +31,7 @@ import {
   type GuestInput,
   type InspectKind,
   type InstanceAccess,
+  type InstanceFlag,
   type InstanceMemberRow,
   type InstanceOverview,
   type InstanceProjectRow,
@@ -2766,6 +2767,13 @@ export const instanceErrorQuery = (reference: string) =>
       return json<ErrorReport>(res);
     },
   });
+
+/** The instance's flags (#159). */
+export const instanceFlagsQuery = queryOptions({
+  queryKey: ["instance", "flags"],
+  queryFn: async () =>
+    (await json<{ flags: InstanceFlag[] }>(await api.instance.flags.$get())).flags,
+});
 
 /**
  * Debug tools' inspectors (#159). Each look is recorded on the server, so a result is kept

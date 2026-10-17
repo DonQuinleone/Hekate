@@ -445,6 +445,16 @@ test("instance-debug-report", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Debug tools' flags (#159), each taking effect with no restart.
+test("instance-debug-flags", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto("/instance/debug");
+  await settle(page, "main >> text=Verbose logging for the worker");
+  await page.getByText("Verbose logging for the worker").scrollIntoViewIfNeeded();
+  await saveScreen(page, "instance-debug-flags");
+  await checkScreen(page);
+});
+
 // Debug tools' inspectors (#159): a file, a review and this very session.
 for (const [name, label, ready] of [
   ["instance-inspect-file", "File id or link", "main >> text=Stored"],

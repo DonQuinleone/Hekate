@@ -3,6 +3,7 @@ import {
   errorReportText,
   formatBytes,
   type InstanceAccess,
+  type InstanceFlag,
   type InstanceMemberRow,
   type InstanceSection,
   type InstanceWorkspace,
@@ -23,7 +24,7 @@ import { Icon } from "~/components/icons";
 import { Code, Fact, Inspect } from "~/components/inspect";
 import { Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
-import { Danger, Row, Section } from "~/components/settings";
+import { Danger, Row, Section, SwitchRow } from "~/components/settings";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
@@ -42,6 +43,7 @@ import {
   instanceAccessQuery,
   instanceErrorQuery,
   instanceErrorsQuery,
+  instanceFlagsQuery,
   instanceKeysQuery,
   instanceMembersQuery,
   instanceOperatorsQuery,
@@ -248,8 +250,16 @@ function Debug() {
   const [since] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
   const { data: errors } = useQuery(instanceErrorsQuery(since));
   const report = useQuery({ ...instanceErrorQuery(reference ?? ""), enabled: !!reference });
+  // Running a job's failure again (#159): its file's preparation, or the job with its data.
+  const retry = useMutation({
+    mutationFn: async (reference: string) =>
+      json<{ jobs: string[] }>(
+        await api.instance.errors[":reference"].retry.$post({ param: { reference } }),
+      ),
+  });
   const lookUp = (value: string) => {
     const parsed = parseErrorReference(value);
+    retry.reset();
     setInvalid(!parsed);
     setReference(parsed);
     setCopied(false);
@@ -353,7 +363,20 @@ function Debug() {
                   <Icon name="copy" size={13} />
                   {copied ? "Copied" : "Copy the report"}
                 </Button>
+                {r.source === "worker" && (
+                  <Button
+                    variant="secondary"
+                    size="md"
+                    disabled={retry.isPending || retry.isSuccess}
+                    onClick={() => retry.mutate(r.reference)}
+                  >
+                    {retry.isSuccess ? "Running again" : "Retry the job"}
+                  </Button>
+                )}
               </div>
+              {retry.isError && (
+                <p className="m-0 text-[13px] text-signal">{retry.error.message}</p>
+              )}
             </div>
           )}
         </div>
@@ -396,7 +419,45 @@ function Debug() {
           lookUp(reference);
         }}
       />
+      <Flags />
     </>
+  );
+}
+
+/** The instance's flags (#159): each takes effect within moments, with no restart. */
+function Flags() {
+  const client = useQueryClient();
+  const { data: flags } = useQuery(instanceFlagsQuery);
+  const turn = useMutation({
+    mutationFn: async ({ key, on }: { key: InstanceFlag["key"]; on: boolean }) =>
+      (
+        await json<{ flags: InstanceFlag[] }>(
+          await api.instance.flags[":key"].$put({ param: { key }, json: { on } }),
+        )
+      ).flags,
+    onSuccess: (next) => client.setQueryData(instanceFlagsQuery.queryKey, next),
+  });
+  return (
+    <Section
+      title="Flags"
+      intro="Switches for this instance, read as the server runs: each takes effect within moments, with no restart."
+    >
+      {flags?.map((f) => (
+        <SwitchRow
+          key={f.key}
+          name={f.label}
+          hint={
+            f.on && f.until
+              ? `${f.hint}. On until ${clock.format(new Date(f.until))}.`
+              : `${f.hint}.`
+          }
+          checked={f.on}
+          disabled={turn.isPending}
+          onChange={(on) => turn.mutate({ key: f.key, on })}
+        />
+      ))}
+      {turn.isError && <Row name="Not changed" hint={turn.error.message} />}
+    </Section>
   );
 }
 

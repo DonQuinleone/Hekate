@@ -1752,3 +1752,16 @@ export const errorReports = pgTable(
   },
   (t) => [index("error_reports_occurred_idx").on(t.occurredAt)],
 );
+
+/**
+ * Instance flags (#159): switches an operator turns in Debug tools, by key (`instanceFlags` in
+ * packages/shared). Global: a flag is the instance's, not a workspace's.
+ */
+export const instanceFlags = pgTable("instance_flags", {
+  key: text("key").primaryKey(),
+  on: boolean("on").notNull().default(false),
+  /** When it goes off by itself; null lasts until turned off. */
+  until: timestamp("until", { withTimezone: true }),
+  updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});

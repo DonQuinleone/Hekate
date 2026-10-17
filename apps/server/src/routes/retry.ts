@@ -28,64 +28,78 @@ export const fileRetryRoutes = (db: Database, jobs: Pick<Jobs, "send">) =>
       }
       const fileId = c.req.valid("param").id;
       await canOnFile(db, actor, "upload", fileId);
-      const organisationId = actor.organisationId;
-      // Under the row lock, so two retries at once start the work once.
-      const plan = await db.transaction(async (tx) => {
-        const [file] = await tx
-          .select({
-            kind: files.kind,
-            name: files.name,
-            contentType: files.contentType,
-            mediaInfo: files.mediaInfo,
-            streamStatus: files.streamStatus,
-            analysisStatus: files.analysisStatus,
-          })
-          .from(files)
-          .where(inOrg(files, organisationId, eq(files.id, fileId)))
-          .for("update");
-        if (!file) throw new NotFound("File");
-        const next = retryPlan({
-          ...file,
-          drawn: pageSourceOf(file.name, file.contentType) !== null,
-        });
-        if (!next) throw new HTTPException(409, { message: "Nothing about this file failed" });
-        await tx
-          .update(files)
-          .set({ ...next.set, updatedAt: new Date() })
-          .where(inOrg(files, organisationId, eq(files.id, fileId)));
-        return next;
-      });
-      // A job the queue did not take (down, or the failed one not yet finished) would leave
-      // the file waiting for ever: put its stage back to failed, so it can be tried again.
-      const refused: RetryJob[] = [];
-      for (const job of plan.jobs) {
-        const id = await jobs
-          .send(job, { organisationId, fileId }, { singletonKey: fileId })
-          .catch(() => null);
-        if (!id) refused.push(job);
-      }
-      if (refused.length) {
-        const analysis = refused.includes("media-analysis");
-        const stream = refused.some((j) => j !== "media-analysis");
-        await db
-          .update(files)
-          .set({
-            ...(stream
-              ? {
-                  streamStatus: sql`case when ${files.streamStatus} = 'pending' then 'failed'::stream_status else ${files.streamStatus} end`,
-                }
-              : {}),
-            ...(analysis
-              ? {
-                  analysisStatus: sql`case when ${files.analysisStatus} = 'pending' then 'failed'::stream_status else ${files.analysisStatus} end`,
-                }
-              : {}),
-          })
-          .where(inOrg(files, organisationId, eq(files.id, fileId)));
-        throw new HTTPException(503, {
-          message: "Preparing it again could not start; try again in a moment",
-        });
-      }
-      return c.json({ jobs: plan.jobs }, 202);
+      return c.json({ jobs: await retryFile(db, jobs, actor.organisationId, fileId) }, 202);
     },
   );
+
+/**
+ * Prepares a file again after its preparation failed: what failed waits again, and its jobs are
+ * queued. For a member who may upload here, and for an operator from a failure's report (#159).
+ * 404 when it is not in the workspace, 409 when nothing about it failed, 503 when the queue
+ * would not take the work.
+ */
+export async function retryFile(
+  db: Database,
+  jobs: Pick<Jobs, "send">,
+  organisationId: string,
+  fileId: string,
+): Promise<RetryJob[]> {
+  // Under the row lock, so two retries at once start the work once.
+  const plan = await db.transaction(async (tx) => {
+    const [file] = await tx
+      .select({
+        kind: files.kind,
+        name: files.name,
+        contentType: files.contentType,
+        mediaInfo: files.mediaInfo,
+        streamStatus: files.streamStatus,
+        analysisStatus: files.analysisStatus,
+      })
+      .from(files)
+      .where(inOrg(files, organisationId, eq(files.id, fileId)))
+      .for("update");
+    if (!file) throw new NotFound("File");
+    const next = retryPlan({
+      ...file,
+      drawn: pageSourceOf(file.name, file.contentType) !== null,
+    });
+    if (!next) throw new HTTPException(409, { message: "Nothing about this file failed" });
+    await tx
+      .update(files)
+      .set({ ...next.set, updatedAt: new Date() })
+      .where(inOrg(files, organisationId, eq(files.id, fileId)));
+    return next;
+  });
+  // A job the queue did not take (down, or the failed one not yet finished) would leave
+  // the file waiting for ever: put its stage back to failed, so it can be tried again.
+  const refused: RetryJob[] = [];
+  for (const job of plan.jobs) {
+    const id = await jobs
+      .send(job, { organisationId, fileId }, { singletonKey: fileId })
+      .catch(() => null);
+    if (!id) refused.push(job);
+  }
+  if (refused.length) {
+    const analysis = refused.includes("media-analysis");
+    const stream = refused.some((j) => j !== "media-analysis");
+    await db
+      .update(files)
+      .set({
+        ...(stream
+          ? {
+              streamStatus: sql`case when ${files.streamStatus} = 'pending' then 'failed'::stream_status else ${files.streamStatus} end`,
+            }
+          : {}),
+        ...(analysis
+          ? {
+              analysisStatus: sql`case when ${files.analysisStatus} = 'pending' then 'failed'::stream_status else ${files.analysisStatus} end`,
+            }
+          : {}),
+      })
+      .where(inOrg(files, organisationId, eq(files.id, fileId)));
+    throw new HTTPException(503, {
+      message: "Preparing it again could not start; try again in a moment",
+    });
+  }
+  return plan.jobs;
+}
