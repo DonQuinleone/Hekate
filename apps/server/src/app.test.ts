@@ -6557,6 +6557,114 @@ describe.runIf(url)("api", () => {
           expect((await ticket(s.owner)).status).toBe(404);
         });
 
+        it("keeps a track's takes, with their bars, and finds those covering a bar (#21, #46)", async () => {
+          const s = await studio();
+          const recording = async (name: string, kind: "audio" | "document" = "audio") => {
+            const blob = await storage.put(s.organisationId, Buffer.from(name));
+            const [row] = await db
+              .insert(schema.files)
+              .values({
+                organisationId: s.organisationId,
+                projectId: s.projectId,
+                name,
+                kind,
+                blobId: blob.id,
+                contentType: kind === "audio" ? "audio/wav" : "application/pdf",
+                byteSize: blob.byteSize,
+                mediaInfo: { duration: 92.5 } as never,
+              })
+              .returning();
+            return row?.id ?? "";
+          };
+          const t1 = await recording("Take 1.wav");
+          const t2 = await recording("Take 2.wav");
+          const t3 = await recording("Take 3.wav");
+          const add = (fileIds: string[], cookie = s.engineer) =>
+            app.request(`/api/tracks/${s.trackId}/takes`, json({ fileIds }, cookie));
+          type Listed = { takes: { id: string; number: number; file: { id: string } | null }[] };
+
+          // A reviewer sees takes but cannot make them; an engineer can.
+          expect((await add([t1], s.composer)).status).toBe(403);
+          const added = await add([t1, t2, t3]);
+          expect(added.status).toBe(201);
+          const { takes } = (await added.json()) as Listed;
+          expect(takes.map((t) => [t.number, t.file?.id])).toEqual([
+            [1, t1],
+            [2, t2],
+            [3, t3],
+          ]);
+          // Not twice, not a version's file, not a document, not another project's.
+          expect((await add([t1])).status).toBe(409);
+          expect((await add([s.mix])).status).toBe(409);
+          expect((await add([await recording("Notes.pdf", "document")])).status).toBe(422);
+          expect((await add(["0199f000-0000-7000-8000-000000000001"])).status).toBe(404);
+
+          // Bars, rating, star and notes; bars in the wrong order are refused.
+          const change = (id: string, body: unknown, cookie = s.engineer) =>
+            app.request(`/api/takes/${id}`, { ...json(body, cookie), method: "PATCH" });
+          const [one, two, three] = takes;
+          expect(
+            (await change(one?.id ?? "", { barFrom: 60, barTo: 80, rating: 3, notes: "Steady" }))
+              .status,
+          ).toBe(200);
+          expect((await change(two?.id ?? "", { barFrom: 70, barTo: 90, rating: 5 })).status).toBe(
+            200,
+          );
+          expect(
+            (await change(three?.id ?? "", { barFrom: 72, page: 7, starred: true })).status,
+          ).toBe(200);
+          expect((await change(one?.id ?? "", { barTo: 50 })).status).toBe(422);
+          expect((await change(one?.id ?? "", { inPoint: 30, outPoint: 12 })).status).toBe(422);
+          expect((await change(one?.id ?? "", { rating: 2 }, s.composer)).status).toBe(403);
+
+          // "Any other options for bar 72?": circled first, then the best.
+          const covering = (await (
+            await getAs(`/api/tracks/${s.trackId}/takes?bar=72`, s.composer)
+          ).json()) as Listed;
+          expect(covering.takes.map((t) => t.number)).toEqual([3, 2, 1]);
+          const none = (await (
+            await getAs(`/api/tracks/${s.trackId}/takes?bar=95`, s.composer)
+          ).json()) as Listed;
+          expect(none.takes).toEqual([]);
+
+          // The file page says which take a file is.
+          const details = (await (await getAs(`/api/files/${t3}/details`, s.composer)).json()) as {
+            usedIn: { take: { number: number; track: string } | null };
+          };
+          expect(details.usedIn.take).toMatchObject({ number: 3, track: "Maple Leaf Rag" });
+
+          // A member who cannot see the project finds nothing.
+          const newcomer = await joinAs(s.owner, "newcomer@example.test");
+          expect((await getAs(`/api/tracks/${s.trackId}/takes`, newcomer)).status).toBe(404);
+
+          // Removed, the file stays in the project and is no longer a take.
+          const remove = await app.request(`/api/takes/${one?.id}`, {
+            method: "DELETE",
+            headers: { cookie: s.engineer, origin: "http://localhost:3000" },
+          });
+          expect(remove.status).toBe(204);
+          const [file] = await db
+            .select({ takeId: schema.files.takeId })
+            .from(schema.files)
+            .where(eq(schema.files.id, t1));
+          expect(file).toEqual({ takeId: null });
+          expect(
+            ((await (await getAs(`/api/tracks/${s.trackId}/takes`, s.owner)).json()) as Listed)
+              .takes,
+          ).toHaveLength(2);
+
+          // An archived project's takes are read-only.
+          expect(
+            (await app.request(`/api/projects/${s.projectId}/archive`, json({}, s.owner))).status,
+          ).toBe(204);
+          expect((await change(two?.id ?? "", { rating: 1 })).status).toBe(403);
+          const kept = await app.request(`/api/takes/${two?.id}`, {
+            method: "DELETE",
+            headers: { cookie: s.engineer, origin: "http://localhost:3000" },
+          });
+          expect(kept.status).toBe(403);
+        });
+
         it("tells a track's followers of new versions, if they can still see it", async () => {
           const s = await studio();
           // The owner made the track, so follows it; the composer chooses to.

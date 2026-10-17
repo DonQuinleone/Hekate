@@ -119,12 +119,12 @@ Each screen lists its states. Every screen is designed at desktop (1440) and pho
 
 | Screen | What it shows | States | Issues |
 | --- | --- | --- | --- |
-| Sessions | The project's sessions (Day 2, St John's) with dates, venue and take counts. | Empty; importing. | #21 |
+| Sessions | The project's sessions (Day 2, St John's) with dates, venue and the tracks each recorded (many to many: a track may span several sessions). | Empty; importing. | #21 |
 | Take import | Drop every session file; the proposed tree (sessions, takes by take number and timecode, one file per microphone, the summed mix, assignment to tracks by matching audio) with confidence, bulk fixes and undo; file-name patterns. | Unplaced files; a grouping to fix; progress for thousands of files. | #45 |
-| Session | Takes in order: number, rating, starred, false starts, notes, timecode, coverage (page and bar range), microphones, used in which version. | Empty session; a take with no coverage. | #21 |
+| Session | The tracks it recorded, and their takes logged that day: number, rating, starred, false starts, notes, timecode, coverage (page and bar range), microphones, used in which version. A take belongs to its track, not the session. | Empty session; a take with no coverage. | #21 |
 | Take | Play a take with its microphones (solo, mute, summed mix), loop, rating and notes, coverage, its place in the score; quick-compare takes; share to a comment. | Processing. | #21 #44 |
 | Other options for bar 72 | From a bar comment: every take covering the bar with rating, stars and notes, which is in the current version, audition at the bar looped and level-matched; share chosen takes to the thread. | None cover it; takes not aligned. | #46 |
-| Take coverage | Which takes cover which bars, as a grid across the track; gaps; proposed ranges to accept. | No coverage entered. | #46 |
+| Take coverage | A track's takes (its Takes view): which cover which bars, as a grid across the track; gaps; a bar to find the takes covering it; all or the best; add takes by dropping or choosing files (each a scratch mix for now); edit a take's label, rating, star, notes, page, bars and in and out points. Bars are optional: a take without them says so. | No takes; no coverage entered; a take without bars. | #21 #46 |
 | Edit decisions | Which takes a version uses for which bars, imported from an EDL (CMX 3600, Pyramix, Sequoia), matched to takes; a lane on the waveform and score; the check that every hand-over matches. | No EDL; an unmatched event. | #56 |
 
 ### 3.8 Reviews

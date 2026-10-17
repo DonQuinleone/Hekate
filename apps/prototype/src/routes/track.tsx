@@ -337,7 +337,7 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: string })
   // A track opens on its latest version in the player; this page is reached from there.
   const playable =
     view !== "versions" && view !== "takes" && latest && visible ? primaryFile(latest) : undefined;
-  const hasTakes = Boolean(track && takes.some((t) => t.trackId === track.id && t.coverage));
+  const hasTakes = Boolean(track && takes.some((t) => t.trackId === track.id));
   useEffect(() => {
     if (playable)
       navigate({ to: "/files/$fileId", params: { fileId: playable.id }, replace: true });
