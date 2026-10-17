@@ -24,6 +24,7 @@ import { createAuth } from "./auth.ts";
 import { describeReport, verifyBackup } from "./backup-verify.ts";
 import { createClient } from "./client.ts";
 import { loadConfig } from "./config.ts";
+import { issueGuestLink } from "./guests.ts";
 import { createKeyring } from "./keyring.ts";
 import { memoryMailer } from "./mail.ts";
 import { probe, run } from "./media/ffmpeg.ts";
@@ -764,6 +765,342 @@ describe.runIf(url)("api", () => {
           .from(schema.instanceEvents)
           .where(eq(schema.instanceEvents.target, "ops@example.test"));
         expect(named).toEqual([]);
+      });
+
+      describe("workspaces", () => {
+        type Page = {
+          workspaces: { id: string; name: string; state: string; members: number }[];
+          total: number;
+          next: string | null;
+        };
+        const getAs = (path: string, cookie: string) => app.request(path, { headers: { cookie } });
+        const list = async (cookie: string, query = "") =>
+          (await (await get(`/api/instance/workspaces${query}`, cookie)).json()) as Page;
+        const another = async (name: string, slug: string) => {
+          const [made] = await db
+            .insert(schema.organisations)
+            .values({ name, slug })
+            .returning({ id: schema.organisations.id });
+          return made?.id ?? "";
+        };
+
+        it("makes a workspace and invites its first owner, on a subdomain of its own", async () => {
+          const operator = cookieOf(await setup());
+          mailer.sent.length = 0;
+          const input = {
+            name: "Lantern Pictures",
+            slug: "lantern",
+            ownerEmail: "Owner@Lantern.example",
+          };
+          const made = await send("POST", "/api/instance/workspaces", input, operator);
+          expect(made.status).toBe(201);
+          const { id } = (await made.json()) as { id: string };
+          const mail = mailer.sent.find((m) => m.to === "owner@lantern.example");
+          expect(mail?.text).toContain("/invite/");
+          const [invitation] = await db
+            .select({ role: schema.invitations.role })
+            .from(schema.invitations)
+            .where(eq(schema.invitations.organisationId, id));
+          expect(invitation?.role).toBe("owner");
+          const detail = (await (await get(`/api/instance/workspaces/${id}`, operator)).json()) as {
+            invited: { email: string; role: string }[];
+          };
+          expect(detail.invited).toMatchObject([{ email: "owner@lantern.example", role: "owner" }]);
+          // Mail that cannot go leaves the workspace made, and the link to pass on by hand.
+          const deliver = mailer.send;
+          mailer.send = async () => {
+            throw new Error("The mail server is down");
+          };
+          const unsent = await send(
+            "POST",
+            "/api/instance/workspaces",
+            {
+              name: "North Choir Collective",
+              slug: "north-choir",
+              ownerEmail: "owner@north.example",
+            },
+            operator,
+          );
+          mailer.send = deliver;
+          expect(unsent.status).toBe(201);
+          expect(await unsent.json()).toMatchObject({
+            mailed: false,
+            link: expect.stringContaining("/invite/"),
+          });
+          const taken = await send("POST", "/api/instance/workspaces", input, operator);
+          expect(taken.status).toBe(409);
+          expect(await taken.json()).toMatchObject({ error: { code: "slug_taken" } });
+          const [event] = await db
+            .select()
+            .from(schema.instanceEvents)
+            .where(eq(schema.instanceEvents.action, "workspace.created"));
+          expect(event?.target).toBe("Lantern Pictures");
+
+          // An owner who does not operate the instance makes none.
+          const owner = await join(operator, "label@example.test", "owner");
+          const refused = await send(
+            "POST",
+            "/api/instance/workspaces",
+            { ...input, slug: "lantern-two" },
+            owner,
+          );
+          expect(refused.status).toBe(403);
+        });
+
+        it("pages the list by cursor, found by name or subdomain and filtered by state", async () => {
+          const operator = cookieOf(await setup());
+          for (const [name, slug] of [
+            ["Hollow Reed Audio", "hollow-reed"],
+            ["Lantern Pictures", "lantern-pages"],
+            ["North Choir Collective", "north-choir"],
+            ["Tallow and Wick Post", "tallow"],
+          ] as const)
+            await another(name, slug);
+          const first = await list(operator, "?limit=2");
+          expect(first.total).toBe(5);
+          expect(first.workspaces.map((w) => w.name)).toEqual([
+            "Hollow Reed Audio",
+            "Lantern Pictures",
+          ]);
+          const second = await list(operator, `?limit=2&after=${first.next}`);
+          expect(second.workspaces.map((w) => w.name)).toEqual([
+            "North Choir Collective",
+            "Studio",
+          ]);
+          const last = await list(operator, `?limit=2&after=${second.next}`);
+          expect(last.workspaces.map((w) => w.name)).toEqual(["Tallow and Wick Post"]);
+          expect(last.next).toBeNull();
+          expect((await list(operator, "?q=choir")).workspaces.map((w) => w.name)).toEqual([
+            "North Choir Collective",
+          ]);
+          expect((await list(operator, "?q=tallow")).total).toBe(1);
+          // A search is taken as text, never as a pattern.
+          expect((await list(operator, "?q=%25")).total).toBe(0);
+          const tallow = (await list(operator, "?q=tallow")).workspaces[0]?.id;
+          await send(
+            "POST",
+            `/api/instance/workspaces/${tallow}/suspend`,
+            { reason: "Unpaid" },
+            operator,
+          );
+          expect((await list(operator, "?state=suspended")).workspaces.map((w) => w.name)).toEqual([
+            "Tallow and Wick Post",
+          ]);
+          expect((await list(operator, "?state=active")).total).toBe(4);
+        });
+
+        it("suspends a workspace: its members are told why, its guests' links stop, and nothing is lost", async () => {
+          const operator = cookieOf(await setup());
+          const member = await join(operator, "member@example.test");
+          const made = await app.request(
+            "/api/projects",
+            json({ name: "Joplin Rags", profile: "music" }, member),
+          );
+          expect(made.status).toBe(201);
+          const [studio] = await db
+            .select({ id: schema.organisations.id })
+            .from(schema.organisations)
+            .where(eq(schema.organisations.slug, "studio"));
+          const organisationId = studio?.id ?? "";
+          const [guest] = await db
+            .insert(schema.guests)
+            .values({ organisationId, name: "Mira Solberg", email: "mira@example.test" })
+            .returning();
+          const opened = await app.request(
+            "/api/guest/sessions",
+            json({ token: (await issueGuestLink(db, organisationId, guest?.id ?? "")).token }),
+          );
+          expect(opened.status).toBe(201);
+          const guestCookie = cookieOf(opened);
+          const unused = (await issueGuestLink(db, organisationId, guest?.id ?? "")).token;
+
+          // Only an operator suspends.
+          const owner = await join(operator, "label@example.test", "owner");
+          expect(
+            (
+              await send(
+                "POST",
+                `/api/instance/workspaces/${organisationId}/suspend`,
+                { reason: "Unpaid" },
+                owner,
+              )
+            ).status,
+          ).toBe(403);
+          const suspend = (reason: string) =>
+            send(
+              "POST",
+              `/api/instance/workspaces/${organisationId}/suspend`,
+              { reason },
+              operator,
+            );
+          expect((await suspend("")).status).toBe(400);
+          expect((await suspend("The invoice for October is unpaid.")).status).toBe(204);
+          expect((await suspend("Again")).status).toBe(409);
+
+          const refused = await getAs("/api/projects", member);
+          expect(refused.status).toBe(403);
+          expect(await refused.json()).toMatchObject({
+            error: {
+              code: "workspace_suspended",
+              message: "This workspace is suspended: The invoice for October is unpaid.",
+            },
+          });
+          // They may still read who they are, and switch to another workspace.
+          expect((await getAs("/api/me", member)).status).toBe(200);
+          expect((await getAs("/api/guest/me", guestCookie)).status).toBe(401);
+          expect((await app.request("/api/guest/sessions", json({ token: unused }))).status).toBe(
+            410,
+          );
+
+          // The instance side still opens for whoever owns it, and shows where it stands.
+          const shown = (await (
+            await get(`/api/instance/workspaces/${organisationId}`, owner)
+          ).json()) as { state: string; suspendedReason: string };
+          expect(shown).toMatchObject({
+            state: "suspended",
+            suspendedReason: "The invoice for October is unpaid.",
+          });
+
+          const reinstate = () =>
+            send("POST", `/api/instance/workspaces/${organisationId}/reinstate`, {}, operator);
+          expect((await reinstate()).status).toBe(204);
+          expect((await reinstate()).status).toBe(409);
+          const back = (await (await getAs("/api/projects", member)).json()) as {
+            projects: { name: string }[];
+          };
+          expect(back.projects.map((p) => p.name)).toEqual(["Joplin Rags"]);
+          expect((await app.request("/api/guest/sessions", json({ token: unused }))).status).toBe(
+            201,
+          );
+          const events = await db
+            .select({
+              action: schema.instanceEvents.action,
+              details: schema.instanceEvents.details,
+            })
+            .from(schema.instanceEvents)
+            .where(like(schema.instanceEvents.action, "workspace.%"));
+          expect(events.map((e) => e.action)).toEqual([
+            "workspace.suspended",
+            "workspace.reinstated",
+          ]);
+          expect(
+            (
+              await send(
+                "POST",
+                `/api/instance/workspaces/${crypto.randomUUID()}/reinstate`,
+                {},
+                operator,
+              )
+            ).status,
+          ).toBe(404);
+        });
+
+        it("shows a workspace's figures, members and projects to an operator, and to its own owner alone", async () => {
+          const operator = cookieOf(await setup());
+          const member = await join(operator, "member@example.test");
+          await app.request(
+            "/api/projects",
+            json({ name: "Joplin Rags", profile: "music" }, member),
+          );
+          const [studio] = await db
+            .select({ id: schema.organisations.id })
+            .from(schema.organisations)
+            .where(eq(schema.organisations.slug, "studio"));
+          const id = studio?.id ?? "";
+          const detail = (await (await get(`/api/instance/workspaces/${id}`, operator)).json()) as {
+            members: number;
+            projects: number;
+            signIn: { method: string; secondFactor: boolean };
+            recent: { action: string }[];
+          };
+          expect(detail).toMatchObject({
+            members: 2,
+            projects: 1,
+            signIn: { method: "password", secondFactor: false },
+          });
+          const members = (await (
+            await get(`/api/instance/workspaces/${id}/members`, operator)
+          ).json()) as { members: { email: string; role: string; factor: string }[] };
+          expect(members.members.map((m) => [m.email, m.role, m.factor])).toEqual([
+            [owner.email, "owner", "none"],
+            ["member@example.test", "member", "none"],
+          ]);
+          const projects = (await (
+            await get(`/api/instance/workspaces/${id}/projects`, operator)
+          ).json()) as { projects: { name: string; files: number; openReviews: number }[] };
+          expect(projects.projects).toMatchObject([
+            { name: "Joplin Rags", files: 0, openReviews: 0 },
+          ]);
+
+          // An owner of another workspace finds none of it, and a member opens nothing here.
+          const elsewhere = await another("Saltmarsh Films", "elsewhere-instance");
+          const [user] = await db
+            .select({ id: schema.users.id })
+            .from(schema.users)
+            .where(eq(schema.users.email, "member@example.test"));
+          await db
+            .insert(schema.members)
+            .values({ organisationId: elsewhere, userId: user?.id ?? "", role: "owner" });
+          for (const path of ["", "/members", "/projects"])
+            expect((await get(`/api/instance/workspaces/${id}${path}`, member)).status).toBe(404);
+          for (const path of ["", "/members", "/projects"])
+            expect((await get(`/api/instance/workspaces/${elsewhere}${path}`, member)).status).toBe(
+              200,
+            );
+          expect((await list(member)).workspaces.map((w) => w.name)).toEqual(["Saltmarsh Films"]);
+        });
+
+        it("helps a member sign in again without ever signing in as them", async () => {
+          const operator = cookieOf(await setup());
+          const member = await join(operator, "member@example.test");
+          const [studio] = await db
+            .select({ id: schema.organisations.id })
+            .from(schema.organisations)
+            .where(eq(schema.organisations.slug, "studio"));
+          const id = studio?.id ?? "";
+          const [user] = await db
+            .select({ id: schema.users.id })
+            .from(schema.users)
+            .where(eq(schema.users.email, "member@example.test"));
+          const help = (
+            action: string,
+            userId = user?.id ?? "",
+            workspace = id,
+            cookie = operator,
+          ) =>
+            send(
+              "POST",
+              `/api/instance/workspaces/${workspace}/members/${userId}/${action}`,
+              {},
+              cookie,
+            );
+
+          mailer.sent.length = 0;
+          expect((await help("password-reset")).status).toBe(204);
+          expect(mailer.sent.find((m) => m.to === "member@example.test")?.subject).toContain(
+            "code to set a new Hekate password",
+          );
+          expect((await help("second-factor")).status).toBe(204);
+          expect((await help("sessions")).status).toBe(204);
+          expect((await getAs("/api/projects", member)).status).toBe(401);
+          expect((await help("sign-in-as")).status).toBe(400);
+
+          // Someone who is not a member of that workspace is not found there.
+          const elsewhere = await another("Saltmarsh Films", "elsewhere-help");
+          expect((await help("sessions", user?.id, elsewhere)).status).toBe(404);
+          // An owner who does not operate the instance does none of it.
+          const owner = await join(operator, "label@example.test", "owner");
+          expect((await help("sessions", user?.id, id, owner)).status).toBe(403);
+          const events = await db
+            .select({ action: schema.instanceEvents.action, target: schema.instanceEvents.target })
+            .from(schema.instanceEvents)
+            .where(like(schema.instanceEvents.action, "member.%"));
+          expect(events).toEqual([
+            { action: "member.password_reset", target: "member@example.test" },
+            { action: "member.second_factor_reset", target: "member@example.test" },
+            { action: "member.sessions_revoked", target: "member@example.test" },
+          ]);
+        });
       });
     });
 

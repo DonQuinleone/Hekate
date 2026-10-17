@@ -26,8 +26,11 @@ import {
   type GroupInput,
   type GuestInput,
   type InstanceAccess,
+  type InstanceMemberRow,
   type InstanceOverview,
-  type InstanceWorkspace,
+  type InstanceProjectRow,
+  type InstanceWorkspaceDetail,
+  type InstanceWorkspacePage,
   type LoudnessSummary,
   type Mark,
   type MarkInput,
@@ -63,6 +66,7 @@ import {
   type UpdateProjectInput,
   type WorkspaceSettings,
   type WorkspaceSettingsInput,
+  type WorkspaceState,
 } from "@hekate/shared";
 import {
   infiniteQueryOptions,
@@ -79,6 +83,8 @@ export class SignedOutError extends Error {}
 export class SecondFactorDueError extends Error {}
 /** The workspace signs its members in only through its single sign-on. */
 export class SsoRequiredError extends Error {}
+/** The instance's operators have suspended the workspace (#174). */
+export class WorkspaceSuspendedError extends Error {}
 /** A refusal with the server's code for it, for pages that answer each refusal differently. */
 export class ApiError extends Error {
   readonly code: string | undefined;
@@ -97,8 +103,11 @@ export async function json<T>(res: Response): Promise<T> {
     const message = body?.error?.message ?? `Request failed (${res.status})`;
     if (body?.error?.code === "second_factor_required") throw new SecondFactorDueError(message);
     if (body?.error?.code === "sso_required") throw new SsoRequiredError(message);
+    if (body?.error?.code === "workspace_suspended") throw new WorkspaceSuspendedError(message);
     throw new ApiError(message, body?.error?.code);
   }
+  // Done, with nothing to say.
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
@@ -131,6 +140,8 @@ export interface Me {
     role: "owner" | "admin" | "member";
     /** The workspace's language, for members without their own. */
     locale?: string | null;
+    /** Suspended by the instance's operators, and why: nobody gets in until it is reinstated. */
+    suspended?: { reason: string | null } | null;
   }[];
   activeOrganisationId: string;
   /**
@@ -2607,12 +2618,49 @@ export const instanceOverviewQuery = queryOptions({
   queryFn: async () => json<InstanceOverview>(await api.instance.overview.$get()),
 });
 
-export const instanceWorkspacesQuery = queryOptions({
-  queryKey: ["instance", "workspaces"],
-  queryFn: async () =>
-    (await json<{ workspaces: InstanceWorkspace[] }>(await api.instance.workspaces.$get()))
-      .workspaces,
-});
+/** The workspaces on the instance, a page at a time, found by name or subdomain. */
+export const instanceWorkspacesQuery = (filters: { q?: string; state?: WorkspaceState }) =>
+  infiniteQueryOptions({
+    queryKey: ["instance", "workspaces", filters],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
+      const query: Record<string, string> = { limit: "50" };
+      if (filters.q) query.q = filters.q;
+      if (filters.state) query.state = filters.state;
+      if (pageParam) query.after = pageParam;
+      return json<InstanceWorkspacePage>(await api.instance.workspaces.$get({ query }));
+    },
+    getNextPageParam: (page) => page.next ?? undefined,
+  });
+
+export const instanceWorkspaceQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["instance", "workspace", id],
+    queryFn: async () =>
+      json<InstanceWorkspaceDetail>(await api.instance.workspaces[":id"].$get({ param: { id } })),
+  });
+
+export const instanceMembersQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["instance", "workspace", id, "members"],
+    queryFn: async () =>
+      (
+        await json<{ members: InstanceMemberRow[] }>(
+          await api.instance.workspaces[":id"].members.$get({ param: { id } }),
+        )
+      ).members,
+  });
+
+export const instanceProjectsQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["instance", "workspace", id, "projects"],
+    queryFn: async () =>
+      (
+        await json<{ projects: InstanceProjectRow[] }>(
+          await api.instance.workspaces[":id"].projects.$get({ param: { id } }),
+        )
+      ).projects,
+  });
 
 export const instanceOperatorsQuery = queryOptions({
   queryKey: ["instance", "operators"],

@@ -401,6 +401,30 @@ test("bell", async ({ page }) => {
   await checkScreen(page);
 });
 
+// A workspace on the instance side (#174): its members, a suspended one, and making one.
+for (const [name, open, ready] of [
+  ["instance-workspace-members", "Members", "main >> text=second factor: none >> nth=0"],
+  [
+    "instance-workspace-suspended",
+    "Lantern Pictures",
+    "main >> text=The invoice for October is unpaid.",
+  ],
+  ["instance-workspace-new", "Workspace", "[role=dialog] >> text=First owner’s email"],
+] as const) {
+  test(name, async ({ page }) => {
+    await page.clock.setFixedTime(FIXED_TIME);
+    await page.goto("/instance/workspaces");
+    await settle(page, "main >> text=Recently in this workspace");
+    await page
+      .getByRole(open === "Members" ? "tab" : "button", { name: new RegExp(`^${open}`) })
+      .first()
+      .click();
+    await settle(page, ready);
+    await saveScreen(page, name);
+    await checkScreen(page);
+  });
+}
+
 // The command palette, as it opens and with results from the server.
 for (const [name, typed, ready] of [
   ["palette", "", "[role=option]:has-text('Inbox')"],

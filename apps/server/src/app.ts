@@ -130,6 +130,8 @@ export function createApi(deps: AppDeps) {
           rule,
           operatorSecurityKey: deps.operatorSecurityKey ?? true,
           trustProxy: deps.trustProxy ?? false,
+          mailer: deps.mailer,
+          publicUrl: deps.publicUrl,
         }),
       )
       .route("/sign-in-methods", signInMethodRoutes(deps.db))

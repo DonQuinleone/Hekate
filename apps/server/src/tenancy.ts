@@ -144,9 +144,32 @@ export async function assertSignedInThrough(
 }
 
 /**
- * Resolves the organisation for the request (`organisationFor`), and holds back a member who
- * still owes a second factor, or who did not come through the single sign-on the workspace
- * requires, except at the paths in `owing` (where they learn that they do).
+ * Refuses everyone in a workspace an operator has suspended (#174), saying why: nothing is
+ * deleted, and nobody gets in until it is reinstated.
+ */
+export async function assertOpen(db: Database, organisationId: string) {
+  const [row] = await db
+    .select({
+      suspendedAt: schema.organisations.suspendedAt,
+      reason: schema.organisations.suspendedReason,
+    })
+    .from(schema.organisations)
+    .where(eq(schema.organisations.id, organisationId));
+  if (row?.suspendedAt)
+    throw new CodedException(
+      403,
+      "workspace_suspended",
+      row.reason
+        ? `This workspace is suspended: ${row.reason}`
+        : "This workspace is suspended. Its owner can ask the instance's operators why.",
+    );
+}
+
+/**
+ * Resolves the organisation for the request (`organisationFor`), and holds back a member of a
+ * suspended workspace, or who still owes a second factor, or who did not come through the
+ * single sign-on the workspace requires, except at the paths in `owing` (where they learn
+ * that they do, and may switch to another workspace).
  */
 export const requireOrganisation = (
   db: Database,
@@ -156,6 +179,7 @@ export const requireOrganisation = (
   createMiddleware<{ Variables: TenantVariables }>(async (c, next) => {
     const membership = await organisationFor(db, c.var.userId, c.var.sessionId);
     if (!owing.has(c.req.path)) {
+      await assertOpen(db, membership.organisationId);
       await assertSignedInThrough(db, c.var.sessionId, membership);
       await assertSecondFactor(db, c.var.sessionId, membership, rule);
     }
