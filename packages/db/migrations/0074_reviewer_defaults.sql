@@ -1,0 +1,1 @@
+ALTER TABLE "review_reviewers" ALTER COLUMN "permissions" SET DEFAULT '{"comment":true,"decide":true,"invite":false,"comments":"all","tools":["spectrogram","meters","loops","compare","qa","score"],"download":"none","history":false,"items":null,"maxPlays":null,"startsAt":null,"expiresAt":null}'::jsonb;

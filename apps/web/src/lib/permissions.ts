@@ -33,6 +33,7 @@ export function permissionSummary(
   if (guest && p.comments === "own") notes.push("Sees only own comments");
   if (guest && !p.comment) notes.push("Cannot comment");
   if (kind === "approval" && !p.decide) notes.push("No decision");
+  if (p.invite) notes.push("May invite others");
   const missing = (Object.keys(toolNames) as ReviewerTool[]).filter((t) => !p.tools.includes(t));
   if (guest && missing.length > 0) notes.push(`No ${missing.map((t) => toolNames[t]).join(", ")}`);
   if (guest && p.history) notes.push("Sees earlier versions");
