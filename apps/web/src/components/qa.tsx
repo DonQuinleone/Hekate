@@ -91,10 +91,12 @@ export function findingLoop(f: QaFinding): Loop | null {
     : null;
 }
 
-function FindingRow({
+/** One finding: what it is, where, and what can be done from it. Exported for tests. */
+export function FindingRow({
   finding,
   onSeek,
   onLoop,
+  onComment,
   action,
   nested = false,
 }: {
@@ -102,6 +104,8 @@ function FindingRow({
   onSeek: (t: number) => void;
   /** Loop the passage it spans, in one action (#44). */
   onLoop?: (loop: Loop) => void;
+  /** Write a comment about it, at its moment (#43). */
+  onComment?: (finding: QaFinding) => void;
   /** Beside the summary: opening a group, for one. */
   action?: React.ReactNode;
   /** One of a group's, shown under it. */
@@ -126,32 +130,45 @@ function FindingRow({
         {finding.summary}
         {action && <span className="ml-3">{action}</span>}
       </span>
-      {at && finding.start !== null ? (
-        <span className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => onSeek(finding.start ?? 0)}
-            aria-label={`Play from ${at}`}
-            className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 font-mono text-[11px] text-ink hover:border-signal"
-          >
-            {at}
-          </button>
-          {loop && onLoop && (
+      <span className="flex items-center gap-2">
+        {at && finding.start !== null ? (
+          <>
             <button
               type="button"
-              onClick={() => onLoop(loop)}
-              aria-label={`Loop ${at}`}
-              className="inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+              onClick={() => onSeek(finding.start ?? 0)}
+              aria-label={`Play from ${at}`}
+              className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 font-mono text-[11px] text-ink hover:border-signal"
             >
-              Loop
+              {at}
             </button>
-          )}
-        </span>
-      ) : (
-        <span className="text-[11px] text-ink-3">
-          {finding.channel !== null ? channelName(finding.channel) : ""}
-        </span>
-      )}
+            {loop && onLoop && (
+              <button
+                type="button"
+                onClick={() => onLoop(loop)}
+                aria-label={`Loop ${at}`}
+                className="inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+              >
+                Loop
+              </button>
+            )}
+          </>
+        ) : (
+          finding.channel !== null && (
+            <span className="text-[11px] text-ink-3">{channelName(finding.channel)}</span>
+          )
+        )}
+        {/* Every problem can start a comment: at its moment, or about the whole file. */}
+        {onComment && finding.severity !== "pass" && (
+          <button
+            type="button"
+            onClick={() => onComment(finding)}
+            aria-label={`Comment on ${at && finding.start !== null ? at : checkNames[finding.check]}`}
+            className="inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+          >
+            Comment
+          </button>
+        )}
+      </span>
     </li>
   );
 }
@@ -167,15 +184,29 @@ function groupFindings(findings: readonly QaFinding[]): QaFinding[][] {
   return groups;
 }
 
+/** A finding's key in a list: findings have no id, but no two share all of these. */
+const findingKey = (f: QaFinding) => `${f.check}-${f.channel}-${f.start}-${f.end}-${f.summary}`;
+
+/** The problems worth marking on the timeline (#43): failures and warnings that have a place. */
+export function findingMarks(findings: readonly QaFinding[]) {
+  return findings.flatMap((f) =>
+    (f.severity === "fail" || f.severity === "warn") && f.start !== null
+      ? [{ start: f.start, end: f.end, severity: f.severity }]
+      : [],
+  );
+}
+
 /** Many findings of one check, as one row that opens into all of them. */
 function FindingGroup({
   group,
   onSeek,
   onLoop,
+  onComment,
 }: {
   group: QaFinding[];
   onSeek: (t: number) => void;
   onLoop?: (loop: Loop) => void;
+  onComment?: (finding: QaFinding) => void;
 }) {
   const [open, setOpen] = useState(false);
   const first = group[0] as QaFinding;
@@ -204,9 +235,15 @@ function FindingGroup({
         }
       />
       {open &&
-        group.map((f, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: findings have no id and never reorder here.
-          <FindingRow key={i} finding={f} onSeek={onSeek} onLoop={onLoop} nested />
+        group.map((f) => (
+          <FindingRow
+            key={findingKey(f)}
+            finding={f}
+            onSeek={onSeek}
+            onLoop={onLoop}
+            onComment={onComment}
+            nested
+          />
         ))}
     </>
   );
@@ -223,12 +260,15 @@ export function QualityChecks({
   media,
   canChoose,
   onLoop,
+  onComment,
 }: {
   fileId: string;
   media: HTMLMediaElement | null;
   canChoose: boolean;
   /** Loop a finding's passage in the player and hear it from its start. */
   onLoop?: (loop: Loop) => void;
+  /** Write a comment about a finding, for those who may comment (#43). */
+  onComment?: (finding: QaFinding) => void;
 }) {
   const { data } = useQuery(qaQuery(fileId));
   const choose = useFileDeliveryProfile(fileId);
@@ -287,15 +327,21 @@ export function QualityChecks({
           {groupFindings(problems).map((group) =>
             group.length > 2 ? (
               <FindingGroup
+                onComment={onComment}
                 key={`${group[0]?.check}-${group[0]?.start}`}
                 group={group}
                 onSeek={seek}
                 onLoop={onLoop}
               />
             ) : (
-              group.map((f, i) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: findings have no id and never reorder here.
-                <FindingRow key={`${f.check}-${i}`} finding={f} onSeek={seek} onLoop={onLoop} />
+              group.map((f) => (
+                <FindingRow
+                  key={findingKey(f)}
+                  finding={f}
+                  onSeek={seek}
+                  onLoop={onLoop}
+                  onComment={onComment}
+                />
               ))
             ),
           )}

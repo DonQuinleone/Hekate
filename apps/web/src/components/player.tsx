@@ -72,6 +72,13 @@ const placeNames: Record<SpectrogramPlace, string> = {
   instead: "Instead",
 };
 
+/** A problem the quality checks found, where it is (#43): a failure filled, a warning outlined. */
+export interface FindingMark {
+  start: number;
+  end: number | null;
+  severity: "fail" | "warn";
+}
+
 /** A comment's mark on the timeline: open ones quiet, ones with work to do in the signal colour. */
 export interface TimelineMarker {
   at: number;
@@ -160,6 +167,7 @@ export function Player({
   onExpired,
   onMedia,
   markers = [],
+  findings = [],
   loop = null,
   onLoop = () => {},
   cue,
@@ -178,6 +186,8 @@ export function Player({
   onMedia?: (element: HTMLMediaElement | null) => void;
   /** Moments to mark on the timeline, such as anchored comments. */
   markers?: TimelineMarker[];
+  /** What the quality checks found, marked under the timeline (#43). */
+  findings?: FindingMark[];
   /** The passage being looped; kept by the page so it holds across files. */
   loop?: Loop | null;
   onLoop?: (loop: Loop | null) => void;
@@ -654,6 +664,23 @@ export function Player({
                 }}
               />
             )}
+            {findings.map((f) => (
+              <div
+                key={`${f.start}-${f.end}-${f.severity}`}
+                aria-hidden="true"
+                className={cn(
+                  "absolute bottom-0 h-1.5 min-w-[3px] rounded-[1px] border border-signal",
+                  f.severity === "fail" ? "bg-signal" : "bg-transparent",
+                )}
+                style={{
+                  left: `${share(f.start)}%`,
+                  width:
+                    f.end !== null && f.end - f.start > 0.2
+                      ? `${share(f.end) - share(f.start)}%`
+                      : undefined,
+                }}
+              />
+            ))}
             {markers.map(({ at, state }) => (
               <div
                 key={at}
@@ -936,7 +963,6 @@ export function Player({
                         placeholder="Name this view"
                         maxLength={40}
                         value={naming}
-                        // biome-ignore lint/a11y/noAutofocus: opened by asking to name a preset.
                         autoFocus
                         onChange={(e) => setNaming(e.target.value)}
                         className="min-w-0 flex-1"

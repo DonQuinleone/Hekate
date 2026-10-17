@@ -449,6 +449,25 @@ test("file-decision", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Commenting on a finding (#43): from the QA view back to the review, the composer at the
+// finding's moment and saying what it is; the findings are marked under the timeline.
+test("file-finding-comment", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().dryFileId}?view=qa`);
+  await settle(page, "ul[aria-label=Findings] li");
+  await page
+    .getByRole("button", { name: /^Comment on \d/ })
+    .first()
+    .click();
+  // On a phone the composer opens as a sheet; elsewhere it sits beside the player.
+  const composer = page.locator("textarea[placeholder='Comment at the playhead']:visible");
+  await expect(composer).toHaveCount(1);
+  await expect(composer).not.toHaveValue("");
+  await settle(page, "textarea[placeholder='Comment at the playhead']:visible");
+  await saveScreen(page, "file-finding-comment");
+  await checkScreen(page);
+});
+
 // The bell's panel, open over the list it leads to.
 test("bell", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
