@@ -64,6 +64,7 @@ import {
   useProjectStorage,
   useTemplateMutations,
   useTrackDeliveryProfile,
+  useTrackNormalisation,
   useTrackReferences,
   useUpdateProject,
   workspaceSettingsQuery,
@@ -720,6 +721,7 @@ function Comments({ project }: { project: Project }) {
   // Tracks may choose their own (#240).
   const { data: tracks } = useQuery(projectTracksQuery(project.id));
   const onTrack = useTrackReferences(project.id);
+  const playsTrack = useTrackNormalisation(project.id);
   const { data: categories } = useQuery(categoriesQuery(project.id));
   const { remove } = useCategoryMutations(project.id);
   const [editing, setEditing] = useState<CommentCategory | "new" | null>(null);
@@ -864,6 +866,52 @@ function Comments({ project }: { project: Project }) {
           </Select>
         </Row>
       </Section>
+      {/* A track can play otherwise (#98), as a set heard together might. */}
+      {tracks && tracks.length > 0 && (
+        <Section
+          title="Normalised playback by track"
+          intro="Tracks that play otherwise than the project."
+        >
+          {tracks?.map((t) => (
+            <Row
+              key={t.id}
+              name={
+                <Link
+                  to="/tracks/$trackId"
+                  params={{ trackId: t.id }}
+                  className="transition-colors hover:text-signal"
+                >
+                  {t.name}
+                </Link>
+              }
+            >
+              <Select
+                size="sm"
+                value={t.normalisation ?? ""}
+                aria-label={`Normalised playback of ${t.name}`}
+                disabled={!can("edit_project") || playsTrack.isPending}
+                onChange={(event) =>
+                  playsTrack.mutate({
+                    trackId: t.id,
+                    normalisation: (event.target.value || null) as NormalisationMode | null,
+                  })
+                }
+                className="w-full @3xl/app:w-56"
+              >
+                <option value="">Project default</option>
+                {normalisationModes.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {normalisationWords[mode]}
+                  </option>
+                ))}
+              </Select>
+            </Row>
+          ))}
+          {playsTrack.error && (
+            <p className="m-0 text-[13px] text-signal">{playsTrack.error.message}</p>
+          )}
+        </Section>
+      )}
       {editing && (
         <CategoryDialog
           projectId={project.id}

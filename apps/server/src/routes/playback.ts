@@ -1,5 +1,5 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { marks, type PlayerTool, watermarkOf } from "@hekate/shared";
+import { effectiveNormalisation, marks, type PlayerTool, watermarkOf } from "@hekate/shared";
 import { unwrapKey } from "@hekate/storage";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, count, eq, sql } from "drizzle-orm";
@@ -55,6 +55,7 @@ const {
   variations,
   versions,
   tracks,
+  takes,
   projects,
 } = schema;
 
@@ -110,6 +111,12 @@ async function reachable(db: Database, actor: Actor): Promise<Set<string> | null
       .map(([fileId]) => fileId),
   );
 }
+
+/** A variation as the file page shows it; the track's settings stay on the server. */
+const shownVariation = <V extends { trackNormalisation: unknown }>({
+  trackNormalisation: _,
+  ...shown
+}: V) => shown;
 
 const toolFile = (db: Database, tool: PlayerTool) =>
   createMiddleware<{ Variables: ViewerVariables }>(async (c, next) => {
@@ -176,11 +183,37 @@ export const fileRoutes = (deps: PlaybackDeps) =>
           trackName: tracks.name,
           /** The score linked to the track, shown beside the recording. */
           scoreFileId: tracks.scoreFileId,
+          /** How the track plays normalised, over the project's (#98). */
+          trackNormalisation: tracks.normalisation,
         })
         .from(variations)
-        .innerJoin(versions, eq(versions.id, variations.versionId))
-        .innerJoin(tracks, eq(tracks.id, versions.trackId))
+        .innerJoin(
+          versions,
+          and(
+            eq(versions.id, variations.versionId),
+            eq(versions.organisationId, c.var.organisationId),
+          ),
+        )
+        .innerJoin(
+          tracks,
+          and(eq(tracks.id, versions.trackId), eq(tracks.organisationId, c.var.organisationId)),
+        )
         .where(inOrg(variations, c.var.organisationId, eq(variations.fileId, file.id)));
+      // A take plays as its track does (#98).
+      const [take] = variation
+        ? []
+        : await deps.db
+            .select({ trackNormalisation: tracks.normalisation })
+            .from(files)
+            .innerJoin(
+              takes,
+              and(eq(takes.id, files.takeId), eq(takes.organisationId, c.var.organisationId)),
+            )
+            .innerJoin(
+              tracks,
+              and(eq(tracks.id, takes.trackId), eq(tracks.organisationId, c.var.organisationId)),
+            )
+            .where(inOrg(files, c.var.organisationId, eq(files.id, file.id)));
       // A guest's review decides which tools and actions they have; members have their role.
       const access = await fileAccess(deps.db, c.var.actor, file.id);
       const { commentReferences, normalisation, watermark: marking, ...shownFile } = file;
@@ -202,7 +235,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
             profile: file.profile,
             commentReferences,
           }),
-          variation: variation ?? null,
+          variation: variation ? shownVariation(variation) : null,
           grant: access?.grant ?? null,
           watermark: markText
             ? { text: markText, position: style.position, opacity: style.opacity }
@@ -212,7 +245,11 @@ export const fileRoutes = (deps: PlaybackDeps) =>
             deps.db,
             c.var.organisationId,
             file,
-            normalisation,
+            // The track's own choice, where it has one (#98).
+            effectiveNormalisation(
+              variation?.trackNormalisation ?? take?.trackNormalisation,
+              normalisation,
+            ),
             access ? mayUseTool(access, "normalise") : false,
           ),
           // A member's player tools, from their role (#240); a guest's come with their grant.
