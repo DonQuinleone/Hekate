@@ -4,9 +4,9 @@ import {
   approvalRules,
   auditActions,
   auditActorTypes,
+  type CustomProfileInput,
   carryStatuses,
   categoryHandlings,
-  type DeliveryProfileId,
   type DigestFrequency,
   type DirectoryRoleRule,
   type DownloadKind,
@@ -20,6 +20,7 @@ import {
   type NotificationMail,
   notificationKinds,
   type OverviewSection,
+  type ProfileRef,
   type ProjectPermission,
   type ProjectProfile,
   type QaCheck,
@@ -399,8 +400,11 @@ export const projects = pgTable(
     description: text("description"),
     /** Whether threads carried to a new version show there until someone hides them. */
     carriedCommentsShown: boolean("carried_comments_shown").notNull().default(true),
-    /** What deliveries are checked against (#41); null suggests one from each file's channels. */
-    deliveryProfile: text("delivery_profile").$type<DeliveryProfileId>(),
+    /**
+     * What deliveries are checked against (#41): a built-in profile or `custom:` one of the
+     * workspace's; null leaves it to the workspace, or to each file's channels.
+     */
+    deliveryProfile: text("delivery_profile").$type<ProfileRef>(),
     /** Refuse a new version whose audio peaks over the delivery profile's ceiling (#131). */
     checkTruePeak: boolean("check_true_peak").notNull().default(false),
     /** Refuse a new version without an edit decision list. */
@@ -609,6 +613,8 @@ export const files = pgTable(
     takeChannel: text("take_channel"),
     /** Within a take: true for the summed mix. */
     isTakeMix: boolean("is_take_mix").notNull().default(false),
+    /** What this file alone is measured against, over its track's and project's (#144). */
+    deliveryProfile: text("delivery_profile").$type<ProfileRef>(),
     uploadedBy: text("uploaded_by").references(() => users.id, { onDelete: "set null" }),
     ...timestamps,
   },
@@ -632,6 +638,8 @@ export const tracks = pgTable(
     name: text("name").notNull(),
     /** The score this track follows, for bar anchors and the score view. */
     scoreFileId: uuid("score_file_id").references(() => files.id, { onDelete: "set null" }),
+    /** What its versions are measured against, over the project's (#144). */
+    deliveryProfile: text("delivery_profile").$type<ProfileRef>(),
     position: integer("position").notNull().default(0),
     ...timestamps,
   },
@@ -714,6 +722,23 @@ export const commentCategories = pgTable(
     index("comment_categories_project_idx").on(t.organisationId, t.projectId),
     uniqueIndex("comment_categories_name_idx").on(t.projectId, sql`lower(${t.name})`),
   ],
+);
+
+/**
+ * A workspace's own delivery profile (#144), beside the built-in ones: what its projects,
+ * tracks and files can be measured against. Referred to as `custom:` and its id.
+ */
+export const deliveryProfiles = pgTable(
+  "delivery_profiles",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    label: text("label").notNull(),
+    /** The numbers, as the shared schema checks them (the label aside). */
+    spec: jsonb("spec").$type<Omit<CustomProfileInput, "label">>().notNull(),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("delivery_profiles_label_idx").on(t.organisationId, sql`lower(${t.label})`)],
 );
 
 /** A note on a file. The anchor is validated by the shared schema; null means the whole file. */

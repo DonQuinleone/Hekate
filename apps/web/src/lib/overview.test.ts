@@ -22,6 +22,7 @@ const overview = (over: Partial<ProjectOverview>): ProjectOverview => ({
   tracks: [],
   activity: [],
   deliveryProfile: null,
+  deliveryProfileLabel: null,
   createdAt: null,
   role: null,
   layout: null,

@@ -16,6 +16,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, can, projectAccess, visibleProjects } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
+import { assertProfileRef } from "../delivery-profiles.ts";
 import { NotFound } from "../errors.ts";
 import { projectFigures } from "../project-figures.ts";
 import type { TenantVariables } from "../tenancy.ts";
@@ -282,11 +283,15 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
       const id = c.req.valid("param").id;
       if (workflow) await can(db, actorOf(c.var), "edit_workflows", id);
       const access = await can(db, actorOf(c.var), general ? "edit_project" : "edit_workflows", id);
-      const [project] = await db
-        .update(projects)
-        .set({ ...input, updatedAt: new Date() })
-        .where(inOrg(projects, c.var.organisationId, eq(projects.id, access.projectId)))
-        .returning();
+      const project = await db.transaction(async (tx) => {
+        await assertProfileRef(tx, c.var.organisationId, input.deliveryProfile);
+        const [row] = await tx
+          .update(projects)
+          .set({ ...input, updatedAt: new Date() })
+          .where(inOrg(projects, c.var.organisationId, eq(projects.id, access.projectId)))
+          .returning();
+        return row;
+      });
       return c.json({ project: { ...project, permissions: [...access.permissions] } });
     })
     .get("/:id/files", idParam, async (c) => {

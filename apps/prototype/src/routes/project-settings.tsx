@@ -262,7 +262,7 @@ function ProfileEditor({ onClose }: { onClose: () => void }) {
   return (
     <Dialog
       title="Custom delivery profile"
-      description="What the checks measure against for this project."
+      description="What the checks measure against. Every project in the workspace can choose it."
       onClose={onClose}
       footer={
         <>
@@ -435,7 +435,7 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
           >
             <Row name="Project default">
               <Select defaultValue={project.deliveryProfile ?? ""} className="w-56">
-                <option value="">Suggest from the layout</option>
+                <option value="">Workspace default</option>
                 {deliveryProfiles.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
