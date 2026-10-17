@@ -2,6 +2,7 @@ import { z } from "zod";
 import { categoryHandlings } from "./categories.ts";
 import { profileRef } from "./qa.ts";
 import { qaSettings } from "./qa-rules.ts";
+import { commentReferences } from "./references.ts";
 import { playerTool, projectPermission } from "./roles.ts";
 
 /**
@@ -23,6 +24,8 @@ export const templateContent = z.object({
     checkTruePeak: z.boolean(),
     requireEdl: z.boolean(),
     qaSettings: qaSettings.nullable(),
+    /** What reviewers may type beside a comment (#240); null, or left out, takes the profile's. */
+    commentReferences: commentReferences.nullable().optional(),
   }),
   // No limits of their own: whatever a project may hold, its template holds.
   roles: z.array(

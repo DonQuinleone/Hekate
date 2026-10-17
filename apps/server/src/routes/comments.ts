@@ -14,6 +14,7 @@ import {
   exportComments,
   mentionedIn,
   mentionRanges,
+  referencesOf,
   resolveCommentInput,
   sendListInput,
   threadsForExport,
@@ -569,6 +570,7 @@ export const fileCommentRoutes = (
           pageCount: files.pageCount,
           projectId: files.projectId,
           profile: projects.profile,
+          references: projects.commentReferences,
         })
         .from(files)
         .innerJoin(
@@ -631,6 +633,7 @@ export const fileCommentRoutes = (
           duration: file.mediaInfo?.duration,
           pages: file.pageCount,
           profile: file.profile,
+          references: referencesOf(file.references, file.profile),
         });
         if (problem) throw new HTTPException(422, { message: problem });
       }
@@ -944,6 +947,7 @@ export const carryRoutes = (db: Database) =>
             mediaInfo: files.mediaInfo,
             pageCount: files.pageCount,
             profile: projects.profile,
+            references: projects.commentReferences,
           })
           .from(files)
           .innerJoin(
@@ -958,6 +962,7 @@ export const carryRoutes = (db: Database) =>
             duration: file.mediaInfo?.duration,
             pages: file.pageCount,
             profile: file.profile,
+            references: referencesOf(file.references, file.profile),
           });
         if (problem) throw new HTTPException(422, { message: problem });
       }

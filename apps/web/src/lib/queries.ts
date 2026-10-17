@@ -8,6 +8,7 @@ import {
   type CategoryInput,
   type CommentAttachment,
   type CommentMention,
+  type CommentReferences,
   type CreateProjectInput,
   type CreateReviewInput,
   type CreateVersionInput,
@@ -264,6 +265,8 @@ export interface Project {
   carriedCommentsShown?: boolean;
   /** Its QA rules (#144); null keeps the defaults. */
   qaSettings?: QaSettings | null;
+  /** What reviewers may type beside a comment (#240), the profile's until it chooses. */
+  references?: CommentReferences;
   /** In the list: whether they are a member of it. */
   mine?: boolean;
 }
@@ -879,6 +882,8 @@ export interface FileDetail extends ProjectFile {
     | null;
   /** For a member, the player tools their role has on (#240); null for a guest. */
   tools: PlayerTool[] | null;
+  /** What a comment here may name as it is read from the score: page, bars, beats (#240). */
+  references: CommentReferences;
 }
 
 export const fileQuery = (fileId: string) =>
