@@ -25,11 +25,12 @@ import {
 import { useFollowSystemTheme } from "~/lib/theme";
 import { ViewerProvider } from "~/lib/viewer";
 import { AccountPage } from "~/routes/account";
-import { SecondFactorPage, SetupPage, SignInPage, type SignInSearch } from "~/routes/auth-pages";
+import { SecondFactorPage, SignInPage, type SignInSearch } from "~/routes/auth-pages";
 import { FilePage } from "~/routes/file";
 import { GuestHomePage, GuestLinkPage, GuestShell, GuestSignedOutPage } from "~/routes/guest";
 import { HomePage } from "~/routes/home";
 import { InboxPage } from "~/routes/inbox";
+import { InstallerPage } from "~/routes/install";
 import { InvitePage } from "~/routes/invite";
 import { NotificationsPage } from "~/routes/notifications";
 import {
@@ -138,7 +139,7 @@ const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   notFoundComponent: () => <p className="p-8 text-ink-3">Not found.</p>,
 });
 
-/** Public pages: first-run setup and sign-in. */
+/** Public pages: the installer and first-run setup (decision 061), and sign-in. */
 const setup = createRoute({
   getParentRoute: () => root,
   path: "/setup",
@@ -146,7 +147,7 @@ const setup = createRoute({
     if (!(await context.queryClient.ensureQueryData(setupQuery)))
       throw redirect({ to: "/sign-in" });
   },
-  component: SetupPage,
+  component: InstallerPage,
 });
 const signIn = createRoute({
   getParentRoute: () => root,

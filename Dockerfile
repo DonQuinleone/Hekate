@@ -38,18 +38,18 @@ RUN apt-get update \
     /usr/local/lib/node_modules/corepack /usr/local/bin/corepack
 WORKDIR /app
 ENV NODE_ENV=production PORT=3000 WEB_DIST=/app/apps/web/dist MIGRATE_ON_START=true \
-  STORAGE_LOCAL_PATH=/data/storage
+  STORAGE_LOCAL_PATH=/data/storage HEKATE_SETTINGS_FILE=/config/hekate.env
 COPY --from=deps /app /app
 COPY --from=build /app/apps/web/dist apps/web/dist
-# Local storage. A named volume mounted here inherits this ownership.
-RUN mkdir -p /data/storage && chown -R node:node /data
+# Local storage and the installer's settings. A named volume mounted here inherits this ownership.
+RUN mkdir -p /data/storage /config && chown -R node:node /data /config && chmod 700 /config
 # Last, since nothing can run after it: no binary may raise its privileges, apt and dpkg
 # go (their records stay, so scanners still see every package), and so do the shells.
 RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} + \
   && rm -f /usr/bin/apt /usr/bin/apt-* /usr/bin/dpkg /usr/bin/dpkg-* \
   && rm -f /usr/local/bin/docker-entrypoint.sh \
   && rm -f /usr/bin/bash /usr/bin/rbash /usr/bin/dash /usr/bin/sh /bin/sh /bin/bash /bin/dash
-VOLUME /data
+VOLUME /data /config
 USER node
 EXPOSE 3000
 # Exec forms throughout: there is no shell to run anything else.

@@ -16,6 +16,8 @@ A setting marked as secret may instead name a file that holds it, with `_FILE` a
 | `TRUST_PROXY` | `false` | Behind a reverse proxy (Caddy in the Compose file), take client addresses from X-Forwarded-For. |
 | `TRUSTED_ORIGINS` | unset | Extra origins allowed to call the API with credentials, comma separated: the Vite dev server, say. Example: `http://localhost:5173`. |
 | `WEB_DIST` | unset | Directory holding the built web app, served with a single-page fallback. Set in the app image. |
+| `HEKATE_SETTINGS_FILE` | unset | The file the installer writes its settings to, read at every start beneath the environment (which wins). Set to /config/hekate.env in the app image; data/hekate.env otherwise. Example: `/config/hekate.env`. |
+| `HEKATE_SETUP_CODE` | unset | The code that opens the installer and creates the first owner, three groups of four letters and digits. Leave unset: the server makes a new one at each start and prints it in its log. |
 
 ## Database
 

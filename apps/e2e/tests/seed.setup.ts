@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, type Page, test as setup } from "@playwright/test";
 import postgres from "postgres";
 import { samplePdf } from "../../server/src/media/sample-pdf.ts";
+import { SETUP_CODE } from "../constants.ts";
 import { checkScreen } from "./checks.ts";
 import { FIXED_TIME, type Seeded, saveScreen, state } from "./fixtures.ts";
 
@@ -124,7 +125,7 @@ setup("seed", async ({ page, browser }) => {
   // captured here, at both widths.
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto("/setup");
-  await expect(page.locator("#organisation")).toBeVisible();
+  await expect(page.getByLabel("Workspace")).toBeVisible();
   for (const [name, viewport] of [
     ["setup", { width: 1440, height: 900 }],
     ["setup-phone", { width: 390, height: 844 }],
@@ -134,12 +135,14 @@ setup("seed", async ({ page, browser }) => {
     await saveScreen(page, name);
   }
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.fill("#organisation", "Endless Hall Records");
-  await page.fill("#name", "Alex Rivera");
-  await page.fill("#email", "producer@example.test");
-  await page.fill("#password", "correct horse battery");
-  await page.fill("#confirm", "correct horse battery");
-  await page.click("button[type=submit]");
+  await page.getByLabel("Setup code").fill(SETUP_CODE);
+  await page.getByLabel("Workspace").fill("Endless Hall Records");
+  await page.getByLabel("Your name").fill("Alex Rivera");
+  await page.getByLabel("Email").fill("producer@example.test");
+  await page.getByLabel(/^Password/).fill("correct horse battery");
+  await page.getByLabel("Confirm password").fill("correct horse battery");
+  await page.getByRole("button", { name: "Create and finish" }).click();
+  await page.getByRole("button", { name: "Open Hekate" }).click();
   // A new workspace lands on an empty home that says what to do first.
   await expect(page.getByText("Nothing here yet")).toBeVisible();
   for (const [name, viewport] of [

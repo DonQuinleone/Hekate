@@ -5,5 +5,5 @@
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "noEmit": true
   },
-  "include": ["playwright.config.ts", "tests"]
+  "include": ["playwright.config.ts", "constants.ts", "tests"]
 }

@@ -614,26 +614,36 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
   );
   const body = [
     <div key="req" className="flex flex-col gap-4">
+      {field(
+        "Setup code",
+        "7KQ2-M9XD-4HPW",
+        "text",
+        "In the server's log: docker compose logs app. Only whoever runs the server can set it up.",
+      )}
       <ul className="flex flex-col divide-y divide-line rounded-panel-lg border border-line bg-raised/25">
         {check("Node.js 26", "26.2.0", true)}
-        {check("PostgreSQL 18 reachable", failed ? "connection refused on 5432" : "18.1", !failed)}
-        {check("ffmpeg with libaom and libfdk", "7.1", true)}
-        {check("Writable data directory", "/var/lib/hekate", true)}
+        {check("ffmpeg", "7.1.1", true)}
+        {check("Poppler", "25.03.0", true)}
+        {check("Fonts", "installed", true)}
+        {check(
+          "Writable settings directory",
+          failed ? "/config cannot be written to" : "/config",
+          !failed,
+        )}
+        {check("Disk", "182.4 GB free", true)}
         {check("Memory", "7.8 GB of 16 GB free", true)}
-        {check("Public address answers over HTTPS", "checked at step 6", true)}
       </ul>
       <p className="text-[13px] text-ink-3">
-        Everything here comes from the Compose file; change it there and this page checks again.
+        Everything here comes from the image or the host; change it there and reload this page.
       </p>
     </div>,
     <div key="db" className="flex flex-col gap-4">
       {field(
         "Connection",
-        "postgres://hekate@db:5432/hekate",
+        "postgres://hekate:••••@db:5432/hekate",
         "text",
-        "A role of its own, owning one database.",
+        "Set in the environment by the Compose file; change it there.",
       )}
-      {field("Password", "", "password")}
       <div className="flex items-center gap-3">
         <Button variant="secondary" size="md">
           Test the connection
@@ -643,7 +653,8 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
         </span>
       </div>
       <p className="text-[13px] text-ink-3">
-        Migrations run on first start and on every upgrade; the job queue lives here too.
+        The tables are made now, and brought up to date on every upgrade; the job queue lives here
+        too.
       </p>
     </div>,
     <div key="st" className="flex flex-col gap-4">
@@ -719,8 +730,8 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
             </Button>
           </div>
           <p className="text-[13px] text-ink-3">
-            Shown once. It goes into the environment as HEKATE_MASTER_KEY; the installer writes it
-            for you.
+            Made in this browser and shown once. The installer keeps it in the settings file
+            (/config/hekate.env), readable by the server alone.
           </p>
         </>
       ) : (
@@ -785,35 +796,24 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
         "text",
         "Links in mail and the signed media URLs are built from it.",
       )}
-      <label className="flex items-start gap-2 text-[14px] text-ink">
-        <input type="checkbox" defaultChecked className="mt-1" />
-        <span>
-          Give each workspace its own subdomain
-          <span className="block text-[12px] text-ink-3">
-            *.review.endlesshall.example · single sign-on knows the workspace from the address.
-            Needs a wildcard record and certificate.
-          </span>
-        </span>
-      </label>
       <ul className="flex flex-col divide-y divide-line rounded-panel-lg border border-line bg-raised/25">
-        {check("DNS points here", "203.0.113.8", true)}
-        {check("HTTPS answers", "Caddy · certificate issued", true)}
-        {check("Wildcard record", "*.review.endlesshall.example", true)}
+        {check("DNS resolves", "203.0.113.8", true)}
+        {check("HTTPS answers", "certificate valid, and it is this server", true)}
       </ul>
     </div>,
     <div key="org" className="flex flex-col gap-4">
-      <div className="grid gap-4 @md/app:grid-cols-[minmax(0,1fr)_200px]">
-        {field("Workspace", "Endless Hall Records")}
-        {field("Subdomain", "endlesshall")}
-      </div>
+      {field(
+        "Workspace",
+        "Endless Hall Records",
+        "text",
+        "Your studio, label or company. You can rename it later.",
+      )}
       {field("Your name", "Alex Rivera")}
       {field("Email", "alex@endlesshall.example")}
-      {field(
-        "Password",
-        "",
-        "password",
-        "12 characters or more. You will be asked to add a passkey or an authenticator afterwards.",
-      )}
+      <div className="grid gap-4 @md/app:grid-cols-2">
+        {field("Password", "", "password", "12 characters or more.")}
+        {field("Confirm password", "", "password")}
+      </div>
       {failed && <p className="text-[14px] text-signal">Passwords need at least 12 characters.</p>}
     </div>,
   ];
@@ -864,7 +864,7 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
                 {check("Database migrated", "0044", true)}
                 {check("Master key in the environment", "wrapped copy in tonight's backup", true)}
                 {check("Worker", "4 lanes", true)}
-                {check("First workspace", "endlesshall.review.endlesshall.example", true)}
+                {check("First workspace", "Endless Hall Records", true)}
               </ul>
               <div className="flex items-center gap-2">
                 <Button variant="primary" size="lg" onClick={() => navigate({ to: "/" })}>
@@ -893,7 +893,11 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
                   </Button>
                 )}
                 <Button variant="primary" size="lg" className="ml-auto" onClick={next}>
-                  {step === installSteps.length - 1 ? "Create and finish" : "Continue"}
+                  {step === installSteps.length - 1
+                    ? "Create and finish"
+                    : step === installSteps.length - 2
+                      ? "Save and start Hekate"
+                      : "Continue"}
                 </Button>
               </div>
             </>
