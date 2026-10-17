@@ -51,6 +51,8 @@ export const barAnchor = z
     from: barPosition,
     /** End of a bar range, inclusive. Omitted for a single bar position. */
     to: z.object({ bar: z.number().int().nonnegative() }).optional(),
+    /** The score's page the bars are on, as the reviewer reads it (#240); optional. */
+    page: z.number().int().positive().max(100_000).optional(),
     /**
      * Where in a recording the reviewer was when they named the bar, in seconds, so the
      * comment plays from there. Bars are typed by people, never synced to the recording.
@@ -72,14 +74,26 @@ export type AnchorKind = Anchor["kind"];
 
 /** The largest bar number a reference accepts; long enough for any score. */
 const MAX_BAR = 100_000;
+/** The most beats a bar can have; enough for any metre. */
+const MAX_BEAT = 32;
 
 /**
  * A bar reference as people type it: "25", "0" for an upbeat, or a range such as "9-12",
- * "9–12" or "9 to 12". Null when the text is not one.
+ * "9–12" or "9 to 12"; with beats, a bar and its beat such as "25.3". Null when the text is
+ * not one.
  */
 export function parseBars(
   text: string,
+  options: { beats?: boolean } = {},
 ): { from: { bar: number; beat: number }; to?: { bar: number } } | null {
+  if (options.beats) {
+    const b = /^\s*(?:bar\.?\s*)?(\d{1,6})[.:](\d{1,2}(?:\.\d{1,2})?)\s*$/i.exec(text);
+    if (b) {
+      const bar = Number(b[1]);
+      const beat = Number(b[2]);
+      return bar <= MAX_BAR && beat >= 1 && beat <= MAX_BEAT ? { from: { bar, beat } } : null;
+    }
+  }
   const m = /^\s*(?:bars?\.?\s*)?(\d{1,6})\s*(?:(?:-|–|—|to)\s*(\d{1,6}))?\s*$/i.exec(text);
   if (!m) return null;
   const from = Number(m[1]);

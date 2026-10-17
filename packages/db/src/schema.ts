@@ -5,6 +5,7 @@ import {
   auditActions,
   auditActorTypes,
   type CommentMention,
+  type CommentReferences,
   type CustomProfileInput,
   carryStatuses,
   categoryHandlings,
@@ -426,6 +427,8 @@ export const projects = pgTable(
     requireEdl: boolean("require_edl").notNull().default(false),
     /** Its QA rules (#144): which checks run, how hard, and its own; null keeps the defaults. */
     qaSettings: jsonb("qa_settings").$type<QaSettings>(),
+    /** What reviewers may type beside a comment (#240); null takes its profile's. */
+    commentReferences: jsonb("comment_references").$type<CommentReferences>(),
     /**
      * Whether its comment categories have been made: a new project gets the defaults at once,
      * one made before categories existed the first time its categories are read.

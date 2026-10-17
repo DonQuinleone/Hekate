@@ -126,7 +126,8 @@ export function Composer({
         <div className="rise-in flex flex-wrap items-center gap-2 px-0.5 text-[12px] text-ink-3">
           {anyRef && (
             <>
-              {references.page && (
+              {/* On a document the page is the one shown; on a recording it is typed. */}
+              {references.page && kind === "media" && (
                 <input aria-label="Page" placeholder="Page" className={cn(smallField, "w-16")} />
               )}
               {references.bar && (

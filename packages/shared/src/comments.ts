@@ -2,6 +2,7 @@ import { z } from "zod";
 import { type Anchor, anchor } from "./anchor.ts";
 import type { FileKind } from "./files.ts";
 import { allowsAnchor, type ProjectProfile } from "./profile.ts";
+import { type CommentReferences, referenceProblem } from "./references.ts";
 
 /** A comment's text: trimmed, never empty, at most 10,000 characters. */
 export const commentBody = z
@@ -91,9 +92,19 @@ export function anchorProblem(
    * `pages` is how many pages a document was drawn with, once it has been; `profile`, the
    * project's, which decides whether bars are offered at all.
    */
-  file: { kind: FileKind; duration?: number; pages?: number | null; profile?: ProjectProfile },
+  file: {
+    kind: FileKind;
+    duration?: number;
+    pages?: number | null;
+    profile?: ProjectProfile;
+    /** The project's references (#240), which decide bars, pages and beats over its profile. */
+    references?: CommentReferences;
+  },
 ): string | null {
-  if (file.profile && !allowsAnchor(file.profile, value.kind)) {
+  if (value.kind === "bar" && file.references) {
+    const problem = referenceProblem(value, file.references);
+    if (problem) return problem;
+  } else if (file.profile && !allowsAnchor(file.profile, value.kind)) {
     return value.kind === "bar"
       ? "Bars belong to music projects"
       : "This project has no such anchor";

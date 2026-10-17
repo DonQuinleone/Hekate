@@ -1,5 +1,5 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import type { PlayerTool } from "@hekate/shared";
+import { type PlayerTool, referencesOf } from "@hekate/shared";
 import { unwrapKey } from "@hekate/storage";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, count, eq, sql } from "drizzle-orm";
@@ -134,6 +134,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
           createdAt: files.createdAt,
           /** The project's profile decides which tools the file page offers. */
           profile: projects.profile,
+          commentReferences: projects.commentReferences,
         })
         .from(files)
         .innerJoin(
@@ -162,11 +163,14 @@ export const fileRoutes = (deps: PlaybackDeps) =>
         .where(inOrg(variations, c.var.organisationId, eq(variations.fileId, file.id)));
       // A guest's review decides which tools and actions they have; members have their role.
       const access = await fileAccess(deps.db, c.var.actor, file.id);
+      const { commentReferences, ...shownFile } = file;
       // Opening a file a review asks someone about counts as opening that item.
       await noteOpened(deps.db, c.var.actor, file.id);
       return c.json({
         file: {
-          ...file,
+          ...shownFile,
+          // What reviewers may type beside a comment (#240).
+          references: referencesOf(commentReferences, file.profile),
           variation: variation ?? null,
           grant: access?.grant ?? null,
           // A member's player tools, from their role (#240); a guest's come with their grant.

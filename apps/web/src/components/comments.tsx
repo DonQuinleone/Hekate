@@ -1,6 +1,5 @@
 import {
   type Anchor,
-  allowsAnchor,
   anchorShift,
   anchorTime,
   type CarryStatus,
@@ -15,6 +14,7 @@ import {
   mentionedIn,
   mentionRanges,
   parseBars,
+  parseBeat,
   type TriageInput,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -303,6 +303,8 @@ function Composer({
             id={listId}
             role="listbox"
             aria-label="People to mention"
+            // It floats over the composer's fields, as a menu does.
+            data-e2e-overlap
             className="absolute inset-x-0 top-full z-20 mt-1 flex flex-col gap-0.5 rounded-panel border border-line bg-raised p-1 shadow-2"
           >
             {offered.map((person, i) => (
@@ -1104,12 +1106,30 @@ export function Comments({
   const preferences = usePreferences();
   const [bars, setBars] = useState("");
   const barsId = useId();
+  /** What the project lets a comment name as read from the score (#240). */
+  const references = file?.references;
   const offersBars =
     file !== undefined &&
-    allowsAnchor(file.profile, "bar") &&
+    references?.bar === true &&
     (file.kind === "audio" || file.kind === "video" || file.kind === "document");
   /** Bars typed are the comment's target: one target at a time, so the others step aside. */
   const barsOn = offersBars && bars.trim() !== "";
+  /**
+   * The score's page, typed beside the bars on a recording; on a score it is the page shown.
+   * Only where the project takes page references.
+   */
+  const [scorePage, setScorePage] = useState("");
+  const scorePageId = useId();
+  /** A beat within the bar, in a field of its own, where the project takes beats. */
+  const [beat, setBeat] = useState("");
+  const beatId = useId();
+  const offersBeat = offersBars && references?.beat === true;
+  const typedBeat = offersBeat && beat.trim() !== "" ? parseBeat(beat) : undefined;
+  const offersPage = offersBars && references?.page === true && !pages;
+  const typedPage = offersPage && scorePage.trim() !== "" ? Number(scorePage) : undefined;
+  const pageValid =
+    typedPage === undefined ||
+    (Number.isInteger(typedPage) && typedPage >= 1 && typedPage <= 100_000);
 
   const seek = (seconds: number) => {
     if (!media) return;
@@ -1123,11 +1143,33 @@ export function Comments({
   /** The anchor for a new comment: the captured time, or the playhead as it is now. */
   const anchorNow = (): Anchor | null => {
     // Bars typed: the comment points at them, and plays from the moment they were named.
+    // A page or a beat names a place only with its bar.
+    if (!barsOn && ((offersPage && scorePage.trim()) || (offersBeat && beat.trim())))
+      throw new Error("Write the bar the page or beat belongs to");
     if (barsOn) {
-      const named = parseBars(bars);
-      if (!named) throw new Error("Write a bar, such as 25, or bars, such as 9-12");
+      const named = parseBars(bars, { beats: references?.beat });
+      if (!named)
+        throw new Error(
+          references?.beat
+            ? "Write a bar, such as 25, a beat, such as 25.3, or bars, such as 9-12"
+            : "Write a bar, such as 25, or bars, such as 9-12",
+        );
+      if (!pageValid) throw new Error("Write the page as a number, such as 3");
+      if (typedBeat === null) throw new Error("Write the beat as a number from 1 to 32");
+      if (typedBeat !== undefined) {
+        if (named.to && named.to.bar !== named.from.bar)
+          throw new Error("A beat belongs to one bar, not a range");
+        named.from.beat = typedBeat;
+      }
       const moment = media ? (at ?? Math.round(media.currentTime * 1000) / 1000) : undefined;
-      return { kind: "bar", ...named, ...(moment === undefined ? {} : { at: moment }) };
+      // On a score, the bars are on the page shown; on a recording, the page typed.
+      const page = references?.page && pages?.paged ? pages.focus.page : typedPage;
+      return {
+        kind: "bar",
+        ...named,
+        ...(page === undefined ? {} : { page }),
+        ...(moment === undefined ? {} : { at: moment }),
+      };
     }
     if (pages) {
       const page = pages.paged ? { page: pages.focus.page } : {};
@@ -1200,6 +1242,8 @@ export function Comments({
         setWholeFile(false);
         setSheet(false);
         setBars("");
+        setScorePage("");
+        setBeat("");
         // Each document comment starts again from the page shown.
         if (pages) {
           if (pageAim === "region") pages.onFocus({ draft: null });
@@ -1243,6 +1287,24 @@ export function Comments({
           </Target>
         </span>
       )}
+      {offersPage && (
+        <span className="flex items-center gap-1.5">
+          <label htmlFor={scorePageId} className="label">
+            Page
+          </label>
+          <Input
+            size="sm"
+            id={scorePageId}
+            value={scorePage}
+            onChange={(e) => setScorePage(e.target.value)}
+            onKeyDown={(e) => e.stopPropagation()}
+            placeholder="3"
+            inputMode="numeric"
+            aria-invalid={!pageValid}
+            className="tabular w-14"
+          />
+        </span>
+      )}
       {offersBars && (
         <span className="flex items-center gap-1.5">
           <label htmlFor={barsId} className="label">
@@ -1256,9 +1318,29 @@ export function Comments({
             // Space and the arrows belong to the field here, not the player.
             onKeyDown={(e) => e.stopPropagation()}
             placeholder="25 or 9-12"
-            inputMode="numeric"
-            aria-invalid={bars.trim() !== "" && parseBars(bars) === null}
+            inputMode="decimal"
+            aria-invalid={
+              bars.trim() !== "" && parseBars(bars, { beats: references?.beat }) === null
+            }
             className="tabular w-24"
+          />
+        </span>
+      )}
+      {offersBeat && (
+        <span className="flex items-center gap-1.5">
+          <label htmlFor={beatId} className="label">
+            Beat
+          </label>
+          <Input
+            size="sm"
+            id={beatId}
+            value={beat}
+            onChange={(e) => setBeat(e.target.value)}
+            onKeyDown={(e) => e.stopPropagation()}
+            placeholder="3"
+            inputMode="decimal"
+            aria-invalid={typedBeat === null}
+            className="tabular w-14"
           />
         </span>
       )}

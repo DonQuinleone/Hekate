@@ -2,6 +2,7 @@ import {
   type CategoryHandling,
   categoryHandlings,
   customRef,
+  defaultReferences,
   handlingWords,
   type ProfileRef,
   type ProjectPermission,
@@ -59,7 +60,7 @@ const sections = [
     id: "comments",
     label: "Comments",
     group: "Project",
-    intro: "How comments are categorised and carried between versions.",
+    intro: "What comments may refer to, and how they are categorised and carried between versions.",
   },
   {
     id: "roles",
@@ -380,6 +381,8 @@ function General({ project }: { project: Project }) {
 function Comments({ project }: { project: Project }) {
   const can = useProjectCan(project.id);
   const update = useUpdateProject(project.id);
+  // The profile's references until the project chooses its own (#240).
+  const references = project.references ?? defaultReferences(project.profile);
   const { data: categories } = useQuery(categoriesQuery(project.id));
   const { remove } = useCategoryMutations(project.id);
   const [editing, setEditing] = useState<CommentCategory | "new" | null>(null);
@@ -387,6 +390,31 @@ function Comments({ project }: { project: Project }) {
   const shape = can("edit_workflows");
   return (
     <>
+      <Section
+        title="References"
+        intro="What reviewers can type beside a comment, as they read it from the score or the document. Never derived from the time; never on the scrub bar."
+      >
+        <SwitchRow
+          name="Pages"
+          checked={references.page}
+          // One change at a time: each sends all three, so a second waits for the first.
+          disabled={!can("edit_project") || update.isPending}
+          onChange={(page) => update.mutate({ references: { ...references, page } })}
+        />
+        <SwitchRow
+          name="Bars"
+          hint="A bar or a range, such as 9–12; 0 for an upbeat"
+          checked={references.bar}
+          disabled={!can("edit_project") || update.isPending}
+          onChange={(bar) => update.mutate({ references: { ...references, bar } })}
+        />
+        <SwitchRow
+          name="Beats"
+          checked={references.beat}
+          disabled={!can("edit_project") || update.isPending}
+          onChange={(beat) => update.mutate({ references: { ...references, beat } })}
+        />
+      </Section>
       <Section
         title="Categories"
         intro="Triage marks comments with a category, so each kind goes where it belongs."
