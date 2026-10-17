@@ -22,6 +22,7 @@ export type QaCategory = (typeof qaCategories)[number];
 
 /** Measured from the samples when a file is analysed: always on, only their severity moves. */
 export const signalChecks = [
+  "integrity",
   "clipping",
   "flat-tops",
   "dropouts",
@@ -29,6 +30,7 @@ export const signalChecks = [
   "dc-offset",
   "silence",
   "phase",
+  "bandwidth",
 ] as const satisfies readonly QaCheck[];
 
 /** Read against the delivery profile: one switch for them all, and each can be turned off. */

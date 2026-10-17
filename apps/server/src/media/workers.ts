@@ -22,6 +22,7 @@ import { together } from "./together.ts";
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
+import { bandwidthOf } from "./bandwidth.ts";
 import { sweepWorkspaces, withWorkspace } from "./workspace.ts";
 
 const {
@@ -286,7 +287,7 @@ export function analysisHandler(deps: MediaWorkerDeps): JobHandler<"media-analys
         const input = await materialise(deps.storage, organisationId, file.blobId, dir, job.signal);
         // Two decodes side by side, the spectrograms on their own thread.
         return together(job.signal, [
-          (signal) => analyseAudio(input, audio, dir, signal),
+          (signal) => analyseAudio(input, audio, dir, signal, file.mediaInfo?.duration),
           (signal) => spectrogramsInThread(input, audio, file.mediaInfo?.duration, signal),
         ] as const);
       });
@@ -331,10 +332,13 @@ export function analysisHandler(deps: MediaWorkerDeps): JobHandler<"media-analys
           blobId: seriesBlobId,
         });
         await tx.insert(spectrograms).values(spectrumRows);
-        if (analysis.findings.length > 0) {
+        // How high the content reaches comes from the spectrograms (#41).
+        const bandwidth = bandwidthOf(spectra);
+        const findings = bandwidth ? [...analysis.findings, bandwidth] : analysis.findings;
+        if (findings.length > 0) {
           await tx
             .insert(qaFindings)
-            .values(analysis.findings.map((f) => ({ organisationId, fileId, ...f })));
+            .values(findings.map((f) => ({ organisationId, fileId, ...f })));
         }
         await tx
           .update(files)

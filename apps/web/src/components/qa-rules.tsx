@@ -56,6 +56,8 @@ const checkHints: Record<BuiltInCheck, string> = {
   "dc-offset": "A constant shift away from zero",
   silence: "Long stretches with nothing on them",
   phase: "Left and right cancelling each other",
+  integrity: "Decodes cleanly, to the length the file declares",
+  bandwidth: "A sharp cut-off in the high frequencies, or a hi-res file made from a lower rate",
 };
 
 const severityLabel: Record<RuleSeverity, string> = {

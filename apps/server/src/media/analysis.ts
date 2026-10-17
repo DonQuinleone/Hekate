@@ -2,6 +2,7 @@ import { createReadStream } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import {
+  formatClock,
   type LoudnessSeries,
   type LoudnessSummary,
   type PeakLevel,
@@ -32,13 +33,15 @@ export async function analyseAudio(
   audio: { channels: number; sampleRate: number },
   workspace: string,
   signal: AbortSignal,
+  /** The length the file declares, in seconds, for the integrity check (#41). */
+  declared?: number,
 ): Promise<AudioAnalysis> {
   const samplesPerFrame = samplesPerFrameAt(audio.sampleRate);
   const peaks = new PeakBuilder(audio.channels, audio.sampleRate);
   const phase = new PhaseMeter(audio.channels, samplesPerFrame);
   const checks = new SignalChecks(audio.channels, audio.sampleRate);
   const metadata = join(workspace, "loudness.txt");
-  await run(
+  const { stderr } = await run(
     "ffmpeg",
     [
       ...safeInputArgs("ffmpeg"),
@@ -81,6 +84,52 @@ export async function analyseAudio(
   return {
     levels: peakLevels(base),
     loudness: finishLoudness(parser, phase, audio.sampleRate),
-    findings: checks.finish(),
+    findings: [
+      ...checks.finish(),
+      integrityFinding(checks.seconds, declared, decodeErrors(stderr)),
+    ],
   };
+}
+
+/** How many errors the decoder reported, from what it wrote with `-v error`. */
+export const decodeErrors = (stderr: string) =>
+  stderr.split("\n").filter((line) => line.trim() !== "").length;
+
+/**
+ * Whether the file decoded cleanly to its declared length (#41): a file cut short, or one the
+ * decoder stumbled through, fails.
+ */
+export function integrityFinding(
+  decoded: number,
+  declared: number | undefined,
+  errors: number,
+): QaFinding {
+  const short =
+    declared !== undefined && Number.isFinite(declared)
+      ? declared - decoded > Math.max(0.5, declared * 0.01)
+      : false;
+  const finding = (severity: QaFinding["severity"], summary: string): QaFinding => ({
+    check: "integrity",
+    severity,
+    summary,
+    channel: null,
+    start: short ? Math.round(decoded * 1000) / 1000 : null,
+    end: null,
+    details: {
+      decodedSeconds: Math.round(decoded * 1000) / 1000,
+      declaredSeconds: declared ?? null,
+      errors,
+    },
+  });
+  if (short)
+    return finding(
+      "fail",
+      `Decodes to ${formatClock(decoded)} of the ${formatClock(declared as number)} it declares: the file is likely cut short`,
+    );
+  if (errors > 0)
+    return finding(
+      "fail",
+      `The decoder met ${errors === 1 ? "an error" : `${errors} errors`} on the way through: the file may be damaged`,
+    );
+  return finding("pass", "Decodes cleanly, to its full length");
 }
