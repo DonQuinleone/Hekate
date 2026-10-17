@@ -247,7 +247,7 @@ export function FilePage({
     }
   };
   /** A recording's measurements, checks and details have a view of their own (#41). */
-  const hasQa = Boolean(file.mediaInfo?.audio && allows("meters"));
+  const hasQa = Boolean(file.mediaInfo?.audio && allows("qa"));
   /** Triage (#132) belongs to members who may triage. */
   const canTriage = !guest && can("triage");
   const shown = view === "triage" ? (canTriage ? "triage" : "review") : hasQa ? view : "review";
@@ -455,11 +455,13 @@ export function FilePage({
                   onLoop={allows("loops") ? hear : undefined}
                 />
               </div>
-              {file.variation?.scoreFileId && (file.kind === "audio" || file.kind === "video") && (
-                <div className="min-w-0 pt-8 lg:pt-6">
-                  <ScorePane scoreFileId={file.variation.scoreFileId} />
-                </div>
-              )}
+              {file.variation?.scoreFileId &&
+                allows("score") &&
+                (file.kind === "audio" || file.kind === "video") && (
+                  <div className="min-w-0 pt-8 lg:pt-6">
+                    <ScorePane scoreFileId={file.variation.scoreFileId} />
+                  </div>
+                )}
               {comparable && (
                 <div className="min-w-0 pt-8 lg:pt-6">
                   <Compare file={file} media={media} focus={focus} />
@@ -481,7 +483,7 @@ export function FilePage({
                 canChoose={!guest && can("edit_workflows")}
                 onLoop={allows("loops") ? hear : undefined}
               />
-              {file.mediaInfo?.audio && preferences.showLoudness && (
+              {file.mediaInfo?.audio && allows("meters") && preferences.showLoudness && (
                 <Loudness
                   fileId={file.id}
                   media={media}

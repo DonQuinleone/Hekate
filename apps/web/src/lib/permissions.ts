@@ -13,6 +13,8 @@ const toolNames: Record<ReviewerTool, string> = {
   spectrogram: "spectrogram",
   meters: "meters",
   loops: "loops",
+  qa: "QA",
+  score: "score",
 };
 
 /**
@@ -32,6 +34,11 @@ export function permissionSummary(
   if (kind === "approval" && !p.decide) notes.push("No decision");
   const missing = (Object.keys(toolNames) as ReviewerTool[]).filter((t) => !p.tools.includes(t));
   if (guest && missing.length > 0) notes.push(`No ${missing.map((t) => toolNames[t]).join(", ")}`);
+  if (guest && p.history) notes.push("Sees earlier versions");
+  if (guest && p.items) notes.push(`${p.items.length} ${p.items.length === 1 ? "item" : "items"}`);
+  if (guest && p.maxPlays)
+    notes.push(`${p.maxPlays} ${p.maxPlays === 1 ? "play" : "plays"} a file`);
+  if (guest && p.download && p.download !== "none") notes.push(`Downloads the ${p.download}`);
   if (p.startsAt) notes.push(`From ${at(p.startsAt)}`);
   if (p.expiresAt) notes.push(`Until ${at(p.expiresAt)}`);
   return notes;

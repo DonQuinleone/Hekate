@@ -14,6 +14,7 @@ import {
   type ReviewerPermissionsChange,
   type ReviewKind,
   type ReviewStepInput,
+  readGrant,
   remindInput,
   reviewerDefaults,
   reviewerPermissionsChange,
@@ -407,7 +408,9 @@ async function reviewView(db: Database, actor: Actor, reviewId: string) {
   const me = mineOf(rows, actor);
   const member = actor.kind !== "guest";
   const org = actor.organisationId;
-  const items = await itemsOf(db, org, reviewId);
+  // A guest sees the items their review shows them, when it names some (#55).
+  const shown = actor.kind === "guest" && me ? readGrant(me.permissions).items : null;
+  const items = (await itemsOf(db, org, reviewId)).filter((i) => !shown || shown.includes(i.id));
   const covered = [...new Set(items.flatMap((i) => i.fileIds))];
   // Which items each reviewer has opened.
   const opens =
@@ -1572,6 +1575,23 @@ export const reviewRoutes = (deps: ReviewDeps) =>
             throw new HTTPException(422, {
               message: next.error.issues[0]?.message ?? "Those permissions do not fit together",
             });
+          }
+          // The items a reviewer is shown are this review's own (#55).
+          if (next.data.items !== null) {
+            const own = new Set(
+              (
+                await tx
+                  .select({ id: reviewItems.id })
+                  .from(reviewItems)
+                  .where(
+                    inOrg(reviewItems, actor.organisationId, eq(reviewItems.reviewId, review.id)),
+                  )
+              ).map((i) => i.id),
+            );
+            if (next.data.items.length === 0 || next.data.items.some((i) => !own.has(i)))
+              throw new HTTPException(422, {
+                message: "Choose at least one of this review's items",
+              });
           }
           const before = activeReviewers(
             review.order,

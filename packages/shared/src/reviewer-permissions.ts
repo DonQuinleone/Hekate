@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type DownloadLevel, downloadLevels, widestDownload } from "./downloads.ts";
+import { downloadLevels, widestDownload } from "./downloads.ts";
 
 /**
  * What one reviewer may do in one review (docs/domain.md, Reviewer permissions). A guest
@@ -10,8 +10,12 @@ import { type DownloadLevel, downloadLevels, widestDownload } from "./downloads.
 export const commentScopes = ["all", "own_and_replies", "own"] as const;
 export type CommentScope = (typeof commentScopes)[number];
 
-/** The engineer's tools a review can leave out. Loops are an interface tool, hidden only. */
-export const reviewerTools = ["spectrogram", "meters", "loops"] as const;
+/**
+ * The engineer's tools a review can leave out. Loops are an interface tool, hidden only;
+ * QA (findings and measurements), meters (loudness), the spectrogram and the score are
+ * refused by the server too.
+ */
+export const reviewerTools = ["spectrogram", "meters", "loops", "qa", "score"] as const;
 export type ReviewerTool = (typeof reviewerTools)[number];
 
 const when = z.iso.datetime({ offset: true }).nullable();
@@ -26,6 +30,12 @@ export const reviewerPermissions = z
     tools: z.array(z.enum(reviewerTools)).max(reviewerTools.length),
     /** What they may download: nothing unless the review says so. Grants made earlier lack it. */
     download: z.enum(downloadLevels).default("none"),
+    /** A track's earlier versions as well as the one under review. */
+    history: z.boolean().default(false),
+    /** Which of the review's items they see, by item id; null is every item. */
+    items: z.array(z.uuid()).max(500).nullable().default(null),
+    /** How many times they may start playing each file; null is without limit. */
+    maxPlays: z.number().int().min(1).max(1000).nullable().default(null),
     /** The review opens to them from this moment; null is at once. */
     startsAt: when,
     /** And closes to them at this one; null is when the review ends. */
@@ -44,9 +54,25 @@ export const defaultReviewerPermissions: ReviewerPermissions = {
   comments: "all",
   tools: [...reviewerTools],
   download: "none",
+  history: false,
+  items: null,
+  maxPlays: null,
   startsAt: null,
   expiresAt: null,
 };
+
+/** A grant as stored: one made before a field existed lacks it, and reads as its default. */
+export type StoredGrant = Omit<ReviewerPermissions, "download" | "history" | "items" | "maxPlays"> &
+  Partial<Pick<ReviewerPermissions, "download" | "history" | "items" | "maxPlays">>;
+
+/** A stored grant with every field: what it says, or the default for what it predates. */
+export const readGrant = (grant: StoredGrant): ReviewerPermissions => ({
+  download: "none",
+  history: false,
+  items: null,
+  maxPlays: null,
+  ...grant,
+});
 
 /** A change to some of a reviewer's permissions; the rest stay as they are. */
 export const reviewerPermissionsChange = z.object({
@@ -55,6 +81,9 @@ export const reviewerPermissionsChange = z.object({
   comments: z.enum(commentScopes).optional(),
   tools: z.array(z.enum(reviewerTools)).max(reviewerTools.length).optional(),
   download: z.enum(downloadLevels).optional(),
+  history: z.boolean().optional(),
+  items: z.array(z.uuid()).max(500).nullable().optional(),
+  maxPlays: z.number().int().min(1).max(1000).nullable().optional(),
   startsAt: when.optional(),
   expiresAt: when.optional(),
 });
@@ -83,11 +112,10 @@ const scopeWidth: Record<CommentScope, number> = { own: 0, own_and_replies: 1, a
  * those reviews allows. (Decisions belong to one review, so they are not merged.)
  */
 export function mergeGrants(
-  grants: (Omit<ReviewerPermissions, "download"> & { download?: DownloadLevel })[],
-):
-  | (Pick<ReviewerPermissions, "comment" | "comments" | "tools"> & { download: DownloadLevel })
-  | null {
-  if (grants.length === 0) return null;
+  stored: StoredGrant[],
+): Pick<ReviewerPermissions, "comment" | "comments" | "tools" | "download" | "maxPlays"> | null {
+  if (stored.length === 0) return null;
+  const grants = stored.map(readGrant);
   return {
     download: widestDownload(grants.map((g) => g.download)),
     comment: grants.some((g) => g.comment),
@@ -96,6 +124,10 @@ export function mergeGrants(
       "own",
     ),
     tools: reviewerTools.filter((t) => grants.some((g) => g.tools.includes(t))),
+    // Without limit if any review says so; otherwise the most any allows.
+    maxPlays: grants.some((g) => g.maxPlays === null)
+      ? null
+      : Math.max(...grants.map((g) => g.maxPlays ?? 0)),
   };
 }
 
