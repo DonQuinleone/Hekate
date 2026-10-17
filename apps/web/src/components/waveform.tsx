@@ -1,4 +1,12 @@
-import { channelNames, combineChannels, levelFor, type PeakLevel } from "@hekate/shared";
+import {
+  channelNames,
+  combineChannels,
+  defaultWaveLook,
+  levelFor,
+  type PeakLevel,
+  type WaveColour,
+  type WaveLook,
+} from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type WaveSurfer from "wavesurfer.js";
@@ -12,7 +20,33 @@ export type WaveformView = "channels" | "combined";
 export const WAVEFORM_HEIGHT = 168;
 const HEIGHT = WAVEFORM_HEIGHT;
 
-/** A token colour with transparency, for a waveform drawn over a spectrogram. */
+export const waveTokens: Record<WaveColour, string> = {
+  ink: "--hk-ink",
+  signal: "--hk-signal",
+  cool: "--hk-wave-cool",
+  warm: "--hk-wave-warm",
+};
+export const waveColourNames: Record<WaveColour, string> = {
+  ink: "Ink",
+  signal: "Signal",
+  cool: "Cool",
+  warm: "Warm",
+};
+
+/**
+ * wavesurfer's colours and scale for a look: the played part at the chosen brightness, the
+ * rest at a third of it (a little more over a spectrogram, where the ground is busy), and
+ * the wave scaled so the default height draws full scale to the lane's edges.
+ */
+export function waveStyle(look: WaveLook, colour: string, overlay: boolean) {
+  return {
+    waveColor: translucent(colour, look.opacity * (overlay ? 0.56 : 0.3)),
+    progressColor: translucent(colour, look.opacity),
+    barHeight: look.height / defaultWaveLook.height,
+  };
+}
+
+/** A token colour with transparency. */
 const translucent = (hex: string, alpha: number) => {
   const value = Number.parseInt(hex.replace("#", "").slice(0, 6), 16);
   return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
@@ -47,6 +81,7 @@ export function Waveform({
   layout,
   view,
   overlay = false,
+  look = defaultWaveLook,
 }: {
   fileId: string;
   media: HTMLMediaElement;
@@ -55,6 +90,7 @@ export function Waveform({
   view: WaveformView;
   /** Drawn see-through, over a spectrogram. */
   overlay?: boolean;
+  look?: WaveLook;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -96,18 +132,11 @@ export function Waveform({
     void import("wavesurfer.js").then(({ default: WaveSurfer }) => {
       if (cancelled) return;
       const rowHeight = Math.floor(HEIGHT / shown.channels);
-      // Played audio reads brighter; the signal colour is kept for the playhead alone.
-      const style = overlay
-        ? {
-            waveColor: translucent(token("--hk-ink"), 0.28),
-            progressColor: translucent(token("--hk-ink"), 0.5),
-            height: rowHeight,
-          }
-        : {
-            waveColor: token("--hk-edge"),
-            progressColor: token("--hk-ink-3"),
-            height: rowHeight,
-          };
+      // Played audio reads brighter; the playhead is always the signal colour.
+      const style = {
+        ...waveStyle(look, token(waveTokens[look.colour]), overlay),
+        height: rowHeight,
+      };
       instance = WaveSurfer.create({
         container: element,
         media,
@@ -129,7 +158,7 @@ export function Waveform({
       cancelled = true;
       instance?.destroy();
     };
-  }, [shown, media, duration, overlay, theme]);
+  }, [shown, media, duration, overlay, theme, look.colour, look.opacity, look.height]);
 
   // Nothing to wait for: no peaks are coming for this file.
   if (index && index.status !== "pending" && index.status !== "ready") return null;

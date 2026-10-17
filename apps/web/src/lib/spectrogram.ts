@@ -1,13 +1,17 @@
 import {
   byteToLevel,
+  defaultSpectrumView,
   type FrequencyScale,
   frequencyScales,
   rowBands,
   type Spectrogram,
+  type SpectrogramColourMap,
+  type SpectrumView,
+  spectrogramColourMaps,
 } from "@hekate/shared";
 
-export const colourMaps = ["cyan-orange", "inferno", "greyscale", "signal"] as const;
-export type ColourMap = (typeof colourMaps)[number];
+export const colourMaps = spectrogramColourMaps;
+export type ColourMap = SpectrogramColourMap;
 
 export const colourMapNames: Record<ColourMap, string> = {
   "cyan-orange": "Cyan to orange",
@@ -84,25 +88,8 @@ export function colourTable(map: ColourMap, signalStops?: string[]): Uint8Array 
   return lookupTable(map === "signal" ? (signalStops ?? ["#000000", "#ffffff"]) : stops[map]);
 }
 
-export interface SpectrogramView {
-  colourMap: ColourMap;
-  scale: FrequencyScale;
-  /** Levels at or below the floor are the darkest colour; at or above the ceiling, the brightest. */
-  floor: number;
-  ceiling: number;
-  /** The frequency range shown, in Hz. */
-  low: number;
-  high: number;
-}
-
-export const defaultView: SpectrogramView = {
-  colourMap: "cyan-orange",
-  scale: "log",
-  floor: -120,
-  ceiling: 0,
-  low: 20,
-  high: 24_000,
-};
+export type SpectrogramView = SpectrumView;
+export const defaultView: SpectrogramView = defaultSpectrumView;
 
 /** A view from storage, with anything missing or invalid replaced by the default. */
 export function readView(value: unknown): SpectrogramView {
@@ -111,10 +98,12 @@ export function readView(value: unknown): SpectrogramView {
   >;
   const number = (x: unknown, fallback: number) =>
     typeof x === "number" && Number.isFinite(x) ? x : fallback;
-  const floor = number(v.floor, defaultView.floor);
-  const ceiling = number(v.ceiling, defaultView.ceiling);
-  const low = number(v.low, defaultView.low);
-  const high = number(v.high, defaultView.high);
+  const within = (x: number, min: number, max: number) => Math.min(max, Math.max(min, x));
+  // Within what the account keeps (spectrumViewSchema): −200 to +20 dB, up to 192 kHz.
+  const floor = within(number(v.floor, defaultView.floor), -200, 19);
+  const ceiling = within(number(v.ceiling, defaultView.ceiling), -199, 20);
+  const low = within(number(v.low, defaultView.low), 0, 191_999);
+  const high = within(number(v.high, defaultView.high), 1, 192_000);
   return {
     colourMap: colourMaps.includes(v.colourMap as ColourMap)
       ? (v.colourMap as ColourMap)

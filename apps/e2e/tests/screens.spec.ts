@@ -712,6 +712,39 @@ test("file-normalised", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The player's View menu (#135): the spectrogram below, behind and instead of the waveform, each
+// with its own waveform look, kept by the browser as a listener left it.
+for (const [place, wave] of [
+  ["below", { colour: "ink", opacity: 0.5, height: 0.32 }],
+  ["behind", { colour: "cool", opacity: 0.8, height: 0.5 }],
+  ["instead", { colour: "warm", opacity: 0.5, height: 0.32 }],
+] as const) {
+  test(`player-view-${place}`, async ({ page }, info) => {
+    await page.addInitScript(
+      (view) => localStorage.setItem("hekate.player.view", JSON.stringify(view)),
+      { split: false, spectrogram: place, wave },
+    );
+    await page.goto(`/files/${seeded().dryFileId}`);
+    await settle(page, "[role=img][aria-label^=Spectrogram]:not(.animate-pulse) canvas");
+    await page.getByRole("button", { name: "View" }).click();
+    await settle(page, "section#player-view");
+    // On a phone the menu runs on below the fold: shown, rather than left against the tab bar.
+    if (info.project.name === "phone") {
+      await page
+        .locator("section#player-view")
+        .evaluate((el) => el.scrollIntoView({ block: "center" }));
+    }
+    await saveScreen(page, `player-view-${place}`);
+    await checkScreen(page);
+    if (place !== "below") return;
+    // Naming the view to keep it as a preset; not saved, so no other capture sees it.
+    await page.getByRole("button", { name: "Save as…" }).click();
+    await page.getByRole("textbox", { name: "Preset name" }).fill("Noise hunt");
+    await saveScreen(page, "player-view-preset");
+    await checkScreen(page);
+  });
+}
+
 // "Any other options for these bars?" (#46): the takes covering a bar thread's first bar.
 test("file-comment-other-takes", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);

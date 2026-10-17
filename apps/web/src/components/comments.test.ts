@@ -1,7 +1,7 @@
 import type { Anchor } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
 import type { Comment } from "~/lib/queries";
-import { regionMarkers } from "./comments";
+import { commentMarkers, regionMarkers } from "./comments";
 
 const comment = (id: string, anchor: Anchor | null, extra: Partial<Comment> = {}): Comment => ({
   id,
@@ -57,5 +57,27 @@ describe("region markers", () => {
       ["a", 2, 2],
     ]);
     expect(markers[0]?.rect).toEqual({ x: 0.5, y: 0.2, width: 0.3, height: 0.1 });
+  });
+});
+
+describe("timeline markers", () => {
+  const at = (start: number): Anchor => ({ kind: "time", start, end: start });
+  it("marks each moment once, with the most pressing of its threads", () => {
+    const markers = commentMarkers([
+      comment("open", at(4)),
+      comment("task", at(4), { todo: true }),
+      comment("done task", at(9), { todo: true, todoDoneAt: "2026-10-14T13:00:00Z" }),
+      comment("assigned", at(12), { assigneeId: "someone" }),
+      comment("later", at(20), { deferredTo: "mastering" }),
+      comment("settled", at(30), { resolvedAt: "2026-10-14T13:00:00Z" }),
+      comment("reply", at(40), { parentId: "open" }),
+      comment("page", region(1)),
+    ]);
+    expect(markers).toEqual([
+      { at: 4, state: "todo" },
+      { at: 9, state: "open" },
+      { at: 12, state: "todo" },
+      { at: 20, state: "deferred" },
+    ]);
   });
 });

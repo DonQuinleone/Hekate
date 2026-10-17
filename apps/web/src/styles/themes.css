@@ -40,6 +40,8 @@
   --hk-elevation-sticky: var(--hk-highlight), 0 -12px 24px -12px rgb(0 0 0 / 0.12);
   --hk-shadow-paper: 0 1px 2px rgb(0 0 0 / 0.1), 0 18px 48px -12px rgb(0 0 0 / 0.2);
   --hk-node-review: #2f63c4;
+  --hk-wave-cool: #136b94;
+  --hk-wave-warm: #936823;
   --hk-node-work: #1d7a4d;
   --hk-node-comm: #6f47c4;
   --hk-node-flow: #0f7a80;

@@ -51,6 +51,7 @@ import { useViewer } from "~/lib/viewer";
 import { Avatar } from "./avatar";
 import type { RegionMarker } from "./document-viewer";
 import { Icon } from "./icons";
+import type { TimelineMarker } from "./player";
 import { OtherTakes, SharedTakes } from "./takes";
 import { Button } from "./ui/button";
 import { Chip, ToggleChip } from "./ui/chip";
@@ -1577,22 +1578,33 @@ export function useRegionMarkers(fileId: string, enabled = true): RegionMarker[]
   return data ? regionMarkers(data) : [];
 }
 
-/** Where open time-anchored threads start, for markers on the timeline. */
-export function useCommentMarkers(fileId: string, enabled = true): number[] {
+/** How an open thread reads on the timeline: work to do, put off, or simply open. */
+export function markerState(comment: Comment): TimelineMarker["state"] {
+  if (comment.assigneeId || (comment.todo && !comment.todoDoneAt)) return "todo";
+  if (comment.deferredTo) return "deferred";
+  return "open";
+}
+
+/**
+ * Where open time-anchored threads start, for markers on the timeline. Threads at the same
+ * moment share a marker, which shows the most pressing of them.
+ */
+export function commentMarkers(comments: Comment[]): TimelineMarker[] {
+  const rank = { todo: 2, open: 1, deferred: 0 } as const;
+  const byTime = new Map<number, TimelineMarker>();
+  for (const c of comments) {
+    if (c.parentId || c.resolvedAt || c.carry?.visible === false) continue;
+    // A bar comment marks the moment it was named at.
+    const at = anchorTime(c.anchor ?? null);
+    if (at === null) continue;
+    const state = markerState(c);
+    const seen = byTime.get(at);
+    if (!seen || rank[state] > rank[seen.state]) byTime.set(at, { at, state });
+  }
+  return [...byTime.values()];
+}
+
+export function useCommentMarkers(fileId: string, enabled = true): TimelineMarker[] {
   const { data } = useQuery({ ...commentsQuery(fileId), enabled });
-  if (!data) return [];
-  return [
-    ...new Set(
-      data
-        .filter(
-          (c) =>
-            !c.parentId &&
-            !c.resolvedAt &&
-            c.carry?.visible !== false &&
-            anchorTime(c.anchor ?? null) !== null,
-        )
-        // A bar comment marks the moment it was named at.
-        .map((c) => anchorTime(c.anchor ?? null) ?? 0),
-    ),
-  ];
+  return data ? commentMarkers(data) : [];
 }

@@ -4,22 +4,40 @@ import {
   type MediaInfo,
   type Normalisation,
   normalisationLabel,
+  type SpectrogramPlace,
+  savePreset,
+  spectrogramPlaces,
+  VIEW_PRESETS_MAX,
+  WAVE_LOOK_MIN,
   type WatermarkPosition,
+  type WaveLook,
+  waveColours,
 } from "@hekate/shared";
 import type Hls from "hls.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
 import { type Loop, loopEntry, loopFrom, type Rolls, roll, wrapTarget } from "~/lib/loop";
-import { type Playback, type Rendition, usePreferences } from "~/lib/queries";
+import { usePlayerView } from "~/lib/player-view";
+import { type Playback, type Rendition, usePreferences, useSavePreferences } from "~/lib/queries";
 import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
+import { readView, type SpectrogramView } from "~/lib/spectrogram";
+import { useViewer } from "~/lib/viewer";
 import { Icon } from "./icons";
 import { LoopControls, LoopSurface } from "./loop";
 import { Spectrogram, type SpectrogramChannelChoice } from "./spectrogram";
-import { SpectrogramSettings, useSpectrogramView } from "./spectrogram-settings";
+import { SpectrogramLook, SpectrogramSettings } from "./spectrogram-settings";
 import { Button } from "./ui/button";
+import { Input, Select } from "./ui/input";
+import { Segmented } from "./ui/segmented";
 import { Slider } from "./ui/slider";
 import { Toggle } from "./ui/toggle";
-import { WAVEFORM_HEIGHT, Waveform, type WaveformView } from "./waveform";
+import {
+  WAVEFORM_HEIGHT,
+  Waveform,
+  type WaveformView,
+  waveColourNames,
+  waveTokens,
+} from "./waveform";
 
 const ROLLS_KEY = "hekate.loop.rolls";
 
@@ -47,54 +65,22 @@ function useRolls(): [Rolls, (rolls: Rolls) => void] {
 /** How the audio is drawn above the transport. */
 type Display = "waveform" | "spectrogram" | "both" | "overlay";
 
-/**
- * What the player shows beyond the plain waveform, all off by default: one waveform with
- * the channels combined. Remembered per browser.
- */
-interface PlayerView {
-  /** Each channel in its own lane, rather than combined. */
-  split: boolean;
-  spectrogram: boolean;
-  /** Where the spectrogram goes: under the waveform, behind it, or instead of it. */
-  placement: "below" | "behind" | "instead";
-}
-const defaultPlayerView: PlayerView = { split: false, spectrogram: false, placement: "below" };
-const VIEW_KEY = "hekate.player.view";
-
-/** `splitByDefault`: the member's choice, used until this browser remembers its own. */
-function usePlayerView(splitByDefault: boolean): [PlayerView, (next: PlayerView) => void] {
-  const [view, setView] = useState<PlayerView>(() => {
-    try {
-      const saved = JSON.parse(
-        localStorage.getItem(VIEW_KEY) ?? "null",
-      ) as Partial<PlayerView> | null;
-      return {
-        split: saved ? saved.split === true : splitByDefault,
-        spectrogram: saved?.spectrogram === true,
-        placement:
-          saved?.placement === "behind" || saved?.placement === "instead"
-            ? saved.placement
-            : "below",
-      };
-    } catch {
-      return defaultPlayerView;
-    }
-  });
-  const save = useCallback((next: PlayerView) => {
-    setView(next);
-    try {
-      localStorage.setItem(VIEW_KEY, JSON.stringify(next));
-    } catch {
-      // Not remembered; the choice still holds for this visit.
-    }
-  }, []);
-  return [view, save];
-}
-
-const placementNames: Record<PlayerView["placement"], string> = {
+const placeNames: Record<SpectrogramPlace, string> = {
+  off: "Off",
   below: "Below",
   behind: "Behind",
   instead: "Instead",
+};
+
+/** A comment's mark on the timeline: open ones quiet, ones with work to do in the signal colour. */
+export interface TimelineMarker {
+  at: number;
+  state: "open" | "todo" | "deferred";
+}
+const markerStyles: Record<TimelineMarker["state"], string> = {
+  open: "bg-ink-2",
+  todo: "bg-signal",
+  deferred: "bg-ink-3 opacity-60",
 };
 
 /** What a reviewer chooses between, in plain words. */
@@ -190,8 +176,8 @@ export function Player({
   onExpired: () => void;
   /** The media element, once mounted, so other panels can read and move the playhead. */
   onMedia?: (element: HTMLMediaElement | null) => void;
-  /** Positions in seconds to mark on the timeline, such as anchored comments. */
-  markers?: number[];
+  /** Moments to mark on the timeline, such as anchored comments. */
+  markers?: TimelineMarker[];
   /** The passage being looped; kept by the page so it holds across files. */
   loop?: Loop | null;
   onLoop?: (loop: Loop | null) => void;
@@ -208,6 +194,7 @@ export function Player({
   onNormalised?: (normalised: boolean) => void;
 }) {
   const preferences = usePreferences();
+  const { guest } = useViewer();
   const canLoop = !tools || tools.includes("loops");
   /** Where normalising is each person's choice, the View menu offers it (#240). */
   const offersNormalise = normalisation?.mode === "optional";
@@ -233,20 +220,41 @@ export function Player({
   const native = useRef(false);
   /** The media element once mounted, for the waveform to follow. */
   const [element, setElement] = useState<HTMLMediaElement | null>(null);
-  const [playerView, setPlayerView] = usePlayerView(preferences.splitChannels);
+  const { view: playerView, setView: setPlayerView, split, setSplit } = usePlayerView();
+  const savePreferences = useSavePreferences();
   const channels = info?.audio?.channels ?? 0;
-  const view: WaveformView = playerView.split && channels > 1 ? "channels" : "combined";
-  const display: Display = !(playerView.spectrogram && canSpectrogram)
-    ? "waveform"
-    : playerView.placement === "behind"
-      ? "overlay"
-      : playerView.placement === "instead"
-        ? "spectrogram"
-        : "both";
-  const [spectrum, setSpectrum] = useSpectrogramView();
+  const view: WaveformView = split && channels > 1 ? "channels" : "combined";
+  const display: Display =
+    !canSpectrogram || playerView.spectrogram === "off"
+      ? "waveform"
+      : playerView.spectrogram === "behind"
+        ? "overlay"
+        : playerView.spectrogram === "instead"
+          ? "spectrogram"
+          : "both";
+  const look = playerView.wave;
+  const setLook = (wave: Partial<WaveLook>) =>
+    setPlayerView({ ...playerView, wave: { ...playerView.wave, ...wave } });
+  const spectrum = playerView.spectrum;
+  const setSpectrum = (next: SpectrogramView) =>
+    setPlayerView({ ...playerView, spectrum: readView(next) });
   const [spectrumChannel, setSpectrumChannel] = useState<SpectrogramChannelChoice>(
-    channels > 1 ? (playerView.split ? "each" : "all") : "0",
+    channels > 1 ? (split ? "each" : "all") : "0",
   );
+  /** Naming the view to keep it as a preset, and why it could not be. */
+  const [naming, setNaming] = useState<string | null>(null);
+  const [presetError, setPresetError] = useState<string | null>(null);
+  const presets = preferences.viewPresets;
+  const keepPreset = () => {
+    const name = (naming ?? "").trim();
+    if (!name) return setPresetError("A preset needs a name");
+    const next = savePreset(presets, { name, view: playerView });
+    if (next.length > VIEW_PRESETS_MAX)
+      return setPresetError(`At most ${VIEW_PRESETS_MAX} presets; remove one in your account`);
+    savePreferences.mutate({ viewPresets: next });
+    setNaming(null);
+    setPresetError(null);
+  };
   const [settingsOpen, setSettingsOpen] = useState(false);
   /** The spectrogram's own settings, a level below the view menu. */
   const [tuning, setTuning] = useState(false);
@@ -568,6 +576,7 @@ export function Player({
                   duration={duration}
                   layout={info?.audio?.channelLayout}
                   view={view}
+                  look={look}
                 />
               )}
               {element && (display === "spectrogram" || display === "both") && (
@@ -604,6 +613,7 @@ export function Player({
                     duration={duration}
                     layout={info?.audio?.channelLayout}
                     view={view}
+                    look={look}
                     overlay
                   />
                 </div>
@@ -642,11 +652,11 @@ export function Player({
                 }}
               />
             )}
-            {markers.map((at) => (
+            {markers.map(({ at, state }) => (
               <div
                 key={at}
                 aria-hidden="true"
-                className="absolute top-0 h-1.5 w-px -translate-x-1/2 bg-signal"
+                className={cn("absolute top-0 h-1.5 w-px -translate-x-1/2", markerStyles[state])}
                 style={{ left: `${share(at)}%` }}
               />
             ))}
@@ -700,7 +710,7 @@ export function Player({
             >
               <Icon name={muted ? "mute" : "volume"} size={14} />
             </Button>
-            {((kind === "audio" && (channels > 1 || canSpectrogram)) || offersNormalise) && (
+            {(kind === "audio" || offersNormalise) && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -768,51 +778,76 @@ export function Player({
               className="flex flex-col gap-3 border-t border-hairline pt-3"
             >
               <div className="flex max-w-80 flex-col gap-2.5">
-                {offersNormalise && (
-                  <Toggle
-                    label="Normalised playback"
-                    checked={normalised}
-                    onChange={(on) => onNormalised?.(on)}
-                  />
+                {/* No waveform drawn, nothing to choose about it. */}
+                {kind === "audio" && display !== "spectrogram" && (
+                  <fieldset className="m-0 flex flex-col gap-2.5 border-0 p-0">
+                    <legend className="sr-only">Waveform</legend>
+                    <div className="flex items-center justify-between gap-4">
+                      <span aria-hidden="true" className="text-[14px] text-ink">
+                        Waveform
+                      </span>
+                      <span className="flex gap-1.5">
+                        {waveColours.map((colour) => (
+                          <button
+                            key={colour}
+                            type="button"
+                            aria-pressed={look.colour === colour}
+                            aria-label={`${waveColourNames[colour]} waveform`}
+                            title={waveColourNames[colour]}
+                            onClick={() => setLook({ colour })}
+                            className={cn(
+                              "flex size-7 cursor-pointer items-center justify-center rounded-full border bg-transparent p-0",
+                              look.colour === colour ? "border-ink" : "border-transparent",
+                            )}
+                          >
+                            <span
+                              className="size-4 rounded-full"
+                              style={{ background: `var(${waveTokens[colour]})` }}
+                            />
+                          </button>
+                        ))}
+                      </span>
+                    </div>
+                    <LookSlider
+                      label="Brightness"
+                      value={look.opacity}
+                      onChange={(opacity) => setLook({ opacity })}
+                    />
+                    <LookSlider
+                      label="Height"
+                      value={look.height}
+                      onChange={(height) => setLook({ height })}
+                    />
+                  </fieldset>
                 )}
                 {kind === "audio" && channels > 1 && (
                   <Toggle
                     label="Split channels"
-                    checked={playerView.split}
+                    checked={split}
                     onChange={(split) => {
-                      setPlayerView({ ...playerView, split });
+                      setSplit(split);
                       // The spectrogram follows: a lane per channel, or all of them together.
                       setSpectrumChannel(split ? "each" : "all");
                     }}
                   />
                 )}
                 {kind === "audio" && canSpectrogram && (
-                  <Toggle
-                    label="Spectrogram"
-                    checked={playerView.spectrogram}
-                    onChange={(spectrogram) => setPlayerView({ ...playerView, spectrogram })}
-                  />
-                )}
-                {kind === "audio" && canSpectrogram && playerView.spectrogram && (
-                  <fieldset className="m-0 flex items-center justify-between gap-4 border-0 p-0">
-                    <legend className="sr-only">Spectrogram placement</legend>
-                    <span aria-hidden="true" className="text-[13px] text-ink-3">
-                      Placement
+                  <div className="flex items-center justify-between gap-4">
+                    <span aria-hidden="true" className="text-[14px] text-ink">
+                      Spectrogram
                     </span>
-                    <span className="flex gap-1">
-                      {(Object.keys(placementNames) as PlayerView["placement"][]).map((p) => (
-                        <ChoiceButton
-                          key={p}
-                          selected={playerView.placement === p}
-                          onSelect={() => setPlayerView({ ...playerView, placement: p })}
-                        >
-                          {placementNames[p]}
-                        </ChoiceButton>
-                      ))}
-                    </span>
-                  </fieldset>
+                    <Segmented
+                      label="Spectrogram"
+                      value={playerView.spectrogram}
+                      options={spectrogramPlaces.map((p) => ({ value: p, label: placeNames[p] }))}
+                      onChange={(spectrogram) => setPlayerView({ ...playerView, spectrogram })}
+                    />
+                  </div>
                 )}
-                {kind === "audio" && canSpectrogram && playerView.spectrogram && (
+                {kind === "audio" && canSpectrogram && playerView.spectrogram !== "off" && (
+                  <SpectrogramLook view={spectrum} onView={setSpectrum} />
+                )}
+                {kind === "audio" && canSpectrogram && playerView.spectrogram !== "off" && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -820,8 +855,96 @@ export function Player({
                     onClick={() => setTuning((t) => !t)}
                     className="self-start px-0 text-ink-3 hover:text-ink"
                   >
-                    {tuning ? "Hide spectrogram settings" : "Adjust spectrogram…"}
+                    {tuning ? "Hide spectrogram settings" : "Channel, levels and range…"}
                   </Button>
+                )}
+                {kind === "audio" && !canSpectrogram && tools && !tools.includes("spectrogram") && (
+                  <span className="text-[12px] text-ink-3">
+                    The spectrogram is not among your tools here.
+                  </span>
+                )}
+                {kind === "audio" && (!tools || tools.includes("qa")) && (
+                  <Toggle
+                    label="Loudness and issues"
+                    checked={playerView.loudness}
+                    onChange={(loudness) => setPlayerView({ ...playerView, loudness })}
+                  />
+                )}
+                {offersNormalise && (
+                  <Toggle
+                    label="Normalised playback"
+                    checked={normalised}
+                    onChange={(on) => onNormalised?.(on)}
+                  />
+                )}
+                {/* Presets go with an account; a guest has none to keep them in. */}
+                {kind === "audio" && !guest && (
+                  <div className="flex items-center justify-between gap-4 border-t border-hairline pt-2.5">
+                    <span aria-hidden="true" className="text-[14px] text-ink">
+                      Presets
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      {presets.length > 0 && (
+                        <Select
+                          size="sm"
+                          aria-label="Apply a preset"
+                          className="w-36"
+                          value=""
+                          onChange={(e) => {
+                            const preset = presets.find((p) => p.name === e.target.value);
+                            if (preset) setPlayerView(preset.view);
+                          }}
+                        >
+                          <option value="" disabled>
+                            Apply…
+                          </option>
+                          {presets.map((p) => (
+                            <option key={p.name} value={p.name}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </Select>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-expanded={naming !== null}
+                        onClick={() => {
+                          setNaming(naming === null ? "" : null);
+                          setPresetError(null);
+                        }}
+                      >
+                        Save as…
+                      </Button>
+                    </span>
+                  </div>
+                )}
+                {kind === "audio" && !guest && naming !== null && (
+                  <form
+                    className="flex flex-col gap-1.5"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      keepPreset();
+                    }}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Input
+                        size="sm"
+                        aria-label="Preset name"
+                        placeholder="Name this view"
+                        maxLength={40}
+                        value={naming}
+                        // biome-ignore lint/a11y/noAutofocus: opened by asking to name a preset.
+                        autoFocus
+                        onChange={(e) => setNaming(e.target.value)}
+                        className="min-w-0 flex-1"
+                      />
+                      <Button size="sm" type="submit">
+                        Save
+                      </Button>
+                    </span>
+                    {presetError && <span className="text-[12px] text-signal">{presetError}</span>}
+                  </form>
                 )}
               </div>
             </section>
@@ -840,6 +963,33 @@ export function Player({
         </div>
       )}
     </section>
+  );
+}
+
+/** A share of the waveform's look, from 15% to 100%. */
+function LookSlider({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  const percent = Math.round(value * 100);
+  return (
+    <label className="flex items-center gap-3 text-[12px] text-ink-3">
+      <span className="w-16 shrink-0">{label}</span>
+      <Slider
+        min={Math.round(WAVE_LOOK_MIN * 100)}
+        max={100}
+        value={percent}
+        aria-valuetext={`${percent}%`}
+        onChange={(e) => onChange(Number(e.target.value) / 100)}
+        className="min-w-0 flex-1"
+      />
+      <span className="tabular w-9 text-right">{percent}%</span>
+    </label>
   );
 }
 
