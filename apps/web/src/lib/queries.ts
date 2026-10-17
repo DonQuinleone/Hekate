@@ -1435,6 +1435,23 @@ export const qaQuery = (fileId: string) =>
     refetchInterval: (query) => (query.state.data?.status === "pending" ? 3000 : false),
   });
 
+/** What the checks found fixed and new since the previous version of a track (#43). */
+export interface QaChanges {
+  previous: { number: number; name: string } | null;
+  measured: boolean;
+  fixed: QaFinding[];
+  new: QaFinding[];
+}
+
+export const qaChangesQuery = (fileId: string) =>
+  queryOptions({
+    // Under the report's key, so a profile changed refreshes it with the report.
+    queryKey: ["files", fileId, "qa", "changes"],
+    queryFn: async () =>
+      json<QaChanges>(await api.files[":id"].qa.changes.$get({ param: { id: fileId } })),
+    staleTime: 60_000,
+  });
+
 /** Every file's QA report may change when a profile does. */
 const refreshReports = (client: ReturnType<typeof useQueryClient>) =>
   client.invalidateQueries({

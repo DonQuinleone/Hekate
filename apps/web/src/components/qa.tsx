@@ -3,7 +3,6 @@ import {
   formatClock,
   type ProfileRef,
   type ProfileSource,
-  type QaCheck,
   type QaFinding,
   type QaSeverity,
   qaCheckNames,
@@ -13,7 +12,14 @@ import { useQuery } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { cn } from "~/lib/cn";
 import { type Loop, MIN_LOOP } from "~/lib/loop";
-import { customProfilesQuery, type QaReport, qaQuery, useFileDeliveryProfile } from "~/lib/queries";
+import {
+  customProfilesQuery,
+  type QaChanges,
+  type QaReport,
+  qaChangesQuery,
+  qaQuery,
+  useFileDeliveryProfile,
+} from "~/lib/queries";
 import { ProfileOptions } from "./delivery-profiles";
 import { Icon } from "./icons";
 import { Button } from "./ui/button";
@@ -82,6 +88,7 @@ export function FindingRow({
   onSeek,
   onLoop,
   onComment,
+  isNew = false,
   action,
   nested = false,
 }: {
@@ -91,6 +98,8 @@ export function FindingRow({
   onLoop?: (loop: Loop) => void;
   /** Write a comment about it, at its moment (#43). */
   onComment?: (finding: QaFinding) => void;
+  /** Not found in the previous version (#43). */
+  isNew?: boolean;
   /** Beside the summary: opening a group, for one. */
   action?: React.ReactNode;
   /** One of a group's, shown under it. */
@@ -113,6 +122,7 @@ export function FindingRow({
         )}
         <span className="sr-only">{severityNames[finding.severity]}: </span>
         {finding.summary}
+        {isNew && <span className="label ml-2 text-signal">new in this version</span>}
         {action && <span className="ml-3">{action}</span>}
       </span>
       <span className="flex items-center gap-2">
@@ -260,6 +270,9 @@ export function QualityChecks({
   const { data: customs = [] } = useQuery({ ...customProfilesQuery, enabled: canChoose });
   const [showPassed, setShowPassed] = useState(false);
   const [report, setReport] = useState(false);
+  const { data: changes } = useQuery(qaChangesQuery(fileId));
+  /** The problems not found in the previous version, to label as new. */
+  const fresh = new Set((changes?.new ?? []).map(findingKey));
   const id = useId();
   if (!data) return null;
   const problems = data.findings.filter((f) => f.severity !== "pass");
@@ -327,6 +340,7 @@ export function QualityChecks({
                   onSeek={seek}
                   onLoop={onLoop}
                   onComment={onComment}
+                  isNew={fresh.has(findingKey(f))}
                 />
               ))
             ),
@@ -353,6 +367,9 @@ export function QualityChecks({
           )}
         </div>
       )}
+      {changes?.previous && changes.measured && (
+        <SincePrevious changes={changes} previous={changes.previous} />
+      )}
       <Button variant="secondary" size="sm" className="self-start" onClick={() => setReport(true)}>
         <Icon name="download" size={14} />
         QA report
@@ -364,6 +381,56 @@ export function QualityChecks({
           onClose={() => setReport(false)}
         />
       )}
+    </section>
+  );
+}
+
+/** What the checks found fixed and new against the previous version (#43). */
+function SincePrevious({
+  changes,
+  previous,
+}: {
+  changes: QaChanges;
+  previous: { number: number; name: string };
+}) {
+  const list = (findings: QaFinding[], fixed: boolean, none: string) =>
+    findings.length === 0 ? (
+      <p className="m-0 text-[13px] text-ink-3">{none}</p>
+    ) : (
+      <ul className="m-0 flex list-none flex-col gap-1 p-0">
+        {findings.map((f) => (
+          <li key={findingKey(f)} className="flex items-start gap-2 text-[13px] text-ink-2">
+            <span className="mt-1.5">
+              <SeverityDot severity={fixed ? "pass" : f.severity} />
+            </span>
+            <span className="min-w-0">
+              {checkNames[f.check]}: {f.summary}
+            </span>
+          </li>
+        ))}
+      </ul>
+    );
+  return (
+    <section
+      aria-label="Since the previous version"
+      className="flex flex-col gap-3 border-t border-hairline pt-4"
+    >
+      <h3 className="m-0 flex items-baseline gap-2 text-[14px] font-medium text-ink">
+        Since the previous version
+        <span className="text-[13px] font-normal text-ink-3">
+          V{previous.number} · {previous.name}
+        </span>
+      </h3>
+      <div className="grid gap-4 @3xl/app:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <span className="label">Fixed</span>
+          {list(changes.fixed, true, "Nothing fixed.")}
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <span className="label">New</span>
+          {list(changes.new, false, "Nothing new.")}
+        </div>
+      </div>
     </section>
   );
 }
