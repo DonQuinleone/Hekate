@@ -10,6 +10,7 @@ export const notificationIcon: Record<AppNotification["kind"], IconName> = {
   version: "upload",
   processing_failed: "warning",
   guest_opened: "eye",
+  deletion_requested: "warning",
   due_soon: "clock",
   assigned: "task",
 };

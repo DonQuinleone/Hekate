@@ -24,13 +24,24 @@ import { NotFound } from "../errors.ts";
 import { projectFigures } from "../project-figures.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { categoriesOf, seedCategories } from "./categories.ts";
+import { deletionView } from "./project-deletion.ts";
 import { copyCategories, templateFor } from "./templates.ts";
 
 const { projects, files, users, projectRoles, projectMembers, reviews } = schema;
 
 /** A project as it leaves the server: its comment references read, its profile's if unset. */
-function shown<P extends { commentReferences: unknown; profile: ProjectProfile }>(project: P) {
-  const { commentReferences, ...rest } = project;
+function shown<
+  P extends {
+    commentReferences: unknown;
+    profile: ProjectProfile;
+    deletionRequestedBy?: unknown;
+    deletionRequestedAt?: unknown;
+    deleteAfter?: unknown;
+  },
+>(project: P) {
+  // A deletion waiting is shown on its own, to those it concerns (#240).
+  const { commentReferences, deletionRequestedBy, deletionRequestedAt, deleteAfter, ...rest } =
+    project;
   return { ...rest, references: referencesOf(commentReferences, project.profile) };
 }
 
@@ -263,6 +274,17 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
       if (!project.archived) return c.body(null, 204);
       const who = await audit.member(c.var.userId);
       await db.transaction(async (tx) => {
+        // A project on its way out is kept first (#240), so it is never both live and due.
+        const [current] = await tx
+          .select({ deleteAfter: projects.deleteAfter })
+          .from(projects)
+          .where(inOrg(projects, c.var.organisationId, eq(projects.id, project.projectId)))
+          .for("update");
+        if (current?.deleteAfter) {
+          throw new HTTPException(409, {
+            message: "This project is to be deleted; keep it before bringing it back",
+          });
+        }
         await tx
           .update(projects)
           .set({ archivedAt: null, updatedAt: new Date() })
@@ -285,11 +307,14 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
         .where(inOrg(projects, c.var.organisationId, eq(projects.id, access.projectId)));
       // What the caller may do here, so the interface offers only that (the server still checks),
       // and whether they may archive or unarchive it.
+      const mayDelete = access.granted.has("delete_project");
       return c.json({
         project: {
           ...(project && shown(project)),
           permissions: [...access.permissions],
-          mayArchive: access.granted.has("delete_project"),
+          mayArchive: mayDelete,
+          // A deletion waiting for its second person, and what this one may do about it (#240).
+          deletion: project ? await deletionView(db, c.var, project, mayDelete) : null,
         },
       });
     })

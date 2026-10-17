@@ -432,6 +432,13 @@ export const projects = pgTable(
     commentReferences: jsonb("comment_references").$type<CommentReferences>(),
     /** Whether recordings play at their delivery target's loudness (#240); off until chosen. */
     normalisation: text("normalisation").$type<NormalisationMode>().notNull().default("off"),
+    /** A deletion asked for, waiting for a workspace owner's confirmation (#240): who, and when. */
+    deletionRequestedBy: text("deletion_requested_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    deletionRequestedAt: timestamp("deletion_requested_at", { withTimezone: true }),
+    /** Once a second owner confirms, when it goes for good; kept until then, read-only (#240). */
+    deleteAfter: timestamp("delete_after", { withTimezone: true }),
     /**
      * Whether its comment categories have been made: a new project gets the defaults at once,
      * one made before categories existed the first time its categories are read.

@@ -179,6 +179,7 @@ const actionLabel: Record<NotificationKind, string> = {
   version: "Open the version",
   processing_failed: "Open the file",
   guest_opened: "See the review",
+  deletion_requested: "Open the project's settings",
   due_soon: "Open the review",
   assigned: "Open your comments",
 };
@@ -192,6 +193,8 @@ const whyFoot: Record<NotificationKind, string> = {
   version: "You get this because you follow the track.",
   processing_failed: "You get this because you uploaded the file.",
   guest_opened: "You get this because you requested the review.",
+  deletion_requested:
+    "You get this because deleting a project needs a workspace owner's confirmation.",
   due_soon: "A reminder, sent once, the day before the due date.",
   assigned: "You get this because the comments are assigned to you.",
 };

@@ -17,7 +17,7 @@ import {
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, type ReactNode, useState } from "react";
 import {
   formatDb,
   ProfileEditor,
@@ -36,6 +36,7 @@ import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
+import { formatDates } from "~/lib/locale";
 import {
   type CommentCategory,
   categoriesQuery,
@@ -46,6 +47,7 @@ import {
   useArchiveProject,
   useCategoryMutations,
   useProjectCan,
+  useProjectDeletion,
   useTemplateMutations,
   useTrackDeliveryProfile,
   useTrackReferences,
@@ -338,16 +340,19 @@ function General({ project }: { project: Project }) {
       </Section>
       {update.error && <p className="-mt-6 text-[13px] text-signal">{update.error.message}</p>}
       <Templates project={project} canSave={edit} />
-      {project.mayArchive && !project.archivedAt && (
+      {(project.mayArchive || project.deletion?.mayConfirm || project.deletion?.mayCancel) && (
         <Danger>
-          <Row
-            name="Archive this project"
-            hint="Read-only for everyone; its open reviews close; it leaves the lists. Everything is kept, and it can be unarchived."
-          >
-            <Button variant="secondary" size="md" onClick={() => setConfirm(true)}>
-              Archive…
-            </Button>
-          </Row>
+          {project.mayArchive && !project.archivedAt && (
+            <Row
+              name="Archive this project"
+              hint="Read-only for everyone; its open reviews close; it leaves the lists. Everything is kept, and it can be unarchived."
+            >
+              <Button variant="secondary" size="md" onClick={() => setConfirm(true)}>
+                Archive…
+              </Button>
+            </Row>
+          )}
+          <DeleteProject project={project} />
         </Danger>
       )}
       {confirm && (
@@ -378,6 +383,164 @@ function General({ project }: { project: Project }) {
           }
         >
           {archive.error && <p className="text-[13px] text-signal">{archive.error.message}</p>}
+        </Dialog>
+      )}
+    </>
+  );
+}
+
+const momentFormat = formatDates({
+  day: "numeric",
+  month: "long",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+/**
+ * Deleting a project (#240): someone whose role may delete it asks; a workspace owner other
+ * than them confirms, typing the project's name. It is then archived and goes for good seven
+ * days later, unless someone keeps it.
+ */
+function DeleteProject({ project }: { project: Project }) {
+  const deletion = project.deletion ?? null;
+  const { request, cancel, confirm } = useProjectDeletion(project.id);
+  const [dialog, setDialog] = useState<"ask" | "confirm" | null>(null);
+  const [typed, setTyped] = useState("");
+  const close = () => {
+    setDialog(null);
+    setTyped("");
+  };
+  const error = request.error ?? cancel.error;
+  let row: ReactNode;
+  if (deletion?.deleteAfter) {
+    row = (
+      <Row
+        name="To be deleted"
+        hint={`It goes for good on ${momentFormat.format(new Date(deletion.deleteAfter))}, files, comments and reviews with it. Archived and read-only until then.`}
+      >
+        {deletion.mayCancel && (
+          <Button
+            variant="secondary"
+            size="md"
+            disabled={cancel.isPending}
+            onClick={() => cancel.mutate()}
+          >
+            Keep it
+          </Button>
+        )}
+      </Row>
+    );
+  } else if (deletion) {
+    const status = deletion.mayConfirm
+      ? "Confirm it to delete the project."
+      : deletion.confirmableAt
+        ? `As the only owner, you can confirm it from ${momentFormat.format(new Date(deletion.confirmableAt))}.`
+        : "Waiting for a workspace owner to confirm.";
+    row = (
+      <Row
+        name="Deletion asked for"
+        hint={`${deletion.requestedBy ?? "Someone"} asked on ${momentFormat.format(new Date(deletion.requestedAt))}. ${status}`}
+      >
+        <span className="flex gap-2">
+          {deletion.mayCancel && (
+            <Button
+              variant="ghost"
+              size="md"
+              disabled={cancel.isPending}
+              onClick={() => cancel.mutate()}
+            >
+              Withdraw
+            </Button>
+          )}
+          {deletion.mayConfirm && (
+            <Button
+              variant="secondary"
+              size="md"
+              className="text-signal"
+              onClick={() => setDialog("confirm")}
+            >
+              Delete…
+            </Button>
+          )}
+        </span>
+      </Row>
+    );
+  } else if (project.mayArchive) {
+    row = (
+      <Row
+        name="Delete this project"
+        hint="Files, comments and reviews go with it. Needs the delete permission and a second owner's confirmation."
+      >
+        <Button
+          variant="secondary"
+          size="md"
+          className="text-signal"
+          onClick={() => setDialog("ask")}
+        >
+          Delete…
+        </Button>
+      </Row>
+    );
+  }
+  return (
+    <>
+      {row}
+      {error && <p className="px-4 pb-3 text-[13px] text-signal">{error.message}</p>}
+      {dialog === "ask" && (
+        <Dialog
+          title={`Delete ${project.name}?`}
+          description="A workspace owner other than you confirms before anything happens; a workspace with one owner confirms a day later. It is then archived, and everything in it is removed after seven days."
+          onClose={close}
+          width="sm"
+          footer={
+            <>
+              <Button variant="ghost" size="md" onClick={close}>
+                Keep it
+              </Button>
+              <Button
+                variant="primary"
+                size="md"
+                disabled={request.isPending}
+                onClick={() => request.mutate(undefined, { onSuccess: close })}
+              >
+                Ask to delete
+              </Button>
+            </>
+          }
+        >
+          {request.error && <p className="text-[13px] text-signal">{request.error.message}</p>}
+        </Dialog>
+      )}
+      {dialog === "confirm" && (
+        <Dialog
+          title="Delete this project?"
+          description="It is archived now, and everything in it is removed after seven days; until then it can be kept. Type the project's name to confirm."
+          onClose={close}
+          width="sm"
+          footer={
+            <>
+              <Button variant="ghost" size="md" onClick={close}>
+                Keep it
+              </Button>
+              <Button
+                variant="primary"
+                size="md"
+                disabled={confirm.isPending || typed.trim() !== project.name}
+                onClick={() => confirm.mutate(undefined, { onSuccess: close })}
+              >
+                Delete
+              </Button>
+            </>
+          }
+        >
+          <Field label="Project name" error={confirm.error?.message}>
+            <Input
+              value={typed}
+              placeholder={project.name}
+              autoComplete="off"
+              onChange={(e) => setTyped(e.target.value)}
+            />
+          </Field>
         </Dialog>
       )}
     </>

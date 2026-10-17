@@ -33,6 +33,7 @@ import { organisationRoutes } from "./routes/organisation.ts";
 import { projectOverviewRoutes } from "./routes/overview.ts";
 import { fileRoutes, playRoutes } from "./routes/playback.ts";
 import { projectAccessRoutes } from "./routes/project-access.ts";
+import { projectDeletionRoutes } from "./routes/project-deletion.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { fileQaRoutes } from "./routes/qa.ts";
 import { fileRetryRoutes } from "./routes/retry.ts";
@@ -201,6 +202,7 @@ export function createApi(deps: AppDeps) {
       .use("/projects/*", ...member)
       .use("/projects", ...member)
       .route("/projects", projectRoutes(deps.db, deps.audit, deps.trustProxy ?? false))
+      .route("/projects", projectDeletionRoutes(reviewDeps))
       .route("/projects", projectTrackRoutes(deps.db))
       .route("/projects", projectAccessRoutes(deps.db))
       .route("/projects", projectReviewRoutes(reviewDeps))
