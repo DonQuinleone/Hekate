@@ -6,7 +6,7 @@ import {
   variationNameFrom,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { type DragEvent, type FormEvent, type ReactNode, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
@@ -20,6 +20,7 @@ import {
   projectTracksQuery,
   type Track,
   useProjectCan,
+  useProjectTool,
   useTrackMutations,
   type Version,
   workspaceSettingsQuery,
@@ -632,11 +633,30 @@ function VersionRow({
   files: Map<string, ProjectFile>;
 }) {
   const can = useProjectCan(track.projectId);
+  const tool = useProjectTool(track.projectId);
+  const navigate = useNavigate();
   const { makePrimary } = useTrackMutations(track.projectId);
+  const previous = [...track.versions]
+    .filter((v) => v.number < version.number)
+    .sort((x, y) => y.number - x.number)[0];
   const [dialog, setDialog] = useState<"add" | "replace" | null>(null);
   const pending = version.variations.some((v) => v.streamStatus === "pending");
   const failed = version.variations.some((v) => v.streamStatus === "failed");
   const actions: MenuAction[] = [
+    // Two versions side by side, aligned by their audio (#137).
+    ...(previous && tool("compare")
+      ? [
+          {
+            label: "Compare with the previous version",
+            onSelect: () =>
+              void navigate({
+                to: "/tracks/$trackId/compare",
+                params: { trackId: track.id },
+                search: { a: previous.number, b: version.number },
+              }),
+          },
+        ]
+      : []),
     ...(can("upload") ? [{ label: "Add a variation…", onSelect: () => setDialog("add") }] : []),
     ...(can("organise")
       ? [

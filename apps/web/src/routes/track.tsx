@@ -8,7 +8,7 @@ import { TakeManager } from "~/components/takes";
 import { primaryOf, TrackHeading, TrackVersions } from "~/components/track-versions";
 import { Button } from "~/components/ui/button";
 import { Segmented } from "~/components/ui/segmented";
-import { projectQuery, trackQuery, useProjectCan } from "~/lib/queries";
+import { projectQuery, trackQuery, useProjectCan, useProjectTool } from "~/lib/queries";
 
 /**
  * A track (#131): it opens in the player on its latest version's primary file, like a
@@ -23,6 +23,7 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
     enabled: Boolean(track),
   });
   const can = useProjectCan(track?.projectId);
+  const tool = useProjectTool(track?.projectId);
   const navigate = useNavigate();
   const [adding, setAdding] = useState(false);
   if (error) return <p className="p-8 text-signal">{error.message}</p>;
@@ -65,6 +66,14 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
         actions={
           live ? (
             <>
+              {track.versions.length > 1 && tool("compare") && !takes && (
+                <Button variant="ghost" size="sm" asChild>
+                  <Link to="/tracks/$trackId/compare" params={{ trackId: track.id }}>
+                    <Icon name="compare" size={14} />
+                    Compare
+                  </Link>
+                </Button>
+              )}
               {can("request_reviews") && latest && (
                 <Button variant="secondary" size="sm" asChild>
                   <Link

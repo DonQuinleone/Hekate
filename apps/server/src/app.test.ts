@@ -16,7 +16,7 @@ import {
   mapTime,
 } from "@hekate/shared";
 import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
-import { and, count, eq, isNotNull, like, ne, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNotNull, like, ne, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, MAX_BODY_BYTES } from "./app.ts";
@@ -5550,6 +5550,174 @@ describe.runIf(url)("api", () => {
       };
       const request = (cookie: string, projectId: string, body: Record<string, unknown>) =>
         app.request(`/api/projects/${projectId}/reviews`, json(body, cookie));
+
+      it("compares two versions: how they line up, what was fixed and new, comments carried (#137)", async () => {
+        const s = await studio();
+        // A second version, with the cover's audio as its mix.
+        expect(
+          (
+            await app.request(
+              `/api/tracks/${s.trackId}/versions`,
+              json({ variations: [{ fileId: s.artwork, name: "Mix" }] }, s.owner),
+            )
+          ).status,
+        ).toBe(201);
+        // A click the first version had, a dropout only the second has.
+        const found = (fileId: string, check: "clipping" | "dropouts", start: number) => ({
+          organisationId: s.organisationId,
+          fileId,
+          check,
+          severity: "fail" as const,
+          summary: check,
+          channel: 0,
+          start,
+          end: start + 0.1,
+          details: {},
+        });
+        await db
+          .insert(schema.qaFindings)
+          .values([found(s.mix, "clipping", 12), found(s.artwork, "dropouts", 40)]);
+        await db
+          .update(schema.files)
+          .set({ analysisStatus: "ready" })
+          .where(inArray(schema.files.id, [s.mix, s.artwork]));
+        await app.request(
+          `/api/files/${s.mix}/comments`,
+          json({ body: "Pedal", anchor: { kind: "time", start: 30, end: 31 } }, s.owner),
+        );
+        type Compared = {
+          a: { number: number; fileId: string };
+          b: { number: number; fileId: string };
+          alignment: { status: string; quality: number | null; points: unknown };
+          findings: { measured: boolean; fixed: { check: string }[]; new: { check: string }[] };
+          comments: { body: string; start: number; mapped: number | null }[];
+        };
+        const compare = async (cookie = s.owner, query = "") => {
+          const res = await getAs(`/api/tracks/${s.trackId}/compare${query}`, cookie);
+          return res.status === 200 ? ((await res.json()) as Compared) : res.status;
+        };
+        // The latest two by default; the music is still being lined up.
+        const first = (await compare()) as Compared;
+        expect([first.a.number, first.b.number]).toEqual([1, 2]);
+        expect(first.alignment.status).toBe("aligning");
+        expect(first.findings).toMatchObject({
+          measured: true,
+          fixed: [{ check: "clipping" }],
+          new: [{ check: "dropouts" }],
+        });
+        expect(first.comments).toEqual([
+          { id: expect.any(String), body: "Pedal", start: 30, mapped: null },
+        ]);
+
+        // Once aligned, comments follow the music to where it went.
+        const [row] = await db
+          .select({ id: schema.alignments.id })
+          .from(schema.alignments)
+          .where(eq(schema.alignments.fromFileId, s.mix));
+        const align = (quality: number) =>
+          db
+            .update(schema.alignments)
+            .set({
+              status: "ready",
+              quality,
+              points: [
+                [0, 0],
+                [60, 62],
+              ],
+            })
+            .where(eq(schema.alignments.id, row?.id ?? ""));
+        await align(0.9);
+        const aligned = (await compare()) as Compared;
+        expect(aligned.alignment).toMatchObject({ status: "ready", quality: 0.9 });
+        expect(aligned.comments[0]?.mapped).toBeCloseTo(31, 5);
+        // A click the edit moved two seconds later is the same click, whichever side is A.
+        await db
+          .insert(schema.qaFindings)
+          .values([found(s.mix, "clipping", 54), found(s.artwork, "clipping", 54 + 1.8)]);
+        const forward = (await compare()) as Compared;
+        const back = (await compare(s.owner, "?a=2&b=1")) as Compared;
+        for (const both of [forward, back]) {
+          expect(both.findings).toMatchObject({
+            fixed: [{ check: "clipping" }],
+            new: [{ check: "dropouts" }],
+          });
+        }
+
+        // Too poor to follow: said so, and worked out again on request.
+        await align(0.31);
+        expect(((await compare()) as Compared).alignment).toEqual({
+          status: "poor",
+          quality: 0.31,
+          points: null,
+        });
+        const realign = (cookie: string) =>
+          app.request(`/api/tracks/${s.trackId}/compare/realign`, json({ a: 1, b: 2 }, cookie));
+        // A Reviewer compares, but does not set the work going.
+        expect((await compare(s.composer)) as Compared).toMatchObject({ a: { number: 1 } });
+        expect((await realign(s.composer)).status).toBe(403);
+        const again = await realign(s.owner);
+        expect(again.status).toBe(202);
+        expect(await again.json()).toEqual({ queued: 1 });
+        expect(((await compare()) as Compared).alignment.status).toBe("aligning");
+
+        // Without reading comments, compare shows none of them.
+        const reviewer = and(
+          eq(schema.projectRoles.projectId, s.projectId),
+          eq(schema.projectRoles.name, "Reviewer"),
+        );
+        await db
+          .update(schema.projectRoles)
+          .set({ permissions: ["view"] })
+          .where(reviewer);
+        expect(((await compare(s.composer)) as Compared).comments).toEqual([]);
+
+        // By default the latest two that can be played, not one still being prepared.
+        const [third] = await db
+          .insert(schema.files)
+          .values({
+            organisationId: s.organisationId,
+            projectId: s.projectId,
+            name: "Mix v3.wav",
+            kind: "audio",
+            blobId: (await storage.put(s.organisationId, Buffer.from("v3"))).id,
+            contentType: "audio/wav",
+            byteSize: 2,
+            streamStatus: "pending",
+          })
+          .returning({ id: schema.files.id });
+        await app.request(
+          `/api/tracks/${s.trackId}/versions`,
+          json({ variations: [{ fileId: third?.id, name: "Mix" }] }, s.owner),
+        );
+        expect(((await compare()) as Compared).b.number).toBe(3);
+        await db
+          .update(schema.files)
+          .set({ streamStatus: "ready" })
+          .where(inArray(schema.files.id, [s.mix, s.artwork]));
+        const playable = (await compare()) as Compared;
+        expect([playable.a.number, playable.b.number]).toEqual([1, 2]);
+        expect((await compare(s.owner, "?a=3")) as Compared).toMatchObject({
+          a: { number: 3 },
+          b: { number: 2 },
+        });
+
+        // Without the compare tool, refused; one version alone, nothing to compare; another
+        // workspace's track, none at all.
+        await db
+          .update(schema.projectRoles)
+          .set({ tools: ["score"] })
+          .where(
+            and(
+              eq(schema.projectRoles.projectId, s.projectId),
+              eq(schema.projectRoles.name, "Reviewer"),
+            ),
+          );
+        expect(await compare(s.composer)).toBe(403);
+        expect(await compare(s.owner, "?a=1&b=1")).toBe(422);
+        expect(
+          (await getAs("/api/tracks/0190a6f0-0000-7000-8000-0000000000ff/compare", s.owner)).status,
+        ).toBe(404);
+      });
 
       it("runs a review from its page: due date, reminders, notes, opened items and activity", async () => {
         const s = await studio();
