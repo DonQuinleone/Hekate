@@ -238,11 +238,7 @@ export function FilePage({
           paged: file.kind === "document",
         }
       : undefined;
-  const comparable =
-    !guest &&
-    (!file.tools || file.tools.includes("compare")) &&
-    file.kind === "audio" &&
-    file.streamStatus === "ready";
+  const comparable = allows("compare") && file.kind === "audio" && file.streamStatus === "ready";
   /** Normalised playback (#240): always where the project says so, else as this person chose. */
   const normalised =
     file.normalisation !== null && (file.normalisation.mode === "forced" || chosenNormal);

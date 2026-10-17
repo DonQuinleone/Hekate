@@ -97,6 +97,20 @@ const viewFile = (db: Database) =>
  * As `viewFile`, for an engineer's tool: a guest whose review leaves the tool out, or a member
  * whose role has it off (#240), is refused it here, not only hidden in the interface.
  */
+/**
+ * The files a guest may open, to keep what a file is compared with to those; null for a
+ * member, who sees the whole project.
+ */
+async function reachable(db: Database, actor: Actor): Promise<Set<string> | null> {
+  if (actor.kind !== "guest") return null;
+  return new Set(
+    [...(await guestReach(db, actor))]
+      // A take shared on a thread is theirs to hear, not to compare.
+      .filter(([, through]) => through.some((t) => !t.shared))
+      .map(([fileId]) => fileId),
+  );
+}
+
 const toolFile = (db: Database, tool: PlayerTool) =>
   createMiddleware<{ Variables: ViewerVariables }>(async (c, next) => {
     const id = z.uuid().safeParse(c.req.param("id"));
@@ -117,7 +131,8 @@ export const fileRoutes = (deps: PlaybackDeps) =>
     .use("/:id/spectrograms", toolFile(deps.db, "spectrogram"))
     .use("/:id/playback", viewFile(deps.db))
     .use("/:id/view", viewFile(deps.db))
-    .use("/:id/alignments", viewFile(deps.db))
+    .use("/:id/alignments", toolFile(deps.db, "compare"))
+    .use("/:id/compare", toolFile(deps.db, "compare"))
     .get("/:id", fileParam, async (c) => {
       // Metadata only: contents leave Hekate solely through protected delivery.
       const [file] = await deps.db
@@ -206,12 +221,70 @@ export const fileRoutes = (deps: PlaybackDeps) =>
       });
     })
     // Where the same music sits in this file and the others it was aligned with, read from
-    // this file's side. Members compare versions; guests see only their review's files.
+    // this file's side. Members compare versions; guests only the files their reviews give.
     .get("/:id/alignments", fileParam, async (c) => {
-      if (c.var.actor.kind === "guest") return c.json({ alignments: [] });
-      return c.json({
-        alignments: await alignmentsFrom(deps.db, c.var.organisationId, c.req.valid("param").id),
-      });
+      const all = await alignmentsFrom(deps.db, c.var.organisationId, c.req.valid("param").id);
+      const reached = await reachable(deps.db, c.var.actor);
+      return c.json({ alignments: reached ? all.filter((a) => reached.has(a.fileId)) : all });
+    })
+    // What a file can be compared with (#44): its track's versions and their variations, as far
+    // as the person may open them. A loose file has none.
+    .get("/:id/compare", fileParam, async (c) => {
+      const org = c.var.organisationId;
+      const fileId = c.req.valid("param").id;
+      const [mine] = await deps.db
+        .select({ trackId: versions.trackId })
+        .from(variations)
+        .innerJoin(
+          versions,
+          and(eq(versions.id, variations.versionId), eq(versions.organisationId, org)),
+        )
+        .where(inOrg(variations, org, eq(variations.fileId, fileId)));
+      if (!mine) return c.json({ versions: [] });
+      const rows = await deps.db
+        .select({
+          versionId: versions.id,
+          number: versions.number,
+          fileId: variations.fileId,
+          name: variations.name,
+          isPrimary: variations.isPrimary,
+          position: variations.position,
+          streamStatus: files.streamStatus,
+        })
+        .from(variations)
+        .innerJoin(
+          versions,
+          and(eq(versions.id, variations.versionId), eq(versions.organisationId, org)),
+        )
+        .innerJoin(files, and(eq(files.id, variations.fileId), eq(files.organisationId, org)))
+        .where(inOrg(variations, org, eq(versions.trackId, mine.trackId)))
+        .orderBy(asc(versions.number), asc(variations.position));
+      const reached = await reachable(deps.db, c.var.actor);
+      const shown = reached ? rows.filter((r) => reached.has(r.fileId)) : rows;
+      const byVersion = new Map<
+        string,
+        {
+          id: string;
+          number: number;
+          variations: Omit<(typeof shown)[number], "versionId" | "number">[];
+        }
+      >();
+      for (const r of shown) {
+        const version = byVersion.get(r.versionId) ?? {
+          id: r.versionId,
+          number: r.number,
+          variations: [],
+        };
+        version.variations.push({
+          fileId: r.fileId,
+          name: r.name,
+          isPrimary: r.isPrimary,
+          position: r.position,
+          streamStatus: r.streamStatus,
+        });
+        byVersion.set(r.versionId, version);
+      }
+      return c.json({ versions: [...byVersion.values()] });
     })
     // Waveform peaks: an 8-bit envelope per channel, from which no audio can be rebuilt, so
     // members fetch them directly rather than through playback tokens.

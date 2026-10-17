@@ -12,10 +12,11 @@ export type CommentScope = (typeof commentScopes)[number];
 
 /**
  * The engineer's tools a review can leave out. Loops are an interface tool, hidden only;
- * QA (findings and measurements), meters (loudness), the spectrogram and the score are
- * refused by the server too.
+ * QA (findings and measurements), meters (loudness), the spectrogram, the score and compare
+ * (the sources to compare with, and where the same music sits in them) are refused by the
+ * server too. A grant made before compare existed lacks it, as it had none.
  */
-export const reviewerTools = ["spectrogram", "meters", "loops", "qa", "score"] as const;
+export const reviewerTools = ["spectrogram", "meters", "loops", "compare", "qa", "score"] as const;
 export type ReviewerTool = (typeof reviewerTools)[number];
 
 const when = z.iso.datetime({ offset: true }).nullable();

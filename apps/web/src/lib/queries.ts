@@ -1644,6 +1644,25 @@ export const carryQuery = (trackId: string) =>
       ).threads,
   });
 
+/**
+ * What a file can be compared with (#44): its track's versions and variations, as far as the
+ * person may open them.
+ */
+export interface CompareFamily {
+  versions: {
+    id: string;
+    number: number;
+    variations: Pick<Variation, "fileId" | "name" | "isPrimary" | "position" | "streamStatus">[];
+  }[];
+}
+
+export const compareFamilyQuery = (fileId: string) =>
+  queryOptions({
+    queryKey: ["files", fileId, "compare"],
+    queryFn: async () =>
+      json<CompareFamily>(await api.files[":id"].compare.$get({ param: { id: fileId } })),
+  });
+
 export const trackQuery = (trackId: string) =>
   queryOptions({
     queryKey: ["tracks", trackId],
