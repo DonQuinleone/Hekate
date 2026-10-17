@@ -40,6 +40,33 @@ export const editCommentInput = z.object({
 /** A thread as a task (#133): made one by triage, and done by triage or whoever it is for. */
 export const commentTodoInput = z.object({ todo: z.boolean(), done: z.boolean().default(false) });
 
+/** A comment's attachments (#133): how many, and how large each may be. */
+export const COMMENT_ATTACHMENTS_MAX = 5;
+export const COMMENT_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
+
+/** An attachment's name, as the person's computer called it: no paths, no control characters. */
+export const attachmentName = z
+  .string()
+  .trim()
+  .min(1, "An attachment needs a name")
+  .max(200, "An attachment's name can be at most 200 characters")
+  .refine(
+    (n) =>
+      [...n].every((ch) => {
+        const code = ch.charCodeAt(0);
+        return ch !== "/" && ch !== "\\" && code >= 32 && code !== 127;
+      }),
+    "Not a file name",
+  );
+
+/** A file attached to a comment, as the thread shows it. */
+export interface CommentAttachment {
+  id: string;
+  name: string;
+  contentType: string;
+  byteSize: number;
+}
+
 /** Someone a comment mentions, named as they were when it was written. */
 export interface CommentMention {
   id: string;

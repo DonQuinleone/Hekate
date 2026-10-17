@@ -621,6 +621,23 @@ test("file-comment-mention", async ({ page }, info) => {
   await checkScreen(page);
 });
 
+// Attaching files to a comment (#133): chosen, shown before sending, and on the thread.
+test("file-comment-attach", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "On a phone the composer is a sheet, captured apart");
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page.getByRole("textbox", { name: "Comment at the playhead" }).fill("Fingering as marked");
+  await page.locator("input[type=file][aria-label='Files to attach']").setInputFiles({
+    name: "Fingering, bars 9 to 12.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-1.4 fingering"),
+  });
+  await settle(page, "ul[aria-label='Files to attach'] li");
+  await saveScreen(page, "file-comment-attach");
+  await checkScreen(page);
+});
+
 // The player's keys, the "?" map listing exactly them, and nothing firing while typing.
 test("shortcuts", async ({ page }, info) => {
   test.skip(info.project.name === "phone", "Keys belong to a keyboard");
@@ -1125,7 +1142,7 @@ test("file-triage", async ({ page }) => {
 // Downloads (#136): what you may take, made for you; the proxy is the stream's own AAC, whole.
 test("file-download", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}`);
-  await page.getByRole("button", { name: "Download" }).click();
+  await page.getByRole("button", { name: "Download", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Download" });
   await expect(dialog.getByText(/AAC \d+ kb\/s/)).toBeVisible();
   await expect(dialog.getByRole("radio", { name: /Original/ })).toBeChecked();

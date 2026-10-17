@@ -262,6 +262,18 @@ setup("seed", async ({ page, browser }) => {
     body: "Overall balance is great; @Alex Rivera, the reverb tail could be a touch shorter.",
     mentions: [user.id],
   });
+  // A photo of the bass part, attached to the thread about it (#133).
+  const attached = await page.request.post(
+    `/api/files/${dry}/comments/${drop.comment.id}/attachments`,
+    {
+      headers: {
+        "content-type": "image/png",
+        "x-file-name": encodeURIComponent("Bass part, bar 11.png"),
+      },
+      data: Buffer.from("a picture of the bass part, marked"),
+    },
+  );
+  expect(attached.status()).toBe(201);
   // Triage (#36): the pedal noise waits for noise reduction; the rushing is someone's to fix.
   const { categories } = await api<{ categories: { id: string; name: string }[] }>(
     page,

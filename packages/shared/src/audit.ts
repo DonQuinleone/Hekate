@@ -52,6 +52,9 @@ export const auditActions = [
   /** A guest opened a review, or commented. */
   "guest.view",
   "comment.create",
+  /** Someone attached a file to their comment (#133), or downloaded one attached to a comment. */
+  "comment.attachment_add",
+  "comment.attachment_download",
   /** Someone exported a file's comments as a marker list. */
   "comment.export",
   /** Too many failed sign-ins locked a member's account for a while. */

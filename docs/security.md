@@ -55,6 +55,12 @@ This is not DRM: a determined person can capture the key from a live session. Th
 - Tiles for guests carry a visible watermark burned in on the server.
 - Text needed for search or bar mapping is extracted on the server; it is not exposed as a selectable layer to guests.
 
+### Comment attachments
+
+- A file attached to a comment (#133, decision 069) is stored as an encrypted blob like any other, with its own data key; storage never holds it in the clear.
+- It reaches a browser only as a download: a one-time link made for the person asking, in their session, for five minutes, as for a file's downloads (decision 056). The comment is checked again as the link is made and as it is used: it must be among the threads the file shows that person, within a guest's scope. The download is in the access log (`comment.attachment_download`) before the first byte leaves, and is sent as an attachment, `no-store`, `nosniff`, never shown in the page.
+- Only a comment's author attaches to it (up to five files of 25 MB each), and only they remove them; adding one is logged (`comment.attachment_add`). Attachments are not watermarked: they are the reviewers' own material, not the media under review.
+
 ## Watermarking
 
 ### Visible
