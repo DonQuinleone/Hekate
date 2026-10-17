@@ -928,7 +928,7 @@ export function InstancePage({ section }: { section: string }) {
             {orgTab === "members" && (
               <Section
                 title="People"
-                intro="Members and guests of this workspace. What you do here is logged against your name."
+                intro="Members of this workspace. Operators never sign in as anyone; what you do here is logged against your name."
               >
                 {members.map((m) => (
                   <Row
@@ -947,10 +947,8 @@ export function InstancePage({ section }: { section: string }) {
                       actions={[
                         { label: "Send a password reset", onSelect: () => {} },
                         { label: "Reset the second factor", onSelect: () => {} },
-                        { label: "Revoke every session", onSelect: () => {} },
-                        { label: "Sign in as (logged, with a banner)", onSelect: () => {} },
                         "divider",
-                        { label: "Suspend", danger: true, onSelect: () => {} },
+                        { label: "Sign out everywhere", danger: true, onSelect: () => {} },
                       ]}
                     />
                   </Row>

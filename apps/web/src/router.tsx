@@ -22,16 +22,23 @@ import { formatLoop, parseLoop } from "~/lib/loop";
 import { projectShows, projectSorts, projectViews } from "~/lib/projects";
 import {
   guestMeQuery,
+  type Me,
   meQuery,
   SecondFactorDueError,
   SignedOutError,
   SsoRequiredError,
   setupQuery,
+  WorkspaceSuspendedError,
 } from "~/lib/queries";
 import { useFollowSystemTheme } from "~/lib/theme";
 import { ViewerProvider } from "~/lib/viewer";
 import { AccountPage } from "~/routes/account";
-import { SecondFactorPage, SignInPage, type SignInSearch } from "~/routes/auth-pages";
+import {
+  SecondFactorPage,
+  SignInPage,
+  type SignInSearch,
+  SuspendedPage,
+} from "~/routes/auth-pages";
 import { FilePage } from "~/routes/file";
 import { GuestHomePage, GuestLinkPage, GuestShell, GuestSignedOutPage } from "~/routes/guest";
 import { HomePage } from "~/routes/home";
@@ -59,7 +66,7 @@ import { TrackPage } from "~/routes/track";
 import { WorkspaceSettingsPage } from "~/routes/workspace-settings";
 
 /** Pages that are not a member's, where a session ending means nothing to undo. */
-const outside = /^\/(sign-in|setup|invite|guest|second-factor|g(\/|$))/;
+const outside = /^\/(sign-in|setup|invite|guest|second-factor|suspended|g(\/|$))/;
 
 /**
  * A member whose session ends mid-visit (it ran out, or was ended from another device) is
@@ -70,6 +77,17 @@ function onSignedOut(error: unknown) {
   if (error instanceof SecondFactorDueError && !outside.test(window.location.pathname)) {
     void queryClient.invalidateQueries({ queryKey: meQuery.queryKey });
     void router.navigate({ to: "/second-factor" });
+    return;
+  }
+  // The instance's operators suspended the workspace: say why, except on the instance side,
+  // which an operator or owner still needs (to reinstate it, or to read where it stands).
+  if (
+    error instanceof WorkspaceSuspendedError &&
+    !outside.test(window.location.pathname) &&
+    !window.location.pathname.startsWith("/instance")
+  ) {
+    void queryClient.invalidateQueries({ queryKey: meQuery.queryKey });
+    void router.navigate({ to: "/suspended" });
     return;
   }
   // The workspace now takes its members only through single sign-on: sign in that way.
@@ -258,15 +276,33 @@ const secondFactor = createRoute({
   component: SecondFactorPage,
 });
 
+/** A member whose workspace is suspended learns why here, and may go to another of theirs. */
+const suspended = createRoute({
+  getParentRoute: () => root,
+  path: "/suspended",
+  beforeLoad: async ({ context }) => {
+    const me = await context.queryClient.fetchQuery(meQuery);
+    if (!me) throw redirect({ to: "/sign-in", search: {} });
+    if (!activeSuspended(me)) throw redirect({ to: "/" });
+  },
+  component: SuspendedPage,
+});
+
+const activeSuspended = (me: Me) =>
+  !!me.organisations.find((o) => o.id === me.activeOrganisationId)?.suspended;
+
 /** Everything else needs a signed-in member. */
 const app = createRoute({
   getParentRoute: () => root,
   id: "app",
-  beforeLoad: async ({ context }) => {
+  beforeLoad: async ({ context, location }) => {
     if (await context.queryClient.ensureQueryData(setupQuery)) throw redirect({ to: "/setup" });
     const me = await context.queryClient.ensureQueryData(meQuery);
     if (!me) throw redirect({ to: "/sign-in", search: {} });
     if (!me.secondFactor.met) throw redirect({ to: "/second-factor" });
+    // The instance side stays open: an operator reinstates from there.
+    if (activeSuspended(me) && !location.pathname.startsWith("/instance"))
+      throw redirect({ to: "/suspended" });
     return { me };
   },
   component: () => (
@@ -596,6 +632,7 @@ const reference =
 export const router = createRouter({
   routeTree: root.addChildren([
     secondFactor,
+    suspended,
     setup,
     signIn,
     invite,

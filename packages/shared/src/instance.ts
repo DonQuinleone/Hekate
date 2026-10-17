@@ -69,14 +69,90 @@ export interface InstanceOverview {
   recent: { at: string; actor: string | null; action: string; target: string | null }[];
 }
 
+/** Where a workspace stands. Trials arrive with billing (#180). */
+export const workspaceStates = ["active", "suspended"] as const;
+export type WorkspaceState = (typeof workspaceStates)[number];
+
 export interface InstanceWorkspace {
   id: string;
   name: string;
   slug: string;
   createdAt: string;
+  state: WorkspaceState;
+  suspendedAt: string | null;
+  suspendedReason: string | null;
   members: number;
   projects: number;
   storageBytes: number;
+}
+
+/** One page of the workspace list: by name, then id; `after` is the last id of the page before. */
+export const instanceWorkspacesQuery = z.object({
+  q: z.string().trim().max(100).optional(),
+  state: z.enum(workspaceStates).optional(),
+  after: z.uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export interface InstanceWorkspacePage {
+  workspaces: InstanceWorkspace[];
+  /** How many match the search and filter, across every page. */
+  total: number;
+  /** Pass as `after` for the next page; null on the last. */
+  next: string | null;
+}
+
+/** A subdomain: lower-case letters, digits and single hyphens, as in an address. */
+export const workspaceSlug = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/, {
+    error: "Letters, digits and hyphens, up to 40, not starting or ending with a hyphen",
+  });
+
+/** A new workspace, made by an operator: its first owner is invited by address. */
+export const newWorkspaceInput = z.object({
+  name: z.string().trim().min(1, "Name the workspace").max(120),
+  slug: workspaceSlug,
+  ownerEmail: z.email({ error: "An email address" }).max(254),
+});
+export type NewWorkspaceInput = z.infer<typeof newWorkspaceInput>;
+
+/** Suspending a workspace says why; its members read the reason. */
+export const suspendWorkspaceInput = z.object({
+  reason: z.string().trim().min(1, "Say why").max(500),
+});
+
+/** A workspace in figures, as its Overview tab shows it. */
+export interface InstanceWorkspaceDetail extends InstanceWorkspace {
+  guests: number;
+  activeReviews: number;
+  /** How its members sign in: password (and passkeys), or its single sign-on. */
+  signIn: { method: "password" | "sso"; provider: string | null; secondFactor: boolean };
+  /** Invitations to it still waiting, such as its first owner's. */
+  invited: { email: string; role: string; expiresAt: string }[];
+  recent: { at: string; actor: string; action: string }[];
+}
+
+export interface InstanceMemberRow {
+  userId: string;
+  name: string;
+  email: string;
+  role: string;
+  lastSeenAt: string | null;
+  /** The strongest second factor they hold. */
+  factor: "key" | "app" | "none";
+}
+
+export interface InstanceProjectRow {
+  id: string;
+  name: string;
+  profile: string;
+  archived: boolean;
+  files: number;
+  storageBytes: number;
+  openReviews: number;
 }
 
 /** An instance event in words, for the Overview's "Recently". */
@@ -84,4 +160,14 @@ export const instanceActions: Record<string, string> = {
   "operator.added": "made an operator",
   "operator.removed": "removed as an operator",
   "operator.sessions_revoked": "signed out everywhere by an operator",
+  "workspace.created": "made, its owner invited",
+  "workspace.suspended": "suspended",
+  "workspace.reinstated": "reinstated",
+  "member.sessions_revoked": "signed out everywhere by an operator",
+  "member.password_reset": "sent a password reset by an operator",
+  "member.second_factor_reset": "had their second factor reset by an operator",
 };
+
+/** Where a workspace stands, from its record. */
+export const workspaceStateOf = (w: { suspendedAt: Date | string | null }): WorkspaceState =>
+  w.suspendedAt ? "suspended" : "active";
