@@ -22,7 +22,10 @@ export default defineConfig({
           label: "Install",
           items: ["install", "install/configuration", "install/storage", "install/proxies"],
         },
-        { label: "Operate", items: ["operate/backup", "operate/upgrades", "operate/keys"] },
+        {
+          label: "Operate",
+          items: ["operate/backup", "operate/upgrades", "operate/keys", "operate/monitoring"],
+        },
         { label: "Security", items: ["security/model", "security/reporting"] },
         { label: "Use", items: ["use/reviews", "use/guests"] },
       ],

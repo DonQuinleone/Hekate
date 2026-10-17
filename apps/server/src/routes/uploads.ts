@@ -13,6 +13,7 @@ import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { Jobs } from "../jobs.ts";
 import { pageSourceOf } from "../media/pages.ts";
+import { metrics } from "../metrics/index.ts";
 import type { Storage } from "../storage.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { sessionOf, staleClaim, UPLOAD_LIFETIME_MS, type UploadRow } from "../uploads.ts";
@@ -381,6 +382,9 @@ export const uploadRoutes = (
         throw error;
       }
       if (!file) throw new Error("File insert returned no row");
+      // Counted once, as soon as the upload is stored: completing again returns the same file
+      // without counting it, and finishing it off (queueing its processing) can still fail.
+      metrics.uploadsBytes.inc({ workspace: organisationId }, file.byteSize);
       await finalise(file);
       return c.json({ file }, 201);
     })

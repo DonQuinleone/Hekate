@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runJob } from "./jobs.ts";
+import { registry } from "./metrics/index.ts";
 
 const job = { id: "j-1", data: {}, signal: new AbortController().signal, retryCount: 0 };
 
@@ -54,5 +55,22 @@ describe("a job's run", () => {
       ),
     ).rejects.toThrow("disk full");
     expect(String(log.mock.calls.at(-1)?.[0])).toMatch(/failed after \d+ ms: Error: disk full$/);
+  });
+
+  it("is timed and counted for Prometheus, by queue and outcome (#70)", async () => {
+    await runJob("storage-reconcile", job, async () => undefined);
+    await expect(
+      runJob("storage-reconcile", job, async () => {
+        throw new Error("disk full");
+      }),
+    ).rejects.toThrow();
+    const text = await registry.render();
+    expect(text).toContain('hekate_jobs_failed_total{queue="storage-reconcile"} 1');
+    expect(text).toContain(
+      'hekate_job_duration_seconds_count{queue="storage-reconcile",outcome="completed"} 1',
+    );
+    expect(text).toContain(
+      'hekate_job_duration_seconds_count{queue="storage-reconcile",outcome="failed"} 1',
+    );
   });
 });

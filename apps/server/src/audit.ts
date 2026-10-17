@@ -4,6 +4,7 @@ import type { AuditAction, AuditActorType, AuditQuery } from "@hekate/shared";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import { and, desc, eq, gte, lt, lte, type SQL } from "drizzle-orm";
 import type { Context } from "hono";
+import { countAccess } from "./metrics/index.ts";
 
 const { accessEvents, users, guests } = schema;
 
@@ -105,6 +106,7 @@ export function createAudit(db: Database): Audit {
         })
         .returning();
       if (!row) throw new Error("The access log did not accept the event");
+      countAccess(event.action, organisationId);
       return row;
     },
 

@@ -27,6 +27,7 @@ import { assertProfileRef, customProfilesOf } from "../delivery-profiles.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import type { Jobs } from "../jobs.ts";
 import type { Mailer } from "../mail.ts";
+import { metrics } from "../metrics/index.ts";
 import { follow, followersOf, notifyNow } from "../notifications.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { trackStandings } from "../track-standing.ts";
@@ -440,6 +441,10 @@ export const trackRoutes = (
       const letThrough = refusals.length > 0 && input.letThrough === true;
       if (refusals.length > 0 && !letThrough) {
         const waiting = refusals.every((r) => r.check === "measuring");
+        // Still being measured is a wait, not a refusal.
+        for (const r of refusals)
+          if (r.check !== "measuring")
+            metrics.uploadsRefused.inc({ workspace: c.var.organisationId, rule: r.check });
         throw new CodedException(
           waiting ? 409 : 422,
           waiting ? "version_measuring" : "version_refused",
