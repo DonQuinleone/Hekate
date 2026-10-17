@@ -27,6 +27,7 @@ import { createClient } from "./client.ts";
 import { loadConfig } from "./config.ts";
 import { failureOfJob, purgeErrorReports, recordFailure } from "./error-reports.ts";
 import { errorHandler, requestId } from "./errors.ts";
+import { createFlags } from "./flags.ts";
 import { issueGuestLink } from "./guests.ts";
 import { type JobFailure, runJob } from "./jobs.ts";
 import { createKeyring } from "./keyring.ts";
@@ -1049,6 +1050,125 @@ describe.runIf(url)("api", () => {
         const memberCookie = await join(operator, "member@example.test");
         for (const cookie of [theirOwner, memberCookie])
           expect((await get(`/api/instance/inspect/file/${fileId}`, cookie)).status).toBe(403);
+      });
+
+      it("runs a failed job again from its report (#159)", async () => {
+        const operator = cookieOf(await setup());
+        const [studio] = await db
+          .select({ id: schema.organisations.id })
+          .from(schema.organisations)
+          .where(eq(schema.organisations.slug, "studio"));
+        const org = studio?.id ?? "";
+        const [project] = await db
+          .insert(schema.projects)
+          .values({ organisationId: org, name: "Joplin Rags", profile: "music" })
+          .returning();
+        const blob = await storage.put(org, Buffer.from("not really a pdf"));
+        const [file] = await db
+          .insert(schema.files)
+          .values({
+            organisationId: org,
+            projectId: project?.id ?? "",
+            name: "Solace - Score.pdf",
+            kind: "document",
+            blobId: blob.id,
+            contentType: "application/pdf",
+            byteSize: blob.byteSize,
+            streamStatus: "failed",
+          })
+          .returning();
+        const report = (location: string, context: Record<string, unknown> | undefined) =>
+          recordFailure(db, {
+            source: "worker",
+            location,
+            error: new Error("damaged cross-reference table"),
+            organisationId: org,
+            ...(context ? { context } : {}),
+          });
+        const retry = (reference: string | null, cookie = operator) =>
+          asOperator.request(`/api/instance/errors/${reference}/retry`, json({}, cookie));
+
+        // A file's preparation runs again by its plan, and waits meanwhile.
+        sent.length = 0;
+        const rendered = await report("document-render", { organisationId: org, fileId: file?.id });
+        const again = await retry(rendered);
+        expect(again.status).toBe(202);
+        expect(await again.json()).toEqual({ jobs: ["document-render"] });
+        expect(sent).toEqual([
+          { name: "document-render", data: { organisationId: org, fileId: file?.id } },
+        ]);
+        const [waiting] = await db
+          .select({ status: schema.files.streamStatus })
+          .from(schema.files)
+          .where(eq(schema.files.id, file?.id ?? ""));
+        expect(waiting?.status).toBe("pending");
+        // Nothing failed now: nothing to run.
+        expect((await retry(rendered)).status).toBe(409);
+
+        // Any other job runs with the data it had; one whose data no longer fits does not.
+        sent.length = 0;
+        expect((await retry(await report("workspaces-purge", undefined))).status).toBe(202);
+        expect(sent).toEqual([{ name: "workspaces-purge", data: {} }]);
+        expect(
+          (await retry(await report("organisation-rewrap", { organisationId: 7 }))).status,
+        ).toBe(409);
+        const [event] = await db
+          .select({ target: schema.instanceEvents.target, details: schema.instanceEvents.details })
+          .from(schema.instanceEvents)
+          .where(eq(schema.instanceEvents.action, "debug.job_retried"));
+        expect(event).toEqual({
+          target: rendered,
+          details: { jobs: ["document-render"], organisationId: org },
+        });
+
+        // A request's failure is no job, and only operators may run one.
+        const asked = await recordFailure(db, {
+          source: "api",
+          location: "GET /api/files/:id",
+          error: new Error("boom"),
+        });
+        expect((await retry(asked)).status).toBe(409);
+        const theirOwner = await join(operator, "label@example.test", "owner");
+        expect((await retry(rendered, theirOwner)).status).toBe(403);
+      });
+
+      it("turns a flag on for its time, read again as the server runs (#159)", async () => {
+        const operator = cookieOf(await setup());
+        type Listed = { flags: { key: string; on: boolean; until: string | null }[] };
+        const listed = async () =>
+          ((await (await get("/api/instance/flags", operator)).json()) as Listed).flags;
+        expect(await listed()).toEqual([
+          expect.objectContaining({ key: "worker.verbose", on: false, until: null }),
+        ]);
+        const turn = (on: boolean, cookie = operator, key = "worker.verbose") =>
+          asOperator.request(`/api/instance/flags/${key}`, {
+            ...json({ on }, cookie),
+            method: "PUT",
+          });
+        expect((await turn(true)).status).toBe(200);
+        const [verbose] = await listed();
+        expect(verbose?.on).toBe(true);
+        const minutes = (Date.parse(verbose?.until ?? "") - Date.now()) / 60_000;
+        expect(Math.round(minutes)).toBe(60);
+        // Another process reads it within moments; after its hour it is off by itself.
+        expect(await createFlags(db).isOn("worker.verbose")).toBe(true);
+        const later = new Date(Date.now() + 61 * 60_000);
+        expect(await createFlags(db, () => later).isOn("worker.verbose")).toBe(false);
+        expect((await turn(false)).status).toBe(200);
+        expect(await createFlags(db).isOn("worker.verbose")).toBe(false);
+        const events = await db
+          .select({ action: schema.instanceEvents.action, target: schema.instanceEvents.target })
+          .from(schema.instanceEvents)
+          .where(like(schema.instanceEvents.action, "flag.%"));
+        expect(events).toEqual([
+          { action: "flag.on", target: "Verbose logging for the worker" },
+          { action: "flag.off", target: "Verbose logging for the worker" },
+        ]);
+        // Only its own flags, and only for operators.
+        expect((await turn(true, operator, "everything.on")).status).toBe(400);
+        const theirOwner = await join(operator, "label@example.test", "owner");
+        expect((await turn(true, theirOwner)).status).toBe(403);
+        expect((await get("/api/instance/flags", theirOwner)).status).toBe(403);
       });
 
       it("keeps a report when the workspace it names does not exist", async () => {
