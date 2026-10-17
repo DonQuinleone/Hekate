@@ -626,6 +626,24 @@ test("file-comment-mention", async ({ page }, info) => {
   await checkScreen(page);
 });
 
+// Normalised playback as each person's choice (#240): the View menu's switch, and the level heard.
+// The file's answer is amended in this page alone, so no other capture sees the project change.
+test("file-normalised", async ({ page }) => {
+  await page.route(`**/api/files/${seeded().dryFileId}`, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { file: Record<string, unknown> };
+    body.file.normalisation = { mode: "optional", target: -14, gain: 0.5 };
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "button:has-text('View')");
+  await page.getByRole("button", { name: "View" }).click();
+  await page.getByRole("switch", { name: "Normalised playback" }).click();
+  await settle(page, "text=Normalised to −14 LUFS");
+  await saveScreen(page, "file-normalised");
+  await checkScreen(page);
+});
+
 // "Any other options for these bars?" (#46): the takes covering a bar thread's first bar.
 test("file-comment-other-takes", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);

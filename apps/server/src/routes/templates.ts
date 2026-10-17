@@ -36,6 +36,7 @@ async function snapshotOf(
       requireEdl: projects.requireEdl,
       qaSettings: projects.qaSettings,
       commentReferences: projects.commentReferences,
+      normalisation: projects.normalisation,
     })
     .from(projects)
     .where(inOrg(projects, organisationId, eq(projects.id, projectId)));

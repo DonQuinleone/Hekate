@@ -4,6 +4,9 @@ import {
   customRef,
   defaultReferences,
   handlingWords,
+  type NormalisationMode,
+  normalisationModes,
+  normalisationWords,
   type ProfileRef,
   type ProjectPermission,
   type ProjectProfile,
@@ -512,6 +515,26 @@ function Comments({ project }: { project: Project }) {
           disabled={!can("edit_project")}
           onChange={(carriedCommentsShown) => update.mutate({ carriedCommentsShown })}
         />
+        <Row
+          name="Normalised playback"
+          hint="Level-matched to the delivery profile's target, so a louder version is not mistaken for a better one."
+        >
+          <Select
+            value={project.normalisation ?? "off"}
+            aria-label="Normalised playback"
+            disabled={!can("edit_project")}
+            onChange={(event) =>
+              update.mutate({ normalisation: event.target.value as NormalisationMode })
+            }
+            className="w-full @3xl/app:w-48"
+          >
+            {normalisationModes.map((mode) => (
+              <option key={mode} value={mode}>
+                {normalisationWords[mode]}
+              </option>
+            ))}
+          </Select>
+        </Row>
       </Section>
       {editing && (
         <CategoryDialog

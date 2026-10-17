@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { AnchorKind } from "./anchor.ts";
+import { normalisationMode } from "./normalisation.ts";
 import { profileRef } from "./qa.ts";
 import { qaSettings } from "./qa-rules.ts";
 import { commentReferences } from "./references.ts";
@@ -90,6 +91,8 @@ export const updateProjectInput = z
     qaSettings: qaSettings.optional(),
     /** What reviewers may type beside a comment: pages, bars, beats (#240). */
     references: commentReferences.optional(),
+    /** Whether recordings play at their delivery target's loudness (#240). */
+    normalisation: normalisationMode.optional(),
   })
   .refine(
     (u) =>
@@ -101,7 +104,8 @@ export const updateProjectInput = z
       u.checkTruePeak !== undefined ||
       u.requireEdl !== undefined ||
       u.qaSettings !== undefined ||
-      u.references !== undefined,
+      u.references !== undefined ||
+      u.normalisation !== undefined,
     { message: "Nothing to change" },
   );
 export type UpdateProjectInput = z.infer<typeof updateProjectInput>;

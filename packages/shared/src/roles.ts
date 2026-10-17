@@ -272,12 +272,20 @@ export const defaultRoleLevels: { name: string; levels: AccessLevels }[] = [
  * The player's tools, on or off per role (#240): what the recording page shows each role.
  * QA, meters and the spectrogram are refused by the server too; the rest are interface.
  */
-export const playerTools = ["qa", "meters", "spectrogram", "score", "compare", "loops"] as const;
+export const playerTools = [
+  "qa",
+  "meters",
+  "spectrogram",
+  "score",
+  "compare",
+  "loops",
+  "normalise",
+] as const;
 export type PlayerTool = (typeof playerTools)[number];
 export const playerTool = z.enum(playerTools);
 
-/** What a role that only looks and listens has: the score, compare and loops. */
-export const listeningTools: PlayerTool[] = ["score", "compare", "loops"];
+/** What a role that only looks and listens has: the score, compare, loops and normalising. */
+export const listeningTools: PlayerTool[] = ["score", "compare", "loops", "normalise"];
 
 /** The tools each default role starts with: the engineer's for those who make the record. */
 const defaultTools: Record<string, PlayerTool[]> = {

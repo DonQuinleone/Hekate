@@ -189,10 +189,13 @@ export function Compare({
   file,
   media,
   focus = null,
+  gain = 1,
 }: {
   file: FileDetail;
   media: HTMLMediaElement | null;
   focus?: CompareFocus | null;
+  /** The volume the page plays at outside comparison: normalised playback's (#240), or full. */
+  gain?: number;
 }) {
   const variation = file.variation;
   const { data: track } = useQuery({
@@ -279,9 +282,10 @@ export function Compare({
   // The master is heard only when it is the chosen source; the others follow silently.
   useEffect(() => {
     if (!media) return;
-    media.volume = comparing ? (current === 0 ? (gains[0] ?? 1) : 0) : 1;
-  }, [media, comparing, current, gains]);
-  // Leaving comparison gives the master back its full volume.
+    // Comparing, the sources are level-matched with one another; alone, the page's volume.
+    media.volume = comparing ? (current === 0 ? (gains[0] ?? 1) : 0) : gain;
+  }, [media, comparing, current, gains, gain]);
+  // Leaving comparison gives the master back its full volume; the page sets its own after.
   useEffect(() => {
     return () => {
       if (media) media.volume = 1;

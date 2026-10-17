@@ -92,6 +92,7 @@ const toolWords: Record<PlayerTool, { label: string; hint: string }> = {
   score: { label: "Score", hint: "The linked score beside the recording" },
   compare: { label: "Compare", hint: "Versions and variations side by side" },
   loops: { label: "Loops", hint: "A passage played round, from comments too" },
+  normalise: { label: "Normalise", hint: "Playback at the delivery target, where it is a choice" },
 };
 
 function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
