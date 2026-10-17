@@ -140,6 +140,7 @@ export async function boot(
     ssoTrustedOrigins: config.SSO_TRUSTED_ORIGINS,
     storageReconcile: config.STORAGE_RECONCILE,
     setupGate: options.gate,
+    operatorSecurityKey: config.OPERATOR_SECURITY_KEY,
   });
   if (config.WEB_DIST) serveWeb(app, config.WEB_DIST, { docsUrl: config.HEKATE_DOCS_URL });
 
