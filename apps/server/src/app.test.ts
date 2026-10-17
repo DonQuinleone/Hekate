@@ -9750,6 +9750,81 @@ describe.runIf(url)("api", () => {
         expect(await referencesOf(music)).toEqual({ page: false, bar: false, beat: false });
       });
 
+      it("lets a track choose its own references over its project's, and refuses another organisation (#240)", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const fileId = await recording(organisationId);
+        const projectId = await projectOfFile(fileId);
+        // The recording is a variation of the track's first version.
+        const [track] = await db
+          .insert(schema.tracks)
+          .values({ organisationId, projectId, name: "Maple Leaf Rag" })
+          .returning();
+        const [version] = await db
+          .insert(schema.versions)
+          .values({ organisationId, trackId: track?.id ?? "", number: 1 })
+          .returning();
+        await db
+          .insert(schema.variations)
+          .values({ organisationId, versionId: version?.id ?? "", fileId, name: "Dry" });
+        const choose = (references: object | null, who = owner, id = track?.id) =>
+          send("PUT", `/api/tracks/${id}/references`, { references }, who);
+        const bar = (anchor: object) =>
+          send("POST", `/api/files/${fileId}/comments`, { body: "x", anchor }, owner);
+        const referencesOf = async () =>
+          (
+            (await (
+              await app.request(`/api/files/${fileId}`, { headers: { cookie: owner } })
+            ).json()) as { file: { references: unknown } }
+          ).file.references;
+
+        // The project takes no bars; the track takes bars without beats.
+        expect(
+          (
+            await send(
+              "PATCH",
+              `/api/projects/${projectId}`,
+              { references: { page: false, bar: false, beat: false } },
+              owner,
+            )
+          ).status,
+        ).toBe(200);
+        expect((await bar({ kind: "bar", from: { bar: 9 } })).status).toBe(422);
+        const chosen = await choose({ page: false, bar: true, beat: false });
+        expect(chosen.status).toBe(200);
+        expect(
+          ((await chosen.json()) as { track: { commentReferences: unknown } }).track
+            .commentReferences,
+        ).toEqual({ page: false, bar: true, beat: false });
+        expect(await referencesOf()).toEqual({ page: false, bar: true, beat: false });
+        expect((await bar({ kind: "bar", from: { bar: 9 } })).status).toBe(201);
+        expect((await bar({ kind: "bar", from: { bar: 9, beat: 2 } })).status).toBe(422);
+
+        // Back to the project's: no bars again.
+        expect((await choose(null)).status).toBe(200);
+        expect(await referencesOf()).toEqual({ page: false, bar: false, beat: false });
+
+        // A reviewer may not choose, and another workspace cannot find the track.
+        const reviewer = await joinAs(owner, "reviewer@example.test", "member");
+        await grantRole(owner, projectId, reviewer, "Reviewer");
+        expect((await choose({ page: true, bar: true, beat: true }, reviewer)).status).toBe(403);
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-references" })
+          .returning();
+        const [foreign] = await db
+          .insert(schema.tracks)
+          .values({
+            organisationId: other?.id ?? "",
+            projectId: await projectOfFile(await recording(other?.id ?? "")),
+            name: "Theirs",
+          })
+          .returning();
+        expect(
+          (await choose({ page: true, bar: true, beat: true }, owner, foreign?.id)).status,
+        ).toBe(404);
+      });
+
       it("lets only the author edit, anyone who triages resolve, and no one reach another organisation", async () => {
         const owner = cookieOf(await setup());
         const organisationId = await organisationOf(owner);

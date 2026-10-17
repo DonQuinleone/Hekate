@@ -1401,6 +1401,33 @@ export function useTrackDeliveryProfile(projectId: string) {
   });
 }
 
+/** Choose the references a track's comments may name, over the project's (#240). */
+export function useTrackReferences(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      trackId,
+      references,
+    }: {
+      trackId: string;
+      references: CommentReferences | null;
+    }) =>
+      json(
+        await api.tracks[":id"].references.$put({
+          param: { id: trackId },
+          json: { references },
+        }),
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: projectTracksQuery(projectId).queryKey });
+      // A file of the track learns its references again when next opened.
+      void client.invalidateQueries({
+        predicate: (q) => q.queryKey[0] === "files" && q.queryKey.length === 2,
+      });
+    },
+  });
+}
+
 /** The workspace's own delivery profiles, beside the built-in ones (#144). */
 export const customProfilesQuery = queryOptions({
   queryKey: ["organisation", "delivery-profiles"],
@@ -1506,6 +1533,8 @@ export interface Track {
   position: number;
   /** What its versions are measured against, over the project's; null takes the project's. */
   deliveryProfile: ProfileRef | null;
+  /** The references its comments may name, over the project's; null keeps the project's (#240). */
+  commentReferences: CommentReferences | null;
   createdAt: string;
   versions: Version[];
   /** In a project's track list: where it stands, and who it waits on while in review. */

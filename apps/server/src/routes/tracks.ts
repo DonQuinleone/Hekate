@@ -8,6 +8,7 @@ import {
   isPdf,
   type ProjectPermission,
   replaceVariationInput,
+  trackReferencesInput,
   updateTrackInput,
   versionRefusals,
   withPrimary,
@@ -287,6 +288,20 @@ export const trackRoutes = (
           .set({ deliveryProfile, updatedAt: new Date() })
           .where(inOrg(tracks, organisationId, eq(tracks.id, id)));
       });
+      return c.json({ track: await oneTrack(db, organisationId, id) });
+    })
+    // The references its comments may name (#240), over the project's; for whoever edits the
+    // project, as the project's own are.
+    .put("/:id/references", idParam, zValidator("json", trackReferencesInput), async (c) => {
+      const organisationId = c.var.organisationId;
+      const { id } = c.req.valid("param");
+      const track = await trackOf(db, organisationId, id);
+      await canSeeTrack(db, c.var, track.projectId, "edit_project");
+      const { references } = c.req.valid("json");
+      await db
+        .update(tracks)
+        .set({ commentReferences: references, updatedAt: new Date() })
+        .where(inOrg(tracks, organisationId, eq(tracks.id, id)));
       return c.json({ track: await oneTrack(db, organisationId, id) });
     })
     // What a new version would carry over, for whoever adds it to confirm or correct.

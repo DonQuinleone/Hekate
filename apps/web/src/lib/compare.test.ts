@@ -38,6 +38,7 @@ const track: Track = {
   folderId: null,
   position: 0,
   deliveryProfile: null,
+  commentReferences: null,
   createdAt: "",
   versions: [
     {

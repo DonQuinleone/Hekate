@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import { parseBars } from "./anchor.ts";
 import { anchorProblem } from "./comments.ts";
 import { formatAnchor } from "./format.ts";
-import { defaultReferences, parseBeat, referencesOf } from "./references.ts";
+import {
+  defaultReferences,
+  effectiveReferences,
+  parseBeat,
+  referenceSetOf,
+  referenceSets,
+  referencesOf,
+} from "./references.ts";
 
 describe("comment references", () => {
   it("defaults by profile, and reads a project's own choice", () => {
@@ -15,6 +22,21 @@ describe("comment references", () => {
       beat: false,
     });
     expect(referencesOf({ page: "yes" }, "general").bar).toBe(false);
+  });
+
+  it("takes a track's own choice over its project's", () => {
+    const none = { page: false, bar: false, beat: false };
+    const bars = { page: false, bar: true, beat: false };
+    expect(effectiveReferences({ track: bars, project: none }, "video")).toEqual(bars);
+    expect(effectiveReferences({ track: null, project: bars }, "music")).toEqual(bars);
+    expect(effectiveReferences({ track: null, project: null }, "music")).toEqual(
+      defaultReferences("music"),
+    );
+  });
+
+  it("names each set a track may choose, and finds it again", () => {
+    for (const set of referenceSets) expect(referenceSetOf(set.references)).toBe(set.id);
+    expect(referenceSetOf({ page: true, bar: false, beat: true })).toBe("none");
   });
 
   it("reads a beat typed in its own field", () => {
