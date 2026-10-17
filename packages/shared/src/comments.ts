@@ -14,18 +14,37 @@ export const commentBody = z
  * A new comment. A top-level comment may carry an anchor (none means the whole file);
  * a reply belongs to its thread and takes the thread's anchor, so it carries none.
  */
+/**
+ * The members a comment mentions, by account, as the mention picker chose them (#133). The
+ * server refuses anyone outside the project; the text still reads "@Name".
+ */
+export const commentMentions = z.array(z.string().min(1).max(64)).max(20);
+
 export const createCommentInput = z
   .object({
     body: commentBody,
     anchor: anchor.nullish(),
     parentId: z.uuid().nullish(),
+    mentions: commentMentions.optional(),
   })
   .refine((c) => !(c.parentId && c.anchor), {
     message: "A reply takes its thread's anchor",
     path: ["anchor"],
   });
 
-export const editCommentInput = z.object({ body: commentBody });
+export const editCommentInput = z.object({
+  body: commentBody,
+  mentions: commentMentions.optional(),
+});
+
+/** A thread as a task (#133): made one by triage, and done by triage or whoever it is for. */
+export const commentTodoInput = z.object({ todo: z.boolean(), done: z.boolean().default(false) });
+
+/** Someone a comment mentions, named as they were when it was written. */
+export interface CommentMention {
+  id: string;
+  name: string;
+}
 
 export const resolveCommentInput = z.object({ resolved: z.boolean() });
 

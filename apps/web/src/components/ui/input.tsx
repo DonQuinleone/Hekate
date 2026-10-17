@@ -16,8 +16,12 @@ export function Input({
   return <input className={cn(fieldClass, heights[size], className)} {...props} />;
 }
 
-export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea className={cn(fieldClass, "resize-y py-2", className)} {...props} />;
+export function Textarea({
+  className,
+  ref,
+  ...props
+}: TextareaHTMLAttributes<HTMLTextAreaElement> & { ref?: Ref<HTMLTextAreaElement> }) {
+  return <textarea ref={ref} className={cn(fieldClass, "resize-y py-2", className)} {...props} />;
 }
 
 export function Select({

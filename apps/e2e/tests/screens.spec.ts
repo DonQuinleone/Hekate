@@ -598,6 +598,19 @@ test("settings-email-dark-and-text", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Mentioning someone (#133): "@" in a comment offers the project's people.
+test("file-comment-mention", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "On a phone the composer is a sheet, captured apart");
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  const composer = page.getByRole("textbox", { name: "Comment at the playhead" });
+  await composer.fill("Can you check this, @Al");
+  await settle(page, "[role=listbox][aria-label='People to mention'] [role=option]");
+  await saveScreen(page, "file-comment-mention");
+  await checkScreen(page);
+});
+
 // The player's keys, the "?" map listing exactly them, and nothing firing while typing.
 test("shortcuts", async ({ page }, info) => {
   test.skip(info.project.name === "phone", "Keys belong to a keyboard");

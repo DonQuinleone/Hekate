@@ -4,14 +4,27 @@ import {
   anchorShift,
   anchorTime,
   type CarryStatus,
+  type CommentMention,
   carryStatuses,
   carryStatusLabel,
   formatAnchor,
+  mentionAt,
+  mentionedIn,
+  mentionRanges,
   parseBars,
   type TriageInput,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
-import { type FormEvent, type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import {
+  createContext,
+  type FormEvent,
+  type KeyboardEvent,
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { cn } from "~/lib/cn";
 import { ago, historyLabel, passageLoop, type Thread, threadsOf } from "~/lib/comments";
 import { formatDates } from "~/lib/locale";
@@ -23,6 +36,7 @@ import {
   categoriesQuery,
   commentsQuery,
   fileQuery,
+  mentionableQuery,
   meQuery,
   projectMembersQuery,
   useCommentMutations,
@@ -31,6 +45,7 @@ import {
 } from "~/lib/queries";
 import { useShortcuts } from "~/lib/shortcuts";
 import { useViewer } from "~/lib/viewer";
+import { Avatar } from "./avatar";
 import type { RegionMarker } from "./document-viewer";
 import { Icon } from "./icons";
 import { Button } from "./ui/button";
@@ -95,9 +110,13 @@ export interface BeforeAfter {
   loop: Loop;
 }
 
+/** Whom a comment here may mention (#133): the project's people; none for a guest. */
+const Mentionable = createContext<CommentMention[]>([]);
+
 function Composer({
   placeholder,
   initial = "",
+  initialMentions = [],
   submitLabel,
   pending,
   onSubmit,
@@ -106,20 +125,70 @@ function Composer({
 }: {
   placeholder: string;
   initial?: string;
+  initialMentions?: CommentMention[];
   submitLabel: string;
   pending: boolean;
-  onSubmit: (body: string) => Promise<unknown>;
+  /** The text, and the members it mentions as the picker chose them. */
+  onSubmit: (body: string, mentions: string[]) => Promise<unknown>;
   onCancel?: () => void;
   children?: React.ReactNode;
 }) {
+  const people = useContext(Mentionable);
   const [body, setBody] = useState(initial);
   const [error, setError] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<CommentMention[]>(initialMentions);
+  /** The mention being typed at the caret, and the person highlighted in the list. */
+  const [typing, setTyping] = useState<{ start: number; query: string } | null>(null);
+  const [index, setIndex] = useState(0);
+  const area = useRef<HTMLTextAreaElement>(null);
+  const listId = useId();
+  const offered = typing
+    ? people.filter((p) => p.name.toLowerCase().includes(typing.query.toLowerCase())).slice(0, 6)
+    : [];
+  const write = (text: string, caret: number) => {
+    setBody(text);
+    setTyping(people.length > 0 ? mentionAt(text, caret) : null);
+    setIndex(0);
+  };
+  const pick = (person: CommentMention) => {
+    const el = area.current;
+    if (!typing || !el) return;
+    const caret = el.selectionStart;
+    const text = `${body.slice(0, typing.start)}@${person.name} ${body.slice(caret)}`;
+    const at = typing.start + person.name.length + 2;
+    setBody(text);
+    setChosen((c) => (c.some((x) => x.id === person.id) ? c : [...c, person]));
+    setTyping(null);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(at, at);
+    });
+  };
+  /** "@ Mention": an @ at the caret, as if typed, to open the list. */
+  const startMention = () => {
+    const el = area.current;
+    if (!el) return;
+    const caret = el.selectionStart;
+    const space = caret > 0 && !/\s/.test(body[caret - 1] ?? "") ? " " : "";
+    const text = `${body.slice(0, caret)}${space}@${body.slice(caret)}`;
+    const at = caret + space.length + 1;
+    write(text, at);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(at, at);
+    });
+  };
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
     if (!body.trim()) return;
     try {
-      await onSubmit(body);
+      // Only those still named in the text: a mention deleted while writing is gone.
+      await onSubmit(
+        body,
+        mentionedIn(body, chosen).map((p) => p.id),
+      );
       setBody("");
+      setChosen([]);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save the comment");
@@ -128,23 +197,91 @@ function Composer({
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // Space, K and the arrows belong to the text here, not the player.
     event.stopPropagation();
+    if (offered.length > 0) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const step = event.key === "ArrowDown" ? 1 : -1;
+        setIndex((i) => (i + step + offered.length) % offered.length);
+        return;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        const person = offered[index];
+        if (person) pick(person);
+        return;
+      }
+      if (event.key === "Escape") {
+        setTyping(null);
+        return;
+      }
+    }
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void submit();
     if (event.key === "Escape") onCancel?.();
   };
+  const open = offered.length > 0;
   return (
     <form onSubmit={submit} className="flex flex-col gap-2">
-      <Textarea
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        onKeyDown={onKeyDown}
-        placeholder={placeholder}
-        rows={3}
-        aria-label={placeholder}
-        className="min-h-20 text-[13px]"
-      />
+      <div className="relative">
+        <Textarea
+          ref={area}
+          value={body}
+          onChange={(e) => write(e.target.value, e.target.selectionStart)}
+          onKeyDown={onKeyDown}
+          onBlur={() => setTyping(null)}
+          placeholder={placeholder}
+          rows={3}
+          aria-label={placeholder}
+          aria-autocomplete={people.length > 0 ? "list" : undefined}
+          aria-controls={open ? listId : undefined}
+          aria-activedescendant={open ? `${listId}-${index}` : undefined}
+          className="min-h-20 text-[13px]"
+        />
+        {open && (
+          <div
+            id={listId}
+            role="listbox"
+            aria-label="People to mention"
+            className="absolute inset-x-0 top-full z-20 mt-1 flex flex-col gap-0.5 rounded-panel border border-line bg-raised p-1 shadow-2"
+          >
+            {offered.map((person, i) => (
+              <div
+                key={person.id}
+                id={`${listId}-${i}`}
+                role="option"
+                tabIndex={-1}
+                aria-selected={i === index}
+                // Picked before the text loses focus, so the list is still there to pick from.
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  pick(person);
+                }}
+                onKeyDown={() => undefined}
+                onPointerMove={() => setIndex(i)}
+                className={cn(
+                  "flex h-8 cursor-pointer items-center gap-2 rounded-control px-2 text-[13px]",
+                  i === index ? "bg-ground/60 text-ink" : "text-ink-2",
+                )}
+              >
+                <Avatar id={person.id} name={person.name} size={18} />
+                <span className="truncate">{person.name}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
       {error && <p className="m-0 text-xs text-signal">{error}</p>}
       <div className="flex flex-wrap items-center gap-2">
         {children}
+        {people.length > 0 && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={startMention}
+          >
+            @ Mention
+          </Button>
+        )}
         <span className="ml-auto flex gap-2">
           {onCancel && (
             <Button size="sm" variant="ghost" onClick={onCancel}>
@@ -160,6 +297,27 @@ function Composer({
   );
 }
 
+/** A comment's words, with the people it mentions set apart (#133). */
+function Words({ comment }: { comment: Comment }) {
+  const parts: React.ReactNode[] = [];
+  let at = 0;
+  for (const r of mentionRanges(comment.body, comment.mentions)) {
+    if (r.start > at) parts.push(comment.body.slice(at, r.start));
+    parts.push(
+      <span key={r.start} className="font-medium text-ink">
+        {comment.body.slice(r.start, r.end)}
+      </span>,
+    );
+    at = r.end;
+  }
+  parts.push(comment.body.slice(at));
+  return (
+    <p className="m-0 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-ink-2">
+      {parts}
+    </p>
+  );
+}
+
 function CommentBody({
   comment,
   own,
@@ -167,7 +325,7 @@ function CommentBody({
 }: {
   comment: Comment;
   own: boolean;
-  onEdit: (id: string, body: string) => Promise<unknown>;
+  onEdit: (id: string, body: string, mentions: string[]) => Promise<unknown>;
 }) {
   const [editing, setEditing] = useState(false);
   return (
@@ -197,18 +355,17 @@ function CommentBody({
         <Composer
           placeholder="Edit comment"
           initial={comment.body}
+          initialMentions={comment.mentions}
           submitLabel="Save"
           pending={false}
-          onSubmit={async (body) => {
-            await onEdit(comment.id, body);
+          onSubmit={async (body, mentions) => {
+            await onEdit(comment.id, body, mentions);
             setEditing(false);
           }}
           onCancel={() => setEditing(false)}
         />
       ) : (
-        <p className="m-0 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-ink-2">
-          {comment.body}
-        </p>
+        <Words comment={comment} />
       )}
     </div>
   );
@@ -353,7 +510,8 @@ function ThreadView({
   const from = carry?.from.anchor;
   const setCarry = (change: { status?: CarryStatus; visible?: boolean; anchor?: Anchor | null }) =>
     carry && mutations.carry.mutate({ id: carry.id, ...change });
-  const edit = (id: string, body: string) => mutations.edit.mutateAsync({ id, body });
+  const edit = (id: string, body: string, mentions: string[]) =>
+    mutations.edit.mutateAsync({ id, body, mentions });
   const picked = pages?.focus.selected === comment.id;
   const row = useRef<HTMLLIElement>(null);
   // Picked on the page, the thread comes into view here.
@@ -378,8 +536,22 @@ function ThreadView({
           ? { label: "Undefer", onSelect: () => triage({ deferredTo: null }) }
           : { label: "Defer to a stage…", onSelect: () => setAsking("defer") },
         { label: "Assign to…", onSelect: () => setAsking("assign") },
+        comment.todo
+          ? {
+              label: "Not a task",
+              onSelect: () => mutations.todo.mutate({ id: comment.id, todo: false }),
+            }
+          : {
+              label: "Make a task",
+              onSelect: () => mutations.todo.mutate({ id: comment.id, todo: true }),
+            },
       ]
     : [];
+  /** A task is done by triage, or by whoever it is for. */
+  const mayFinish = canTriage || (!!me && comment.assigneeId === me);
+  const doneWords = comment.todoDoneAt
+    ? `done${comment.todoDoneByName ? ` by ${comment.todoDoneByName}` : ""}`
+    : "to do";
   return (
     <li
       ref={row}
@@ -531,9 +703,31 @@ function ThreadView({
           </>
         )}
       </div>
-      {(category || comment.deferredTo || comment.assigneeName) && (
+      {(category || comment.deferredTo || comment.assigneeName || comment.todo) && (
         <p className="m-0 -mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-3">
           {category && <Chip>{category.name}</Chip>}
+          {comment.todo &&
+            (mayFinish ? (
+              <ToggleChip
+                pressed={!!comment.todoDoneAt}
+                aria-label={comment.todoDoneAt ? "Done; mark as to do" : "To do; mark as done"}
+                onClick={() =>
+                  mutations.todo.mutate({ id: comment.id, todo: true, done: !comment.todoDoneAt })
+                }
+                className={cn(
+                  "h-6 px-2 text-[11px]",
+                  comment.todoDoneAt ? "text-ink-3 line-through" : "border-signal/50 text-signal",
+                )}
+              >
+                {doneWords}
+              </ToggleChip>
+            ) : (
+              <Chip
+                className={cn(comment.todoDoneAt ? "line-through" : "border-signal/50 text-signal")}
+              >
+                {doneWords}
+              </Chip>
+            ))}
           {comment.deferredTo && <span>deferred to {comment.deferredTo}</span>}
           {comment.assigneeName && <span>for {comment.assigneeName}</span>}
         </p>
@@ -586,8 +780,8 @@ function ThreadView({
           placeholder="Reply"
           submitLabel="Reply"
           pending={mutations.create.isPending}
-          onSubmit={async (body) => {
-            await mutations.create.mutateAsync({ body, parentId: comment.id });
+          onSubmit={async (body, mentions) => {
+            await mutations.create.mutateAsync({ body, parentId: comment.id, mentions });
             setReplying(false);
           }}
           onCancel={() => setReplying(false)}
@@ -666,6 +860,11 @@ export function Comments({
     enabled: canTriage,
   });
   const people = members.map((m) => ({ id: m.userId, name: m.name }));
+  // Whom a member writing here may mention: the project's people (#133).
+  const { data: mentionable = [] } = useQuery({
+    ...mentionableQuery(fileId),
+    enabled: canComment && !guest,
+  });
   const [onlyCategory, setOnlyCategory] = useState<string | null>(null);
   const [showDeferred, setShowDeferred] = useState(false);
   /** The playhead when writing began; null for a whole-file comment. */
@@ -769,8 +968,8 @@ export function Comments({
       placeholder={composerLabel}
       submitLabel="Comment"
       pending={mutations.create.isPending}
-      onSubmit={async (body) => {
-        await mutations.create.mutateAsync({ body, anchor: anchorNow() });
+      onSubmit={async (body, mentions) => {
+        await mutations.create.mutateAsync({ body, anchor: anchorNow(), mentions });
         setAt(null);
         setWholeFile(false);
         setSheet(false);
@@ -925,119 +1124,121 @@ export function Comments({
   );
 
   return (
-    <section aria-label="Comments" className="flex flex-col gap-4">
-      <div className="flex items-baseline justify-between">
-        <h2 className="m-0 text-[15px] font-medium">Comments</h2>
-        <span className="tabular text-xs text-ink-3">
-          {threads.open.length} open
-          {threads.deferred.length > 0 && ` · ${threads.deferred.length} deferred`}
-          {threads.resolved.length > 0 && ` · ${threads.resolved.length} resolved`}
-        </span>
-      </div>
-      {canComment && (
-        <>
-          {/* On a phone the composer opens as a sheet, so the comments stay in view. */}
-          <div ref={composer} onFocusCapture={capture} className="hidden @3xl/app:block">
-            {composerBody}
-          </div>
-          <Button
-            variant="secondary"
-            className="w-full @3xl/app:hidden"
-            onClick={() => {
-              media?.pause();
-              capture();
-              setSheet(true);
-            }}
-          >
-            <Icon name="comment" size={14} />
-            {composerLabel}
-          </Button>
-          {sheet && (
-            <Dialog title={composerLabel} onClose={() => setSheet(false)}>
-              {/* Opened to write in: the text box takes focus. */}
-              <div onFocusCapture={capture} ref={sheetBody}>
-                {composerBody}
-              </div>
-            </Dialog>
-          )}
-        </>
-      )}
-      {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
-      {data &&
-        threads.open.length === 0 &&
-        threads.deferred.length === 0 &&
-        threads.resolved.length === 0 &&
-        threads.hidden.length === 0 && (
-          <p className="m-0 text-[13px] text-ink-3">No comments yet.</p>
-        )}
-      {used.length > 1 && (
-        <fieldset className="m-0 flex min-w-0 flex-wrap gap-1 border-0 p-0">
-          <legend className="sr-only">Show comments of</legend>
-          <ToggleChip pressed={!onlyCategory} onClick={() => setOnlyCategory(null)}>
-            All
-          </ToggleChip>
-          {used.map((c) => (
-            <ToggleChip
-              key={c.id}
-              pressed={onlyCategory === c.id}
-              onClick={() => setOnlyCategory(onlyCategory === c.id ? null : c.id)}
+    <Mentionable value={mentionable}>
+      <section aria-label="Comments" className="flex flex-col gap-4">
+        <div className="flex items-baseline justify-between">
+          <h2 className="m-0 text-[15px] font-medium">Comments</h2>
+          <span className="tabular text-xs text-ink-3">
+            {threads.open.length} open
+            {threads.deferred.length > 0 && ` · ${threads.deferred.length} deferred`}
+            {threads.resolved.length > 0 && ` · ${threads.resolved.length} resolved`}
+          </span>
+        </div>
+        {canComment && (
+          <>
+            {/* On a phone the composer opens as a sheet, so the comments stay in view. */}
+            <div ref={composer} onFocusCapture={capture} className="hidden @3xl/app:block">
+              {composerBody}
+            </div>
+            <Button
+              variant="secondary"
+              className="w-full @3xl/app:hidden"
+              onClick={() => {
+                media?.pause();
+                capture();
+                setSheet(true);
+              }}
             >
-              {c.name}
+              <Icon name="comment" size={14} />
+              {composerLabel}
+            </Button>
+            {sheet && (
+              <Dialog title={composerLabel} onClose={() => setSheet(false)}>
+                {/* Opened to write in: the text box takes focus. */}
+                <div onFocusCapture={capture} ref={sheetBody}>
+                  {composerBody}
+                </div>
+              </Dialog>
+            )}
+          </>
+        )}
+        {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
+        {data &&
+          threads.open.length === 0 &&
+          threads.deferred.length === 0 &&
+          threads.resolved.length === 0 &&
+          threads.hidden.length === 0 && (
+            <p className="m-0 text-[13px] text-ink-3">No comments yet.</p>
+          )}
+        {used.length > 1 && (
+          <fieldset className="m-0 flex min-w-0 flex-wrap gap-1 border-0 p-0">
+            <legend className="sr-only">Show comments of</legend>
+            <ToggleChip pressed={!onlyCategory} onClick={() => setOnlyCategory(null)}>
+              All
             </ToggleChip>
-          ))}
-        </fieldset>
-      )}
-      <ul className="m-0 flex list-none flex-col p-0">
-        {threads.open.filter(inCategory).map(view)}
-      </ul>
-      {threads.deferred.length > 0 && (
-        <div className="flex flex-col">
-          <button
-            type="button"
-            onClick={() => setShowDeferred((v) => !v)}
-            aria-expanded={showDeferred}
-            className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
-          >
-            {showDeferred ? "Hide" : "Show"} {threads.deferred.length} deferred
-          </button>
-          {showDeferred && (
-            <ul className="m-0 flex list-none flex-col p-0">
-              {threads.deferred.filter(inCategory).map(view)}
-            </ul>
-          )}
-        </div>
-      )}
-      {threads.resolved.length > 0 && (
-        <div className="flex flex-col">
-          <button
-            type="button"
-            onClick={() => setShowResolved((v) => !v)}
-            aria-expanded={showResolved}
-            className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
-          >
-            {showResolved ? "Hide" : "Show"} {threads.resolved.length} resolved
-          </button>
-          {showResolved && (
-            <ul className="m-0 flex list-none flex-col p-0">{threads.resolved.map(view)}</ul>
-          )}
-        </div>
-      )}
-      {threads.hidden.length > 0 && (
-        <div className="flex flex-col">
-          <button
-            type="button"
-            onClick={() => setShowHidden((v) => !v)}
-            aria-expanded={showHidden}
-            className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
-          >
-            {showHidden ? "Hide" : "Show"} {threads.hidden.length} hidden on this version
-          </button>
-          {showHidden && (
-            <ul className="m-0 flex list-none flex-col p-0">{threads.hidden.map(view)}</ul>
-          )}
-        </div>
-      )}
-    </section>
+            {used.map((c) => (
+              <ToggleChip
+                key={c.id}
+                pressed={onlyCategory === c.id}
+                onClick={() => setOnlyCategory(onlyCategory === c.id ? null : c.id)}
+              >
+                {c.name}
+              </ToggleChip>
+            ))}
+          </fieldset>
+        )}
+        <ul className="m-0 flex list-none flex-col p-0">
+          {threads.open.filter(inCategory).map(view)}
+        </ul>
+        {threads.deferred.length > 0 && (
+          <div className="flex flex-col">
+            <button
+              type="button"
+              onClick={() => setShowDeferred((v) => !v)}
+              aria-expanded={showDeferred}
+              className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+            >
+              {showDeferred ? "Hide" : "Show"} {threads.deferred.length} deferred
+            </button>
+            {showDeferred && (
+              <ul className="m-0 flex list-none flex-col p-0">
+                {threads.deferred.filter(inCategory).map(view)}
+              </ul>
+            )}
+          </div>
+        )}
+        {threads.resolved.length > 0 && (
+          <div className="flex flex-col">
+            <button
+              type="button"
+              onClick={() => setShowResolved((v) => !v)}
+              aria-expanded={showResolved}
+              className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+            >
+              {showResolved ? "Hide" : "Show"} {threads.resolved.length} resolved
+            </button>
+            {showResolved && (
+              <ul className="m-0 flex list-none flex-col p-0">{threads.resolved.map(view)}</ul>
+            )}
+          </div>
+        )}
+        {threads.hidden.length > 0 && (
+          <div className="flex flex-col">
+            <button
+              type="button"
+              onClick={() => setShowHidden((v) => !v)}
+              aria-expanded={showHidden}
+              className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+            >
+              {showHidden ? "Hide" : "Show"} {threads.hidden.length} hidden on this version
+            </button>
+            {showHidden && (
+              <ul className="m-0 flex list-none flex-col p-0">{threads.hidden.map(view)}</ul>
+            )}
+          </div>
+        )}
+      </section>
+    </Mentionable>
   );
 }
 

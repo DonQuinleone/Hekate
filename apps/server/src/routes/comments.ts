@@ -3,13 +3,16 @@ import {
   type Anchor,
   anchorProblem,
   type CarryStatus,
+  type CommentMention,
   carrySettles,
   commentExportQuery,
+  commentTodoInput,
   createCommentInput,
   deferralAfter,
   editCommentInput,
   exportComments,
   mentionedIn,
+  mentionRanges,
   resolveCommentInput,
   sendListInput,
   threadsForExport,
@@ -26,7 +29,7 @@ import { z } from "zod";
 import { actorOf, canOnFile } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { hopsOf, lockTrackOfFile, versionNumbersOf } from "../carry.ts";
-import { NotFound } from "../errors.ts";
+import { CodedException, NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
 import type { Mailer } from "../mail.ts";
 import { type NotificationActor, notifyNow, projectPeople } from "../notifications.ts";
@@ -35,8 +38,19 @@ import type { TenantVariables } from "../tenancy.ts";
 const { comments, commentCarries, commentCategories, files, projects, users, guests } = schema;
 const resolver = alias(users, "resolver");
 const assignee = alias(users, "assignee");
+const doneBy = alias(users, "done_by");
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
+
+/** A file's name and project, for telling people about it; 404 when it is not here. */
+async function fileOf(db: Database, organisationId: string, fileId: string) {
+  const [file] = await db
+    .select({ name: files.name, projectId: files.projectId })
+    .from(files)
+    .where(inOrg(files, organisationId, eq(files.id, fileId)));
+  if (!file) throw new NotFound("File");
+  return file;
+}
 
 /** A comment as clients see it: the author's and resolver's names rather than their rows. */
 const commentColumns = {
@@ -61,6 +75,11 @@ const commentColumns = {
   deferredTo: comments.deferredTo,
   assigneeId: comments.assigneeId,
   assigneeName: assignee.name,
+  /** Who it mentions (#133), and whether it is a task and done. */
+  mentions: comments.mentions,
+  todo: comments.todo,
+  todoDoneAt: comments.todoDoneAt,
+  todoDoneByName: doneBy.name,
 };
 
 function selectComments(db: Database, organisationId: string, where: SQL | undefined) {
@@ -71,6 +90,7 @@ function selectComments(db: Database, organisationId: string, where: SQL | undef
     .leftJoin(guests, eq(comments.guestAuthorId, guests.id))
     .leftJoin(resolver, eq(comments.resolvedById, resolver.id))
     .leftJoin(assignee, eq(comments.assigneeId, assignee.id))
+    .leftJoin(doneBy, eq(comments.todoDoneById, doneBy.id))
     .where(inOrg(comments, organisationId, where));
 }
 
@@ -80,6 +100,31 @@ function publicComment<C extends { guestAuthorId: string | null }>({
   ...rest
 }: C) {
   return rest;
+}
+
+/**
+ * The people a comment may mention: members who can see its project (#133). Anyone else,
+ * and any mention by a guest, who is not shown the project's people, is refused.
+ */
+async function mentionsFor(
+  db: Database,
+  organisationId: string,
+  projectId: string,
+  actor: ViewerVariables["actor"],
+  ids: string[] | undefined,
+): Promise<CommentMention[]> {
+  if (!ids || ids.length === 0) return [];
+  if (actor.kind === "guest")
+    throw new CodedException(422, "mention_refused", "Guests cannot mention people");
+  const people = await projectPeople(db, organisationId, projectId);
+  const chosen = [...new Set(ids)].map((id) => people.find((p) => p.id === id));
+  if (chosen.some((p) => !p))
+    throw new CodedException(
+      422,
+      "mention_outside",
+      "Only people in this project can be mentioned",
+    );
+  return chosen.flatMap((p) => (p ? [{ id: p.id, name: p.name }] : []));
 }
 
 async function commentOf(db: Database, organisationId: string, id: string) {
@@ -157,10 +202,18 @@ async function threadsOn(
     ...new Set(roots.map((r) => r.fileId)),
   ]);
   const here = new Map(carriedHere.map((k) => [k.commentId, k]));
-  // Who is to act on a thread is the team's business, not a guest reviewer's.
+  // Who is to act on a thread, and whether it is a task, is the team's business, not a guest
+  // reviewer's.
   const shown =
     actor.kind === "guest"
-      ? rows.map((r) => ({ ...r, assigneeId: null, assigneeName: null }))
+      ? rows.map((r) => ({
+          ...r,
+          assigneeId: null,
+          assigneeName: null,
+          todo: false,
+          todoDoneAt: null,
+          todoDoneByName: null,
+        }))
       : rows;
   return shown.map((row) => {
     if (row.parentId) return { ...publicComment(row), carry: null, history: null };
@@ -169,7 +222,12 @@ async function threadsOn(
       versionNumber: origins.get(row.fileId) ?? null,
       hops: hops
         .filter((h) => h.commentId === row.id)
-        .map((h) => ({ fileId: h.fileId, versionNumber: h.versionNumber, status: h.status })),
+        .map((h) => ({
+          fileId: h.fileId,
+          versionNumber: h.versionNumber,
+          status: h.status,
+          moved: h.anchorPlaced,
+        })),
     };
     if (!carry) return { ...publicComment(row), carry: null, history };
     // On this version the thread points where it was mapped; where it began stays known.
@@ -243,6 +301,20 @@ export const fileCommentRoutes = (
   mail: { mailer: Mailer; publicUrl: string },
 ) =>
   new Hono<{ Variables: ViewerVariables }>()
+    // Whom a member may mention here (#133): the project's people, by name. Guests mention nobody.
+    .get("/:id/mentionable", idParam, async (c) => {
+      const actor = c.var.actor;
+      if (actor.kind === "guest") return c.json({ people: [] });
+      const fileId = c.req.valid("param").id;
+      await canOnFile(db, actor, "comment", fileId);
+      const file = await fileOf(db, c.var.organisationId, fileId);
+      const people = await projectPeople(db, c.var.organisationId, file.projectId);
+      return c.json({
+        people: people
+          .map((p) => ({ id: p.id, name: p.name }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      });
+    })
     .get("/:id/comments", idParam, async (c) => {
       const fileId = c.req.valid("param").id;
       const access = await canOnFile(db, c.var.actor, "read_comments", fileId);
@@ -498,6 +570,7 @@ export const fileCommentRoutes = (
         });
         if (problem) throw new HTTPException(422, { message: problem });
       }
+      const mentions = await mentionsFor(db, organisationId, file.projectId, actor, input.mentions);
 
       // Every guest comment is in the access log (docs/security.md), written with it.
       const who = actor.kind === "guest" ? await audit.guest(actor.guestId) : null;
@@ -512,6 +585,7 @@ export const fileCommentRoutes = (
             guestAuthorId: actor.kind === "guest" ? actor.guestId : null,
             anchor: input.anchor ?? null,
             body: input.body,
+            mentions,
           })
           .returning({ id: comments.id });
         if (who) {
@@ -540,6 +614,7 @@ export const fileCommentRoutes = (
           commentId: created?.id ?? "",
           parentId: input.parentId ?? null,
           body: input.body,
+          mentions,
           actor: actor.kind === "guest" ? { guestId: actor.guestId } : { userId: actor.userId },
         },
       ).catch((error: unknown) =>
@@ -565,6 +640,10 @@ async function tellAboutComment(
     commentId: string;
     parentId: string | null;
     body: string;
+    /** Chosen in the picker, over those read from the rest of the text. */
+    mentions: CommentMention[];
+    /** Only these, for an edit: the mentions it added. */
+    onlyMentions?: boolean;
     actor: NotificationActor;
   },
 ) {
@@ -577,10 +656,22 @@ async function tellAboutComment(
     detail: c.body,
     link: `/files/${c.fileId}`,
   };
-  const mentioned = mentionedIn(
-    c.body,
-    await projectPeople(deps.db, c.organisationId, c.projectId),
-  ).map((p) => p.id);
+  const chosen = c.mentions.map((m) => m.id);
+  // Names the picker chose are settled; only the rest of the text is read for names typed by
+  // hand, so someone who shares a chosen person's name is not told as well.
+  let typed = c.body;
+  for (const r of mentionRanges(c.body, c.mentions))
+    typed = `${typed.slice(0, r.start)}${" ".repeat(r.end - r.start)}${typed.slice(r.end)}`;
+  const mentioned = c.onlyMentions
+    ? chosen
+    : [
+        ...new Set([
+          ...chosen,
+          ...mentionedIn(typed, await projectPeople(deps.db, c.organisationId, c.projectId)).map(
+            (p) => p.id,
+          ),
+        ]),
+      ];
   if (mentioned.length > 0) {
     await notifyNow(deps, {
       ...common,
@@ -589,7 +680,7 @@ async function tellAboutComment(
       text: `mentioned you on ${c.fileName}`,
     });
   }
-  if (!c.parentId) return;
+  if (!c.parentId || c.onlyMentions) return;
   const thread = await deps.db
     .select({ id: comments.id, authorId: comments.authorId, parentId: comments.parentId })
     .from(comments)
@@ -628,21 +719,95 @@ async function tellAboutComment(
  * `/api/comments/:id`: editing your own words, and resolving or reopening a thread (triage).
  * A comment on a file whose project the caller cannot see does not exist for them.
  */
-export const commentRoutes = (db: Database) =>
+export const commentRoutes = (db: Database, mail: { mailer: Mailer; publicUrl: string }) =>
   new Hono<{ Variables: TenantVariables }>()
     .patch("/:id", idParam, zValidator("json", editCommentInput), async (c) => {
       const organisationId = c.var.organisationId;
       const { id } = c.req.valid("param");
+      const input = c.req.valid("json");
       const existing = await commentOf(db, organisationId, id);
       // Still able to comment here: editing is writing.
-      await canOnFile(db, actorOf(c.var), "comment", existing.fileId);
+      const actor = actorOf(c.var);
+      await canOnFile(db, actor, "comment", existing.fileId);
       if (existing.authorId !== c.var.userId) {
         throw new HTTPException(403, { message: "Only the author can edit a comment" });
       }
+      const file = await fileOf(db, organisationId, existing.fileId);
+      // The mentions it keeps, or those chosen again; whoever is new to it is told.
+      const mentions =
+        input.mentions === undefined
+          ? existing.mentions
+          : await mentionsFor(db, organisationId, file.projectId, actor, input.mentions);
       await db
         .update(comments)
-        .set({ body: c.req.valid("json").body, editedAt: new Date(), updatedAt: new Date() })
+        .set({ body: input.body, mentions, editedAt: new Date(), updatedAt: new Date() })
         .where(inOrg(comments, organisationId, eq(comments.id, id)));
+      const added = mentions.filter((m) => !existing.mentions.some((e) => e.id === m.id));
+      if (added.length > 0)
+        await tellAboutComment(
+          { db, ...mail },
+          {
+            organisationId,
+            projectId: file.projectId,
+            fileId: existing.fileId,
+            fileName: file.name,
+            commentId: id,
+            parentId: existing.parentId,
+            body: input.body,
+            mentions: added,
+            onlyMentions: true,
+            actor: { userId: c.var.userId },
+          },
+        ).catch((error: unknown) =>
+          console.warn(`Could not tell people about a mention: ${String(error)}`),
+        );
+      return c.json({ comment: publicComment(await commentOf(db, organisationId, id)) });
+    })
+    // A thread as a task (#133): triage makes it one; triage, or whoever it is for, marks it done.
+    .post("/:id/todo", idParam, zValidator("json", commentTodoInput), async (c) => {
+      const organisationId = c.var.organisationId;
+      const { id } = c.req.valid("param");
+      const { todo, done } = c.req.valid("json");
+      const thread = await commentOf(db, organisationId, id);
+      if (thread.parentId) throw new NotFound("Thread");
+      const actor = actorOf(c.var);
+      const changesTask = todo !== thread.todo;
+      const mayTriage = await canOnFile(db, actor, "triage", thread.fileId).then(
+        () => true,
+        (error: unknown) => {
+          if (error instanceof HTTPException && error.status === 403) return false;
+          throw error;
+        },
+      );
+      // Without triage, whoever it is for may mark it done or not done, and nothing more; and
+      // only where they may still write, so never in an archived project.
+      if (!mayTriage) {
+        if (changesTask || !todo || thread.assigneeId !== c.var.userId)
+          throw new HTTPException(403, { message: "Only those who triage can change this task" });
+        await canOnFile(db, actor, "comment", thread.fileId);
+      }
+      const [changed] = await db
+        .update(comments)
+        .set({
+          todo,
+          // Done once: a second "done" keeps who did it first, and when.
+          todoDoneAt: todo && done ? sql`coalesce(${comments.todoDoneAt}, now())` : null,
+          todoDoneById:
+            todo && done ? sql`coalesce(${comments.todoDoneById}, ${c.var.userId})` : null,
+          updatedAt: new Date(),
+        })
+        .where(
+          inOrg(
+            comments,
+            organisationId,
+            eq(comments.id, id),
+            // Checked as it is written: reassigned meanwhile, it is no longer theirs to mark.
+            mayTriage ? undefined : eq(comments.assigneeId, c.var.userId),
+          ),
+        )
+        .returning({ id: comments.id });
+      if (!changed)
+        throw new HTTPException(409, { message: "This task has been given to someone else" });
       return c.json({ comment: publicComment(await commentOf(db, organisationId, id)) });
     })
     .post("/:id/resolve", idParam, zValidator("json", resolveCommentInput), async (c) => {

@@ -23,6 +23,10 @@ const comment = (id: string, anchor: Anchor | null, extra: Partial<Comment> = {}
   createdAt: "2026-10-14T12:00:00Z",
   carry: null,
   history: null,
+  mentions: [],
+  todo: false,
+  todoDoneAt: null,
+  todoDoneByName: null,
   ...extra,
 });
 
