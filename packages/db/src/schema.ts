@@ -41,6 +41,7 @@ import {
   type SessionFactor,
   type SsoProtocol,
   type TemplateContent,
+  type WatermarkSettings,
 } from "@hekate/shared";
 import { type SQL, sql } from "drizzle-orm";
 import {
@@ -441,6 +442,8 @@ export const projects = pgTable(
     deleteAfter: timestamp("delete_after", { withTimezone: true }),
     /** The storage backend for this project's new files (#240); null follows the workspace's. */
     storageBackend: text("storage_backend"),
+    /** The visible watermark (#31): whom it marks, where and how strongly; null is the default. */
+    watermark: jsonb("watermark").$type<WatermarkSettings>(),
     /**
      * Whether its comment categories have been made: a new project gets the defaults at once,
      * one made before categories existed the first time its categories are read.

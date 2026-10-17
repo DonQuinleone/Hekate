@@ -4,6 +4,7 @@ import { normalisationMode } from "./normalisation.ts";
 import { profileRef } from "./qa.ts";
 import { qaSettings } from "./qa-rules.ts";
 import { commentReferences } from "./references.ts";
+import { watermarkSettings } from "./watermark.ts";
 
 /**
  * A project's profile decides which tools and anchors appear. Any kind of file can live in any
@@ -93,6 +94,8 @@ export const updateProjectInput = z
     references: commentReferences.optional(),
     /** Whether recordings play at their delivery target's loudness (#240). */
     normalisation: normalisationMode.optional(),
+    /** The visible watermark: whom it marks, where and how strongly (#31). */
+    watermark: watermarkSettings.optional(),
   })
   .refine(
     (u) =>
@@ -105,7 +108,8 @@ export const updateProjectInput = z
       u.requireEdl !== undefined ||
       u.qaSettings !== undefined ||
       u.references !== undefined ||
-      u.normalisation !== undefined,
+      u.normalisation !== undefined ||
+      u.watermark !== undefined,
     { message: "Nothing to change" },
   );
 export type UpdateProjectInput = z.infer<typeof updateProjectInput>;

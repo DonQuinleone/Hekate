@@ -4,6 +4,7 @@ import {
   type MediaInfo,
   type Normalisation,
   normalisationLabel,
+  type WatermarkPosition,
 } from "@hekate/shared";
 import type Hls from "hls.js";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -177,6 +178,7 @@ export function Player({
   onLoop = () => {},
   cue,
   tools = null,
+  mark = null,
   normalisation = null,
   normalised = false,
   onNormalised,
@@ -197,6 +199,8 @@ export function Player({
   cue?: number;
   /** The tools a guest's review or a member's role allows; null for every one. */
   tools?: readonly string[] | null;
+  /** The viewer's visible mark, laid over a video where the project marks them (#31). */
+  mark?: VisibleMark | null;
   /** Normalised playback (#240): offered as a switch where it is each person's choice. */
   normalisation?: Normalisation | null;
   /** Whether it is heard normalised now, and the switch's choice. */
@@ -519,13 +523,16 @@ export function Player({
       className="flex flex-col overflow-hidden rounded-panel border border-hairline bg-surface outline-none focus-visible:border-edge"
     >
       {kind === "video" ? (
-        <video
-          ref={media}
-          playsInline
-          onClick={toggle}
-          className={cn("aspect-video w-full cursor-pointer bg-ground", failure && "hidden")}
-          {...events}
-        />
+        <div className={cn("relative", failure && "hidden")}>
+          <video
+            ref={media}
+            playsInline
+            onClick={toggle}
+            className="aspect-video w-full cursor-pointer bg-ground"
+            {...events}
+          />
+          {mark && <VideoMark mark={mark} />}
+        </div>
       ) : (
         <audio ref={media} {...events} />
       )}
@@ -859,5 +866,51 @@ function ChoiceButton({
     >
       {children}
     </button>
+  );
+}
+
+/** A video's mark, as the server words and places it (#31). */
+export interface VisibleMark {
+  text: string;
+  position: WatermarkPosition;
+  opacity: number;
+}
+
+/** Where the mark sits over the picture, in shares of it: staggered rows, a corner or the middle. */
+const markPlaces: Record<WatermarkPosition, { left: string; top: string }[]> = {
+  tiled: [0.06, 0.22, 0.38, 0.54, 0.7, 0.86].map((y, i) => ({
+    left: `${i % 2 === 0 ? 4 : 30}%`,
+    top: `${y * 100}%`,
+  })),
+  corner: [{ left: "auto", top: "auto" }],
+  centre: [{ left: "50%", top: "50%" }],
+};
+
+/**
+ * Who is watching, laid over the video so a screen capture says whose it was (#31,
+ * docs/security.md). It never takes a click: the picture beneath still plays and pauses.
+ */
+export function VideoMark({ mark }: { mark: VisibleMark }) {
+  return (
+    <div
+      aria-hidden="true"
+      data-e2e-overlap
+      className="pointer-events-none absolute inset-0 overflow-hidden select-none"
+      style={{ opacity: mark.opacity / 100 }}
+    >
+      {markPlaces[mark.position].map((place) => (
+        <span
+          key={`${place.left}-${place.top}`}
+          className={cn(
+            "absolute text-[11px] leading-snug whitespace-pre-line text-paper sm:text-[13px]",
+            mark.position === "corner" && "right-[3%] bottom-[3%] text-right",
+            mark.position === "centre" && "-translate-x-1/2 -translate-y-1/2 text-center",
+          )}
+          style={mark.position === "corner" ? undefined : place}
+        >
+          {mark.text}
+        </span>
+      ))}
+    </div>
   );
 }

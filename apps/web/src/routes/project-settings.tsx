@@ -3,6 +3,7 @@ import {
   categoryHandlings,
   customRef,
   defaultReferences,
+  defaultWatermark,
   formatBytes,
   handlingWords,
   type NormalisationMode,
@@ -15,6 +16,14 @@ import {
   profiles,
   referenceSetOf,
   referenceSets,
+  type WatermarkPosition,
+  type WatermarkScope,
+  type WatermarkSettings,
+  watermarkPositions,
+  watermarkPositionWords,
+  watermarkScopes,
+  watermarkScopeWords,
+  watermarkText,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -29,6 +38,7 @@ import {
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { Page } from "~/components/page";
+import { VideoMark } from "~/components/player";
 import { ProjectRoles } from "~/components/project-access";
 import { QaRules } from "~/components/qa-rules";
 import { Danger, Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
@@ -85,6 +95,13 @@ const sections = [
     label: "Workflow",
     group: "Project",
     intro: "What a new version must pass before it lands.",
+  },
+  {
+    id: "security",
+    label: "Asset security",
+    group: "Protection",
+    intro:
+      "How what people see carries their name, so a capture says whose it was. Downloads are always marked for the person who asked.",
   },
   {
     id: "storage",
@@ -150,6 +167,7 @@ export function ProjectSettingsPage({
             {current.id === "comments" && <Comments project={project} />}
             {current.id === "roles" && <ProjectRoles projectId={project.id} />}
             {current.id === "workflow" && <Workflow project={project} />}
+            {current.id === "security" && <AssetSecurity project={project} />}
             {current.id === "storage" && <ProjectStorageSection project={project} />}
             {current.id === "delivery" && <Delivery project={project} />}
             {current.id === "qa" && <QaRules project={project} />}
@@ -599,6 +617,97 @@ function ProjectStorageSection({ project }: { project: Project }) {
         </Row>
       </Section>
       {choose.error && <p className="-mt-6 text-[13px] text-signal">{choose.error.message}</p>}
+    </>
+  );
+}
+
+/**
+ * The visible watermark (#31): whom it marks, where and how strongly, with a preview in the
+ * viewer's own name. Burned into pages and pictures, laid over video.
+ */
+function AssetSecurity({ project }: { project: Project }) {
+  const can = useProjectCan(project.id);
+  const update = useUpdateProject(project.id);
+  const { data: me } = useQuery(meQuery);
+  const settings = project.watermark ?? defaultWatermark;
+  // One change at a time: each sends the whole setting, so a second waits for the first.
+  const edit = can("edit_project") && !update.isPending;
+  const change = (next: Partial<WatermarkSettings>) =>
+    update.mutate({ watermark: { ...settings, ...next } });
+  const workspace = me?.organisations.find((o) => o.id === me.activeOrganisationId)?.name ?? "";
+  const sample = watermarkText(
+    { name: me?.user?.name ?? "", email: me?.user?.email ?? "" },
+    workspace,
+    new Date(),
+  );
+  return (
+    <>
+      <Section
+        title="Visible watermark"
+        intro="Burned into pages and pictures, and laid over video, for guests, and for members when you choose."
+      >
+        <Row name="Scope">
+          <Select
+            value={settings.scope}
+            aria-label="Scope"
+            disabled={!edit}
+            onChange={(e) => change({ scope: e.target.value as WatermarkScope })}
+            className="w-full @3xl/app:w-56"
+          >
+            {watermarkScopes.map((scope) => (
+              <option key={scope} value={scope}>
+                {watermarkScopeWords[scope]}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        <Row name="Position and opacity" hint="Opacity from 10 to 80 per cent.">
+          <span className="flex gap-2">
+            <Select
+              value={settings.position}
+              aria-label="Position"
+              disabled={!edit || settings.scope === "off"}
+              onChange={(e) => change({ position: e.target.value as WatermarkPosition })}
+              className="w-40"
+            >
+              {watermarkPositions.map((position) => (
+                <option key={position} value={position}>
+                  {watermarkPositionWords[position]}
+                </option>
+              ))}
+            </Select>
+            <SavedInput
+              key={settings.opacity}
+              value={`${settings.opacity}%`}
+              label="Opacity"
+              disabled={!edit || settings.scope === "off"}
+              onSave={(typed) => {
+                const opacity = Number.parseInt(typed, 10);
+                if (Number.isInteger(opacity))
+                  change({ opacity: Math.min(80, Math.max(10, opacity)) });
+              }}
+              className="tabular w-20"
+            />
+          </span>
+        </Row>
+        {settings.scope !== "off" && (
+          <Row name="Preview" stacked>
+            {/* A frame stands in for the picture: dark in either theme, as a video is. */}
+            <div
+              className="relative aspect-video w-full max-w-[420px] overflow-hidden rounded-panel"
+              style={{
+                background:
+                  "radial-gradient(120% 90% at 30% 20%, var(--hk-cover-video-lit), var(--hk-cover-video-deep) 70%)",
+              }}
+            >
+              <VideoMark
+                mark={{ text: sample, position: settings.position, opacity: settings.opacity }}
+              />
+            </div>
+          </Row>
+        )}
+      </Section>
+      {update.error && <p className="-mt-6 text-[13px] text-signal">{update.error.message}</p>}
     </>
   );
 }

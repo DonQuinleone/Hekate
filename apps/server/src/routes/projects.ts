@@ -10,6 +10,7 @@ import {
   projectPermissions,
   referencesOf,
   updateProjectInput,
+  watermarkOf,
   workspaceSettingsOf,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
@@ -49,7 +50,12 @@ function shown<
     storageBackend,
     ...rest
   } = project;
-  return { ...rest, references: referencesOf(commentReferences, project.profile) };
+  return {
+    ...rest,
+    references: referencesOf(commentReferences, project.profile),
+    // The visible watermark as it applies: the default until the project chooses (#31).
+    ...("watermark" in project ? { watermark: watermarkOf(project.watermark) } : {}),
+  };
 }
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
@@ -131,6 +137,7 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
                 qaSettings: projects.qaSettings,
                 commentReferences: projects.commentReferences,
                 normalisation: projects.normalisation,
+                watermark: projects.watermark,
               })
               .from(projects)
               .where(inOrg(projects, organisationId, eq(projects.id, access.projectId)));
@@ -335,7 +342,8 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
         input.profile !== undefined ||
         input.carriedCommentsShown !== undefined ||
         input.references !== undefined ||
-        input.normalisation !== undefined;
+        input.normalisation !== undefined ||
+        input.watermark !== undefined;
       const workflow =
         input.deliveryProfile !== undefined ||
         input.checkTruePeak !== undefined ||

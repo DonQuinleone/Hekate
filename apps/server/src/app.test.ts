@@ -9074,8 +9074,95 @@ describe.runIf(url)("api", () => {
             const ours = await pagesFor(s.owner);
             const plain = Buffer.from(await (await getAs(ours?.url ?? "", s.owner)).arrayBuffer());
             expect(plain.equals(white)).toBe(true);
+
+            // The project chooses whom it marks (#31): everyone, members too; then no one.
+            const [file] = await db
+              .select({ projectId: schema.files.projectId })
+              .from(schema.files)
+              .where(eq(schema.files.id, s.mix));
+            const choose = (watermark: object) =>
+              app.request(`/api/projects/${file?.projectId}`, {
+                ...json({ watermark }, s.owner),
+                method: "PATCH",
+              });
+            expect(
+              (await choose({ scope: "everyone", position: "corner", opacity: 50 })).status,
+            ).toBe(200);
+            const marked = await pagesFor(s.owner);
+            const mine = Buffer.from(await (await getAs(marked?.url ?? "", s.owner)).arrayBuffer());
+            expect(webpComplete(mine)).toBe(true);
+            expect(mine.equals(white)).toBe(false);
+            expect((await choose({ scope: "off", position: "tiled", opacity: 30 })).status).toBe(
+              200,
+            );
+            const unmarked = await pagesFor(s.cookie);
+            const guestPlain = Buffer.from(
+              await (await getAs(unmarked?.url ?? "", s.cookie)).arrayBuffer(),
+            );
+            expect(guestPlain.equals(white)).toBe(true);
           },
         );
+
+        it("lays the viewer's mark over a video where the project marks them (#31)", async () => {
+          const s = await invited();
+          await db
+            .update(schema.files)
+            .set({
+              kind: "video",
+              mediaInfo: {
+                duration: 60,
+                video: { codec: "h264", width: 1920, height: 1080, fps: 25 },
+              },
+            })
+            .where(eq(schema.files.id, s.mix));
+          const [file] = await db
+            .select({ projectId: schema.files.projectId })
+            .from(schema.files)
+            .where(eq(schema.files.id, s.mix));
+          const markOf = async (cookie: string) =>
+            (
+              (await (await getAs(`/api/files/${s.mix}`, cookie)).json()) as {
+                file: { watermark: { text: string; position: string; opacity: number } | null };
+              }
+            ).file.watermark;
+          const choose = (watermark: object, cookie = s.owner) =>
+            app.request(`/api/projects/${file?.projectId}`, {
+              ...json({ watermark }, cookie),
+              method: "PATCH",
+            });
+
+          // By default the guest is marked, with their own name; the member is not.
+          const guests = await markOf(s.cookie);
+          expect(guests).toMatchObject({ position: "tiled", opacity: 30 });
+          expect(guests?.text).toMatch(/@example\.test/);
+          expect(await markOf(s.owner)).toBeNull();
+
+          // Everyone: the member too. The project's view says what it chose.
+          expect(
+            (await choose({ scope: "everyone", position: "centre", opacity: 60 })).status,
+          ).toBe(200);
+          expect(await markOf(s.owner)).toMatchObject({ position: "centre", opacity: 60 });
+          const project = (await (
+            await getAs(`/api/projects/${file?.projectId}`, s.owner)
+          ).json()) as { project: { watermark: unknown } };
+          expect(project.project.watermark).toEqual({
+            scope: "everyone",
+            position: "centre",
+            opacity: 60,
+          });
+          // Off: no one.
+          expect((await choose({ scope: "off", position: "tiled", opacity: 30 })).status).toBe(200);
+          expect(await markOf(s.cookie)).toBeNull();
+          // Out of range, refused; and only those who edit the project choose.
+          expect((await choose({ scope: "guests", position: "tiled", opacity: 5 })).status).toBe(
+            400,
+          );
+          const reviewer = await joinAs(s.owner, "reviewer@example.test", "member");
+          await grantRole(s.owner, file?.projectId ?? "", reviewer, "Reviewer");
+          expect(
+            (await choose({ scope: "off", position: "tiled", opacity: 30 }, reviewer)).status,
+          ).toBe(403);
+        });
 
         it("binds a guest's playback to their browser", async () => {
           const s = await invited();

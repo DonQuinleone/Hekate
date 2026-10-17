@@ -134,6 +134,7 @@ function Playback({
       onLoop={onLoop}
       cue={cue}
       tools={file.grant?.tools ?? file.tools ?? null}
+      mark={file.watermark}
       normalisation={file.normalisation}
       normalised={normalised}
       onNormalised={onNormalised}

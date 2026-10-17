@@ -39,3 +39,4 @@ export * from "./tags.ts";
 export * from "./takes.ts";
 export * from "./templates.ts";
 export * from "./tracks.ts";
+export * from "./watermark.ts";
