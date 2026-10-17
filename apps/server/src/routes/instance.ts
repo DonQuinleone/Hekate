@@ -1,5 +1,10 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  type ErrorReport,
+  type ErrorReportRow,
+  type ErrorSource,
+  errorReferenceParam,
+  errorReportsQuery,
   type InstanceAccess,
   type InstanceMemberRow,
   type InstanceOverview,
@@ -219,6 +224,18 @@ async function failedToday(db: Database) {
     return [];
   }
 }
+
+/** The columns every error report shows. */
+const reportRow = {
+  reference: schema.errorReports.reference,
+  occurredAt: schema.errorReports.occurredAt,
+  source: schema.errorReports.source,
+  location: schema.errorReports.location,
+  message: schema.errorReports.message,
+};
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Enough for a bad day; the lookup reaches any reference still kept. */
+const ERRORS_LISTED = 200;
 
 /** An operator, by their account's id. */
 const operatorParam = zValidator("param", operatorParamSchema);
@@ -1136,6 +1153,67 @@ export function instanceRoutes(options: InstanceOptions) {
           return gone.length;
         });
         return c.json({ ended });
+      })
+      .use("/errors", operatorsOnly)
+      .use("/errors/*", operatorsOnly)
+      // What failed in the last day, by the viewer's clock, newest first (#159).
+      .get("/errors", zValidator("query", errorReportsQuery), async (c) => {
+        const { since } = c.req.valid("query");
+        const rows = await db
+          .select({ ...reportRow, workspace: schema.organisations.name })
+          .from(schema.errorReports)
+          .leftJoin(
+            schema.organisations,
+            eq(schema.organisations.id, schema.errorReports.organisationId),
+          )
+          .where(
+            gt(
+              schema.errorReports.occurredAt,
+              since ? new Date(since) : new Date(Date.now() - DAY_MS),
+            ),
+          )
+          .orderBy(desc(schema.errorReports.occurredAt))
+          .limit(ERRORS_LISTED);
+        const errors: ErrorReportRow[] = rows.map((r) => ({
+          ...r,
+          source: r.source as ErrorSource,
+          occurredAt: r.occurredAt.toISOString(),
+        }));
+        return c.json({ errors });
+      })
+      // The whole story behind a reference someone quoted.
+      .get("/errors/:reference", zValidator("param", errorReferenceParam), async (c) => {
+        const { reference } = c.req.valid("param");
+        const [r] = await db
+          .select({
+            ...reportRow,
+            status: schema.errorReports.status,
+            stack: schema.errorReports.stack,
+            requestId: schema.errorReports.requestId,
+            jobId: schema.errorReports.jobId,
+            context: schema.errorReports.context,
+            workspaceId: schema.errorReports.organisationId,
+            workspace: schema.organisations.name,
+            whoName: schema.users.name,
+            whoEmail: schema.users.email,
+          })
+          .from(schema.errorReports)
+          .leftJoin(
+            schema.organisations,
+            eq(schema.organisations.id, schema.errorReports.organisationId),
+          )
+          .leftJoin(schema.users, eq(schema.users.id, schema.errorReports.userId))
+          .where(eq(schema.errorReports.reference, reference));
+        if (!r) throw new NotFound("Error report");
+        const { whoName, whoEmail, ...rest } = r;
+        const report: ErrorReport = {
+          ...rest,
+          source: r.source as ErrorSource,
+          occurredAt: r.occurredAt.toISOString(),
+          context: (r.context as Record<string, unknown> | null) ?? null,
+          who: whoName !== null && whoEmail !== null ? { name: whoName, email: whoEmail } : null,
+        };
+        return c.json(report);
       })
   );
 }

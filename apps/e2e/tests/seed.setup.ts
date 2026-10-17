@@ -445,6 +445,60 @@ setup("seed", async ({ page, browser }) => {
     onnotice: () => undefined,
   });
   try {
+    // What failed (#159): a request, a job and a job of no workspace, each under its reference.
+    const [label] = await sql<
+      { id: string }[]
+    >`select id from organisations where name = 'Endless Hall Records'`;
+    const [alex] = await sql<{ id: string }[]>`select id from users where name = 'Alex Rivera'`;
+    const reports = [
+      {
+        reference: "HK-9D44-11",
+        source: "api",
+        location: "POST /api/comments",
+        message: "Connection terminated unexpectedly",
+        stack:
+          "Error: Connection terminated unexpectedly\n    at Connection.<anonymous> (pg/lib/client.js:132:73)\n    at comments.ts:214:19",
+        status: 500,
+        request_id: "req_0199e3a1-7c2f-7b40-9a51-4f2d8c1e09aa",
+        job_id: null,
+        context: null,
+        organisation_id: label?.id ?? null,
+        user_id: alex?.id ?? null,
+      },
+      {
+        reference: "HK-2B91-E0",
+        source: "worker",
+        location: "notifications-mail",
+        message: "421 4.7.0 Try again later, closing connection",
+        stack:
+          "Error: 421 4.7.0 Try again later, closing connection\n    at SMTPConnection._formatError (smtp-connection/index.js:798:19)",
+        status: null,
+        request_id: null,
+        job_id: "0199e3a4-12c0-7d1e-b3f0-6a2e91c4d7f1",
+        context: null,
+        organisation_id: null,
+        user_id: null,
+      },
+      {
+        reference: "HK-7F3A-2C",
+        source: "worker",
+        location: "document-render",
+        message:
+          "Could not render page 3 of Maple Leaf Rag - Score.pdf: damaged cross-reference table.",
+        stack:
+          "PdfError: xref entry 41 points outside the file\n    at parseXref (media/pages.ts:188:11)\n    at renderPage (media/pages.ts:262:9)\n    at runJob (jobs.ts:140:17)",
+        status: null,
+        request_id: null,
+        job_id: "0199e3a6-8f1c-7a02-8e44-2b7d0c9f3a15",
+        context: { organisationId: label?.id, fileId: score },
+        organisation_id: label?.id ?? null,
+        user_id: null,
+      },
+    ];
+    for (const r of reports)
+      await sql`insert into error_reports (id, reference, source, location, message, stack, status, request_id, job_id, context, organisation_id, user_id)
+        values (gen_random_uuid(), ${r.reference}, ${r.source}, ${r.location}, ${r.message}, ${r.stack}, ${r.status}, ${r.request_id}, ${r.job_id}, ${r.context ? sql.json(r.context) : null}, ${r.organisation_id}, ${r.user_id})`;
+
     const columns = await sql<{ table_name: string; column_name: string }[]>`
       select table_name, column_name from information_schema.columns
       where table_schema = 'public' and data_type like 'timestamp%'

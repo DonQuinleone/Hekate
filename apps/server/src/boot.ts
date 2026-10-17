@@ -4,6 +4,7 @@ import { count } from "drizzle-orm";
 import { createApp } from "./app.ts";
 import { createAudit } from "./audit.ts";
 import { createAuth } from "./auth.ts";
+import { failureOfJob, purgeErrorReports, recordFailure } from "./error-reports.ts";
 import { createJobs } from "./jobs.ts";
 import { createKeyring, UnknownMasterKeyError } from "./keyring.ts";
 import { createMailer } from "./mail.ts";
@@ -89,7 +90,12 @@ export async function boot(
   const storage = createStorage(db, backends, keyring);
 
   const audit = createAudit(db);
-  const jobs = createJobs({ connectionString: config.DATABASE_URL });
+  const jobs = createJobs({
+    connectionString: config.DATABASE_URL,
+    onFailure: async (failure) => {
+      await recordFailure(db, failureOfJob(failure));
+    },
+  });
   await jobs.start();
   if (config.WORKER) {
     await startWorkers(
@@ -119,6 +125,7 @@ export async function boot(
       await purgeAttempts(db);
       await purgeRequestLimits(db);
       await purgeDownloadTickets(db);
+      await purgeErrorReports(db);
     });
     await jobs.work("organisation-rewrap", async ({ organisationId }) => {
       const rewrapped = await rewrapOrganisation(db, keyring, organisationId);

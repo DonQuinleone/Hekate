@@ -2145,7 +2145,7 @@ export function InstancePage({ section }: { section: string }) {
           </Section>
           <Section
             title="Errors today"
-            intro="Everything that failed with a reference, newest first."
+            intro="Everything that failed in the last day, newest first."
           >
             {errors.map((e) => (
               <Row

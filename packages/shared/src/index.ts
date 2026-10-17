@@ -8,6 +8,7 @@ export * from "./comments.ts";
 export * from "./directory.ts";
 export * from "./downloads.ts";
 export * from "./email.ts";
+export * from "./error-reports.ts";
 export * from "./file-columns.ts";
 export * from "./files.ts";
 export * from "./folders.ts";

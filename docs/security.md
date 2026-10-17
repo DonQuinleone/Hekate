@@ -116,6 +116,10 @@ An append-only access log records who accessed what, when, through which review,
 - **Client addresses** come from the socket, or from `X-Forwarded-For` only when `TRUST_PROXY` is set (the Compose file sets it, because Caddy replaces that header with the real client address). A client cannot claim another address otherwise.
 - **Reading and export** are for workspace admins and owners: filters by project, file, review, person, action and time, newest first with cursor paging, and a CSV export. Exports are themselves logged, and cells that a spreadsheet would run as formulas are neutralised.
 
+### Error reports
+
+Every failure a person sees (any 5xx) and every job's last failed attempt is recorded under a reference such as `HK-7F3A-2C` (#159), which the message asks them to quote, and written to the log as one JSON line. The report holds the route or the job, the request's id (made by the server, never taken from the request), the error and its stack, the job's data (identifiers only), the workspace, and the account it happened to; nothing else about the person, no address and no browser. Only operators read reports, in Debug tools, where the account is shown by its name and email. A workspace's reports are deleted with it, and every report after 30 days.
+
 ## Headers and limits
 
 - **Headers:** the app sets them on every response, so they hold behind any proxy. The Content Security Policy allows this origin alone: no inline or evaluated script, no style, font, image or request from elsewhere, `blob:` only where hls.js feeds MediaSource and runs its worker, and `frame-ancestors 'none'` (with `X-Frame-Options: DENY`), so no page can be framed. Also `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, a `Permissions-Policy` that grants passkeys, full screen and autoplay to this origin and nothing else, `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy: same-origin`, and HSTS when the public address is HTTPS (Caddy, terminating TLS, adds it too). The visual suite loads every screen under the policy and fails on any violation.

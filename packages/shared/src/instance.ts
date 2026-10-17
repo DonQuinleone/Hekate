@@ -5,7 +5,7 @@ import { z } from "zod";
  * everything; a workspace's owner who is not an operator sees their own workspaces only.
  */
 
-export const instanceSectionIds = ["overview", "workspaces", "operators"] as const;
+export const instanceSectionIds = ["overview", "workspaces", "operators", "debug"] as const;
 export type InstanceSection = (typeof instanceSectionIds)[number];
 
 export const instanceSections: Record<InstanceSection, { label: string; hint: string }> = {
@@ -15,6 +15,10 @@ export const instanceSections: Record<InstanceSection, { label: string; hint: st
     hint: "Every tenant, with its people, projects and storage",
   },
   operators: { label: "Operators", hint: "The accounts that may manage the instance" },
+  debug: {
+    label: "Debug tools",
+    hint: "Look up an error reference, see what failed, inspect what is not working",
+  },
 };
 
 /** What a viewer may open on the instance side. */
