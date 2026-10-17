@@ -286,6 +286,22 @@ const screens: Screen[] = [
     path: (s) => `/search?q=maple&projectId=${s.musicProjectId}`,
     ready: "main section[aria-label=Files] a",
   },
+  // The instance side (#155): setup's owner is its first operator.
+  {
+    name: "instance",
+    path: () => "/instance",
+    ready: "main >> text=Needs an operator",
+  },
+  {
+    name: "instance-workspaces",
+    path: () => "/instance/workspaces",
+    ready: "main >> text=Endless Hall Records >> nth=0",
+  },
+  {
+    name: "instance-operators",
+    path: () => "/instance/operators",
+    ready: "main >> text=producer@example.test",
+  },
   { name: "members", path: () => "/settings/members", ready: "main >> text=Alex Rivera" },
   {
     name: "settings-general",

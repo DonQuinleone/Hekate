@@ -8,6 +8,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import type { Auth } from "../auth.ts";
 import { requireSetupCode, type SetupGate } from "../setup-code.ts";
+import { recordInstanceEvent } from "./instance.ts";
 
 export const setupInput = z.object({
   name: z.string().trim().min(1).max(120),
@@ -97,6 +98,17 @@ export const setupRoutes = (db: Database, auth: Auth, leakCheck: boolean, gate?:
           userId: user.id,
           role: "owner",
         });
+        // The first owner also operates the instance (decision 062), unless someone already does.
+        const [operators] = await db.select({ n: count() }).from(schema.instanceOperators);
+        if ((operators?.n ?? 0) === 0) {
+          await db.insert(schema.instanceOperators).values({ userId: user.id });
+          await recordInstanceEvent(db, {
+            actorId: null,
+            action: "operator.added",
+            target: user.email,
+            details: { by: "setup" },
+          });
+        }
         return organisation;
       });
       running = run.catch(() => {});
