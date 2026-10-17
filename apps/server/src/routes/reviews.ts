@@ -607,8 +607,17 @@ async function nameOf(db: Database, userId: string) {
 }
 
 /** What to ask for, in a sentence: "approve" or "give feedback on" the review. */
-const ask = (review: { kind: string; title: string }) =>
-  `${review.kind === "approval" ? "approve" : "give feedback on"} "${review.title}"`;
+const ask = (review: { kind: string; title: string }, follow = false) =>
+  `${follow ? "follow" : review.kind === "approval" ? "approve" : "give feedback on"} "${review.title}"`;
+
+/**
+ * Whether someone told of an approval only follows it (#221): they may not decide, so they
+ * hold nothing up and are asked to follow, never to approve.
+ */
+const follows = (
+  review: { kind: string },
+  person: { permissions?: Pick<ReviewerPermissions, "decide"> | null },
+) => review.kind === "approval" && person.permissions?.decide === false;
 
 type ReviewForMail = {
   id: string;
@@ -628,7 +637,10 @@ type ReviewForMail = {
  */
 async function notify(
   deps: ReviewDeps,
-  people: Pick<ReviewerRow, "email" | "guestId" | "userId">[],
+  people: (Pick<ReviewerRow, "email" | "guestId" | "userId"> & {
+    /** What they may do, so that an approval's observer is asked to follow it. */
+    permissions?: Pick<ReviewerPermissions, "decide" | "comment"> | null;
+  })[],
   review: ReviewForMail,
   /** In a sequence, whether those before them have responded. */
   turn: boolean,
@@ -659,17 +671,22 @@ async function notify(
     review: review.title,
     kind: review.kind as ReviewKind,
     project: context?.project ?? "",
-    message: [
-      reminder ? `A reminder from ${requester}: this review is still waiting on you.` : null,
-      review.message,
-      turn && !reminder ? "Those before you have responded; it is your turn." : null,
-    ]
-      .filter(Boolean)
-      .join("\n\n"),
     dueAt: review.dueAt,
   };
-  const members = people.flatMap((p) => (p.userId ? [p.userId] : []));
-  if (members.length > 0) {
+  // An observer has no turn: nothing waits on them.
+  const messageFor = (follow: boolean) =>
+    [
+      reminder ? `A reminder from ${requester}: this review is still waiting on you.` : null,
+      review.message,
+      turn && !reminder && !follow ? "Those before you have responded; it is your turn." : null,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  for (const follow of [false, true]) {
+    const members = people.flatMap((p) =>
+      p.userId && follows(review, p) === follow ? [p.userId] : [],
+    );
+    if (members.length === 0) continue;
     await notifyNow(deps, {
       organisationId: review.organisationId,
       kind: "review_requested",
@@ -677,7 +694,9 @@ async function notify(
       actor: from ? { userId: from } : null,
       projectId: review.projectId,
       reviewId: review.id,
-      text: reminder ? `reminds you to ${ask(review)}` : `asks you to ${ask(review)}`,
+      text: reminder
+        ? `reminds you to ${ask(review, follow)}`
+        : `asks you to ${ask(review, follow)}`,
       detail:
         [review.message, review.dueAt ? `Due ${longDate(review.dueAt)}.` : null]
           .filter(Boolean)
@@ -685,7 +704,12 @@ async function notify(
       link: `/reviews/${review.id}`,
       mail: {
         template: "review_requested",
-        values: subjectValues("review_requested", { ...data, url: "" }),
+        values: subjectValues("review_requested", {
+          ...data,
+          message: messageFor(follow),
+          url: "",
+          ...(follow ? { follow: { comment: true } } : {}),
+        }),
       },
     }).catch((error: unknown) =>
       console.warn(`Could not tell a reviewer about a review: ${String(error)}`),
@@ -701,7 +725,15 @@ async function notify(
     });
     const email = workspaceEmail(
       "review_requested",
-      { ...data, url: `${base}/guest/${issued.token}`, guestLinkDays: issued.days },
+      {
+        ...data,
+        message: messageFor(follows(review, person)),
+        url: `${base}/guest/${issued.token}`,
+        guestLinkDays: issued.days,
+        ...(follows(review, person)
+          ? { follow: { comment: person.permissions?.comment !== false } }
+          : {}),
+      },
       workspaceSettingsOf(context?.settings).emailSubjects,
     );
     await sendEmail(deps.mailer, person.email, email).catch((error: unknown) =>
@@ -1112,6 +1144,7 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
             dueAt: reviews.dueAt,
           },
           email: guests.email,
+          permissions: reviewReviewers.permissions,
         })
         .from(reviewReviewers)
         .innerJoin(reviews, eq(reviews.id, reviewReviewers.reviewId))
@@ -1138,7 +1171,7 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
       const requester = { userId: actor.userId, name: await nameOf(deps.db, actor.userId) };
       await notify(
         deps,
-        [{ email: found.email, guestId, userId: null }],
+        [{ email: found.email, guestId, userId: null, permissions: found.permissions }],
         found.review,
         false,
         requester,
@@ -1748,10 +1781,14 @@ export const reviewRoutes = (deps: ReviewDeps) =>
           requestInfo(c, deps.trustProxy),
           tx,
         );
+        // Those asked now, rather than later in the sequence; and those who only follow an
+        // approval, who hold nothing up and so hear of it at once (#221).
+        const following = new Set(facts.filter((f) => f.observer).map((f) => f.id));
         return {
           review,
-          // Those asked now, rather than later in the sequence.
-          added: rows.filter((r) => inserted.some((x) => x.id === r.id) && active.has(r.id)),
+          added: rows.filter(
+            (r) => inserted.some((x) => x.id === r.id) && (active.has(r.id) || following.has(r.id)),
+          ),
         };
       });
       if (added.length > 0) {
@@ -1890,12 +1927,23 @@ export const reviewRoutes = (deps: ReviewDeps) =>
           // Taking a decision away can let the order move on, or settle the review.
           const settled = await settle(tx, review);
           const after = await reviewersOf(tx, actor.organisationId, review.id);
+          // One still waiting their turn who now only follows the approval has not been told of
+          // it, and holds nothing up any longer: they hear of it now (#221).
+          const nowFollows =
+            settled.status === "open" &&
+            !follows(review, reviewer) &&
+            follows(review, { permissions: next.data }) &&
+            !before.has(reviewer.id);
           return {
             review: settled,
             next:
               settled.status === "open"
-                ? after.rows.filter((r) =>
-                    newlyActive(before, activeReviewers(review.order, after.facts)).includes(r.id),
+                ? after.rows.filter(
+                    (r) =>
+                      newlyActive(before, activeReviewers(review.order, after.facts)).includes(
+                        r.id,
+                      ) ||
+                      (nowFollows && r.id === reviewer.id && !r.submittedAt),
                   )
                 : [],
           };

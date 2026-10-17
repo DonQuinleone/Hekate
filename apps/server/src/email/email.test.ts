@@ -109,4 +109,23 @@ describe("templates", () => {
     );
     expect(guest.foot).toContain("works once, for 14 days");
   });
+
+  it("asks an approval's observer to follow it, not to approve it (#221)", () => {
+    const follower = workspaceEmail(
+      "review_requested",
+      { ...samples.review_requested, follow: { comment: true } },
+      {},
+    );
+    expect(follower.subject).toBe("Album masters: your feedback is asked");
+    expect(follower.heading).toBe("Alex Rivera asks you to follow an approval");
+    expect(follower.body[0]).toContain("follow the approval and leave comments");
+    expect(follower.body[0]).toContain("the decision rests with others");
+    expect(follower.foot).toBe("You get this because you were asked to follow a review.");
+    const watching = workspaceEmail(
+      "review_requested",
+      { ...samples.review_requested, follow: { comment: false } },
+      {},
+    );
+    expect(watching.body[0]).not.toContain("comments");
+  });
 });

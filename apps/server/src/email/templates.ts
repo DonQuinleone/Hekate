@@ -31,6 +31,11 @@ export interface TemplateData {
     /** For a guest, how long the link in it works; a member's mail says why they got it instead. */
     guestLinkDays?: number;
     settingsUrl?: string;
+    /**
+     * An approval's observer (#221): asked to follow it, and to comment where they may, while
+     * the decision rests with others.
+     */
+    follow?: { comment: boolean };
   };
   invitation: { workspace: string; inviter: string; url: string; days: number };
   decision: {
@@ -81,7 +86,8 @@ export function subjectValues<T extends EmailTemplateId>(
       const d = data as TemplateData["review_requested"];
       return {
         review: d.review,
-        kind: d.kind,
+        // An observer's part is to follow and comment: "your feedback is asked", never approval.
+        kind: d.follow ? "feedback" : d.kind,
         requester: d.requester,
         project: d.project,
         workspace: d.workspace,
@@ -130,11 +136,15 @@ export function workspaceEmail<T extends EmailTemplateId>(
       return {
         workspace: d.workspace,
         subject,
-        heading: `${d.requester} asks for your ${d.kind}`,
+        heading: d.follow
+          ? `${d.requester} asks you to follow an approval`
+          : `${d.requester} asks for your ${d.kind}`,
         body: [
-          d.kind === "approval"
-            ? `${d.review}, in ${d.project}, is ready. Open it, leave comments where they belong, then record Approved or Changes requested.`
-            : `${d.review}, in ${d.project}, is ready. Open it and leave comments where they belong, then send your feedback.`,
+          d.follow
+            ? `${d.review}, in ${d.project}, is ready. Open it to follow the approval${d.follow.comment ? " and leave comments where they belong" : ""}; the decision rests with others.`
+            : d.kind === "approval"
+              ? `${d.review}, in ${d.project}, is ready. Open it, leave comments where they belong, then record Approved or Changes requested.`
+              : `${d.review}, in ${d.project}, is ready. Open it and leave comments where they belong, then send your feedback.`,
           ...(d.message?.trim() ? [quoted(d.message)] : []),
           ...(d.dueAt ? [`Due ${longDate(d.dueAt)}.`] : []),
         ],
@@ -142,7 +152,9 @@ export function workspaceEmail<T extends EmailTemplateId>(
         foot:
           d.guestLinkDays !== undefined
             ? guestFoot(d.guestLinkDays)
-            : "You get this because you were asked to review.",
+            : d.follow
+              ? "You get this because you were asked to follow a review."
+              : "You get this because you were asked to review.",
         ...(d.settingsUrl ? { settingsUrl: d.settingsUrl } : {}),
       };
     }
