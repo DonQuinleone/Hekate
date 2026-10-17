@@ -505,6 +505,13 @@
       "when": 1792243773090,
       "tag": "0071_project_deletion",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1792245905671,
+      "tag": "0072_project_storage",
+      "breakpoints": true
     }
   ]
 }

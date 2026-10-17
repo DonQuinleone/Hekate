@@ -740,6 +740,34 @@ export function useWorkspaceStorage() {
   });
 }
 
+/** Where a project's new files go, and how much it keeps (#240); workspace admins only. */
+export interface ProjectStorage {
+  /** The project's choice; null follows the workspace's. */
+  backend: string | null;
+  workspaceBackend: string;
+  available: string[];
+  bytes: number;
+}
+
+export const projectStorageQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "storage"],
+    queryFn: async () =>
+      json<ProjectStorage>(await api.projects[":id"].storage.$get({ param: { id: projectId } })),
+  });
+
+/** Choosing a project's backend for new files; workspace owners only. */
+export function useProjectStorage(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (backend: string | null) =>
+      json<ProjectStorage>(
+        await api.projects[":id"].storage.$put({ param: { id: projectId }, json: { backend } }),
+      ),
+    onSuccess: (data) => client.setQueryData(projectStorageQuery(projectId).queryKey, data),
+  });
+}
+
 /** What the workspace keeps in storage, and what the reconciliation found; admins only. */
 export interface StorageUsage {
   backends: { name: string; bytes: number; objects: number }[];
