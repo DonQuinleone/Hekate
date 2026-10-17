@@ -795,7 +795,8 @@ describe.runIf(url)("api", () => {
             throw new Error("xref entry 41 points outside the file");
           })
           .onError(errorHandler(db));
-        const failed = await failing.request("/api/files/f-1");
+        const failedFile = "0199f000-0000-7000-8000-0000000000f1";
+        const failed = await failing.request(`/api/files/${failedFile}`);
         expect(failed.status).toBe(500);
         const body = (await failed.json()) as {
           error: { code: string; message: string; reference: string };
@@ -844,6 +845,8 @@ describe.runIf(url)("api", () => {
           workspace: "Studio",
           workspaceId: studio?.id,
           who: { name: owner.name, email: owner.email },
+          // What the request was about, so the file's inspector finds it.
+          context: { fileId: failedFile },
         });
         expect(report.stack).toContain("Error: xref entry 41");
         // Nothing personal beyond the name and the address.
@@ -888,6 +891,164 @@ describe.runIf(url)("api", () => {
         // Kept for thirty days, then forgotten.
         expect(await purgeErrorReports(db, new Date(Date.now() + 29 * 86_400_000))).toBe(0);
         expect(await purgeErrorReports(db, new Date(Date.now() + 31 * 86_400_000))).toBe(2);
+      });
+
+      it("inspects a file, a review and a session, and records each look (#159)", async () => {
+        const operator = cookieOf(await setup());
+        const [user] = await db
+          .select({ id: schema.users.id })
+          .from(schema.users)
+          .where(eq(schema.users.email, owner.email));
+        const userId = user?.id ?? "";
+        const [studio] = await db
+          .select({ id: schema.organisations.id })
+          .from(schema.organisations)
+          .where(eq(schema.organisations.slug, "studio"));
+        const org = studio?.id ?? "";
+        const [project] = await db
+          .insert(schema.projects)
+          .values({ organisationId: org, name: "Joplin Rags", profile: "music" })
+          .returning();
+        const blob = await storage.put(org, Buffer.from("the score"));
+        const [file] = await db
+          .insert(schema.files)
+          .values({
+            organisationId: org,
+            projectId: project?.id ?? "",
+            name: "Solace - Score.pdf",
+            kind: "document",
+            blobId: blob.id,
+            contentType: "application/pdf",
+            byteSize: blob.byteSize,
+            uploadedBy: userId,
+            streamStatus: "failed",
+            pageCount: 7,
+          })
+          .returning();
+        const fileId = file?.id ?? "";
+        const [review] = await db
+          .insert(schema.reviews)
+          .values({
+            organisationId: org,
+            projectId: project?.id ?? "",
+            kind: "approval",
+            title: "Score proofs",
+            createdBy: userId,
+          })
+          .returning();
+        const reviewId = review?.id ?? "";
+        const [item] = await db
+          .insert(schema.reviewItems)
+          .values({ organisationId: org, reviewId, fileId })
+          .returning();
+        const [guest] = await db
+          .insert(schema.guests)
+          .values({ organisationId: org, name: "Ines Arlow", email: "ines@example.test" })
+          .returning();
+        const [asked] = await db
+          .insert(schema.reviewReviewers)
+          .values([
+            { organisationId: org, reviewId, userId, position: 0 },
+            { organisationId: org, reviewId, guestId: guest?.id ?? "", position: 0 },
+          ])
+          .returning();
+        await db.insert(schema.reviewItemOpens).values({
+          organisationId: org,
+          reviewerId: asked?.id ?? "",
+          itemId: item?.id ?? "",
+        });
+        const [guestSession] = await db
+          .insert(schema.guestSessions)
+          .values({
+            organisationId: org,
+            guestId: guest?.id ?? "",
+            tokenHash: "not-a-real-hash",
+            expiresAt: new Date(Date.now() + 86_400_000),
+            lastSeenAt: new Date(),
+          })
+          .returning();
+        const member = await audit.member(userId);
+        await audit.record(org, member, { action: "page.render", fileId, reviewId });
+        await audit.record(org, member, { action: "page.render", fileId, reviewId });
+        await recordFailure(db, {
+          source: "worker",
+          location: "document-render",
+          error: new Error("damaged cross-reference table"),
+          organisationId: org,
+          context: { organisationId: org, fileId },
+        });
+
+        const inspect = async (kind: string, id: string) => {
+          const res = await get(
+            `/api/instance/inspect/${kind}/${encodeURIComponent(id)}`,
+            operator,
+          );
+          expect(res.status).toBe(200);
+          return (await res.json()) as Record<string, unknown>;
+        };
+        expect(await inspect("file", fileId)).toMatchObject({
+          name: "Solace - Score.pdf",
+          workspace: { id: org, name: "Studio" },
+          project: { name: "Joplin Rags" },
+          uploadedBy: owner.name,
+          streamStatus: "failed",
+          pageCount: 7,
+          pagesDrawn: 0,
+          blob: { id: blob.id, backend: blob.backend, keyVersion: 1 },
+          renditions: [],
+          errors: [{ location: "document-render", message: "damaged cross-reference table" }],
+          access: [{ action: "page.render", count: 2 }],
+        });
+        expect(await inspect("review", reviewId)).toMatchObject({
+          title: "Score proofs",
+          items: [{ name: "Solace - Score.pdf" }],
+          reviewers: [
+            { name: owner.name, guest: false, opened: 1, sessions: null },
+            { name: "Ines Arlow", guest: true, opened: 0, sessions: { count: 1 } },
+          ],
+          access: [{ action: "page.render", count: 2 }],
+        });
+        const [signIn] = await db
+          .select({ id: schema.authSessions.id })
+          .from(schema.authSessions)
+          .where(eq(schema.authSessions.userId, userId));
+        expect(await inspect("session", signIn?.id ?? "")).toMatchObject({
+          kind: "member",
+          who: { name: owner.name, email: owner.email },
+          workspace: { id: org, name: "Studio" },
+          ended: false,
+          access: [{ action: "page.render", count: 2 }],
+        });
+        expect(await inspect("session", guestSession?.id ?? "")).toMatchObject({
+          kind: "guest",
+          who: { name: "Ines Arlow", email: "ines@example.test" },
+          workspace: { name: "Studio" },
+          ended: false,
+        });
+
+        // Each look is the operator's, on the record.
+        const looks = await db
+          .select({ target: schema.instanceEvents.target, details: schema.instanceEvents.details })
+          .from(schema.instanceEvents)
+          .where(eq(schema.instanceEvents.action, "debug.inspected"));
+        expect(looks).toHaveLength(4);
+        expect(looks[0]).toEqual({
+          target: "Studio",
+          details: { kind: "file", id: fileId, organisationId: org },
+        });
+
+        // Unknown, malformed, and not an operator's.
+        const missing = "0199f000-0000-7000-8000-000000000001";
+        for (const kind of ["file", "review", "session"])
+          expect((await get(`/api/instance/inspect/${kind}/${missing}`, operator)).status).toBe(
+            404,
+          );
+        expect((await get("/api/instance/inspect/file/not-an-id", operator)).status).toBe(400);
+        expect((await get("/api/instance/inspect/session/a%2Fb", operator)).status).toBe(400);
+        const theirOwner = await join(operator, "label@example.test", "owner");
+        const memberCookie = await join(operator, "member@example.test");
+        for (const cookie of [theirOwner, memberCookie])
+          expect((await get(`/api/instance/inspect/file/${fileId}`, cookie)).status).toBe(403);
       });
 
       it("keeps a report when the workspace it names does not exist", async () => {

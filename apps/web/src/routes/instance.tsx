@@ -16,17 +16,11 @@ import {
 } from "@hekate/shared";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import {
-  type FormEvent,
-  type ReactNode,
-  useDeferredValue,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type FormEvent, useDeferredValue, useEffect, useRef, useState } from "react";
 import { Stat } from "~/components/dashboard";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
+import { Code, Fact, Inspect } from "~/components/inspect";
 import { Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
 import { Danger, Row, Section } from "~/components/settings";
@@ -396,40 +390,13 @@ function Debug() {
           ))
         )}
       </Section>
+      <Inspect
+        onReference={(reference) => {
+          fromList.current = true;
+          lookUp(reference);
+        }}
+      />
     </>
-  );
-}
-
-/** Text that scrolls sideways, reachable by keyboard so it can be read on a phone. */
-function Code({ label, children }: { label: string; children: string }) {
-  return (
-    <section
-      // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region must take focus to scroll by keyboard.
-      tabIndex={0}
-      aria-label={label}
-      className="scroll-quiet overflow-x-auto rounded-control border border-line bg-canvas/60 px-3 py-2 outline-none focus-visible:ring-1 focus-visible:ring-signal"
-    >
-      <pre className="m-0 font-mono text-[12px] leading-[1.6] text-ink-2">{children}</pre>
-    </section>
-  );
-}
-
-function Fact({
-  term,
-  tabular = false,
-  children,
-}: {
-  term: string;
-  tabular?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <div className="flex min-w-0 gap-1">
-      <dt className="text-ink-3">{term}</dt>
-      <dd className={cn("m-0 min-w-0 [overflow-wrap:anywhere] text-ink-2", tabular && "tabular")}>
-        {children}
-      </dd>
-    </div>
   );
 }
 
