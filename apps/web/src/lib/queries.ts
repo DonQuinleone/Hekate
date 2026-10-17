@@ -1908,6 +1908,8 @@ export interface ReviewDetail {
     canSubmit: boolean;
     canManage: boolean;
     canManageReviewers: boolean;
+    /** Their grant lets them invite others by email (#55). */
+    canInvite: boolean;
     guest: boolean;
     /** What you may do here, when you are a reviewer of it. */
     permissions: ReviewerPermissions | null;
@@ -2095,6 +2097,12 @@ export function useReviewActions(reviewId: string) {
     addReviewer: useMutation({
       mutationFn: async (input: { userId: string } | { groupId: string } | GuestInput) =>
         call(await api.reviews[":id"].reviewers.$post({ param: { id: reviewId }, json: input })),
+      onSuccess: settle,
+    }),
+    /** As a reviewer allowed to, invite someone by email (#55). */
+    invite: useMutation({
+      mutationFn: async (input: GuestInput) =>
+        call(await api.reviews[":id"].invite.$post({ param: { id: reviewId }, json: input })),
       onSuccess: settle,
     }),
     /** Send a guest a fresh magic link; the last one stops working. */

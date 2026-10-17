@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   defaultReviewerPermissions as all,
   applyPermissions,
+  invitedGrant,
   mergeGrants,
+  readGrant,
   visibleComments,
   withinWindow,
 } from "./reviewer-permissions.ts";
@@ -72,5 +74,17 @@ describe("reviewer permissions", () => {
     expect(ids("all")).toEqual(["a", "a1", "b", "b1", "c"]);
     expect(ids("own_and_replies")).toEqual(["a", "a1", "b1"]);
     expect(ids("own")).toEqual(["a", "b1"]);
+  });
+
+  it("gives those a reviewer invites what the reviewer has, but no decision or inviting", () => {
+    const inviter = { ...all, invite: true, download: "proxy" as const };
+    expect(invitedGrant(inviter)).toEqual({
+      ...inviter,
+      decide: false,
+      invite: false,
+    });
+    // A grant stored before inviting existed lets no one invite.
+    const { invite: _, ...stored } = all;
+    expect(readGrant(stored).invite).toBe(false);
   });
 });

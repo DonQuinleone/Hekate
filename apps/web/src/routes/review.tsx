@@ -185,12 +185,15 @@ function Steps({ review }: { review: ReviewDetail }) {
 function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: string) => void }) {
   const { guest } = useViewer();
   const actions = useReviewActions(review.id);
-  const { addReviewer, sendLink, revoke, permissions, remind, removeReviewer } = actions;
+  const { addReviewer, invite, sendLink, revoke, permissions, remind, removeReviewer } = actions;
   const [inviting, setInviting] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const manage = review.you.canManageReviewers && review.status === "open";
+  // A reviewer whose grant allows it invites too, as a guest beside them (#55).
+  const mayInvite = manage || review.you.canInvite;
+  const adding = manage ? addReviewer : invite;
   const error =
-    addReviewer.error ?? sendLink.error ?? revoke.error ?? remind.error ?? removeReviewer.error;
+    adding.error ?? sendLink.error ?? revoke.error ?? remind.error ?? removeReviewer.error;
   const steps = reviewSteps(review.order, review.reviewers);
   const responded = review.reviewers.filter((r) => r.state === "submitted").length;
   const fileBase = guest ? "/g/files/$fileId" : "/files/$fileId";
@@ -200,7 +203,7 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
         title="Reviewers"
         hint={`${responded} of ${review.reviewers.length} responded`}
         action={
-          manage && (
+          mayInvite && (
             <Button variant="ghost" size="sm" onClick={() => setInviting(true)}>
               <Icon name="userPlus" size={14} />
               Invite
@@ -370,7 +373,7 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
           <GuestFields
             submitLabel="Send"
             onAdd={(g) =>
-              addReviewer.mutate(g, {
+              adding.mutate(g, {
                 onSuccess: () => {
                   setInviting(false);
                   onNotice(`${g.name} is invited.`);

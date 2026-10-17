@@ -27,6 +27,11 @@ export const reviewerPermissions = z
     comment: z.boolean(),
     /** Record an approval decision (approvals only). */
     decide: z.boolean(),
+    /**
+     * Invite others to the review by email: each joins as a guest beside them, with what they
+     * may do themselves, but no decision and no inviting of their own. Grants made earlier lack it.
+     */
+    invite: z.boolean().default(false),
     comments: z.enum(commentScopes),
     tools: z.array(z.enum(reviewerTools)).max(reviewerTools.length),
     /** What they may download: nothing unless the review says so. Grants made earlier lack it. */
@@ -52,6 +57,7 @@ export type ReviewerPermissions = z.infer<typeof reviewerPermissions>;
 export const defaultReviewerPermissions: ReviewerPermissions = {
   comment: true,
   decide: true,
+  invite: false,
   comments: "all",
   tools: [...reviewerTools],
   download: "none",
@@ -63,11 +69,15 @@ export const defaultReviewerPermissions: ReviewerPermissions = {
 };
 
 /** A grant as stored: one made before a field existed lacks it, and reads as its default. */
-export type StoredGrant = Omit<ReviewerPermissions, "download" | "history" | "items" | "maxPlays"> &
-  Partial<Pick<ReviewerPermissions, "download" | "history" | "items" | "maxPlays">>;
+export type StoredGrant = Omit<
+  ReviewerPermissions,
+  "download" | "history" | "items" | "maxPlays" | "invite"
+> &
+  Partial<Pick<ReviewerPermissions, "download" | "history" | "items" | "maxPlays" | "invite">>;
 
 /** A stored grant with every field: what it says, or the default for what it predates. */
 export const readGrant = (grant: StoredGrant): ReviewerPermissions => ({
+  invite: false,
   download: "none",
   history: false,
   items: null,
@@ -79,6 +89,7 @@ export const readGrant = (grant: StoredGrant): ReviewerPermissions => ({
 export const reviewerPermissionsChange = z.object({
   comment: z.boolean().optional(),
   decide: z.boolean().optional(),
+  invite: z.boolean().optional(),
   comments: z.enum(commentScopes).optional(),
   tools: z.array(z.enum(reviewerTools)).max(reviewerTools.length).optional(),
   download: z.enum(downloadLevels).optional(),
@@ -147,3 +158,14 @@ export function visibleComments<
       (scope === "own_and_replies" && c.parentId !== null && mine.has(c.parentId)),
   );
 }
+
+/**
+ * What someone invited by a reviewer may do (#55): what the one inviting may, but with no
+ * decision of their own (an approval's outcome stays with those the requester asked) and no
+ * inviting in turn.
+ */
+export const invitedGrant = (inviter: ReviewerPermissions): ReviewerPermissions => ({
+  ...inviter,
+  decide: false,
+  invite: false,
+});

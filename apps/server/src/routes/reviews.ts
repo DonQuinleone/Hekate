@@ -5,8 +5,10 @@ import {
   cancelReviewInput,
   createReviewInput,
   decisionInput,
+  type GuestInput,
   guestInput,
   guestLabelInput,
+  invitedGrant,
   type PersonInput,
   type ReviewDecision,
   type ReviewerFacts,
@@ -47,7 +49,7 @@ import { NotFound } from "../errors.ts";
 import { issueGuestLink, revokeGuest, type ViewerVariables } from "../guests.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { followersOf, notifyNow } from "../notifications.ts";
-import { admit } from "../rate-limit.ts";
+import { admit, tooMany } from "../rate-limit.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
 const {
@@ -589,6 +591,11 @@ async function reviewView(db: Database, actor: Actor, reviewId: string) {
       canManage: member && r.status === "open" && access.permissions.has("request_reviews"),
       canManageReviewers:
         member && r.status === "open" && access.permissions.has("manage_reviewers"),
+      // A reviewer their grant lets invite others (#55), while the review is open to them.
+      canInvite:
+        Boolean(me?.permissions.invite) &&
+        r.status === "open" &&
+        Boolean(me && withinWindow(me.permissions, new Date())),
     },
   };
 }
@@ -625,8 +632,11 @@ async function notify(
   review: ReviewForMail,
   /** In a sequence, whether those before them have responded. */
   turn: boolean,
-  /** Who is asking, when not whoever requested the review: the notification is from them. */
-  asking?: { userId: string; name: string },
+  /**
+   * Who is asking, when not whoever requested the review: the notification is from them. A
+   * guest who invites someone (#55) has no account, so no user.
+   */
+  asking?: { userId: string | null; name: string },
   /** A reminder of a review they were already asked about, rather than the first ask. */
   reminder = false,
 ) {
@@ -642,7 +652,7 @@ async function notify(
     .where(inOrg(schema.projects, review.organisationId, eq(schema.projects.id, review.projectId)));
   const requester =
     asking?.name ?? (review.createdBy ? await nameOf(deps.db, review.createdBy) : "A colleague");
-  const from = asking?.userId ?? review.createdBy;
+  const from = asking ? asking.userId : review.createdBy;
   const data = {
     workspace: context?.workspace ?? "Hekate",
     requester,
@@ -758,6 +768,36 @@ type Person = { userId: string; guestId?: undefined } | { guestId: string; userI
  * Guests may always decide: the review sets what they can do. With no kind (a group being
  * saved), any role that can see the project will do.
  */
+/** How many people one reviewer may invite to reviews in an hour. */
+const INVITES_PER_HOUR = 10;
+
+/** A guest by email, made or brought up to date with the details given. Returns their id. */
+async function upsertGuest(
+  tx: Database | Tx,
+  organisationId: string,
+  entry: GuestInput,
+  /** The member who asked them; null when another reviewer invited them. */
+  createdBy: string | null,
+) {
+  const [found] = await tx
+    .insert(guests)
+    .values({
+      organisationId,
+      name: entry.name,
+      email: entry.email,
+      label: entry.label || null,
+      createdBy,
+    })
+    .onConflictDoUpdate({
+      target: [guests.organisationId, guests.email],
+      // Keep their details current with the latest invitation.
+      set: { name: entry.name, label: entry.label || null, updatedAt: new Date() },
+    })
+    .returning({ id: guests.id });
+  if (!found) throw new Error("Guest upsert returned no row");
+  return found.id;
+}
+
 export async function resolvePerson(
   tx: Database | Tx,
   actor: MemberActor,
@@ -773,23 +813,7 @@ export async function resolvePerson(
     return { guestId: found.id };
   }
   if (typeof entry !== "string") {
-    const [found] = await tx
-      .insert(guests)
-      .values({
-        organisationId: actor.organisationId,
-        name: entry.name,
-        email: entry.email,
-        label: entry.label || null,
-        createdBy: actor.userId,
-      })
-      .onConflictDoUpdate({
-        target: [guests.organisationId, guests.email],
-        // Keep their details current with the latest invitation.
-        set: { name: entry.name, label: entry.label || null, updatedAt: new Date() },
-      })
-      .returning({ id: guests.id });
-    if (!found) throw new Error("Guest upsert returned no row");
-    return { guestId: found.id };
+    return { guestId: await upsertGuest(tx, actor.organisationId, entry, actor.userId) };
   }
   const [person] = await tx
     .select({ role: members.role })
@@ -1733,6 +1757,74 @@ export const reviewRoutes = (deps: ReviewDeps) =>
       if (added.length > 0) {
         const requester = { userId: actor.userId, name: await nameOf(deps.db, actor.userId) };
         await notify(deps, added, review, false, requester);
+      }
+      return c.json({ review: await reviewView(deps.db, actor, review.id) }, 201);
+    })
+    // A reviewer whose grant allows it invites someone by email (#55): they join as a guest at
+    // the inviter's step, with what the inviter may do but no decision and no inviting.
+    .post("/:id/invite", idParam, zValidator("json", guestInput), async (c) => {
+      const actor = c.var.actor;
+      const entry = c.req.valid("json");
+      // Each invitation sends an email: a few an hour per person is plenty.
+      const asker = actor.kind === "guest" ? `guest:${actor.guestId}` : `member:${actor.userId}`;
+      const { allowed, retryAfter } = await admit(deps.db, `review-invite:${asker}`, {
+        max: INVITES_PER_HOUR,
+        windowMs: 60 * 60_000,
+      });
+      if (!allowed)
+        return tooMany(c, retryAfter, "Too many invitations this hour; try again later");
+      const who = await deps.audit.actor(actor);
+      const { review, added, inviter } = await deps.db.transaction(async (tx) => {
+        const { review } = await lockReview(tx, actor, c.req.valid("param").id);
+        if (review.status !== "open") {
+          throw new HTTPException(409, { message: `This review is ${review.status}` });
+        }
+        const { rows } = await reviewersOf(tx, actor.organisationId, review.id);
+        const me = mineOf(rows, actor);
+        if (!me?.permissions.invite || !withinWindow(me.permissions, new Date())) {
+          throw new HTTPException(403, { message: "This review does not let you invite others" });
+        }
+        const guestId = await upsertGuest(
+          tx,
+          actor.organisationId,
+          entry,
+          actor.kind === "guest" ? null : actor.userId,
+        );
+        const [inserted] = await tx
+          .insert(reviewReviewers)
+          .values({
+            organisationId: actor.organisationId,
+            reviewId: review.id,
+            guestId,
+            position: me.position,
+            permissions: invitedGrant(me.permissions),
+          })
+          .onConflictDoNothing()
+          .returning({ id: reviewReviewers.id });
+        if (!inserted) throw new HTTPException(409, { message: "They are already a reviewer" });
+        const after = await reviewersOf(tx, actor.organisationId, review.id);
+        const row = after.rows.find((r) => r.id === inserted.id);
+        await deps.audit.record(
+          actor.organisationId,
+          who,
+          {
+            action: "review.reviewer_add",
+            projectId: review.projectId,
+            reviewId: review.id,
+            details: { name: row?.name ?? entry.name, invitedBy: me.name },
+          },
+          requestInfo(c, deps.trustProxy),
+          tx,
+        );
+        // Asked at once, by the one inviting: they have no decision of their own, so no step
+        // turning later would ever ask them.
+        return { review, added: row ? [row] : [], inviter: me.name };
+      });
+      if (added.length > 0) {
+        await notify(deps, added, review, false, {
+          userId: actor.kind === "guest" ? null : actor.userId,
+          name: inviter,
+        });
       }
       return c.json({ review: await reviewView(deps.db, actor, review.id) }, 201);
     })

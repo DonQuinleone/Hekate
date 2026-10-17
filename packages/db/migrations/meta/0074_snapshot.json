@@ -1,5 +1,5 @@
 {
-  "id": "6fdaedb3-16b6-4a61-a6d0-7443d0f8059c",
+  "id": "54c820ec-3800-41dd-998f-91ae43c2d588",
   "prevId": "9da944bb-57b1-4b6f-82ea-a9e182e32409",
   "version": "7",
   "dialect": "postgresql",
@@ -7351,7 +7351,7 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true,
-          "default": "'{\"comment\":true,\"decide\":true,\"comments\":\"all\",\"tools\":[\"spectrogram\",\"meters\",\"loops\",\"compare\",\"qa\",\"score\"],\"download\":\"none\",\"history\":false,\"items\":null,\"maxPlays\":null,\"startsAt\":null,\"expiresAt\":null}'::jsonb"
+          "default": "'{\"comment\":true,\"decide\":true,\"invite\":false,\"comments\":\"all\",\"tools\":[\"spectrogram\",\"meters\",\"loops\",\"compare\",\"qa\",\"score\"],\"download\":\"none\",\"history\":false,\"items\":null,\"maxPlays\":null,\"startsAt\":null,\"expiresAt\":null}'::jsonb"
         },
         "viewed_at": {
           "name": "viewed_at",
