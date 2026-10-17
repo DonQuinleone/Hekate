@@ -4,6 +4,7 @@ import {
   clockOf,
   coverageGaps,
   covers,
+  gapsLabel,
   parseClock,
   takeChangeInput,
   takeProblem,
@@ -50,6 +51,15 @@ describe("takes and their bars", () => {
       [11, 14],
     ]);
     expect(coverageGaps([take(1, 0, 8)])).toEqual([]);
+    expect(gapsLabel([[33, 40]])).toBe("bars 33 to 40");
+    expect(gapsLabel([[52, 52]])).toBe("bar 52");
+    expect(
+      gapsLabel([
+        [9, 12],
+        [20, 20],
+        [33, 40],
+      ]),
+    ).toBe("bars 9 to 12, 20 and 33 to 40");
   });
 
   it("refuses bars and points in the wrong order", () => {

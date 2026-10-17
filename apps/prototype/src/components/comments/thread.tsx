@@ -289,7 +289,7 @@ export function Thread({
             }}
             className={action}
           >
-            Attach takes
+            Other takes
           </button>
         )}
         {(canTriage || mine) && (

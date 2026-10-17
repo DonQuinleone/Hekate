@@ -226,7 +226,7 @@ const screens: Screen[] = [
   {
     name: "track-takes",
     path: (s) => `/tracks/${s.trackId}?view=takes`,
-    ready: "text=Keeper into the trio",
+    ready: "text=no take of bars 17 to 24",
   },
   {
     name: "file-recording",
@@ -626,6 +626,23 @@ test("file-comment-mention", async ({ page }, info) => {
   await checkScreen(page);
 });
 
+// "Any other options for these bars?" (#46): the takes covering a bar thread's first bar.
+test("file-comment-other-takes", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  const thread = page
+    .getByRole("listitem")
+    .filter({ hasText: "The left hand rushes through these bars." });
+  await thread.getByRole("button", { name: "Other takes" }).click();
+  const panel = page.getByRole("region", { name: "Other takes for bar 9" });
+  await expect(panel.getByRole("listitem")).toHaveCount(2);
+  await expect(panel).toContainText("Good opening");
+  await panel.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await saveScreen(page, "file-comment-other-takes");
+  await checkScreen(page);
+});
+
 // Attaching files to a comment (#133): chosen, shown before sending, and on the thread.
 test("file-comment-attach", async ({ page }, info) => {
   test.skip(info.project.name === "phone", "On a phone the composer is a sheet, captured apart");
@@ -889,9 +906,9 @@ test("track-new-version", async ({ page }) => {
 // A track's takes (#21, #46): those covering a bar, then one take's details being edited.
 test("track-takes-edit", async ({ page }) => {
   await page.goto(`/tracks/${seeded().trackId}?view=takes`);
-  await page.getByLabel("Only the takes covering a bar").fill("20");
+  await page.getByLabel("Only the takes covering a bar").fill("30");
   const list = page.getByRole("list", { name: "Takes of this track" });
-  await expect(list.getByRole("listitem")).toHaveCount(2);
+  await expect(list.getByRole("listitem")).toHaveCount(1);
   await expect(list).toContainText("Keeper into the trio");
   await saveScreen(page, "track-takes-bar");
   await checkScreen(page);
