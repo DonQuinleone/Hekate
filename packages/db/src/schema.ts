@@ -748,6 +748,8 @@ export const tracks = pgTable(
     deliveryProfile: text("delivery_profile").$type<ProfileRef>(),
     /** The references its comments may name, over the project's; null keeps the project's (#240). */
     commentReferences: jsonb("comment_references").$type<CommentReferences>(),
+    /** How its recordings play normalised, over the project's; null keeps the project's (#98). */
+    normalisation: text("normalisation").$type<NormalisationMode>(),
     position: integer("position").notNull().default(0),
     ...timestamps,
   },

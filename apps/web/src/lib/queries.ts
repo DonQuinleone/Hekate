@@ -1481,6 +1481,33 @@ export function useTrackDeliveryProfile(projectId: string) {
 }
 
 /** Choose the references a track's comments may name, over the project's (#240). */
+/** A track's own normalised playback (#98), or null to keep the project's. */
+export function useTrackNormalisation(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      trackId,
+      normalisation,
+    }: {
+      trackId: string;
+      normalisation: NormalisationMode | null;
+    }) =>
+      json(
+        await api.tracks[":id"].normalisation.$put({
+          param: { id: trackId },
+          json: { normalisation },
+        }),
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: projectTracksQuery(projectId).queryKey });
+      // A file of the track learns how it plays when next opened.
+      void client.invalidateQueries({
+        predicate: (q) => q.queryKey[0] === "files" && q.queryKey.length === 2,
+      });
+    },
+  });
+}
+
 export function useTrackReferences(projectId: string) {
   const client = useQueryClient();
   return useMutation({
@@ -1614,6 +1641,8 @@ export interface Track {
   deliveryProfile: ProfileRef | null;
   /** The references its comments may name, over the project's; null keeps the project's (#240). */
   commentReferences: CommentReferences | null;
+  /** How its recordings play normalised, over the project's; null keeps the project's (#98). */
+  normalisation: NormalisationMode | null;
   createdAt: string;
   versions: Version[];
   /** In a project's track list: where it stands, and who it waits on while in review. */
