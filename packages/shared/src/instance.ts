@@ -213,6 +213,9 @@ export const instanceActions: Record<string, string> = {
   "member.password_reset": "sent a password reset by an operator",
   "member.second_factor_reset": "had their second factor reset by an operator",
   "debug.inspected": "inspected in Debug tools",
+  "debug.job_retried": "run again from Debug tools",
+  "flag.on": "turned on",
+  "flag.off": "turned off",
 };
 
 /** Where a workspace stands, from its record. */

@@ -2207,11 +2207,6 @@ export function InstancePage({ section }: { section: string }) {
                 Pick a delivery
               </Button>
             </Row>
-            <Row name="Run the checks on a file" hint="The QA rules, now, with the output kept.">
-              <Button variant="secondary" size="md">
-                Pick a file
-              </Button>
-            </Row>
             <SwitchRow
               name="Verbose logging for the worker"
               hint="For an hour, then off by itself."

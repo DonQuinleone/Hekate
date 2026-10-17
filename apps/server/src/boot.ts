@@ -5,6 +5,7 @@ import { createApp } from "./app.ts";
 import { createAudit } from "./audit.ts";
 import { createAuth } from "./auth.ts";
 import { failureOfJob, purgeErrorReports, recordFailure } from "./error-reports.ts";
+import { createFlags } from "./flags.ts";
 import { createJobs } from "./jobs.ts";
 import { createKeyring, UnknownMasterKeyError } from "./keyring.ts";
 import { createMailer } from "./mail.ts";
@@ -90,11 +91,13 @@ export async function boot(
   const storage = createStorage(db, backends, keyring);
 
   const audit = createAudit(db);
+  const flags = createFlags(db);
   const jobs = createJobs({
     connectionString: config.DATABASE_URL,
     onFailure: async (failure) => {
       await recordFailure(db, failureOfJob(failure));
     },
+    verbose: () => flags.isOn("worker.verbose"),
   });
   await jobs.start();
   if (config.WORKER) {

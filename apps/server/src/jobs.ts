@@ -152,12 +152,20 @@ export async function runJob<N extends JobName>(
   job: { id: string; data: unknown; signal: AbortSignal; retryCount: number },
   handler: JobHandler<N>,
   onFailure?: (failure: JobFailure) => Promise<void>,
+  /** Whether to log each job's start, end and time (the `worker.verbose` flag). */
+  verbose?: () => Promise<boolean>,
 ): Promise<void> {
+  const loud = (await verbose?.().catch(() => false)) ?? false;
+  const started = performance.now();
+  const took = () => `${Math.round(performance.now() - started)} ms`;
+  if (loud) console.log(`Job ${name} ${job.id} started (attempt ${job.retryCount + 1})`);
   try {
     // Validate again on the way out: the queue is a database table, not a trusted channel.
     const data = jobDefinitions[name].data.parse(job.data) as JobData<N>;
     await handler(data, { id: job.id, signal: job.signal, retryCount: job.retryCount });
+    if (loud) console.log(`Job ${name} ${job.id} finished in ${took()}`);
   } catch (error) {
+    if (loud) console.log(`Job ${name} ${job.id} failed after ${took()}: ${String(error)}`);
     const options: QueueOptions = jobDefinitions[name].options;
     // pg-boss retries twice when a queue does not say.
     if (onFailure && job.retryCount >= (options.retryLimit ?? 2))
@@ -173,6 +181,8 @@ export function createJobs(options: {
   schema?: string;
   /** Hears of each job that failed for the last time. */
   onFailure?: (failure: JobFailure) => Promise<void>;
+  /** Whether to log each job's start, end and time, asked as each job starts. */
+  verbose?: () => Promise<boolean>;
 }): Jobs {
   const boss = new PgBoss({
     connectionString: options.connectionString,
@@ -211,7 +221,7 @@ export function createJobs(options: {
         { localConcurrency: workOptions?.concurrency ?? 1, batchSize: 1 },
         async ([job]: Job<unknown>[]) => {
           if (!job) return;
-          await runJob(name, job, handler, options.onFailure);
+          await runJob(name, job, handler, options.onFailure, options.verbose);
         },
       );
     },
