@@ -16,7 +16,7 @@ import {
   mapTime,
 } from "@hekate/shared";
 import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
-import { and, count, eq, like, ne, sql } from "drizzle-orm";
+import { and, count, eq, isNotNull, like, ne, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, MAX_BODY_BYTES } from "./app.ts";
@@ -7629,6 +7629,167 @@ describe.runIf(url)("api", () => {
           const flag = (id: string) => listed.comments.find((c) => c.id === id);
           expect(flag(mine)).toMatchObject({ mine: true, authorId: null });
           expect(flag(owners)?.mine).toBe(false);
+        });
+
+        it("shares takes on a thread, which a guest then hears and nothing more (#133)", async () => {
+          const s = await invited();
+          const recording = async (name: string) => {
+            const blob = await storage.put(s.organisationId, Buffer.from(name));
+            const [row] = await db
+              .insert(schema.files)
+              .values({
+                organisationId: s.organisationId,
+                projectId: s.projectId,
+                name,
+                kind: "audio",
+                blobId: blob.id,
+                contentType: "audio/wav",
+                byteSize: blob.byteSize,
+                mediaInfo: { duration: 41 } as never,
+              })
+              .returning();
+            return row?.id ?? "";
+          };
+          const t1 = await recording("Take 1.wav");
+          const t2 = await recording("Take 2.wav");
+          const made = await app.request(
+            `/api/tracks/${s.trackId}/takes`,
+            json({ fileIds: [t1, t2] }, s.engineer),
+          );
+          const { takes } = (await made.json()) as { takes: { id: string }[] };
+          const [one, two] = takes;
+          // A thread on the bars, by the guest.
+          const thread = (
+            (await (
+              await app.request(
+                `/api/files/${s.mix}/comments`,
+                json(
+                  {
+                    body: "Any other options for bar 9?",
+                    anchor: { kind: "bar", from: { bar: 9 } },
+                  },
+                  s.cookie,
+                ),
+              )
+            ).json()) as { comment: { id: string } }
+          ).comment.id;
+          const share = (takeIds: string[], cookie: string) =>
+            app.request(`/api/comments/${thread}/takes`, json({ takeIds }, cookie));
+
+          // Before any share the guest cannot open a take.
+          expect((await getAs(`/api/files/${t1}`, s.cookie)).status).toBe(404);
+          // Sharing needs triage: a reviewer is refused, and a guest never reaches the route.
+          expect((await share([one?.id ?? ""], s.composer)).status).toBe(403);
+          expect((await share([one?.id ?? ""], s.cookie)).status).toBe(401);
+          const shared = await share([one?.id ?? ""], s.engineer);
+          expect(shared.status).toBe(201);
+          expect(((await shared.json()) as { takes: { id: string }[] }).takes).toMatchObject([
+            { id: one?.id, file: { id: t1 } },
+          ]);
+          // A take this project does not hold is not this thread's to share.
+          expect((await share(["01890000-0000-7000-8000-000000000000"], s.engineer)).status).toBe(
+            404,
+          );
+
+          // The thread shows its takes to the guest, who may now hear that take and only it.
+          type Listed = { comments: { id: string; takes: { id: string }[] }[] };
+          const seen = (await (
+            await getAs(`/api/files/${s.mix}/comments`, s.cookie)
+          ).json()) as Listed;
+          expect(seen.comments.find((c) => c.id === thread)?.takes.map((t) => t.id)).toEqual([
+            one?.id,
+          ]);
+          expect((await getAs(`/api/files/${t1}`, s.cookie)).status).toBe(200);
+          expect((await getAs(`/api/files/${t2}`, s.cookie)).status).toBe(404);
+          // Listening only: no comment on the take, none of its own comments shown.
+          await app.request(
+            `/api/files/${t1}/comments`,
+            json({ body: "Producer's note: edit point at 0:12" }, s.owner),
+          );
+          expect(
+            (await app.request(`/api/files/${t1}/comments`, json({ body: "Lovely" }, s.cookie)))
+              .status,
+          ).toBe(403);
+          expect((await getAs(`/api/files/${t1}/comments`, s.cookie)).status).toBe(403);
+          // Sharing it again changes nothing, and logs nothing.
+          expect((await share([one?.id ?? ""], s.engineer)).status).toBe(201);
+
+          // Each share and unshare is in the access log; unshared, the take is closed again.
+          const unshare = await app.request(`/api/comments/${thread}/takes/${one?.id}`, {
+            method: "DELETE",
+            headers: { cookie: s.engineer, origin: "http://localhost:3000" },
+          });
+          expect(unshare.status).toBe(204);
+          expect((await getAs(`/api/files/${t1}`, s.cookie)).status).toBe(404);
+          const logged = await db
+            .select({ action: schema.accessEvents.action })
+            .from(schema.accessEvents)
+            .where(
+              and(
+                eq(schema.accessEvents.organisationId, s.organisationId),
+                sql`${schema.accessEvents.action} in ('comment.takes_share', 'comment.takes_unshare')`,
+              ),
+            )
+            .orderBy(schema.accessEvents.occurredAt);
+          expect(logged.map((e) => e.action)).toEqual([
+            "comment.takes_share",
+            "comment.takes_unshare",
+          ]);
+          // On someone else's thread, a share reaches the guest only while their review shows
+          // them every thread.
+          const owners = (
+            (await (
+              await app.request(
+                `/api/files/${s.mix}/comments`,
+                json({ body: "Bar 9 again" }, s.owner),
+              )
+            ).json()) as { comment: { id: string } }
+          ).comment.id;
+          expect(
+            (
+              await app.request(
+                `/api/comments/${owners}/takes`,
+                json({ takeIds: [two?.id] }, s.engineer),
+              )
+            ).status,
+          ).toBe(201);
+          expect((await getAs(`/api/files/${t2}`, s.cookie)).status).toBe(200);
+          const [mine] = await db
+            .select({
+              id: schema.reviewReviewers.id,
+              permissions: schema.reviewReviewers.permissions,
+            })
+            .from(schema.reviewReviewers)
+            .where(
+              and(
+                eq(schema.reviewReviewers.reviewId, s.review.id),
+                isNotNull(schema.reviewReviewers.guestId),
+              ),
+            );
+          await db
+            .update(schema.reviewReviewers)
+            .set({ permissions: { ...(mine?.permissions as object), comments: "own" } as never })
+            .where(eq(schema.reviewReviewers.id, mine?.id ?? ""));
+          expect((await getAs(`/api/files/${t2}`, s.cookie)).status).toBe(404);
+
+          // A reply is not a thread to share on.
+          expect(
+            (
+              await app.request(
+                `/api/comments/${
+                  (
+                    (await (
+                      await app.request(
+                        `/api/files/${s.mix}/comments`,
+                        json({ body: "Take 2 too?", parentId: thread }, s.owner),
+                      )
+                    ).json()) as { comment: { id: string } }
+                  ).comment.id
+                }/takes`,
+                json({ takeIds: [two?.id] }, s.engineer),
+              )
+            ).status,
+          ).toBe(404);
         });
 
         it("lets a guest mention nobody, and keeps tasks from them (#133)", async () => {

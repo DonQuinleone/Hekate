@@ -35,6 +35,7 @@ describe("tenancy", () => {
       "comment_attachments",
       "comment_carries",
       "comment_categories",
+      "comment_takes",
       "comments",
       "delivery_profiles",
       "directories",

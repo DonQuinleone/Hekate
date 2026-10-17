@@ -311,6 +311,10 @@ setup("seed", async ({ page, browser }) => {
     to: { bar: 12 },
     at: 14.2,
   });
+  // The opening takes, shared on that thread for whoever reviews it to hear (#133).
+  await api(page, "POST", `/api/comments/${rushes.comment.id}/takes`, {
+    takeIds: takes.slice(0, 1).map((t) => t.id),
+  });
   // A mention from the picker (#133): Alex notes it for himself.
   await api(page, "POST", `/api/files/${dry}/comments`, {
     body: "Overall balance is great; @Alex Rivera, the reverb tail could be a touch shorter.",

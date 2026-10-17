@@ -17,6 +17,9 @@ const seconds = z
 /** Files already in the project, each made a take of the track, numbered in the order given. */
 export const addTakesInput = z.object({ fileIds: z.array(z.uuid()).min(1).max(100) });
 
+/** Takes of the thread's track shared on it (#133), for everyone who sees the thread to hear. */
+export const shareTakesInput = z.object({ takeIds: z.array(z.uuid()).min(1).max(50) });
+
 /** What changes on a take; anything left out stays as it is. */
 export const takeChangeInput = z.object({
   label: z.string().trim().max(120).nullable().optional(),
@@ -62,6 +65,12 @@ export interface TakeRow extends TakePlace {
   file: { id: string; name: string; duration: number | null; streamStatus: string } | null;
   createdAt: string;
 }
+
+/** A take shared on a thread: what a reviewer is shown of it, and the file to hear. */
+export type SharedTake = Pick<
+  TakeRow,
+  "id" | "number" | "label" | "notes" | "rating" | "starred" | "barFrom" | "barTo" | "file"
+>;
 
 /** The bars a take covers: its range, or the one bar when only the first is given. */
 export const barsOf = (t: Pick<TakePlace, "barFrom" | "barTo">): [number, number] | null =>

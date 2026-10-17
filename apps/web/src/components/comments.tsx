@@ -51,7 +51,7 @@ import { useViewer } from "~/lib/viewer";
 import { Avatar } from "./avatar";
 import type { RegionMarker } from "./document-viewer";
 import { Icon } from "./icons";
-import { OtherTakes } from "./takes";
+import { OtherTakes, SharedTakes } from "./takes";
 import { Button } from "./ui/button";
 import { Chip, ToggleChip } from "./ui/chip";
 import { Dialog } from "./ui/dialog";
@@ -929,6 +929,18 @@ function ThreadView({
         onDownload={download}
         onRemove={remove}
       />
+      {comment.takes.length > 0 && (
+        <SharedTakes
+          takes={comment.takes}
+          bar={anchor?.kind === "bar" ? anchor.from.bar : undefined}
+          guest={guest}
+          onUnshare={
+            canTriage && takesOf
+              ? (takeId) => mutations.unshareTake.mutate({ commentId: comment.id, takeId })
+              : undefined
+          }
+        />
+      )}
       {replies.length > 0 && (
         <ul className="m-0 flex list-none flex-col gap-3 border-l border-hairline p-0 pl-3">
           {replies.map((reply) => (
@@ -946,7 +958,20 @@ function ThreadView({
         </ul>
       )}
       {takesOpen && takesOf && anchor?.kind === "bar" && (
-        <OtherTakes trackId={takesOf} bar={anchor.from.bar} onClose={() => setTakesOpen(false)} />
+        <OtherTakes
+          trackId={takesOf}
+          bar={anchor.from.bar}
+          onClose={() => setTakesOpen(false)}
+          share={
+            canTriage
+              ? {
+                  shared: comment.takes.map((t) => t.id),
+                  onShare: (takeIds) =>
+                    mutations.shareTakes.mutateAsync({ commentId: comment.id, takeIds }),
+                }
+              : undefined
+          }
+        />
       )}
       {replying ? (
         <Composer
@@ -1465,14 +1490,14 @@ export function regionMarkers(comments: Comment[]): RegionMarker[] {
 }
 
 /** The region markers of a file's open threads. */
-export function useRegionMarkers(fileId: string): RegionMarker[] {
-  const { data } = useQuery(commentsQuery(fileId));
+export function useRegionMarkers(fileId: string, enabled = true): RegionMarker[] {
+  const { data } = useQuery({ ...commentsQuery(fileId), enabled });
   return data ? regionMarkers(data) : [];
 }
 
 /** Where open time-anchored threads start, for markers on the timeline. */
-export function useCommentMarkers(fileId: string): number[] {
-  const { data } = useQuery(commentsQuery(fileId));
+export function useCommentMarkers(fileId: string, enabled = true): number[] {
+  const { data } = useQuery({ ...commentsQuery(fileId), enabled });
   if (!data) return [];
   return [
     ...new Set(
