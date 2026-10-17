@@ -16,6 +16,7 @@ import {
   useRegionMarkers,
 } from "~/components/comments";
 import { Compare, type CompareFocus } from "~/components/compare";
+import { DecisionStrip } from "~/components/decision-strip";
 import { DocumentViewer } from "~/components/document-viewer";
 import { DownloadDialog } from "~/components/downloads";
 import { ExportCommentsDialog } from "~/components/exports";
@@ -32,6 +33,7 @@ import { TriageView } from "~/components/triage";
 import { Button } from "~/components/ui/button";
 import { ActionMenu } from "~/components/ui/menu";
 import { cn } from "~/lib/cn";
+import { useFileMedia } from "~/lib/file-media";
 import { formatDates } from "~/lib/locale";
 import type { Loop } from "~/lib/loop";
 import { initialFocus, type PageFocus } from "~/lib/pages";
@@ -184,8 +186,16 @@ export function FilePage({
   onView = () => {},
   details: showDetails = false,
   onDetails = () => {},
+  reviewId,
+  startAt,
+  onStarted = () => {},
 }: {
   fileId: string;
+  /** The review it was opened from: its decision is offered beside the comments (#15). */
+  reviewId?: string;
+  /** Where to start, in seconds, once the media can seek; then `onStarted`. */
+  startAt?: number;
+  onStarted?: () => void;
   /** Whether the details sheet is open beside the file (members only). */
   details?: boolean;
   onDetails?: (open: boolean) => void;
@@ -204,7 +214,6 @@ export function FilePage({
   const { data: downloads } = useQuery(downloadsQuery(fileId));
   const [downloading, setDownloading] = useState(false);
   const tabsId = useId();
-  const [media, setMedia] = useState<HTMLMediaElement | null>(null);
   const [cue, setCue] = useState(0);
   /** A source comparison should bring in and play first: before, for before and after. */
   const [focus, setFocus] = useState<CompareFocus | null>(null);
@@ -216,6 +225,8 @@ export function FilePage({
   const [pageFocus, setPageFocus] = useState<PageFocus>(initialFocus);
   const [exporting, setExporting] = useState(false);
   const [chosenNormal, setChosenNormal] = useNormalisedChoice();
+  // Arriving from another version or variation: start where that one was (#15).
+  const { media, onMedia } = useFileMedia(fileId, startAt, onStarted);
   // Another file starts on its first page, with nothing drawn.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset whenever the file changes.
   useEffect(() => setPageFocus(initialFocus), [fileId]);
@@ -324,7 +335,7 @@ export function FilePage({
   const playback = (
     <Playback
       file={file}
-      onMedia={setMedia}
+      onMedia={onMedia}
       loop={passage}
       onLoop={onLoop}
       cue={cue}
@@ -423,7 +434,7 @@ export function FilePage({
         <FileDetailsSheet fileId={file.id} onClose={() => onDetails(false)} />
       )}
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-5 sm:px-6">
-        {!guest && <FileContext file={file} />}
+        {!guest && <FileContext file={file} media={media} />}
         {hasQa && (
           <div
             role="tablist"
@@ -476,6 +487,11 @@ export function FilePage({
               {/* A take shared with a guest is theirs to hear, with no comments (#133). */}
               {!file.grant?.listenOnly && (
                 <div className="min-w-0 pt-8 lg:col-start-2 lg:row-span-4 lg:row-start-1 lg:pt-0">
+                  {reviewId && (
+                    <div className="mb-4">
+                      <DecisionStrip reviewId={reviewId} />
+                    </div>
+                  )}
                   <Comments
                     fileId={file.id}
                     projectId={file.projectId}

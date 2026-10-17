@@ -330,6 +330,8 @@ export function Player({
       hls.current?.destroy();
       hls.current = null;
       element.removeAttribute("src");
+      // Reset the element, so nothing of this source (its metadata, its position) outlives it.
+      element.load();
     };
   }, [kind, playback]);
 

@@ -149,10 +149,20 @@ const fileSearchSchema = loopSearchSchema.extend({
   view: z.enum(["qa", "triage"]).optional().catch(undefined),
   /** The details sheet, open beside the file. */
   sheet: z.enum(["details"]).optional().catch(undefined),
+  /** The review it was opened from, whose decision can be given beside it (#15). */
+  review: z.uuid().optional().catch(undefined),
+  /** Where to start playing, in seconds: kept while switching version or variation (#15). */
+  t: z.coerce.number().min(0).max(172_800).optional().catch(undefined),
 });
 const fileSearch = (
   search: Record<string, unknown>,
-): { loop?: string; view?: "qa" | "triage"; sheet?: "details" } => fileSearchSchema.parse(search);
+): {
+  loop?: string;
+  view?: "qa" | "triage";
+  sheet?: "details";
+  review?: string;
+  t?: number;
+} => fileSearchSchema.parse(search);
 
 /** Every page: follows the device's dark or light while the theme is "system". */
 function Root() {
@@ -244,11 +254,16 @@ const guestFile = createRoute({
   validateSearch: fileSearch,
   component: function GuestFileRoute() {
     const { fileId } = guestFile.useParams();
-    const { loop, view } = guestFile.useSearch();
+    const { loop, view, review, t } = guestFile.useSearch();
     const navigate = guestFile.useNavigate();
     return (
       <FilePage
         fileId={fileId}
+        reviewId={review}
+        startAt={t}
+        onStarted={() =>
+          void navigate({ search: (prev) => ({ ...prev, t: undefined }), replace: true })
+        }
         loop={parseLoop(loop)}
         onLoop={(next) =>
           void navigate({
@@ -485,11 +500,16 @@ const file = createRoute({
   validateSearch: fileSearch,
   component: function FileRoute() {
     const { fileId } = file.useParams();
-    const { loop, view, sheet } = file.useSearch();
+    const { loop, view, sheet, review, t } = file.useSearch();
     const navigate = file.useNavigate();
     return (
       <FilePage
         fileId={fileId}
+        reviewId={review}
+        startAt={t}
+        onStarted={() =>
+          void navigate({ search: (prev) => ({ ...prev, t: undefined }), replace: true })
+        }
         details={sheet === "details"}
         onDetails={(open) =>
           void navigate({

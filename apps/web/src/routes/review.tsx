@@ -467,6 +467,7 @@ function Items({ review }: { review: ReviewDetail }) {
                   <Link
                     to={fileBase}
                     params={{ fileId: item.fileId }}
+                    search={{ review: review.id }}
                     className="min-w-0 flex-1 no-underline"
                   >
                     {name}
@@ -484,6 +485,7 @@ function Items({ review }: { review: ReviewDetail }) {
                   <Link
                     to={fileBase}
                     params={{ fileId: item.fileId }}
+                    search={{ review: review.id }}
                     aria-label={`Open ${item.name}`}
                     className="flex size-7 shrink-0 items-center justify-center rounded-control text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-raised hover:text-ink focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
                   >
