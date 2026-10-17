@@ -186,6 +186,10 @@ Comments can be given a category with one action, such as marking a comment as *
 
 Triage (producer or whoever holds the permission) can change a comment's category, defer or undefer it, and assign it.
 
+Every project starts with *Noise* (deferred to *Noise reduction*), *Edit*, *Balance*, *Performance* and *Information* (information only); whoever edits the project's workflows can rename, add and remove them. Until workflows exist, a deferred comment waits for a stage by its name and is undeferred by hand.
+
+**The triage view** takes a version's open comments one at a time, in the order they play, with the passage looping: a number key gives the category, then *D* defers, *A* assigns, *R* resolves and *S* skips. Ticking several makes the next key act on all of them. It ends with what was decided and, for each person with comments assigned, a button that sends them their list.
+
 ## Reviews
 
 ### Reviewer permissions

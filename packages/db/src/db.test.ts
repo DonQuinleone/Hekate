@@ -33,6 +33,7 @@ describe("tenancy", () => {
       "alignments",
       "blobs",
       "comment_carries",
+      "comment_categories",
       "comments",
       "directories",
       "file_pages",

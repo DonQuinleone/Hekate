@@ -6,11 +6,14 @@ import {
   carrySettles,
   commentExportQuery,
   createCommentInput,
+  deferralAfter,
   editCommentInput,
   exportComments,
   mentionedIn,
   resolveCommentInput,
+  sendListInput,
   threadsForExport,
+  triageInput,
   updateCarryInput,
   visibleComments,
 } from "@hekate/shared";
@@ -29,8 +32,9 @@ import type { Mailer } from "../mail.ts";
 import { type NotificationActor, notifyNow, projectPeople } from "../notifications.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
-const { comments, commentCarries, files, projects, users, guests } = schema;
+const { comments, commentCarries, commentCategories, files, projects, users, guests } = schema;
 const resolver = alias(users, "resolver");
+const assignee = alias(users, "assignee");
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
@@ -52,6 +56,11 @@ const commentColumns = {
   resolvedByName: resolver.name,
   editedAt: comments.editedAt,
   createdAt: comments.createdAt,
+  /** Triage (#36): its kind, the stage it waits for, and who is to act on it. */
+  categoryId: comments.categoryId,
+  deferredTo: comments.deferredTo,
+  assigneeId: comments.assigneeId,
+  assigneeName: assignee.name,
 };
 
 function selectComments(db: Database, organisationId: string, where: SQL | undefined) {
@@ -61,6 +70,7 @@ function selectComments(db: Database, organisationId: string, where: SQL | undef
     .leftJoin(users, eq(comments.authorId, users.id))
     .leftJoin(guests, eq(comments.guestAuthorId, guests.id))
     .leftJoin(resolver, eq(comments.resolvedById, resolver.id))
+    .leftJoin(assignee, eq(comments.assigneeId, assignee.id))
     .where(inOrg(comments, organisationId, where));
 }
 
@@ -147,7 +157,12 @@ async function threadsOn(
     ...new Set(roots.map((r) => r.fileId)),
   ]);
   const here = new Map(carriedHere.map((k) => [k.commentId, k]));
-  return rows.map((row) => {
+  // Who is to act on a thread is the team's business, not a guest reviewer's.
+  const shown =
+    actor.kind === "guest"
+      ? rows.map((r) => ({ ...r, assigneeId: null, assigneeName: null }))
+      : rows;
+  return shown.map((row) => {
     if (row.parentId) return { ...publicComment(row), carry: null, history: null };
     const carry = here.get(row.id);
     const history = {
@@ -170,6 +185,45 @@ async function threadsOn(
       history,
     };
   });
+}
+
+/**
+ * The threads triage may act on from this file, with where each is deferred to now: its own
+ * top-level comments and those carried to it.
+ */
+async function triageable(
+  db: Database,
+  organisationId: string,
+  fileId: string,
+  ids: string[],
+): Promise<Map<string, string | null>> {
+  const carried = await db
+    .select({ commentId: commentCarries.commentId })
+    .from(commentCarries)
+    .where(
+      inOrg(
+        commentCarries,
+        organisationId,
+        eq(commentCarries.fileId, fileId),
+        inArray(commentCarries.commentId, ids),
+      ),
+    );
+  const carriedIds = carried.map((k) => k.commentId);
+  const rows = await db
+    .select({ id: comments.id, deferredTo: comments.deferredTo })
+    .from(comments)
+    .where(
+      inOrg(
+        comments,
+        organisationId,
+        inArray(comments.id, ids),
+        isNull(comments.parentId),
+        carriedIds.length > 0
+          ? or(eq(comments.fileId, fileId), inArray(comments.id, carriedIds))
+          : eq(comments.fileId, fileId),
+      ),
+    );
+  return new Map(rows.map((r) => [r.id, r.deferredTo]));
 }
 
 /** A download's name for Content-Disposition: plain ASCII, and the real name in UTF-8. */
@@ -195,6 +249,123 @@ export const fileCommentRoutes = (
       return c.json({
         comments: await threadsOn(db, c.var.organisationId, c.var.actor, access, fileId),
       });
+    })
+    /**
+     * Triage on one thread or a selection (#36, #132): a category, deferral to a stage or
+     * back, who is to act on it, resolved or not. Every thread must be this file's own or
+     * carried to it; a deferring category sets its stage unless the request says otherwise.
+     */
+    .post("/:id/comments/triage", idParam, zValidator("json", triageInput), async (c) => {
+      const organisationId = c.var.organisationId;
+      const fileId = c.req.valid("param").id;
+      const access = await canOnFile(db, c.var.actor, "triage", fileId);
+      const by = c.var.actor.kind === "member" ? c.var.actor.userId : null;
+      const input = c.req.valid("json");
+      const ids = [...new Set(input.commentIds)];
+      const here = await triageable(db, organisationId, fileId, ids);
+      if (here.size !== ids.length) {
+        throw new HTTPException(422, { message: "Those comments are not threads on this file" });
+      }
+      const [category] = input.categoryId
+        ? await db
+            .select({ handling: commentCategories.handling, stage: commentCategories.stage })
+            .from(commentCategories)
+            .where(
+              inOrg(
+                commentCategories,
+                organisationId,
+                eq(commentCategories.id, input.categoryId),
+                eq(commentCategories.projectId, access.projectId),
+              ),
+            )
+        : [];
+      if (input.categoryId && !category) {
+        throw new HTTPException(422, { message: "Categories must come from this project" });
+      }
+      if (input.assigneeId) {
+        const people = await projectPeople(db, organisationId, access.projectId);
+        if (!people.some((p) => p.id === input.assigneeId)) {
+          throw new HTTPException(422, { message: "Assign it to someone in this project" });
+        }
+      }
+      await db.transaction(async (tx) => {
+        // Not while a new version is deciding which threads to carry. Each thread's deferral is
+        // read again under the locks, so a triage that waited here keeps what the first one set.
+        await lockTrackOfFile(tx, organisationId, fileId);
+        const locked = await tx
+          .select({ id: comments.id, deferredTo: comments.deferredTo })
+          .from(comments)
+          .where(inOrg(comments, organisationId, inArray(comments.id, ids)))
+          .for("update");
+        const deferral = new Map(locked.map((r) => [r.id, r.deferredTo]));
+        const now = new Date();
+        for (const id of ids) {
+          const current = deferral.get(id) ?? null;
+          await tx
+            .update(comments)
+            .set({
+              ...(input.categoryId !== undefined && { categoryId: input.categoryId }),
+              deferredTo: deferralAfter(current, input, category ?? null),
+              ...(input.assigneeId !== undefined && { assigneeId: input.assigneeId }),
+              ...(input.resolved !== undefined &&
+                (input.resolved
+                  ? { resolvedAt: now, resolvedById: by }
+                  : { resolvedAt: null, resolvedById: null })),
+              updatedAt: now,
+            })
+            .where(inOrg(comments, organisationId, eq(comments.id, id)));
+        }
+      });
+      return c.json({
+        comments: await threadsOn(db, organisationId, c.var.actor, access, fileId),
+      });
+    })
+    /**
+     * Send someone the threads on this file assigned to them and still open, as one
+     * notification and mail: the list an engineer works through after triage (#132).
+     */
+    .post("/:id/comments/send-list", idParam, zValidator("json", sendListInput), async (c) => {
+      const organisationId = c.var.organisationId;
+      const fileId = c.req.valid("param").id;
+      const access = await canOnFile(db, c.var.actor, "triage", fileId);
+      if (c.var.actor.kind !== "member") throw new HTTPException(403);
+      const { userId } = c.req.valid("json");
+      // Notifications never go to whoever caused them, so a list sent to yourself would vanish.
+      if (userId === c.var.actor.userId) {
+        throw new HTTPException(422, {
+          message: "These are yours already; there is no one to send them to",
+        });
+      }
+      const people = await projectPeople(db, organisationId, access.projectId);
+      if (!people.some((p) => p.id === userId)) {
+        throw new HTTPException(422, { message: "They are not in this project" });
+      }
+      const threads = (await threadsOn(db, organisationId, c.var.actor, access, fileId)).filter(
+        (t) => !t.parentId && !t.resolvedAt && t.assigneeId === userId,
+      );
+      if (threads.length === 0) {
+        throw new HTTPException(422, { message: "Nothing on this file is assigned to them" });
+      }
+      const [file] = await db
+        .select({ name: files.name })
+        .from(files)
+        .where(inOrg(files, organisationId, eq(files.id, fileId)));
+      const count = threads.length;
+      await notifyNow(
+        { db, ...mail },
+        {
+          organisationId,
+          kind: "assigned",
+          recipients: [userId],
+          actor: { userId: c.var.actor.userId },
+          projectId: access.projectId,
+          fileId,
+          text: `sent you ${count} ${count === 1 ? "comment" : "comments"} to act on, on ${file?.name ?? "a file"}`,
+          detail: threads.map((t) => `- ${t.body}`).join("\n"),
+          link: `/files/${fileId}`,
+        },
+      );
+      return c.json({ sent: count });
     })
     /**
      * The threads as a marker list for another application (#99), for those who triage:

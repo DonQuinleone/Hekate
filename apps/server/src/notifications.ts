@@ -180,6 +180,7 @@ const actionLabel: Record<NotificationKind, string> = {
   processing_failed: "Open the file",
   guest_opened: "See the review",
   due_soon: "Open the review",
+  assigned: "Open your comments",
 };
 
 /** Why each kind of mail came. */
@@ -192,6 +193,7 @@ const whyFoot: Record<NotificationKind, string> = {
   processing_failed: "You get this because you uploaded the file.",
   guest_opened: "You get this because you requested the review.",
   due_soon: "A reminder, sent once, the day before the due date.",
+  assigned: "You get this because the comments are assigned to you.",
 };
 
 /** The workspace a mail comes from: its name, and its own subject lines. */

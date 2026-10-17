@@ -4905,6 +4905,174 @@ describe.runIf(url)("api", () => {
         expect(changed.decisions).toHaveLength(2);
       });
 
+      it("categorises, defers, assigns and resolves threads in triage, and sends the list", async () => {
+        const s = await studio();
+        type Category = { id: string; name: string; handling: string; stage: string | null };
+        const categories = async (cookie = s.owner) =>
+          (
+            (await (await getAs(`/api/projects/${s.projectId}/categories`, cookie)).json()) as {
+              categories: Category[];
+            }
+          ).categories;
+        // A project has the defaults, once, whoever reads them first.
+        const first = await categories(s.composer);
+        expect(first.map((c) => c.name)).toEqual([
+          "Noise",
+          "Edit",
+          "Balance",
+          "Performance",
+          "Information",
+        ]);
+        expect(await categories()).toHaveLength(5);
+        const noise = first.find((c) => c.name === "Noise");
+        expect(noise).toMatchObject({ handling: "deferred", stage: "Noise reduction" });
+        // Adding one is for those who edit workflows, and names are the project's own.
+        const add = (body: unknown, cookie: string) =>
+          app.request(`/api/projects/${s.projectId}/categories`, json(body, cookie));
+        expect((await add({ name: "Pitch", handling: "normal" }, s.engineer)).status).toBe(403);
+        const pitch = await add({ name: "Pitch", handling: "normal" }, s.owner);
+        expect(pitch.status).toBe(201);
+        const pitchId = ((await pitch.json()) as { category: { id: string } }).category.id;
+        expect((await add({ name: "pitch", handling: "normal" }, s.owner)).status).toBe(409);
+        // Changing or removing one is theirs too.
+        const change = (method: string, id: string, cookie: string, body?: unknown) =>
+          app.request(`/api/categories/${id}`, {
+            ...(body === undefined ? { headers: { cookie } } : json(body, cookie)),
+            method,
+          });
+        const tuning = { name: "Tuning", handling: "information" };
+        expect((await change("PATCH", pitchId, s.engineer, tuning)).status).toBe(403);
+        expect((await change("PATCH", pitchId, s.owner, tuning)).status).toBe(200);
+        expect((await change("DELETE", pitchId, s.engineer)).status).toBe(403);
+        expect((await change("DELETE", pitchId, s.owner)).status).toBe(204);
+        expect(await categories()).toHaveLength(5);
+
+        const thread = async (body: string, fileId = s.mix) =>
+          (
+            (await (
+              await app.request(`/api/files/${fileId}/comments`, json({ body }, s.owner))
+            ).json()) as {
+              comment: { id: string };
+            }
+          ).comment.id;
+        const hiss = await thread("Hiss under the intro.");
+        const late = await thread("The left hand is late at bar 9.");
+        const elsewhere = await thread("The cover is too dark.", s.artwork);
+        type Thread = {
+          id: string;
+          categoryId: string | null;
+          deferredTo: string | null;
+          assigneeId: string | null;
+          resolvedAt: string | null;
+        };
+        const triage = (body: Record<string, unknown>, cookie = s.engineer) =>
+          app.request(`/api/files/${s.mix}/comments/triage`, json(body, cookie));
+        const threads = async (res: Response) => {
+          expect(res.status).toBe(200);
+          return ((await res.json()) as { comments: Thread[] }).comments;
+        };
+        // A reviewer may not triage; a thread from another file is not this file's to triage.
+        expect((await triage({ commentIds: [hiss], resolved: true }, s.composer)).status).toBe(403);
+        expect((await triage({ commentIds: [elsewhere], resolved: true })).status).toBe(422);
+        expect(
+          (await triage({ commentIds: [hiss], categoryId: "0190a6f0-0000-7000-8000-00000000000a" }))
+            .status,
+        ).toBe(422);
+        // Noise defers to its stage; a selection is assigned together.
+        let now = await threads(await triage({ commentIds: [hiss], categoryId: noise?.id }));
+        expect(now.find((t) => t.id === hiss)).toMatchObject({
+          categoryId: noise?.id,
+          deferredTo: "Noise reduction",
+        });
+        now = await threads(await triage({ commentIds: [hiss, late], assigneeId: s.ids.engineer }));
+        expect(
+          now
+            .filter((t) => t.assigneeId === s.ids.engineer)
+            .map((t) => t.id)
+            .sort(),
+        ).toEqual([hiss, late].sort());
+        expect((await triage({ commentIds: [late], assigneeId: "someone-else" })).status).toBe(422);
+        // Undeferred by hand, and the list sent to whoever it is assigned to.
+        now = await threads(await triage({ commentIds: [hiss], deferredTo: null }));
+        expect(now.find((t) => t.id === hiss)?.deferredTo).toBeNull();
+        const sent = await app.request(
+          `/api/files/${s.mix}/comments/send-list`,
+          json({ userId: s.ids.engineer }, s.owner),
+        );
+        expect(await sent.json()).toEqual({ sent: 2 });
+        const told = await db
+          .select({ text: schema.notifications.text, detail: schema.notifications.detail })
+          .from(schema.notifications)
+          .where(
+            and(
+              eq(schema.notifications.kind, "assigned"),
+              eq(schema.notifications.userId, s.ids.engineer),
+            ),
+          );
+        expect(told[0]?.text).toBe("sent you 2 comments to act on, on Mix v1.wav");
+        expect(told[0]?.detail).toContain("- Hiss under the intro.");
+        // A list sent to yourself would never arrive: it is refused.
+        expect(
+          (
+            await app.request(
+              `/api/files/${s.mix}/comments/send-list`,
+              json({ userId: await idOf(s.owner) }, s.owner),
+            )
+          ).status,
+        ).toBe(422);
+        // Resolved threads leave the list.
+        await triage({ commentIds: [hiss, late], resolved: true });
+        expect(
+          (
+            await app.request(
+              `/api/files/${s.mix}/comments/send-list`,
+              json({ userId: s.ids.engineer }, s.owner),
+            )
+          ).status,
+        ).toBe(422);
+
+        // Another workspace's project, categories and files do not exist from here.
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-categories" })
+          .returning();
+        const otherOrg = other?.id ?? "";
+        const [theirProject] = await db
+          .insert(schema.projects)
+          .values({ organisationId: otherOrg, name: "Theirs", profile: "music" })
+          .returning();
+        const [theirCategory] = await db
+          .insert(schema.commentCategories)
+          .values({ organisationId: otherOrg, projectId: theirProject?.id ?? "", name: "Noise" })
+          .returning();
+        const blob = await storage.put(otherOrg, Buffer.from("theirs"));
+        const [theirFile] = await db
+          .insert(schema.files)
+          .values({
+            organisationId: otherOrg,
+            projectId: theirProject?.id ?? "",
+            name: "Theirs.wav",
+            kind: "audio",
+            blobId: blob.id,
+            contentType: "audio/wav",
+            byteSize: blob.byteSize,
+          })
+          .returning();
+        expect((await getAs(`/api/projects/${theirProject?.id}/categories`, s.owner)).status).toBe(
+          404,
+        );
+        expect((await change("PATCH", theirCategory?.id ?? "", s.owner, tuning)).status).toBe(404);
+        expect((await change("DELETE", theirCategory?.id ?? "", s.owner)).status).toBe(404);
+        expect(
+          (
+            await app.request(
+              `/api/files/${theirFile?.id}/comments/triage`,
+              json({ commentIds: [hiss], resolved: true }, s.owner),
+            )
+          ).status,
+        ).toBe(404);
+      });
+
       it("checks a new version before it lands, carries as chosen, and replaces a file keeping its threads", async () => {
         const s = await studio();
         const send = (method: string, url: string, body: unknown, cookie: string) =>

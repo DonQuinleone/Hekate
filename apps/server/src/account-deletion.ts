@@ -15,6 +15,7 @@ const {
   accessEvents,
   authAccounts,
   authSessions,
+  comments,
   follows,
   groupMembers,
   invitations,
@@ -200,6 +201,13 @@ export async function deleteAccount(
           .set({ actorLabel: FORMER_MEMBER })
           .where(inOrg(accessEvents, organisationId, eq(accessEvents.userId, userId)));
       }
+    }
+    // What was assigned to them (#36) is no one's now: triage gives it to someone else.
+    for (const workspace of all) {
+      await tx
+        .update(comments)
+        .set({ assigneeId: null })
+        .where(inOrg(comments, workspace.id, eq(comments.assigneeId, userId)));
     }
     // Invitations to the address, in every workspace, joined or not: the address goes from
     // each, and one still open can no longer be accepted.
