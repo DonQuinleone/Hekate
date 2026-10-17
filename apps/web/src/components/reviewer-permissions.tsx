@@ -89,6 +89,7 @@ export function ReviewerPermissionsEditor({
     onSave({
       comment: p.comment,
       decide: p.decide,
+      invite: p.invite ?? false,
       comments: p.comments,
       tools: reviewerTools.filter((t) => p.tools.includes(t)),
       ...(guest
@@ -142,6 +143,11 @@ export function ReviewerPermissionsEditor({
             onChange={(decide) => setP({ ...p, decide })}
           />
         )}
+        <Toggle
+          label="Invite others"
+          checked={p.invite ?? false}
+          onChange={(invite) => setP({ ...p, invite })}
+        />
         {guest && (
           <Toggle
             label="Earlier versions"

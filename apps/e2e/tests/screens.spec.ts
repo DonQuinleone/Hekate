@@ -412,6 +412,23 @@ test.describe("signed out", () => {
 test.describe("guest", () => {
   test.use({ storageState: join(state, "guest.json") });
   for (const screen of screens.filter((s) => s.as === "guest")) capture(screen);
+
+  // A guest their review lets invite others (#55): the Reviewers section's Invite, open. The
+  // review's answer is amended in this page alone, so no other capture sees the grant.
+  test("guest-review-invite", async ({ page }) => {
+    await page.route(`**/api/reviews/${seeded().reviewId}`, async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as { review: { you: Record<string, unknown> } };
+      body.review.you.canInvite = true;
+      await route.fulfill({ response, json: body });
+    });
+    await page.goto(`/g/reviews/${seeded().reviewId}`);
+    await settle(page, "h1:has-text('Album masters')");
+    await page.getByRole("button", { name: "Invite" }).click();
+    await settle(page, "text=Invite to this review");
+    await saveScreen(page, "guest-review-invite");
+    await checkScreen(page);
+  });
 });
 
 for (const screen of screens.filter((s) => !s.as || s.as === "owner")) capture(screen);

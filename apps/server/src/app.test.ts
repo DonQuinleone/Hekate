@@ -8266,6 +8266,94 @@ describe.runIf(url)("api", () => {
           return { ...s, review, token, cookie: cookieOf(res) };
         };
 
+        it("lets a reviewer invite others when their grant allows, as guests beside them (#55)", async () => {
+          const s = await invited("approval");
+          const reviewer = s.review.reviewers.find((r) => r.guest);
+          const invite = (body: Record<string, unknown>, cookie: string) =>
+            app.request(`/api/reviews/${s.review.id}/invite`, json(body, cookie));
+          const extra = { name: "Tomas Varga", email: "tomas@example.test", label: "Viola" };
+          // Nobody's grant allows it until someone says so.
+          expect((await invite(extra, s.cookie)).status).toBe(403);
+          const you = async (cookie: string) =>
+            (
+              (await (await getAs(`/api/reviews/${s.review.id}`, cookie)).json()) as {
+                review: { you: { canInvite: boolean } };
+              }
+            ).review.you.canInvite;
+          expect(await you(s.cookie)).toBe(false);
+          expect(
+            (
+              await app.request(`/api/reviews/${s.review.id}/reviewers/${reviewer?.id}`, {
+                ...json({ permissions: { invite: true, tools: ["loops"] } }, s.owner),
+                method: "PATCH",
+              })
+            ).status,
+          ).toBe(200);
+          expect(await you(s.cookie)).toBe(true);
+          // Having decided already, the guest is no longer waited on; their invitation still goes.
+          expect(
+            (
+              await app.request(
+                `/api/reviews/${s.review.id}/decisions`,
+                json({ decision: "approved" }, s.cookie),
+              )
+            ).status,
+          ).toBe(200);
+          mailer.sent.length = 0;
+          const made = await invite(extra, s.cookie);
+          expect(made.status).toBe(201);
+          // From the guest who invited them, not from whoever asked for the review.
+          const mail = mailer.sent.find((m) => m.to === "tomas@example.test");
+          expect(mail?.text).toContain("Mira Solberg");
+          // They join beside the guest who asked, with what that guest may do, but no decision
+          // (the approval stays with those the requester asked) and no inviting of their own.
+          const rows = await db
+            .select({
+              guestId: schema.reviewReviewers.guestId,
+              position: schema.reviewReviewers.position,
+              permissions: schema.reviewReviewers.permissions,
+            })
+            .from(schema.reviewReviewers)
+            .where(eq(schema.reviewReviewers.reviewId, s.review.id));
+          const inviter = rows.find((r) => r.permissions.invite);
+          const joined = rows.find((r) => r.guestId && r !== inviter && !r.permissions.invite);
+          expect(joined?.position).toBe(inviter?.position);
+          expect(joined?.permissions).toMatchObject({
+            decide: false,
+            invite: false,
+            tools: ["loops"],
+          });
+          // Asked by email, with a link of their own.
+          expect(linkFor("tomas@example.test")).not.toBe("");
+          // Once only; and the invited may not invite in turn.
+          expect((await invite(extra, s.cookie)).status).toBe(409);
+          const theirs = cookieOf(await signIn(linkFor("tomas@example.test")));
+          expect(
+            (await invite({ name: "Ines Arlow", email: "ines@example.test" }, theirs)).status,
+          ).toBe(403);
+          // A member whose grant does not say so may not either, unless their role manages it.
+          const composer = s.review.reviewers.find((r) => !r.guest);
+          expect(composer).toBeDefined();
+          expect(
+            (await invite({ name: "Ines Arlow", email: "ines@example.test" }, s.composer)).status,
+          ).toBe(403);
+          // Logged as who asked, naming who invited them.
+          const logged = await audit.query(s.organisationId, {
+            action: "review.reviewer_add",
+            limit: 10,
+          });
+          expect(logged.events[0]?.details).toMatchObject({ name: "Tomas Varga" });
+          // A review elsewhere does not exist for them.
+          expect(
+            (
+              await app.request(
+                "/api/reviews/0190a6f0-0000-7000-8000-0000000000ff/invite",
+                json(extra, s.cookie),
+              )
+            ).status,
+          ).toBe(404);
+        });
+
         it("lets a guest download what a thread carries, and attach to their own (#133)", async () => {
           const s = await invited();
           const attach = (commentId: string, cookie: string) =>
