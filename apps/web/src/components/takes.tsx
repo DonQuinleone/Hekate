@@ -6,6 +6,7 @@ import {
   formatDuration,
   gapsLabel,
   parseClock,
+  type SharedTake,
   TAKE_RATING_MAX,
   type TakeChange,
   type TakeRow,
@@ -21,6 +22,7 @@ import { uploadFile } from "~/lib/upload";
 import { Empty } from "./empty";
 import { Icon } from "./icons";
 import { Button } from "./ui/button";
+import { Chip } from "./ui/chip";
 import { Checkbox } from "./ui/choice";
 import { Dialog } from "./ui/dialog";
 import { Field } from "./ui/field";
@@ -595,13 +597,45 @@ export function OtherTakes({
   trackId,
   bar,
   onClose,
+  share,
 }: {
   trackId: string;
   bar: number;
   onClose: () => void;
+  /** For those who triage (#133): the takes the thread already has, and how to share more. */
+  share?: { shared: string[]; onShare: (takeIds: string[]) => Promise<unknown> };
 }) {
   const { data: takes, error } = useQuery(trackTakesQuery(trackId));
   const list = takes ? takesCovering(takes, bar) : [];
+  const [mode, setMode] = useState<"ticked" | "all" | "except">("ticked");
+  const [ticked, setTicked] = useState<Set<string>>(new Set());
+  const [sending, setSending] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const chosen = list
+    .filter((t) =>
+      mode === "all" ? true : mode === "ticked" ? ticked.has(t.id) : !ticked.has(t.id),
+    )
+    .map((t) => t.id);
+  const tick = (id: string) =>
+    setTicked((was) => {
+      const next = new Set(was);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const send = async () => {
+    if (!share || chosen.length === 0) return;
+    setSending(true);
+    setFailure(null);
+    try {
+      await share.onShare(chosen);
+      setTicked(new Set());
+    } catch (e) {
+      setFailure(e instanceof Error ? e.message : "Could not share the takes");
+    } finally {
+      setSending(false);
+    }
+  };
   return (
     <section
       aria-label={`Other takes for bar ${bar}`}
@@ -632,23 +666,62 @@ export function OtherTakes({
       ) : (
         <ul className="m-0 list-none p-0">
           {list.map((t) => (
-            <li key={t.id} className="border-b border-line last:border-b-0">
+            <li key={t.id} className="flex items-center border-b border-line last:border-b-0">
+              {share && mode !== "all" && (
+                // A cell of its own, so the box keeps its distance from the take's link.
+                <span className="flex w-10 shrink-0 items-center justify-center self-stretch">
+                  <Checkbox
+                    checked={ticked.has(t.id)}
+                    onChange={() => tick(t.id)}
+                    aria-label={`Tick take ${t.number}`}
+                  />
+                </span>
+              )}
               {t.file ? (
                 <Link
                   to="/files/$fileId"
                   params={{ fileId: t.file.id }}
-                  className="flex items-center gap-2.5 px-3 py-1.5 no-underline hover:bg-raised/40"
+                  className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-1.5 no-underline hover:bg-raised/40"
                 >
-                  <OtherTake take={t} />
+                  <OtherTake take={t} shared={share?.shared.includes(t.id)} />
                 </Link>
               ) : (
-                <span className="flex items-center gap-2.5 px-3 py-1.5">
-                  <OtherTake take={t} />
+                <span className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-1.5">
+                  <OtherTake take={t} shared={share?.shared.includes(t.id)} />
                 </span>
               )}
             </li>
           ))}
         </ul>
+      )}
+      {share && list.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-line px-3 py-2">
+          <Select
+            size="sm"
+            value={mode}
+            onChange={(e) => setMode(e.target.value as typeof mode)}
+            aria-label="Which takes to share with this thread"
+            className="w-auto min-w-0 flex-1"
+          >
+            <option value="ticked">The ticked takes</option>
+            <option value="all">Every take of the bar</option>
+            <option value="except">All but the ticked</option>
+          </Select>
+          <Button
+            variant="primary"
+            size="sm"
+            className="ml-auto"
+            disabled={sending || chosen.length === 0}
+            onClick={() => void send()}
+          >
+            Share {chosen.length}
+          </Button>
+          {failure && (
+            <p role="alert" className="m-0 w-full text-[12px] text-signal">
+              {failure}
+            </p>
+          )}
+        </div>
       )}
       <div className="border-t border-line px-3 py-1.5">
         <Link
@@ -664,7 +737,7 @@ export function OtherTakes({
   );
 }
 
-function OtherTake({ take }: { take: TakeRow }) {
+function OtherTake({ take, shared = false }: { take: SharedTake; shared?: boolean }) {
   return (
     <>
       <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-raised text-ink">
@@ -683,6 +756,7 @@ function OtherTake({ take }: { take: TakeRow }) {
             />
           )}
           <Rating value={take.rating} />
+          {shared && <Chip>shared</Chip>}
         </span>
         <span className="block truncate text-[12px] text-ink-3">
           {[barsLabel(take), take.label, take.notes].filter(Boolean).join(" · ")}
@@ -690,6 +764,81 @@ function OtherTake({ take }: { take: TakeRow }) {
       </span>
       {take.file?.duration != null && (
         <span className="tabular text-[12px] text-ink-3">{formatDuration(take.file.duration)}</span>
+      )}
+    </>
+  );
+}
+
+/**
+ * Takes shared on a thread (#133): one line in the thread, opening the list of them, each to
+ * hear in the player. Those who triage may unshare one.
+ */
+export function SharedTakes({
+  takes,
+  bar,
+  guest,
+  onUnshare,
+}: {
+  takes: SharedTake[];
+  bar?: number;
+  /** A guest reviewer hears them in their own player. */
+  guest: boolean;
+  onUnshare?: (takeId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex h-7 cursor-pointer items-center gap-2 self-start rounded-chip border border-line bg-raised/40 px-2.5 text-[12px] text-ink-2 transition-colors hover:border-edge hover:text-ink"
+      >
+        <Icon name="take" size={12} className="text-ink-3" />
+        {takes.length} {takes.length === 1 ? "take" : "takes"} attached
+      </button>
+      {open && (
+        <Dialog
+          title={bar === undefined ? "Attached takes" : `Takes for bar ${bar}`}
+          description="Shared on this thread. Each opens in the player."
+          onClose={() => setOpen(false)}
+          footer={
+            <Button variant="ghost" onClick={() => setOpen(false)}>
+              Close
+            </Button>
+          }
+        >
+          <ul className="m-0 flex list-none flex-col rounded-panel border border-line p-0">
+            {takes.map((t) => (
+              <li key={t.id} className="flex items-center border-b border-line last:border-b-0">
+                {t.file ? (
+                  <Link
+                    to={guest ? "/g/files/$fileId" : "/files/$fileId"}
+                    params={{ fileId: t.file.id }}
+                    className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 no-underline hover:bg-raised/40"
+                  >
+                    <OtherTake take={t} />
+                  </Link>
+                ) : (
+                  <span className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2">
+                    <OtherTake take={t} />
+                  </span>
+                )}
+                {onUnshare && (
+                  <Button
+                    variant="ghost"
+                    size="iconSm"
+                    aria-label={`Unshare take ${t.number}`}
+                    title="Unshare"
+                    onClick={() => onUnshare(t.id)}
+                    className="mr-2"
+                  >
+                    <Icon name="close" size={13} />
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Dialog>
       )}
     </>
   );

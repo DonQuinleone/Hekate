@@ -9,11 +9,14 @@ import {
   readGrant,
   withinWindow,
 } from "@hekate/shared";
-import { and, desc, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
 import { NotFound } from "./errors.ts";
 
 const {
+  comments,
+  commentCarries,
+  commentTakes,
   projects,
   projectMembers,
   projectRoles,
@@ -66,6 +69,16 @@ const guestPermissions = (grant: { comment: boolean; decide?: boolean }): Set<Pr
     ...(grant.decide ? (["decide"] as const) : []),
   ]);
 
+/**
+ * How a guest reaches a file: the review that gives it them, with its grant; `shared` when only
+ * because a take is shared on a thread they can see (#133), to listen and nothing more.
+ */
+export interface Reach {
+  reviewId: string;
+  permissions: ReviewerPermissions;
+  shared?: boolean;
+}
+
 /** What a guest may use on a file: the widest grant among the reviews that give it them. */
 export type GuestGrant = NonNullable<ReturnType<typeof mergeGrants>>;
 
@@ -99,7 +112,7 @@ export async function guestFileReviews(
 export async function guestReach(
   db: Pick<Database, "select">,
   guest: GuestActor,
-): Promise<Map<string, { reviewId: string; permissions: ReviewerPermissions }[]>> {
+): Promise<Map<string, Reach[]>> {
   const now = new Date();
   const rows = await db
     .select({
@@ -130,11 +143,11 @@ export async function guestReach(
         withinWindow(r.permissions, now) &&
         (r.permissions.items === null || r.permissions.items.includes(r.itemId)),
     );
-  const ids = new Map<string, { reviewId: string; permissions: ReviewerPermissions }[]>();
-  const add = (fileId: string, item: { reviewId: string; permissions: ReviewerPermissions }) => {
+  const ids = new Map<string, Reach[]>();
+  const add = (fileId: string, item: Reach) => {
     const list = ids.get(fileId) ?? [];
     if (!list.some((x) => x.reviewId === item.reviewId))
-      list.push({ reviewId: item.reviewId, permissions: item.permissions });
+      list.push({ reviewId: item.reviewId, permissions: item.permissions, shared: item.shared });
     ids.set(fileId, list);
   };
   for (const item of items) {
@@ -193,7 +206,93 @@ export async function guestReach(
       if (track?.scoreFileId) add(track.scoreFileId, item);
     }
   }
+  // Takes shared on a thread they can see (#133), to hear and nothing more: no comment of
+  // their own, no download, and none of the take's own comments.
+  for (const [fileId, item] of await sharedTakeReach(db, guest, ids)) add(fileId, item);
   return ids;
+}
+
+/**
+ * The files of takes shared on threads a guest sees on the files they reach: threads on those
+ * files or carried to them where they show, within the comment scope of the review that gives
+ * the file. Each is reached as the thread's file is, for listening only.
+ */
+async function sharedTakeReach(
+  db: Pick<Database, "select">,
+  guest: GuestActor,
+  reach: Map<string, Reach[]>,
+): Promise<[string, Reach][]> {
+  const reached = [...reach.keys()];
+  if (reached.length === 0) return [];
+  const org = guest.organisationId;
+  const carried = await db
+    .select({ commentId: commentCarries.commentId, fileId: commentCarries.fileId })
+    .from(commentCarries)
+    .where(
+      inOrg(
+        commentCarries,
+        org,
+        inArray(commentCarries.fileId, reached),
+        eq(commentCarries.visible, true),
+      ),
+    );
+  const shares = await db
+    .select({
+      commentId: commentTakes.commentId,
+      threadFileId: comments.fileId,
+      guestAuthorId: comments.guestAuthorId,
+      takeFileId: files.id,
+    })
+    .from(commentTakes)
+    .innerJoin(
+      comments,
+      and(eq(comments.id, commentTakes.commentId), eq(comments.organisationId, org)),
+    )
+    .innerJoin(files, and(eq(files.takeId, commentTakes.takeId), eq(files.organisationId, org)))
+    .where(
+      inOrg(
+        commentTakes,
+        org,
+        or(
+          inArray(comments.fileId, reached),
+          carried.length > 0
+            ? inArray(
+                commentTakes.commentId,
+                carried.map((k) => k.commentId),
+              )
+            : undefined,
+        ),
+      ),
+    );
+  const found: [string, Reach][] = [];
+  for (const share of shares) {
+    const on = [
+      share.threadFileId,
+      ...carried.filter((k) => k.commentId === share.commentId).map((k) => k.fileId),
+    ];
+    for (const fileId of on)
+      for (const item of reach.get(fileId) ?? []) {
+        const p = item.permissions;
+        // A thread they cannot see shares nothing with them.
+        if (p.comments !== "all" && share.guestAuthorId !== guest.guestId) continue;
+        found.push([
+          share.takeFileId,
+          {
+            reviewId: item.reviewId,
+            permissions: {
+              ...p,
+              comment: false,
+              decide: false,
+              comments: "own",
+              download: "none",
+              items: null,
+            },
+            shared: true,
+          },
+        ]);
+      }
+  }
+  return found;
 }
 
 /**
@@ -276,12 +375,17 @@ export async function fileAccess(db: Pick<Database, "select">, actor: Actor, fil
     .where(inOrg(files, actor.organisationId, eq(files.id, fileId)));
   if (!file) return null;
   if (actor.kind === "guest") {
-    const grant = mergeGrants(
-      ((await guestReach(db, actor)).get(fileId) ?? []).map((t) => t.permissions),
-    );
-    return grant
-      ? { projectId: file.projectId, permissions: guestPermissions(grant), grant }
-      : null;
+    const through = (await guestReach(db, actor)).get(fileId) ?? [];
+    const grant = mergeGrants(through.map((t) => t.permissions));
+    if (!grant) return null;
+    // A take they reach only as shared on a thread is theirs to hear, and nothing more: none
+    // of its comments, their own from an earlier review included.
+    const listenOnly = through.every((t) => t.shared);
+    return {
+      projectId: file.projectId,
+      permissions: listenOnly ? new Set<ProjectPermission>(["view"]) : guestPermissions(grant),
+      grant: { ...grant, listenOnly },
+    };
   }
   const access = await projectAccess(db, actor, file.projectId);
   return access && { ...access, grant: null };

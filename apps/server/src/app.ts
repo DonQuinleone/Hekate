@@ -43,7 +43,7 @@ import { signInMethodRoutes } from "./routes/sign-in-methods.ts";
 import { ssoRoutes } from "./routes/sso.ts";
 import { storageSettingsRoutes } from "./routes/storage-settings.ts";
 import { fileTagRoutes, tagRoutes } from "./routes/tags.ts";
-import { takeRoutes, trackTakeRoutes } from "./routes/takes.ts";
+import { sharedTakeRoutes, takeRoutes, trackTakeRoutes } from "./routes/takes.ts";
 import {
   projectTrackRoutes,
   trackRoutes,
@@ -292,6 +292,7 @@ export function createApi(deps: AppDeps) {
         "/comments",
         commentRoutes(deps.db, { mailer: deps.mailer, publicUrl: deps.publicUrl }),
       )
+      .route("/comments", sharedTakeRoutes(downloads))
       .use("/categories/*", ...member)
       .route("/categories", categoryRoutes(deps.db))
       .use("/comment-carries/*", ...member)

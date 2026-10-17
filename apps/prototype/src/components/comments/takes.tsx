@@ -166,29 +166,16 @@ export function OtherTakes({
       )}
       {canShare && list.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 border-t border-line px-3 py-2">
-          <span className="text-[13px] text-ink-3">Share with this thread:</span>
-          {(
-            [
-              ["specific", "the ticked takes"],
-              ["all", "every take covering the bar"],
-              ["except", "all but the ticked"],
-            ] as const
-          ).map(([m, label]) => (
-            <button
-              key={m}
-              type="button"
-              aria-pressed={mode === m}
-              onClick={() => setMode(m)}
-              className={cn(
-                "h-6 rounded-chip border px-2 text-[13px]",
-                mode === m
-                  ? "border-edge bg-raised text-ink"
-                  : "border-transparent text-ink-3 hover:text-ink",
-              )}
-            >
-              {label}
-            </button>
-          ))}
+          <select
+            value={mode}
+            onChange={(e) => setMode(e.target.value as typeof mode)}
+            aria-label="Which takes to share with this thread"
+            className="h-7 min-w-0 flex-1 rounded-control border border-edge bg-ground px-2 text-[13px] text-ink"
+          >
+            <option value="specific">The ticked takes</option>
+            <option value="all">Every take covering the bar</option>
+            <option value="except">All but the ticked</option>
+          </select>
           <Button
             variant="primary"
             size="sm"

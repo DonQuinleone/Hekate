@@ -68,6 +68,7 @@ import {
   type SavedSearchInput,
   type SearchRequest,
   type SessionInspection,
+  type SharedTake,
   type SsoServiceProvider,
   type SsoSettings,
   type SsoSettingsInput,
@@ -832,7 +833,9 @@ export interface FileDetail extends ProjectFile {
   /** The project's profile: it decides which tools the page offers, bars among them. */
   profile: ProjectProfile;
   /** For a guest, what their reviews let them do with this file; null for members. */
-  grant: Pick<ReviewerPermissions, "comment" | "comments" | "tools"> | null;
+  grant:
+    | (Pick<ReviewerPermissions, "comment" | "comments" | "tools"> & { listenOnly?: boolean })
+    | null;
 }
 
 export const fileQuery = (fileId: string) =>
@@ -1028,6 +1031,8 @@ export interface Comment {
   assigneeName: string | null;
   /** The members it mentions (#133), named as they were when it was written. */
   mentions: CommentMention[];
+  /** Takes shared on it, a thread (#133); none on a reply. */
+  takes: SharedTake[];
   /** Files attached to it (#133): names and sizes; the bytes only by a download. */
   attachments: CommentAttachment[];
   /** A thread made a task (#133), and when and by whom it was done. */
@@ -1192,6 +1197,23 @@ export function useCommentMutations(fileId: string) {
           }),
         ),
       onSettled: refresh,
+    }),
+    /** Sharing takes on a thread (#133), or no longer: everyone who sees it hears them. */
+    shareTakes: useMutation({
+      mutationFn: async ({ commentId, takeIds }: { commentId: string; takeIds: string[] }) =>
+        json(
+          await api.comments[":id"].takes.$post({ param: { id: commentId }, json: { takeIds } }),
+        ),
+      onSuccess: refresh,
+    }),
+    unshareTake: useMutation({
+      mutationFn: async ({ commentId, takeId }: { commentId: string; takeId: string }) => {
+        const res = await api.comments[":id"].takes[":takeId"].$delete({
+          param: { id: commentId, takeId },
+        });
+        if (!res.ok) await json(res);
+      },
+      onSuccess: refresh,
     }),
     /** Removing a file from your own comment. */
     detach: useMutation({

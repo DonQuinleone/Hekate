@@ -33,7 +33,7 @@ Flexibility is a core aspect, so the prototype makes it visible rather than assu
 
 - **Tool access** is a matrix per project: for each role, which tools are on (QA, meters, spectrogram, score, takes, compare, loops, normalisation toggle, download, production tools). Organisation defaults, overridable per project, per role, per person or group, and per review for its reviewers. A recording engineer has QA; a conductor does not.
 - **Comment visibility** per reviewer: everyone's comments; own and replies to them; only own.
-- **Takes shared to a comment**: a producer attaches takes to a comment ("other options for bar 72"), choosing specific takes, every take covering the passage, or all but the ones left out; a reviewer with no take access hears exactly those, nothing else.
+- **Takes shared to a comment**: a producer attaches takes to a comment ("other options for bar 72"), choosing specific takes, every take covering the passage, or all but the ones left out; a reviewer with no take access hears exactly those, nothing else, and a guest only through a thread their review shows them.
 - **Personal preferences**: within what they are given, each person shows or hides what they want (the spectrogram view, split channels, loudness monitoring, the metadata editor) and picks a theme.
 - **Sections of the recording page** appear or vanish by that matrix: a conductor sees player, versions, variations, score and her comments; an engineer also sees QA, meters, takes and the spectrogram view.
 - **Review-time ceilings**: a member's project role is the most a review can grant; a guest gets exactly what the review grants.

@@ -867,6 +867,31 @@ export const commentAttachments = pgTable(
 );
 
 /**
+ * Takes shared on a thread (#133): "other options for bar 72", chosen by whoever triages and
+ * heard by everyone who sees the thread, a guest reviewer included, and nothing more.
+ */
+export const commentTakes = pgTable(
+  "comment_takes",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    /** The thread: its first comment. */
+    commentId: uuid("comment_id")
+      .notNull()
+      .references(() => comments.id, { onDelete: "cascade" }),
+    takeId: uuid("take_id")
+      .notNull()
+      .references(() => takes.id, { onDelete: "cascade" }),
+    sharedById: text("shared_by_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("comment_takes_pair_idx").on(t.commentId, t.takeId),
+    index("comment_takes_take_idx").on(t.organisationId, t.takeId),
+  ],
+);
+
+/**
  * A comment thread carried to a later version (docs/domain.md, Comments across versions):
  * where it points on that version's file, whether it shows there, and its status there.
  * The thread itself stays on the file it was raised on; replies join it from any version.
