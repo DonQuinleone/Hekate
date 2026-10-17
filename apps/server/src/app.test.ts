@@ -3006,7 +3006,14 @@ describe.runIf(url)("api", () => {
           emailSubjects: {},
           secondFactor: "off",
           securityKeyForAdmins: false,
-          reviewer: { comment: true, decide: true, comments: "all", windowDays: null },
+          reviewer: {
+            comment: true,
+            decide: true,
+            comments: "all",
+            history: false,
+            download: "none",
+            windowDays: null,
+          },
         });
         expect((await change({ guestLinkDays: 7 }, owner)).status).toBe(400);
         expect((await change({ storageBackend: "spare" }, owner)).status).toBe(400);
@@ -8619,7 +8626,13 @@ describe.runIf(url)("api", () => {
               await settings(
                 {
                   guestLinkDays: 14,
-                  reviewer: { decide: false, comments: "own", windowDays: 30 },
+                  reviewer: {
+                    decide: false,
+                    comments: "own",
+                    history: true,
+                    download: "proxy",
+                    windowDays: 30,
+                  },
                 },
                 s.owner,
               )
@@ -8644,7 +8657,13 @@ describe.runIf(url)("api", () => {
             .where(eq(schema.reviewReviewers.reviewId, review.id));
           expect(granted).toHaveLength(2);
           for (const { permissions } of granted) {
-            expect(permissions).toMatchObject({ comment: true, decide: false, comments: "all" });
+            expect(permissions).toMatchObject({
+              comment: true,
+              decide: false,
+              comments: "all",
+              history: true,
+              download: "proxy",
+            });
             const ends = Date.parse(permissions.expiresAt ?? "");
             expect(ends).toBeGreaterThanOrEqual(before + 30 * day);
             expect(ends).toBeLessThan(Date.now() + 30 * day + 1000);

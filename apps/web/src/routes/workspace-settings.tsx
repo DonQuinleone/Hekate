@@ -2,6 +2,7 @@ import {
   accessWindowDays,
   type CommentScope,
   type CustomProfile,
+  type DownloadLevel,
   deliveryProfileIds,
   deliveryProfiles,
   formatBytes,
@@ -488,6 +489,25 @@ function Defaults() {
                 {scopeLabel[scope]}
               </option>
             ))}
+          </Select>
+        </Row>
+        <SwitchRow
+          name="May see earlier versions"
+          hint="A track's versions before the one under review."
+          checked={reviewer.history}
+          onChange={(history) => change({ reviewer: { history } })}
+        />
+        <Row name="Download" hint="Marked where the file allows, and logged.">
+          <Select
+            aria-label="Download"
+            className="w-56"
+            disabled={pending}
+            value={reviewer.download}
+            onChange={(e) => change({ reviewer: { download: e.target.value as DownloadLevel } })}
+          >
+            <option value="none">Nothing</option>
+            <option value="proxy">The proxy</option>
+            <option value="original">The original</option>
           </Select>
         </Row>
         <Row name="Access window" hint="Counted from when their access opens.">
