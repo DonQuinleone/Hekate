@@ -27,6 +27,7 @@ import { QaRules } from "~/components/qa-rules";
 import { Danger, Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
+import { Field } from "~/components/ui/field";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import {
@@ -35,9 +36,11 @@ import {
   customProfilesQuery,
   type Project,
   projectTracksQuery,
+  templatesQuery,
   useArchiveProject,
   useCategoryMutations,
   useProjectCan,
+  useTemplateMutations,
   useTrackDeliveryProfile,
   useUpdateProject,
   workspaceSettingsQuery,
@@ -175,6 +178,108 @@ function SavedInput({
   );
 }
 
+/**
+ * Saving the project's set-up as a template (#240), and the workspace's templates: each a
+ * copy, so changing this project afterwards leaves them as they were.
+ */
+function Templates({ project, canSave }: { project: Project; canSave: boolean }) {
+  const { data: templates = [] } = useQuery(templatesQuery);
+  const { save, remove } = useTemplateMutations();
+  const [naming, setNaming] = useState(false);
+  const [name, setName] = useState(project.name);
+  if (!canSave && templates.length === 0) return null;
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    save.mutate(
+      { projectId: project.id, name },
+      {
+        onSuccess: () => setNaming(false),
+      },
+    );
+  };
+  return (
+    <Section title="Templates">
+      {canSave && (
+        <Row
+          name="Save as a template"
+          hint="Roles, categories, delivery profile, QA rules and version checks, without the files."
+        >
+          <Button
+            variant="secondary"
+            size="md"
+            onClick={() => {
+              save.reset();
+              setName(project.name);
+              setNaming(true);
+            }}
+          >
+            Save template…
+          </Button>
+        </Row>
+      )}
+      {templates.map((t) => (
+        <Row
+          key={t.id}
+          inline
+          name={t.name}
+          hint={[
+            t.fromProject ? `From ${t.fromProject}` : null,
+            `${t.roles.length} ${t.roles.length === 1 ? "role" : "roles"}`,
+            `${t.categories} ${t.categories === 1 ? "category" : "categories"}`,
+            t.createdByName ? `saved by ${t.createdByName}` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        >
+          {t.removable && (
+            <ActionMenu
+              label={t.name}
+              always
+              actions={[
+                { label: "Remove template", danger: true, onSelect: () => remove.mutate(t.id) },
+              ]}
+            />
+          )}
+        </Row>
+      ))}
+      {remove.error && (
+        <p role="alert" className="px-4 pb-3 text-[13px] text-signal">
+          {remove.error.message}
+        </p>
+      )}
+      {naming && (
+        <Dialog
+          title="Save as a template"
+          description="New projects can start from it. Files, people and reviews stay here."
+          onClose={() => setNaming(false)}
+          width="sm"
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setNaming(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                type="submit"
+                form="save-template"
+                disabled={save.isPending || !name.trim()}
+              >
+                Save template
+              </Button>
+            </>
+          }
+        >
+          <form id="save-template" onSubmit={submit} className="flex flex-col gap-3">
+            <Field label="Name" error={save.error?.message}>
+              <Input value={name} maxLength={120} onChange={(e) => setName(e.target.value)} />
+            </Field>
+          </form>
+        </Dialog>
+      )}
+    </Section>
+  );
+}
+
 function General({ project }: { project: Project }) {
   const can = useProjectCan(project.id);
   const update = useUpdateProject(project.id);
@@ -225,6 +330,7 @@ function General({ project }: { project: Project }) {
         </Row>
       </Section>
       {update.error && <p className="-mt-6 text-[13px] text-signal">{update.error.message}</p>}
+      <Templates project={project} canSave={edit} />
       {project.mayArchive && !project.archivedAt && (
         <Danger>
           <Row

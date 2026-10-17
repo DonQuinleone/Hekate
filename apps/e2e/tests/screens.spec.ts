@@ -941,6 +941,27 @@ test("track-takes-edit", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Project templates (#240): saving one from the project's settings, and starting from one.
+test("project-template-save", async ({ page }) => {
+  await page.goto(`/projects/${seeded().musicProjectId}/settings`);
+  await settle(page, "main input[aria-label=Name]");
+  await page.getByRole("button", { name: "Save template…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Save as a template" });
+  await dialog.getByLabel("Name").fill("Chamber recital");
+  await saveScreen(page, "project-template-save");
+  await checkScreen(page);
+});
+
+test("project-new-from-template", async ({ page }) => {
+  await page.goto("/projects");
+  await settle(page, "main a:has-text('Joplin Rags')");
+  await page.getByRole("button", { name: "New project" }).first().click();
+  const dialog = page.getByRole("dialog", { name: "New project" });
+  await dialog.getByLabel("Start from").selectOption({ label: "Solo recital" });
+  await saveScreen(page, "project-new-from-template");
+  await checkScreen(page);
+});
+
 // Asking for a review (#130): the form inside the project, empty and then filled in turn.
 test("request-review", async ({ page }) => {
   const { musicProjectId, trackId } = seeded();

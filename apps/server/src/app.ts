@@ -44,6 +44,7 @@ import { ssoRoutes } from "./routes/sso.ts";
 import { storageSettingsRoutes } from "./routes/storage-settings.ts";
 import { fileTagRoutes, tagRoutes } from "./routes/tags.ts";
 import { sharedTakeRoutes, takeRoutes, trackTakeRoutes } from "./routes/takes.ts";
+import { projectTemplateRoutes, templateRoutes } from "./routes/templates.ts";
 import {
   projectTrackRoutes,
   trackRoutes,
@@ -208,6 +209,7 @@ export function createApi(deps: AppDeps) {
       .route("/projects", projectOverviewRoutes(deps.db))
       .route("/projects", projectMarkRoutes(deps.db))
       .route("/projects", projectCategoryRoutes(deps.db))
+      .route("/projects", projectTemplateRoutes(deps.db))
       .use("/tags/*", ...member)
       .use("/tags", ...member)
       .route("/tags", tagRoutes(deps.db))
@@ -293,6 +295,9 @@ export function createApi(deps: AppDeps) {
         commentRoutes(deps.db, { mailer: deps.mailer, publicUrl: deps.publicUrl }),
       )
       .route("/comments", sharedTakeRoutes(downloads))
+      .use("/templates", ...member)
+      .use("/templates/*", ...member)
+      .route("/templates", templateRoutes(deps.db))
       .use("/categories/*", ...member)
       .route("/categories", categoryRoutes(deps.db))
       .use("/comment-carries/*", ...member)
