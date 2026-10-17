@@ -21,6 +21,7 @@ import {
   type NotificationMail,
   notificationKinds,
   type OverviewSection,
+  type PlayerTool,
   type ProfileRef,
   type ProjectPermission,
   type ProjectProfile,
@@ -451,6 +452,12 @@ export const projectRoles = pgTable(
     projectId: projectId(),
     name: text("name").notNull(),
     permissions: text("permissions").array().notNull().$type<ProjectPermission[]>(),
+    /** Its player tools (#240); a role made before them keeps every one. */
+    tools: text("tools")
+      .array()
+      .notNull()
+      .default(sql`'{qa,meters,spectrogram,score,compare,loops}'::text[]`)
+      .$type<PlayerTool[]>(),
     position: integer("position").notNull().default(0),
     ...timestamps,
   },

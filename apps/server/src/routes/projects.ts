@@ -4,6 +4,7 @@ import {
   creatorRole,
   defaultProjectRoles,
   permissionsFor,
+  playerTools,
   projectListQuery,
   projectPermissions,
   updateProjectInput,
@@ -106,7 +107,11 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
               .from(projects)
               .where(inOrg(projects, organisationId, eq(projects.id, access.projectId)));
             const roles = await db
-              .select({ name: projectRoles.name, permissions: projectRoles.permissions })
+              .select({
+                name: projectRoles.name,
+                permissions: projectRoles.permissions,
+                tools: projectRoles.tools,
+              })
               .from(projectRoles)
               .where(
                 inOrg(projectRoles, organisationId, eq(projectRoles.projectId, access.projectId)),
@@ -155,6 +160,8 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
               projectId: created.id,
               name: role.name,
               permissions: role.permissions,
+              // Roles from before tools per role keep every one (#240).
+              tools: role.tools ?? [...playerTools],
               position,
             })),
           )

@@ -50,6 +50,7 @@ import {
   narrowed,
   type OperatorRow,
   type OverviewSection,
+  type PlayerTool,
   type Preferences,
   type ProfileInput,
   type ProfileRef,
@@ -298,6 +299,8 @@ export interface ProjectRole {
   permissions: ProjectPermission[];
   /** The same, as people choose it: a level in each area. */
   levels: AccessLevels;
+  /** Its player tools (#240). */
+  tools: PlayerTool[];
   members: number;
 }
 
@@ -339,7 +342,7 @@ export function useProjectAccessMutations(projectId: string) {
   };
   return {
     createRole: useMutation({
-      mutationFn: async (input: { name: string; levels: AccessLevels }) =>
+      mutationFn: async (input: { name: string; levels: AccessLevels; tools?: PlayerTool[] }) =>
         json<{ role: ProjectRole }>(
           await api.projects[":id"].roles.$post({ param: { id: projectId }, json: input }),
         ),
@@ -349,11 +352,16 @@ export function useProjectAccessMutations(projectId: string) {
       // Each change sends the role's every level, so changes run one at a time, in
       // the order they were made: a slow earlier request can never overwrite a later one.
       scope: { id: `project-roles-${projectId}` },
-      mutationFn: async (input: { id: string; name: string; levels: AccessLevels }) =>
+      mutationFn: async (input: {
+        id: string;
+        name: string;
+        levels: AccessLevels;
+        tools?: PlayerTool[];
+      }) =>
         json<{ role: ProjectRole }>(
           await api.projects[":id"].roles[":roleId"].$patch({
             param: { id: projectId, roleId: input.id },
-            json: { name: input.name, levels: input.levels },
+            json: { name: input.name, levels: input.levels, tools: input.tools },
           }),
         ),
       // Show the change at once; the server's answer, or a refusal, replaces it.
@@ -369,6 +377,7 @@ export function useProjectAccessMutations(projectId: string) {
                   name: input.name,
                   levels: input.levels,
                   permissions: permissionsOfLevels(input.levels),
+                  tools: input.tools ?? role.tools,
                 }
               : role,
           ),
@@ -868,6 +877,8 @@ export interface FileDetail extends ProjectFile {
   grant:
     | (Pick<ReviewerPermissions, "comment" | "comments" | "tools"> & { listenOnly?: boolean })
     | null;
+  /** For a member, the player tools their role has on (#240); null for a guest. */
+  tools: PlayerTool[] | null;
 }
 
 export const fileQuery = (fileId: string) =>

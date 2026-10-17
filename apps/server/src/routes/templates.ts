@@ -40,7 +40,11 @@ async function snapshotOf(
     .where(inOrg(projects, organisationId, eq(projects.id, projectId)));
   if (!project) throw new NotFound("Project");
   const roles = await db
-    .select({ name: projectRoles.name, permissions: projectRoles.permissions })
+    .select({
+      name: projectRoles.name,
+      permissions: projectRoles.permissions,
+      tools: projectRoles.tools,
+    })
     .from(projectRoles)
     .where(inOrg(projectRoles, organisationId, eq(projectRoles.projectId, projectId)))
     .orderBy(asc(projectRoles.position));
