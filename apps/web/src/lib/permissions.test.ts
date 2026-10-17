@@ -18,7 +18,7 @@ describe("reviewer permissions in words", () => {
       "Sees only own comments",
       "Cannot comment",
       "No decision",
-      "No spectrogram, meters, QA, score",
+      "No spectrogram, meters, compare, QA, score",
     ]);
     // A member's comments and tools follow their role; only the review's own rules show.
     expect(

@@ -1,4 +1,4 @@
-import type { Track } from "./queries";
+import type { CompareFamily } from "./queries";
 
 /**
  * Quick comparison (#44): flip between a track's variations and versions at the same
@@ -19,7 +19,7 @@ export interface CompareSource {
  * What a file can be compared with: the other variations of its version, then the primary
  * variation of every other version, newest first. Only files ready to play are offered.
  */
-export function compareSources(track: Track, fileId: string): CompareSource[] {
+export function compareSources(track: CompareFamily, fileId: string): CompareSource[] {
   const versions = [...track.versions].sort((a, b) => b.number - a.number);
   const mine = versions.find((v) => v.variations.some((x) => x.fileId === fileId));
   const label = (n: number, name: string) => `V${n} · ${name}`;
@@ -50,7 +50,7 @@ export function compareSources(track: Track, fileId: string): CompareSource[] {
 }
 
 /** Any ready variation of the track as a source, whichever version it belongs to. */
-export function sourceFor(track: Track, fileId: string): CompareSource | undefined {
+export function sourceFor(track: CompareFamily, fileId: string): CompareSource | undefined {
   for (const v of track.versions) {
     const x = v.variations.find((y) => y.fileId === fileId);
     if (x) {

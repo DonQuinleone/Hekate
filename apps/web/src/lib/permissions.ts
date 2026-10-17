@@ -13,6 +13,7 @@ const toolNames: Record<ReviewerTool, string> = {
   spectrogram: "spectrogram",
   meters: "meters",
   loops: "loops",
+  compare: "compare",
   qa: "QA",
   score: "score",
 };

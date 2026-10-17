@@ -120,6 +120,13 @@ const screens: Screen[] = [
     ready: "section[aria-label=Comments]",
     as: "guest",
   },
+  // A guest whose review gives them compare (#44, #55) flips between what it gives them.
+  {
+    name: "guest-file-compare",
+    path: (s) => `/g/files/${s.dryFileId}`,
+    ready: "main >> text=V2 · Wet",
+    as: "guest",
+  },
   { name: "home", path: () => "/", ready: "main section[aria-label=Activity] li a" },
   { name: "projects", path: () => "/projects", ready: "main a:has-text('Joplin Rags')" },
   {
