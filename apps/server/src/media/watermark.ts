@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { defaultWatermark, type WatermarkPosition, type WatermarkSettings } from "@hekate/shared";
 import { run } from "./ffmpeg.ts";
 import { withWorkspace } from "./workspace.ts";
 
@@ -18,31 +19,16 @@ const FONTS = [
 ];
 const font = FONTS.find((f) => existsSync(f));
 
-/** The two lines of the mark: who, and where and when. */
-export function watermarkText(
-  viewer: { name: string; email: string },
-  organisation: string,
-  at: Date,
-): string {
-  const day = new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(at);
-  // One line each, whatever was typed into a name.
-  const flat = (s: string) => s.replace(/\s+/g, " ").trim();
-  return `${flat(viewer.name)} · ${flat(viewer.email)}\n${flat(organisation)} · ${day}`;
-}
-
 /**
- * Where the mark is drawn, in shares of the page: staggered rows down the whole page at
- * review size, so no crop leaves it out; one line across the middle of a thumbnail.
+ * Where the mark is drawn, in shares of the page: staggered rows down the whole page when
+ * tiled, so no crop leaves it out; once in the bottom right corner or across the middle.
+ * A thumbnail carries one line across its middle, whatever the project chose.
  */
-function tiles(size: "view" | "thumb"): { x: number; y: number }[] {
-  if (size === "thumb") return [{ x: 0.08, y: 0.45 }];
+function places(size: "view" | "thumb", position: WatermarkPosition): { x: string; y: string }[] {
+  if (size === "thumb" || position === "centre") return [{ x: "(w-text_w)/2", y: "(h-text_h)/2" }];
+  if (position === "corner") return [{ x: "w-text_w-w*0.03", y: "h-text_h-h*0.03" }];
   const rows = [0.06, 0.22, 0.38, 0.54, 0.7, 0.86];
-  return rows.map((y, i) => ({ x: i % 2 === 0 ? 0.04 : 0.3, y }));
+  return rows.map((y, i) => ({ x: `w*${i % 2 === 0 ? 0.04 : 0.3}`, y: `h*${y}` }));
 }
 
 /** A page (WebP) with the viewer's mark drawn over it, as WebP. */
@@ -51,6 +37,7 @@ export async function watermark(
   text: string,
   size: "view" | "thumb",
   signal?: AbortSignal,
+  style: Pick<WatermarkSettings, "position" | "opacity"> = defaultWatermark,
 ): Promise<Buffer> {
   return withWorkspace(undefined, async (dir) => {
     const input = join(dir, "page.webp");
@@ -60,10 +47,11 @@ export async function watermark(
     await writeFile(mark, text);
     const scale = size === "thumb" ? 30 : 60;
     const face = font ? `fontfile='${font}'` : "font=Sans";
-    const filters = tiles(size).map(
+    const alpha = (style.opacity / 100).toFixed(2);
+    const filters = places(size, style.position).map(
       (t) =>
         `drawtext=${face}:textfile='${mark}':expansion=none:fontsize=h/${scale}:line_spacing=6` +
-        `:fontcolor=0x808080@0.3:x=w*${t.x}:y=h*${t.y}`,
+        `:fontcolor=0x808080@${alpha}:x=${t.x}:y=${t.y}`,
     );
     // To a file, so that the WebP says how long it is (see `webp` in pages.ts).
     const output = join(dir, "marked.webp");

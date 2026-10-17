@@ -85,6 +85,8 @@ import {
   type TriageInput,
   type UpdateCarryInput,
   type UpdateProjectInput,
+  type WatermarkPosition,
+  type WatermarkSettings,
   type WorkspaceSettings,
   type WorkspaceSettingsInput,
   type WorkspaceState,
@@ -272,6 +274,8 @@ export interface Project {
   references?: CommentReferences;
   /** Whether recordings play at their delivery target's loudness (#240). */
   normalisation?: NormalisationMode;
+  /** The visible watermark: whom it marks, where and how strongly (#31). */
+  watermark?: WatermarkSettings;
   /** A deletion waiting for a second owner (#240); only on a single project. */
   deletion?: ProjectDeletion | null;
   /** In the list: whether they are a member of it. */
@@ -946,6 +950,8 @@ export interface FileDetail extends ProjectFile {
   tools: PlayerTool[] | null;
   /** Normalised playback (#240), where it applies to this viewer: its mode and volume. */
   normalisation: Normalisation | null;
+  /** The viewer's mark over a video, where the project marks them (#31). */
+  watermark: { text: string; position: WatermarkPosition; opacity: number } | null;
   /** What a comment here may name as it is read from the score: page, bars, beats (#240). */
   references: CommentReferences;
 }

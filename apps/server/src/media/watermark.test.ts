@@ -2,10 +2,11 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { watermarkText } from "@hekate/shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { run } from "./ffmpeg.ts";
 import { webpComplete } from "./pages.ts";
-import { watermark, watermarkText } from "./watermark.ts";
+import { watermark } from "./watermark.ts";
 
 const hasFfmpeg = spawnSync("ffmpeg", ["-version"]).status === 0;
 
@@ -58,6 +59,21 @@ describe("watermarks", () => {
         expect(webpComplete(marked)).toBe(true);
         expect(await ink(marked)).toBeGreaterThan((await ink(white)) + 10_000);
       }
+      // Wherever the project puts it, and stronger when it asks (#31).
+      const faint = await ink(
+        await watermark(white, text, "view", undefined, { position: "corner", opacity: 20 }),
+      );
+      const plain = await ink(
+        await watermark(white, text, "view", undefined, { position: "corner", opacity: 80 }),
+      );
+      expect(faint).toBeGreaterThan(await ink(white));
+      expect(plain).toBeGreaterThan(faint);
+      const centred = await watermark(white, text, "view", undefined, {
+        position: "centre",
+        opacity: 40,
+      });
+      expect(webpComplete(centred)).toBe(true);
+      expect(await ink(centred)).toBeGreaterThan(await ink(white));
     },
   );
 });

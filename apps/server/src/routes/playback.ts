@@ -1,5 +1,5 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import type { PlayerTool } from "@hekate/shared";
+import { marks, type PlayerTool, watermarkOf } from "@hekate/shared";
 import { unwrapKey } from "@hekate/storage";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, count, eq, sql } from "drizzle-orm";
@@ -21,7 +21,7 @@ import { type Audit, requestInfo } from "../audit.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import type { PlaySessionVariables, ViewerVariables } from "../guests.ts";
 import type { Keyring } from "../keyring.ts";
-import { watermark, watermarkText } from "../media/watermark.ts";
+import { watermark } from "../media/watermark.ts";
 import { normalisationOf } from "../normalisation.ts";
 import {
   PLAYBACK_LIFETIME_SECONDS,
@@ -39,14 +39,13 @@ import {
   membershipOf,
   type SecondFactorRule,
 } from "../tenancy.ts";
+import { viewerMark } from "../viewer-mark.ts";
 import { noteOpened } from "./reviews.ts";
 
 const {
   accessEvents,
   filePages,
   files,
-  guests,
-  organisations,
   renditions,
   renditionSegments,
   users,
@@ -138,6 +137,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
           profile: projects.profile,
           commentReferences: projects.commentReferences,
           normalisation: projects.normalisation,
+          watermark: projects.watermark,
         })
         .from(files)
         .innerJoin(
@@ -166,7 +166,15 @@ export const fileRoutes = (deps: PlaybackDeps) =>
         .where(inOrg(variations, c.var.organisationId, eq(variations.fileId, file.id)));
       // A guest's review decides which tools and actions they have; members have their role.
       const access = await fileAccess(deps.db, c.var.actor, file.id);
-      const { commentReferences, normalisation, ...shownFile } = file;
+      const { commentReferences, normalisation, watermark: marking, ...shownFile } = file;
+      // A video's mark is laid over it in the player (#31); pages and pictures carry theirs
+      // burned in, so the player has nothing to add for them.
+      const style = watermarkOf(marking);
+      const viewer = c.var.actor.kind === "guest" ? "guest" : "member";
+      const markText =
+        file.kind === "video" && marks(style, viewer)
+          ? await viewerMark(deps.db, c.var.actor)
+          : null;
       // Opening a file a review asks someone about counts as opening that item.
       await noteOpened(deps.db, c.var.actor, file.id);
       return c.json({
@@ -179,6 +187,9 @@ export const fileRoutes = (deps: PlaybackDeps) =>
           }),
           variation: variation ?? null,
           grant: access?.grant ?? null,
+          watermark: markText
+            ? { text: markText, position: style.position, opacity: style.opacity }
+            : null,
           // Normalised playback (#240): the volume only, for those it applies to.
           normalisation: await normalisationOf(
             deps.db,
@@ -729,9 +740,17 @@ export const playRoutes = (deps: PlaybackDeps) => {
             blobId: filePages.blobId,
             thumbBlobId: filePages.thumbBlobId,
             projectId: files.projectId,
+            watermark: projects.watermark,
           })
           .from(filePages)
           .innerJoin(files, inOrg(files, claims.organisationId, eq(files.id, claims.fileId)))
+          .innerJoin(
+            projects,
+            and(
+              eq(projects.id, files.projectId),
+              eq(projects.organisationId, claims.organisationId),
+            ),
+          )
           .where(
             inOrg(
               filePages,
@@ -758,22 +777,16 @@ export const playRoutes = (deps: PlaybackDeps) => {
         }
         const blobId = size === "view" ? row.blobId : row.thumbBlobId;
         const actor = c.var.actor;
-        if (actor.kind !== "guest") return sendBlob(claims.organisationId, blobId, "image/webp");
-        // A guest's page carries their name, burned in here (docs/security.md).
-        const [who] = await deps.db
-          .select({ name: guests.name, email: guests.email, organisation: organisations.name })
-          .from(guests)
-          .innerJoin(organisations, eq(organisations.id, guests.organisationId))
-          .where(inOrg(guests, claims.organisationId, eq(guests.id, actor.guestId)));
-        if (!who) throw new NotFound("Page");
+        // The page carries the viewer's name, burned in here, where the project marks them
+        // (#31, docs/security.md): guests unless it marks no one, members when it marks everyone.
+        const style = watermarkOf(row.watermark);
+        if (!marks(style, actor.kind === "guest" ? "guest" : "member"))
+          return sendBlob(claims.organisationId, blobId, "image/webp");
+        const text = await viewerMark(deps.db, actor);
+        if (!text) throw new NotFound("Page");
         const { stream } = await deps.storage.open(claims.organisationId, blobId);
         const stored = Buffer.concat(await stream.toArray());
-        const marked = await watermark(
-          stored,
-          watermarkText(who, who.organisation, new Date()),
-          size,
-          c.req.raw.signal,
-        );
+        const marked = await watermark(stored, text, size, c.req.raw.signal, style);
         return c.body(new Uint8Array(marked), 200, {
           ...PRIVATE,
           "content-type": "image/webp",
