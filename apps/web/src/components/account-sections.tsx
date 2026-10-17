@@ -739,8 +739,8 @@ export function AppearanceSection() {
           onChange={(showSpectrogram) => save.mutate({ showSpectrogram })}
         />
         <SwitchRow
-          name="Split channels when a recording opens"
-          hint="Each channel in its own lane; a browser keeps its own choice once you change it there."
+          name="Split channels"
+          hint="Each channel in its own lane; the player's View menu changes it too."
           checked={preferences.splitChannels}
           onChange={(splitChannels) => save.mutate({ splitChannels })}
         />
@@ -752,6 +752,37 @@ export function AppearanceSection() {
         />
       </Section>
       <Section title="Player">
+        <Row
+          name="View presets"
+          hint="Views kept from the player's View menu, with Save as…, to come back to."
+        >
+          {preferences.viewPresets.length === 0 ? (
+            <span className="text-[13px] text-ink-3">None yet</span>
+          ) : (
+            <ul className="m-0 flex w-full max-w-80 list-none flex-col p-0">
+              {preferences.viewPresets.map((preset) => (
+                <li
+                  key={preset.name}
+                  className="flex items-center justify-between gap-3 border-b border-hairline py-1 last:border-b-0"
+                >
+                  <span className="min-w-0 truncate text-[14px] text-ink">{preset.name}</span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`Remove the preset ${preset.name}`}
+                    onClick={() =>
+                      save.mutate({
+                        viewPresets: preferences.viewPresets.filter((p) => p !== preset),
+                      })
+                    }
+                  >
+                    Remove
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Row>
         <Row name="Skip by" hint="How far the arrow keys move the playhead.">
           <Select
             aria-label="Skip by"

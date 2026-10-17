@@ -1,43 +1,16 @@
 import { channelNames, type FrequencyScale, frequencyScales } from "@hekate/shared";
-import { type ReactNode, useCallback, useState } from "react";
+import type { ReactNode } from "react";
 import {
   type ColourMap,
   colourMapNames,
   colourMaps,
   defaultView,
-  readView,
   type SpectrogramView,
   scaleNames,
 } from "~/lib/spectrogram";
 import type { SpectrogramChannelChoice } from "./spectrogram";
 import { Button } from "./ui/button";
 import { Input, Select } from "./ui/input";
-
-const STORAGE_KEY = "hekate.spectrogram.view";
-
-/**
- * The spectrogram view, remembered in this browser. Saving named presets to the account
- * is a follow-up; until then a reviewer's settings survive reloads on their own machine.
- */
-export function useSpectrogramView(): [SpectrogramView, (view: SpectrogramView) => void] {
-  const [view, setView] = useState<SpectrogramView>(() => {
-    try {
-      return readView(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null"));
-    } catch {
-      return defaultView;
-    }
-  });
-  const update = useCallback((next: SpectrogramView) => {
-    const clean = readView(next);
-    setView(clean);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
-    } catch {
-      // Storage may be unavailable (a private window); the view still applies for this visit.
-    }
-  }, []);
-  return [view, update];
-}
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -80,6 +53,48 @@ function NumberField({
 }
 
 /** Every setting of the spectrogram view, beneath the player. */
+/** The spectrogram's colours and frequency scale, shown in the View menu itself (#135). */
+export function SpectrogramLook({
+  view,
+  onView,
+}: {
+  view: SpectrogramView;
+  onView: (view: SpectrogramView) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+      <Field label="Colours">
+        <Select
+          size="sm"
+          className="w-auto"
+          value={view.colourMap}
+          onChange={(event) => onView({ ...view, colourMap: event.target.value as ColourMap })}
+        >
+          {colourMaps.map((map) => (
+            <option key={map} value={map}>
+              {colourMapNames[map]}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Scale">
+        <Select
+          size="sm"
+          className="w-auto"
+          value={view.scale}
+          onChange={(event) => onView({ ...view, scale: event.target.value as FrequencyScale })}
+        >
+          {frequencyScales.map((scale) => (
+            <option key={scale} value={scale}>
+              {scaleNames[scale]}
+            </option>
+          ))}
+        </Select>
+      </Field>
+    </div>
+  );
+}
+
 export function SpectrogramSettings({
   view,
   onView,
@@ -119,34 +134,6 @@ export function SpectrogramSettings({
           ))}
           {channels > 1 && <option value="mid">Mid</option>}
           {channels > 1 && <option value="side">Side</option>}
-        </Select>
-      </Field>
-      <Field label="Colours">
-        <Select
-          size="sm"
-          className="w-auto"
-          value={view.colourMap}
-          onChange={(event) => set("colourMap", event.target.value as ColourMap)}
-        >
-          {colourMaps.map((map) => (
-            <option key={map} value={map}>
-              {colourMapNames[map]}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Scale">
-        <Select
-          size="sm"
-          className="w-auto"
-          value={view.scale}
-          onChange={(event) => set("scale", event.target.value as FrequencyScale)}
-        >
-          {frequencyScales.map((scale) => (
-            <option key={scale} value={scale}>
-              {scaleNames[scale]}
-            </option>
-          ))}
         </Select>
       </Field>
       <NumberField label="Floor dB" value={view.floor} step={6} onChange={(v) => set("floor", v)} />

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { playerViewSchema, viewPresetsSchema } from "./player-view.ts";
 
 /** The languages Hekate's dates and numbers can be shown in; its words are English for now. */
 export const locales = [
@@ -70,8 +71,12 @@ export const preferencesSchema = z.object({
   showSpectrogram: z.boolean(),
   /** The loudness meters and their history on the QA view. */
   showLoudness: z.boolean(),
-  /** Each channel in its own lane when a recording first opens. */
+  /** Each channel in its own lane, rather than combined; the View menu changes it too. */
   splitChannels: z.boolean(),
+  /** How the player is drawn (#135); none until it is first changed, so the defaults apply. */
+  playerView: playerViewSchema.nullable(),
+  /** Views kept under a name. */
+  viewPresets: viewPresetsSchema,
   /** How far the arrow keys move the playhead, in seconds. */
   skipSeconds: z.union(
     skipSteps.map((n) => z.literal(n)) as [z.ZodLiteral<1>, z.ZodLiteral<5>, z.ZodLiteral<10>],
@@ -89,6 +94,8 @@ export const defaultPreferences: Preferences = {
   showSpectrogram: true,
   showLoudness: true,
   splitChannels: false,
+  playerView: null,
+  viewPresets: [],
   skipSeconds: 5,
   preRoll: 1,
 };
