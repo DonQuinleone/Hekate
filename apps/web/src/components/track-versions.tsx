@@ -1,8 +1,8 @@
 import {
   type CarryChoice,
-  deliveryProfiles,
   formatAnchor,
   isPdf,
+  profileFor,
   variationNameFrom,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -13,6 +13,7 @@ import { formatDates } from "~/lib/locale";
 import {
   ApiError,
   carryQuery,
+  customProfilesQuery,
   type Project,
   type ProjectFile,
   projectFilesQuery,
@@ -21,6 +22,7 @@ import {
   useProjectCan,
   useTrackMutations,
   type Version,
+  workspaceSettingsQuery,
 } from "~/lib/queries";
 import { uploadFile } from "~/lib/upload";
 import { Avatar } from "./avatar";
@@ -835,7 +837,13 @@ export function TrackVersions({
   const open = track.versions
     .flatMap((v) => v.variations)
     .reduce((n, v) => n + (byId.get(v.fileId)?.openComments ?? 0), 0);
-  const profile = project.deliveryProfile ? deliveryProfiles[project.deliveryProfile] : null;
+  // The track's own profile, else the project's or the workspace's (#144).
+  const { data: customs = [] } = useQuery(customProfilesQuery);
+  const { data: workspace } = useQuery(workspaceSettingsQuery);
+  const profile = profileFor(
+    track.deliveryProfile ?? project.deliveryProfile ?? workspace?.deliveryProfile,
+    customs,
+  );
   return (
     <div className="flex flex-col gap-6">
       <div>

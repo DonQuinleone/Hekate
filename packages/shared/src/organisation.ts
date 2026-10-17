@@ -7,6 +7,7 @@ import {
   emailTemplateIds,
 } from "./email.ts";
 import { projectProfile } from "./profile.ts";
+import { profileRef } from "./qa.ts";
 import {
   commentScopes,
   defaultReviewerPermissions,
@@ -124,6 +125,8 @@ export const workspaceSettingsSchema = z.object({
   locale: z.enum(locales).nullable(),
   /** Whether a new project shows threads carried to a new version (decision 029). */
   carriedCommentsShown: z.boolean(),
+  /** What recordings are measured against where nothing nearer chooses (#144). */
+  deliveryProfile: profileRef.nullable(),
   /** The workspace's own subject lines for its messages. */
   emailSubjects,
   /** Who must sign in with a second factor. */
@@ -146,6 +149,7 @@ export const defaultWorkspaceSettings: WorkspaceSettings = {
   guestVerification: "link",
   locale: null,
   carriedCommentsShown: true,
+  deliveryProfile: null,
   emailSubjects: {},
   secondFactor: "off",
   securityKeyForAdmins: false,
@@ -160,6 +164,7 @@ export const workspaceSettingsInput = z
     guestVerification: workspaceSettingsSchema.shape.guestVerification.optional(),
     locale: workspaceSettingsSchema.shape.locale.optional(),
     carriedCommentsShown: workspaceSettingsSchema.shape.carriedCommentsShown.optional(),
+    deliveryProfile: workspaceSettingsSchema.shape.deliveryProfile.optional(),
     emailSubjects: emailSubjectsChange.optional(),
     secondFactor: workspaceSettingsSchema.shape.secondFactor.optional(),
     securityKeyForAdmins: workspaceSettingsSchema.shape.securityKeyForAdmins.optional(),
@@ -201,6 +206,11 @@ export function workspaceSettingsOf(stored: unknown): WorkspaceSettings {
       read(stored, "carriedCommentsShown"),
       d.carriedCommentsShown,
     ),
+    deliveryProfile: pick(
+      shape.deliveryProfile,
+      read(stored, "deliveryProfile"),
+      d.deliveryProfile,
+    ),
     emailSubjects: Object.fromEntries(
       emailTemplateIds.flatMap((id) => {
         const subject = read(read(stored, "emailSubjects"), id);
@@ -238,6 +248,8 @@ export function applyWorkspaceSettings(
     guestVerification: change.guestVerification ?? current.guestVerification,
     locale: change.locale === undefined ? current.locale : change.locale,
     carriedCommentsShown: change.carriedCommentsShown ?? current.carriedCommentsShown,
+    deliveryProfile:
+      change.deliveryProfile === undefined ? current.deliveryProfile : change.deliveryProfile,
     emailSubjects: Object.fromEntries(
       Object.entries({ ...current.emailSubjects, ...change.emailSubjects }).filter(
         (entry): entry is [string, string] => typeof entry[1] === "string",

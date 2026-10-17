@@ -1,11 +1,12 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { overviewLayoutInput } from "@hekate/shared";
+import { overviewLayoutInput, profileFor } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, count, desc, eq, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { actorOf, can } from "../access.ts";
 import { recentActivity } from "../activity.ts";
+import { customProfilesOf } from "../delivery-profiles.ts";
 import { projectFigures } from "../project-figures.ts";
 import { failingChecks } from "../qa-summary.ts";
 import type { TenantVariables } from "../tenancy.ts";
@@ -142,6 +143,10 @@ export const projectOverviewRoutes = (db: Database) =>
         })),
         activity,
         deliveryProfile: project?.deliveryProfile ?? null,
+        // Its name, a workspace's own profile included.
+        deliveryProfileLabel:
+          profileFor(project?.deliveryProfile, await customProfilesOf(db, organisationId))?.label ??
+          null,
         createdAt: iso(project?.createdAt ?? null),
         role:
           role?.name ??

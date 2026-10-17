@@ -1,16 +1,24 @@
 import {
   type CategoryHandling,
   categoryHandlings,
-  type DeliveryProfile,
-  deliveryProfileIds,
-  deliveryProfiles,
+  customRef,
   handlingWords,
+  type ProfileRef,
   type ProjectPermission,
   type ProjectProfile,
+  profileFor,
   profiles,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
+import {
+  formatDb,
+  ProfileEditor,
+  ProfileOptions,
+  profileSummary,
+  useWorkspaceAdmin,
+} from "~/components/delivery-profiles";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { Page } from "~/components/page";
@@ -23,11 +31,15 @@ import { ActionMenu } from "~/components/ui/menu";
 import {
   type CommentCategory,
   categoriesQuery,
+  customProfilesQuery,
   type Project,
+  projectTracksQuery,
   useArchiveProject,
   useCategoryMutations,
   useProjectCan,
+  useTrackDeliveryProfile,
   useUpdateProject,
+  workspaceSettingsQuery,
 } from "~/lib/queries";
 import { ProjectFrame } from "~/routes/project";
 
@@ -423,11 +435,20 @@ function CategoryDialog({
   );
 }
 
+/** The profile a project measures against unless something nearer chooses, and its name. */
+function useProjectProfile(project: Project) {
+  const { data: customs = [] } = useQuery(customProfilesQuery);
+  const { data: workspace } = useQuery(workspaceSettingsQuery);
+  const own = profileFor(project.deliveryProfile, customs);
+  const inherited = profileFor(workspace?.deliveryProfile, customs);
+  return { customs, own, inherited, effective: own ?? inherited };
+}
+
 function Workflow({ project }: { project: Project }) {
   const can = useProjectCan(project.id);
   const update = useUpdateProject(project.id);
   const edit = can("edit_workflows");
-  const ceiling = deliveryProfiles[project.deliveryProfile ?? "streaming"].truePeakMax;
+  const { effective } = useProjectProfile(project);
   return (
     <Section
       title="Checks on a new version"
@@ -436,8 +457,8 @@ function Workflow({ project }: { project: Project }) {
       <SwitchRow
         name="True peak under the delivery profile's ceiling"
         hint={
-          project.deliveryProfile
-            ? `${formatDb(ceiling)} dBTP for ${deliveryProfiles[project.deliveryProfile].label}`
+          effective
+            ? `${formatDb(effective.truePeakMax)} dBTP for ${effective.label}, unless a track or file has its own`
             : "The ceiling of the profile suggested for each file"
         }
         checked={project.checkTruePeak ?? false}
@@ -455,52 +476,94 @@ function Workflow({ project }: { project: Project }) {
   );
 }
 
-/** A level in decibels, with a true minus sign. */
-const formatDb = (value: number) => (value < 0 ? `−${Math.abs(value)}` : String(value));
-
-/** What a delivery profile asks for, in one line. */
-export function profileSummary(p: DeliveryProfile): string {
-  const rates = p.sampleRates.rates.map((r) => `${r / 1000} kHz`).join(", ");
-  return [
-    p.loudness
-      ? `${formatDb(p.loudness.target)} LUFS ±${p.loudness.tolerance}`
-      : "No loudness target",
-    `${formatDb(p.truePeakMax)} dBTP`,
-    p.sampleRates.atLeast ? `${rates} or more` : rates,
-    p.bitDepthMin ? `${p.bitDepthMin}-bit${p.bitDepthExact ? "" : " or more"}` : "Any depth",
-    `${p.channels} ${p.channels === 1 ? "channel" : "channels"}`,
-  ].join(" · ");
-}
-
 function Delivery({ project }: { project: Project }) {
   const can = useProjectCan(project.id);
+  const edit = can("edit_workflows");
   const update = useUpdateProject(project.id);
-  const chosen = project.deliveryProfile ? deliveryProfiles[project.deliveryProfile] : null;
+  const admin = useWorkspaceAdmin();
+  const { customs, own, inherited } = useProjectProfile(project);
+  const { data: tracks } = useQuery({
+    ...projectTracksQuery(project.id),
+    enabled: project.profile === "music",
+  });
+  const onTrack = useTrackDeliveryProfile(project.id);
+  const [editing, setEditing] = useState(false);
+  const shown = own ?? inherited;
+  const error = update.error ?? onTrack.error;
   return (
-    <Section
-      title="Delivery profile"
-      intro="What QA measures every recording against. Without one, each file is measured against the profile its channels suggest."
-    >
-      <Row name="Project default" hint={chosen ? profileSummary(chosen) : undefined}>
-        <Select
-          value={project.deliveryProfile ?? ""}
-          aria-label="Project default"
-          disabled={!can("edit_workflows")}
-          onChange={(event) =>
-            update.mutate({
-              deliveryProfile: (event.target.value || null) as Project["deliveryProfile"],
-            })
-          }
-          className="w-full @3xl/app:w-60"
-        >
-          <option value="">Suggested from each file</option>
-          {deliveryProfileIds.map((id) => (
-            <option key={id} value={id}>
-              {deliveryProfiles[id].label}
+    <>
+      <Section
+        title="Delivery profile"
+        intro="What QA measures every recording against. A track or a file can have its own; without any, each file is measured against the profile its channels suggest."
+      >
+        <Row name="Project default" hint={shown ? profileSummary(shown) : undefined}>
+          <Select
+            value={project.deliveryProfile ?? ""}
+            aria-label="Project default"
+            disabled={!edit}
+            onChange={(event) =>
+              update.mutate({ deliveryProfile: (event.target.value || null) as ProfileRef | null })
+            }
+            className="w-full @3xl/app:w-60"
+          >
+            <option value="">
+              {inherited ? `Workspace default (${inherited.label})` : "Suggested from each file"}
             </option>
+            <ProfileOptions customs={customs} />
+          </Select>
+          {edit && admin && (
+            <Button variant="ghost" size="md" onClick={() => setEditing(true)}>
+              Custom…
+            </Button>
+          )}
+        </Row>
+      </Section>
+      {error && <p className="-mt-6 text-[13px] text-signal">{error.message}</p>}
+      {project.profile === "music" && (
+        <Section title="Overrides" intro="Tracks that measure against a different profile.">
+          {!tracks && <Row name="Loading" />}
+          {tracks?.length === 0 && (
+            <Row name="No tracks yet" hint="Each track can measure against its own profile." />
+          )}
+          {tracks?.map((t) => (
+            <Row
+              key={t.id}
+              name={
+                <Link
+                  to="/tracks/$trackId"
+                  params={{ trackId: t.id }}
+                  className="transition-colors hover:text-signal"
+                >
+                  {t.name}
+                </Link>
+              }
+            >
+              <Select
+                size="sm"
+                value={t.deliveryProfile ?? ""}
+                aria-label={`Delivery profile of ${t.name}`}
+                disabled={!edit}
+                onChange={(event) =>
+                  onTrack.mutate({
+                    trackId: t.id,
+                    deliveryProfile: (event.target.value || null) as ProfileRef | null,
+                  })
+                }
+                className="w-full @3xl/app:w-56"
+              >
+                <option value="">Project default</option>
+                <ProfileOptions customs={customs} />
+              </Select>
+            </Row>
           ))}
-        </Select>
-      </Row>
-    </Section>
+        </Section>
+      )}
+      {editing && (
+        <ProfileEditor
+          onClose={() => setEditing(false)}
+          onSaved={(made) => update.mutate({ deliveryProfile: customRef(made.id) })}
+        />
+      )}
+    </>
   );
 }

@@ -379,6 +379,13 @@
       "when": 1792173553655,
       "tag": "0053_role_levels",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1792178017087,
+      "tag": "0054_delivery_profiles",
+      "breakpoints": true
     }
   ]
 }

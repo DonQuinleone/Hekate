@@ -165,7 +165,7 @@ Video checks:
 - Photosensitive flashing risk
 - Programme loudness and true peak of the audio, as above
 
-Findings appear as markers on the waveform, spectrogram and timeline, in a QA tab beside the comments, and in an exportable QA report (PDF, CSV, JSON). One action turns a finding into a comment with a category. When a new version arrives, Hekate shows which findings were fixed and which are new. Delivery profiles (streaming, CD, Apple Digital Masters, surround, Atmos, broadcast, custom) are configurable per project.
+Findings appear as markers on the waveform, spectrogram and timeline, in a QA tab beside the comments, and in an exportable QA report (PDF, CSV, JSON). One action turns a finding into a comment with a category. When a new version arrives, Hekate shows which findings were fixed and which are new. Delivery profiles (streaming, CD, Apple Digital Masters, surround, Atmos, broadcast, and a workspace's own) are chosen per file, track, project or workspace; the nearest choice applies, and without any, the one a file's channels suggest (decision 059).
 
 ## Comments across versions
 

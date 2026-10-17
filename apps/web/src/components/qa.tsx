@@ -1,9 +1,8 @@
 import {
   channelName,
-  type DeliveryProfileId,
-  deliveryProfileIds,
-  deliveryProfiles,
   formatClock,
+  type ProfileRef,
+  type ProfileSource,
   type QaCheck,
   type QaFinding,
   type QaSeverity,
@@ -12,8 +11,18 @@ import { useQuery } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { cn } from "~/lib/cn";
 import { type Loop, MIN_LOOP } from "~/lib/loop";
-import { type QaReport, qaQuery, useDeliveryProfile } from "~/lib/queries";
+import { customProfilesQuery, type QaReport, qaQuery, useFileDeliveryProfile } from "~/lib/queries";
+import { ProfileOptions } from "./delivery-profiles";
 import { Select } from "./ui/input";
+
+/** Where a file's profile comes from, when it has none of its own. */
+const inheritedFrom: Record<ProfileSource, string> = {
+  file: "this file",
+  track: "the track's",
+  project: "the project's",
+  workspace: "the workspace's",
+  suggested: "suggested",
+};
 
 /** What each check is called in the list. */
 const checkNames: Record<QaCheck, string> = {
@@ -203,25 +212,25 @@ function FindingGroup({
 
 /**
  * The quality checks of a recording (#41): problems first, worst first, each playing from
- * where it is; what passed below, folded. Checked against the project's delivery profile,
- * which those who shape the project can change here.
+ * where it is; what passed below, folded. Checked against the nearest delivery profile (the
+ * file's own, its track's, its project's or the workspace's), and those who shape the
+ * project's workflow can give this file one of its own here.
  */
 export function QualityChecks({
   fileId,
-  projectId,
   media,
   canChoose,
   onLoop,
 }: {
   fileId: string;
-  projectId: string;
   media: HTMLMediaElement | null;
   canChoose: boolean;
   /** Loop a finding's passage in the player and hear it from its start. */
   onLoop?: (loop: Loop) => void;
 }) {
   const { data } = useQuery(qaQuery(fileId));
-  const choose = useDeliveryProfile(projectId);
+  const choose = useFileDeliveryProfile(fileId);
+  const { data: customs = [] } = useQuery({ ...customProfilesQuery, enabled: canChoose });
   const [showPassed, setShowPassed] = useState(false);
   const id = useId();
   if (!data) return null;
@@ -256,17 +265,13 @@ export function QualityChecks({
             <Select
               size="sm"
               id={id}
-              value={data.profile.chosen ? data.profile.id : ""}
+              value={data.profile.source === "file" ? data.profile.id : ""}
               disabled={choose.isPending}
-              onChange={(e) => choose.mutate((e.target.value || null) as DeliveryProfileId | null)}
+              onChange={(e) => choose.mutate((e.target.value || null) as ProfileRef | null)}
               className="w-auto"
             >
-              <option value="">{`${deliveryProfiles[data.profile.id].label} (suggested)`}</option>
-              {deliveryProfileIds.map((p) => (
-                <option key={p} value={p}>
-                  {deliveryProfiles[p].label}
-                </option>
-              ))}
+              <option value="">{`${data.inherited.label} (${inheritedFrom[data.inherited.source]})`}</option>
+              <ProfileOptions customs={customs} />
             </Select>
           ) : (
             <span id={id} className="text-ink-2">

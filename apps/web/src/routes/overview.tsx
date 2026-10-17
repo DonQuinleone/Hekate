@@ -1,10 +1,4 @@
-import {
-  type DeliveryProfileId,
-  deliveryProfiles,
-  type OverviewSection,
-  overviewSections,
-  profiles,
-} from "@hekate/shared";
+import { type OverviewSection, overviewSections, profiles } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
@@ -413,11 +407,8 @@ export function ProjectOverview({ project }: { project: Project }) {
         <Card className="px-4 py-2">
           <dl className="m-0 flex flex-col">
             <Property name="Profile">{profiles[project.profile].label}</Property>
-            {o.deliveryProfile && (
-              <Property name="Delivery">
-                {deliveryProfiles[o.deliveryProfile as DeliveryProfileId]?.label ??
-                  o.deliveryProfile}
-              </Property>
+            {o.deliveryProfileLabel && (
+              <Property name="Delivery">{o.deliveryProfileLabel}</Property>
             )}
             <Property name="People">
               <span className="flex items-center gap-2">

@@ -58,7 +58,8 @@ export interface DeliveryProfile {
   /** Bits per sample, at least (or exactly, when `bitDepthExact`). */
   bitDepthMin: number | null;
   bitDepthExact?: boolean;
-  channels: number;
+  /** How many channels; null takes any layout. */
+  channels: number | null;
 }
 
 export const deliveryProfileIds = [
@@ -124,6 +125,86 @@ export const deliveryProfiles: Record<DeliveryProfileId, DeliveryProfile> = {
   },
 };
 
+/**
+ * A workspace's own delivery profile (#144): what its projects can measure against beside the
+ * built-in ones, shared by all of them.
+ */
+export const customProfileInput = z.object({
+  label: z.string().trim().min(1, "Name the profile").max(60),
+  loudness: z
+    .object({ target: z.number().min(-40).max(0), tolerance: z.number().min(0.1).max(6) })
+    .nullable(),
+  truePeakMax: z.number().min(-12).max(0),
+  sampleRates: z.object({
+    rates: z.array(z.number().int().min(8000).max(768_000)).min(1).max(6),
+    atLeast: z.boolean(),
+  }),
+  bitDepthMin: z.union([z.literal(16), z.literal(24), z.literal(32)]).nullable(),
+  bitDepthExact: z.boolean().optional(),
+  channels: z.number().int().min(1).max(64).nullable(),
+});
+export type CustomProfileInput = z.infer<typeof customProfileInput>;
+
+/** A workspace's own profile, as stored. */
+export interface CustomProfile extends DeliveryProfile {
+  id: string;
+}
+
+/**
+ * What a project, track, file or workspace measures against: a built-in profile by its id,
+ * or one of the workspace's own as `custom:` and its id.
+ */
+export type ProfileRef = DeliveryProfileId | `custom:${string}`;
+export const profileRef = z.union([
+  deliveryProfileId,
+  z
+    .string()
+    .regex(/^custom:/)
+    .transform((s) => s.slice("custom:".length).toLowerCase())
+    .pipe(z.uuid())
+    .transform((id) => `custom:${id}` as const),
+]);
+export const customRef = (id: string): ProfileRef => `custom:${id}`;
+/** Choosing a profile for a track or a file; null takes the choice away. */
+export const deliveryProfileChoice = z.object({ deliveryProfile: profileRef.nullable() });
+/** The custom profile's id a reference names, or null for a built-in one. */
+export const customIdOf = (ref: ProfileRef): string | null =>
+  ref.startsWith("custom:") ? ref.slice("custom:".length) : null;
+
+/** The profile a reference names, or null when it names none (a custom one since deleted). */
+export function profileFor(
+  ref: ProfileRef | null | undefined,
+  customs: readonly CustomProfile[],
+): DeliveryProfile | null {
+  if (!ref) return null;
+  const custom = customIdOf(ref);
+  if (custom === null) return deliveryProfiles[ref as DeliveryProfileId] ?? null;
+  return customs.find((c) => c.id === custom) ?? null;
+}
+
+/** Where the profile a file is measured against comes from, nearest first. */
+export const profileSources = ["file", "track", "project", "workspace", "suggested"] as const;
+export type ProfileSource = (typeof profileSources)[number];
+
+/**
+ * The profile a file is measured against (#144): its own, else its track's, else its
+ * project's, else the workspace's, else the one its channels suggest. A reference to a
+ * profile that no longer exists is passed over.
+ */
+export function effectiveProfile(
+  refs: Partial<Record<Exclude<ProfileSource, "suggested">, ProfileRef | null>>,
+  channels: number,
+  customs: readonly CustomProfile[],
+): { ref: ProfileRef; profile: DeliveryProfile; source: ProfileSource } {
+  for (const source of ["file", "track", "project", "workspace"] as const) {
+    const ref = refs[source];
+    const profile = profileFor(ref, customs);
+    if (ref && profile) return { ref, profile, source };
+  }
+  const id = suggestedProfile(channels);
+  return { ref: id, profile: deliveryProfiles[id], source: "suggested" };
+}
+
 /** The profile a project without one is checked against, from the file's channels. */
 export function suggestedProfile(channels: number): DeliveryProfileId {
   if (channels >= 12) return "atmos";
@@ -170,7 +251,7 @@ export function deliveryFindings(
     ) {
       problems.push(`${audio.bitDepth}-bit`);
     }
-    if (audio.channels !== profile.channels) {
+    if (profile.channels !== null && audio.channels !== profile.channels) {
       problems.push(`${audio.channels} ${audio.channels === 1 ? "channel" : "channels"}`);
     }
     out.push({

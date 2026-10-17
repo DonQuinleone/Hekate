@@ -288,6 +288,11 @@ const screens: Screen[] = [
     ready: "main >> text=Guest links last",
   },
   {
+    name: "settings-delivery",
+    path: () => "/settings/delivery",
+    ready: "main >> text=Built in >> nth=0",
+  },
+  {
     name: "settings-defaults",
     path: () => "/settings/defaults",
     ready: "main >> text=Access window",

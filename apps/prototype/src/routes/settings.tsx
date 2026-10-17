@@ -801,45 +801,62 @@ export function SettingsPage({
         </Section>
       )}
       {sec === "delivery" && (
-        <Section
-          title="Delivery profiles"
-          intro="What QA measures against. The built-in ones cannot be changed; add your own."
-          action={
-            <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
-              <Icon name="plus" size={14} />
-              Profile
-            </Button>
-          }
-        >
-          {deliveryProfiles.map((p) => (
+        <>
+          <Section title="Workspace default">
             <Row
-              key={p.id}
-              name={p.name}
-              hint={[
-                p.loudness !== null ? `${p.loudness} LUFS ±${p.tolerance}` : "no loudness target",
-                `${p.truePeak} dBTP`,
-                p.rates.map((r) => `${r / 1000} kHz`).join(", "),
-                p.bitDepth ? `${p.bitDepth}-bit` : "any depth",
-                p.layout,
-                p.lossless ? "lossless" : "lossy allowed",
-              ].join(" · ")}
+              name="Measured against"
+              hint="For projects, tracks and files that choose nothing nearer."
             >
-              {p.id === "custom" ? (
-                <ActionMenu
-                  always
-                  label={p.name}
-                  actions={[
-                    { label: "Edit", onSelect: () => setAdding(true) },
-                    "divider",
-                    { label: "Delete", danger: true, onSelect: () => {} },
-                  ]}
-                />
-              ) : (
-                <span className="text-[12px] text-ink-3">built in</span>
-              )}
+              <Select defaultValue="" className="w-60">
+                <option value="">Suggested from each file</option>
+                {deliveryProfiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
             </Row>
-          ))}
-        </Section>
+          </Section>
+          <Section
+            title="Delivery profiles"
+            intro="What QA measures against. The built-in ones cannot be changed; add your own."
+            action={
+              <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
+                <Icon name="plus" size={14} />
+                Profile
+              </Button>
+            }
+          >
+            {deliveryProfiles.map((p) => (
+              <Row
+                key={p.id}
+                name={p.name}
+                hint={[
+                  p.loudness !== null ? `${p.loudness} LUFS ±${p.tolerance}` : "no loudness target",
+                  `${p.truePeak} dBTP`,
+                  p.rates.map((r) => `${r / 1000} kHz`).join(", "),
+                  p.bitDepth ? `${p.bitDepth}-bit` : "any depth",
+                  p.layout,
+                  p.lossless ? "lossless" : "lossy allowed",
+                ].join(" · ")}
+              >
+                {p.id === "custom" ? (
+                  <ActionMenu
+                    always
+                    label={p.name}
+                    actions={[
+                      { label: "Edit", onSelect: () => setAdding(true) },
+                      "divider",
+                      { label: "Delete", danger: true, onSelect: () => {} },
+                    ]}
+                  />
+                ) : (
+                  <span className="text-[12px] text-ink-3">built in</span>
+                )}
+              </Row>
+            ))}
+          </Section>
+        </>
       )}
       {sec === "security" && (
         <>

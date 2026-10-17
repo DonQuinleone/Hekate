@@ -1749,6 +1749,7 @@ describe.runIf(url)("api", () => {
           guestVerification: "link",
           locale: null,
           carriedCommentsShown: true,
+          deliveryProfile: null,
           emailSubjects: {},
           secondFactor: "off",
           securityKeyForAdmins: false,
@@ -2865,6 +2866,151 @@ describe.runIf(url)("api", () => {
           .returning();
         return { owner, organisationId, projectId: project.id, fileId: file?.id ?? "" };
       };
+
+      it("measures a file against the nearest profile: its own, its track's, the project's, the workspace's", async () => {
+        const { owner, projectId, fileId } = await studio();
+        const send = (method: string, url: string, body: unknown, cookie = owner) =>
+          app.request(url, { ...json(body, cookie), method });
+        type Chosen = { id: string; label: string; source: string; chosen: boolean };
+        const profile = async () =>
+          ((await (await getAs(`/api/files/${fileId}/qa`, owner)).json()) as { profile: Chosen })
+            .profile;
+        expect(await profile()).toMatchObject({ id: "streaming", source: "suggested" });
+
+        // The workspace's own profile, made by an admin and read by every member.
+        const vinyl = {
+          label: "Vinyl cut",
+          loudness: null,
+          truePeakMax: -3,
+          sampleRates: { rates: [96_000], atLeast: false },
+          bitDepthMin: 24,
+          channels: null,
+        };
+        const made = await app.request("/api/organisation/delivery-profiles", json(vinyl, owner));
+        expect(made.status).toBe(201);
+        const ref = `custom:${((await made.json()) as { profile: { id: string } }).profile.id}`;
+        expect(
+          (await app.request("/api/organisation/delivery-profiles", json(vinyl, owner))).status,
+        ).toBe(409);
+        const member = await joinAs(owner, "mixer@example.test");
+        expect((await getAs("/api/organisation/delivery-profiles", member)).status).toBe(200);
+        expect(
+          (await app.request("/api/organisation/delivery-profiles", json(vinyl, member))).status,
+        ).toBe(403);
+
+        // Nearest first: the workspace, then the project, the track and the file itself.
+        expect(
+          (await send("PATCH", "/api/organisation/settings", { deliveryProfile: ref })).status,
+        ).toBe(200);
+        expect(await profile()).toMatchObject({ id: ref, label: "Vinyl cut", source: "workspace" });
+        expect(
+          (await send("PATCH", `/api/projects/${projectId}`, { deliveryProfile: "cd" })).status,
+        ).toBe(200);
+        expect(await profile()).toMatchObject({ id: "cd", source: "project" });
+        const unknown = "custom:0190a6f0-0000-7000-8000-0000000000ff";
+        expect(
+          (
+            await send("PATCH", `/api/projects/${projectId}`, {
+              deliveryProfile: `custom:${"-".repeat(36)}`,
+            })
+          ).status,
+        ).toBe(400);
+        expect(
+          (await send("PATCH", `/api/projects/${projectId}`, { deliveryProfile: unknown })).status,
+        ).toBe(422);
+        const track = await app.request(
+          `/api/projects/${projectId}/tracks`,
+          json({ name: "Maple Leaf Rag" }, owner),
+        );
+        const trackId = ((await track.json()) as { track: { id: string } }).track.id;
+        await app.request(
+          `/api/tracks/${trackId}/versions`,
+          json({ variations: [{ fileId, name: "Mix" }] }, owner),
+        );
+        const onTrack = await send("PUT", `/api/tracks/${trackId}/delivery-profile`, {
+          deliveryProfile: "broadcast",
+        });
+        expect(onTrack.status).toBe(200);
+        expect(await profile()).toMatchObject({ id: "broadcast", source: "track" });
+        expect(
+          (await send("PUT", `/api/files/${fileId}/delivery-profile`, { deliveryProfile: ref }))
+            .status,
+        ).toBe(204);
+        expect(await profile()).toMatchObject({ id: ref, source: "file" });
+
+        // Choosing is for whoever edits the project's workflow.
+        await grantRole(owner, projectId, member, "Engineer");
+        expect(
+          (
+            await send(
+              "PUT",
+              `/api/files/${fileId}/delivery-profile`,
+              { deliveryProfile: null },
+              member,
+            )
+          ).status,
+        ).toBe(403);
+
+        // Another workspace's file and profile are not found, nor may its profile be chosen.
+        const [elsewhere] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-profiles" })
+          .returning();
+        const [theirProfile] = await db
+          .insert(schema.deliveryProfiles)
+          .values({
+            organisationId: elsewhere?.id ?? "",
+            label: "Theirs",
+            spec: { ...vinyl, bitDepthMin: 24 },
+          })
+          .returning();
+        const theirs = await storage.put(elsewhere?.id ?? "", Buffer.from("theirs"));
+        const [theirProject] = await db
+          .insert(schema.projects)
+          .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+          .returning();
+        const [theirFile] = await db
+          .insert(schema.files)
+          .values({
+            organisationId: elsewhere?.id ?? "",
+            projectId: theirProject?.id ?? "",
+            name: "Theirs.wav",
+            kind: "audio",
+            blobId: theirs.id,
+            contentType: "audio/wav",
+            byteSize: theirs.byteSize,
+          })
+          .returning();
+        expect((await getAs(`/api/files/${theirFile?.id}/qa`, owner)).status).toBe(404);
+        expect(
+          (
+            await send("PUT", `/api/files/${theirFile?.id}/delivery-profile`, {
+              deliveryProfile: "cd",
+            })
+          ).status,
+        ).toBe(404);
+        expect(
+          (
+            await send("PUT", `/api/files/${fileId}/delivery-profile`, {
+              deliveryProfile: `custom:${theirProfile?.id}`,
+            })
+          ).status,
+        ).toBe(422);
+        expect(
+          (await send("DELETE", `/api/organisation/delivery-profiles/${theirProfile?.id}`, {}))
+            .status,
+        ).toBe(404);
+
+        // Removing the profile removes every choice of it: the track's applies again.
+        expect(
+          (await send("DELETE", `/api/organisation/delivery-profiles/${ref.slice(7)}`, {})).status,
+        ).toBe(204);
+        expect(await profile()).toMatchObject({ id: "broadcast", source: "track" });
+        const settings = (await (await getAs("/api/organisation/settings", owner)).json()) as {
+          settings: { deliveryProfile: string | null };
+        };
+        expect(settings.settings.deliveryProfile).toBeNull();
+      });
 
       it("makes each download once, for its session, logged, and only as the role allows", async () => {
         const { owner, organisationId, projectId, fileId } = await studio();
