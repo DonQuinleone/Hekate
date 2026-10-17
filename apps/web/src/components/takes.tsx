@@ -4,6 +4,7 @@ import {
   clockOf,
   coverageGaps,
   formatDuration,
+  gapsLabel,
   parseClock,
   TAKE_RATING_MAX,
   type TakeChange,
@@ -143,7 +144,7 @@ export function TakeManager({ track }: { track: Track }) {
   const shown = filter === "best" ? ordered.filter((t) => t.starred || t.rating >= 4) : ordered;
   const withBars = takes.some((t) => t.barFrom !== null);
   const end = rulerEnd(takes);
-  const gaps = coverageGaps(takes).reduce((n, [a, b]) => n + b - a + 1, 0);
+  const gaps = coverageGaps(takes);
   const addButton = canAdd && (
     <>
       <FileInput
@@ -196,7 +197,8 @@ export function TakeManager({ track }: { track: Track }) {
             <Icon name="take" size={14} className="text-ink-3" />
             <span className="text-ink-3">
               {takes.length} {takes.length === 1 ? "take" : "takes"}
-              {withBars && (gaps > 0 ? ` · ${gaps} bars uncovered` : " · every bar covered")}
+              {withBars &&
+                (gaps.length > 0 ? ` · no take of ${gapsLabel(gaps)}` : " · every bar covered")}
             </span>
             <div className="ml-auto flex flex-wrap items-center gap-2">
               {withBars && (
@@ -250,6 +252,17 @@ export function TakeManager({ track }: { track: Track }) {
                       >
                         {i === 0 ? "bar 1" : i * 10}
                       </span>
+                    ))}
+                    {/* The bars no take covers, marked under the ruler. */}
+                    {gaps.map(([from, to]) => (
+                      <span
+                        key={from}
+                        className="absolute bottom-0 h-1 rounded-full bg-signal/60"
+                        style={{
+                          left: `${(from - 1) * (100 / end)}%`,
+                          width: `${(to - from + 1) * (100 / end)}%`,
+                        }}
+                      />
                     ))}
                   </span>
                   <span />
@@ -571,5 +584,113 @@ function EditTake({
         )}
       </form>
     </Dialog>
+  );
+}
+
+/**
+ * "Any other options for bar 72?" (#46): from a thread on a bar, every take of the track
+ * covering it, starred first and then by rating, each one click from the player.
+ */
+export function OtherTakes({
+  trackId,
+  bar,
+  onClose,
+}: {
+  trackId: string;
+  bar: number;
+  onClose: () => void;
+}) {
+  const { data: takes, error } = useQuery(trackTakesQuery(trackId));
+  const list = takes ? takesCovering(takes, bar) : [];
+  return (
+    <section
+      aria-label={`Other takes for bar ${bar}`}
+      className="rounded-panel border border-line bg-ground"
+    >
+      <div className="flex items-center gap-2 border-b border-line py-1 pr-1 pl-3">
+        <Icon name="take" size={14} className="text-ink-3" />
+        <span className="text-[13px] font-medium text-ink">Other takes for bar {bar}</span>
+        {takes && <span className="text-[12px] text-ink-3">{list.length} cover it</span>}
+        <Button
+          variant="ghost"
+          size="iconSm"
+          aria-label="Close the takes"
+          onClick={onClose}
+          className="ml-auto"
+        >
+          <Icon name="close" size={13} />
+        </Button>
+      </div>
+      {error ? (
+        <p className="m-0 px-3 py-2 text-[13px] text-signal">{error.message}</p>
+      ) : !takes ? (
+        <p className="m-0 px-3 py-2 text-[13px] text-ink-3">Loading</p>
+      ) : list.length === 0 ? (
+        <p className="m-0 px-3 py-2 text-[13px] text-ink-3">
+          No take covers bar {bar}. A take's bars are set in the track's takes.
+        </p>
+      ) : (
+        <ul className="m-0 list-none p-0">
+          {list.map((t) => (
+            <li key={t.id} className="border-b border-line last:border-b-0">
+              {t.file ? (
+                <Link
+                  to="/files/$fileId"
+                  params={{ fileId: t.file.id }}
+                  className="flex items-center gap-2.5 px-3 py-1.5 no-underline hover:bg-raised/40"
+                >
+                  <OtherTake take={t} />
+                </Link>
+              ) : (
+                <span className="flex items-center gap-2.5 px-3 py-1.5">
+                  <OtherTake take={t} />
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="border-t border-line px-3 py-1.5">
+        <Link
+          to="/tracks/$trackId"
+          params={{ trackId }}
+          search={{ view: "takes" }}
+          className="text-[12px] text-ink-3 hover:text-ink"
+        >
+          All the track's takes
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+function OtherTake({ take }: { take: TakeRow }) {
+  return (
+    <>
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-raised text-ink">
+        <Icon name="play" size={9} fill="currentColor" strokeWidth={0} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5 text-[13px] text-ink">
+          <span className="tabular font-medium">T{take.number}</span>
+          {take.starred && (
+            <Icon
+              name="star"
+              size={11}
+              fill="currentColor"
+              aria-label="Starred"
+              className="text-ink-2"
+            />
+          )}
+          <Rating value={take.rating} />
+        </span>
+        <span className="block truncate text-[12px] text-ink-3">
+          {[barsLabel(take), take.label, take.notes].filter(Boolean).join(" · ")}
+        </span>
+      </span>
+      {take.file?.duration != null && (
+        <span className="tabular text-[12px] text-ink-3">{formatDuration(take.file.duration)}</span>
+      )}
+    </>
   );
 }
