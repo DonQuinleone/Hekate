@@ -105,9 +105,18 @@ export function mentionedIn<P extends { id: string; name: string }>(
   body: string,
   people: P[],
 ): P[] {
-  const lower = body.toLowerCase();
   const found = new Map<string, P>();
-  const taken: [number, number][] = [];
+  for (const r of mentionRanges(body, people)) found.set(r.person.id, r.person);
+  return [...found.values()];
+}
+
+/** Where each mention sits in the text, in order, for showing it apart from the words. */
+export function mentionRanges<P extends { id: string; name: string }>(
+  body: string,
+  people: P[],
+): { start: number; end: number; person: P }[] {
+  const lower = body.toLowerCase();
+  const taken: { start: number; end: number; person: P }[] = [];
   const byLength = [...people]
     .filter((p) => p.name.trim())
     .sort((a, b) => b.name.length - a.name.length);
@@ -118,13 +127,25 @@ export function mentionedIn<P extends { id: string; name: string }>(
       const end = at + needle.length;
       const next = lower[end];
       const bounded = next === undefined || !/[\p{L}\p{N}_]/u.test(next);
-      const overlaps = taken.some(([s, e]) => at < e && end > s);
-      if (bounded && !overlaps) {
-        found.set(person.id, person);
-        taken.push([at, end]);
-      }
+      const overlaps = taken.some((t) => at < t.end && end > t.start);
+      if (bounded && !overlaps) taken.push({ start: at, end, person });
       at = lower.indexOf(needle, at + 1);
     }
   }
-  return [...found.values()];
+  return taken.sort((a, b) => a.start - b.start);
+}
+
+/**
+ * The mention being typed where the caret is: an `@` at the start or after a space, and the
+ * letters after it, which narrow the people offered. Null when the caret is not in one.
+ */
+export function mentionAt(text: string, caret: number): { start: number; query: string } | null {
+  const before = text.slice(0, caret);
+  const at = before.lastIndexOf("@");
+  if (at === -1) return null;
+  if (at > 0 && !/\s/.test(before[at - 1] ?? "")) return null;
+  const query = before.slice(at + 1);
+  // A name has at most a few words; a newline or a second space in a row ends the mention.
+  if (query.length > 40 || query.includes("\n") || query.includes("  ")) return null;
+  return { start: at, query };
 }

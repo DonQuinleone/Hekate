@@ -281,7 +281,10 @@ export function createApi(deps: AppDeps) {
       )
       .route("/guest", guestRoutes(reviewDeps))
       .use("/comments/*", ...member)
-      .route("/comments", commentRoutes(deps.db))
+      .route(
+        "/comments",
+        commentRoutes(deps.db, { mailer: deps.mailer, publicUrl: deps.publicUrl }),
+      )
       .use("/categories/*", ...member)
       .route("/categories", categoryRoutes(deps.db))
       .use("/comment-carries/*", ...member)

@@ -4,6 +4,7 @@ import {
   approvalRules,
   auditActions,
   auditActorTypes,
+  type CommentMention,
   type CustomProfileInput,
   carryStatuses,
   categoryHandlings,
@@ -784,6 +785,12 @@ export const comments = pgTable(
     deferredTo: text("deferred_to"),
     /** Who is to act on it. */
     assigneeId: text("assignee_id").references(() => users.id, { onDelete: "set null" }),
+    /** The members it mentions, as the picker chose them, named as they were (#133). */
+    mentions: jsonb("mentions").$type<CommentMention[]>().notNull().default([]),
+    /** A thread made a task (#133), and when and by whom it was done. */
+    todo: boolean("todo").notNull().default(false),
+    todoDoneAt: timestamp("todo_done_at", { withTimezone: true }),
+    todoDoneById: text("todo_done_by_id").references(() => users.id, { onDelete: "set null" }),
     ...timestamps,
   },
   (t) => [

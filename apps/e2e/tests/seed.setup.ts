@@ -257,7 +257,11 @@ setup("seed", async ({ page, browser }) => {
     to: { bar: 12 },
     at: 14.2,
   });
-  await comment(dry, "Overall balance is great; the reverb tail could be a touch shorter.");
+  // A mention from the picker (#133): Alex notes it for himself.
+  await api(page, "POST", `/api/files/${dry}/comments`, {
+    body: "Overall balance is great; @Alex Rivera, the reverb tail could be a touch shorter.",
+    mentions: [user.id],
+  });
   // Triage (#36): the pedal noise waits for noise reduction; the rushing is someone's to fix.
   const { categories } = await api<{ categories: { id: string; name: string }[] }>(
     page,
@@ -274,6 +278,8 @@ setup("seed", async ({ page, browser }) => {
     categoryId: categoryId("Performance"),
     assigneeId: user.id,
   });
+  // And it is a task (#133).
+  await api(page, "POST", `/api/comments/${rushes.comment.id}/todo`, { todo: true });
   await comment(score, "This dynamic is printed as mp in the parts.", {
     kind: "region",
     page: 1,

@@ -210,6 +210,7 @@ export async function hopsOf(
       anchor: commentCarries.anchor,
       visible: commentCarries.visible,
       status: commentCarries.status,
+      anchorPlaced: commentCarries.anchorPlaced,
       versionNumber: versions.number,
     })
     .from(commentCarries)
