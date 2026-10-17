@@ -24,9 +24,11 @@ import {
   type ErrorReport,
   type ErrorReportRow,
   type FileColumnLayout,
+  type FileInspection,
   type FileKind,
   type GroupInput,
   type GuestInput,
+  type InspectKind,
   type InstanceAccess,
   type InstanceMemberRow,
   type InstanceOverview,
@@ -58,9 +60,11 @@ import {
   type ReviewerPermissions,
   type ReviewerPermissionsChange,
   type ReviewerState,
+  type ReviewInspection,
   type ReviewKind,
   type SavedSearchInput,
   type SearchRequest,
+  type SessionInspection,
   type SsoServiceProvider,
   type SsoSettings,
   type SsoSettingsInput,
@@ -2726,6 +2730,35 @@ export const instanceErrorQuery = (reference: string) =>
       const res = await api.instance.errors[":reference"].$get({ param: { reference } });
       if (res.status === 404) return null;
       return json<ErrorReport>(res);
+    },
+  });
+
+/**
+ * Debug tools' inspectors (#159). Each look is recorded on the server, so a result is kept
+ * while it is shown rather than fetched again on focus, and each press of Inspect (`look`)
+ * is a new look, fetched and recorded again.
+ */
+export type Inspection =
+  | { kind: "file"; found: FileInspection }
+  | { kind: "review"; found: ReviewInspection }
+  | { kind: "session"; found: SessionInspection };
+
+export const instanceInspectQuery = (kind: InspectKind, id: string, look: number) =>
+  queryOptions({
+    queryKey: ["instance", "inspect", kind, id, look],
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnWindowFocus: false,
+    queryFn: async (): Promise<Inspection | null> => {
+      const param = { param: { id } };
+      const inspect = api.instance.inspect;
+      const res =
+        kind === "file"
+          ? await inspect.file[":id"].$get(param)
+          : kind === "review"
+            ? await inspect.review[":id"].$get(param)
+            : await inspect.session[":id"].$get(param);
+      if (res.status === 404) return null;
+      return { kind, found: await json(res) } as Inspection;
     },
   });
 

@@ -5,6 +5,7 @@ import {
   type ErrorSource,
   errorReferenceParam,
   errorReportsQuery,
+  type InspectKind,
   type InstanceAccess,
   type InstanceMemberRow,
   type InstanceOverview,
@@ -15,6 +16,9 @@ import {
   type InstanceWorkspacePage,
   type InstanceWorkspaceSettings,
   type InstanceWorkspaceStorage,
+  inspectFileParam,
+  inspectReviewParam,
+  inspectSessionParam,
   instanceWorkspacesQuery,
   newWorkspaceInput,
   type OperatorRow,
@@ -44,7 +48,7 @@ import {
   sql,
   sum,
 } from "drizzle-orm";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -52,6 +56,7 @@ import { requestInfo } from "../audit.ts";
 import type { Auth } from "../auth.ts";
 import { workspaceEmail } from "../email/templates.ts";
 import { CodedException, NotFound } from "../errors.ts";
+import { inspectFile, inspectReview, inspectSession } from "../inspect.ts";
 import { INVITATION_LIFETIME_MS, newInvitationToken } from "../invitation-token.ts";
 import type { Jobs } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
@@ -330,6 +335,24 @@ function workspaceOf(
 }
 
 export function instanceRoutes(options: InstanceOptions) {
+  /**
+   * An operator looked into a workspace: what, and where. The workspace's id is kept beside
+   * its name, which can change or be shared by another.
+   */
+  const inspected = (
+    c: Context<{ Variables: InstanceVariables }>,
+    kind: InspectKind,
+    id: string,
+    workspace: { id: string; name: string } | null,
+    fallback: string,
+  ) =>
+    recordInstanceEvent(options.db, {
+      actorId: c.var.userId,
+      action: "debug.inspected",
+      target: workspace?.name ?? fallback,
+      details: { kind, id, organisationId: workspace?.id ?? null },
+      ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+    });
   const { db } = options;
   return (
     new Hono<{ Variables: InstanceVariables }>()
@@ -1214,6 +1237,29 @@ export function instanceRoutes(options: InstanceOptions) {
           who: whoName !== null && whoEmail !== null ? { name: whoName, email: whoEmail } : null,
         };
         return c.json(report);
+      })
+      // Read-only inspectors (#159). Each look into a workspace is an instance event.
+      .use("/inspect/*", operatorsOnly)
+      .get("/inspect/file/:id", zValidator("param", inspectFileParam), async (c) => {
+        const { id } = c.req.valid("param");
+        const found = await inspectFile(db, id);
+        if (!found) throw new NotFound("File");
+        await inspected(c, "file", id, found.workspace, found.name);
+        return c.json(found);
+      })
+      .get("/inspect/review/:id", zValidator("param", inspectReviewParam), async (c) => {
+        const { id } = c.req.valid("param");
+        const found = await inspectReview(db, id);
+        if (!found) throw new NotFound("Review");
+        await inspected(c, "review", id, found.workspace, found.title);
+        return c.json(found);
+      })
+      .get("/inspect/session/:id", zValidator("param", inspectSessionParam), async (c) => {
+        const { id } = c.req.valid("param");
+        const found = await inspectSession(db, id);
+        if (!found) throw new NotFound("Session");
+        await inspected(c, "session", id, found.workspace, found.who.email);
+        return c.json(found);
       })
   );
 }

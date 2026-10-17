@@ -445,6 +445,37 @@ test("instance-debug-report", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Debug tools' inspectors (#159): a file, a review and this very session.
+for (const [name, label, ready] of [
+  ["instance-inspect-file", "File id or link", "main >> text=Stored"],
+  ["instance-inspect-review", "Review id or link", "main >> text=Reviewers"],
+  ["instance-inspect-session", "Session id", "main >> text=Signed in with"],
+] as const) {
+  test(name, async ({ page }) => {
+    await page.clock.setFixedTime(FIXED_TIME);
+    const s = seeded();
+    const sessions = (await (await page.request.get("/api/me/sessions")).json()) as {
+      sessions: { id: string; current: boolean }[];
+    };
+    const id =
+      label === "File id or link"
+        ? `/projects/${s.musicProjectId}/files/${s.scoreFileId}`
+        : label === "Review id or link"
+          ? `/inbox?item=${s.reviewId}`
+          : (sessions.sessions.find((x) => x.current)?.id ?? "");
+    await page.goto("/instance/debug");
+    await settle(page, "main >> text=HK-7F3A-2C");
+    await page.getByLabel(label, { exact: true }).fill(id);
+    await page.getByLabel(label, { exact: true }).press("Enter");
+    await settle(page, ready);
+    await page
+      .getByText(ready.replace("main >> text=", ""), { exact: true })
+      .scrollIntoViewIfNeeded();
+    await saveScreen(page, name);
+    await checkScreen(page);
+  });
+}
+
 // The command palette, as it opens and with results from the server.
 for (const [name, typed, ready] of [
   ["palette", "", "[role=option]:has-text('Inbox')"],

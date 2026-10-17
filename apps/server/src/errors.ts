@@ -2,7 +2,7 @@ import { type Database, uuidv7 } from "@hekate/db";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
-import { recordFailure } from "./error-reports.ts";
+import { failureContext, recordFailure } from "./error-reports.ts";
 
 /** Every error leaves the API in the same shape; a failure also carries its reference (#159). */
 export interface ApiError {
@@ -70,6 +70,7 @@ export const errorHandler = (db?: Database) => async (err: Error, c: Context) =>
         requestId: known(c, "requestId"),
         organisationId: known(c, "organisationId"),
         userId: known(c, "userId"),
+        context: failureContext(c.req.routePath, c.req.param()),
       })
     : null;
   const message =
