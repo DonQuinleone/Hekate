@@ -34,6 +34,8 @@ import { createKeyring } from "./keyring.ts";
 import { memoryMailer } from "./mail.ts";
 import { probe, run } from "./media/ffmpeg.ts";
 import { webpComplete } from "./media/pages.ts";
+import { jpegSize } from "./media/pdf.ts";
+import { samplePdf } from "./media/sample-pdf.ts";
 import {
   analysisHandler,
   checksumHandler,
@@ -4443,6 +4445,149 @@ describe.runIf(url)("api", () => {
             .status,
         ).toBe(404);
       });
+
+      it.runIf(
+        (spawnSync("ffmpeg", ["-version"]).status === 0 &&
+          spawnSync("pdfinfo", ["-v"]).status === 0) ||
+          process.env.CI,
+      )(
+        "makes a document's pages and a picture's original into downloads marked for whoever asks",
+        async () => {
+          const { owner, organisationId, projectId } = await studio();
+          const dir = mkdtempSync(join(tmpdir(), "hekate-marked-"));
+          try {
+            const draw = async (name: string, size: string) => {
+              const out = join(dir, name);
+              await run("ffmpeg", [
+                ...["-hide_banner", "-nostdin", "-v", "error", "-f", "lavfi"],
+                ...["-i", `color=white:s=${size}`, "-frames:v", "1", out],
+              ]);
+              return readFileSync(out);
+            };
+            const page = await draw("page.webp", "707x1000");
+            const addFile = async (
+              values: { name: string; kind: "document" | "image"; contentType: string },
+              bytes: Buffer,
+              pages: number,
+            ) => {
+              const blob = await storage.put(organisationId, bytes);
+              const [file] = await db
+                .insert(schema.files)
+                .values({
+                  organisationId,
+                  projectId,
+                  ...values,
+                  blobId: blob.id,
+                  byteSize: blob.byteSize,
+                  streamStatus: pages > 0 ? "ready" : "none",
+                  pageCount: values.kind === "document" && pages > 0 ? pages : null,
+                })
+                .returning();
+              for (let n = 1; n <= pages; n++) {
+                const view = await storage.put(organisationId, page);
+                await db.insert(schema.filePages).values({
+                  organisationId,
+                  fileId: file?.id ?? "",
+                  page: n,
+                  width: 707,
+                  height: 1000,
+                  blobId: view.id,
+                  thumbBlobId: view.id,
+                });
+              }
+              return file?.id ?? "";
+            };
+            const score = await addFile(
+              { name: "Score.pdf", kind: "document", contentType: "application/pdf" },
+              samplePdf(2),
+              2,
+            );
+            const cover = await addFile(
+              { name: "Cover.jpg", kind: "image", contentType: "image/jpeg" },
+              await draw("cover.jpg", "640x480"),
+              1,
+            );
+            const notes = await addFile(
+              { name: "Notes.txt", kind: "document", contentType: "text/plain" },
+              Buffer.from("Bar 12: too fast"),
+              0,
+            );
+
+            type Choices = { proxy: { available: boolean }; original: { available: boolean } };
+            const choices = async (fileId: string) =>
+              (await (await getAs(`/api/files/${fileId}/downloads`, owner)).json()) as Choices;
+            expect(await choices(score)).toMatchObject({
+              proxy: { available: true },
+              original: { available: true },
+            });
+            expect(await choices(cover)).toMatchObject({ original: { available: true } });
+            // A document never drawn as pages has nothing to mark, so nothing to download.
+            expect(await choices(notes)).toMatchObject({
+              proxy: { available: false },
+              original: { available: false },
+            });
+            expect(
+              (await send("POST", `/api/files/${notes}/downloads`, { kind: "proxy" }, owner))
+                .status,
+            ).toBe(422);
+
+            const take = async (fileId: string, kind: "proxy" | "original") => {
+              const asked = await send("POST", `/api/files/${fileId}/downloads`, { kind }, owner);
+              expect(asked.status).toBe(201);
+              const got = await getAs(((await asked.json()) as { url: string }).url, owner);
+              expect(got.status).toBe(200);
+              expect(got.headers.get("cache-control")).toContain("no-store");
+              return { got, bytes: Buffer.from(await got.arrayBuffer()) };
+            };
+            const pdfInfo = async (bytes: Buffer) => {
+              const path = join(dir, `got-${Math.random()}.pdf`);
+              writeFileSync(path, bytes);
+              return (await run("pdfinfo", [path])).stdout;
+            };
+
+            // The pages as reviewed, marked, as a PDF of as many pages.
+            const proxy = await take(score, "proxy");
+            expect(proxy.got.headers.get("content-type")).toBe("application/pdf");
+            expect(proxy.got.headers.get("content-disposition")).toContain('filename="Score.pdf"');
+            expect(await pdfInfo(proxy.bytes)).toMatch(/^Pages:\s+2$/m);
+            // Drawn again from the original, at the original's own page size.
+            const original = await take(score, "original");
+            const info = await pdfInfo(original.bytes);
+            expect(info).toMatch(/^Pages:\s+2$/m);
+            expect(info).toMatch(/^Page size:\s+595 x 842 pts/m);
+            // Neither is the stored file.
+            expect(original.bytes.includes(Buffer.from("(Page 1) Tj"))).toBe(false);
+
+            // A picture at full size, in its own format, with the mark drawn on it.
+            const picture = await take(cover, "original");
+            expect(picture.got.headers.get("content-type")).toBe("image/jpeg");
+            expect(picture.got.headers.get("content-disposition")).toContain(
+              'filename="Cover.jpg"',
+            );
+            expect(jpegSize(picture.bytes)).toEqual({ width: 640, height: 480 });
+
+            const logged = await audit.query(organisationId, { action: "download", limit: 10 });
+            expect(logged.events.map((e) => [e.fileId, e.details])).toEqual(
+              expect.arrayContaining([
+                [score, { kind: "proxy" }],
+                [score, { kind: "original" }],
+                [cover, { kind: "original" }],
+              ]),
+            );
+
+            // A Viewer takes neither.
+            const viewer = await joinAs(owner, "viewer-marked@example.test");
+            await grantRole(owner, projectId, viewer, "Viewer");
+            for (const kind of ["proxy", "original"] as const) {
+              expect(
+                (await send("POST", `/api/files/${score}/downloads`, { kind }, viewer)).status,
+              ).toBe(403);
+            }
+          } finally {
+            rmSync(dir, { recursive: true, force: true });
+          }
+        },
+      );
 
       it("gives every project the default roles, and its creator the Producer's", async () => {
         const { owner, projectId } = await studio();
@@ -9005,14 +9150,14 @@ describe.runIf(url)("api", () => {
             });
             const reviewer = s.review.reviewers.find((r) => r.guest);
             await app.request(`/api/reviews/${s.review.id}/reviewers/${reviewer?.id}`, {
-              ...json({ permissions: { download: "original" } }, s.owner),
+              ...json({ permissions: { download: "proxy" } }, s.owner),
               method: "PATCH",
             });
             const downloads = `/api/files/${s.mix}/downloads`;
-            // A picture's original is not offered yet; its proxy is.
+            // The review gives this guest the picture as reviewed, not its original.
             expect(
               (await app.request(downloads, json({ kind: "original" }, s.cookie))).status,
-            ).toBe(422);
+            ).toBe(403);
             const asked = await app.request(downloads, json({ kind: "proxy" }, s.cookie));
             expect(asked.status).toBe(201);
             const { url } = (await asked.json()) as { url: string };

@@ -12,16 +12,36 @@ import { join } from "node:path";
  */
 const baseOf = (root: string | undefined) => root ?? join(tmpdir(), "hekate-work");
 
+async function makeWorkspace(root: string | undefined) {
+  const base = baseOf(root);
+  await mkdir(base, { recursive: true, mode: 0o700 });
+  // The owning process id is in the name, so a sweep can tell abandoned workspaces from live ones.
+  return mkdtemp(join(base, `job-${process.pid}-`));
+}
+
 export async function withWorkspace<T>(
   root: string | undefined,
   task: (dir: string) => Promise<T>,
 ): Promise<T> {
-  const base = baseOf(root);
-  await mkdir(base, { recursive: true, mode: 0o700 });
-  // The owning process id is in the name, so a sweep can tell abandoned workspaces from live ones.
-  const dir = await mkdtemp(join(base, `job-${process.pid}-`));
+  const dir = await makeWorkspace(root);
   try {
     return await task(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * As `withWorkspace`, for work handed out piece by piece (a download streamed page by page):
+ * the directory lasts until the last piece is taken, or the taker stops early.
+ */
+export async function* streamInWorkspace<T>(
+  root: string | undefined,
+  task: (dir: string) => AsyncGenerator<T>,
+): AsyncGenerator<T> {
+  const dir = await makeWorkspace(root);
+  try {
+    yield* task(dir);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

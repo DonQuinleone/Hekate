@@ -31,58 +31,110 @@ function places(size: "view" | "thumb", position: WatermarkPosition): { x: strin
   return rows.map((y, i) => ({ x: `w*${i % 2 === 0 ? 0.04 : 0.3}`, y: `h*${y}` }));
 }
 
-/** A page (WebP) with the viewer's mark drawn over it, as WebP. */
+/** What a marked picture is written as. */
+export type MarkedFormat = "webp" | "jpeg" | "png" | "tiff";
+
+const encoders: Record<MarkedFormat, string[]> = {
+  webp: ["-c:v", "libwebp", "-quality", "82"],
+  // Three components, as a PDF page takes them (see pdf.ts).
+  jpeg: ["-c:v", "mjpeg", "-q:v", "2", "-pix_fmt", "yuvj444p", "-update", "1"],
+  png: ["-c:v", "png", "-update", "1"],
+  tiff: ["-c:v", "tiff", "-compression_algo", "deflate", "-update", "1"],
+};
+
+export const extensionOf: Record<MarkedFormat, string> = {
+  webp: "webp",
+  jpeg: "jpg",
+  png: "png",
+  tiff: "tif",
+};
+
+/**
+ * Draw the viewer's mark over the picture at `input`, written to `output` as `format`. Only
+ * the demuxers named are tried, so nothing but a single picture is read.
+ */
+export async function markPicture(
+  input: string,
+  output: string,
+  options: {
+    text: string;
+    demuxers: string;
+    format: MarkedFormat;
+    size?: "view" | "thumb";
+    signal?: AbortSignal;
+    style?: Pick<WatermarkSettings, "position" | "opacity">;
+  },
+): Promise<void> {
+  const { size = "view", style = defaultWatermark } = options;
+  const mark = `${output}.txt`;
+  // From a file, with expansion off: nothing in a name is read as a filter or a code.
+  await writeFile(mark, options.text);
+  const scale = size === "thumb" ? 30 : 60;
+  const face = font ? `fontfile='${font}'` : "font=Sans";
+  const alpha = (style.opacity / 100).toFixed(2);
+  const filters = places(size, style.position).map(
+    (t) =>
+      `drawtext=${face}:textfile='${mark}':expansion=none:fontsize=h/${scale}:line_spacing=6` +
+      `:fontcolor=0x808080@${alpha}:x=${t.x}:y=${t.y}`,
+  );
+  await run(
+    "ffmpeg",
+    [
+      "-hide_banner",
+      "-nostdin",
+      "-protocol_whitelist",
+      "file",
+      "-format_whitelist",
+      options.demuxers,
+      "-v",
+      "error",
+      "-i",
+      `file:${input}`,
+      "-vf",
+      filters.join(","),
+      "-frames:v",
+      "1",
+      ...encoders[options.format],
+      "-y",
+      `file:${output}`,
+    ],
+    { signal: options.signal, timeoutMs: 2 * 60_000 },
+  );
+}
+
+/** A page (WebP) with the viewer's mark drawn over it, as WebP, or as JPEG for a PDF page. */
 export async function watermark(
   page: Buffer,
   text: string,
   size: "view" | "thumb",
   signal?: AbortSignal,
   style: Pick<WatermarkSettings, "position" | "opacity"> = defaultWatermark,
+  format: "webp" | "jpeg" = "webp",
+  /** Where decrypted pages may be written (WORK_DIR); the system's temporary directory if unset. */
+  workDir?: string,
 ): Promise<Buffer> {
-  return withWorkspace(undefined, async (dir) => {
+  return withWorkspace(workDir, async (dir) => {
     const input = join(dir, "page.webp");
-    const mark = join(dir, "mark.txt");
     await writeFile(input, page);
-    // From a file, with expansion off: nothing in a name is read as a filter or a code.
-    await writeFile(mark, text);
-    const scale = size === "thumb" ? 30 : 60;
-    const face = font ? `fontfile='${font}'` : "font=Sans";
-    const alpha = (style.opacity / 100).toFixed(2);
-    const filters = places(size, style.position).map(
-      (t) =>
-        `drawtext=${face}:textfile='${mark}':expansion=none:fontsize=h/${scale}:line_spacing=6` +
-        `:fontcolor=0x808080@${alpha}:x=${t.x}:y=${t.y}`,
-    );
     // To a file, so that the WebP says how long it is (see `webp` in pages.ts).
-    const output = join(dir, "marked.webp");
-    await run(
-      "ffmpeg",
-      [
-        "-hide_banner",
-        "-nostdin",
-        "-protocol_whitelist",
-        "file",
-        "-format_whitelist",
-        "webp_pipe",
-        "-v",
-        "error",
-        "-f",
-        "webp_pipe",
-        "-i",
-        `file:${input}`,
-        "-vf",
-        filters.join(","),
-        "-frames:v",
-        "1",
-        "-c:v",
-        "libwebp",
-        "-quality",
-        "82",
-        "-y",
-        `file:${output}`,
-      ],
-      { signal, timeoutMs: 60_000 },
-    );
+    const output = join(dir, `marked.${extensionOf[format]}`);
+    await markPicture(input, output, {
+      text,
+      demuxers: "webp_pipe",
+      format,
+      size,
+      signal,
+      style,
+    });
     return readFile(output);
   });
+}
+
+/** What a picture's original is written back as once marked: its own format, or PNG. */
+export function markedFormatOf(name: string, contentType: string): MarkedFormat {
+  const ext = name.toLowerCase().split(".").pop() ?? "";
+  if (ext === "jpg" || ext === "jpeg" || contentType === "image/jpeg") return "jpeg";
+  if (ext === "webp" || contentType === "image/webp") return "webp";
+  if (ext === "tif" || ext === "tiff" || contentType === "image/tiff") return "tiff";
+  return "png";
 }

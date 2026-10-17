@@ -1,5 +1,9 @@
 import { createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { createReadStream, createWriteStream } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
   allowsDownload,
@@ -9,6 +13,8 @@ import {
   downloadInput,
   downloadLevelOf,
   formatBytes,
+  isPdf,
+  type WatermarkSettings,
   watermarkOf,
   watermarkText,
 } from "@hekate/shared";
@@ -23,7 +29,23 @@ import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
 import type { Keyring } from "../keyring.ts";
-import { watermark } from "../media/watermark.ts";
+import {
+  IMAGE_DEMUXERS,
+  MAX_PAGES,
+  pdfPageCount,
+  pdfPageSizes,
+  printDpi,
+  renderPdfPage,
+} from "../media/pages.ts";
+import { jpegSize, type PdfPage, pdfOf, pointsOf } from "../media/pdf.ts";
+import {
+  extensionOf,
+  type MarkedFormat,
+  markedFormatOf,
+  markPicture,
+  watermark,
+} from "../media/watermark.ts";
+import { streamInWorkspace } from "../media/workspace.ts";
 import { admit, tooMany } from "../rate-limit.ts";
 import type { Storage } from "../storage.ts";
 import { sendAttachment } from "./attachments.ts";
@@ -47,6 +69,8 @@ export interface DownloadDeps {
   keyring: Keyring;
   audit: Audit;
   trustProxy: boolean;
+  /** Scratch space for decrypted originals while a download is made (WORK_DIR). */
+  workDir?: string;
 }
 
 /** A download is for one person: nothing in between may keep or share it. */
@@ -71,6 +95,7 @@ type FileRow = {
   byteSize: number;
   blobId: string;
   projectId: string;
+  pageCount: number | null;
 };
 
 /** What the actor may download of a file: their role's level, or what their reviews grant. */
@@ -93,6 +118,7 @@ async function fileOf(db: Database, organisationId: string, fileId: string): Pro
       byteSize: files.byteSize,
       blobId: files.blobId,
       projectId: files.projectId,
+      pageCount: files.pageCount,
     })
     .from(files)
     .where(inOrg(files, organisationId, eq(files.id, fileId)));
@@ -140,8 +166,9 @@ async function firstPage(db: Database, organisationId: string, fileId: string) {
 
 /**
  * What can be made of a file now, and in what form. A recording: its original (audio carries
- * no mark until #32) and its stream's AAC encode. A picture: the picture as reviewed, with the
- * recipient's name drawn across it. Video and documents follow (#136, their marking).
+ * no mark until #32) and its stream's AAC encode. A picture: as reviewed, or at full size, with
+ * the recipient's name drawn across it. A document: its pages as reviewed, or drawn again from
+ * the original PDF at print resolution, each marked, as a PDF. Video follows (#136).
  */
 async function choices(db: Database, organisationId: string, file: FileRow) {
   if (file.kind === "audio") {
@@ -161,9 +188,41 @@ async function choices(db: Database, organisationId: string, file: FileRow) {
     const page = await firstPage(db, organisationId, file.id);
     return {
       proxy: page
-        ? { available: true, detail: "The picture as reviewed, marked with your name" }
+        ? { available: true, detail: "The picture as reviewed" }
         : { available: false, detail: "Not prepared yet" },
-      original: { available: false, detail: "Not yet offered for pictures" },
+      original: page
+        ? { available: true, detail: "The picture at full size, in its own format" }
+        : { available: false, detail: "Not prepared yet" },
+      marked: true,
+    };
+  }
+  if (file.kind === "document") {
+    const page = await firstPage(db, organisationId, file.id);
+    if (!page) {
+      const detail =
+        file.pageCount === null ? "Not offered for this kind of file" : "Not prepared yet";
+      return {
+        proxy: { available: false, detail },
+        original: { available: false, detail },
+        marked: true,
+      };
+    }
+    // Pages beyond the limit are never drawn, so never downloaded either.
+    const some =
+      file.pageCount !== null && file.pageCount > MAX_PAGES
+        ? `The first ${MAX_PAGES} pages`
+        : "Every page";
+    return {
+      proxy: {
+        available: true,
+        detail: `${some} as reviewed, as a PDF`,
+      },
+      original: isPdf(file.name, file.contentType)
+        ? {
+            available: true,
+            detail: `${some} at print resolution, as a PDF`,
+          }
+        : { available: false, detail: "Not offered for this kind of file" },
       marked: true,
     };
   }
@@ -217,6 +276,116 @@ async function* proxyAudio(deps: DownloadDeps, organisationId: string, fileId: s
 }
 
 const stem = (name: string) => name.replace(/\.[^.]+$/, "");
+
+/** How a download is marked: the recipient's words, drawn as the project chose. */
+interface Mark {
+  text: string;
+  style: Pick<WatermarkSettings, "position" | "opacity">;
+  signal: AbortSignal;
+}
+
+/** A document's pages as reviewed, each marked, ready to become a PDF's pages. */
+async function* reviewedPages(
+  deps: DownloadDeps,
+  organisationId: string,
+  fileId: string,
+  mark: Mark,
+): AsyncGenerator<PdfPage> {
+  const pages = await deps.db
+    .select({ blobId: filePages.blobId })
+    .from(filePages)
+    .where(inOrg(filePages, organisationId, eq(filePages.fileId, fileId)))
+    .orderBy(asc(filePages.page));
+  for (const page of pages) {
+    const { stream } = await deps.storage.open(organisationId, page.blobId);
+    const jpeg = await watermark(
+      Buffer.concat(await stream.toArray()),
+      mark.text,
+      "view",
+      mark.signal,
+      mark.style,
+      "jpeg",
+      deps.workDir,
+    );
+    const size = jpegSize(jpeg);
+    yield { jpeg, ...size, points: pointsOf(size.width, size.height) };
+  }
+}
+
+/** Copy a file's original, decrypted, into a workspace for the media tools. */
+async function originalInto(
+  deps: DownloadDeps,
+  organisationId: string,
+  file: FileRow,
+  path: string,
+) {
+  const { stream } = await deps.storage.open(organisationId, file.blobId);
+  await pipeline(stream, createWriteStream(path, { mode: 0o600 }));
+}
+
+/**
+ * A PDF's pages drawn again from the original at print resolution, each marked, at their own
+ * size: the document as it was made, but for its text, which becomes a picture with the mark.
+ */
+function printPages(
+  deps: DownloadDeps,
+  organisationId: string,
+  file: FileRow,
+  mark: Mark,
+): AsyncGenerator<PdfPage> {
+  return streamInWorkspace(deps.workDir, async function* (dir) {
+    const path = join(dir, "original.pdf");
+    await originalInto(deps, organisationId, file, path);
+    const count = Math.min(await pdfPageCount(path, mark.signal), MAX_PAGES);
+    const sizes = await pdfPageSizes(path, count, mark.signal);
+    const png = join(dir, "page.png");
+    const jpg = join(dir, "page.jpg");
+    for (const [i, points] of sizes.entries()) {
+      await renderPdfPage(path, i + 1, printDpi(points), png, mark.signal);
+      await markPicture(png, jpg, { ...mark, demuxers: "png_pipe", format: "jpeg" });
+      const jpeg = await readFile(jpg);
+      yield { jpeg, ...jpegSize(jpeg), points };
+    }
+  });
+}
+
+/** A picture's original at full size, marked, in its own format where one can be written. */
+function markedOriginal(
+  deps: DownloadDeps,
+  organisationId: string,
+  file: FileRow,
+  format: MarkedFormat,
+  mark: Mark,
+): AsyncGenerator<Buffer> {
+  return streamInWorkspace(deps.workDir, async function* (dir) {
+    const input = join(dir, "original");
+    await originalInto(deps, organisationId, file, input);
+    const output = join(dir, `marked.${extensionOf[format]}`);
+    await markPicture(input, output, { ...mark, demuxers: IMAGE_DEMUXERS, format });
+    for await (const chunk of createReadStream(output)) yield chunk as Buffer;
+  });
+}
+
+/**
+ * A download as a stream that has made its first piece already, so that a file that cannot
+ * be marked is an error, not a broken download. Stopping it early, as a browser that goes
+ * does, ends the work and clears its workspace.
+ */
+async function primed(chunks: AsyncGenerator<Buffer>): Promise<Readable> {
+  let first: IteratorResult<Buffer> | null = await chunks.next();
+  const iterator: AsyncIterableIterator<Buffer> = {
+    next: () => {
+      const taken = first;
+      first = null;
+      return taken ? Promise.resolve(taken) : chunks.next();
+    },
+    return: (value?: unknown) => chunks.return(value),
+    [Symbol.asyncIterator]() {
+      return this;
+    },
+  };
+  return Readable.from(iterator);
+}
 
 /**
  * `/api/files/:id/downloads`: what someone may download of a file, and asking for one. Asking
@@ -338,23 +507,59 @@ export const downloadRoutes = (deps: DownloadDeps) =>
           },
         });
       }
-      if (file.kind === "image" && kind === "proxy") {
+      if (file.kind !== "image" && file.kind !== "document")
+        throw new HTTPException(422, { message: "That download is not offered for this file" });
+      // Always marked for whoever asked, whatever the project's scope; drawn where and as
+      // strongly as the project chose (#31).
+      const who = await recipientOf(deps.db, actor);
+      const [project] = await deps.db
+        .select({ watermark: projects.watermark })
+        .from(projects)
+        .where(inOrg(projects, organisationId, eq(projects.id, file.projectId)));
+      const mark: Mark = {
+        text: watermarkText(who, who.organisation, new Date()),
+        style: watermarkOf(project?.watermark),
+        signal: c.req.raw.signal,
+      };
+      if (file.kind === "document") {
+        if (kind === "original" && !isPdf(file.name, file.contentType))
+          throw new HTTPException(422, { message: "That download is not offered for this file" });
+        const pages =
+          kind === "proxy"
+            ? reviewedPages(deps, organisationId, file.id, mark)
+            : printPages(deps, organisationId, file, mark);
+        const stream = await primed(pdfOf(pages));
+        return new Response(stream as unknown as ReadableStream, {
+          headers: {
+            ...PRIVATE,
+            "content-type": "application/pdf",
+            "content-disposition": attachment(`${stem(file.name)}.pdf`),
+          },
+        });
+      }
+      if (kind === "original") {
+        const format = markedFormatOf(file.name, file.contentType);
+        const stream = await primed(markedOriginal(deps, organisationId, file, format, mark));
+        return new Response(stream as unknown as ReadableStream, {
+          headers: {
+            ...PRIVATE,
+            "content-type": `image/${format}`,
+            "content-disposition": attachment(`${stem(file.name)}.${extensionOf[format]}`),
+          },
+        });
+      }
+      {
         const page = await firstPage(deps.db, organisationId, file.id);
         if (!page) throw new NotFound("Page");
-        const who = await recipientOf(deps.db, actor);
-        // Always marked for whoever asked, whatever the project's scope; drawn where and as
-        // strongly as the project chose (#31).
-        const [project] = await deps.db
-          .select({ watermark: projects.watermark })
-          .from(projects)
-          .where(inOrg(projects, organisationId, eq(projects.id, file.projectId)));
         const { stream } = await deps.storage.open(organisationId, page.blobId);
         const marked = await watermark(
           Buffer.concat(await stream.toArray()),
-          watermarkText(who, who.organisation, new Date()),
+          mark.text,
           "view",
-          c.req.raw.signal,
-          watermarkOf(project?.watermark),
+          mark.signal,
+          mark.style,
+          "webp",
+          deps.workDir,
         );
         return c.body(new Uint8Array(marked), 200, {
           ...PRIVATE,
@@ -363,7 +568,6 @@ export const downloadRoutes = (deps: DownloadDeps) =>
           "content-disposition": attachment(`${stem(file.name)}.webp`),
         });
       }
-      throw new HTTPException(422, { message: "That download is not offered for this file" });
     },
   );
 
