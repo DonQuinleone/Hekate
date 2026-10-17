@@ -258,6 +258,8 @@ Per-project roles carry permissions. Defaults ship with every project and can be
 | Record an approval decision | ✓ | | | ✓ | |
 | Edit workflows | ✓ | | | | |
 | Manage roles and members | ✓ | | | | |
+| Download proxies, marked and logged | ✓ | ✓ | ✓ | | |
+| Download originals, marked and logged | ✓ | ✓ | ✓ | | |
 
 Workspace owners and admins can do everything in every project. Guests have no role: they can see and act only on the items in the reviews they are invited to.
 

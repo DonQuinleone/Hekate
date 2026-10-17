@@ -31,10 +31,18 @@ describe("reviewer permissions", () => {
     expect(mergeGrants([])).toBeNull();
     expect(
       mergeGrants([
-        { ...all, comment: false, comments: "own", tools: ["meters"] },
+        { ...all, comment: false, comments: "own", tools: ["meters"], download: "proxy" },
         { ...all, comment: true, comments: "own_and_replies", tools: ["loops"] },
       ]),
-    ).toEqual({ comment: true, comments: "own_and_replies", tools: ["meters", "loops"] });
+    ).toEqual({
+      comment: true,
+      comments: "own_and_replies",
+      tools: ["meters", "loops"],
+      download: "proxy",
+    });
+    // A grant made before downloads existed allows none.
+    const { download: _, ...older } = all;
+    expect(mergeGrants([older])?.download).toBe("none");
   });
 
   it("shows a reviewer only the comments their scope allows", () => {

@@ -16,6 +16,8 @@ export const projectPermissions = [
   "decide",
   "edit_workflows",
   "manage_roles",
+  "download_proxy",
+  "download_original",
 ] as const;
 export const projectPermission = z.enum(projectPermissions);
 export type ProjectPermission = z.infer<typeof projectPermission>;
@@ -32,13 +34,37 @@ export const permissionNames: Record<ProjectPermission, string> = {
   decide: "Record an approval decision",
   edit_workflows: "Edit workflows",
   manage_roles: "Manage roles and members",
+  download_proxy: "Download proxies, marked and logged",
+  download_original: "Download originals, marked and logged",
 };
 
 /** The roles every new project starts with, in order, as in docs/domain.md. */
 export const defaultProjectRoles: { name: string; permissions: ProjectPermission[] }[] = [
   { name: "Producer", permissions: [...projectPermissions] },
-  { name: "Engineer", permissions: ["view", "upload", "organise", "comment", "triage"] },
-  { name: "Editor", permissions: ["view", "upload", "organise", "comment", "triage"] },
+  {
+    name: "Engineer",
+    permissions: [
+      "view",
+      "upload",
+      "organise",
+      "comment",
+      "triage",
+      "download_proxy",
+      "download_original",
+    ],
+  },
+  {
+    name: "Editor",
+    permissions: [
+      "view",
+      "upload",
+      "organise",
+      "comment",
+      "triage",
+      "download_proxy",
+      "download_original",
+    ],
+  },
   { name: "Reviewer", permissions: ["view", "comment", "decide"] },
   { name: "Viewer", permissions: ["view"] },
 ];

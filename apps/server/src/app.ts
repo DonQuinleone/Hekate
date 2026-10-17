@@ -14,6 +14,7 @@ import { rateLimit } from "./rate-limit.ts";
 import { categoryRoutes, projectCategoryRoutes } from "./routes/categories.ts";
 import { carryRoutes, commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
 import { directoryRoutes } from "./routes/directory.ts";
+import { downloadRoutes, fileDownloadRoutes } from "./routes/downloads.ts";
 import { fileDetailRoutes } from "./routes/file-details.ts";
 import { fileManageRoutes, folderRoutes, projectFolderRoutes } from "./routes/folders.ts";
 import { projectGroupRoutes } from "./routes/groups.ts";
@@ -91,6 +92,13 @@ export function createApi(deps: AppDeps) {
     secret: deps.playbackSecret,
     trustProxy: deps.trustProxy ?? false,
     secondFactor: rule,
+  };
+  const downloads = {
+    db: deps.db,
+    storage: deps.storage,
+    keyring: deps.keyring,
+    audit: deps.audit,
+    trustProxy: deps.trustProxy ?? false,
   };
   const reviewDeps = {
     db: deps.db,
@@ -228,6 +236,9 @@ export function createApi(deps: AppDeps) {
       .route("/files", fileTagRoutes(deps.db))
       .route("/files", fileRetryRoutes(deps.db, deps.jobs))
       .route("/files", fileDetailRoutes(deps.db))
+      .route("/files", fileDownloadRoutes(downloads))
+      .use("/downloads/*", viewer)
+      .route("/downloads", downloadRoutes(downloads))
       .use("/reviews/*", viewer)
       .route("/reviews", reviewRoutes(reviewDeps))
       // Opening links and trying codes, per address: few people need many in ten minutes.

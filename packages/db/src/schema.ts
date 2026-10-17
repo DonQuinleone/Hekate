@@ -9,6 +9,7 @@ import {
   type DeliveryProfileId,
   type DigestFrequency,
   type DirectoryRoleRule,
+  type DownloadKind,
   defaultReviewerPermissions,
   type FileColumnLayout,
   type LoudnessSummary,
@@ -1209,6 +1210,32 @@ export const guestSessions = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("guest_sessions_token_idx").on(t.tokenHash)],
+);
+
+/**
+ * A download made for one person (decision 056): a link that works once, for a few minutes,
+ * in the session that asked for it. Only a hash of the link is stored.
+ */
+export const downloadTickets = pgTable(
+  "download_tickets",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => files.id, { onDelete: "cascade" }),
+    /** "proxy" or "original" (packages/shared, downloads.ts). */
+    kind: text("kind").$type<DownloadKind>().notNull(),
+    tokenHash: text("token_hash").notNull(),
+    /** The member's sign-in or the guest's session that asked; no other may use it. */
+    sessionId: text("session_id").notNull(),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    guestId: uuid("guest_id").references(() => guests.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("download_tickets_token_idx").on(t.tokenHash)],
 );
 
 // Reviews (docs/domain.md)

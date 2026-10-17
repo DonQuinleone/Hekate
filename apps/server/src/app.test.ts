@@ -2864,6 +2864,123 @@ describe.runIf(url)("api", () => {
         return { owner, organisationId, projectId: project.id, fileId: file?.id ?? "" };
       };
 
+      it("makes each download once, for its session, logged, and only as the role allows", async () => {
+        const { owner, organisationId, projectId, fileId } = await studio();
+        type Choices = {
+          level: string;
+          proxy: { available: boolean };
+          original: { available: boolean };
+        };
+        const options = (await (
+          await getAs(`/api/files/${fileId}/downloads`, owner)
+        ).json()) as Choices;
+        // An owner has every level; a recording without its stream yet offers the original.
+        expect(options.level).toBe("original");
+        expect(options.original.available).toBe(true);
+        expect(options.proxy.available).toBe(false);
+        expect(
+          (await send("POST", `/api/files/${fileId}/downloads`, { kind: "proxy" }, owner)).status,
+        ).toBe(422);
+
+        const ask = async (cookie: string) => {
+          const res = await send(
+            "POST",
+            `/api/files/${fileId}/downloads`,
+            { kind: "original" },
+            cookie,
+          );
+          expect(res.status).toBe(201);
+          return ((await res.json()) as { url: string }).url;
+        };
+        const url = await ask(owner);
+        expect(url).toMatch(/^\/api\/downloads\/[\w-]{40,}$/);
+        // Nothing has left yet, so nothing is logged yet.
+        const logged = async () =>
+          (await audit.query(organisationId, { action: "download", limit: 50 })).events.length;
+        expect(await logged()).toBe(0);
+
+        // Another sign-in of the same account cannot use it, and does not spend it.
+        const other = cookieOf(
+          await app.request(
+            "/api/auth/sign-in/email",
+            json({ email: "producer@example.test", password: "correct horse battery" }),
+          ),
+        );
+        expect((await getAs(url, other)).status).toBe(410);
+
+        const got = await getAs(url, owner);
+        expect(got.status).toBe(200);
+        expect(got.headers.get("cache-control")).toContain("no-store");
+        expect(got.headers.get("content-disposition")).toContain('filename="Mix v1.wav"');
+        expect(await got.text()).toBe("not really audio");
+        expect(await logged()).toBe(1);
+        // Once only.
+        expect((await getAs(url, owner)).status).toBe(410);
+
+        // A Viewer may not download; a role with only proxies may not take the original.
+        const viewer = await joinAs(owner, "viewer@example.test");
+        await grantRole(owner, projectId, viewer, "Viewer");
+        expect(
+          (await send("POST", `/api/files/${fileId}/downloads`, { kind: "original" }, viewer))
+            .status,
+        ).toBe(403);
+        expect(
+          ((await (await getAs(`/api/files/${fileId}/downloads`, viewer)).json()) as Choices).level,
+        ).toBe("none");
+        const listed = (await (await getAs(`/api/projects/${projectId}/roles`, owner)).json()) as {
+          roles: { id: string; name: string }[];
+        };
+        const viewerRole = listed.roles.find((r) => r.name === "Viewer")?.id ?? "";
+        expect(
+          (
+            await send(
+              "PATCH",
+              `/api/projects/${projectId}/roles/${viewerRole}`,
+              { name: "Viewer", permissions: ["view", "download_proxy"] },
+              owner,
+            )
+          ).status,
+        ).toBe(200);
+        expect(
+          (await send("POST", `/api/files/${fileId}/downloads`, { kind: "original" }, viewer))
+            .status,
+        ).toBe(403);
+
+        // A link asked for, then the role taken away: the link no longer gives anything.
+        const engineer = await joinAs(owner, "engineer@example.test");
+        await grantRole(owner, projectId, engineer, "Engineer");
+        const kept = await ask(engineer);
+        await grantRole(owner, projectId, engineer, "Viewer");
+        expect((await getAs(kept, engineer)).status).toBe(403);
+
+        // Another workspace's file does not exist here.
+        const [elsewhere] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-downloads" })
+          .returning();
+        const theirs = await storage.put(elsewhere?.id ?? "", Buffer.from("theirs"));
+        const [project] = await db
+          .insert(schema.projects)
+          .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+          .returning();
+        const [file] = await db
+          .insert(schema.files)
+          .values({
+            organisationId: elsewhere?.id ?? "",
+            projectId: project?.id ?? "",
+            name: "Theirs.wav",
+            kind: "audio",
+            blobId: theirs.id,
+            contentType: "audio/wav",
+            byteSize: theirs.byteSize,
+          })
+          .returning();
+        expect(
+          (await send("POST", `/api/files/${file?.id}/downloads`, { kind: "original" }, owner))
+            .status,
+        ).toBe(404);
+      });
+
       it("gives every project the default roles, and its creator the Producer's", async () => {
         const { owner, projectId } = await studio();
         const roles = (await (await getAs(`/api/projects/${projectId}/roles`, owner)).json()) as {
@@ -5938,6 +6055,42 @@ describe.runIf(url)("api", () => {
           expect(id).toBeTruthy();
         });
 
+        it("lets a guest download only what their review grants", async () => {
+          const s = await invited();
+          const reviewer = s.review.reviewers.find((r) => r.guest);
+          const downloads = `/api/files/${s.mix}/downloads`;
+          const ask = (cookie: string) =>
+            app.request(downloads, json({ kind: "original" }, cookie));
+          // Nothing unless the review says so.
+          const none = (await (await getAs(downloads, s.cookie)).json()) as { level: string };
+          expect(none.level).toBe("none");
+          expect((await ask(s.cookie)).status).toBe(403);
+          const granted = await app.request(
+            `/api/reviews/${s.review.id}/reviewers/${reviewer?.id}`,
+            { ...json({ permissions: { download: "original" } }, s.owner), method: "PATCH" },
+          );
+          expect(granted.status).toBe(200);
+          const asked = await ask(s.cookie);
+          expect(asked.status).toBe(201);
+          const { url } = (await asked.json()) as { url: string };
+          // Not the owner's to open: the link belongs to the guest's session.
+          expect((await getAs(url, s.owner)).status).toBe(410);
+          const got = await getAs(url, s.cookie);
+          expect(got.status).toBe(200);
+          expect(got.headers.get("content-disposition")).toContain("attachment");
+          // The access log names the review that granted it.
+          const [logged] = await db
+            .select({ reviewId: schema.accessEvents.reviewId })
+            .from(schema.accessEvents)
+            .where(
+              and(
+                eq(schema.accessEvents.action, "download"),
+                eq(schema.accessEvents.fileId, s.mix),
+              ),
+            );
+          expect(logged?.reviewId).toBe(s.review.id);
+        });
+
         it("holds each reviewer to what the review grants them", async () => {
           const s = await invited();
           const reviewer = s.review.reviewers.find((r) => r.guest);
@@ -6122,6 +6275,53 @@ describe.runIf(url)("api", () => {
             ).status,
           ).toBe(422);
         });
+
+        it.runIf(spawnSync("ffmpeg", ["-version"]).status === 0 || process.env.CI)(
+          "makes a picture's download for its recipient, with their name drawn across it",
+          async () => {
+            const s = await invited();
+            const drawn = join(mkdtempSync(join(tmpdir(), "hekate-page-")), "white.webp");
+            await run("ffmpeg", [
+              ...["-hide_banner", "-nostdin", "-v", "error", "-f", "lavfi"],
+              ...["-i", "color=white:s=400x560", "-frames:v", "1", "-c:v", "libwebp", drawn],
+            ]);
+            const white = readFileSync(drawn);
+            rmSync(dirname(drawn), { recursive: true, force: true });
+            const view = await storage.put(s.organisationId, white);
+            await db
+              .update(schema.files)
+              .set({ kind: "image", contentType: "image/png", streamStatus: "ready", pageCount: 1 })
+              .where(eq(schema.files.id, s.mix));
+            await db.insert(schema.filePages).values({
+              organisationId: s.organisationId,
+              fileId: s.mix,
+              page: 1,
+              width: 400,
+              height: 560,
+              blobId: view.id,
+              thumbBlobId: view.id,
+            });
+            const reviewer = s.review.reviewers.find((r) => r.guest);
+            await app.request(`/api/reviews/${s.review.id}/reviewers/${reviewer?.id}`, {
+              ...json({ permissions: { download: "original" } }, s.owner),
+              method: "PATCH",
+            });
+            const downloads = `/api/files/${s.mix}/downloads`;
+            // A picture's original is not offered yet; its proxy is.
+            expect(
+              (await app.request(downloads, json({ kind: "original" }, s.cookie))).status,
+            ).toBe(422);
+            const asked = await app.request(downloads, json({ kind: "proxy" }, s.cookie));
+            expect(asked.status).toBe(201);
+            const { url } = (await asked.json()) as { url: string };
+            const got = await getAs(url, s.cookie);
+            expect(got.status).toBe(200);
+            expect(got.headers.get("content-disposition")).toContain(".webp");
+            const served = Buffer.from(await got.arrayBuffer());
+            expect(webpComplete(served)).toBe(true);
+            expect(served.equals(white)).toBe(false);
+          },
+        );
 
         it.runIf(spawnSync("ffmpeg", ["-version"]).status === 0 || process.env.CI)(
           "burns the guest's name into every page they are shown, and only theirs",

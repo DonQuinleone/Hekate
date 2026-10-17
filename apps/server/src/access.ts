@@ -91,7 +91,7 @@ export async function guestFileReviews(
  * For each file a guest may reach, the reviews that give it to them (newest first) with
  * what each lets them do. A review whose access window is not open for them gives nothing.
  */
-async function guestReach(
+export async function guestReach(
   db: Pick<Database, "select">,
   guest: GuestActor,
 ): Promise<Map<string, { reviewId: string; permissions: ReviewerPermissions }[]>> {

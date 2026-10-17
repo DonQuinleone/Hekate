@@ -36,6 +36,7 @@ describe("tenancy", () => {
       "comment_categories",
       "comments",
       "directories",
+      "download_tickets",
       "file_pages",
       "file_tags",
       "files",
