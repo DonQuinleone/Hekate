@@ -179,6 +179,31 @@ const screens: Screen[] = [
     ready: "main >> text=Alex Rivera",
   },
   {
+    name: "project-settings",
+    path: (s) => `/projects/${s.musicProjectId}/settings`,
+    ready: "main input[aria-label=Name]",
+  },
+  {
+    name: "project-settings-comments",
+    path: (s) => `/projects/${s.musicProjectId}/settings?section=comments`,
+    ready: "main >> text=Information only: no action expected",
+  },
+  {
+    name: "project-settings-roles",
+    path: (s) => `/projects/${s.musicProjectId}/settings?section=roles`,
+    ready: "main select[aria-label='Files for Producer']",
+  },
+  {
+    name: "project-settings-workflow",
+    path: (s) => `/projects/${s.musicProjectId}/settings?section=workflow`,
+    ready: "main >> text=Checks on a new version",
+  },
+  {
+    name: "project-settings-delivery",
+    path: (s) => `/projects/${s.musicProjectId}/settings?section=delivery`,
+    ready: "main select[aria-label='Project default']",
+  },
+  {
     name: "project-video",
     path: (s) => `/projects/${s.videoProjectId}/files`,
     ready: "main a:has-text('Opening titles - Cut 3.mp4')",

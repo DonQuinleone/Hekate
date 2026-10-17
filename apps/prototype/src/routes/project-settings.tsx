@@ -73,7 +73,7 @@ export const accessAreas: { id: string; label: string; hint: string; levels: str
     id: "reviews",
     label: "Reviews",
     hint: "Responding, requesting, inviting and revoking reviewers",
-    levels: ["None", "Respond", "Request", "Manage reviewers"],
+    levels: ["None", "Respond", "Request", "Manage"],
   },
   {
     id: "downloads",
@@ -109,7 +109,7 @@ export const accessAreas: { id: string; label: string; hint: string; levels: str
     id: "project",
     label: "Project",
     hint: "Settings, archiving and deletion",
-    levels: ["None", "Edit settings", "Archive and delete"],
+    levels: ["None", "Edit", "Delete"],
   },
 ];
 
@@ -127,7 +127,7 @@ export function accessOf(role: ProjectRole): Record<string, string> {
           : "View",
     comments: has("triage") ? "Triage" : has("comment") ? "Write" : "Read",
     reviews: has("manage_reviewers")
-      ? "Manage reviewers"
+      ? "Manage"
       : has("request_reviews")
         ? "Request"
         : has("decide")
@@ -138,7 +138,7 @@ export function accessOf(role: ProjectRole): Record<string, string> {
     production: tool("production") ? "Edit" : "None",
     workflow: has("edit_workflows") ? "Edit" : "View",
     people: has("manage_roles") ? "Manage" : "View",
-    project: has("delete") ? "Archive and delete" : has("manage_roles") ? "Edit settings" : "None",
+    project: has("delete") ? "Delete" : has("manage_roles") ? "Edit" : "None",
   };
 }
 
@@ -752,6 +752,21 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
             <SwitchRow name="Participants, in the app" checked />
             <SwitchRow name="Participants, by mail" checked />
             <SwitchRow name="Everyone in the project, on a status change" checked={false} />
+          </Section>
+          <Section
+            title="Checks on a new version"
+            intro="A version that fails is refused, saying why; whoever edits the workflow can let it through, on the record."
+          >
+            <SwitchRow
+              name="True peak under the delivery profile's ceiling"
+              hint="−1 dBTP for Streaming"
+              checked
+            />
+            <SwitchRow
+              name="An edit decision list with every version"
+              hint="The EDL the version was made from, uploaded beside it."
+              checked={false}
+            />
           </Section>
         </>
       )}

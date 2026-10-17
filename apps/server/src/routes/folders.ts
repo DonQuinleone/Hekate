@@ -159,7 +159,7 @@ export const folderRoutes = (db: Database) =>
         .from(folders)
         .where(inOrg(folders, actor.organisationId, eq(folders.id, id)));
       if (!found) throw new NotFound("Folder");
-      const { projectId } = await can(db, actor, "organise", found.projectId);
+      const { projectId } = await can(db, actor, "delete_files", found.projectId);
       const moved = await db.transaction(async (tx) => {
         await lockProject(tx, actor.organisationId, projectId);
         const all = await foldersOf(tx, actor.organisationId, projectId);
@@ -218,7 +218,7 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
     .delete("/:id", idParam, async (c) => {
       const actor = memberOnly(c.var.actor);
       const id = c.req.valid("param").id;
-      const { projectId } = await canOnFile(db, actor, "organise", id);
+      const { projectId } = await canOnFile(db, actor, "delete_files", id);
       const who = await audit.member(actor.userId);
       await db.transaction(async (tx) => {
         const [file] = await tx

@@ -38,6 +38,11 @@ import {
   ProjectPeoplePage,
   ProjectReviewsPage,
 } from "~/routes/project";
+import {
+  ProjectSettingsPage,
+  type ProjectSettingsSection,
+  projectSettingsSections,
+} from "~/routes/project-settings";
 import { ProjectsPage } from "~/routes/projects";
 import { RequestReviewPage } from "~/routes/request-review";
 import { ReviewPage } from "~/routes/review";
@@ -388,6 +393,22 @@ const projectPeople = createRoute({
     return <ProjectPeoplePage projectId={projectId} />;
   },
 });
+// The project's settings: the section in the query string, as in the prototype.
+const projectSettings = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/settings",
+  validateSearch: z.object({
+    section: z
+      .enum(projectSettingsSections as [ProjectSettingsSection])
+      .optional()
+      .catch(undefined),
+  }),
+  component: function ProjectSettingsRoute() {
+    const { projectId } = projectSettings.useParams();
+    const { section } = projectSettings.useSearch();
+    return <ProjectSettingsPage projectId={projectId} section={section} />;
+  },
+});
 const track = createRoute({
   getParentRoute: () => app,
   path: "/tracks/$trackId",
@@ -560,6 +581,7 @@ export const router = createRouter({
       projectReviews,
       requestReview,
       projectPeople,
+      projectSettings,
       track,
       file,
       myReviews,

@@ -25,10 +25,12 @@ import {
   projectsQuery,
   reviewQuery,
   trackQuery,
+  useProjectCan,
   useSwitchOrganisation,
 } from "~/lib/queries";
 import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
 import { useThemeSync } from "~/lib/theme";
+import { mayOpenSettings } from "~/routes/project-settings";
 import { openShortcutMap } from "./shortcut-map";
 
 /** The lamps in the room: slow, warm and cool, behind the chrome. */
@@ -142,6 +144,7 @@ const projectSections = [
   { id: "files", label: "Files", icon: "folder", to: "/projects/$projectId/files" },
   { id: "reviews", label: "Reviews", icon: "review", to: "/projects/$projectId/reviews" },
   { id: "people", label: "People", icon: "users", to: "/projects/$projectId/people" },
+  { id: "settings", label: "Settings", icon: "sliders", to: "/projects/$projectId/settings" },
 ] as const;
 
 const reviewState = (r: MyReview): ReviewState => {
@@ -474,6 +477,11 @@ export function Shell({ children }: { children: ReactNode }) {
   const current = projects.find((p) => p.id === projectId);
   const { pathname } = useLocation();
   const section = pathname.split("/")[3] ?? "";
+  const can = useProjectCan(current?.id);
+  // Settings appear to whoever may change something there.
+  const sectionsHere = projectSections.filter(
+    (item) => item.id !== "settings" || mayOpenSettings(can),
+  );
   const waitingAll = reviews?.filter((r) => r.yourTurn) ?? [];
   const waitingHere = current ? waitingAll.filter((r) => r.projectId === current.id) : waitingAll;
 
@@ -552,7 +560,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 <div className="mt-4 mb-1">
                   <ProjectSwitcher project={current} projects={projects} collapsed={collapsed} />
                 </div>
-                {projectSections.map((item) => (
+                {sectionsHere.map((item) => (
                   <Link
                     key={item.id}
                     to={item.to}
@@ -650,7 +658,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 aria-label={current.name}
                 className="scroll-quiet flex shrink-0 gap-1 overflow-x-auto border-b border-line px-3 py-1.5 @3xl/app:hidden"
               >
-                {projectSections.map((item) => (
+                {sectionsHere.map((item) => (
                   <Link
                     key={item.id}
                     to={item.to}
