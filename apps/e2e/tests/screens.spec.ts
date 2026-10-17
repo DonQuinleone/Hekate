@@ -449,6 +449,48 @@ test("file-decision", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Where the comments sit (#15), a wide screen's choice kept by the browser: below the player
+// and the score, or put away with a button in the header to bring them back. A phone keeps
+// them after the player whatever was chosen, so comments put away are still there on a
+// phone. The menu that chooses is captured open, beside the player.
+for (const place of ["below", "hidden"] as const) {
+  test(`file-comments-${place}`, async ({ page }, info) => {
+    const phone = info.project.name === "phone";
+    test.skip(phone && place === "below", "A phone always shows the comments after the player");
+    await page.addInitScript(
+      (layout) => localStorage.setItem("hekate.file.layout", JSON.stringify(layout)),
+      { comments: place, width: 340 },
+    );
+    await page.clock.setFixedTime(FIXED_TIME);
+    await page.goto(`/files/${seeded().dryFileId}`);
+    await settle(
+      page,
+      place === "below" || phone
+        ? "section[aria-label=Comments] li"
+        : "button[aria-label='Show comments']",
+    );
+    if (phone) {
+      await expect(page.locator("section[aria-label=Comments]")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Show comments" })).toBeHidden();
+    }
+    // Below the score, the comments are only seen with the whole page.
+    if (place === "below") await showWhole(page);
+    await saveScreen(page, `file-comments-${place}`);
+    await checkScreen(page);
+  });
+}
+
+test("file-panel-position", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "A phone always shows the comments after the player");
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page.getByRole("button", { name: "Panel position" }).click();
+  await settle(page, "[role=menuitemradio][aria-checked=true]");
+  await saveScreen(page, "file-panel-position");
+  await checkScreen(page);
+});
+
 // Commenting on a finding (#43): from the QA view back to the review, the composer at the
 // finding's moment and saying what it is; the findings are marked under the timeline.
 test("file-finding-comment", async ({ page }) => {
