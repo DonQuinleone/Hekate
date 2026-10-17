@@ -121,6 +121,12 @@ export const organisations = pgTable("organisations", {
   storageBackend: text("storage_backend"),
   /** Workspace settings, read through workspaceSettingsOf (packages/shared). */
   settings: jsonb("settings").notNull().default({}),
+  /**
+   * Suspended by an operator (#174): everything is kept and nobody gets in, members and guests
+   * alike, until it is reinstated. The reason is shown to its members.
+   */
+  suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+  suspendedReason: text("suspended_reason"),
   ...timestamps,
 });
 

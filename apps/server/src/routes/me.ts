@@ -63,6 +63,8 @@ export const meRoutes = (db: Database, rule: SecondFactorRule, deps: { maxPasske
           name: schema.organisations.name,
           role: schema.members.role,
           settings: schema.organisations.settings,
+          suspendedAt: schema.organisations.suspendedAt,
+          suspendedReason: schema.organisations.suspendedReason,
         })
         .from(schema.members)
         .innerJoin(schema.organisations, eq(schema.members.organisationId, schema.organisations.id))
@@ -93,10 +95,12 @@ export const meRoutes = (db: Database, rule: SecondFactorRule, deps: { maxPasske
           met: standing.met,
           recoveryCodesLeft: twoFactorEnabled ? recoveryCodesLeft(factor?.backupCodes) : 0,
         },
-        // Each workspace's language, for members who have not chosen their own.
-        organisations: organisations.map(({ settings, ...o }) => ({
+        // Each workspace's language, for members who have not chosen their own, and whether an
+        // operator has suspended it, and why (#174).
+        organisations: organisations.map(({ settings, suspendedAt, suspendedReason, ...o }) => ({
           ...o,
           locale: workspaceSettingsOf(settings).locale,
+          suspended: suspendedAt ? { reason: suspendedReason } : null,
         })),
         activeOrganisationId: c.var.organisationId,
       });

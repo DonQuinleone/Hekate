@@ -18,6 +18,7 @@ import {
   InstallerPage,
   InvitationPage,
   SignInPage,
+  SuspendedPage,
   UploadRequestPage,
 } from "~/routes/arrive";
 import { ComparePage } from "~/routes/compare";
@@ -165,6 +166,11 @@ const invite = createRoute({
   getParentRoute: () => root,
   path: "/invite",
   component: InvitationPage,
+});
+const suspended = createRoute({
+  getParentRoute: () => root,
+  path: "/suspended",
+  component: SuspendedPage,
 });
 const uploadRequest = createRoute({
   getParentRoute: () => root,
@@ -416,6 +422,7 @@ export const router = createRouter({
     guestOut,
     install,
     invite,
+    suspended,
     uploadRequest,
     app.addChildren([
       home,

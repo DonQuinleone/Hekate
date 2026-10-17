@@ -1,20 +1,49 @@
-import { type Database, schema } from "@hekate/db";
+import { type Database, inOrg, schema } from "@hekate/db";
 import {
   type InstanceAccess,
+  type InstanceMemberRow,
   type InstanceOverview,
+  type InstanceProjectRow,
   type InstanceWorkspace,
+  type InstanceWorkspaceDetail,
+  type InstanceWorkspacePage,
+  instanceWorkspacesQuery,
+  newWorkspaceInput,
   type OperatorRow,
   operatorInput,
   operatorParam as operatorParamSchema,
+  suspendWorkspaceInput,
+  workspaceSettingsOf,
+  workspaceStateOf,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, count, desc, eq, inArray, isNull, max, sql, sum } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gt,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  max,
+  notInArray,
+  or,
+  type SQL,
+  sql,
+  sum,
+} from "drizzle-orm";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
+import { z } from "zod";
 import { requestInfo } from "../audit.ts";
 import type { Auth } from "../auth.ts";
-import { CodedException } from "../errors.ts";
+import { workspaceEmail } from "../email/templates.ts";
+import { CodedException, NotFound } from "../errors.ts";
+import { INVITATION_LIFETIME_MS, newInvitationToken } from "../invitation-token.ts";
+import { type Mailer, sendEmail } from "../mail.ts";
 import { factorStanding, type SecondFactorRule } from "../tenancy.ts";
 
 /**
@@ -29,6 +58,8 @@ export interface InstanceOptions {
   /** Operators act only from a session signed in with a passkey or security key. */
   operatorSecurityKey: boolean;
   trustProxy: boolean;
+  mailer: Mailer;
+  publicUrl: string;
 }
 
 interface InstanceVariables {
@@ -180,6 +211,93 @@ async function failedToday(db: Database) {
 
 /** An operator, by their account's id. */
 const operatorParam = zValidator("param", operatorParamSchema);
+const idParam = zValidator("param", z.object({ id: z.uuid() }));
+const memberAction = zValidator(
+  "param",
+  z.object({
+    id: z.uuid(),
+    userId: z.string().min(1).max(64),
+    action: z.enum(["sessions", "password-reset", "second-factor"]),
+  }),
+);
+
+/** The workspaces a viewer may see: undefined for every one (an operator who may act). */
+const visibleTo = (access: InstanceAccess) =>
+  access.operator && !access.keyNeeded ? undefined : access.owned.map((o) => o.id);
+
+/** The workspace, if this viewer may see it; the same 404 for one that does not exist. */
+async function reachable(access: InstanceAccess, id: string) {
+  const visible = visibleTo(access);
+  if (visible && !visible.includes(id)) throw new NotFound("Workspace");
+  return id;
+}
+
+/** Throws a 404 for a workspace that does not exist. */
+async function workspaceName(db: Pick<Database, "select">, id: string) {
+  const [row] = await db
+    .select({ name: schema.organisations.name })
+    .from(schema.organisations)
+    .where(eq(schema.organisations.id, id));
+  if (!row) throw new NotFound("Workspace");
+  return row.name;
+}
+
+const escapeLike = (text: string) => text.replace(/[\\%_]/g, (m) => `\\${m}`);
+
+/** Members, projects and stored bytes of some workspaces, counted at once. */
+async function figuresOf(db: Database, ids: string[]) {
+  if (ids.length === 0)
+    return {
+      members: new Map<string, number>(),
+      projects: new Map<string, number>(),
+      bytes: new Map<string, number>(),
+    };
+  const tally = async (table: typeof schema.members | typeof schema.projects) =>
+    new Map(
+      (
+        await db
+          .select({ id: table.organisationId, n: count() })
+          .from(table)
+          .where(inArray(table.organisationId, ids))
+          .groupBy(table.organisationId)
+      ).map((r) => [r.id, r.n]),
+    );
+  const bytes = new Map(
+    (
+      await db
+        .select({ id: schema.blobs.organisationId, n: sum(schema.blobs.byteSize) })
+        .from(schema.blobs)
+        .where(inArray(schema.blobs.organisationId, ids))
+        .groupBy(schema.blobs.organisationId)
+    ).map((r) => [r.id, Number(r.n ?? 0)]),
+  );
+  return { members: await tally(schema.members), projects: await tally(schema.projects), bytes };
+}
+
+function workspaceOf(
+  r: {
+    id: string;
+    name: string;
+    slug: string;
+    createdAt: Date;
+    suspendedAt: Date | null;
+    suspendedReason: string | null;
+  },
+  figures: Awaited<ReturnType<typeof figuresOf>>,
+): InstanceWorkspace {
+  return {
+    id: r.id,
+    name: r.name,
+    slug: r.slug,
+    createdAt: r.createdAt.toISOString(),
+    state: workspaceStateOf(r),
+    suspendedAt: r.suspendedAt?.toISOString() ?? null,
+    suspendedReason: r.suspendedReason,
+    members: figures.members.get(r.id) ?? 0,
+    projects: figures.projects.get(r.id) ?? 0,
+    storageBytes: figures.bytes.get(r.id) ?? 0,
+  };
+}
 
 export function instanceRoutes(options: InstanceOptions) {
   const { db } = options;
@@ -187,66 +305,398 @@ export function instanceRoutes(options: InstanceOptions) {
     new Hono<{ Variables: InstanceVariables }>()
       .use("*", requireInstance(options))
       .get("/me", (c) => c.json(c.var.access))
-      // The workspaces this viewer may see: every one for an operator, their own for an owner.
-      .get("/workspaces", async (c) => {
-        const { access } = c.var;
-        const visible =
-          access.operator && !access.keyNeeded ? undefined : access.owned.map((o) => o.id);
-        if (visible && visible.length === 0) return c.json({ workspaces: [] });
-        const where = visible ? inArray(schema.organisations.id, visible) : undefined;
+      // The workspaces this viewer may see, a page at a time: every one for an operator, their
+      // own for an owner. Searched by name or subdomain, filtered by where they stand.
+      .get("/workspaces", zValidator("query", instanceWorkspacesQuery), async (c) => {
+        const { q, state, after, limit } = c.req.valid("query");
+        const visible = visibleTo(c.var.access);
+        if (visible && visible.length === 0)
+          return c.json({ workspaces: [], total: 0, next: null } satisfies InstanceWorkspacePage);
+        const o = schema.organisations;
+        const conditions: (SQL | undefined)[] = [
+          visible ? inArray(o.id, visible) : undefined,
+          q
+            ? or(ilike(o.name, `%${escapeLike(q)}%`), ilike(o.slug, `%${escapeLike(q)}%`))
+            : undefined,
+          state === "suspended" ? isNotNull(o.suspendedAt) : undefined,
+          state === "active" ? isNull(o.suspendedAt) : undefined,
+        ];
+        const [{ total } = { total: 0 }] = await db
+          .select({ total: count() })
+          .from(o)
+          .where(and(...conditions));
+        // By name, then id: the page after `after` starts past its name and id.
+        const cursor = after
+          ? (await db.select({ name: o.name }).from(o).where(eq(o.id, after)))[0]
+          : undefined;
         const rows = await db
           .select({
-            id: schema.organisations.id,
-            name: schema.organisations.name,
-            slug: schema.organisations.slug,
-            createdAt: schema.organisations.createdAt,
+            id: o.id,
+            name: o.name,
+            slug: o.slug,
+            createdAt: o.createdAt,
+            suspendedAt: o.suspendedAt,
+            suspendedReason: o.suspendedReason,
           })
-          .from(schema.organisations)
-          .where(where)
-          .orderBy(schema.organisations.name)
-          .limit(500);
-        const ids = rows.map((r) => r.id);
-        const tally = async (
-          table: typeof schema.members | typeof schema.projects,
-        ): Promise<Map<string, number>> =>
-          ids.length === 0
-            ? new Map()
-            : new Map(
-                (
-                  await db
-                    .select({ id: table.organisationId, n: count() })
-                    .from(table)
-                    .where(inArray(table.organisationId, ids))
-                    .groupBy(table.organisationId)
-                ).map((r) => [r.id, r.n]),
-              );
-        const members = await tally(schema.members);
-        const projects = await tally(schema.projects);
-        const bytes =
-          ids.length === 0
-            ? new Map<string, number>()
-            : new Map(
-                (
-                  await db
-                    .select({ id: schema.blobs.organisationId, n: sum(schema.blobs.byteSize) })
-                    .from(schema.blobs)
-                    .where(inArray(schema.blobs.organisationId, ids))
-                    .groupBy(schema.blobs.organisationId)
-                ).map((r) => [r.id, Number(r.n ?? 0)]),
-              );
+          .from(o)
+          .where(
+            and(
+              ...conditions,
+              cursor && after
+                ? or(gt(o.name, cursor.name), and(eq(o.name, cursor.name), gt(o.id, after)))
+                : undefined,
+            ),
+          )
+          .orderBy(o.name, o.id)
+          .limit(limit + 1);
+        const page = rows.slice(0, limit);
+        const figures = await figuresOf(
+          db,
+          page.map((r) => r.id),
+        );
         return c.json({
-          workspaces: rows.map(
-            (r): InstanceWorkspace => ({
-              id: r.id,
-              name: r.name,
-              slug: r.slug,
-              createdAt: r.createdAt.toISOString(),
-              members: members.get(r.id) ?? 0,
-              projects: projects.get(r.id) ?? 0,
-              storageBytes: bytes.get(r.id) ?? 0,
-            }),
-          ),
+          workspaces: page.map((r) => workspaceOf(r, figures)),
+          total,
+          next: rows.length > limit ? (page.at(-1)?.id ?? null) : null,
+        } satisfies InstanceWorkspacePage);
+      })
+      // A new workspace: its first owner is invited by address, as any member would be.
+      .post("/workspaces", operatorsOnly, zValidator("json", newWorkspaceInput), async (c) => {
+        const { name, slug, ownerEmail } = c.req.valid("json");
+        const email = ownerEmail.toLowerCase();
+        const { token, hash } = newInvitationToken();
+        const made = await db.transaction(async (tx) => {
+          const [organisation] = await tx
+            .insert(schema.organisations)
+            .values({ name, slug })
+            .onConflictDoNothing({ target: schema.organisations.slug })
+            .returning({ id: schema.organisations.id });
+          if (!organisation)
+            throw new CodedException(409, "slug_taken", "Another workspace has that subdomain");
+          await tx.insert(schema.invitations).values({
+            organisationId: organisation.id,
+            email,
+            role: "owner",
+            tokenHash: hash,
+            invitedBy: c.var.userId,
+            expiresAt: new Date(Date.now() + INVITATION_LIFETIME_MS),
+          });
+          await recordInstanceEvent(tx, {
+            actorId: c.var.userId,
+            action: "workspace.created",
+            target: name,
+            details: { organisationId: organisation.id, slug, owner: email },
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+          return organisation;
         });
+        const [inviter] = await db
+          .select({ name: schema.users.name })
+          .from(schema.users)
+          .where(eq(schema.users.id, c.var.userId));
+        const link = `${options.publicUrl.replace(/\/$/, "")}/invite/${token}`;
+        // The workspace stands whether or not the mail goes: when it does not, the operator is
+        // told, and passes on the link by hand.
+        let mailed = true;
+        try {
+          await sendEmail(
+            options.mailer,
+            email,
+            workspaceEmail(
+              "invitation",
+              {
+                workspace: name,
+                inviter: inviter?.name ?? "The instance's operators",
+                url: link,
+                days: Math.round(INVITATION_LIFETIME_MS / (24 * 60 * 60 * 1000)),
+              },
+              {},
+            ),
+          );
+        } catch (error) {
+          console.error("The invitation to a new workspace's owner was not sent:", error);
+          mailed = false;
+        }
+        return c.json({ id: made.id, link, mailed }, 201);
+      })
+      // One workspace in figures, for an operator or its own owner.
+      .get("/workspaces/:id", idParam, async (c) => {
+        const id = await reachable(c.var.access, c.req.valid("param").id);
+        const o = schema.organisations;
+        const [row] = await db
+          .select({
+            id: o.id,
+            name: o.name,
+            slug: o.slug,
+            createdAt: o.createdAt,
+            suspendedAt: o.suspendedAt,
+            suspendedReason: o.suspendedReason,
+            settings: o.settings,
+          })
+          .from(o)
+          .where(eq(o.id, id));
+        if (!row) throw new NotFound("Workspace");
+        const [[guests], [reviews], [sso], invited, recent] = await Promise.all([
+          db.select({ n: count() }).from(schema.guests).where(inOrg(schema.guests, id)),
+          db
+            .select({ n: count() })
+            .from(schema.reviews)
+            .where(inOrg(schema.reviews, id, eq(schema.reviews.status, "open"))),
+          db
+            .select({ protocol: schema.ssoProviders.protocol })
+            .from(schema.ssoProviders)
+            .where(inOrg(schema.ssoProviders, id, eq(schema.ssoProviders.enabled, true))),
+          db
+            .select({
+              email: schema.invitations.email,
+              role: schema.invitations.role,
+              expiresAt: schema.invitations.expiresAt,
+            })
+            .from(schema.invitations)
+            .where(
+              inOrg(
+                schema.invitations,
+                id,
+                isNull(schema.invitations.acceptedAt),
+                isNull(schema.invitations.revokedAt),
+                gt(schema.invitations.expiresAt, new Date()),
+              ),
+            )
+            .orderBy(desc(schema.invitations.createdAt)),
+          // What people did there, without the stream of keys, segments and pages behind playback.
+          db
+            .select({
+              at: schema.accessEvents.occurredAt,
+              actor: schema.accessEvents.actorLabel,
+              action: schema.accessEvents.action,
+            })
+            .from(schema.accessEvents)
+            .where(
+              inOrg(
+                schema.accessEvents,
+                id,
+                notInArray(schema.accessEvents.action, [
+                  "stream.key",
+                  "stream.session",
+                  "stream.segment",
+                  "page.render",
+                ]),
+              ),
+            )
+            .orderBy(desc(schema.accessEvents.occurredAt))
+            .limit(6),
+        ]);
+        const figures = await figuresOf(db, [id]);
+        const detail: InstanceWorkspaceDetail = {
+          ...workspaceOf(row, figures),
+          guests: guests?.n ?? 0,
+          activeReviews: reviews?.n ?? 0,
+          signIn: {
+            method: sso ? "sso" : "password",
+            provider: sso ? sso.protocol.toUpperCase() : null,
+            secondFactor: workspaceSettingsOf(row.settings).secondFactor !== "off",
+          },
+          invited: invited.map((i) => ({ ...i, expiresAt: i.expiresAt.toISOString() })),
+          recent: recent.map((r) => ({ at: r.at.toISOString(), actor: r.actor, action: r.action })),
+        };
+        return c.json(detail);
+      })
+      // Its members: who they are, their role, when last seen and how they sign in.
+      .get("/workspaces/:id/members", idParam, async (c) => {
+        const id = await reachable(c.var.access, c.req.valid("param").id);
+        const rows = await db
+          .select({
+            userId: schema.users.id,
+            name: schema.users.name,
+            email: schema.users.email,
+            role: schema.members.role,
+            codeApp: schema.users.twoFactorEnabled,
+          })
+          .from(schema.members)
+          .innerJoin(schema.users, eq(schema.users.id, schema.members.userId))
+          .where(inOrg(schema.members, id))
+          .orderBy(schema.users.name)
+          .limit(500);
+        const ids = rows.map((r) => r.userId);
+        const [keys, seen] =
+          ids.length === 0
+            ? [[], []]
+            : await Promise.all([
+                db
+                  .select({ userId: schema.passkeys.userId, n: count() })
+                  .from(schema.passkeys)
+                  .where(inArray(schema.passkeys.userId, ids))
+                  .groupBy(schema.passkeys.userId),
+                db
+                  .select({
+                    userId: schema.authSessions.userId,
+                    at: max(schema.authSessions.updatedAt),
+                  })
+                  .from(schema.authSessions)
+                  .where(inArray(schema.authSessions.userId, ids))
+                  .groupBy(schema.authSessions.userId),
+              ]);
+        return c.json({
+          members: rows.map((r): InstanceMemberRow => {
+            const at = seen.find((s) => s.userId === r.userId)?.at;
+            return {
+              userId: r.userId,
+              name: r.name,
+              email: r.email,
+              role: r.role,
+              lastSeenAt: at ? new Date(at).toISOString() : null,
+              factor: keys.some((k) => k.userId === r.userId) ? "key" : r.codeApp ? "app" : "none",
+            };
+          }),
+        });
+      })
+      // Its projects, by name and size only: the content stays the workspace's.
+      .get("/workspaces/:id/projects", idParam, async (c) => {
+        const id = await reachable(c.var.access, c.req.valid("param").id);
+        const p = schema.projects;
+        const f = schema.files;
+        const r = schema.reviews;
+        const [rows, stored, open] = await Promise.all([
+          db
+            .select({ id: p.id, name: p.name, profile: p.profile, archivedAt: p.archivedAt })
+            .from(p)
+            .where(inOrg(p, id))
+            .orderBy(p.name)
+            .limit(500),
+          db
+            .select({ projectId: f.projectId, files: count(), bytes: sum(schema.blobs.byteSize) })
+            .from(f)
+            .leftJoin(
+              schema.blobs,
+              and(eq(schema.blobs.id, f.blobId), eq(schema.blobs.organisationId, id)),
+            )
+            .where(inOrg(f, id))
+            .groupBy(f.projectId),
+          db
+            .select({ projectId: r.projectId, n: count() })
+            .from(r)
+            .where(inOrg(r, id, eq(r.status, "open")))
+            .groupBy(r.projectId),
+        ]);
+        return c.json({
+          projects: rows.map((row): InstanceProjectRow => {
+            const s = stored.find((x) => x.projectId === row.id);
+            return {
+              id: row.id,
+              name: row.name,
+              profile: row.profile,
+              archived: row.archivedAt !== null,
+              files: s?.files ?? 0,
+              storageBytes: Number(s?.bytes ?? 0),
+              openReviews: open.find((x) => x.projectId === row.id)?.n ?? 0,
+            };
+          }),
+        });
+      })
+      .use("/workspaces/:id/*", operatorsOnly)
+      // Suspending keeps everything and lets nobody in: members are told why, guests' links stop.
+      .post(
+        "/workspaces/:id/suspend",
+        idParam,
+        zValidator("json", suspendWorkspaceInput),
+        async (c) => {
+          const { id } = c.req.valid("param");
+          const { reason } = c.req.valid("json");
+          // The change and its record together: nothing an operator does escapes the events.
+          await db.transaction(async (tx) => {
+            const [row] = await tx
+              .update(schema.organisations)
+              .set({ suspendedAt: new Date(), suspendedReason: reason, updatedAt: new Date() })
+              .where(and(eq(schema.organisations.id, id), isNull(schema.organisations.suspendedAt)))
+              .returning({ name: schema.organisations.name });
+            if (!row) {
+              await workspaceName(tx, id);
+              throw new CodedException(409, "already_suspended", "It is already suspended");
+            }
+            await recordInstanceEvent(tx, {
+              actorId: c.var.userId,
+              action: "workspace.suspended",
+              target: row.name,
+              details: { organisationId: id, reason },
+              ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+            });
+          });
+          return c.body(null, 204);
+        },
+      )
+      .post("/workspaces/:id/reinstate", idParam, async (c) => {
+        const { id } = c.req.valid("param");
+        await db.transaction(async (tx) => {
+          const [row] = await tx
+            .update(schema.organisations)
+            .set({ suspendedAt: null, suspendedReason: null, updatedAt: new Date() })
+            .where(
+              and(eq(schema.organisations.id, id), isNotNull(schema.organisations.suspendedAt)),
+            )
+            .returning({ name: schema.organisations.name });
+          if (!row) {
+            await workspaceName(tx, id);
+            throw new CodedException(409, "not_suspended", "It is not suspended");
+          }
+          await recordInstanceEvent(tx, {
+            actorId: c.var.userId,
+            action: "workspace.reinstated",
+            target: row.name,
+            details: { organisationId: id },
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+        });
+        return c.body(null, 204);
+      })
+      // Help for one member: never signing in as them (operators never impersonate), only
+      // what they could ask for themselves.
+      .post("/workspaces/:id/members/:userId/:action", memberAction, async (c) => {
+        const { id, userId, action } = c.req.valid("param");
+        const [member] = await db
+          .select({ email: schema.users.email })
+          .from(schema.members)
+          .innerJoin(schema.users, eq(schema.users.id, schema.members.userId))
+          .where(inOrg(schema.members, id, eq(schema.members.userId, userId)));
+        if (!member) throw new NotFound("Member");
+        const event = (details: Record<string, unknown>) => ({
+          actorId: c.var.userId,
+          action:
+            action === "sessions"
+              ? "member.sessions_revoked"
+              : action === "password-reset"
+                ? "member.password_reset"
+                : "member.second_factor_reset",
+          target: member.email,
+          details: { organisationId: id, ...details },
+          ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+        });
+        if (action === "password-reset") {
+          // Mail cannot be undone: it goes first, and is recorded once it has.
+          await options.auth.api.requestPasswordResetEmailOTP({ body: { email: member.email } });
+          await recordInstanceEvent(db, event({}));
+        } else {
+          // Each change and its record together.
+          await db.transaction(async (tx) => {
+            if (action === "sessions") {
+              const ended = await tx
+                .delete(schema.authSessions)
+                .where(eq(schema.authSessions.userId, userId))
+                .returning({ id: schema.authSessions.id });
+              await recordInstanceEvent(tx, event({ sessions: ended.length }));
+              return;
+            }
+            // Their code app and every passkey go, so they sign in with their password and add
+            // one again.
+            await tx.delete(schema.twoFactors).where(eq(schema.twoFactors.userId, userId));
+            await tx.delete(schema.passkeys).where(eq(schema.passkeys.userId, userId));
+            await tx
+              .update(schema.users)
+              .set({ twoFactorEnabled: false })
+              .where(eq(schema.users.id, userId));
+            await recordInstanceEvent(tx, event({}));
+          });
+        }
+        return c.body(null, 204);
       })
       .use("/overview", operatorsOnly)
       .use("/operators", operatorsOnly)
