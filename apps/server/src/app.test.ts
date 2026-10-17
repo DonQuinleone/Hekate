@@ -4441,10 +4441,12 @@ describe.runIf(url)("api", () => {
         expect(copy.requireEdl).toBe(true);
         const roles = (
           (await (await getAs(`/api/projects/${copy.id}/roles`, reviewer)).json()) as {
-            roles: { name: string; members: number }[];
+            roles: { name: string; members: number; tools: string[] }[];
           }
         ).roles;
         expect(roles.map((r) => r.name)).toContain("Mixer");
+        // Each role's player tools go with it (#240): a new role listens.
+        expect(roles.find((r) => r.name === "Mixer")?.tools).toEqual(["score", "compare", "loops"]);
         expect(roles.map((r) => r.name)).not.toContain("Late");
         expect(roles.find((r) => r.name === "Producer")?.members).toBe(1);
         const categories = (
@@ -6686,6 +6688,73 @@ describe.runIf(url)("api", () => {
             .where(eq(schema.blobs.id, row?.blobId ?? ""));
           expect(gone).toBeUndefined();
           expect((await ticket(s.owner)).status).toBe(404);
+        });
+
+        it("gives each role its player tools, and refuses a tool a role has off (#240)", async () => {
+          const s = await studio();
+          type Roles = {
+            roles: { id: string; name: string; tools: string[]; levels: object }[];
+          };
+          const roles = async () =>
+            ((await (await getAs(`/api/projects/${s.projectId}/roles`, s.owner)).json()) as Roles)
+              .roles;
+          const before = await roles();
+          // A new project's roles: the engineer's tools for those who make the record.
+          expect(before.find((r) => r.name === "Producer")?.tools).toEqual([
+            "qa",
+            "meters",
+            "spectrogram",
+            "score",
+            "compare",
+            "loops",
+          ]);
+          const reviewer = before.find((r) => r.name === "Reviewer");
+          expect(reviewer?.tools).toEqual(["score", "compare", "loops"]);
+
+          // The server refuses what the role has off, not only the page.
+          for (const path of ["qa", "loudness", "spectrograms"])
+            expect((await getAs(`/api/files/${s.mix}/${path}`, s.composer)).status).toBe(403);
+          expect((await getAs(`/api/files/${s.mix}/qa`, s.engineer)).status).toBe(200);
+          const file = (await (await getAs(`/api/files/${s.mix}`, s.composer)).json()) as {
+            file: { tools: string[] | null };
+          };
+          expect(file.file.tools).toEqual(["score", "compare", "loops"]);
+
+          // Only those who manage roles turn tools on; then the reviewer has QA.
+          const change = (tools: string[], cookie: string) =>
+            app.request(`/api/projects/${s.projectId}/roles/${reviewer?.id}`, {
+              ...json({ name: "Reviewer", levels: reviewer?.levels, tools }, cookie),
+              method: "PATCH",
+            });
+          expect((await change(["qa", "score"], s.engineer)).status).toBe(403);
+          expect((await change(["qa", "score"], s.owner)).status).toBe(200);
+          expect((await getAs(`/api/files/${s.mix}/qa`, s.composer)).status).toBe(200);
+          expect((await getAs(`/api/files/${s.mix}/loudness`, s.composer)).status).toBe(403);
+          // A change that leaves tools out keeps them.
+          expect(
+            (
+              await app.request(`/api/projects/${s.projectId}/roles/${reviewer?.id}`, {
+                ...json({ name: "Reviewers", levels: reviewer?.levels }, s.owner),
+                method: "PATCH",
+              })
+            ).status,
+          ).toBe(200);
+          expect((await roles()).find((r) => r.id === reviewer?.id)?.tools).toEqual([
+            "qa",
+            "score",
+          ]);
+          // A new role listens.
+          const made = await app.request(
+            `/api/projects/${s.projectId}/roles`,
+            json({ name: "Soloist", permissions: ["view"] }, s.owner),
+          );
+          expect(((await made.json()) as { role: { tools: string[] } }).role.tools).toEqual([
+            "score",
+            "compare",
+            "loops",
+          ]);
+          // Workspace owners have every tool, whatever their role.
+          expect((await getAs(`/api/files/${s.mix}/loudness`, s.owner)).status).not.toBe(403);
         });
 
         it("keeps a track's takes, with their bars, and finds those covering a bar (#21, #46)", async () => {

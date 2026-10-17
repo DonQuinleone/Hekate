@@ -1,5 +1,5 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import type { ReviewerTool } from "@hekate/shared";
+import type { PlayerTool } from "@hekate/shared";
 import { unwrapKey } from "@hekate/storage";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, count, eq, sql } from "drizzle-orm";
@@ -7,7 +7,15 @@ import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { type Actor, canOnFile, fileAccess, guestFileReviews, guestReach } from "../access.ts";
+import {
+  type Actor,
+  canOnFile,
+  fileAccess,
+  guestFileReviews,
+  guestReach,
+  mayUseTool,
+  toolRefused,
+} from "../access.ts";
 import { alignmentsFrom } from "../alignment-graph.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { CodedException, NotFound } from "../errors.ts";
@@ -83,17 +91,15 @@ const viewFile = (db: Database) =>
   });
 
 /**
- * As `viewFile`, for an engineer's tool: a guest whose review leaves the tool out is
- * refused it here, not only hidden in the interface.
+ * As `viewFile`, for an engineer's tool: a guest whose review leaves the tool out, or a member
+ * whose role has it off (#240), is refused it here, not only hidden in the interface.
  */
-const toolFile = (db: Database, tool: ReviewerTool) =>
+const toolFile = (db: Database, tool: PlayerTool) =>
   createMiddleware<{ Variables: ViewerVariables }>(async (c, next) => {
     const id = z.uuid().safeParse(c.req.param("id"));
     if (!id.success) throw new NotFound("File");
     const access = await canOnFile(db, c.var.actor, "view", id.data);
-    if (access.grant && !access.grant.tools.includes(tool)) {
-      throw new HTTPException(403, { message: "This review does not include that tool" });
-    }
+    if (!mayUseTool(access, tool)) throw toolRefused(access);
     await next();
   });
 
@@ -159,7 +165,13 @@ export const fileRoutes = (deps: PlaybackDeps) =>
       // Opening a file a review asks someone about counts as opening that item.
       await noteOpened(deps.db, c.var.actor, file.id);
       return c.json({
-        file: { ...file, variation: variation ?? null, grant: access?.grant ?? null },
+        file: {
+          ...file,
+          variation: variation ?? null,
+          grant: access?.grant ?? null,
+          // A member's player tools, from their role (#240); a guest's come with their grant.
+          tools: access && "tools" in access ? [...access.tools] : null,
+        },
       });
     })
     // Where the same music sits in this file and the others it was aligned with, read from

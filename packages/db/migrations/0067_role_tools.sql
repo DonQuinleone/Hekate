@@ -1,0 +1,1 @@
+ALTER TABLE "project_roles" ADD COLUMN "tools" text[] DEFAULT '{qa,meters,spectrogram,score,compare,loops}'::text[] NOT NULL;

@@ -129,7 +129,7 @@ function Playback({
       loop={loop}
       onLoop={onLoop}
       cue={cue}
-      tools={file.grant?.tools ?? null}
+      tools={file.grant?.tools ?? file.tools ?? null}
       onExpired={() => client.resetQueries({ queryKey: playbackQuery(file.id).queryKey })}
     />
   );
@@ -216,7 +216,9 @@ export function FilePage({
   if (error) return <p className="p-8 text-signal">{error.message}</p>;
   if (!file) return <p className="p-8 text-ink-3">Loading</p>;
   // A guest's review decides which tools they have; members have them all.
-  const allows = (tool: ReviewerTool) => !file.grant || file.grant.tools.includes(tool);
+  // A guest's tools come with their review, a member's with their role (#240).
+  const tools: readonly string[] | null = file.grant?.tools ?? file.tools ?? null;
+  const allows = (tool: ReviewerTool) => !tools || tools.includes(tool);
   const passage = allows("loops") ? loop : null;
   const canComment = guest ? Boolean(file.grant?.comment) : can("comment");
   const pages: PageComments | undefined =
@@ -227,7 +229,11 @@ export function FilePage({
           paged: file.kind === "document",
         }
       : undefined;
-  const comparable = !guest && file.kind === "audio" && file.streamStatus === "ready";
+  const comparable =
+    !guest &&
+    (!file.tools || file.tools.includes("compare")) &&
+    file.kind === "audio" &&
+    file.streamStatus === "ready";
   /** Loop the passage and hear it from where it began; one key then flips to this version. */
   const beforeAfter = (target: BeforeAfter) => {
     setFocus({ fileId: target.fileId, shift: target.shift, nonce: Date.now() });
@@ -247,8 +253,11 @@ export function FilePage({
       void media.play().catch(() => undefined);
     }
   };
-  /** A recording's measurements, checks and details have a view of their own (#41). */
-  const hasQa = Boolean(file.mediaInfo?.audio && allows("qa"));
+  /**
+   * A recording's measurements, checks and details have a view of their own (#41), for a
+   * role with either of the tools it holds (#240).
+   */
+  const hasQa = Boolean(file.mediaInfo?.audio && (allows("qa") || allows("meters")));
   /** Triage (#132) belongs to members who may triage. */
   const canTriage = !guest && can("triage");
   const shown = view === "triage" ? (canTriage ? "triage" : "review") : hasQa ? view : "review";
@@ -439,7 +448,7 @@ export function FilePage({
         >
           <div className="flex min-w-0 flex-col gap-6">
             {playback}
-            {shown === "review" && hasQa && (
+            {shown === "review" && hasQa && allows("qa") && (
               <QaSummary fileId={file.id} onOpen={() => onView("qa")} />
             )}
           </div>
@@ -480,12 +489,14 @@ export function FilePage({
             </>
           ) : (
             <div className="flex min-w-0 flex-col gap-6 pt-8">
-              <QualityChecks
-                fileId={file.id}
-                media={media}
-                canChoose={!guest && can("edit_workflows")}
-                onLoop={allows("loops") ? hear : undefined}
-              />
+              {allows("qa") && (
+                <QualityChecks
+                  fileId={file.id}
+                  media={media}
+                  canChoose={!guest && can("edit_workflows")}
+                  onLoop={allows("loops") ? hear : undefined}
+                />
+              )}
               {file.mediaInfo?.audio && allows("meters") && preferences.showLoudness && (
                 <Loudness
                   fileId={file.id}

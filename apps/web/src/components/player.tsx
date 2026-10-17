@@ -1,4 +1,4 @@
-import { formatChannels, formatDuration, type MediaInfo, type ReviewerTool } from "@hekate/shared";
+import { formatChannels, formatDuration, type MediaInfo } from "@hekate/shared";
 import type Hls from "hls.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
@@ -186,8 +186,8 @@ export function Player({
   onLoop?: (loop: Loop | null) => void;
   /** Changes each time the page asks to hear the loop, which switches it back on. */
   cue?: number;
-  /** The tools a guest's review allows; null for members, who have them all. */
-  tools?: readonly ReviewerTool[] | null;
+  /** The tools a guest's review or a member's role allows; null for every one. */
+  tools?: readonly string[] | null;
 }) {
   const preferences = usePreferences();
   const canLoop = !tools || tools.includes("loops");

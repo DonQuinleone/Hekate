@@ -12,7 +12,7 @@ import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { canOnFile } from "../access.ts";
+import { canOnFile, mayUseTool, toolRefused } from "../access.ts";
 import { profilesForFiles } from "../delivery-profiles.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
@@ -30,9 +30,7 @@ export const fileQaRoutes = (db: Database) =>
   new Hono<{ Variables: ViewerVariables }>().get("/:id/qa", idParam, async (c) => {
     const { id } = c.req.valid("param");
     const access = await canOnFile(db, c.var.actor, "view", id);
-    if (access.grant && !access.grant.tools.includes("qa")) {
-      throw new HTTPException(403, { message: "This review does not include that tool" });
-    }
+    if (!mayUseTool(access, "qa")) throw toolRefused(access);
     const organisationId = c.var.organisationId;
     const [file] = await db
       .select({
