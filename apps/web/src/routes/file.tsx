@@ -3,6 +3,7 @@ import {
   formatChannels,
   formatDuration,
   type MediaInfo,
+  type QaFinding,
   type ReviewerTool,
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -10,6 +11,7 @@ import { Link } from "@tanstack/react-router";
 import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
 import {
   type BeforeAfter,
+  type CommentSeed,
   Comments,
   type PageComments,
   useCommentMarkers,
@@ -26,7 +28,7 @@ import { Icon } from "~/components/icons";
 import { Loudness } from "~/components/loudness";
 import { type Crumb, PageHeader } from "~/components/page-header";
 import { Player } from "~/components/player";
-import { QaSummary, QualityChecks } from "~/components/qa";
+import { checkNames, findingMarks, QaSummary, QualityChecks } from "~/components/qa";
 import { ScorePane } from "~/components/score";
 import { FileContext } from "~/components/tracks";
 import { TriageView } from "~/components/triage";
@@ -44,6 +46,7 @@ import {
   fileQuery,
   playbackQuery,
   projectQuery,
+  qaQuery,
   useMarks,
   usePreferences,
   useProjectCan,
@@ -76,8 +79,11 @@ function Playback({
   canComment,
   normalised,
   onNormalised,
+  showFindings,
 }: {
   file: FileDetail;
+  /** Whether to mark what the quality checks found on the timeline (#43). */
+  showFindings: boolean;
   onMedia: (element: HTMLMediaElement | null) => void;
   loop: Loop | null;
   onLoop: (loop: Loop | null) => void;
@@ -92,6 +98,8 @@ function Playback({
   // A take shared with a guest has no comments for them (#133).
   const markers = useCommentMarkers(file.id, !file.grant?.listenOnly);
   const regions = useRegionMarkers(file.id, !file.grant?.listenOnly);
+  const { data: qa } = useQuery({ ...qaQuery(file.id), enabled: showFindings });
+  const findings = showFindings ? findingMarks(qa?.findings ?? []) : [];
   const ready = file.streamStatus === "ready";
   // Only a recording plays: asking for a document's playback would log a session for nothing.
   const plays = file.kind === "audio" || file.kind === "video";
@@ -133,6 +141,7 @@ function Playback({
       info={file.mediaInfo}
       onMedia={onMedia}
       markers={markers}
+      findings={findings}
       loop={loop}
       onLoop={onLoop}
       cue={cue}
@@ -215,6 +224,8 @@ export function FilePage({
   const [downloading, setDownloading] = useState(false);
   const tabsId = useId();
   const [cue, setCue] = useState(0);
+  /** A comment begun from a finding (#43), for the composer to start from. */
+  const [seed, setSeed] = useState<CommentSeed | undefined>(undefined);
   /** A source comparison should bring in and play first: before, for before and after. */
   const [focus, setFocus] = useState<CompareFocus | null>(null);
   const { guest } = useViewer();
@@ -267,6 +278,16 @@ export function FilePage({
     }
   };
   /** One action: the passage is looped and heard from its start. */
+  /** Write a comment about a finding: back to the review, at its moment, saying what it is. */
+  const commentOn = (finding: QaFinding) => {
+    const at = finding.start;
+    if (media) {
+      media.pause();
+      if (at !== null) media.currentTime = at;
+    }
+    setSeed({ key: Date.now(), at, body: `${checkNames[finding.check]}: ${finding.summary}` });
+    onView("review");
+  };
   const hear = (next: Loop) => {
     onLoop(next);
     // The same passage again still switches its loop back on.
@@ -343,6 +364,7 @@ export function FilePage({
       canComment={canComment}
       normalised={normalised}
       onNormalised={setChosenNormal}
+      showFindings={Boolean(file.mediaInfo?.audio) && allows("qa")}
     />
   );
   if (shown === "triage")
@@ -499,6 +521,7 @@ export function FilePage({
                     loop={passage}
                     pages={file.streamStatus === "ready" ? pages : undefined}
                     onBeforeAfter={comparable ? beforeAfter : undefined}
+                    seed={seed}
                     onLoop={allows("loops") ? hear : undefined}
                   />
                 </div>
@@ -530,6 +553,7 @@ export function FilePage({
                   media={media}
                   canChoose={!guest && can("edit_workflows")}
                   onLoop={allows("loops") ? hear : undefined}
+                  onComment={canComment ? commentOn : undefined}
                 />
               )}
               {file.mediaInfo?.audio && allows("meters") && preferences.showLoudness && (

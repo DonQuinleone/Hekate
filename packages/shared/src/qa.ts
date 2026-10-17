@@ -348,3 +348,29 @@ export const orderFindings = (findings: readonly QaFinding[]) =>
       (a.start ?? -1) - (b.start ?? -1) ||
       (a.channel ?? -1) - (b.channel ?? -1),
   );
+
+/** What each check is called in the list, in reports, and in the project's QA rules. */
+export const qaCheckNames: Record<QaCheck, string> = {
+  format: "Format",
+  loudness: "Loudness",
+  "true-peak": "True peak",
+  clipping: "Clipping",
+  "flat-tops": "Flattened peaks",
+  dropouts: "Dropouts",
+  clicks: "Clicks",
+  "dc-offset": "DC offset",
+  silence: "Silence",
+  "dead-channel": "Dead channel",
+  imbalance: "Balance",
+  phase: "Phase",
+  // The project's own rules: the finding's summary starts with the rule's name.
+  custom: "Project rule",
+};
+
+/** How each severity is said, in the list and in reports. */
+export const qaSeverityNames: Record<QaSeverity, string> = {
+  fail: "Fails",
+  warn: "Worth a look",
+  info: "Note",
+  pass: "Passes",
+};
