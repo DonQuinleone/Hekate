@@ -15,11 +15,23 @@ import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
 import { Icon } from "./icons";
 import { LoopControls, LoopSurface } from "./loop";
 import { Spectrogram, type SpectrogramChannelChoice } from "./spectrogram";
-import { SpectrogramSettings, useSpectrogramView } from "./spectrogram-settings";
+import { SpectrogramLook, SpectrogramSettings, useSpectrogramView } from "./spectrogram-settings";
 import { Button } from "./ui/button";
+import { Segmented } from "./ui/segmented";
 import { Slider } from "./ui/slider";
 import { Toggle } from "./ui/toggle";
-import { WAVEFORM_HEIGHT, Waveform, type WaveformView } from "./waveform";
+import {
+  defaultWaveLook,
+  WAVE_LOOK_MIN,
+  WAVEFORM_HEIGHT,
+  Waveform,
+  type WaveformView,
+  type WaveLook,
+  waveColourNames,
+  waveColours,
+  waveLookOf,
+  waveTokens,
+} from "./waveform";
 
 const ROLLS_KEY = "hekate.loop.rolls";
 
@@ -47,35 +59,51 @@ function useRolls(): [Rolls, (rolls: Rolls) => void] {
 /** How the audio is drawn above the transport. */
 type Display = "waveform" | "spectrogram" | "both" | "overlay";
 
+/** Where the spectrogram goes: nowhere, under the waveform, behind it, or instead of it. */
+export const spectrogramPlaces = ["off", "below", "behind", "instead"] as const;
+export type SpectrogramPlace = (typeof spectrogramPlaces)[number];
+
 /**
  * What the player shows beyond the plain waveform, all off by default: one waveform with
- * the channels combined. Remembered per browser.
+ * the channels combined, drawn as it always was. Remembered per browser.
  */
-interface PlayerView {
+export interface PlayerView {
   /** Each channel in its own lane, rather than combined. */
   split: boolean;
-  spectrogram: boolean;
-  /** Where the spectrogram goes: under the waveform, behind it, or instead of it. */
-  placement: "below" | "behind" | "instead";
+  wave: WaveLook;
+  spectrogram: SpectrogramPlace;
 }
-const defaultPlayerView: PlayerView = { split: false, spectrogram: false, placement: "below" };
+const defaultPlayerView: PlayerView = {
+  split: false,
+  wave: defaultWaveLook,
+  spectrogram: "off",
+};
 const VIEW_KEY = "hekate.player.view";
+
+/**
+ * A remembered view, from what this browser kept: before #135 the spectrogram was a switch
+ * with a placement beside it.
+ */
+export function playerViewOf(saved: unknown, splitByDefault: boolean): PlayerView {
+  if (!saved || typeof saved !== "object") return { ...defaultPlayerView, split: splitByDefault };
+  const value = saved as Record<string, unknown>;
+  const place = (p: unknown): SpectrogramPlace | undefined =>
+    spectrogramPlaces.includes(p as SpectrogramPlace) ? (p as SpectrogramPlace) : undefined;
+  return {
+    split: value.split === true,
+    wave: waveLookOf(value.wave),
+    spectrogram:
+      value.spectrogram === true
+        ? (place(value.placement) ?? "below")
+        : (place(value.spectrogram) ?? "off"),
+  };
+}
 
 /** `splitByDefault`: the member's choice, used until this browser remembers its own. */
 function usePlayerView(splitByDefault: boolean): [PlayerView, (next: PlayerView) => void] {
   const [view, setView] = useState<PlayerView>(() => {
     try {
-      const saved = JSON.parse(
-        localStorage.getItem(VIEW_KEY) ?? "null",
-      ) as Partial<PlayerView> | null;
-      return {
-        split: saved ? saved.split === true : splitByDefault,
-        spectrogram: saved?.spectrogram === true,
-        placement:
-          saved?.placement === "behind" || saved?.placement === "instead"
-            ? saved.placement
-            : "below",
-      };
+      return playerViewOf(JSON.parse(localStorage.getItem(VIEW_KEY) ?? "null"), splitByDefault);
     } catch {
       return defaultPlayerView;
     }
@@ -91,10 +119,22 @@ function usePlayerView(splitByDefault: boolean): [PlayerView, (next: PlayerView)
   return [view, save];
 }
 
-const placementNames: Record<PlayerView["placement"], string> = {
+const placeNames: Record<SpectrogramPlace, string> = {
+  off: "Off",
   below: "Below",
   behind: "Behind",
   instead: "Instead",
+};
+
+/** A comment's mark on the timeline: open ones quiet, ones with work to do in the signal colour. */
+export interface TimelineMarker {
+  at: number;
+  state: "open" | "todo" | "deferred";
+}
+const markerStyles: Record<TimelineMarker["state"], string> = {
+  open: "bg-ink-2",
+  todo: "bg-signal",
+  deferred: "bg-ink-3 opacity-60",
 };
 
 /** What a reviewer chooses between, in plain words. */
@@ -190,8 +230,8 @@ export function Player({
   onExpired: () => void;
   /** The media element, once mounted, so other panels can read and move the playhead. */
   onMedia?: (element: HTMLMediaElement | null) => void;
-  /** Positions in seconds to mark on the timeline, such as anchored comments. */
-  markers?: number[];
+  /** Moments to mark on the timeline, such as anchored comments. */
+  markers?: TimelineMarker[];
   /** The passage being looped; kept by the page so it holds across files. */
   loop?: Loop | null;
   onLoop?: (loop: Loop | null) => void;
@@ -236,13 +276,17 @@ export function Player({
   const [playerView, setPlayerView] = usePlayerView(preferences.splitChannels);
   const channels = info?.audio?.channels ?? 0;
   const view: WaveformView = playerView.split && channels > 1 ? "channels" : "combined";
-  const display: Display = !(playerView.spectrogram && canSpectrogram)
-    ? "waveform"
-    : playerView.placement === "behind"
-      ? "overlay"
-      : playerView.placement === "instead"
-        ? "spectrogram"
-        : "both";
+  const display: Display =
+    !canSpectrogram || playerView.spectrogram === "off"
+      ? "waveform"
+      : playerView.spectrogram === "behind"
+        ? "overlay"
+        : playerView.spectrogram === "instead"
+          ? "spectrogram"
+          : "both";
+  const look = playerView.wave;
+  const setLook = (wave: Partial<WaveLook>) =>
+    setPlayerView({ ...playerView, wave: { ...playerView.wave, ...wave } });
   const [spectrum, setSpectrum] = useSpectrogramView();
   const [spectrumChannel, setSpectrumChannel] = useState<SpectrogramChannelChoice>(
     channels > 1 ? (playerView.split ? "each" : "all") : "0",
@@ -568,6 +612,7 @@ export function Player({
                   duration={duration}
                   layout={info?.audio?.channelLayout}
                   view={view}
+                  look={look}
                 />
               )}
               {element && (display === "spectrogram" || display === "both") && (
@@ -604,6 +649,7 @@ export function Player({
                     duration={duration}
                     layout={info?.audio?.channelLayout}
                     view={view}
+                    look={look}
                     overlay
                   />
                 </div>
@@ -642,11 +688,11 @@ export function Player({
                 }}
               />
             )}
-            {markers.map((at) => (
+            {markers.map(({ at, state }) => (
               <div
                 key={at}
                 aria-hidden="true"
-                className="absolute top-0 h-1.5 w-px -translate-x-1/2 bg-signal"
+                className={cn("absolute top-0 h-1.5 w-px -translate-x-1/2", markerStyles[state])}
                 style={{ left: `${share(at)}%` }}
               />
             ))}
@@ -700,7 +746,7 @@ export function Player({
             >
               <Icon name={muted ? "mute" : "volume"} size={14} />
             </Button>
-            {((kind === "audio" && (channels > 1 || canSpectrogram)) || offersNormalise) && (
+            {(kind === "audio" || offersNormalise) && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -768,12 +814,47 @@ export function Player({
               className="flex flex-col gap-3 border-t border-hairline pt-3"
             >
               <div className="flex max-w-80 flex-col gap-2.5">
-                {offersNormalise && (
-                  <Toggle
-                    label="Normalised playback"
-                    checked={normalised}
-                    onChange={(on) => onNormalised?.(on)}
-                  />
+                {/* No waveform drawn, nothing to choose about it. */}
+                {kind === "audio" && display !== "spectrogram" && (
+                  <fieldset className="m-0 flex flex-col gap-2.5 border-0 p-0">
+                    <legend className="sr-only">Waveform</legend>
+                    <div className="flex items-center justify-between gap-4">
+                      <span aria-hidden="true" className="text-[14px] text-ink">
+                        Waveform
+                      </span>
+                      <span className="flex gap-1.5">
+                        {waveColours.map((colour) => (
+                          <button
+                            key={colour}
+                            type="button"
+                            aria-pressed={look.colour === colour}
+                            aria-label={`${waveColourNames[colour]} waveform`}
+                            title={waveColourNames[colour]}
+                            onClick={() => setLook({ colour })}
+                            className={cn(
+                              "flex size-7 cursor-pointer items-center justify-center rounded-full border bg-transparent p-0",
+                              look.colour === colour ? "border-ink" : "border-transparent",
+                            )}
+                          >
+                            <span
+                              className="size-4 rounded-full"
+                              style={{ background: `var(${waveTokens[colour]})` }}
+                            />
+                          </button>
+                        ))}
+                      </span>
+                    </div>
+                    <LookSlider
+                      label="Brightness"
+                      value={look.opacity}
+                      onChange={(opacity) => setLook({ opacity })}
+                    />
+                    <LookSlider
+                      label="Height"
+                      value={look.height}
+                      onChange={(height) => setLook({ height })}
+                    />
+                  </fieldset>
                 )}
                 {kind === "audio" && channels > 1 && (
                   <Toggle
@@ -787,32 +868,22 @@ export function Player({
                   />
                 )}
                 {kind === "audio" && canSpectrogram && (
-                  <Toggle
-                    label="Spectrogram"
-                    checked={playerView.spectrogram}
-                    onChange={(spectrogram) => setPlayerView({ ...playerView, spectrogram })}
-                  />
-                )}
-                {kind === "audio" && canSpectrogram && playerView.spectrogram && (
-                  <fieldset className="m-0 flex items-center justify-between gap-4 border-0 p-0">
-                    <legend className="sr-only">Spectrogram placement</legend>
-                    <span aria-hidden="true" className="text-[13px] text-ink-3">
-                      Placement
+                  <div className="flex items-center justify-between gap-4">
+                    <span aria-hidden="true" className="text-[14px] text-ink">
+                      Spectrogram
                     </span>
-                    <span className="flex gap-1">
-                      {(Object.keys(placementNames) as PlayerView["placement"][]).map((p) => (
-                        <ChoiceButton
-                          key={p}
-                          selected={playerView.placement === p}
-                          onSelect={() => setPlayerView({ ...playerView, placement: p })}
-                        >
-                          {placementNames[p]}
-                        </ChoiceButton>
-                      ))}
-                    </span>
-                  </fieldset>
+                    <Segmented
+                      label="Spectrogram"
+                      value={playerView.spectrogram}
+                      options={spectrogramPlaces.map((p) => ({ value: p, label: placeNames[p] }))}
+                      onChange={(spectrogram) => setPlayerView({ ...playerView, spectrogram })}
+                    />
+                  </div>
                 )}
-                {kind === "audio" && canSpectrogram && playerView.spectrogram && (
+                {kind === "audio" && canSpectrogram && playerView.spectrogram !== "off" && (
+                  <SpectrogramLook view={spectrum} onView={setSpectrum} />
+                )}
+                {kind === "audio" && canSpectrogram && playerView.spectrogram !== "off" && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -820,8 +891,20 @@ export function Player({
                     onClick={() => setTuning((t) => !t)}
                     className="self-start px-0 text-ink-3 hover:text-ink"
                   >
-                    {tuning ? "Hide spectrogram settings" : "Adjust spectrogram…"}
+                    {tuning ? "Hide spectrogram settings" : "Channel, levels and range…"}
                   </Button>
+                )}
+                {kind === "audio" && !canSpectrogram && tools && !tools.includes("spectrogram") && (
+                  <span className="text-[12px] text-ink-3">
+                    The spectrogram is not among your tools here.
+                  </span>
+                )}
+                {offersNormalise && (
+                  <Toggle
+                    label="Normalised playback"
+                    checked={normalised}
+                    onChange={(on) => onNormalised?.(on)}
+                  />
                 )}
               </div>
             </section>
@@ -840,6 +923,33 @@ export function Player({
         </div>
       )}
     </section>
+  );
+}
+
+/** A share of the waveform's look, from 15% to 100%. */
+function LookSlider({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  const percent = Math.round(value * 100);
+  return (
+    <label className="flex items-center gap-3 text-[12px] text-ink-3">
+      <span className="w-16 shrink-0">{label}</span>
+      <Slider
+        min={Math.round(WAVE_LOOK_MIN * 100)}
+        max={100}
+        value={percent}
+        aria-valuetext={`${percent}%`}
+        onChange={(e) => onChange(Number(e.target.value) / 100)}
+        className="min-w-0 flex-1"
+      />
+      <span className="tabular w-9 text-right">{percent}%</span>
+    </label>
   );
 }
 

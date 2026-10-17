@@ -108,64 +108,77 @@ export function ViewMenu({
           role="menu"
           className="rise-in absolute right-0 z-30 mt-1 flex w-80 flex-col gap-3.5 rounded-panel bg-overlay p-4 shadow-3"
         >
-          <div className="flex flex-col gap-2">
-            <div className={row}>
-              Waveform
-              <span className="flex items-center gap-1.5">
-                {(
-                  [
-                    ["ink", "var(--hk-ink)"],
-                    ["signal", "var(--hk-signal)"],
-                    ["cool", "oklch(0.78 0.09 235)"],
-                    ["warm", "oklch(0.82 0.09 75)"],
-                  ] as const
-                ).map(([id, colour]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    aria-label={`${id} waveform`}
-                    aria-pressed={view.wave.colour === id}
-                    onClick={() => onView({ ...view, wave: { ...view.wave, colour: id } })}
-                    className={cn(
-                      "size-5 rounded-full border-2 transition-transform hover:scale-110",
-                      view.wave.colour === id ? "border-ink" : "border-transparent",
-                    )}
-                    style={{ background: colour }}
-                  />
-                ))}
-              </span>
+          {/* With the spectrogram in its place there is no waveform to choose about. */}
+          {view.spectrogram !== "instead" && (
+            <div className="flex flex-col gap-2">
+              <div className={row}>
+                Waveform
+                <span className="flex items-center gap-1.5">
+                  {(
+                    [
+                      ["ink", "var(--hk-ink)"],
+                      ["signal", "var(--hk-signal)"],
+                      ["cool", "oklch(0.78 0.09 235)"],
+                      ["warm", "oklch(0.82 0.09 75)"],
+                    ] as const
+                  ).map(([id, colour]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      aria-label={`${id} waveform`}
+                      aria-pressed={view.wave.colour === id}
+                      onClick={() => onView({ ...view, wave: { ...view.wave, colour: id } })}
+                      className={cn(
+                        "size-5 rounded-full border-2 transition-transform hover:scale-110",
+                        view.wave.colour === id ? "border-ink" : "border-transparent",
+                      )}
+                      style={{ background: colour }}
+                    />
+                  ))}
+                </span>
+              </div>
+              <label className="flex items-center gap-3 text-[12px] text-ink-3">
+                Brightness
+                <input
+                  type="range"
+                  min={15}
+                  max={100}
+                  value={Math.round(view.wave.opacity * 100)}
+                  onChange={(e) =>
+                    onView({
+                      ...view,
+                      wave: { ...view.wave, opacity: Number(e.target.value) / 100 },
+                    })
+                  }
+                  aria-label="Waveform brightness"
+                  className="h-1 flex-1 accent-[var(--hk-signal)]"
+                />
+                <span className="tabular w-8 text-right">
+                  {Math.round(view.wave.opacity * 100)}%
+                </span>
+              </label>
+              <label className="flex items-center gap-3 text-[12px] text-ink-3">
+                Height
+                <input
+                  type="range"
+                  min={15}
+                  max={100}
+                  value={Math.round(view.wave.height * 100)}
+                  onChange={(e) =>
+                    onView({
+                      ...view,
+                      wave: { ...view.wave, height: Number(e.target.value) / 100 },
+                    })
+                  }
+                  aria-label="Waveform height"
+                  className="h-1 flex-1 accent-[var(--hk-signal)]"
+                />
+                <span className="tabular w-8 text-right">
+                  {Math.round(view.wave.height * 100)}%
+                </span>
+              </label>
             </div>
-            <label className="flex items-center gap-3 text-[12px] text-ink-3">
-              Brightness
-              <input
-                type="range"
-                min={15}
-                max={100}
-                value={Math.round(view.wave.opacity * 100)}
-                onChange={(e) =>
-                  onView({ ...view, wave: { ...view.wave, opacity: Number(e.target.value) / 100 } })
-                }
-                aria-label="Waveform brightness"
-                className="h-1 flex-1 accent-[var(--hk-signal)]"
-              />
-              <span className="tabular w-8 text-right">{Math.round(view.wave.opacity * 100)}%</span>
-            </label>
-            <label className="flex items-center gap-3 text-[12px] text-ink-3">
-              Height
-              <input
-                type="range"
-                min={15}
-                max={100}
-                value={Math.round(view.wave.height * 100)}
-                onChange={(e) =>
-                  onView({ ...view, wave: { ...view.wave, height: Number(e.target.value) / 100 } })
-                }
-                aria-label="Waveform height"
-                className="h-1 flex-1 accent-[var(--hk-signal)]"
-              />
-              <span className="tabular w-8 text-right">{Math.round(view.wave.height * 100)}%</span>
-            </label>
-          </div>
+          )}
           <div className={row}>
             Split channels
             <Switch

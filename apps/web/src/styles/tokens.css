@@ -23,6 +23,10 @@
   --hk-node-comm: #b08cff;
   --hk-node-flow: #4fc3c9;
 
+  /* Waveform colours a listener may choose besides ink and signal (View, Waveform). */
+  --hk-wave-cool: #7cc1e9;
+  --hk-wave-warm: #e7bc81;
+
   /* Project covers: each profile has its own lit and deep tone, and one sheen for all. */
   --hk-cover-music-lit: oklch(0.46 0.08 40);
   --hk-cover-music-deep: oklch(0.2 0.04 60);

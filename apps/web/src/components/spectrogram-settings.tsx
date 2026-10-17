@@ -80,6 +80,48 @@ function NumberField({
 }
 
 /** Every setting of the spectrogram view, beneath the player. */
+/** The spectrogram's colours and frequency scale, shown in the View menu itself (#135). */
+export function SpectrogramLook({
+  view,
+  onView,
+}: {
+  view: SpectrogramView;
+  onView: (view: SpectrogramView) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+      <Field label="Colours">
+        <Select
+          size="sm"
+          className="w-auto"
+          value={view.colourMap}
+          onChange={(event) => onView({ ...view, colourMap: event.target.value as ColourMap })}
+        >
+          {colourMaps.map((map) => (
+            <option key={map} value={map}>
+              {colourMapNames[map]}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Scale">
+        <Select
+          size="sm"
+          className="w-auto"
+          value={view.scale}
+          onChange={(event) => onView({ ...view, scale: event.target.value as FrequencyScale })}
+        >
+          {frequencyScales.map((scale) => (
+            <option key={scale} value={scale}>
+              {scaleNames[scale]}
+            </option>
+          ))}
+        </Select>
+      </Field>
+    </div>
+  );
+}
+
 export function SpectrogramSettings({
   view,
   onView,
@@ -119,34 +161,6 @@ export function SpectrogramSettings({
           ))}
           {channels > 1 && <option value="mid">Mid</option>}
           {channels > 1 && <option value="side">Side</option>}
-        </Select>
-      </Field>
-      <Field label="Colours">
-        <Select
-          size="sm"
-          className="w-auto"
-          value={view.colourMap}
-          onChange={(event) => set("colourMap", event.target.value as ColourMap)}
-        >
-          {colourMaps.map((map) => (
-            <option key={map} value={map}>
-              {colourMapNames[map]}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Scale">
-        <Select
-          size="sm"
-          className="w-auto"
-          value={view.scale}
-          onChange={(event) => set("scale", event.target.value as FrequencyScale)}
-        >
-          {frequencyScales.map((scale) => (
-            <option key={scale} value={scale}>
-              {scaleNames[scale]}
-            </option>
-          ))}
         </Select>
       </Field>
       <NumberField label="Floor dB" value={view.floor} step={6} onChange={(v) => set("floor", v)} />

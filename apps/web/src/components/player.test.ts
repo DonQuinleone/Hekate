@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Rendition } from "~/lib/queries";
-import { audioBuffer, preferredRendition, renditionLabel } from "./player";
+import { audioBuffer, playerViewOf, preferredRendition, renditionLabel } from "./player";
 
 const rendition = (name: string, extra: Partial<Rendition> = {}): Rendition => ({
   id: name,
@@ -56,5 +56,36 @@ describe("player", () => {
       maxBufferLength: 30,
       backBufferLength: 10,
     });
+  });
+});
+
+describe("the player's view", () => {
+  it("reads what a browser kept before the spectrogram had a place of its own (#135)", () => {
+    expect(playerViewOf({ split: true, spectrogram: true, placement: "behind" }, false)).toEqual({
+      split: true,
+      wave: { colour: "ink", opacity: 0.5, height: 0.32 },
+      spectrogram: "behind",
+    });
+    expect(playerViewOf({ spectrogram: true }, false).spectrogram).toBe("below");
+    expect(playerViewOf({ spectrogram: false, placement: "instead" }, false).spectrogram).toBe(
+      "off",
+    );
+  });
+
+  it("keeps a look within its range and falls back where it cannot read one", () => {
+    const view = playerViewOf(
+      { spectrogram: "instead", wave: { colour: "warm", opacity: 4, height: 0.01 } },
+      false,
+    );
+    expect(view).toEqual({
+      split: false,
+      wave: { colour: "warm", opacity: 1, height: 0.15 },
+      spectrogram: "instead",
+    });
+    expect(
+      playerViewOf({ spectrogram: "sideways", wave: { colour: "plaid" } }, false),
+    ).toMatchObject({ spectrogram: "off", wave: { colour: "ink" } });
+    // Nothing kept yet: the member's own choice of split channels.
+    expect(playerViewOf(null, true).split).toBe(true);
   });
 });
