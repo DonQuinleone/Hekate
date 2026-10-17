@@ -1,5 +1,5 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { levelsOf, projectMemberInput, roleInput } from "@hekate/shared";
+import { levelsOf, listeningTools, projectMemberInput, roleInput } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, count, eq, max } from "drizzle-orm";
 import { Hono } from "hono";
@@ -48,6 +48,7 @@ export const projectAccessRoutes = (db: Database) =>
           id: projectRoles.id,
           name: projectRoles.name,
           permissions: projectRoles.permissions,
+          tools: projectRoles.tools,
           position: projectRoles.position,
           members: count(projectMembers.id),
         })
@@ -82,6 +83,8 @@ export const projectAccessRoutes = (db: Database) =>
               projectId,
               name: input.name,
               permissions: input.permissions,
+              // A new role listens, unless it says which tools it has.
+              tools: input.tools ?? listeningTools,
               position: (last?.position ?? -1) + 1,
             })
             .returning();
@@ -119,7 +122,12 @@ export const projectAccessRoutes = (db: Database) =>
           }
           const [updated] = await tx
             .update(projectRoles)
-            .set({ name: input.name, permissions: input.permissions, updatedAt: new Date() })
+            .set({
+              name: input.name,
+              permissions: input.permissions,
+              ...(input.tools ? { tools: input.tools } : {}),
+              updatedAt: new Date(),
+            })
             .where(
               inOrg(
                 projectRoles,

@@ -3,10 +3,12 @@ import {
   lookingPermissions,
   mergeGrants,
   type OrganisationRole,
+  type PlayerTool,
   type ProjectPermission,
   permissionsFor,
   type ReviewerPermissions,
   readGrant,
+  toolsFor,
   withinWindow,
 } from "@hekate/shared";
 import { and, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
@@ -309,6 +311,8 @@ export async function projectAccess(
   permissions: Set<ProjectPermission>;
   /** What their role grants, archived or not: what unarchiving it is decided by. */
   granted: Set<ProjectPermission>;
+  /** The player tools their role has on (#240). */
+  tools: Set<PlayerTool>;
   archived: boolean;
 } | null> {
   // Guests see no projects; they reach files only through their reviews.
@@ -318,6 +322,7 @@ export async function projectAccess(
       id: projects.id,
       archivedAt: projects.archivedAt,
       permissions: projectRoles.permissions,
+      tools: projectRoles.tools,
     })
     .from(projects)
     .leftJoin(
@@ -344,7 +349,13 @@ export async function projectAccess(
   const permissions = archived
     ? new Set(lookingPermissions.filter((p) => granted.has(p)))
     : granted;
-  return { projectId: row.id, permissions, granted, archived };
+  return {
+    projectId: row.id,
+    permissions,
+    granted,
+    tools: toolsFor(actor.organisationRole, row.tools),
+    archived,
+  };
 }
 
 /**
@@ -416,6 +427,25 @@ export async function reviewAccess(
   if (!mine || !withinWindow(mine.grant, new Date())) return null;
   return { projectId: review.projectId, permissions: guestPermissions(mine.grant) };
 }
+
+/**
+ * Whether the actor may use a player tool on a file (#240): a guest, if their review gives it
+ * them; a member, if their role has it on.
+ */
+export function mayUseTool(
+  access: { grant: { tools: readonly string[] } | null; tools?: ReadonlySet<PlayerTool> },
+  tool: PlayerTool,
+): boolean {
+  return access.grant ? access.grant.tools.includes(tool) : (access.tools?.has(tool) ?? false);
+}
+
+/** The refusal of a tool, in the words of where it comes from: a review, or a role. */
+export const toolRefused = (access: { grant: unknown }) =>
+  new HTTPException(403, {
+    message: access.grant
+      ? "This review does not include that tool"
+      : "Your role in this project does not include that tool",
+  });
 
 /** As `can`, for a file: 404 for a file the actor cannot see. Returns the file's project. */
 export async function canOnFile(

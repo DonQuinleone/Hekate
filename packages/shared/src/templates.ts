@@ -2,7 +2,7 @@ import { z } from "zod";
 import { categoryHandlings } from "./categories.ts";
 import { profileRef } from "./qa.ts";
 import { qaSettings } from "./qa-rules.ts";
-import { projectPermission } from "./roles.ts";
+import { playerTool, projectPermission } from "./roles.ts";
 
 /**
  * Project templates (#240): what a project is set up with, saved from one project to start
@@ -25,7 +25,14 @@ export const templateContent = z.object({
     qaSettings: qaSettings.nullable(),
   }),
   // No limits of their own: whatever a project may hold, its template holds.
-  roles: z.array(z.object({ name: z.string().min(1), permissions: z.array(projectPermission) })),
+  roles: z.array(
+    z.object({
+      name: z.string().min(1),
+      permissions: z.array(projectPermission),
+      /** Its player tools (#240); a template saved before them gives every one. */
+      tools: z.array(playerTool).optional(),
+    }),
+  ),
   categories: z.array(
     z.object({
       name: z.string().min(1),

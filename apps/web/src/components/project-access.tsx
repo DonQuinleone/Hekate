@@ -1,4 +1,11 @@
-import { type AccessArea, type AccessLevels, accessAreas, levelsOf } from "@hekate/shared";
+import {
+  type AccessArea,
+  type AccessLevels,
+  accessAreas,
+  levelsOf,
+  type PlayerTool,
+  playerTools,
+} from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type CSSProperties, type FormEvent, useState } from "react";
 import { cn } from "~/lib/cn";
@@ -11,6 +18,7 @@ import {
 import { Icon } from "./icons";
 import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
+import { Checkbox } from "./ui/choice";
 import { Dialog } from "./ui/dialog";
 import { Input, Select } from "./ui/input";
 import { ActionMenu } from "./ui/menu";
@@ -76,6 +84,16 @@ const copyName = (name: string, taken: string[]) => {
  * The project's roles, then every role against every area at one level each (#142); a level
  * includes those before it. Those who manage roles change them here.
  */
+/** Each player tool as the matrix names it (#240). */
+const toolWords: Record<PlayerTool, { label: string; hint: string }> = {
+  qa: { label: "QA", hint: "Findings, loudness, format and metadata" },
+  meters: { label: "Meters", hint: "Loudness and peaks beside the player" },
+  spectrogram: { label: "Spectrogram", hint: "Below or instead of the waveform" },
+  score: { label: "Score", hint: "The linked score beside the recording" },
+  compare: { label: "Compare", hint: "Versions and variations side by side" },
+  loops: { label: "Loops", hint: "A passage played round, from comments too" },
+};
+
 function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
   const { data: roles } = useQuery(projectRolesQuery(projectId));
   const { createRole, updateRole, deleteRole } = useProjectAccessMutations(projectId);
@@ -92,6 +110,15 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
       id: role.id,
       name: role.name,
       levels: { ...role.levels, [area]: level } as AccessLevels,
+    });
+  const setTool = (role: ProjectRole, tool: PlayerTool, on: boolean) =>
+    updateRole.mutate({
+      id: role.id,
+      name: role.name,
+      levels: role.levels,
+      tools: on
+        ? playerTools.filter((t) => t === tool || role.tools.includes(t))
+        : role.tools.filter((t) => t !== tool),
     });
   // The one role left that manages people keeps that level, so the project is never left
   // without someone to run it.
@@ -134,6 +161,7 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
                           roles.map((r) => r.name),
                         ),
                         levels: role.levels,
+                        tools: [...role.tools],
                       }),
                   },
                   "divider",
@@ -236,6 +264,63 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
                             {label}
                           </span>
                         )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section aria-label="Player tools" className="flex flex-col gap-3">
+        <div className="min-w-0">
+          <h2 className="text-[16px] font-medium text-ink">Player tools</h2>
+          <p className="mt-0.5 max-w-[620px] text-[13px] text-ink-3">
+            Which tools each role sees on the recording page. QA, meters and the spectrogram are
+            refused by the server too. Workspace owners and admins have them all.
+          </p>
+        </div>
+        <div className="rounded-panel-lg border border-line bg-raised/25 shadow-1 @3xl/app:overflow-x-auto">
+          <table
+            className="w-full border-collapse text-[13px] @3xl/app:min-w-[var(--roles-width)]"
+            style={{ "--roles-width": `${220 + roles.length * 120}px` } as CSSProperties}
+          >
+            <thead>
+              <tr>
+                <th className="label px-4 py-2 text-left font-normal">Tool</th>
+                {roles.map((role) => (
+                  <th
+                    key={role.id}
+                    className={cn(
+                      "w-[120px] px-1 py-2 text-left font-normal last:pr-4",
+                      column(role.id),
+                    )}
+                  >
+                    <span className="label block truncate px-2">{role.name}</span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {playerTools.map((tool) => (
+                <tr key={tool} className="border-t border-line">
+                  <td className="px-4 py-2">
+                    <div className="text-ink">{toolWords[tool].label}</div>
+                    <div className="text-[12px] text-ink-3">{toolWords[tool].hint}</div>
+                  </td>
+                  {roles.map((role) => {
+                    const on = role.tools.includes(tool);
+                    return (
+                      <td key={role.id} className={cn("px-1 py-1.5 last:pr-4", column(role.id))}>
+                        <span className="flex h-8 items-center px-2">
+                          <Checkbox
+                            checked={on}
+                            disabled={!manage}
+                            aria-label={`${toolWords[tool].label} for ${role.name}`}
+                            onChange={() => setTool(role, tool, !on)}
+                          />
+                        </span>
                       </td>
                     );
                   })}

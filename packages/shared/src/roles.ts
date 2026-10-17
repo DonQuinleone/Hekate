@@ -268,8 +268,45 @@ export const defaultRoleLevels: { name: string; levels: AccessLevels }[] = [
 ];
 
 /** The default roles as the permissions they hold. */
-export const defaultProjectRoles: { name: string; permissions: ProjectPermission[] }[] =
-  defaultRoleLevels.map((r) => ({ name: r.name, permissions: permissionsOfLevels(r.levels) }));
+/**
+ * The player's tools, on or off per role (#240): what the recording page shows each role.
+ * QA, meters and the spectrogram are refused by the server too; the rest are interface.
+ */
+export const playerTools = ["qa", "meters", "spectrogram", "score", "compare", "loops"] as const;
+export type PlayerTool = (typeof playerTools)[number];
+export const playerTool = z.enum(playerTools);
+
+/** What a role that only looks and listens has: the score, compare and loops. */
+export const listeningTools: PlayerTool[] = ["score", "compare", "loops"];
+
+/** The tools each default role starts with: the engineer's for those who make the record. */
+const defaultTools: Record<string, PlayerTool[]> = {
+  Reviewer: listeningTools,
+  Viewer: ["score"],
+};
+
+export const defaultProjectRoles: {
+  name: string;
+  permissions: ProjectPermission[];
+  tools: PlayerTool[];
+}[] = defaultRoleLevels.map((r) => ({
+  name: r.name,
+  permissions: permissionsOfLevels(r.levels),
+  tools: defaultTools[r.name] ?? [...playerTools],
+}));
+
+/** The tools someone has in a project: every one for owners and admins, else their role's. */
+export function toolsFor(
+  organisationRole: OrganisationRole,
+  roleTools: readonly string[] | null,
+): Set<PlayerTool> {
+  if (organisationRole === "owner" || organisationRole === "admin") return new Set(playerTools);
+  return new Set(
+    (roleTools ?? []).filter((t): t is PlayerTool =>
+      (playerTools as readonly string[]).includes(t),
+    ),
+  );
+}
 
 /** The role a project's creator takes. */
 export const creatorRole = "Producer";
@@ -305,11 +342,14 @@ export const roleInput = z
     name: z.string().trim().min(1).max(60),
     levels: accessLevelsInput.optional(),
     permissions: z.array(projectPermission).max(projectPermissions.length).optional(),
+    /** Its player tools; left out, a new role listens and a changed one keeps its own. */
+    tools: z.array(playerTool).max(playerTools.length).optional(),
   })
   .refine((r) => r.levels || r.permissions, { message: "Say what the role may do" })
   .transform((r) => ({
     name: r.name,
     permissions: permissionsOfLevels(r.levels ?? levelsOf(r.permissions ?? [])),
+    tools: r.tools && [...new Set(r.tools)],
   }));
 
 export const projectMemberInput = z.object({
