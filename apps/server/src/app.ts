@@ -47,6 +47,7 @@ import { storageSettingsRoutes } from "./routes/storage-settings.ts";
 import { fileTagRoutes, tagRoutes } from "./routes/tags.ts";
 import { sharedTakeRoutes, takeRoutes, trackTakeRoutes } from "./routes/takes.ts";
 import { projectTemplateRoutes, templateRoutes } from "./routes/templates.ts";
+import { trackCompareRoutes } from "./routes/track-compare.ts";
 import {
   projectTrackRoutes,
   trackRoutes,
@@ -238,6 +239,7 @@ export function createApi(deps: AppDeps) {
         ),
       )
       .route("/tracks", trackTakeRoutes(deps.db))
+      .route("/tracks", trackCompareRoutes(deps.db, deps.jobs))
       .use("/takes/*", ...member)
       .route("/takes", takeRoutes(deps.db))
       .use("/versions/*", ...member)

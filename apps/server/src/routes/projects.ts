@@ -326,6 +326,8 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
         project: {
           ...(project && shown(project)),
           permissions: [...access.permissions],
+          // The player tools their role has on (#240), so pages offer only those.
+          tools: [...access.tools],
           mayArchive: mayDelete,
           // A deletion waiting for its second person, and what this one may do about it (#240).
           deletion: project ? await deletionView(db, c.var, project, mayDelete) : null,

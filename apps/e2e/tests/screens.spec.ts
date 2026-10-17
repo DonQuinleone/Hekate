@@ -240,6 +240,12 @@ const screens: Screen[] = [
     path: (s) => `/tracks/${s.trackId}?view=versions`,
     ready: "text=Bars 12 to 16",
   },
+  // Two versions side by side (#137): aligned by their audio, the checks fixed and new.
+  {
+    name: "track-compare",
+    path: (s) => `/tracks/${s.trackId}/compare`,
+    ready: "main >> text=Alignment path",
+  },
   {
     name: "track-takes",
     path: (s) => `/tracks/${s.trackId}?view=takes`,

@@ -27,6 +27,7 @@ export * from "./peaks.ts";
 export * from "./profile.ts";
 export * from "./project-deletion.ts";
 export * from "./qa.ts";
+export * from "./qa-changes.ts";
 export * from "./qa-rules.ts";
 export * from "./references.ts";
 export * from "./reviewer-permissions.ts";

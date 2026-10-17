@@ -39,6 +39,7 @@ import {
   type SignInSearch,
   SuspendedPage,
 } from "~/routes/auth-pages";
+import { ComparePage } from "~/routes/compare";
 import { FilePage } from "~/routes/file";
 import { GuestHomePage, GuestLinkPage, GuestShell, GuestSignedOutPage } from "~/routes/guest";
 import { HomePage } from "~/routes/home";
@@ -464,6 +465,20 @@ const track = createRoute({
     return <TrackPage trackId={trackId} view={view} />;
   },
 });
+// Two versions of a track side by side (#137); left out, the latest two.
+const trackCompare = createRoute({
+  getParentRoute: () => app,
+  path: "/tracks/$trackId/compare",
+  validateSearch: z.object({
+    a: z.coerce.number().int().min(1).optional().catch(undefined),
+    b: z.coerce.number().int().min(1).optional().catch(undefined),
+  }),
+  component: function TrackCompareRoute() {
+    const { trackId } = trackCompare.useParams();
+    const { a, b } = trackCompare.useSearch();
+    return <ComparePage trackId={trackId} a={a} b={b} />;
+  },
+});
 const file = createRoute({
   getParentRoute: () => app,
   path: "/files/$fileId",
@@ -650,6 +665,7 @@ export const router = createRouter({
       projectPeople,
       projectSettings,
       track,
+      trackCompare,
       file,
       myReviews,
       inbox,

@@ -9,6 +9,7 @@ import {
   type CommentAttachment,
   type CommentMention,
   type CommentReferences,
+  type CompareAlignment,
   type CreateProjectInput,
   type CreateReviewInput,
   type CreateVersionInput,
@@ -261,6 +262,8 @@ export interface Project {
   permissions?: ProjectPermission[];
   /** Whether they may archive or unarchive it (on a single project, and in the list). */
   mayArchive?: boolean;
+  /** The player tools their role has on (#240). Only on a single project. */
+  tools?: PlayerTool[];
   /** What deliveries are checked against; null suggests one from each file's channels. */
   deliveryProfile?: ProfileRef | null;
   /** The checks a new version must pass before it lands. */
@@ -302,6 +305,12 @@ export interface ProjectWithFigures extends Project {
 }
 
 /** Whether the signed-in member may do something in a project, once it has loaded. */
+/** Whether the signed-in member's role has a player tool on in a project (#240). */
+export function useProjectTool(projectId: string | undefined) {
+  const { data } = useQuery({ ...projectQuery(projectId ?? ""), enabled: Boolean(projectId) });
+  return (tool: PlayerTool) => Boolean(data?.tools?.includes(tool));
+}
+
 export function useProjectCan(projectId: string | undefined) {
   const { data } = useQuery({ ...projectQuery(projectId ?? ""), enabled: Boolean(projectId) });
   return (permission: ProjectPermission) => Boolean(data?.permissions?.includes(permission));
@@ -3099,3 +3108,63 @@ export const instanceOperatorsQuery = queryOptions({
   queryFn: async () =>
     (await json<{ operators: OperatorRow[] }>(await api.instance.operators.$get())).operators,
 });
+
+/** One side of a comparison: a version, heard through its primary variation. */
+export interface CompareSide {
+  versionId: string;
+  number: number;
+  notes: string | null;
+  fileId: string;
+  name: string;
+  ready: boolean;
+  /** Its stream could not be made, so it cannot be heard. */
+  failed: boolean;
+  /** Seconds, once measured. */
+  duration: number | null;
+}
+
+/** Two versions of a track side by side (#137), as the server lines them up. */
+export interface TrackComparison {
+  track: { id: string; name: string; projectId: string };
+  versions: { number: number; name: string }[];
+  a: CompareSide;
+  b: CompareSide;
+  alignment: CompareAlignment;
+  findings: { measured: boolean; laterNumber: number; fixed: QaFinding[]; new: QaFinding[] };
+  /** A's open threads at a moment, and where that falls in B once aligned. */
+  comments: { id: string; body: string; start: number; mapped: number | null }[];
+}
+
+export const trackCompareQuery = (trackId: string, a?: number, b?: number) =>
+  queryOptions({
+    queryKey: ["tracks", trackId, "compare", a ?? null, b ?? null],
+    queryFn: async () =>
+      json<TrackComparison>(
+        await api.tracks[":id"].compare.$get({
+          param: { id: trackId },
+          query: {
+            ...(a ? { a: String(a) } : {}),
+            ...(b ? { b: String(b) } : {}),
+          },
+        }),
+      ),
+    // While the music is being lined up, or a version made ready to play, look again now and then.
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return false;
+      const waiting = [data.a, data.b].some((side) => !side.ready && !side.failed);
+      return data.alignment.status === "aligning" || waiting ? 4000 : false;
+    },
+  });
+
+/** Work out again where the music sits between two versions. */
+export function useRealign(trackId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { a: number; b: number }) =>
+      json<{ queued: number }>(
+        await api.tracks[":id"].compare.realign.$post({ param: { id: trackId }, json: input }),
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tracks", trackId, "compare"] }),
+  });
+}

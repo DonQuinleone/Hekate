@@ -114,3 +114,61 @@ export function remapAnchor(points: AlignmentPoints, anchor: Anchor | null): Anc
   }
   return null;
 }
+
+/** Two versions of a track to compare, by number; left out, the latest two. */
+export const compareQuery = z.object({
+  a: z.coerce.number().int().min(1).optional(),
+  b: z.coerce.number().int().min(1).optional(),
+});
+export type CompareQuery = z.infer<typeof compareQuery>;
+
+/** The alignments between one pair of neighbouring versions, as stored. */
+export interface HopState {
+  rows: { status: "pending" | "ready" | "failed" | "none"; quality: number | null }[];
+}
+
+/**
+ * How well two versions are known to line up (#137), from the alignments between each pair of
+ * neighbouring versions from one to the other: ready to follow (with the points from the first
+ * to the second); still being worked out; too poor to follow (and how poor); failed; or never
+ * made. The weakest step decides.
+ */
+export interface CompareAlignment {
+  status: "ready" | "aligning" | "poor" | "failed" | "none";
+  /** The weakest step's match, from 0 to 1; null when nothing was measured. */
+  quality: number | null;
+  /** From the first version's times to the second's; only when ready. */
+  points: AlignmentPoints | null;
+}
+
+export function compareAlignment(
+  hops: readonly HopState[],
+  points: AlignmentPoints | null,
+): CompareAlignment {
+  const none: CompareAlignment = { status: "none", quality: null, points: null };
+  if (hops.length === 0) return none;
+  const best = hops.map((h) => {
+    const measured = h.rows.flatMap((r) =>
+      r.status === "ready" && r.quality !== null ? [r.quality] : [],
+    );
+    return measured.length > 0 ? Math.max(...measured) : null;
+  });
+  const usable = best.map((q) => usableAlignment(q));
+  if (usable.every(Boolean)) {
+    const quality = Math.min(...(best as number[]));
+    return points ? { status: "ready", quality, points } : none;
+  }
+  // A step still being worked out may yet make it usable.
+  if (hops.some((h, i) => !usable[i] && h.rows.some((r) => r.status === "pending"))) {
+    return { status: "aligning", quality: null, points: null };
+  }
+  if (hops.some((h) => h.rows.length === 0)) return none;
+  const measured = best.filter((q): q is number => q !== null);
+  return measured.length === best.length
+    ? { status: "poor", quality: Math.min(...measured), points: null }
+    : {
+        status: "failed",
+        quality: measured.length > 0 ? Math.min(...measured) : null,
+        points: null,
+      };
+}
