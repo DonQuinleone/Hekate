@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { locales } from "./account.ts";
+import { downloadLevels } from "./downloads.ts";
 import {
   type EmailSubjects,
   emailSubjects,
@@ -138,6 +139,10 @@ export const workspaceSettingsSchema = z.object({
     comment: z.boolean(),
     decide: z.boolean(),
     comments: z.enum(commentScopes),
+    /** A track's earlier versions as well as the one under review. */
+    history: z.boolean(),
+    /** What they may download; a member's role is the ceiling. */
+    download: z.enum(downloadLevels),
     windowDays: z.literal(accessWindowDays).nullable(),
   }),
 });
@@ -153,7 +158,14 @@ export const defaultWorkspaceSettings: WorkspaceSettings = {
   emailSubjects: {},
   secondFactor: "off",
   securityKeyForAdmins: false,
-  reviewer: { comment: true, decide: true, comments: "all", windowDays: null },
+  reviewer: {
+    comment: true,
+    decide: true,
+    comments: "all",
+    history: false,
+    download: "none",
+    windowDays: null,
+  },
 };
 
 /** A change to some settings; the rest stay. */
@@ -228,6 +240,8 @@ export function workspaceSettingsOf(stored: unknown): WorkspaceSettings {
       comment: pick(reviewer.comment, read(storedReviewer, "comment"), d.reviewer.comment),
       decide: pick(reviewer.decide, read(storedReviewer, "decide"), d.reviewer.decide),
       comments: pick(reviewer.comments, read(storedReviewer, "comments"), d.reviewer.comments),
+      history: pick(reviewer.history, read(storedReviewer, "history"), d.reviewer.history),
+      download: pick(reviewer.download, read(storedReviewer, "download"), d.reviewer.download),
       windowDays: pick(
         reviewer.windowDays,
         read(storedReviewer, "windowDays"),

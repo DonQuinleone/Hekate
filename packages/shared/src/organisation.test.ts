@@ -22,7 +22,13 @@ describe("workspace settings", () => {
     const read = workspaceSettingsOf({
       guestLinkDays: 14,
       locale: "tlh",
-      reviewer: { decide: false, comments: "everyone", windowDays: 30 },
+      reviewer: {
+        decide: false,
+        comments: "everyone",
+        download: "all",
+        history: true,
+        windowDays: 30,
+      },
       emailSubjects: { invitation: "Join {workspace}", decision: "{nonsense}", stale: "x" },
       deliveryProfile: "vinyl",
       stale: true,
@@ -37,7 +43,14 @@ describe("workspace settings", () => {
       emailSubjects: { invitation: "Join {workspace}" },
       secondFactor: "off",
       securityKeyForAdmins: false,
-      reviewer: { comment: true, decide: false, comments: "all", windowDays: 30 },
+      reviewer: {
+        comment: true,
+        decide: false,
+        comments: "all",
+        history: true,
+        download: "none",
+        windowDays: 30,
+      },
     });
   });
 
