@@ -34,7 +34,7 @@ export interface DirectoryPerson {
 }
 
 const TIMEOUT_MS = 8000;
-const sealContext = (organisationId: string) => `directory-bind:${organisationId}`;
+export const sealContext = (organisationId: string) => `directory-bind:${organisationId}`;
 
 // TLS options only for ldaps://: given at all, the client speaks TLS from the start.
 const client = (config: DirectoryConfig) =>
