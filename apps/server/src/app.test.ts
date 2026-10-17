@@ -8452,6 +8452,69 @@ describe.runIf(url)("api", () => {
           return { ...s, review, token, cookie: cookieOf(res) };
         };
 
+        it("tells those who only follow an approval, asking them to follow it rather than approve (#221)", async () => {
+          const s = await studio();
+          mailer.sent.length = 0;
+          const review = await reviewOf(
+            await request(s.owner, s.projectId, {
+              kind: "approval",
+              title: "Album master",
+              items: [{ trackId: s.trackId }],
+              order: "sequence",
+              reviewers: [s.ids.composer, s.ids.accompanist, guest],
+              overrides: { "guest:conductor@example.test": { decide: false } },
+            }),
+          );
+          const told = async (userId: string) =>
+            (
+              await db
+                .select({ text: schema.notifications.text })
+                .from(schema.notifications)
+                .where(
+                  and(
+                    eq(schema.notifications.userId, userId),
+                    eq(schema.notifications.reviewId, review.id),
+                  ),
+                )
+            ).map((n) => n.text);
+
+          // Last in the sequence, but nothing waits on a follower: told at once, with a link
+          // that works, and asked to follow.
+          const mail = [...mailer.sent].reverse().find((m) => m.to === "conductor@example.test");
+          expect(mail?.subject).toBe("Album master: your feedback is asked");
+          expect(mail?.text).toContain("asks you to follow an approval");
+          expect(mail?.text).toContain("the decision rests with others");
+          expect(mail?.text).not.toContain("Approved or Changes requested");
+          expect((await signIn(linkFor("conductor@example.test"))).status).toBe(201);
+          // The accompanist decides, so waits their turn untold.
+          expect(await told(s.ids.composer)).toEqual(['asks you to approve "Album master"']);
+          expect(await told(s.ids.accompanist)).toEqual([]);
+
+          // Added later, a producer decides too, and waits untold at the end of the sequence;
+          // their decision taken away, they only follow, and hear of it now.
+          const joined = await joinAs(s.owner, "second-producer@example.test");
+          await grantRole(s.owner, s.projectId, joined, "Reviewer");
+          const producer = await idOf(joined);
+          const added = await app.request(
+            `/api/reviews/${review.id}/reviewers`,
+            json({ userId: producer }, s.owner),
+          );
+          expect(added.status).toBe(201);
+          expect(await told(producer)).toEqual([]);
+          const later = (
+            (await added.json()) as { review: { reviewers: { id: string }[] } }
+          ).review.reviewers.at(-1)?.id;
+          const changed = await app.request(`/api/reviews/${review.id}/reviewers/${later}`, {
+            ...json({ permissions: { decide: false } }, s.owner),
+            method: "PATCH",
+          });
+          expect(changed.status).toBe(200);
+          expect(await told(producer)).toEqual(['asks you to follow "Album master"']);
+          // No one else is told anything new.
+          expect(await told(s.ids.accompanist)).toEqual([]);
+          expect(await told(s.ids.composer)).toHaveLength(1);
+        });
+
         it("lets a reviewer invite others when their grant allows, as guests beside them (#55)", async () => {
           const s = await invited("approval");
           const reviewer = s.review.reviewers.find((r) => r.guest);
