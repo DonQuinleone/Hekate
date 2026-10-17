@@ -6,6 +6,7 @@ import {
   type CarryStatus,
   type CategoryHandling,
   type CategoryInput,
+  type CommentMention,
   type CreateProjectInput,
   type CreateReviewInput,
   type CreateVersionInput,
@@ -1019,6 +1020,12 @@ export interface Comment {
   deferredTo: string | null;
   assigneeId: string | null;
   assigneeName: string | null;
+  /** The members it mentions (#133), named as they were when it was written. */
+  mentions: CommentMention[];
+  /** A thread made a task (#133), and when and by whom it was done. */
+  todo: boolean;
+  todoDoneAt: string | null;
+  todoDoneByName: string | null;
 }
 
 export interface CommentCarry {
@@ -1033,7 +1040,8 @@ export interface CommentCarry {
 export interface CommentHistory {
   /** The version it was raised on, when that file is a variation. */
   versionNumber: number | null;
-  hops: { fileId: string; versionNumber: number; status: CarryStatus }[];
+  /** Each version it was carried to: its status there, and whether its anchor was moved by hand. */
+  hops: { fileId: string; versionNumber: number; status: CarryStatus; moved: boolean }[];
 }
 
 /** A kind of comment in a project (#36), and how its comments are handled by default. */
@@ -1125,21 +1133,47 @@ export const commentsQuery = (fileId: string) =>
     refetchInterval: 15_000,
   });
 
+/** Whom this member may mention on a file (#133): its project's people. None for guests. */
+export const mentionableQuery = (fileId: string) =>
+  queryOptions({
+    queryKey: ["files", fileId, "mentionable"],
+    queryFn: async () =>
+      (
+        await json<{ people: CommentMention[] }>(
+          await api.files[":id"].mentionable.$get({ param: { id: fileId } }),
+        )
+      ).people,
+    staleTime: 5 * 60_000,
+  });
+
 export function useCommentMutations(fileId: string) {
   const client = useQueryClient();
   const refresh = () => client.invalidateQueries({ queryKey: ["files", fileId, "comments"] });
   return {
     create: useMutation({
-      mutationFn: async (input: { body: string; anchor?: Anchor | null; parentId?: string }) =>
+      mutationFn: async (input: {
+        body: string;
+        anchor?: Anchor | null;
+        parentId?: string;
+        mentions?: string[];
+      }) =>
         json<{ comment: Comment }>(
           await api.files[":id"].comments.$post({ param: { id: fileId }, json: input }),
         ),
       onSuccess: refresh,
     }),
     edit: useMutation({
-      mutationFn: async (input: { id: string; body: string }) =>
+      mutationFn: async ({ id, ...change }: { id: string; body: string; mentions?: string[] }) =>
         json<{ comment: Comment }>(
-          await api.comments[":id"].$patch({ param: { id: input.id }, json: { body: input.body } }),
+          await api.comments[":id"].$patch({ param: { id }, json: change }),
+        ),
+      onSuccess: refresh,
+    }),
+    /** A thread as a task (#133), and done or not. */
+    todo: useMutation({
+      mutationFn: async ({ id, ...change }: { id: string; todo: boolean; done?: boolean }) =>
+        json<{ comment: Comment }>(
+          await api.comments[":id"].todo.$post({ param: { id }, json: change }),
         ),
       onSuccess: refresh,
     }),

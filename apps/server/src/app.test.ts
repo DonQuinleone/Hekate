@@ -6191,6 +6191,125 @@ describe.runIf(url)("api", () => {
           expect((await inbox(s.composer)).notifications).toHaveLength(1);
         });
 
+        it("takes mentions from the picker, refusing anyone outside the project (#133)", async () => {
+          const s = await studio();
+          const newcomer = await joinAs(s.owner, "newcomer@example.test");
+          // Whom the owner may mention: the project's people, by name, never by address.
+          const offered = (await (
+            await getAs(`/api/files/${s.mix}/mentionable`, s.owner)
+          ).json()) as { people: { id: string; name: string }[] };
+          expect(offered.people.map((p) => p.id).sort()).toEqual(
+            [s.ids.owner, s.ids.composer, s.ids.accompanist, s.ids.engineer].sort(),
+          );
+          expect(Object.keys(offered.people[0] ?? {}).sort()).toEqual(["id", "name"]);
+
+          const post = (body: unknown, cookie = s.owner) =>
+            app.request(`/api/files/${s.mix}/comments`, json(body, cookie));
+          const outside = await post({
+            body: "Over to @newcomer",
+            mentions: [await idOf(newcomer)],
+          });
+          expect(outside.status).toBe(422);
+          expect(await outside.json()).toMatchObject({ error: { code: "mention_outside" } });
+          expect((await inbox(newcomer)).notifications).toEqual([]);
+
+          const made = await post({
+            body: "Can you hear it, @composer?",
+            mentions: [s.ids.composer],
+          });
+          expect(made.status).toBe(201);
+          const { comment } = (await made.json()) as {
+            comment: { id: string; mentions: { id: string; name: string }[] };
+          };
+          expect(comment.mentions).toEqual([{ id: s.ids.composer, name: "composer" }]);
+          expect((await inbox(s.composer)).notifications.map((n) => n.kind)).toEqual(["mention"]);
+
+          // An edit that adds someone tells them, and only them; one that keeps tells nobody.
+          const edit = (body: unknown) =>
+            app.request(`/api/comments/${comment.id}`, { ...json(body, s.owner), method: "PATCH" });
+          expect(
+            (
+              await edit({
+                body: "Can you hear it, @composer and @accompanist?",
+                mentions: [s.ids.composer, s.ids.accompanist],
+              })
+            ).status,
+          ).toBe(200);
+          expect((await inbox(s.accompanist)).notifications.map((n) => n.kind)).toEqual([
+            "mention",
+          ]);
+          expect((await inbox(s.composer)).notifications).toHaveLength(1);
+          expect((await edit({ body: "Can you hear it now?" })).status).toBe(200);
+          expect((await inbox(s.composer)).notifications).toHaveLength(1);
+          const outsideEdit = await edit({
+            body: "And @newcomer",
+            mentions: [await idOf(newcomer)],
+          });
+          expect(outsideEdit.status).toBe(422);
+
+          // Two people with one name: only the one chosen is told.
+          await db
+            .update(schema.users)
+            .set({ name: "composer" })
+            .where(eq(schema.users.id, s.ids.engineer));
+          await post({ body: "Listen to bar 9, @composer", mentions: [s.ids.composer] });
+          expect((await inbox(s.engineer)).notifications).toEqual([]);
+          expect((await inbox(s.composer)).notifications).toHaveLength(2);
+        });
+
+        it("makes a thread a task that its assignee or triage marks done (#133)", async () => {
+          const s = await studio();
+          const made = await app.request(
+            `/api/files/${s.mix}/comments`,
+            json({ body: "Fix the edit at bar 12" }, s.owner),
+          );
+          const { comment } = (await made.json()) as { comment: { id: string } };
+          const todo = (body: unknown, cookie: string) =>
+            app.request(`/api/comments/${comment.id}/todo`, json(body, cookie));
+          type Task = {
+            comment: { todo: boolean; todoDoneAt: string | null; todoDoneByName: string | null };
+          };
+          // The composer reviews: no triage, and not theirs, so they cannot make it a task.
+          expect((await todo({ todo: true }, s.composer)).status).toBe(403);
+          const task = await todo({ todo: true }, s.owner);
+          expect(task.status).toBe(200);
+          expect(((await task.json()) as Task).comment).toMatchObject({
+            todo: true,
+            todoDoneAt: null,
+          });
+          // Not theirs yet: refused. Assigned to them: they may mark it done, and only that.
+          expect((await todo({ todo: true, done: true }, s.composer)).status).toBe(403);
+          await app.request(
+            `/api/files/${s.mix}/comments/triage`,
+            json({ commentIds: [comment.id], assigneeId: s.ids.composer }, s.owner),
+          );
+          const done = await todo({ todo: true, done: true }, s.composer);
+          expect(done.status).toBe(200);
+          expect(((await done.json()) as Task).comment).toMatchObject({
+            todo: true,
+            todoDoneByName: "composer",
+          });
+          expect((await todo({ todo: false }, s.composer)).status).toBe(403);
+          expect((await todo({ todo: true, done: false }, s.composer)).status).toBe(200);
+          // A reply is no task, and a member who cannot see the project finds nothing.
+          const reply = await app.request(
+            `/api/files/${s.mix}/comments`,
+            json({ body: "On it", parentId: comment.id }, s.composer),
+          );
+          const { comment: answer } = (await reply.json()) as { comment: { id: string } };
+          expect(
+            (await app.request(`/api/comments/${answer.id}/todo`, json({ todo: true }, s.owner)))
+              .status,
+          ).toBe(404);
+          const newcomer = await joinAs(s.owner, "newcomer@example.test");
+          expect((await todo({ todo: true }, newcomer)).status).toBe(404);
+          // Archived, the project is read-only, its assignees' tasks included.
+          expect(
+            (await app.request(`/api/projects/${s.projectId}/archive`, json({}, s.owner))).status,
+          ).toBe(204);
+          expect((await todo({ todo: true, done: true }, s.composer)).status).toBe(403);
+        });
+
         it("tells a track's followers of new versions, if they can still see it", async () => {
           const s = await studio();
           // The owner made the track, so follows it; the composer chooses to.
@@ -7111,6 +7230,30 @@ describe.runIf(url)("api", () => {
           expect(res.status).toBe(201);
           return { ...s, review, token, cookie: cookieOf(res) };
         };
+
+        it("lets a guest mention nobody, and keeps tasks from them (#133)", async () => {
+          const s = await invited();
+          expect(await (await getAs(`/api/files/${s.mix}/mentionable`, s.cookie)).json()).toEqual({
+            people: [],
+          });
+          const refused = await app.request(
+            `/api/files/${s.mix}/comments`,
+            json({ body: "Thank you, @composer", mentions: [s.ids.composer] }, s.cookie),
+          );
+          expect(refused.status).toBe(422);
+          expect(await refused.json()).toMatchObject({ error: { code: "mention_refused" } });
+          // A task on the owner's thread is the team's business.
+          const made = await app.request(
+            `/api/files/${s.mix}/comments`,
+            json({ body: "Tidy the fade" }, s.owner),
+          );
+          const { comment } = (await made.json()) as { comment: { id: string } };
+          await app.request(`/api/comments/${comment.id}/todo`, json({ todo: true }, s.owner));
+          const seen = (await (await getAs(`/api/files/${s.mix}/comments`, s.cookie)).json()) as {
+            comments: { id: string; todo: boolean }[];
+          };
+          expect(seen.comments.find((c) => c.id === comment.id)?.todo).toBe(false);
+        });
 
         it("asks for a code sent to the guest's address where the workspace says so", async () => {
           const s = await studio();

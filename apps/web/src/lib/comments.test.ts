@@ -22,6 +22,10 @@ const comment = (id: string, extra: Partial<Comment> = {}): Comment => ({
   createdAt: "2026-10-14T10:00:00.000Z",
   carry: null,
   history: null,
+  mentions: [],
+  todo: false,
+  todoDoneAt: null,
+  todoDoneByName: null,
   ...extra,
 });
 
@@ -70,11 +74,11 @@ describe("comment threads", () => {
       historyLabel({
         versionNumber: 2,
         hops: [
-          { fileId: "a", versionNumber: 3, status: "not_fixed" },
-          { fileId: "b", versionNumber: 4, status: "open" },
+          { fileId: "a", versionNumber: 3, status: "not_fixed", moved: false },
+          { fileId: "b", versionNumber: 4, status: "open", moved: true },
         ],
       }),
-    ).toBe("V2 → V3, not fixed → V4");
+    ).toBe("V2 → V3, not fixed → V4, moved by hand");
   });
 
   it("plays a passage with a second either side, within the file", () => {

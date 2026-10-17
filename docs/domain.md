@@ -184,7 +184,9 @@ Comments can be given a category with one action, such as marking a comment as *
 - **Deferred to a stage:** leaves the current round's to-do list, stays open, and returns when the named workflow stage starts (for example *Noise reduction* at the end of the process).
 - **Information only:** recorded, no action expected.
 
-Triage (producer or whoever holds the permission) can change a comment's category, defer or undefer it, and assign it.
+Triage (producer or whoever holds the permission) can change a comment's category, defer or undefer it, assign it, and make it a **task**: marked *to do* until it is *done*. Whoever the task is for may mark it done (or not done) without triage; guests see neither tasks nor assignees.
+
+A comment **mentions** members with `@` and their name, chosen from the project's people as it is written; nobody outside the project can be mentioned, and guests are offered nobody to choose.
 
 Every project starts with *Noise* (deferred to *Noise reduction*), *Edit*, *Balance*, *Performance* and *Information* (information only); whoever edits the project's workflows can rename, add and remove them. Until workflows exist, a deferred comment waits for a stage by its name and is undeferred by hand.
 
