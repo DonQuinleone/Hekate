@@ -12,12 +12,26 @@ import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { canOnFile, mayUseTool, toolRefused } from "../access.ts";
+import { type Actor, canOnFile, mayUseTool, toolRefused } from "../access.ts";
 import { profilesForFiles } from "../delivery-profiles.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
+import { qaReport, qaReportFormats } from "../qa-report.ts";
+import { attachment } from "./comments.ts";
 
-const { files, loudness, projects, qaFindings } = schema;
+const {
+  files,
+  guests,
+  loudness,
+  organisations,
+  projectMembers,
+  projectRoles,
+  projects,
+  qaFindings,
+  users,
+  variations,
+  versions,
+} = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
@@ -99,11 +113,117 @@ export async function qaReportOf(db: Database, organisationId: string, id: strin
  * engineer's tool: a guest needs the meters.
  */
 export const fileQaRoutes = (db: Database) =>
-  new Hono<{ Variables: ViewerVariables }>().get("/:id/qa", idParam, async (c) => {
-    const { id } = c.req.valid("param");
-    const access = await canOnFile(db, c.var.actor, "view", id);
-    if (!mayUseTool(access, "qa")) throw toolRefused(access);
-    const report = await qaReportOf(db, c.var.organisationId, id);
-    if (!report) throw new HTTPException(409, { message: "Only audio is checked" });
-    return c.json(report);
-  });
+  new Hono<{ Variables: ViewerVariables }>()
+    .get("/:id/qa", idParam, async (c) => {
+      const { id } = c.req.valid("param");
+      const access = await canOnFile(db, c.var.actor, "view", id);
+      if (!mayUseTool(access, "qa")) throw toolRefused(access);
+      const report = await qaReportOf(db, c.var.organisationId, id);
+      if (!report) throw new HTTPException(409, { message: "Only audio is checked" });
+      return c.json(report);
+    })
+    // The same report to take away (#43): PDF to read, CSV for a spreadsheet, JSON for a
+    // program, stamped with the workspace, the project and who asked for it.
+    .get(
+      "/:id/qa/report",
+      idParam,
+      zValidator("query", z.object({ format: z.enum(qaReportFormats).default("pdf") })),
+      async (c) => {
+        const { id } = c.req.valid("param");
+        const org = c.var.organisationId;
+        const access = await canOnFile(db, c.var.actor, "view", id);
+        if (!mayUseTool(access, "qa")) throw toolRefused(access);
+        const report = await qaReportOf(db, org, id);
+        if (!report) throw new HTTPException(409, { message: "Only audio is checked" });
+        const [where] = await db
+          .select({
+            name: files.name,
+            mediaInfo: files.mediaInfo,
+            projectId: projects.id,
+            project: projects.name,
+            workspace: organisations.name,
+          })
+          .from(files)
+          .innerJoin(
+            projects,
+            and(eq(projects.id, files.projectId), eq(projects.organisationId, org)),
+          )
+          .innerJoin(organisations, eq(organisations.id, files.organisationId))
+          .where(inOrg(files, org, eq(files.id, id)));
+        if (!where) throw new NotFound("File");
+        const [variation] = await db
+          .select({ number: versions.number, name: variations.name })
+          .from(variations)
+          .innerJoin(
+            versions,
+            and(eq(versions.id, variations.versionId), eq(versions.organisationId, org)),
+          )
+          .where(inOrg(variations, org, eq(variations.fileId, id)));
+        const [measured] = await db
+          .select({ summary: loudness.summary })
+          .from(loudness)
+          .where(inOrg(loudness, org, eq(loudness.fileId, id)));
+        const out = qaReport(
+          {
+            file: {
+              name: where.name,
+              version: variation ? `V${variation.number} · ${variation.name}` : null,
+            },
+            workspace: where.workspace,
+            project: where.project,
+            requestedBy: await requesterOf(db, c.var.actor, where.projectId),
+            generatedAt: new Date(),
+            profile: { label: report.profile.label },
+            status: report.status,
+            loudness: measured?.summary ?? null,
+            format: where.mediaInfo,
+            findings: report.findings,
+          },
+          c.req.valid("query").format,
+        );
+        return c.body(new Uint8Array(Buffer.from(out.body)), 200, {
+          "content-type": out.contentType,
+          "content-disposition": attachment(out.filename),
+          "cache-control": "no-store",
+        });
+      },
+    );
+
+/** Who asked for a report, and their part in the project: their role, or Guest. */
+async function requesterOf(db: Database, actor: Actor, projectId: string) {
+  if (actor.kind === "guest") {
+    const [guest] = await db
+      .select({ name: guests.name })
+      .from(guests)
+      .where(inOrg(guests, actor.organisationId, eq(guests.id, actor.guestId)));
+    return { name: guest?.name ?? "A guest", role: "Guest" };
+  }
+  const [user] = await db
+    .select({ name: users.name })
+    .from(users)
+    .where(eq(users.id, actor.userId));
+  const [role] = await db
+    .select({ name: projectRoles.name })
+    .from(projectMembers)
+    .innerJoin(
+      projectRoles,
+      and(
+        eq(projectRoles.id, projectMembers.roleId),
+        eq(projectRoles.organisationId, actor.organisationId),
+      ),
+    )
+    .where(
+      inOrg(
+        projectMembers,
+        actor.organisationId,
+        eq(projectMembers.projectId, projectId),
+        eq(projectMembers.userId, actor.userId),
+      ),
+    );
+  // Owners and admins see every project without a role in it.
+  const fallback = actor.organisationRole === "member" ? null : actor.organisationRole;
+  return {
+    name: user?.name ?? "A member",
+    role: role?.name ?? (fallback ? `${fallback[0]?.toUpperCase()}${fallback.slice(1)}` : null),
+  };
+}

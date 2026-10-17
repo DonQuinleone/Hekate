@@ -4204,6 +4204,68 @@ describe.runIf(url)("api", () => {
         return { owner, organisationId, projectId: project.id, fileId: file?.id ?? "" };
       };
 
+      it("gives the QA report to take away, as PDF, CSV or JSON, stamped (#43)", async () => {
+        const { owner, fileId } = await studio();
+        const download = (format: string, cookie = owner) =>
+          getAs(`/api/files/${fileId}/qa/report?format=${format}`, cookie);
+        const csv = await download("csv");
+        expect(csv.status).toBe(200);
+        expect(csv.headers.get("content-type")).toBe("text/csv; charset=utf-8");
+        expect(csv.headers.get("content-disposition")).toContain("QA report.csv");
+        const rows = (await csv.text()).split("\r\n");
+        expect(rows[0]).toMatch(/^severity,check,start_seconds,end_seconds,channel,summary,file,/);
+        // Stamped on every row with the workspace and the project.
+        expect(rows[1]).toContain(",Studio,Rags,");
+        expect(rows.some((r) => r.startsWith("fail,format,"))).toBe(true);
+        const report = (await (await download("json")).json()) as {
+          workspace: string;
+          requestedBy: { role: string | null };
+          findings: unknown[];
+        };
+        // Their part in the project: whoever made it is its producer.
+        expect(report.requestedBy.role).toBe("Producer");
+        expect(report.findings.length).toBeGreaterThan(0);
+        const pdf = await download("pdf");
+        expect(pdf.headers.get("content-type")).toBe("application/pdf");
+        expect(
+          Buffer.from(await pdf.arrayBuffer())
+            .subarray(0, 8)
+            .toString("latin1"),
+        ).toBe("%PDF-1.4");
+        // Only the formats there are, and only for a file that can be seen.
+        expect((await download("docx")).status).toBe(400);
+        expect(
+          (
+            await getAs(
+              "/api/files/0190a6f0-0000-7000-8000-0000000000ff/qa/report?format=csv",
+              owner,
+            )
+          ).status,
+        ).toBe(404);
+        // A member outside the project, and the owner of another workspace, find nothing.
+        const outsider = await joinAs(owner, "outsider-qa-report@example.test");
+        expect((await download("csv", outsider)).status).toBe(404);
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Saltmarsh Films", slug: "saltmarsh-qa-report" })
+          .returning({ id: schema.organisations.id });
+        const outsiderId = (
+          (await (await getAs("/api/me", outsider)).json()) as { user: { id: string } }
+        ).user.id;
+        await db
+          .insert(schema.members)
+          .values({ organisationId: other?.id ?? "", userId: outsiderId, role: "owner" });
+        expect(
+          (
+            await app.request("/api/me/organisation", {
+              ...json({ organisationId: other?.id }, outsider),
+              method: "PUT",
+            })
+          ).status,
+        ).toBe(200);
+        expect((await download("csv", outsider)).status).toBe(404);
+      });
+
       it("applies the project's QA rules to its reports: switches, severities and its own rules", async () => {
         const { owner, projectId, fileId } = await studio();
         type Report = { findings: { check: string; severity: string; summary: string }[] };

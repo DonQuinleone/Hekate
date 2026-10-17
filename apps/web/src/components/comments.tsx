@@ -1044,7 +1044,10 @@ export function Comments({
   onLoop,
   onBeforeAfter,
   pages,
+  seed,
 }: {
+  /** A comment begun elsewhere (from a finding, #43): at its moment, starting with its words. */
+  seed?: CommentSeed;
   fileId: string;
   /** The file's project, whose role decides who may comment and resolve. */
   projectId: string;
@@ -1189,6 +1192,18 @@ export function Comments({
   // "c" starts a comment at the playhead, pausing so the moment holds while you write.
   const composer = useRef<HTMLDivElement>(null);
   const [sheet, setSheet] = useState(false);
+  // A comment begun from a finding points at its moment, with the composer open.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each seed once, by its key.
+  useEffect(() => {
+    if (!seed) return;
+    setAt(seed.at);
+    // A finding about the whole file begins a comment about the whole file.
+    setWholeFile(seed.at === null);
+    setOnPassage(false);
+    setBars("");
+    // On a phone the composer is a sheet: open it; elsewhere it is already in view.
+    if (composer.current?.offsetParent === null) setSheet(true);
+  }, [seed?.key]);
   const sheetBody = useRef<HTMLDivElement>(null);
   // The sheet is opened to write in: its text box takes focus.
   useEffect(() => {
@@ -1225,6 +1240,9 @@ export function Comments({
         : "Comment on this file";
   const composerBody = (
     <Composer
+      // A comment begun from a finding starts with its words; a new one starts empty.
+      key={seed?.key ?? 0}
+      initial={seed?.body ?? ""}
       placeholder={composerLabel}
       submitLabel="Comment"
       pending={mutations.create.isPending}
@@ -1570,6 +1588,15 @@ export function regionMarkers(comments: Comment[]): RegionMarker[] {
     });
   }
   return markers;
+}
+
+/** A comment begun elsewhere: its moment, and the words it starts with. */
+export interface CommentSeed {
+  /** Changes for each comment begun, so the same finding can be begun twice. */
+  key: number;
+  /** Null for a comment about the whole file. */
+  at: number | null;
+  body: string;
 }
 
 /** The region markers of a file's open threads. */

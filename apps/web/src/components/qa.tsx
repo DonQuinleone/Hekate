@@ -6,6 +6,8 @@ import {
   type QaCheck,
   type QaFinding,
   type QaSeverity,
+  qaCheckNames,
+  qaSeverityNames,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useId, useState } from "react";
@@ -13,7 +15,11 @@ import { cn } from "~/lib/cn";
 import { type Loop, MIN_LOOP } from "~/lib/loop";
 import { customProfilesQuery, type QaReport, qaQuery, useFileDeliveryProfile } from "~/lib/queries";
 import { ProfileOptions } from "./delivery-profiles";
+import { Icon } from "./icons";
+import { Button } from "./ui/button";
+import { Dialog } from "./ui/dialog";
 import { Select } from "./ui/input";
+import { Segmented } from "./ui/segmented";
 
 /** Where a file's profile comes from, when it has none of its own. */
 const inheritedFrom: Record<ProfileSource, string> = {
@@ -25,29 +31,8 @@ const inheritedFrom: Record<ProfileSource, string> = {
 };
 
 /** What each check is called in the list, and in the project's QA rules. */
-export const checkNames: Record<QaCheck, string> = {
-  format: "Format",
-  loudness: "Loudness",
-  "true-peak": "True peak",
-  clipping: "Clipping",
-  "flat-tops": "Flattened peaks",
-  dropouts: "Dropouts",
-  clicks: "Clicks",
-  "dc-offset": "DC offset",
-  silence: "Silence",
-  "dead-channel": "Dead channel",
-  imbalance: "Balance",
-  phase: "Phase",
-  // The project's own rules: the finding's summary starts with the rule's name.
-  custom: "Project rule",
-};
-
-const severityNames: Record<QaSeverity, string> = {
-  fail: "Fails",
-  warn: "Worth a look",
-  info: "Note",
-  pass: "Passes",
-};
+export const checkNames = qaCheckNames;
+const severityNames = qaSeverityNames;
 
 /** What the checks say before they are ready: still running, or unable to run at all. */
 const waitingCopy: Record<Exclude<QaReport["status"], "ready">, string> = {
@@ -91,10 +76,12 @@ export function findingLoop(f: QaFinding): Loop | null {
     : null;
 }
 
-function FindingRow({
+/** One finding: what it is, where, and what can be done from it. Exported for tests. */
+export function FindingRow({
   finding,
   onSeek,
   onLoop,
+  onComment,
   action,
   nested = false,
 }: {
@@ -102,6 +89,8 @@ function FindingRow({
   onSeek: (t: number) => void;
   /** Loop the passage it spans, in one action (#44). */
   onLoop?: (loop: Loop) => void;
+  /** Write a comment about it, at its moment (#43). */
+  onComment?: (finding: QaFinding) => void;
   /** Beside the summary: opening a group, for one. */
   action?: React.ReactNode;
   /** One of a group's, shown under it. */
@@ -126,32 +115,45 @@ function FindingRow({
         {finding.summary}
         {action && <span className="ml-3">{action}</span>}
       </span>
-      {at && finding.start !== null ? (
-        <span className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => onSeek(finding.start ?? 0)}
-            aria-label={`Play from ${at}`}
-            className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 font-mono text-[11px] text-ink hover:border-signal"
-          >
-            {at}
-          </button>
-          {loop && onLoop && (
+      <span className="flex items-center gap-2">
+        {at && finding.start !== null ? (
+          <>
             <button
               type="button"
-              onClick={() => onLoop(loop)}
-              aria-label={`Loop ${at}`}
-              className="inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+              onClick={() => onSeek(finding.start ?? 0)}
+              aria-label={`Play from ${at}`}
+              className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 font-mono text-[11px] text-ink hover:border-signal"
             >
-              Loop
+              {at}
             </button>
-          )}
-        </span>
-      ) : (
-        <span className="text-[11px] text-ink-3">
-          {finding.channel !== null ? channelName(finding.channel) : ""}
-        </span>
-      )}
+            {loop && onLoop && (
+              <button
+                type="button"
+                onClick={() => onLoop(loop)}
+                aria-label={`Loop ${at}`}
+                className="inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+              >
+                Loop
+              </button>
+            )}
+          </>
+        ) : (
+          finding.channel !== null && (
+            <span className="text-[11px] text-ink-3">{channelName(finding.channel)}</span>
+          )
+        )}
+        {/* Every problem can start a comment: at its moment, or about the whole file. */}
+        {onComment && finding.severity !== "pass" && (
+          <button
+            type="button"
+            onClick={() => onComment(finding)}
+            aria-label={`Comment on ${at && finding.start !== null ? at : checkNames[finding.check]}`}
+            className="inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+          >
+            Comment
+          </button>
+        )}
+      </span>
     </li>
   );
 }
@@ -167,15 +169,29 @@ function groupFindings(findings: readonly QaFinding[]): QaFinding[][] {
   return groups;
 }
 
+/** A finding's key in a list: findings have no id, but no two share all of these. */
+const findingKey = (f: QaFinding) => `${f.check}-${f.channel}-${f.start}-${f.end}-${f.summary}`;
+
+/** The problems worth marking on the timeline (#43): failures and warnings that have a place. */
+export function findingMarks(findings: readonly QaFinding[]) {
+  return findings.flatMap((f) =>
+    (f.severity === "fail" || f.severity === "warn") && f.start !== null
+      ? [{ start: f.start, end: f.end, severity: f.severity }]
+      : [],
+  );
+}
+
 /** Many findings of one check, as one row that opens into all of them. */
 function FindingGroup({
   group,
   onSeek,
   onLoop,
+  onComment,
 }: {
   group: QaFinding[];
   onSeek: (t: number) => void;
   onLoop?: (loop: Loop) => void;
+  onComment?: (finding: QaFinding) => void;
 }) {
   const [open, setOpen] = useState(false);
   const first = group[0] as QaFinding;
@@ -204,9 +220,15 @@ function FindingGroup({
         }
       />
       {open &&
-        group.map((f, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: findings have no id and never reorder here.
-          <FindingRow key={i} finding={f} onSeek={onSeek} onLoop={onLoop} nested />
+        group.map((f) => (
+          <FindingRow
+            key={findingKey(f)}
+            finding={f}
+            onSeek={onSeek}
+            onLoop={onLoop}
+            onComment={onComment}
+            nested
+          />
         ))}
     </>
   );
@@ -223,17 +245,21 @@ export function QualityChecks({
   media,
   canChoose,
   onLoop,
+  onComment,
 }: {
   fileId: string;
   media: HTMLMediaElement | null;
   canChoose: boolean;
   /** Loop a finding's passage in the player and hear it from its start. */
   onLoop?: (loop: Loop) => void;
+  /** Write a comment about a finding, for those who may comment (#43). */
+  onComment?: (finding: QaFinding) => void;
 }) {
   const { data } = useQuery(qaQuery(fileId));
   const choose = useFileDeliveryProfile(fileId);
   const { data: customs = [] } = useQuery({ ...customProfilesQuery, enabled: canChoose });
   const [showPassed, setShowPassed] = useState(false);
+  const [report, setReport] = useState(false);
   const id = useId();
   if (!data) return null;
   const problems = data.findings.filter((f) => f.severity !== "pass");
@@ -287,15 +313,21 @@ export function QualityChecks({
           {groupFindings(problems).map((group) =>
             group.length > 2 ? (
               <FindingGroup
+                onComment={onComment}
                 key={`${group[0]?.check}-${group[0]?.start}`}
                 group={group}
                 onSeek={seek}
                 onLoop={onLoop}
               />
             ) : (
-              group.map((f, i) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: findings have no id and never reorder here.
-                <FindingRow key={`${f.check}-${i}`} finding={f} onSeek={seek} onLoop={onLoop} />
+              group.map((f) => (
+                <FindingRow
+                  key={findingKey(f)}
+                  finding={f}
+                  onSeek={seek}
+                  onLoop={onLoop}
+                  onComment={onComment}
+                />
               ))
             ),
           )}
@@ -321,7 +353,77 @@ export function QualityChecks({
           )}
         </div>
       )}
+      <Button variant="secondary" size="sm" className="self-start" onClick={() => setReport(true)}>
+        <Icon name="download" size={14} />
+        QA report
+      </Button>
+      {report && (
+        <QaReportDialog
+          fileId={fileId}
+          profile={data.profile.label}
+          onClose={() => setReport(false)}
+        />
+      )}
     </section>
+  );
+}
+
+const reportFormats = ["pdf", "csv", "json"] as const;
+type ReportFormat = (typeof reportFormats)[number];
+
+/**
+ * The QA report to take away (#43), as the prototype's dialog offers it: PDF to read and
+ * send, CSV for a spreadsheet, JSON for another program.
+ */
+function QaReportDialog({
+  fileId,
+  profile,
+  onClose,
+}: {
+  fileId: string;
+  profile: string;
+  onClose: () => void;
+}) {
+  const [format, setFormat] = useState<ReportFormat>("pdf");
+  return (
+    <Dialog
+      title="QA report"
+      onClose={onClose}
+      width="sm"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => {
+              window.location.assign(`/api/files/${fileId}/qa/report?format=${format}`);
+              onClose();
+            }}
+          >
+            <Icon name="download" size={14} />
+            Download {format.toUpperCase()}
+          </Button>
+        </>
+      }
+    >
+      <Segmented
+        label="Format"
+        value={format}
+        options={reportFormats.map((f) => ({ value: f, label: f.toUpperCase() }))}
+        onChange={setFormat}
+        className="w-fit"
+      />
+      <dl className="m-0 mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
+        <dt className="text-ink-3">Stamped with</dt>
+        <dd className="m-0 text-ink">The workspace, the project, your name and part in it</dd>
+        <dt className="text-ink-3">Measured against</dt>
+        <dd className="m-0 text-ink">{profile}</dd>
+        <dt className="text-ink-3">Includes</dt>
+        <dd className="m-0 text-ink">Findings, what passed, loudness and format</dd>
+      </dl>
+    </Dialog>
   );
 }
 
