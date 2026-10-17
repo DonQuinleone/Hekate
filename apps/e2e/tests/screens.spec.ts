@@ -439,6 +439,16 @@ test.describe("guest", () => {
 
 for (const screen of screens.filter((s) => !s.as || s.as === "owner")) capture(screen);
 
+// A file opened from a review (#15): the reviewer's decision beside the comments, where they
+// listen. Nothing is decided, so no other capture sees a change.
+test("file-decision", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().dryFileId}?review=${seeded().reviewId}`);
+  await settle(page, "section[aria-label='Your decision'] button:has-text('Approve')");
+  await saveScreen(page, "file-decision");
+  await checkScreen(page);
+});
+
 // The bell's panel, open over the list it leads to.
 test("bell", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
