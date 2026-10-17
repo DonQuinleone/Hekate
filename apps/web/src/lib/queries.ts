@@ -58,6 +58,7 @@ import {
   type ProfileInput,
   type ProfileRef,
   type ProfileSource,
+  type ProjectDeletion,
   type ProjectPermission,
   type ProjectProfile,
   type ProjectTemplate,
@@ -271,6 +272,8 @@ export interface Project {
   references?: CommentReferences;
   /** Whether recordings play at their delivery target's loudness (#240). */
   normalisation?: NormalisationMode;
+  /** A deletion waiting for a second owner (#240); only on a single project. */
+  deletion?: ProjectDeletion | null;
   /** In the list: whether they are a member of it. */
   mine?: boolean;
 }
@@ -476,6 +479,33 @@ export function useArchiveProject() {
       void client.invalidateQueries();
     },
   });
+}
+
+/** Deleting a project (#240): asking, withdrawing, and a second owner's confirmation. */
+export function useProjectDeletion(projectId: string) {
+  const client = useQueryClient();
+  const refresh = () => client.invalidateQueries({ queryKey: projectQuery(projectId).queryKey });
+  const ok = async (res: Response) => {
+    if (!res.ok) await json(res);
+  };
+  return {
+    request: useMutation({
+      mutationFn: async () =>
+        ok(await api.projects[":id"].deletion.$post({ param: { id: projectId } })),
+      onSuccess: refresh,
+    }),
+    cancel: useMutation({
+      mutationFn: async () =>
+        ok(await api.projects[":id"].deletion.$delete({ param: { id: projectId } })),
+      onSuccess: refresh,
+    }),
+    confirm: useMutation({
+      mutationFn: async () =>
+        ok(await api.projects[":id"].deletion.confirm.$post({ param: { id: projectId } })),
+      // Archived now: lists, the sidebar, the home page and every review list change.
+      onSuccess: () => void client.invalidateQueries(),
+    }),
+  };
 }
 
 /** The workspace's project templates (#240), newest first. */

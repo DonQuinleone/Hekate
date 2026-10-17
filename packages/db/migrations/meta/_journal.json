@@ -498,6 +498,13 @@
       "when": 1792238673140,
       "tag": "0070_normalisation",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1792243773090,
+      "tag": "0071_project_deletion",
+      "breakpoints": true
     }
   ]
 }

@@ -626,6 +626,34 @@ test("file-comment-mention", async ({ page }, info) => {
   await checkScreen(page);
 });
 
+// Deleting a project (#240): asked for by one person, confirmed by a second owner typing its name.
+// The project's answer is amended in this page alone, so nothing is ever deleted.
+test("project-settings-deletion", async ({ page }) => {
+  await page.route(`**/api/projects/${seeded().musicProjectId}`, async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    const response = await route.fetch();
+    const body = (await response.json()) as { project: Record<string, unknown> };
+    body.project.deletion = {
+      requestedBy: "Mira Solberg",
+      requestedAt: "2026-10-15T09:30:00Z",
+      mayConfirm: true,
+      mayCancel: true,
+      confirmableAt: null,
+      deleteAfter: null,
+    };
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto(`/projects/${seeded().musicProjectId}/settings`);
+  await settle(page, "main >> text=Deletion asked for");
+  await saveScreen(page, "project-settings-deletion");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Delete…" }).click();
+  await page.getByRole("textbox", { name: "Project name" }).fill("Joplin Rags");
+  await settle(page, "[role=dialog] button:has-text('Delete'):not([disabled])");
+  await saveScreen(page, "project-settings-deletion-confirm");
+  await checkScreen(page);
+});
+
 // Normalised playback as each person's choice (#240): the View menu's switch, and the level heard.
 // The file's answer is amended in this page alone, so no other capture sees the project change.
 test("file-normalised", async ({ page }) => {

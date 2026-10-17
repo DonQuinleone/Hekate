@@ -43,6 +43,7 @@ import {
 } from "./media/workers.ts";
 import { deliverDigests, deliverInstant, tellProcessingFailed } from "./notifications.ts";
 import { playbackSecret, signPlayback } from "./playback.ts";
+import { purgeDueProjects } from "./project-purge.ts";
 import { admit } from "./rate-limit.ts";
 import { reconcileStorage } from "./reconcile.ts";
 import { remindDue } from "./reminders.ts";
@@ -6289,6 +6290,161 @@ describe.runIf(url)("api", () => {
           (await (await getAs(`/api/notifications${query}`, cookie)).json()) as Listed;
         const put = (path: string, body: unknown, cookie: string) =>
           app.request(path, { ...json(body, cookie), method: "PUT" });
+
+        it("deletes a project only when a second owner confirms, with everything in it (#240)", async () => {
+          const s = await studio();
+          const deletion = (cookie: string, rest = "", method = "POST", id = s.projectId) =>
+            app.request(`/api/projects/${id}/deletion${rest}`, { ...json({}, cookie), method });
+          const viewOf = async (cookie: string) =>
+            (
+              (await (await getAs(`/api/projects/${s.projectId}`, cookie)).json()) as {
+                project: {
+                  deletion: {
+                    requestedBy: string | null;
+                    mayConfirm: boolean;
+                    mayCancel: boolean;
+                    confirmableAt: string | null;
+                  } | null;
+                };
+              }
+            ).project.deletion;
+          // Something in every corner: a thread, a review of the track and a file.
+          expect(
+            (
+              await app.request(
+                `/api/files/${s.mix}/comments`,
+                json({ body: "Pedal noise", anchor: { kind: "time", start: 3, end: 3 } }, s.owner),
+              )
+            ).status,
+          ).toBe(201);
+          expect(
+            (
+              await request(s.owner, s.projectId, {
+                kind: "approval",
+                title: "Master sign-off",
+                items: [{ trackId: s.trackId }, { fileId: s.artwork }],
+                reviewers: [s.ids.composer],
+                order: "parallel",
+              })
+            ).status,
+          ).toBe(201);
+
+          // Only a role that may delete the project may ask.
+          expect((await deletion(s.engineer)).status).toBe(403);
+
+          // The workspace's only owner asks, and must wait a day to confirm alone.
+          expect((await deletion(s.owner)).status).toBe(200);
+          expect((await deletion(s.owner)).status).toBe(409);
+          const alone = await viewOf(s.owner);
+          expect(alone).toMatchObject({ mayConfirm: false, mayCancel: true });
+          expect(alone?.confirmableAt).not.toBeNull();
+          const early = await deletion(s.owner, "/confirm");
+          expect(early.status).toBe(403);
+          expect(await early.text()).toMatch(/a day after asking/);
+          // A reviewer may neither confirm nor withdraw it.
+          expect((await deletion(s.composer, "/confirm")).status).toBe(403);
+          expect((await deletion(s.composer, "", "DELETE")).status).toBe(403);
+          expect((await deletion(s.owner, "", "DELETE")).status).toBe(204);
+          expect(await viewOf(s.owner)).toBeNull();
+
+          // With a second owner, the one who asked may not confirm; the other may, and hears of it.
+          await db
+            .update(schema.members)
+            .set({ role: "owner" })
+            .where(
+              and(
+                eq(schema.members.organisationId, s.organisationId),
+                eq(schema.members.userId, s.ids.engineer),
+              ),
+            );
+          expect((await deletion(s.owner)).status).toBe(200);
+          expect((await inbox(s.engineer)).notifications[0]).toMatchObject({
+            kind: "deletion_requested",
+            text: "asked to delete Rags",
+          });
+          expect((await deletion(s.owner, "/confirm")).status).toBe(403);
+          expect(await viewOf(s.engineer)).toMatchObject({ mayConfirm: true });
+
+          // Another workspace's project cannot be found, let alone deleted.
+          const [elsewhere] = await db
+            .insert(schema.organisations)
+            .values({ name: "Elsewhere", slug: "elsewhere-deletion" })
+            .returning();
+          const [foreign] = await db
+            .insert(schema.projects)
+            .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+            .returning();
+          expect((await deletion(s.engineer, "/confirm", "POST", foreign?.id)).status).toBe(404);
+
+          // Confirmed: archived at once, its open review closed, and gone in seven days.
+          const confirmed = await deletion(s.engineer, "/confirm");
+          expect(confirmed.status).toBe(200);
+          const { deleteAfter } = (await confirmed.json()) as { deleteAfter: string };
+          const week = new Date(deleteAfter).getTime() - Date.now();
+          expect(week).toBeGreaterThan(6.9 * 24 * 3600 * 1000);
+          expect((await deletion(s.engineer, "/confirm")).status).toBe(409);
+          expect(await viewOf(s.owner)).toMatchObject({ deleteAfter, mayConfirm: false });
+          const [archived] = await db
+            .select({ archivedAt: schema.projects.archivedAt })
+            .from(schema.projects)
+            .where(eq(schema.projects.id, s.projectId));
+          expect(archived?.archivedAt).not.toBeNull();
+          const open = await db
+            .select({ id: schema.reviews.id })
+            .from(schema.reviews)
+            .where(
+              and(eq(schema.reviews.projectId, s.projectId), eq(schema.reviews.status, "open")),
+            );
+          expect(open).toEqual([]);
+          // It cannot be brought back while due; kept, it can.
+          const back = () =>
+            app.request(`/api/projects/${s.projectId}/unarchive`, json({}, s.owner));
+          expect((await back()).status).toBe(409);
+          expect((await deletion(s.owner, "", "DELETE")).status).toBe(204);
+          expect(await viewOf(s.owner)).toBeNull();
+          expect(
+            await purgeDueProjects(db, storage, audit, new Date(Date.now() + 8 * 86400e3)),
+          ).toBe(0);
+
+          // Asked and confirmed again, it goes for good once the week is over, and not before.
+          expect((await deletion(s.owner)).status).toBe(200);
+          expect((await deletion(s.engineer, "/confirm")).status).toBe(200);
+          expect(await purgeDueProjects(db, storage, audit)).toBe(0);
+          expect(
+            await purgeDueProjects(db, storage, audit, new Date(Date.now() + 8 * 86400e3)),
+          ).toBe(1);
+          expect((await getAs(`/api/projects/${s.projectId}`, s.owner)).status).toBe(404);
+          const left = await db
+            .select({ id: schema.files.id })
+            .from(schema.files)
+            .where(eq(schema.files.projectId, s.projectId));
+          expect(left).toEqual([]);
+          // The access log keeps every step, and the deletion with the project's name.
+          const logged = await db
+            .select({ action: schema.accessEvents.action, details: schema.accessEvents.details })
+            .from(schema.accessEvents)
+            .where(
+              and(
+                eq(schema.accessEvents.projectId, s.projectId),
+                eq(schema.accessEvents.action, "project.delete"),
+              ),
+            );
+          expect(logged).toEqual([{ action: "project.delete", details: { name: "Rags" } }]);
+          const steps = await db
+            .select({ action: schema.accessEvents.action })
+            .from(schema.accessEvents)
+            .where(eq(schema.accessEvents.projectId, s.projectId));
+          expect(
+            new Set(steps.map((e) => e.action).filter((a) => a.startsWith("project."))),
+          ).toEqual(
+            new Set([
+              "project.deletion_request",
+              "project.deletion_cancel",
+              "project.deletion_confirm",
+              "project.delete",
+            ]),
+          );
+        });
 
         it("tells reviewers and requesters, in the app and by mail, and no one else", async () => {
           const s = await studio();

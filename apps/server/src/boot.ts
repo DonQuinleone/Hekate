@@ -12,6 +12,7 @@ import { createMailer } from "./mail.ts";
 import { startWorkers } from "./media/workers.ts";
 import { deliverDigests, deliverInstant } from "./notifications.ts";
 import { playbackSecret } from "./playback.ts";
+import { purgeDueProjects } from "./project-purge.ts";
 import { purgeRequestLimits } from "./rate-limit.ts";
 import { remindDue } from "./reminders.ts";
 import { purgeDownloadTickets } from "./routes/downloads.ts";
@@ -138,6 +139,9 @@ export async function boot(
     await jobs.work("workspaces-purge", async () => {
       const purged = await purgeDueWorkspaces(db, backends);
       if (purged > 0) console.log(`Purged ${purged} deleted workspace(s)`);
+      // Projects whose deletion was confirmed seven days ago (#240).
+      const projects = await purgeDueProjects(db, storage, audit);
+      if (projects > 0) console.log(`Deleted ${projects} project(s) for good`);
       const rewrapped = await rewrapBehind(db, keyring);
       if (rewrapped > 0) console.log(`Rewrapped ${rewrapped} key(s) a rotation left behind`);
     });

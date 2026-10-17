@@ -59,6 +59,7 @@ const kindCopy: Record<NotificationKind, string> = {
   version: "A new version of a track you follow",
   processing_failed: "Processing fails on your upload",
   guest_opened: "A guest opens a review you asked for",
+  deletion_requested: "Someone asks to delete a project, for an owner to confirm",
   due_soon: "A review waiting on you is due tomorrow",
   assigned: "Someone sends you the comments assigned to you",
 };
