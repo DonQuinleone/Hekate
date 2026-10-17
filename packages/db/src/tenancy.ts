@@ -11,6 +11,8 @@ export const globalTables = new Set<PgTable>([
   schema.authSessions,
   schema.authAccounts,
   schema.authVerifications,
+  // A failure may belong to no workspace; only operators read them (#159).
+  schema.errorReports,
 ]);
 
 export const tenantTables: TenantTable[] = (Object.values(schema) as unknown[]).filter(

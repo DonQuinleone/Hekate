@@ -1,4 +1,6 @@
 import {
+  ERROR_REPORT_DAYS,
+  errorReportText,
   formatBytes,
   type InstanceAccess,
   type InstanceMemberRow,
@@ -8,12 +10,20 @@ import {
   instanceActions,
   instanceSections,
   instanceSectionsFor,
+  parseErrorReference,
   WORKSPACE_DELETE_GRACE_DAYS,
   type WorkspaceState,
 } from "@hekate/shared";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type FormEvent, useDeferredValue, useEffect, useRef, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useDeferredValue,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { Stat } from "~/components/dashboard";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
@@ -26,6 +36,7 @@ import { Field } from "~/components/ui/field";
 import { Input, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
+import { StatusDot } from "~/components/ui/status";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { actionCopy } from "~/lib/access-log";
 import { api } from "~/lib/api";
@@ -35,6 +46,8 @@ import { ago } from "~/lib/comments";
 import { formatDates } from "~/lib/locale";
 import {
   instanceAccessQuery,
+  instanceErrorQuery,
+  instanceErrorsQuery,
   instanceKeysQuery,
   instanceMembersQuery,
   instanceOperatorsQuery,
@@ -89,6 +102,7 @@ export function InstancePage({ section }: { section: InstanceSection }) {
         <>
           {current === "overview" && operatorView && <Overview />}
           {current === "operators" && operatorView && <Operators />}
+          {current === "debug" && operatorView && <Debug />}
         </>
       )}
     </Page>
@@ -175,6 +189,13 @@ function Overview() {
               }
               hint={n.detail}
             >
+              {n.kind === "failed_jobs" && (
+                <Button variant="secondary" size="md" asChild>
+                  <Link to="/instance/$section" params={{ section: "debug" }}>
+                    Debug tools
+                  </Link>
+                </Button>
+              )}
               {n.kind === "key_missing" && (
                 <Button variant="secondary" size="md" asChild>
                   <Link to="/instance/$section" params={{ section: "operators" }}>
@@ -210,6 +231,205 @@ function Overview() {
         )}
       </Section>
     </>
+  );
+}
+
+const clock = formatDates({ hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+/** When it failed: the time today, or the day before that. */
+const failedAt = (at: string) => {
+  const when = new Date(at);
+  const today = since.format(new Date()) === since.format(when);
+  return `${clock.format(when)} ${today ? "today" : `on ${since.format(when)}`}`;
+};
+
+/** Debug tools (#159): the story behind an error reference, and what failed in the last day. */
+function Debug() {
+  const [entered, setEntered] = useState("");
+  const [reference, setReference] = useState<string | null>(null);
+  const [invalid, setInvalid] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const found = useRef<HTMLDivElement>(null);
+  const fromList = useRef(false);
+  const [since] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+  const { data: errors } = useQuery(instanceErrorsQuery(since));
+  const report = useQuery({ ...instanceErrorQuery(reference ?? ""), enabled: !!reference });
+  const lookUp = (value: string) => {
+    const parsed = parseErrorReference(value);
+    setInvalid(!parsed);
+    setReference(parsed);
+    setCopied(false);
+    if (parsed) setEntered(parsed);
+  };
+  // Opened from the list below: bring the story into view.
+  useEffect(() => {
+    if (!report.data || !fromList.current) return;
+    fromList.current = false;
+    found.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [report.data]);
+  const r = report.data;
+  return (
+    <>
+      <Section
+        title="Error reference"
+        intro="When something fails, the person sees a reference. Paste it here for the whole story: who, where, the request, the job and the stack."
+      >
+        <div className="flex flex-col gap-3 px-4 py-3">
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              lookUp(entered);
+            }}
+          >
+            <Input
+              value={entered}
+              onChange={(e) => setEntered(e.target.value)}
+              placeholder="HK-7F3A-2C"
+              aria-label="Error reference"
+              className="tabular w-64 min-w-0"
+              autoFocus
+            />
+            <Button type="submit" variant="primary" size="md" disabled={!entered.trim()}>
+              Look up
+            </Button>
+          </form>
+          {invalid && (
+            <p className="m-0 text-[13px] text-signal">
+              That is not an error reference: they look like HK-7F3A-2C.
+            </p>
+          )}
+          {report.isError && <p className="m-0 text-[13px] text-signal">{report.error.message}</p>}
+          {reference && report.data === null && (
+            <p className="m-0 text-[13px] text-ink-2">
+              No report has {reference}. Reports are kept for {ERROR_REPORT_DAYS} days.
+            </p>
+          )}
+          {r && (
+            <div
+              ref={found}
+              className="flex scroll-mt-4 flex-col gap-3 rounded-panel border border-line bg-canvas/40 p-4"
+            >
+              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                <span className="tabular text-[16px] font-medium text-ink">{r.reference}</span>
+                <span className="text-[13px] text-ink-3">{failedAt(r.occurredAt)}</span>
+                <span className="text-[13px] text-ink-3">
+                  {r.source} · {r.location}
+                </span>
+              </div>
+              <p className="m-0 text-[14px] [overflow-wrap:anywhere] text-ink">{r.message}</p>
+              <dl className="m-0 grid gap-x-6 gap-y-1 text-[13px] @3xl/app:grid-cols-2">
+                <Fact term="Who">
+                  {r.who
+                    ? `${r.who.name} · ${r.who.email}`
+                    : r.source === "worker"
+                      ? "A job"
+                      : "Nobody signed in"}
+                </Fact>
+                <Fact term="Workspace">{r.workspace ?? "None"}</Fact>
+                {r.requestId && (
+                  <Fact term="Request" tabular>
+                    {r.requestId}
+                  </Fact>
+                )}
+                {r.jobId && (
+                  <Fact term="Job" tabular>
+                    {r.jobId}
+                  </Fact>
+                )}
+                {r.status && (
+                  <Fact term="Status" tabular>
+                    {r.status}
+                  </Fact>
+                )}
+              </dl>
+              {r.context && (
+                <Code label="The job's data">{JSON.stringify(r.context, null, 2)}</Code>
+              )}
+              {r.stack && <Code label="Stack">{r.stack}</Code>}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  size="md"
+                  onClick={async () => {
+                    await navigator.clipboard?.writeText(errorReportText(r));
+                    setCopied(true);
+                  }}
+                >
+                  <Icon name="copy" size={13} />
+                  {copied ? "Copied" : "Copy the report"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </Section>
+      <Section title="Errors today" intro="Everything that failed in the last day, newest first.">
+        {errors?.length === 0 ? (
+          <Row name="Nothing" hint="Nothing has failed in the last day." />
+        ) : (
+          errors?.map((e) => (
+            <Row
+              key={e.reference}
+              name={
+                <span className="flex min-w-0 items-center gap-2">
+                  <StatusDot state="changes_requested" />
+                  <span className="tabular shrink-0">{e.reference}</span>
+                  <span className="truncate text-ink-2">{e.message}</span>
+                </span>
+              }
+              hint={`${clock.format(new Date(e.occurredAt))} · ${e.workspace ?? "No workspace"} · ${e.source} · ${e.location}`}
+              inline
+            >
+              <Button
+                variant="ghost"
+                size="md"
+                aria-label={`Open ${e.reference}`}
+                onClick={() => {
+                  fromList.current = true;
+                  lookUp(e.reference);
+                }}
+              >
+                Open
+              </Button>
+            </Row>
+          ))
+        )}
+      </Section>
+    </>
+  );
+}
+
+/** Text that scrolls sideways, reachable by keyboard so it can be read on a phone. */
+function Code({ label, children }: { label: string; children: string }) {
+  return (
+    <section
+      // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region must take focus to scroll by keyboard.
+      tabIndex={0}
+      aria-label={label}
+      className="scroll-quiet overflow-x-auto rounded-control border border-line bg-canvas/60 px-3 py-2 outline-none focus-visible:ring-1 focus-visible:ring-signal"
+    >
+      <pre className="m-0 font-mono text-[12px] leading-[1.6] text-ink-2">{children}</pre>
+    </section>
+  );
+}
+
+function Fact({
+  term,
+  tabular = false,
+  children,
+}: {
+  term: string;
+  tabular?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 gap-1">
+      <dt className="text-ink-3">{term}</dt>
+      <dd className={cn("m-0 min-w-0 [overflow-wrap:anywhere] text-ink-2", tabular && "tabular")}>
+        {children}
+      </dd>
+    </div>
   );
 }
 

@@ -302,6 +302,11 @@ const screens: Screen[] = [
     path: () => "/instance/operators",
     ready: "main >> text=producer@example.test",
   },
+  {
+    name: "instance-debug",
+    path: () => "/instance/debug",
+    ready: "main >> text=HK-7F3A-2C",
+  },
   { name: "members", path: () => "/settings/members", ready: "main >> text=Alex Rivera" },
   {
     name: "settings-general",
@@ -428,6 +433,17 @@ for (const [name, role, open, ready] of [
     await checkScreen(page);
   });
 }
+
+// Debug tools (#159): the story behind a reference, opened from what failed today.
+test("instance-debug-report", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto("/instance/debug");
+  await settle(page, "main >> text=HK-7F3A-2C");
+  await page.getByRole("button", { name: "Open HK-7F3A-2C" }).click();
+  await settle(page, "main >> text=Copy the report");
+  await saveScreen(page, "instance-debug-report");
+  await checkScreen(page);
+});
 
 // The command palette, as it opens and with results from the server.
 for (const [name, typed, ready] of [
