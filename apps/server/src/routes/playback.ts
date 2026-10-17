@@ -22,6 +22,7 @@ import { CodedException, NotFound } from "../errors.ts";
 import type { PlaySessionVariables, ViewerVariables } from "../guests.ts";
 import type { Keyring } from "../keyring.ts";
 import { watermark, watermarkText } from "../media/watermark.ts";
+import { normalisationOf } from "../normalisation.ts";
 import {
   PLAYBACK_LIFETIME_SECONDS,
   type PlaybackClaims,
@@ -136,6 +137,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
           /** The project's profile decides which tools the file page offers. */
           profile: projects.profile,
           commentReferences: projects.commentReferences,
+          normalisation: projects.normalisation,
         })
         .from(files)
         .innerJoin(
@@ -164,7 +166,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
         .where(inOrg(variations, c.var.organisationId, eq(variations.fileId, file.id)));
       // A guest's review decides which tools and actions they have; members have their role.
       const access = await fileAccess(deps.db, c.var.actor, file.id);
-      const { commentReferences, ...shownFile } = file;
+      const { commentReferences, normalisation, ...shownFile } = file;
       // Opening a file a review asks someone about counts as opening that item.
       await noteOpened(deps.db, c.var.actor, file.id);
       return c.json({
@@ -177,6 +179,14 @@ export const fileRoutes = (deps: PlaybackDeps) =>
           }),
           variation: variation ?? null,
           grant: access?.grant ?? null,
+          // Normalised playback (#240): the volume only, for those it applies to.
+          normalisation: await normalisationOf(
+            deps.db,
+            c.var.organisationId,
+            file,
+            normalisation,
+            access ? mayUseTool(access, "normalise") : false,
+          ),
           // A member's player tools, from their role (#240); a guest's come with their grant.
           tools: access && "tools" in access ? [...access.tools] : null,
         },

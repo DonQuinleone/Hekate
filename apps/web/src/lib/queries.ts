@@ -46,6 +46,8 @@ import {
   type Mark,
   type MarkInput,
   type MediaInfo,
+  type Normalisation,
+  type NormalisationMode,
   type NotificationKind,
   type NotificationPreferences,
   narrowed,
@@ -267,6 +269,8 @@ export interface Project {
   qaSettings?: QaSettings | null;
   /** What reviewers may type beside a comment (#240), the profile's until it chooses. */
   references?: CommentReferences;
+  /** Whether recordings play at their delivery target's loudness (#240). */
+  normalisation?: NormalisationMode;
   /** In the list: whether they are a member of it. */
   mine?: boolean;
 }
@@ -882,6 +886,8 @@ export interface FileDetail extends ProjectFile {
     | null;
   /** For a member, the player tools their role has on (#240); null for a guest. */
   tools: PlayerTool[] | null;
+  /** Normalised playback (#240), where it applies to this viewer: its mode and volume. */
+  normalisation: Normalisation | null;
   /** What a comment here may name as it is read from the score: page, bars, beats (#240). */
   references: CommentReferences;
 }

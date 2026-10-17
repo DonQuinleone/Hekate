@@ -4446,7 +4446,12 @@ describe.runIf(url)("api", () => {
         ).roles;
         expect(roles.map((r) => r.name)).toContain("Mixer");
         // Each role's player tools go with it (#240): a new role listens.
-        expect(roles.find((r) => r.name === "Mixer")?.tools).toEqual(["score", "compare", "loops"]);
+        expect(roles.find((r) => r.name === "Mixer")?.tools).toEqual([
+          "score",
+          "compare",
+          "loops",
+          "normalise",
+        ]);
         expect(roles.map((r) => r.name)).not.toContain("Late");
         expect(roles.find((r) => r.name === "Producer")?.members).toBe(1);
         const categories = (
@@ -6707,9 +6712,10 @@ describe.runIf(url)("api", () => {
             "score",
             "compare",
             "loops",
+            "normalise",
           ]);
           const reviewer = before.find((r) => r.name === "Reviewer");
-          expect(reviewer?.tools).toEqual(["score", "compare", "loops"]);
+          expect(reviewer?.tools).toEqual(["score", "compare", "loops", "normalise"]);
 
           // The server refuses what the role has off, not only the page.
           for (const path of ["qa", "loudness", "spectrograms"])
@@ -6718,7 +6724,7 @@ describe.runIf(url)("api", () => {
           const file = (await (await getAs(`/api/files/${s.mix}`, s.composer)).json()) as {
             file: { tools: string[] | null };
           };
-          expect(file.file.tools).toEqual(["score", "compare", "loops"]);
+          expect(file.file.tools).toEqual(["score", "compare", "loops", "normalise"]);
 
           // Only those who manage roles turn tools on; then the reviewer has QA.
           const change = (tools: string[], cookie: string) =>
@@ -6752,6 +6758,7 @@ describe.runIf(url)("api", () => {
             "score",
             "compare",
             "loops",
+            "normalise",
           ]);
           // Workspace owners have every tool, whatever their role.
           expect((await getAs(`/api/files/${s.mix}/loudness`, s.owner)).status).not.toBe(403);
@@ -9823,6 +9830,88 @@ describe.runIf(url)("api", () => {
         expect(
           (await choose({ page: true, bar: true, beat: true }, owner, foreign?.id)).status,
         ).toBe(404);
+      });
+
+      it("plays recordings normalised as the project says, and only the volume reaches the browser (#240)", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const fileId = await recording(organisationId);
+        const projectId = await projectOfFile(fileId);
+        // Measured at -8 LUFS, delivered for streaming at -14: 6 dB down.
+        const blob = await storage.put(organisationId, Buffer.from("not really loudness"));
+        await db.insert(schema.loudness).values({
+          organisationId,
+          fileId,
+          summary: {
+            integrated: -8,
+            range: 6,
+            momentaryMax: -4,
+            shortTermMax: -6,
+            truePeak: -1,
+            channels: [],
+          },
+          channels: 2,
+          sampleRate: 48000,
+          samplesPerFrame: 4800,
+          frameCount: 600,
+          blobId: blob.id,
+        });
+        await db
+          .update(schema.projects)
+          .set({ deliveryProfile: "streaming" })
+          .where(eq(schema.projects.id, projectId));
+        const normalisationOf = async (cookie: string) =>
+          (
+            (await (await app.request(`/api/files/${fileId}`, { headers: { cookie } })).json()) as {
+              file: { normalisation: { mode: string; target: number; gain: number } | null };
+            }
+          ).file.normalisation;
+        const choose = (normalisation: string, who = owner) =>
+          send("PATCH", `/api/projects/${projectId}`, { normalisation }, who);
+        const viewer = await joinAs(owner, "viewer@example.test", "member");
+        await grantRole(owner, projectId, viewer, "Viewer");
+        // As a new project's Viewer: the score, and no normalising.
+        await db
+          .update(schema.projectRoles)
+          .set({ tools: ["score"] })
+          .where(
+            and(
+              eq(schema.projectRoles.projectId, projectId),
+              eq(schema.projectRoles.name, "Viewer"),
+            ),
+          );
+
+        // Off until the project chooses.
+        expect(await normalisationOf(owner)).toBeNull();
+
+        // Each person's choice: offered to a role with the tool, not to a Viewer.
+        expect((await choose("optional")).status).toBe(200);
+        const offered = await normalisationOf(owner);
+        expect(offered).toMatchObject({ mode: "optional", target: -14 });
+        expect(offered?.gain).toBeCloseTo(0.501, 3);
+        expect(offered).not.toHaveProperty("integrated");
+        expect(await normalisationOf(viewer)).toBeNull();
+
+        // Always: everyone hears it normalised.
+        expect((await choose("forced")).status).toBe(200);
+        expect(await normalisationOf(viewer)).toMatchObject({ mode: "forced", target: -14 });
+
+        // A profile without a loudness target leaves the recording as it is.
+        await db
+          .update(schema.projects)
+          .set({ deliveryProfile: "cd" })
+          .where(eq(schema.projects.id, projectId));
+        expect(await normalisationOf(owner)).toBeNull();
+
+        // Only those who edit the project choose.
+        expect((await choose("off", viewer)).status).toBe(403);
+        expect(
+          (
+            (await (
+              await app.request(`/api/projects/${projectId}`, { headers: { cookie: owner } })
+            ).json()) as { project: { normalisation: string } }
+          ).project.normalisation,
+        ).toBe("forced");
       });
 
       it("lets only the author edit, anyone who triages resolve, and no one reach another organisation", async () => {

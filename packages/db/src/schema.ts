@@ -17,6 +17,7 @@ import {
   type LoudnessSummary,
   type MailMode,
   type MediaInfo,
+  type NormalisationMode,
   type NotificationChannels,
   type NotificationKind,
   type NotificationMail,
@@ -429,6 +430,8 @@ export const projects = pgTable(
     qaSettings: jsonb("qa_settings").$type<QaSettings>(),
     /** What reviewers may type beside a comment (#240); null takes its profile's. */
     commentReferences: jsonb("comment_references").$type<CommentReferences>(),
+    /** Whether recordings play at their delivery target's loudness (#240); off until chosen. */
+    normalisation: text("normalisation").$type<NormalisationMode>().notNull().default("off"),
     /**
      * Whether its comment categories have been made: a new project gets the defaults at once,
      * one made before categories existed the first time its categories are read.
@@ -459,7 +462,7 @@ export const projectRoles = pgTable(
     tools: text("tools")
       .array()
       .notNull()
-      .default(sql`'{qa,meters,spectrogram,score,compare,loops}'::text[]`)
+      .default(sql`'{qa,meters,spectrogram,score,compare,loops,normalise}'::text[]`)
       .$type<PlayerTool[]>(),
     position: integer("position").notNull().default(0),
     ...timestamps,
