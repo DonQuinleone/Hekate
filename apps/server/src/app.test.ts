@@ -9676,7 +9676,7 @@ describe.runIf(url)("api", () => {
           owner,
         );
         expect(refused.status).toBe(422);
-        expect(await refused.text()).toMatch(/music projects/);
+        expect(await refused.text()).toMatch(/no bar references/);
 
         // The file page learns the profile, so it offers bars only where they belong.
         const profileOf = async (id: string) =>
@@ -9689,6 +9689,65 @@ describe.runIf(url)("api", () => {
           ).file.profile;
         expect(await profileOf(music)).toBe("music");
         expect(await profileOf(film)).toBe("video");
+      });
+
+      it("takes the pages, bars and beats its project chooses, set by those who edit it (#240)", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const music = await recording(organisationId);
+        const film = await recording(organisationId, "video");
+        const comment = (fileId: string, anchor: object) =>
+          send("POST", `/api/files/${fileId}/comments`, { body: "x", anchor }, owner);
+        const referencesOf = async (fileId: string) =>
+          (
+            (await (
+              await app.request(`/api/files/${fileId}`, { headers: { cookie: owner } })
+            ).json()) as { file: { references: unknown } }
+          ).file.references;
+        const onPage = { kind: "bar", from: { bar: 9, beat: 3 }, page: 2 };
+
+        // A music project takes them all until it chooses; a video project, none.
+        expect(await referencesOf(music)).toEqual({ page: true, bar: true, beat: true });
+        expect(await referencesOf(film)).toEqual({ page: false, bar: false, beat: false });
+        expect((await comment(music, onPage)).status).toBe(201);
+
+        // Pages and beats off: bars alone still land.
+        const musicProject = await projectOfFile(music);
+        const patch = (references: object, who = owner) =>
+          send("PATCH", `/api/projects/${musicProject}`, { references }, who);
+        const changed = await patch({ page: false, bar: true, beat: false });
+        expect(changed.status).toBe(200);
+        expect(
+          ((await changed.json()) as { project: { references: unknown } }).project.references,
+        ).toEqual({ page: false, bar: true, beat: false });
+        const noPage = await comment(music, { kind: "bar", from: { bar: 9 }, page: 2 });
+        expect(noPage.status).toBe(422);
+        expect(await noPage.text()).toMatch(/no page references/);
+        const noBeat = await comment(music, { kind: "bar", from: { bar: 9, beat: 3 } });
+        expect(noBeat.status).toBe(422);
+        expect(await noBeat.text()).toMatch(/no beats/);
+        expect((await comment(music, { kind: "bar", from: { bar: 9 } })).status).toBe(201);
+
+        // Bars off: none at all. A video project may take them.
+        expect((await patch({ page: false, bar: false, beat: false })).status).toBe(200);
+        expect((await comment(music, { kind: "bar", from: { bar: 9 } })).status).toBe(422);
+        expect(
+          (
+            await send(
+              "PATCH",
+              `/api/projects/${await projectOfFile(film)}`,
+              { references: { page: true, bar: true, beat: true } },
+              owner,
+            )
+          ).status,
+        ).toBe(200);
+        expect((await comment(film, onPage)).status).toBe(201);
+
+        // Only those who edit the project choose; a reviewer is refused.
+        const reviewer = await joinAs(owner, "reviewer@example.test", "member");
+        await grantRole(owner, musicProject, reviewer, "Reviewer");
+        expect((await patch({ page: true, bar: true, beat: true }, reviewer)).status).toBe(403);
+        expect(await referencesOf(music)).toEqual({ page: false, bar: false, beat: false });
       });
 
       it("lets only the author edit, anyone who triages resolve, and no one reach another organisation", async () => {

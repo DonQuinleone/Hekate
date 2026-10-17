@@ -3,10 +3,12 @@ import {
   createProjectInput,
   creatorRole,
   defaultProjectRoles,
+  type ProjectProfile,
   permissionsFor,
   playerTools,
   projectListQuery,
   projectPermissions,
+  referencesOf,
   updateProjectInput,
   workspaceSettingsOf,
 } from "@hekate/shared";
@@ -25,6 +27,12 @@ import { categoriesOf, seedCategories } from "./categories.ts";
 import { copyCategories, templateFor } from "./templates.ts";
 
 const { projects, files, users, projectRoles, projectMembers, reviews } = schema;
+
+/** A project as it leaves the server: its comment references read, its profile's if unset. */
+function shown<P extends { commentReferences: unknown; profile: ProjectProfile }>(project: P) {
+  const { commentReferences, ...rest } = project;
+  return { ...rest, references: referencesOf(commentReferences, project.profile) };
+}
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
@@ -68,7 +76,7 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
         )
         .orderBy(desc(projects.createdAt));
       const list = rows.map((r) => ({
-        ...r.project,
+        ...shown(r.project),
         mine: r.memberId !== null,
         // Archiving is part of running the project: whoever manages its roles and members.
         mayArchive: permissionsFor(organisationRole, r.rolePermissions).has("delete_project"),
@@ -103,6 +111,7 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
                 checkTruePeak: projects.checkTruePeak,
                 requireEdl: projects.requireEdl,
                 qaSettings: projects.qaSettings,
+                commentReferences: projects.commentReferences,
               })
               .from(projects)
               .where(inOrg(projects, organisationId, eq(projects.id, access.projectId)));
@@ -206,7 +215,7 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
       });
       // The creator may do whatever their role allows; a Producer, everything.
       const access = await can(db, actorOf(c.var), "view", project.id);
-      return c.json({ project: { ...project, permissions: [...access.permissions] } }, 201);
+      return c.json({ project: { ...shown(project), permissions: [...access.permissions] } }, 201);
     })
     // Archiving closes the project's open reviews and makes it read-only; it leaves everyone's
     // lists but keeps everything. Unarchiving makes it whole again (closed reviews stay closed).
@@ -277,7 +286,7 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
       // and whether they may archive or unarchive it.
       return c.json({
         project: {
-          ...project,
+          ...(project && shown(project)),
           permissions: [...access.permissions],
           mayArchive: access.granted.has("delete_project"),
         },
@@ -291,7 +300,8 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
         input.name !== undefined ||
         input.description !== undefined ||
         input.profile !== undefined ||
-        input.carriedCommentsShown !== undefined;
+        input.carriedCommentsShown !== undefined ||
+        input.references !== undefined;
       const workflow =
         input.deliveryProfile !== undefined ||
         input.checkTruePeak !== undefined ||
@@ -302,14 +312,21 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
       const access = await can(db, actorOf(c.var), general ? "edit_project" : "edit_workflows", id);
       const project = await db.transaction(async (tx) => {
         await assertProfileRef(tx, c.var.organisationId, input.deliveryProfile);
+        const { references, ...rest } = input;
         const [row] = await tx
           .update(projects)
-          .set({ ...input, updatedAt: new Date() })
+          .set({
+            ...rest,
+            ...(references ? { commentReferences: references } : {}),
+            updatedAt: new Date(),
+          })
           .where(inOrg(projects, c.var.organisationId, eq(projects.id, access.projectId)))
           .returning();
         return row;
       });
-      return c.json({ project: { ...project, permissions: [...access.permissions] } });
+      return c.json({
+        project: { ...(project && shown(project)), permissions: [...access.permissions] },
+      });
     })
     .get("/:id/files", idParam, async (c) => {
       const organisationId = c.var.organisationId;

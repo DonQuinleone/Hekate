@@ -35,6 +35,7 @@ async function snapshotOf(
       checkTruePeak: projects.checkTruePeak,
       requireEdl: projects.requireEdl,
       qaSettings: projects.qaSettings,
+      commentReferences: projects.commentReferences,
     })
     .from(projects)
     .where(inOrg(projects, organisationId, eq(projects.id, projectId)));
@@ -54,6 +55,7 @@ async function snapshotOf(
       ...project,
       deliveryProfile: project.deliveryProfile ?? null,
       qaSettings: project.qaSettings ?? null,
+      commentReferences: project.commentReferences ?? null,
     },
     roles,
     categories: categories.map((c) => ({ name: c.name, handling: c.handling, stage: c.stage })),

@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { AnchorKind } from "./anchor.ts";
 import { profileRef } from "./qa.ts";
 import { qaSettings } from "./qa-rules.ts";
+import { commentReferences } from "./references.ts";
 
 /**
  * A project's profile decides which tools and anchors appear. Any kind of file can live in any
@@ -87,6 +88,8 @@ export const updateProjectInput = z
     requireEdl: z.boolean().optional(),
     /** Its QA rules, as a whole (#144). */
     qaSettings: qaSettings.optional(),
+    /** What reviewers may type beside a comment: pages, bars, beats (#240). */
+    references: commentReferences.optional(),
   })
   .refine(
     (u) =>
@@ -97,7 +100,8 @@ export const updateProjectInput = z
       u.deliveryProfile !== undefined ||
       u.checkTruePeak !== undefined ||
       u.requireEdl !== undefined ||
-      u.qaSettings !== undefined,
+      u.qaSettings !== undefined ||
+      u.references !== undefined,
     { message: "Nothing to change" },
   );
 export type UpdateProjectInput = z.infer<typeof updateProjectInput>;
