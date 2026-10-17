@@ -224,6 +224,11 @@ const screens: Screen[] = [
     ready: "text=Bars 12 to 16",
   },
   {
+    name: "track-takes",
+    path: (s) => `/tracks/${s.trackId}?view=takes`,
+    ready: "text=Keeper into the trio",
+  },
+  {
     name: "file-recording",
     path: (s) => `/files/${s.dryFileId}`,
     ready: "section[aria-label=Comments] li",
@@ -489,7 +494,7 @@ for (const [name, label, ready] of [
 // The command palette, as it opens and with results from the server.
 for (const [name, typed, ready] of [
   ["palette", "", "[role=option]:has-text('Inbox')"],
-  ["palette-search", "maple", "[role=option]:has-text('Maple Leaf Rag - Dry v2.wav')"],
+  ["palette-search", "maple", "[role=option]:has-text('Maple Leaf Rag')"],
 ] as const) {
   test(name, async ({ page }) => {
     await page.clock.setFixedTime(FIXED_TIME);
@@ -878,6 +883,27 @@ test("track-new-version", async ({ page }) => {
   await settle(page, "form li");
   await refusal.evaluate((el) => el.scrollIntoView({ block: "center" }));
   await saveScreen(page, "track-new-version");
+  await checkScreen(page);
+});
+
+// A track's takes (#21, #46): those covering a bar, then one take's details being edited.
+test("track-takes-edit", async ({ page }) => {
+  await page.goto(`/tracks/${seeded().trackId}?view=takes`);
+  await page.getByLabel("Only the takes covering a bar").fill("20");
+  const list = page.getByRole("list", { name: "Takes of this track" });
+  await expect(list.getByRole("listitem")).toHaveCount(2);
+  await expect(list).toContainText("Keeper into the trio");
+  await saveScreen(page, "track-takes-bar");
+  await checkScreen(page);
+  await list.getByRole("listitem").filter({ hasText: "Keeper" }).hover();
+  await page.getByRole("button", { name: "Actions for take 3" }).click();
+  await page.getByRole("menuitem", { name: "Edit…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Take 3" });
+  await dialog.getByLabel("Last bar").fill("12");
+  await expect(dialog.getByRole("alert")).toHaveText("The last bar comes before the first");
+  await dialog.getByLabel("Last bar").fill("48");
+  await dialog.getByLabel("In point").fill("0:01.5");
+  await saveScreen(page, "track-takes-edit");
   await checkScreen(page);
 });
 

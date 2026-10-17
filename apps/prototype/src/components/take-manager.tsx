@@ -4,16 +4,17 @@ import { Rating } from "~/components/comments/takes";
 import { Icon } from "~/components/icons";
 import { Button } from "~/components/ui/button";
 import { ActionMenu } from "~/components/ui/menu";
-import { sessions, type Take, type Track, takes } from "~/data";
+import { type Track, takes } from "~/data";
 import { cn } from "~/lib/cn";
 import { formatDuration } from "~/lib/format";
 
 const BARS = 100;
 
 /**
- * The take manager for a track, under the player: every take that covers it, by bar, with its
- * rating and whether the edit uses it. Click a take to audition it level-matched against the
- * version; drag over bars to set its coverage (here, a click sets the hovered bar).
+ * The take manager for a track, under the player: every take of the track, by bar, with its
+ * rating and whether the edit uses it. A take belongs to its track, never to a session, and its
+ * bars are optional (a pop song has none). Click a take to audition it level-matched against
+ * the version; drag over bars to set its coverage (here, a click sets the hovered bar).
  */
 export function TakeManager({
   track,
@@ -30,8 +31,12 @@ export function TakeManager({
   page?: boolean;
 }) {
   const list = takes
-    .filter((t) => t.trackId === track.id && t.coverage)
-    .sort((a, b) => (a.coverage?.barFrom ?? 0) - (b.coverage?.barFrom ?? 0) || a.number - b.number);
+    .filter((t) => t.trackId === track.id)
+    .sort(
+      (a, b) =>
+        (a.coverage?.barFrom ?? Number.POSITIVE_INFINITY) -
+          (b.coverage?.barFrom ?? Number.POSITIVE_INFINITY) || a.number - b.number,
+    );
   const [filter, setFilter] = useState<"all" | "starred" | "used">("all");
   const [auditioning, setAuditioning] = useState<string | null>(null);
   const shown = list.filter((t) =>
@@ -46,7 +51,6 @@ export function TakeManager({
     for (let b = (t.coverage?.barFrom ?? 1) - 1; b < (t.coverage?.barTo ?? 0); b++)
       covered[b] = true;
   const gaps = covered.filter((c) => !c).length;
-  const sessionOf = (t: Take) => sessions.find((s) => s.id === t.sessionId);
   return (
     <section
       aria-label="Takes"
@@ -59,7 +63,7 @@ export function TakeManager({
         <Icon name="take" size={14} className="text-ink-3" />
         {!page && <span className="font-medium text-ink">Takes</span>}
         <span className="text-ink-3">
-          {list.length} cover this track
+          {list.length} takes
           {gaps > 0 ? ` · ${gaps} bars uncovered` : " · every bar covered"}
         </span>
         <div className="ml-auto flex items-center gap-1">
@@ -165,7 +169,7 @@ export function TakeManager({
                       <Rating value={t.rating} />
                     </span>
                     <span className="block truncate text-[11px] text-ink-3">
-                      {sessionOf(t)?.name} · {formatDuration(t.duration)}
+                      {formatDuration(t.duration)}
                       {t.notes ? ` · ${t.notes}` : ""}
                     </span>
                   </span>
@@ -178,7 +182,11 @@ export function TakeManager({
                       style={{ left: `${(i * 10 * 100) / BARS}%` }}
                     />
                   ))}
+                  {!t.coverage && (
+                    <span className="absolute top-2.5 left-2 text-[12px] text-ink-3">No bars</span>
+                  )}
                   <span
+                    hidden={!t.coverage}
                     title={`Bars ${from} to ${to}`}
                     className={cn(
                       "absolute top-2 h-5 rounded-[4px] border transition-colors",
@@ -248,7 +256,7 @@ export function TakeManager({
         {!auditioning && canEdit && (
           <Button variant="ghost" size="sm" className="ml-auto h-6 text-[12px]">
             <Icon name="upload" size={12} />
-            Import takes
+            Add takes
           </Button>
         )}
       </div>

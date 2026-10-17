@@ -456,8 +456,8 @@ const projectSettings = createRoute({
 const track = createRoute({
   getParentRoute: () => app,
   path: "/tracks/$trackId",
-  // A track opens in the player; its versions page is asked for by name.
-  validateSearch: z.object({ view: z.enum(["versions"]).optional().catch(undefined) }),
+  // A track opens in the player; its versions and takes pages are asked for by name.
+  validateSearch: z.object({ view: z.enum(["versions", "takes"]).optional().catch(undefined) }),
   component: function TrackRoute() {
     const { trackId } = track.useParams();
     const { view } = track.useSearch();

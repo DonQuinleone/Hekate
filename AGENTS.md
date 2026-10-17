@@ -17,7 +17,7 @@ The vocabulary is fixed and defined in `docs/domain.md`. Read it before naming a
 
 - **Project** contains **folders** and **files** of any kind. The **profile** (`music`, `video`, `general`) only decides which tools appear.
 - **Track** (a piece of music) has **versions** (successive edits, numbered), and each version has one or more **variations** (files differing in treatment, such as dry and wet mixes; one is primary).
-- **Take** means a recording-session snippet and nothing else. Takes are grouped in **sessions** and hold one file per microphone plus an optional summed mix. They are reference material for producers and editors, not versions.
+- **Take** means a recording-session snippet and nothing else. A track has many takes; a take belongs to its track, never to a **session**, and sessions and tracks are linked many to many. A take is a scratch mix for now (one file per microphone follows), with an optional bar range and in and out points. Takes are reference material for producers and editors, not versions.
 - There are no movements.
 - **Comments** belong to a file and may carry an **anchor**: `time` (range or frame), `region` (normalised rectangle on a page or frame) or `bar` (bar and beat, or bar range). Anchors are defined once in `packages/shared`.
 - **Reviews** are either an **approval** (each reviewer records a logged *Approved* or *Changes requested*) or **feedback** (comments, no formal sign-off). Reviewers are members, **guests** (external, no account) or **groups**, all at once or in order.

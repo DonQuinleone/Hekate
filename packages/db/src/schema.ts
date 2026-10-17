@@ -512,6 +512,8 @@ export const sessions = pgTable(
     projectId: projectId(),
     name: text("name").notNull(),
     recordedOn: date("recorded_on"),
+    /** Where it was recorded, for example "Endless Hall, studio 2". */
+    venue: text("venue"),
     position: integer("position").notNull().default(0),
     ...timestamps,
   },
@@ -521,23 +523,64 @@ export const sessions = pgTable(
   ],
 );
 
-/** A snippet captured in a session. Its files are one per microphone plus an optional summed mix. */
-export const takes = pgTable(
-  "takes",
+/** Which tracks a session recorded: a track may be recorded in several, a session may hold several. */
+export const sessionTracks = pgTable(
+  "session_tracks",
   {
     id: id(),
     organisationId: organisationId(),
     sessionId: uuid("session_id")
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
+    trackId: uuid("track_id")
+      .notNull()
+      .references((): AnyPgColumn => tracks.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    uniqueIndex("session_tracks_pair_idx").on(t.sessionId, t.trackId),
+    index("session_tracks_track_idx").on(t.organisationId, t.trackId),
+  ],
+);
+
+/**
+ * A take (#21): a snippet recorded for a track, never a version of it. For now one scratch mix
+ * (`files.takeId`); stems with a mixer come later. Its bars and in and out points are optional:
+ * bars matter for a classical piece and not for a pop song.
+ */
+export const takes = pgTable(
+  "takes",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    trackId: uuid("track_id")
+      .notNull()
+      .references((): AnyPgColumn => tracks.id, { onDelete: "cascade" }),
     number: integer("number").notNull(),
     label: text("label"),
     notes: text("notes"),
+    /** 0 to 5; 0 is not rated. */
+    rating: integer("rating").notNull().default(0),
+    /** The producer's circled takes. */
+    starred: boolean("starred").notNull().default(false),
+    /** Where it sits in the score: a page, and the bars it covers. */
+    page: integer("page"),
+    barFrom: integer("bar_from"),
+    barTo: integer("bar_to"),
+    /** The part of the recording that counts, in seconds; null is from the start, to the end. */
+    inPoint: doublePrecision("in_point"),
+    outPoint: doublePrecision("out_point"),
     ...timestamps,
   },
   (t) => [
     index("takes_org_idx").on(t.organisationId),
-    uniqueIndex("takes_session_number_idx").on(t.sessionId, t.number),
+    uniqueIndex("takes_track_number_idx").on(t.trackId, t.number),
+    // "Which takes cover bar 72?" is a range query per track.
+    index("takes_coverage_idx").on(t.organisationId, t.trackId, t.barFrom, t.barTo),
+    check("takes_rating_range", sql`${t.rating} between 0 and 5`),
+    check(
+      "takes_bars_order",
+      sql`${t.barFrom} is null or ${t.barTo} is null or ${t.barFrom} <= ${t.barTo}`,
+    ),
   ],
 );
 

@@ -124,11 +124,15 @@ function UsedIn({ details }: { details: FileDetails }) {
         </Link>
       ))}
       {take && (
-        <span className="truncate text-[13px] text-ink-2">
-          {take.session} · Take {take.number}
-          {take.label ? ` (${take.label})` : ""} ·{" "}
-          {take.mix ? "summed mix" : (take.channel ?? "a microphone")}
-        </span>
+        <Link
+          to="/tracks/$trackId"
+          params={{ trackId: take.trackId }}
+          search={{ view: "takes" }}
+          className="truncate text-[13px] text-ink-2 hover:text-ink"
+        >
+          {take.track} · Take {take.number}
+          {take.label ? ` (${take.label})` : ""}
+        </Link>
       )}
       {reviews.map((r) => (
         <Link
