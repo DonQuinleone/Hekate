@@ -14,7 +14,6 @@ import {
   exportComments,
   mentionedIn,
   mentionRanges,
-  referencesOf,
   resolveCommentInput,
   sendListInput,
   threadsForExport,
@@ -35,6 +34,7 @@ import { CodedException, NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
 import type { Mailer } from "../mail.ts";
 import { type NotificationActor, notifyNow, projectPeople } from "../notifications.ts";
+import { referencesOfFile } from "../references.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { sharedTakesOf } from "./takes.ts";
 
@@ -633,7 +633,10 @@ export const fileCommentRoutes = (
           duration: file.mediaInfo?.duration,
           pages: file.pageCount,
           profile: file.profile,
-          references: referencesOf(file.references, file.profile),
+          references: await referencesOfFile(db, organisationId, file.id, {
+            profile: file.profile,
+            commentReferences: file.references,
+          }),
         });
         if (problem) throw new HTTPException(422, { message: problem });
       }
@@ -962,7 +965,10 @@ export const carryRoutes = (db: Database) =>
             duration: file.mediaInfo?.duration,
             pages: file.pageCount,
             profile: file.profile,
-            references: referencesOf(file.references, file.profile),
+            references: await referencesOfFile(db, organisationId, carry.fileId, {
+              profile: file.profile,
+              commentReferences: file.references,
+            }),
           });
         if (problem) throw new HTTPException(422, { message: problem });
       }

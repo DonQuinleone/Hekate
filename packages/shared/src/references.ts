@@ -25,6 +25,49 @@ export function referencesOf(stored: unknown, profile: ProjectProfile): CommentR
   return parsed.success ? parsed.data : defaultReferences(profile);
 }
 
+/** A file's references: its track's own choice, else its project's, else its profile's. */
+export function effectiveReferences(
+  stored: { track?: unknown; project: unknown },
+  profile: ProjectProfile,
+): CommentReferences {
+  const own = commentReferences.safeParse(stored.track);
+  return own.success ? own.data : referencesOf(stored.project, profile);
+}
+
+/**
+ * The sets a track may choose from, named as people say them. Pages and beats only make sense
+ * beside bars, so the others are never offered.
+ */
+export const referenceSets = [
+  { id: "none", label: "None", references: { page: false, bar: false, beat: false } },
+  { id: "bars", label: "Bars", references: { page: false, bar: true, beat: false } },
+  { id: "bars-beats", label: "Bars and beats", references: { page: false, bar: true, beat: true } },
+  { id: "pages-bars", label: "Pages and bars", references: { page: true, bar: true, beat: false } },
+  {
+    id: "pages-bars-beats",
+    label: "Pages, bars and beats",
+    references: { page: true, bar: true, beat: true },
+  },
+] as const satisfies readonly { id: string; label: string; references: CommentReferences }[];
+export type ReferenceSetId = (typeof referenceSets)[number]["id"];
+
+/** Which set some references are, or null for one that is not offered (beats without bars). */
+export function referenceSetOf(references: CommentReferences): ReferenceSetId | null {
+  // Without bars, pages and beats say nothing: the set is none.
+  if (!references.bar) return "none";
+  return (
+    referenceSets.find(
+      (set) =>
+        set.references.bar &&
+        set.references.page === references.page &&
+        set.references.beat === references.beat,
+    )?.id ?? null
+  );
+}
+
+/** Choosing a track's own references, or null to keep the project's. */
+export const trackReferencesInput = z.object({ references: commentReferences.nullable() }).strict();
+
 /** A beat as typed in its own field: from 1 to 32, halves and quarters allowed. Null when not one. */
 export function parseBeat(text: string): number | null {
   const m = /^\s*(\d{1,2}(?:\.\d{1,2})?)\s*$/.exec(text);
