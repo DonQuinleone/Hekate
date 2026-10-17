@@ -244,22 +244,21 @@ Example, a choral album:
 
 ## Access
 
-Per-project roles carry permissions. Defaults ship with every project and can be edited:
+Per-project roles hold one level in each area of access; a level includes the ones before it. Defaults ship with every project and can be edited:
 
-| Permission | Producer | Engineer | Editor | Reviewer | Viewer |
-| --- | :-: | :-: | :-: | :-: | :-: |
-| View files and tracks | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Upload files, versions, takes | ✓ | ✓ | ✓ | | |
-| Organise folders and tracks | ✓ | ✓ | ✓ | | |
-| Comment | ✓ | ✓ | ✓ | ✓ | |
-| Request reviews | ✓ | | | | |
-| Add or remove reviewers and guests | ✓ | | | | |
-| Triage feedback (resolve, assign) | ✓ | ✓ | ✓ | | |
-| Record an approval decision | ✓ | | | ✓ | |
-| Edit workflows | ✓ | | | | |
-| Manage roles and members | ✓ | | | | |
-| Download proxies, marked and logged | ✓ | ✓ | ✓ | | |
-| Download originals, marked and logged | ✓ | ✓ | ✓ | | |
+| Area | Levels | Producer | Engineer | Editor | Reviewer | Viewer |
+| --- | --- | --- | --- | --- | --- | --- |
+| Files | None, View, Upload, Organise, Delete | Delete | Organise | Organise | View | View |
+| Comments | None, Read, Write, Triage | Triage | Triage | Triage | Write | Read |
+| Reviews | None, Respond, Request, Manage | Manage | None | None | Respond | None |
+| Downloads (marked and logged) | None, Proxy, Original | Original | Original | Original | None | None |
+| Sessions and takes | None, View, Edit | Edit | Edit | Edit | View | View |
+| Production tools | None, View, Edit | Edit | View | View | None | None |
+| Workflow | None, View, Edit | Edit | View | View | View | View |
+| Roles and people | None, View, Manage | Manage | View | View | View | View |
+| Project (settings; archiving and deletion) | None, Edit, Delete | Delete | None | None | None | None |
+
+Each level stands for permissions the server checks, so a role is still a set of permissions underneath (decision 058). View files is what makes the project visible at all; Respond is recording an approval decision, and Manage in reviews is adding and removing reviewers and guests; Organise is moving and renaming, Delete removing; Triage is categorising, deferring, assigning and resolving anyone's comments; in the project, Edit is its settings and Delete is archiving it (and deleting it, once that exists).
 
 Workspace owners and admins can do everything in every project. Guests have no role: they can see and act only on the items in the reviews they are invited to.
 

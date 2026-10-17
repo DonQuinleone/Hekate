@@ -1,4 +1,4 @@
-import { type ProjectPermission, permissionNames, projectPermissions } from "@hekate/shared";
+import { type AccessArea, type AccessLevels, accessAreas, levelsOf } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type CSSProperties, type FormEvent, useState } from "react";
 import { cn } from "~/lib/cn";
@@ -10,9 +10,12 @@ import {
   useProjectAccessMutations,
   useProjectCan,
 } from "~/lib/queries";
+import { Icon } from "./icons";
+import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
-import { Checkbox } from "./ui/choice";
-import { InlineInput, Input, Select } from "./ui/input";
+import { Dialog } from "./ui/dialog";
+import { Input, Select } from "./ui/input";
+import { ActionMenu } from "./ui/menu";
 
 /** Who works on the project, and their role. Organisation owners and admins need none. */
 function Members({ projectId, manage }: { projectId: string; manage: boolean }) {
@@ -77,203 +80,278 @@ function Members({ projectId, manage }: { projectId: string; manage: boolean }) 
   );
 }
 
-/** A role's name, edited in place by those who manage roles. */
-function RoleName({
-  role,
-  manage,
-  onRename,
+/** A role's name: a new role's, or one renamed. */
+function RoleDialog({
+  title,
+  initial,
+  pending,
+  error,
+  submitLabel,
+  onSubmit,
+  onClose,
 }: {
-  role: ProjectRole;
-  manage: boolean;
-  onRename: (name: string) => void;
+  title: string;
+  initial: string;
+  pending: boolean;
+  error: Error | null;
+  submitLabel: string;
+  onSubmit: (name: string) => void;
+  onClose: () => void;
 }) {
-  const [name, setName] = useState(role.name);
-  if (!manage) return <span className="text-xs font-medium text-ink">{role.name}</span>;
+  const [name, setName] = useState(initial);
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (name.trim()) onSubmit(name.trim());
+  };
   return (
-    <InlineInput
-      value={name}
-      aria-label={`Name of the ${role.name} role`}
-      onChange={(event) => setName(event.target.value)}
-      onBlur={() => {
-        if (name.trim() && name.trim() !== role.name) onRename(name.trim());
-        else setName(role.name);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") event.currentTarget.blur();
-      }}
-      className="w-24 text-center text-xs font-medium"
-    />
+    <Dialog title={title} onClose={onClose} width="sm">
+      <form onSubmit={submit} className="flex flex-col gap-3">
+        <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+          Name
+          <Input
+            value={name}
+            required
+            maxLength={60}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="For example Mixer"
+          />
+        </label>
+        {error && <p className="text-[13px] text-signal">{error.message}</p>}
+        <div className="mt-1 flex justify-end gap-2">
+          <Button type="button" variant="ghost" size="md" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" size="md" disabled={pending || !name.trim()}>
+            {submitLabel}
+          </Button>
+        </div>
+      </form>
+    </Dialog>
   );
 }
 
-/** Every role against every permission. Those who manage roles change them here. */
+/** A name not yet taken among the roles, for a copy of one. */
+const copyName = (name: string, taken: string[]) => {
+  let candidate = `${name} copy`;
+  for (let n = 2; taken.includes(candidate); n++) candidate = `${name} copy ${n}`;
+  return candidate;
+};
+
+/**
+ * The project's roles, then every role against every area at one level each (#142); a level
+ * includes those before it. Those who manage roles change them here.
+ */
 function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
   const { data: roles } = useQuery(projectRolesQuery(projectId));
   const { createRole, updateRole, deleteRole } = useProjectAccessMutations(projectId);
-  const [name, setName] = useState("");
+  const [dialog, setDialog] = useState<ProjectRole | "new" | null>(null);
   // On a phone one role is shown at a time, chosen above the table; a wide screen shows them all.
   const [shown, setShown] = useState<string | null>(null);
-  const error = createRole.error ?? updateRole.error ?? deleteRole.error;
+  const error = updateRole.error ?? deleteRole.error ?? createRole.error;
   if (!roles) return <p className="m-0 text-[13px] text-ink-3">Loading</p>;
   const focus = roles.find((r) => r.id === shown)?.id ?? roles[0]?.id;
   const column = (roleId: string) => (roleId === focus ? "" : "hidden @3xl/app:table-cell");
 
-  const toggle = (role: ProjectRole, permission: ProjectPermission) => {
-    const has = role.permissions.includes(permission);
+  const setLevel = (role: ProjectRole, area: AccessArea, level: string) =>
     updateRole.mutate({
       id: role.id,
       name: role.name,
-      permissions: has
-        ? role.permissions.filter((p) => p !== permission)
-        : [...role.permissions, permission],
+      levels: { ...role.levels, [area]: level } as AccessLevels,
     });
-  };
-  const add = (event: FormEvent) => {
-    event.preventDefault();
-    if (!name.trim()) return;
-    createRole.mutate({ name, permissions: ["view"] }, { onSuccess: () => setName("") });
-  };
+  // The one role left that manages people keeps that level, so the project is never left
+  // without someone to run it.
+  const managers = roles.filter((r) => r.levels.people === "manage");
+  const close = () => setDialog(null);
 
   return (
-    <section aria-label="Roles" className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="m-0 text-[15px] font-medium">Roles</h2>
-        {manage && (
-          <form onSubmit={add} className="flex items-center gap-2">
-            <Input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="New role, for example Mixer"
-              aria-label="New role name"
-              className="h-8 w-56 max-w-full text-[13px]"
-            />
-            <Button type="submit" size="md" disabled={!name.trim() || createRole.isPending}>
-              Add role
+    <>
+      <Section
+        title="Roles"
+        intro="Every project starts with Producer, Engineer, Editor, Reviewer and Viewer. Rename them or add your own."
+        action={
+          manage ? (
+            <Button variant="secondary" size="md" onClick={() => setDialog("new")}>
+              <Icon name="plus" size={14} />
+              Role
             </Button>
-          </form>
-        )}
-      </div>
-      {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
-      {roles.length > 1 && (
-        <div className="flex items-center gap-2 text-[13px] text-ink-3 @3xl/app:hidden">
-          <label htmlFor="role-shown">Role</label>
-          <Select
-            id="role-shown"
-            value={focus}
-            onChange={(event) => setShown(event.target.value)}
-            className="h-8 w-auto flex-1"
+          ) : undefined
+        }
+      >
+        {roles.map((role) => (
+          <Row
+            key={role.id}
+            name={role.name}
+            inline
+            hint={role.members === 1 ? "1 person" : `${role.members} people`}
           >
-            {roles.map((role) => (
-              <option key={role.id} value={role.id}>
-                {role.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-      )}
-      <div className="@3xl/app:overflow-x-auto">
-        {/* Each role needs room for its name, its count and its actions. */}
-        <table
-          className="w-full border-collapse text-[13px] @3xl/app:min-w-[var(--roles-width)]"
-          style={{ "--roles-width": `${220 + roles.length * 112}px` } as CSSProperties}
-        >
-          <thead>
-            <tr>
-              <th className="label border-b border-hairline py-2 text-left font-normal">
-                Permission
-              </th>
-              {roles.map((role) => (
-                <th
-                  key={role.id}
-                  className={cn(
-                    "w-[112px] border-b border-hairline px-1 py-2 font-normal",
-                    column(role.id),
-                  )}
-                >
-                  <div className="flex flex-col items-center gap-0.5">
-                    <RoleName
-                      key={role.name}
-                      role={role}
-                      manage={manage}
-                      onRename={(next) =>
-                        updateRole.mutate({
-                          id: role.id,
-                          name: next,
-                          permissions: role.permissions,
-                        })
+            {manage && (
+              <ActionMenu
+                always
+                label={role.name}
+                actions={[
+                  { label: "Rename…", onSelect: () => setDialog(role) },
+                  {
+                    label: "Duplicate",
+                    onSelect: () =>
+                      createRole.mutate({
+                        name: copyName(
+                          role.name,
+                          roles.map((r) => r.name),
+                        ),
+                        levels: role.levels,
+                      }),
+                  },
+                  "divider",
+                  role.members > 0
+                    ? {
+                        label: "In use: cannot delete",
+                        hint: "Give its people another role first",
+                        onSelect: () => {},
                       }
-                    />
-                    <span className="tabular text-[10px] text-ink-3">
-                      {role.members === 1 ? "1 member" : `${role.members} members`}
-                    </span>
-                    {manage && (
-                      <button
-                        type="button"
-                        disabled={role.members > 0}
-                        title={
-                          role.members > 0
-                            ? "Give its members another role first"
-                            : `Delete the ${role.name} role`
-                        }
-                        onClick={() => deleteRole.mutate(role.id)}
-                        className="cursor-pointer border-0 bg-transparent p-0 text-[10px] text-ink-3 hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Delete
-                      </button>
+                    : { label: "Delete", danger: true, onSelect: () => deleteRole.mutate(role.id) },
+                ]}
+              />
+            )}
+          </Row>
+        ))}
+      </Section>
+      {error && !dialog && <p className="-mt-6 text-[13px] text-signal">{error.message}</p>}
+      <section aria-label="Access permissions" className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-[16px] font-medium text-ink">Access permissions</h2>
+            <p className="mt-0.5 max-w-[620px] text-[13px] text-ink-3">
+              How far each role reaches in each area. A level includes the ones before it.
+            </p>
+          </div>
+          {roles.length > 1 && (
+            <div className="flex items-center gap-2 text-[13px] text-ink-3 @3xl/app:hidden">
+              <label htmlFor="role-shown">Role</label>
+              <Select
+                id="role-shown"
+                size="sm"
+                value={focus}
+                onChange={(event) => setShown(event.target.value)}
+                className="w-auto"
+              >
+                {roles.map((role) => (
+                  <option key={role.id} value={role.id}>
+                    {role.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
+        </div>
+        <div className="rounded-panel-lg border border-line bg-raised/25 shadow-1 @3xl/app:overflow-x-auto">
+          <table
+            className="w-full border-collapse text-[13px] @3xl/app:min-w-[var(--roles-width)]"
+            style={{ "--roles-width": `${220 + roles.length * 120}px` } as CSSProperties}
+          >
+            <thead>
+              <tr>
+                <th className="label px-4 py-2 text-left font-normal">Area</th>
+                {roles.map((role) => (
+                  <th
+                    key={role.id}
+                    className={cn(
+                      "w-[120px] px-1 py-2 text-left font-normal last:pr-4",
+                      column(role.id),
                     )}
-                  </div>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {projectPermissions.map((permission) => (
-              <tr key={permission}>
-                <td className="border-b border-hairline py-2 pr-4 text-ink-2">
-                  {permissionNames[permission]}
-                </td>
-                {roles.map((role) => {
-                  const on = role.permissions.includes(permission);
-                  return (
-                    <td
-                      key={role.id}
-                      className={cn("border-b border-hairline text-center", column(role.id))}
-                    >
-                      {manage ? (
-                        <Checkbox
-                          checked={on}
-                          aria-label={`${role.name}: ${permissionNames[permission]}`}
-                          onChange={() => toggle(role, permission)}
-                          className="align-middle"
-                        />
-                      ) : (
-                        <>
-                          <span className={on ? "text-ink" : "text-edge"} aria-hidden="true">
-                            {on ? "✓" : "·"}
-                          </span>
-                          <span className="sr-only">{on ? "Yes" : "No"}</span>
-                        </>
-                      )}
-                    </td>
-                  );
-                })}
+                  >
+                    <span className="label block truncate px-2">{role.name}</span>
+                  </th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
+            </thead>
+            <tbody>
+              {accessAreas.map((area) => (
+                <tr key={area.id} className="border-t border-line">
+                  <td className="px-4 py-2">
+                    <div className="text-ink">{area.label}</div>
+                    <div className="text-[12px] text-ink-3">{area.hint}</div>
+                  </td>
+                  {roles.map((role) => {
+                    const level = role.levels[area.id];
+                    const label = area.levels.find((l) => l.id === level)?.label ?? level;
+                    const locked =
+                      area.id === "people" && level === "manage" && managers.length === 1;
+                    return (
+                      <td key={role.id} className={cn("px-1 py-1.5 last:pr-4", column(role.id))}>
+                        {manage ? (
+                          <Select
+                            size="sm"
+                            value={level}
+                            aria-label={`${area.label} for ${role.name}`}
+                            disabled={locked}
+                            title={locked ? "Another role must manage people first" : undefined}
+                            onChange={(event) => setLevel(role, area.id, event.target.value)}
+                            className={cn(level === "none" && "text-ink-3")}
+                          >
+                            {area.levels.map((l) => (
+                              <option key={l.id} value={l.id}>
+                                {l.label}
+                              </option>
+                            ))}
+                          </Select>
+                        ) : (
+                          <span
+                            className={cn("px-2", level === "none" ? "text-ink-3" : "text-ink")}
+                          >
+                            {label}
+                          </span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {dialog === "new" && (
+        <RoleDialog
+          title="New role"
+          initial=""
+          submitLabel="Add role"
+          pending={createRole.isPending}
+          error={createRole.error}
+          // A new role starts by looking: it sees the files and reads the comments.
+          onSubmit={(name) =>
+            createRole.mutate(
+              { name, levels: levelsOf(["view", "read_comments"]) },
+              { onSuccess: close },
+            )
+          }
+          onClose={close}
+        />
+      )}
+      {dialog && dialog !== "new" && (
+        <RoleDialog
+          title={`Rename ${dialog.name}`}
+          initial={dialog.name}
+          submitLabel="Rename"
+          pending={updateRole.isPending}
+          error={updateRole.error}
+          onSubmit={(name) =>
+            updateRole.mutate({ id: dialog.id, name, levels: dialog.levels }, { onSuccess: close })
+          }
+          onClose={close}
+        />
+      )}
+    </>
   );
 }
 
-/** The project's roles and members: editable with "Manage roles and members", else read-only. */
-export function ProjectAccess({ projectId }: { projectId: string }) {
+/** Who is in the project: editable with "Manage" in roles and people, else read-only. */
+export function ProjectMembers({ projectId }: { projectId: string }) {
   const can = useProjectCan(projectId);
-  const manage = can("manage_roles");
-  return (
-    <div className="flex flex-col gap-8">
-      <Members projectId={projectId} manage={manage} />
-      <Roles projectId={projectId} manage={manage} />
-    </div>
-  );
+  return <Members projectId={projectId} manage={can("manage_roles")} />;
+}
+
+/** The project's roles and their levels, as its settings show them. */
+export function ProjectRoles({ projectId }: { projectId: string }) {
+  const can = useProjectCan(projectId);
+  return <Roles projectId={projectId} manage={can("manage_roles")} />;
 }

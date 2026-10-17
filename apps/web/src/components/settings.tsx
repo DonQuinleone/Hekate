@@ -172,11 +172,14 @@ export function Row({
   hint,
   children,
   stacked = false,
+  inline = false,
 }: {
   name: ReactNode;
   hint?: ReactNode;
   children?: ReactNode;
   stacked?: boolean;
+  /** Its control stays beside it even on a phone: a menu, say. */
+  inline?: boolean;
 }) {
   return (
     <div
@@ -184,7 +187,9 @@ export function Row({
         "flex gap-4 px-4 py-row",
         stacked
           ? "flex-col"
-          : "flex-col @3xl/app:flex-row @3xl/app:items-center @3xl/app:justify-between",
+          : inline
+            ? "flex-row items-center justify-between"
+            : "flex-col @3xl/app:flex-row @3xl/app:items-center @3xl/app:justify-between",
       )}
     >
       <div className="min-w-0 flex-1">
@@ -205,15 +210,22 @@ export function SwitchRow({
   hint,
   checked,
   onChange,
+  disabled = false,
 }: {
   name: string;
   hint?: string;
   checked: boolean;
   onChange?: (v: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
-    <Row name={name} hint={hint}>
-      <Switch label={name} checked={checked} onChange={onChange ?? (() => {})} />
+    <Row name={name} hint={hint} inline>
+      <Switch
+        label={name}
+        checked={checked}
+        onChange={onChange ?? (() => {})}
+        disabled={disabled}
+      />
     </Row>
   );
 }

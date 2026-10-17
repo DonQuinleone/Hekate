@@ -1,9 +1,11 @@
 import {
+  type AccessLevels,
   type AlignmentPoints,
   type Anchor,
   type ApprovalRule,
   type CarryStatus,
   type CategoryHandling,
+  type CategoryInput,
   type CreateProjectInput,
   type CreateReviewInput,
   type CreateVersionInput,
@@ -34,6 +36,7 @@ import {
   type ProfileInput,
   type ProjectPermission,
   type ProjectProfile,
+  permissionsOfLevels,
   type QaFinding,
   type ReviewDecision,
   type ReviewerPermissions,
@@ -49,6 +52,7 @@ import {
   type TrackState,
   type TriageInput,
   type UpdateCarryInput,
+  type UpdateProjectInput,
   type WorkspaceSettings,
   type WorkspaceSettingsInput,
 } from "@hekate/shared";
@@ -203,6 +207,8 @@ export interface Project {
   /** The checks a new version must pass before it lands. */
   checkTruePeak?: boolean;
   requireEdl?: boolean;
+  /** Whether threads carried to a new version show there until someone hides them. */
+  carriedCommentsShown?: boolean;
   /** In the list: whether they are a member of it. */
   mine?: boolean;
 }
@@ -236,6 +242,8 @@ export interface ProjectRole {
   id: string;
   name: string;
   permissions: ProjectPermission[];
+  /** The same, as people choose it: a level in each area. */
+  levels: AccessLevels;
   members: number;
 }
 
@@ -277,21 +285,21 @@ export function useProjectAccessMutations(projectId: string) {
   };
   return {
     createRole: useMutation({
-      mutationFn: async (input: { name: string; permissions: ProjectPermission[] }) =>
+      mutationFn: async (input: { name: string; levels: AccessLevels }) =>
         json<{ role: ProjectRole }>(
           await api.projects[":id"].roles.$post({ param: { id: projectId }, json: input }),
         ),
       onSuccess: refresh,
     }),
     updateRole: useMutation({
-      // Each change sends the role's whole permission set, so changes run one at a time, in
+      // Each change sends the role's every level, so changes run one at a time, in
       // the order they were made: a slow earlier request can never overwrite a later one.
       scope: { id: `project-roles-${projectId}` },
-      mutationFn: async (input: { id: string; name: string; permissions: ProjectPermission[] }) =>
+      mutationFn: async (input: { id: string; name: string; levels: AccessLevels }) =>
         json<{ role: ProjectRole }>(
           await api.projects[":id"].roles[":roleId"].$patch({
             param: { id: projectId, roleId: input.id },
-            json: { name: input.name, permissions: input.permissions },
+            json: { name: input.name, levels: input.levels },
           }),
         ),
       // Show the change at once; the server's answer, or a refusal, replaces it.
@@ -302,7 +310,12 @@ export function useProjectAccessMutations(projectId: string) {
         client.setQueryData(key, (roles) =>
           roles?.map((role) =>
             role.id === input.id
-              ? { ...role, name: input.name, permissions: input.permissions }
+              ? {
+                  ...role,
+                  name: input.name,
+                  levels: input.levels,
+                  permissions: permissionsOfLevels(input.levels),
+                }
               : role,
           ),
         );
@@ -350,6 +363,30 @@ export function useCreateProject() {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["projects"] });
       void client.invalidateQueries({ queryKey: homeQuery.queryKey });
+    },
+  });
+}
+
+/** Change a project's settings; its page, the lists and the sidebar follow. */
+export function useUpdateProject(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (change: UpdateProjectInput) =>
+      (
+        await json<{ project: Project }>(
+          await api.projects[":id"].$patch({ param: { id: projectId }, json: change }),
+        )
+      ).project,
+    onSuccess: (project, change) => {
+      client.setQueryData(projectQuery(projectId).queryKey, (before) =>
+        before ? { ...before, ...project, permissions: before.permissions } : before,
+      );
+      void client.invalidateQueries({ queryKey: ["projects"] });
+      // Every file's report follows the delivery profile.
+      if (change.deliveryProfile !== undefined)
+        void client.invalidateQueries({
+          predicate: (q) => q.queryKey[0] === "files" && q.queryKey[2] === "qa",
+        });
     },
   });
 }
@@ -965,6 +1002,35 @@ export const categoriesQuery = (projectId: string) =>
       ).categories,
     staleTime: 60_000,
   });
+
+/** Add, rename, re-handle or remove a project's comment categories. */
+export function useCategoryMutations(projectId: string) {
+  const client = useQueryClient();
+  const refresh = () => client.invalidateQueries({ queryKey: categoriesQuery(projectId).queryKey });
+  return {
+    create: useMutation({
+      mutationFn: async (input: CategoryInput) =>
+        json<{ category: CommentCategory }>(
+          await api.projects[":id"].categories.$post({ param: { id: projectId }, json: input }),
+        ),
+      onSuccess: refresh,
+    }),
+    update: useMutation({
+      mutationFn: async ({ id, ...input }: CategoryInput & { id: string }) =>
+        json<{ category: CommentCategory }>(
+          await api.categories[":id"].$patch({ param: { id }, json: input }),
+        ),
+      onSuccess: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api.categories[":id"].$delete({ param: { id } });
+        if (!res.ok) await json(res);
+      },
+      onSuccess: refresh,
+    }),
+  };
+}
 
 /** What someone may download of a file, and what each kind would be (#136). */
 export interface DownloadChoices {

@@ -1,5 +1,5 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { projectMemberInput, roleInput } from "@hekate/shared";
+import { levelsOf, projectMemberInput, roleInput } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, count, eq, max } from "drizzle-orm";
 import { Hono } from "hono";
@@ -24,19 +24,25 @@ function violates(error: unknown, index: string): boolean {
   return cause?.code === "23505" && cause.constraint_name === index;
 }
 
+/**
+ * Who may look up the project's people: those who see them, and those whose work is choosing
+ * among them (requesting a review, assigning feedback) whatever their level in People.
+ */
+const choosesPeople = ["view_people", "request_reviews", "triage"] as const;
+
 const nameTaken = () =>
   new HTTPException(409, { message: "This project already has a role with that name" });
 
 /**
  * `/api/projects/:id/roles` and `/api/projects/:id/members`: a project's roles and who
- * holds them. Anyone who can see the project can see these; changing them needs the
- * project's "manage roles and members" permission.
+ * holds them. Seeing them needs the People level (or work that chooses among them);
+ * changing them needs the project's "manage roles and members" permission.
  */
 export const projectAccessRoutes = (db: Database) =>
   new Hono<{ Variables: TenantVariables }>()
     .get("/:id/roles", idParam, async (c) => {
       const organisationId = c.var.organisationId;
-      const { projectId } = await can(db, actorOf(c.var), "view", c.req.valid("param").id);
+      const { projectId } = await can(db, actorOf(c.var), choosesPeople, c.req.valid("param").id);
       const roles = await db
         .select({
           id: projectRoles.id,
@@ -56,7 +62,8 @@ export const projectAccessRoutes = (db: Database) =>
         .where(inOrg(projectRoles, organisationId, eq(projectRoles.projectId, projectId)))
         .groupBy(projectRoles.id)
         .orderBy(asc(projectRoles.position), asc(projectRoles.createdAt));
-      return c.json({ roles });
+      // Each role as people choose it too: a level in each area.
+      return c.json({ roles: roles.map((r) => ({ ...r, levels: levelsOf(r.permissions) })) });
     })
     .post("/:id/roles", idParam, zValidator("json", roleInput), async (c) => {
       const organisationId = c.var.organisationId;
@@ -79,7 +86,7 @@ export const projectAccessRoutes = (db: Database) =>
             })
             .returning();
         });
-        return c.json({ role }, 201);
+        return c.json({ role: role && { ...role, levels: levelsOf(role.permissions) } }, 201);
       } catch (error) {
         if (violates(error, "project_roles_name_idx")) throw nameTaken();
         throw error;
@@ -91,20 +98,41 @@ export const projectAccessRoutes = (db: Database) =>
       const { projectId } = await can(db, actorOf(c.var), "manage_roles", id);
       const input = c.req.valid("json");
       try {
-        const [role] = await db
-          .update(projectRoles)
-          .set({ name: input.name, permissions: input.permissions, updatedAt: new Date() })
-          .where(
-            inOrg(
-              projectRoles,
-              organisationId,
-              eq(projectRoles.id, roleId),
-              eq(projectRoles.projectId, projectId),
-            ),
-          )
-          .returning();
-        if (!role) throw new NotFound("Role");
-        return c.json({ role });
+        const role = await db.transaction(async (tx) => {
+          // The project's roles, held while this one changes: the last that manages people
+          // keeps that level, and two changes at once cannot each leave it to the other.
+          const roles = await tx
+            .select({ id: projectRoles.id, permissions: projectRoles.permissions })
+            .from(projectRoles)
+            .where(inOrg(projectRoles, organisationId, eq(projectRoles.projectId, projectId)))
+            .for("update");
+          if (!roles.some((r) => r.id === roleId)) throw new NotFound("Role");
+          const manages = roles.filter((r) => r.permissions.includes("manage_roles"));
+          if (
+            !input.permissions.includes("manage_roles") &&
+            manages.length === 1 &&
+            manages[0]?.id === roleId
+          ) {
+            throw new HTTPException(409, {
+              message: "Another role must manage people before this one stops",
+            });
+          }
+          const [updated] = await tx
+            .update(projectRoles)
+            .set({ name: input.name, permissions: input.permissions, updatedAt: new Date() })
+            .where(
+              inOrg(
+                projectRoles,
+                organisationId,
+                eq(projectRoles.id, roleId),
+                eq(projectRoles.projectId, projectId),
+              ),
+            )
+            .returning();
+          if (!updated) throw new NotFound("Role");
+          return updated;
+        });
+        return c.json({ role: { ...role, levels: levelsOf(role.permissions) } });
       } catch (error) {
         if (violates(error, "project_roles_name_idx")) throw nameTaken();
         throw error;
@@ -115,18 +143,33 @@ export const projectAccessRoutes = (db: Database) =>
       const { id, roleId } = c.req.valid("param");
       const { projectId } = await can(db, actorOf(c.var), "manage_roles", id);
       try {
-        const [role] = await db
-          .delete(projectRoles)
-          .where(
-            inOrg(
-              projectRoles,
-              organisationId,
-              eq(projectRoles.id, roleId),
-              eq(projectRoles.projectId, projectId),
-            ),
-          )
-          .returning({ id: projectRoles.id });
-        if (!role) throw new NotFound("Role");
+        await db.transaction(async (tx) => {
+          // Under the same hold as a change, so a role cannot go while another stops
+          // managing people on the strength of it.
+          const roles = await tx
+            .select({ id: projectRoles.id, permissions: projectRoles.permissions })
+            .from(projectRoles)
+            .where(inOrg(projectRoles, organisationId, eq(projectRoles.projectId, projectId)))
+            .for("update");
+          const role = roles.find((r) => r.id === roleId);
+          if (!role) throw new NotFound("Role");
+          const manages = roles.filter((r) => r.permissions.includes("manage_roles"));
+          if (manages.length === 1 && manages[0]?.id === roleId) {
+            throw new HTTPException(409, {
+              message: "Another role must manage people before this one goes",
+            });
+          }
+          await tx
+            .delete(projectRoles)
+            .where(
+              inOrg(
+                projectRoles,
+                organisationId,
+                eq(projectRoles.id, roleId),
+                eq(projectRoles.projectId, projectId),
+              ),
+            );
+        });
       } catch (error) {
         // The database refuses to delete a role someone still holds.
         if ((error as { cause?: { code?: string } }).cause?.code === "23503") {
@@ -140,7 +183,7 @@ export const projectAccessRoutes = (db: Database) =>
     })
     .get("/:id/members", idParam, async (c) => {
       const organisationId = c.var.organisationId;
-      const { projectId } = await can(db, actorOf(c.var), "view", c.req.valid("param").id);
+      const { projectId } = await can(db, actorOf(c.var), choosesPeople, c.req.valid("param").id);
       const rows = await db
         .select({
           userId: projectMembers.userId,

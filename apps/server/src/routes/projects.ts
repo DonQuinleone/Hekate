@@ -68,7 +68,7 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
         ...r.project,
         mine: r.memberId !== null,
         // Archiving is part of running the project: whoever manages its roles and members.
-        mayArchive: permissionsFor(organisationRole, r.rolePermissions).has("manage_roles"),
+        mayArchive: permissionsFor(organisationRole, r.rolePermissions).has("delete_project"),
       }));
       if (!figures || list.length === 0) return c.json({ projects: list });
       const counted = await projectFigures(
@@ -262,14 +262,26 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
         project: {
           ...project,
           permissions: [...access.permissions],
-          mayArchive: access.granted.has("manage_roles"),
+          mayArchive: access.granted.has("delete_project"),
         },
       });
     })
-    // Settings are part of how the project's work flows.
+    // The project's settings: its own (name, description, profile, comments) for those who may edit
+    // the project; how versions are checked, for those who may edit its workflow.
     .patch("/:id", idParam, zValidator("json", updateProjectInput), async (c) => {
-      const access = await can(db, actorOf(c.var), "edit_workflows", c.req.valid("param").id);
       const input = c.req.valid("json");
+      const general =
+        input.name !== undefined ||
+        input.description !== undefined ||
+        input.profile !== undefined ||
+        input.carriedCommentsShown !== undefined;
+      const workflow =
+        input.deliveryProfile !== undefined ||
+        input.checkTruePeak !== undefined ||
+        input.requireEdl !== undefined;
+      const id = c.req.valid("param").id;
+      if (workflow) await can(db, actorOf(c.var), "edit_workflows", id);
+      const access = await can(db, actorOf(c.var), general ? "edit_project" : "edit_workflows", id);
       const [project] = await db
         .update(projects)
         .set({ ...input, updatedAt: new Date() })
@@ -315,7 +327,7 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
 async function mayArchive(db: Database, vars: TenantVariables, projectId: string) {
   const access = await projectAccess(db, actorOf(vars), projectId);
   if (!access) throw new NotFound("Project");
-  if (!access.granted.has("manage_roles")) {
+  if (!access.granted.has("delete_project")) {
     throw new HTTPException(403, { message: "Your role in this project does not allow that" });
   }
   return access;

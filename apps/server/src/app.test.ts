@@ -11,6 +11,7 @@ import {
   decodeSpectrogram,
   defaultProjectRoles,
   type LoudnessSummary,
+  lookingPermissions,
   mapTime,
 } from "@hekate/shared";
 import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
@@ -2987,11 +2988,9 @@ describe.runIf(url)("api", () => {
           roles: { name: string; permissions: string[]; members: number }[];
         };
         expect(roles.roles.map((r) => r.name)).toEqual(defaultProjectRoles.map((r) => r.name));
-        expect(roles.roles.find((r) => r.name === "Reviewer")?.permissions).toEqual([
-          "view",
-          "comment",
-          "decide",
-        ]);
+        expect(roles.roles.find((r) => r.name === "Reviewer")?.permissions).toEqual(
+          defaultProjectRoles.find((r) => r.name === "Reviewer")?.permissions,
+        );
         expect(roles.roles.find((r) => r.name === "Producer")?.members).toBe(1);
         const members = (await (
           await getAs(`/api/projects/${projectId}/members`, owner)
@@ -3109,7 +3108,8 @@ describe.runIf(url)("api", () => {
             await send(
               "PATCH",
               `/api/projects/${reduced}/roles/${producerRole?.id}`,
-              { name: "Producer", permissions: ["comment"] },
+              // Managing people without seeing the files: it cannot run the project.
+              { name: "Producer", permissions: ["manage_roles"] },
               owner,
             )
           ).status,
@@ -3165,8 +3165,9 @@ describe.runIf(url)("api", () => {
         const seen = (await (await getAs(`/api/projects/${projectId}`, owner)).json()) as {
           project: { permissions: string[]; archivedAt: string | null };
         };
-        expect(seen.project.permissions).toEqual(["view"]);
+        expect(seen.project.permissions).toEqual([...lookingPermissions]);
         expect(seen.project.archivedAt).not.toBeNull();
+        expect((await getAs(`/api/files/${fileId}/comments`, owner)).status).toBe(200);
         expect(
           (await app.request(`/api/files/${fileId}/comments`, json({ body: "Late" }, owner)))
             .status,
@@ -3220,7 +3221,13 @@ describe.runIf(url)("api", () => {
         const actions: [string, string, (cookie: string) => Response | Promise<Response>][] = [
           ["view", "see the project", (c) => getAs(`/api/projects/${projectId}`, c)],
           ["view", "see the tracks", (c) => getAs(`/api/projects/${projectId}/tracks`, c)],
-          ["view", "see the comments", (c) => getAs(`/api/files/${fileId}/comments`, c)],
+          ["read_comments", "see the comments", (c) => getAs(`/api/files/${fileId}/comments`, c)],
+          ["view_people", "see the roles", (c) => getAs(`/api/projects/${projectId}/roles`, c)],
+          [
+            "edit_project",
+            "rename the project",
+            (c) => send("PATCH", `/api/projects/${projectId}`, { name: "Rags" }, c),
+          ],
           [
             "comment",
             "comment",
@@ -3305,6 +3312,140 @@ describe.runIf(url)("api", () => {
         }
       }, 60_000);
 
+      it("answers from the level in each area, refusing anything below it", async () => {
+        const { owner, organisationId, projectId, fileId } = await studio();
+        const lowest = {
+          files: "view",
+          comments: "none",
+          reviews: "none",
+          downloads: "none",
+          takes: "none",
+          production: "none",
+          workflow: "none",
+          people: "none",
+          project: "none",
+        };
+        const made = await app.request(
+          `/api/projects/${projectId}/roles`,
+          json({ name: "Listener", levels: lowest }, owner),
+        );
+        expect(made.status).toBe(201);
+        const role = ((await made.json()) as { role: { id: string; levels: object } }).role;
+        expect(role.levels).toEqual(lowest);
+        const listener = await joinAs(owner, "listener@example.test");
+        await grantRole(owner, projectId, listener, "Listener");
+        const raise = (levels: Record<string, string>) =>
+          send(
+            "PATCH",
+            `/api/projects/${projectId}/roles/${role.id}`,
+            { name: "Listener", levels: { ...lowest, ...levels } },
+            owner,
+          );
+        const spare = async () => {
+          const blob = await storage.put(organisationId, Buffer.from("spare"));
+          const [row] = await db
+            .insert(schema.files)
+            .values({
+              organisationId,
+              projectId,
+              name: "Spare.wav",
+              kind: "audio",
+              blobId: blob.id,
+              contentType: "audio/wav",
+              byteSize: blob.byteSize,
+            })
+            .returning();
+          return row?.id ?? "";
+        };
+        const attempts: [Record<string, string>, () => Response | Promise<Response>][] = [
+          [{ comments: "read" }, () => getAs(`/api/files/${fileId}/comments`, listener)],
+          [{ people: "view" }, () => getAs(`/api/projects/${projectId}/members`, listener)],
+          [
+            { project: "settings" },
+            () => send("PATCH", `/api/projects/${projectId}`, { profile: "video" }, listener),
+          ],
+          [
+            { workflow: "edit" },
+            () => send("PATCH", `/api/projects/${projectId}`, { requireEdl: false }, listener),
+          ],
+          [
+            { files: "delete" },
+            async () =>
+              app.request(`/api/files/${await spare()}`, {
+                ...json({}, listener),
+                method: "DELETE",
+              }),
+          ],
+          [
+            { project: "delete" },
+            () => app.request(`/api/projects/${projectId}/archive`, json({}, listener)),
+          ],
+        ];
+        // The last role that manages people keeps that level.
+        const roles = (await (await getAs(`/api/projects/${projectId}/roles`, owner)).json()) as {
+          roles: { id: string; name: string; levels: Record<string, string> }[];
+        };
+        const producer = roles.roles.find((r) => r.name === "Producer");
+        const demote = () =>
+          send(
+            "PATCH",
+            `/api/projects/${projectId}/roles/${producer?.id}`,
+            { name: "Producer", levels: { ...producer?.levels, people: "view" } },
+            owner,
+          );
+        expect((await demote()).status).toBe(409);
+        expect((await raise({ people: "manage" })).status).toBe(200);
+        expect((await demote()).status).toBe(200);
+        const restore = () =>
+          send(
+            "PATCH",
+            `/api/projects/${projectId}/roles/${producer?.id}`,
+            { name: "Producer", levels: producer?.levels },
+            owner,
+          );
+        const restored = await restore();
+        expect(restored.status).toBe(200);
+        // Nor can the last role that manages people be deleted, while a change waits on it.
+        const second = await app.request(
+          `/api/projects/${projectId}/roles`,
+          json({ name: "Stand-in", levels: { ...lowest, people: "manage" } }, owner),
+        );
+        const standIn = ((await second.json()) as { role: { id: string } }).role.id;
+        const drop = () =>
+          app.request(`/api/projects/${projectId}/roles/${standIn}`, {
+            ...json({}, owner),
+            method: "DELETE",
+          });
+        expect((await raise({})).status).toBe(200);
+        expect((await demote()).status).toBe(200);
+        expect((await drop()).status).toBe(409);
+        expect((await restore()).status).toBe(200);
+        expect((await drop()).status).toBe(204);
+        // Choosing among the people (requesting a review, assigning feedback) looks them up
+        // whatever the People level.
+        for (const level of [{ reviews: "request" }, { comments: "triage" }] as Record<
+          string,
+          string
+        >[]) {
+          await raise(level);
+          expect((await getAs(`/api/projects/${projectId}/members`, listener)).status).toBe(200);
+          expect((await getAs(`/api/projects/${projectId}/roles`, listener)).status).toBe(200);
+        }
+        for (const [level, attempt] of attempts) {
+          await raise({});
+          expect((await attempt()).status, `below ${JSON.stringify(level)}`).toBe(403);
+          await raise(level);
+          expect([200, 201, 204], `at ${JSON.stringify(level)}`).toContain(
+            (await attempt()).status,
+          );
+        }
+        // The profile is one of the project's own settings.
+        const changed = (await (await getAs(`/api/projects/${projectId}`, owner)).json()) as {
+          project: { profile: string };
+        };
+        expect(changed.project.profile).toBe("video");
+      });
+
       it("manages roles and members, and keeps them to the project", async () => {
         const { owner, organisationId, projectId } = await studio();
         const roles = `/api/projects/${projectId}/roles`;
@@ -3314,7 +3455,8 @@ describe.runIf(url)("api", () => {
         );
         expect(made.status).toBe(201);
         const mixer = ((await made.json()) as { role: { id: string; permissions: string[] } }).role;
-        expect(mixer.permissions).toEqual(["view", "comment"]);
+        // Closed upwards: commenting brings reading.
+        expect(mixer.permissions).toEqual(["view", "read_comments", "comment"]);
         expect(
           (await app.request(roles, json({ name: "Mixer", permissions: [] }, owner))).status,
         ).toBe(409);

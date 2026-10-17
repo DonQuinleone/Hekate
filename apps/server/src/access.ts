@@ -1,5 +1,6 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  lookingPermissions,
   mergeGrants,
   type OrganisationRole,
   type ProjectPermission,
@@ -59,6 +60,8 @@ export const actorOf = (vars: MemberActor): MemberActor => ({
 const guestPermissions = (grant: { comment: boolean; decide?: boolean }): Set<ProjectPermission> =>
   new Set<ProjectPermission>([
     "view",
+    // What they read follows their review's comment scope.
+    "read_comments",
     ...(grant.comment ? (["comment"] as const) : []),
     ...(grant.decide ? (["decide"] as const) : []),
   ]);
@@ -203,7 +206,7 @@ export async function projectAccess(
   projectId: string,
 ): Promise<{
   projectId: string;
-  /** What the actor may do now: only look, while the project is archived. */
+  /** What the actor may do now: only look (as their role allows), while it is archived. */
   permissions: Set<ProjectPermission>;
   /** What their role grants, archived or not: what unarchiving it is decided by. */
   granted: Set<ProjectPermission>;
@@ -239,24 +242,27 @@ export async function projectAccess(
   if (!granted.has("view")) return null;
   // An archived project is read-only for everyone until it is unarchived.
   const archived = row.archivedAt !== null;
-  const permissions = archived ? new Set<ProjectPermission>(["view"]) : granted;
+  const permissions = archived
+    ? new Set(lookingPermissions.filter((p) => granted.has(p)))
+    : granted;
   return { projectId: row.id, permissions, granted, archived };
 }
 
 /**
  * The one check every project route makes: the project as the actor may see it, or 404
  * (a project you cannot see does not exist for you), and 403 when the actor sees it but
- * lacks the permission.
+ * lacks the permission (or, given several, every one of them).
  */
 export async function can(
   db: Pick<Database, "select">,
   actor: Actor,
-  permission: ProjectPermission,
+  permission: ProjectPermission | readonly ProjectPermission[],
   projectId: string,
 ) {
   const access = await projectAccess(db, actor, projectId);
   if (!access) throw new NotFound("Project");
-  if (!access.permissions.has(permission)) {
+  const any = typeof permission === "string" ? [permission] : permission;
+  if (!any.some((p) => access.permissions.has(p))) {
     throw new HTTPException(403, { message: "Your role in this project does not allow that" });
   }
   return access;
