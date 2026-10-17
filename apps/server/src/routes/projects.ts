@@ -112,6 +112,7 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
                 requireEdl: projects.requireEdl,
                 qaSettings: projects.qaSettings,
                 commentReferences: projects.commentReferences,
+                normalisation: projects.normalisation,
               })
               .from(projects)
               .where(inOrg(projects, organisationId, eq(projects.id, access.projectId)));
@@ -301,7 +302,8 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
         input.description !== undefined ||
         input.profile !== undefined ||
         input.carriedCommentsShown !== undefined ||
-        input.references !== undefined;
+        input.references !== undefined ||
+        input.normalisation !== undefined;
       const workflow =
         input.deliveryProfile !== undefined ||
         input.checkTruePeak !== undefined ||

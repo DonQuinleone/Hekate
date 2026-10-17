@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { categoryHandlings } from "./categories.ts";
+import { normalisationMode } from "./normalisation.ts";
 import { profileRef } from "./qa.ts";
 import { qaSettings } from "./qa-rules.ts";
 import { commentReferences } from "./references.ts";
@@ -26,6 +27,8 @@ export const templateContent = z.object({
     qaSettings: qaSettings.nullable(),
     /** What reviewers may type beside a comment (#240); null, or left out, takes the profile's. */
     commentReferences: commentReferences.nullable().optional(),
+    /** Normalised playback (#240); left out, off. */
+    normalisation: normalisationMode.optional(),
   }),
   // No limits of their own: whatever a project may hold, its template holds.
   roles: z.array(

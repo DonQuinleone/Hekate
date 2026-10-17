@@ -7,7 +7,7 @@ import {
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useId, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
 import {
   type BeforeAfter,
   Comments,
@@ -71,6 +71,8 @@ function Playback({
   cue,
   pages,
   canComment,
+  normalised,
+  onNormalised,
 }: {
   file: FileDetail;
   onMedia: (element: HTMLMediaElement | null) => void;
@@ -80,6 +82,8 @@ function Playback({
   cue: number;
   pages: PageComments | undefined;
   canComment: boolean;
+  normalised: boolean;
+  onNormalised: (normalised: boolean) => void;
 }) {
   const client = useQueryClient();
   // A take shared with a guest has no comments for them (#133).
@@ -130,6 +134,9 @@ function Playback({
       onLoop={onLoop}
       cue={cue}
       tools={file.grant?.tools ?? file.tools ?? null}
+      normalisation={file.normalisation}
+      normalised={normalised}
+      onNormalised={onNormalised}
       onExpired={() => client.resetQueries({ queryKey: playbackQuery(file.id).queryKey })}
     />
   );
@@ -204,6 +211,7 @@ export function FilePage({
   /** On a document: the page shown, and the region drawn or thread picked on it. */
   const [pageFocus, setPageFocus] = useState<PageFocus>(initialFocus);
   const [exporting, setExporting] = useState(false);
+  const [chosenNormal, setChosenNormal] = useNormalisedChoice();
   // Another file starts on its first page, with nothing drawn.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset whenever the file changes.
   useEffect(() => setPageFocus(initialFocus), [fileId]);
@@ -234,6 +242,10 @@ export function FilePage({
     (!file.tools || file.tools.includes("compare")) &&
     file.kind === "audio" &&
     file.streamStatus === "ready";
+  /** Normalised playback (#240): always where the project says so, else as this person chose. */
+  const normalised =
+    file.normalisation !== null && (file.normalisation.mode === "forced" || chosenNormal);
+  const gain = normalised && file.normalisation ? file.normalisation.gain : 1;
   /** Loop the passage and hear it from where it began; one key then flips to this version. */
   const beforeAfter = (target: BeforeAfter) => {
     setFocus({ fileId: target.fileId, shift: target.shift, nonce: Date.now() });
@@ -261,6 +273,8 @@ export function FilePage({
   /** Triage (#132) belongs to members who may triage. */
   const canTriage = !guest && can("triage");
   const shown = view === "triage" ? (canTriage ? "triage" : "review") : hasQa ? view : "review";
+  // Comparison sets the volume while it is shown (its sources level-matched); otherwise, here.
+  const comparing = comparable && shown === "review";
   const summary = mediaSummary(file.kind, file.mediaInfo, file.streamStatus);
   const details: [string, string][] = [
     ["Type", file.contentType],
@@ -316,6 +330,8 @@ export function FilePage({
       cue={cue}
       pages={pages}
       canComment={canComment}
+      normalised={normalised}
+      onNormalised={setChosenNormal}
     />
   );
   if (shown === "triage")
@@ -340,6 +356,7 @@ export function FilePage({
             </Button>
           }
         />
+        <PageVolume media={media} gain={gain} />
         <TriageView
           file={file}
           media={media}
@@ -447,6 +464,8 @@ export function FilePage({
           )}
         >
           <div className="flex min-w-0 flex-col gap-6">
+            {/* Comparison sets the volume while it is shown; otherwise, this does. */}
+            {!comparing && <PageVolume media={media} gain={gain} />}
             {playback}
             {shown === "review" && hasQa && allows("qa") && (
               <QaSummary fileId={file.id} onOpen={() => onView("qa")} />
@@ -475,9 +494,9 @@ export function FilePage({
                     <ScorePane scoreFileId={file.variation.scoreFileId} />
                   </div>
                 )}
-              {comparable && (
+              {comparing && (
                 <div className="min-w-0 pt-8 lg:pt-6">
-                  <Compare file={file} media={media} focus={focus} />
+                  <Compare file={file} media={media} focus={focus} gain={gain} />
                 </div>
               )}
               {/* A recording's details belong to QA; a document's stay with it. */}
@@ -511,4 +530,34 @@ export function FilePage({
       </div>
     </>
   );
+}
+
+const NORMALISED_KEY = "hekate.player.normalised";
+
+/** Whether this person chose normalised playback, where it is theirs to choose; per browser. */
+function useNormalisedChoice(): [boolean, (on: boolean) => void] {
+  const [on, setOn] = useState(() => {
+    try {
+      return localStorage.getItem(NORMALISED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const choose = useCallback((next: boolean) => {
+    setOn(next);
+    try {
+      localStorage.setItem(NORMALISED_KEY, next ? "1" : "0");
+    } catch {
+      // Not remembered; the choice still holds for this visit.
+    }
+  }, []);
+  return [on, choose];
+}
+
+/** Plays the page's media at a volume: normalised playback's, or full (#240). */
+function PageVolume({ media, gain }: { media: HTMLMediaElement | null; gain: number }) {
+  useEffect(() => {
+    if (media) media.volume = gain;
+  }, [media, gain]);
+  return null;
 }

@@ -1,4 +1,10 @@
-import { formatChannels, formatDuration, type MediaInfo } from "@hekate/shared";
+import {
+  formatChannels,
+  formatDuration,
+  type MediaInfo,
+  type Normalisation,
+  normalisationLabel,
+} from "@hekate/shared";
 import type Hls from "hls.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
@@ -171,6 +177,9 @@ export function Player({
   onLoop = () => {},
   cue,
   tools = null,
+  normalisation = null,
+  normalised = false,
+  onNormalised,
 }: {
   fileId: string;
   kind: "audio" | "video";
@@ -188,9 +197,16 @@ export function Player({
   cue?: number;
   /** The tools a guest's review or a member's role allows; null for every one. */
   tools?: readonly string[] | null;
+  /** Normalised playback (#240): offered as a switch where it is each person's choice. */
+  normalisation?: Normalisation | null;
+  /** Whether it is heard normalised now, and the switch's choice. */
+  normalised?: boolean;
+  onNormalised?: (normalised: boolean) => void;
 }) {
   const preferences = usePreferences();
   const canLoop = !tools || tools.includes("loops");
+  /** Where normalising is each person's choice, the View menu offers it (#240). */
+  const offersNormalise = normalisation?.mode === "optional";
   // The project grants the spectrogram; the member chooses whether to see it offered.
   const canSpectrogram = (!tools || tools.includes("spectrogram")) && preferences.showSpectrogram;
   const media = useRef<HTMLVideoElement & HTMLAudioElement>(null);
@@ -677,7 +693,7 @@ export function Player({
             >
               <Icon name={muted ? "mute" : "volume"} size={14} />
             </Button>
-            {kind === "audio" && (channels > 1 || canSpectrogram) && (
+            {((kind === "audio" && (channels > 1 || canSpectrogram)) || offersNormalise) && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -690,13 +706,24 @@ export function Player({
                 View
               </Button>
             )}
-            {choices.length === 1 && choices[0] && (
+            {/* What is heard, at the right, before the format it is heard in. */}
+            {normalised && normalisation && (
               <span className="tabular ml-auto text-xs text-ink-3">
+                {normalisationLabel(normalisation)}
+              </span>
+            )}
+            {choices.length === 1 && choices[0] && (
+              <span className={cn("tabular text-xs text-ink-3", !normalised && "ml-auto")}>
                 {renditionLabel(choices[0].rendition, info)}
               </span>
             )}
             {choices.length > 1 && (
-              <fieldset className="m-0 ml-auto flex min-w-0 flex-wrap items-center gap-1 border-0 p-0">
+              <fieldset
+                className={cn(
+                  "m-0 flex min-w-0 flex-wrap items-center gap-1 border-0 p-0",
+                  !normalised && "ml-auto",
+                )}
+              >
                 <legend className="sr-only">Rendition</legend>
                 {kind === "video" && (
                   <ChoiceButton selected={level === -1} onSelect={() => choose(-1)}>
@@ -727,14 +754,21 @@ export function Player({
               onRolls={setRolls}
             />
           )}
-          {kind === "audio" && settingsOpen && (
+          {settingsOpen && (
             <section
               id="player-view"
               aria-label="View"
               className="flex flex-col gap-3 border-t border-hairline pt-3"
             >
               <div className="flex max-w-80 flex-col gap-2.5">
-                {channels > 1 && (
+                {offersNormalise && (
+                  <Toggle
+                    label="Normalised playback"
+                    checked={normalised}
+                    onChange={(on) => onNormalised?.(on)}
+                  />
+                )}
+                {kind === "audio" && channels > 1 && (
                   <Toggle
                     label="Split channels"
                     checked={playerView.split}
@@ -745,14 +779,14 @@ export function Player({
                     }}
                   />
                 )}
-                {canSpectrogram && (
+                {kind === "audio" && canSpectrogram && (
                   <Toggle
                     label="Spectrogram"
                     checked={playerView.spectrogram}
                     onChange={(spectrogram) => setPlayerView({ ...playerView, spectrogram })}
                   />
                 )}
-                {canSpectrogram && playerView.spectrogram && (
+                {kind === "audio" && canSpectrogram && playerView.spectrogram && (
                   <fieldset className="m-0 flex items-center justify-between gap-4 border-0 p-0">
                     <legend className="sr-only">Spectrogram placement</legend>
                     <span aria-hidden="true" className="text-[13px] text-ink-3">
@@ -771,7 +805,7 @@ export function Player({
                     </span>
                   </fieldset>
                 )}
-                {canSpectrogram && playerView.spectrogram && (
+                {kind === "audio" && canSpectrogram && playerView.spectrogram && (
                   <Button
                     variant="ghost"
                     size="sm"
