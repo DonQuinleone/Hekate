@@ -1331,6 +1331,33 @@ test("file-download-document", async ({ page }) => {
   expect(bytes.toString("latin1").trimEnd().endsWith("%%EOF")).toBe(true);
 });
 
+// A video's download (#136): the stream as reviewed, or the original at its own size, the
+// mark burned into the picture as it is sent.
+test("file-download-video", async ({ page }) => {
+  await page.goto(`/files/${seeded().cutFileId}`);
+  await page.getByRole("button", { name: "Download", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Download" });
+  await expect(dialog.getByText(/stream as reviewed, as MP4/)).toBeVisible();
+  await expect(dialog.getByText(/encoded again to carry the mark/)).toBeVisible();
+  await saveScreen(page, "file-download-video");
+  await checkScreen(page);
+  await dialog.getByText("Proxy").click();
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    dialog.getByRole("button", { name: "Download" }).click(),
+  ]);
+  expect(download.suggestedFilename()).toBe("Opening titles - Cut 3.mp4");
+  const bytes = await new Promise<Buffer>((resolve, reject) => {
+    void download.createReadStream().then((stream) => {
+      const chunks: Buffer[] = [];
+      stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+      stream.on("end", () => resolve(Buffer.concat(chunks)));
+      stream.on("error", reject);
+    });
+  });
+  expect(bytes.toString("latin1", 4, 8)).toBe("ftyp");
+});
+
 // Per-reviewer permissions (#55): a guest's items, earlier versions, tools, download and plays.
 test("review-reviewer-permissions", async ({ page }) => {
   await page.goto(`/reviews/${seeded().reviewId}`);

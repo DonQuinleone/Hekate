@@ -39,6 +39,7 @@ import { samplePdf } from "./media/sample-pdf.ts";
 import {
   analysisHandler,
   checksumHandler,
+  probeHandler,
   proxyHandler,
   requeueAlignments,
   requeueMissingFindings,
@@ -4583,6 +4584,105 @@ describe.runIf(url)("api", () => {
                 (await send("POST", `/api/files/${score}/downloads`, { kind }, viewer)).status,
               ).toBe(403);
             }
+          } finally {
+            rmSync(dir, { recursive: true, force: true });
+          }
+        },
+      );
+
+      it.runIf(spawnSync("ffmpeg", ["-version"]).status === 0 || process.env.CI)(
+        "makes a video's downloads with the mark burned into the picture",
+        async () => {
+          const { owner, organisationId, projectId } = await studio();
+          const dir = mkdtempSync(join(tmpdir(), "hekate-burn-"));
+          try {
+            const source = join(dir, "source.mov");
+            await run("ffmpeg", [
+              ...["-hide_banner", "-nostdin", "-v", "error"],
+              ...["-f", "lavfi", "-i", "testsrc=size=640x360:rate=25:duration=2"],
+              ...["-f", "lavfi", "-i", "sine=frequency=440:duration=2"],
+              ...["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "pcm_s24le", source],
+            ]);
+            const bytes = readFileSync(source);
+            const blob = await storage.put(organisationId, bytes);
+            const [file] = await db
+              .insert(schema.files)
+              .values({
+                organisationId,
+                projectId,
+                name: "Opening titles v3.mov",
+                kind: "video",
+                blobId: blob.id,
+                contentType: "video/quicktime",
+                byteSize: blob.byteSize,
+              })
+              .returning();
+            const fileId = file?.id ?? "";
+            type Choices = {
+              proxy: { available: boolean; detail: string };
+              original: { available: boolean; detail: string };
+            };
+            const choices = async () =>
+              (await (await getAs(`/api/files/${fileId}/downloads`, owner)).json()) as Choices;
+            // Nothing to make until the file is measured and its stream prepared.
+            expect(await choices()).toMatchObject({
+              proxy: { available: false },
+              original: { available: false },
+            });
+            const workers = {
+              db,
+              storage,
+              keyring,
+              jobs: { send: async () => null },
+              workDir: join(dir, "work"),
+            };
+            const job = { id: "test", signal: new AbortController().signal, retryCount: 0 };
+            await probeHandler(workers)({ organisationId, fileId }, job);
+            await proxyHandler(workers)({ organisationId, fileId }, job);
+            const offered = await choices();
+            expect(offered.proxy).toMatchObject({ available: true });
+            expect(offered.proxy.detail).toContain("360p");
+            expect(offered.original).toMatchObject({ available: true });
+            expect(offered.original.detail).toContain("640 × 360");
+
+            const take = async (kind: "proxy" | "original") => {
+              const asked = await send("POST", `/api/files/${fileId}/downloads`, { kind }, owner);
+              expect(asked.status).toBe(201);
+              const got = await getAs(((await asked.json()) as { url: string }).url, owner);
+              expect(got.status).toBe(200);
+              expect(got.headers.get("cache-control")).toContain("no-store");
+              const path = join(dir, `${kind}-download`);
+              writeFileSync(path, Buffer.from(await got.arrayBuffer()));
+              return { got, info: await probe(path) };
+            };
+            const proxy = await take("proxy");
+            expect(proxy.got.headers.get("content-type")).toBe("video/mp4");
+            expect(proxy.got.headers.get("content-disposition")).toContain(
+              'filename="Opening titles v3.mp4"',
+            );
+            expect(proxy.info.video).toMatchObject({ codec: "h264", width: 640, height: 360 });
+            expect(proxy.info.audio).toMatchObject({ codec: "aac" });
+            const original = await take("original");
+            expect(original.got.headers.get("content-type")).toBe("video/quicktime");
+            expect(original.got.headers.get("content-disposition")).toContain(
+              'filename="Opening titles v3.mov"',
+            );
+            expect(original.info.video).toMatchObject({ width: 640, height: 360 });
+            // The sound as it was.
+            expect(original.info.audio).toMatchObject({ codec: "pcm_s24le" });
+            expect(original.info.duration).toBeGreaterThan(1.9);
+
+            const logged = await audit.query(organisationId, { action: "download", limit: 10 });
+            expect(logged.events.filter((e) => e.fileId === fileId).map((e) => e.details)).toEqual(
+              expect.arrayContaining([{ kind: "proxy" }, { kind: "original" }]),
+            );
+            // A Viewer takes neither.
+            const viewer = await joinAs(owner, "viewer-video@example.test");
+            await grantRole(owner, projectId, viewer, "Viewer");
+            expect(
+              (await send("POST", `/api/files/${fileId}/downloads`, { kind: "proxy" }, viewer))
+                .status,
+            ).toBe(403);
           } finally {
             rmSync(dir, { recursive: true, force: true });
           }
