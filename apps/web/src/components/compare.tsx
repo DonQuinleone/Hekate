@@ -18,11 +18,11 @@ import {
 } from "~/lib/compare";
 import {
   alignmentsQuery,
+  compareFamilyQuery,
   type FileDetail,
   loudnessQuery,
   type Playback,
   playbackQuery,
-  trackQuery,
 } from "~/lib/queries";
 import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
 import { audioBuffer, preferredRendition } from "./player";
@@ -198,8 +198,9 @@ export function Compare({
   gain?: number;
 }) {
   const variation = file.variation;
+  // Only what this person may open: a guest, the files their reviews give them.
   const { data: track } = useQuery({
-    ...trackQuery(variation?.trackId ?? ""),
+    ...compareFamilyQuery(file.id),
     enabled: Boolean(variation),
   });
   const candidates = useMemo(() => {

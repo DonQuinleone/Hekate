@@ -8948,6 +8948,52 @@ describe.runIf(url)("api", () => {
           expect(await sees(s.artwork)).toBe(200);
           expect((await getAs(`/api/files/${v2?.id}/qa`, s.cookie)).status).not.toBe(403);
 
+          // Compare (#44, #55): refused without the tool; with it, only what they may open.
+          await db.insert(schema.alignments).values({
+            organisationId: s.organisationId,
+            fromFileId: v2?.id ?? "",
+            toFileId: s.mix,
+            status: "ready",
+            points: [
+              [0, 0],
+              [60, 61],
+            ],
+            quality: 0.9,
+          });
+          type Family = { versions: { number: number; variations: { fileId: string }[] }[] };
+          const family = async (cookie: string) => {
+            const res = await getAs(`/api/files/${v2?.id}/compare`, cookie);
+            return res.status === 200 ? ((await res.json()) as Family) : res.status;
+          };
+          const aligned = async () =>
+            (
+              (await (await getAs(`/api/files/${v2?.id}/alignments`, s.cookie)).json()) as {
+                alignments: { fileId: string }[];
+              }
+            ).alignments.map((a) => a.fileId);
+          expect(await family(s.cookie)).toBe(403);
+          expect((await getAs(`/api/files/${v2?.id}/alignments`, s.cookie)).status).toBe(403);
+          expect((await grant({ tools: ["loops", "compare"], history: false })).status).toBe(200);
+          expect(await family(s.cookie)).toEqual({
+            versions: [expect.objectContaining({ number: 2 })],
+          });
+          expect(await aligned()).toEqual([]);
+          // With history, the earlier version as well, and where the music sits in it.
+          expect((await grant({ history: true })).status).toBe(200);
+          expect(
+            ((await family(s.cookie)) as Family).versions.map((v) => [
+              v.number,
+              v.variations.map((x) => x.fileId),
+            ]),
+          ).toEqual([
+            [1, [s.mix]],
+            [2, [v2?.id]],
+          ]);
+          expect(await aligned()).toEqual([s.mix]);
+          // A member sees the whole track, as their role allows.
+          expect(((await family(s.owner)) as Family).versions).toHaveLength(2);
+          expect((await grant({ tools: ["loops", "score", "qa"] })).status).toBe(200);
+
           // At most two plays of each file; a third start is refused. Plays through another
           // review do not count against this one.
           const [mine] = await db
