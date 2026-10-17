@@ -1,9 +1,11 @@
+import { type AlignmentPoints, mapTime } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
-import { type FormEvent, useState } from "react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { type FormEvent, type MouseEvent, useState } from "react";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
 import {
+  alignmentsQuery,
   type FileDetail,
   projectTracksQuery,
   type Track,
@@ -102,16 +104,59 @@ export function TrackList({ projectId }: { projectId: string }) {
 }
 
 /**
+ * Where to start in another file for this moment here: the same music where the two are
+ * aligned, otherwise the same time. Rounded to the millisecond for the address.
+ */
+export function positionIn(
+  fileId: string,
+  at: number,
+  alignments: readonly { fileId: string; points: AlignmentPoints }[],
+): number {
+  const aligned = alignments.find((a) => a.fileId === fileId);
+  const there = aligned ? mapTime(aligned.points, at) : at;
+  return Math.max(0, Math.round(there * 1000) / 1000);
+}
+
+/**
  * On a file that is a variation: where it sits (track and version), its sibling variations
  * and the track's other versions, each one step away.
  */
-export function FileContext({ file }: { file: FileDetail }) {
+export function FileContext({
+  file,
+  media = null,
+}: {
+  file: FileDetail;
+  /** The player, whose position goes along to the version or variation chosen (#15). */
+  media?: HTMLMediaElement | null;
+}) {
   const variation = file.variation;
+  const navigate = useNavigate();
   const { data: track } = useQuery({
     ...trackQuery(variation?.trackId ?? ""),
     enabled: Boolean(variation),
   });
+  // Where the same music sits in the other versions, where the audio has said; refused
+  // without the compare tool, when the same time serves.
+  const { data: alignments = [] } = useQuery({
+    ...alignmentsQuery(file.id),
+    enabled: Boolean(variation),
+    retry: false,
+  });
   if (!variation) return null;
+  /** Go to another version or variation, at the same music; a modified click opens it as is. */
+  const follow = (fileId: string) => (event: MouseEvent) => {
+    if (!media || event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+    event.preventDefault();
+    void navigate({
+      to: "/files/$fileId",
+      params: { fileId },
+      search: (prev) => ({
+        loop: prev.loop,
+        review: prev.review,
+        t: positionIn(fileId, media.currentTime, alignments),
+      }),
+    });
+  };
   const version = track?.versions.find((v) => v.id === variation.versionId);
   return (
     <div className="flex flex-col gap-2">
@@ -127,8 +172,9 @@ export function FileContext({ file }: { file: FileDetail }) {
                   key={v.id}
                   to="/files/$fileId"
                   params={{ fileId: current ? file.id : target.fileId }}
-                  // A loop holds while switching version or variation.
-                  search={(prev) => ({ loop: prev.loop })}
+                  // A loop and the review it came from hold while switching version or variation.
+                  search={(prev) => ({ loop: prev.loop, review: prev.review })}
+                  onClick={current ? undefined : follow(target.fileId)}
                   aria-current={current ? "page" : undefined}
                   className={cn(
                     "tabular h-6 rounded-chip border px-2 font-mono text-[11px] leading-6 no-underline",
@@ -152,8 +198,9 @@ export function FileContext({ file }: { file: FileDetail }) {
               to="/files/$fileId"
               params={{ fileId: v.fileId }}
               aria-current={v.fileId === file.id ? "page" : undefined}
-              // A loop holds while switching version or variation.
-              search={(prev) => ({ loop: prev.loop })}
+              // A loop and the review it came from hold while switching version or variation.
+              search={(prev) => ({ loop: prev.loop, review: prev.review })}
+              onClick={v.fileId === file.id ? undefined : follow(v.fileId)}
               className={cn(
                 "h-7 rounded-chip border px-2.5 text-xs leading-7 no-underline",
                 v.fileId === file.id
