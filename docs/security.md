@@ -118,7 +118,7 @@ An append-only access log records who accessed what, when, through which review,
 
 ### Error reports
 
-Every failure a person sees (any 5xx) and every job's last failed attempt is recorded under a reference such as `HK-7F3A-2C` (#159), which the message asks them to quote, and written to the log as one JSON line. The report holds the route or the job, the request's id (made by the server, never taken from the request), the error and its stack, the job's data (identifiers only), the workspace, and the account it happened to; nothing else about the person, no address and no browser. Only operators read reports, in Debug tools, where the account is shown by its name and email. A workspace's reports are deleted with it, and every report after 30 days.
+Every failure a person sees (any 5xx) and every job's last failed attempt is recorded under a reference such as `HK-7F3A-2C` (#159), which the message asks them to quote, and written to the log as one JSON line. The report holds the route or the job, the request's id (made by the server, never taken from the request), the error and its stack, the job's data (identifiers only), the workspace, and the account it happened to; nothing else about the person, no address and no browser. Only operators read reports, in Debug tools, where the account is shown by its name and email. A workspace's reports are deleted with it, and every report after 30 days. Debug tools' inspectors show an operator a file's, a review's or a session's records, never stored content, and each look is written to the instance's events (decision 066).
 
 ## Headers and limits
 

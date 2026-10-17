@@ -76,6 +76,34 @@ export async function recordFailure(db: Database, failure: Failure): Promise<str
   return reference;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** What a route's `:id` names, by the resource the path begins with. */
+const resources: Record<string, string> = {
+  files: "fileId",
+  reviews: "reviewId",
+  tracks: "trackId",
+  projects: "projectId",
+  comments: "commentId",
+  versions: "versionId",
+};
+
+/**
+ * What a failed request was about, from its route and parameters, so an inspector can find the
+ * reports of a file or a review: `/api/files/:id` names a file. Identifiers only.
+ */
+export function failureContext(
+  routePath: string,
+  params: Record<string, string>,
+): Record<string, string> | undefined {
+  const context: Record<string, string> = {};
+  const [, root, resource] = routePath.split("/");
+  const named = root === "api" && resource ? resources[resource] : undefined;
+  if (named && params.id && UUID.test(params.id)) context[named] = params.id;
+  for (const [key, value] of Object.entries(params))
+    if (key.endsWith("Id") && UUID.test(value)) context[key] = value;
+  return Object.keys(context).length > 0 ? context : undefined;
+}
+
 /** A job's last failure as a report: its workspace, when its data names one. */
 export function failureOfJob(failure: JobFailure): Failure {
   const data =
