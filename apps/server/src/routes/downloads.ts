@@ -1,6 +1,6 @@
 import { createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -14,13 +14,14 @@ import {
   downloadLevelOf,
   formatBytes,
   isPdf,
+  type MediaInfo,
   type WatermarkSettings,
   watermarkOf,
   watermarkText,
 } from "@hekate/shared";
 import { unwrapKey } from "@hekate/storage";
 import { zValidator } from "@hono/zod-validator";
-import { asc, eq, gt, isNull, lt } from "drizzle-orm";
+import { asc, desc, eq, gt, isNotNull, isNull, lt } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -29,6 +30,13 @@ import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
 import type { Keyring } from "../keyring.ts";
+import {
+  audioCodecsOf,
+  burnArgs,
+  burnDeadlineMs,
+  burnFormat,
+  streamFfmpeg,
+} from "../media/burn.ts";
 import {
   IMAGE_DEMUXERS,
   MAX_PAGES,
@@ -96,6 +104,7 @@ type FileRow = {
   blobId: string;
   projectId: string;
   pageCount: number | null;
+  mediaInfo: MediaInfo | null;
 };
 
 /** What the actor may download of a file: their role's level, or what their reviews grant. */
@@ -119,6 +128,7 @@ async function fileOf(db: Database, organisationId: string, fileId: string): Pro
       blobId: files.blobId,
       projectId: files.projectId,
       pageCount: files.pageCount,
+      mediaInfo: files.mediaInfo,
     })
     .from(files)
     .where(inOrg(files, organisationId, eq(files.id, fileId)));
@@ -147,6 +157,24 @@ async function audioRendition(db: Database, organisationId: string, fileId: stri
   return row ?? null;
 }
 
+/** The picture rendition a video's proxy is made from: the largest the stream offers. */
+async function videoRendition(db: Database, organisationId: string, fileId: string) {
+  const [row] = await db
+    .select()
+    .from(renditions)
+    .where(
+      inOrg(
+        renditions,
+        organisationId,
+        eq(renditions.fileId, fileId),
+        isNotNull(renditions.height),
+      ),
+    )
+    .orderBy(desc(renditions.height))
+    .limit(1);
+  return row ?? null;
+}
+
 /** For a guest, the review whose grant allows this download, for the access log. */
 async function grantingReview(db: Database, actor: Actor, fileId: string, kind: DownloadKind) {
   if (actor.kind !== "guest") return null;
@@ -168,7 +196,8 @@ async function firstPage(db: Database, organisationId: string, fileId: string) {
  * What can be made of a file now, and in what form. A recording: its original (audio carries
  * no mark until #32) and its stream's AAC encode. A picture: as reviewed, or at full size, with
  * the recipient's name drawn across it. A document: its pages as reviewed, or drawn again from
- * the original PDF at print resolution, each marked, as a PDF. Video follows (#136).
+ * the original PDF at print resolution, each marked, as a PDF. A video: the stream's largest
+ * encode, or the original at its own size, with the mark burned into the picture.
  */
 async function choices(db: Database, organisationId: string, file: FileRow) {
   if (file.kind === "audio") {
@@ -192,6 +221,22 @@ async function choices(db: Database, organisationId: string, file: FileRow) {
         : { available: false, detail: "Not prepared yet" },
       original: page
         ? { available: true, detail: "The picture at full size, in its own format" }
+        : { available: false, detail: "Not prepared yet" },
+      marked: true,
+    };
+  }
+  if (file.kind === "video") {
+    const rendition = await videoRendition(db, organisationId, file.id);
+    const video = file.mediaInfo?.video;
+    return {
+      proxy: rendition
+        ? { available: true, detail: `The ${rendition.height}p stream as reviewed, as MP4` }
+        : { available: false, detail: "Not prepared yet" },
+      original: video
+        ? {
+            available: true,
+            detail: `${video.width} × ${video.height}, encoded again to carry the mark, as QuickTime`,
+          }
         : { available: false, detail: "Not prepared yet" },
       marked: true,
     };
@@ -251,10 +296,12 @@ async function recipientOf(db: Database, actor: Actor) {
   return who;
 }
 
-/** The stream's AAC encode, decrypted segment by segment into one fragmented MP4. */
-async function* proxyAudio(deps: DownloadDeps, organisationId: string, fileId: string) {
-  const rendition = await audioRendition(deps.db, organisationId, fileId);
-  if (!rendition) throw new NotFound("Rendition");
+/** A rendition of the stream, decrypted segment by segment into one fragmented MP4. */
+async function* decrypted(
+  deps: DownloadDeps,
+  organisationId: string,
+  rendition: typeof renditions.$inferSelect,
+) {
   const key = unwrapKey(
     await deps.keyring.version(organisationId, rendition.keyVersion),
     rendition.wrappedKey,
@@ -318,9 +365,11 @@ async function originalInto(
   organisationId: string,
   file: FileRow,
   path: string,
+  signal?: AbortSignal,
 ) {
   const { stream } = await deps.storage.open(organisationId, file.blobId);
-  await pipeline(stream, createWriteStream(path, { mode: 0o600 }));
+  // A browser that goes stops the copy too.
+  await pipeline(stream, createWriteStream(path, { mode: 0o600 }), { signal });
 }
 
 /**
@@ -335,7 +384,7 @@ function printPages(
 ): AsyncGenerator<PdfPage> {
   return streamInWorkspace(deps.workDir, async function* (dir) {
     const path = join(dir, "original.pdf");
-    await originalInto(deps, organisationId, file, path);
+    await originalInto(deps, organisationId, file, path, mark.signal);
     const count = Math.min(await pdfPageCount(path, mark.signal), MAX_PAGES);
     const sizes = await pdfPageSizes(path, count, mark.signal);
     const png = join(dir, "page.png");
@@ -359,10 +408,48 @@ function markedOriginal(
 ): AsyncGenerator<Buffer> {
   return streamInWorkspace(deps.workDir, async function* (dir) {
     const input = join(dir, "original");
-    await originalInto(deps, organisationId, file, input);
+    await originalInto(deps, organisationId, file, input, mark.signal);
     const output = join(dir, `marked.${extensionOf[format]}`);
     await markPicture(input, output, { ...mark, demuxers: IMAGE_DEMUXERS, format });
     for await (const chunk of createReadStream(output)) yield chunk as Buffer;
+  });
+}
+
+/**
+ * A video with the recipient's mark burned in: the stream's largest encode, decrypted, for the
+ * proxy, or the original. Encoded as it is sent.
+ */
+function markedVideo(
+  deps: DownloadDeps,
+  organisationId: string,
+  file: FileRow,
+  kind: DownloadKind,
+  mark: Mark,
+): AsyncGenerator<Buffer> {
+  return streamInWorkspace(deps.workDir, async function* (dir) {
+    const input = join(dir, "source");
+    if (kind === "proxy") {
+      const rendition = await videoRendition(deps.db, organisationId, file.id);
+      if (!rendition) throw new NotFound("Rendition");
+      await pipeline(
+        Readable.from(decrypted(deps, organisationId, rendition)),
+        createWriteStream(input, { mode: 0o600 }),
+        { signal: mark.signal },
+      );
+    } else {
+      await originalInto(deps, organisationId, file, input, mark.signal);
+    }
+    const text = join(dir, "mark.txt");
+    await writeFile(text, mark.text);
+    yield* streamFfmpeg(
+      burnArgs(input, text, {
+        quality: kind,
+        // Every stream's, not only the first's that the file's probe describes.
+        audioCodecs: kind === "original" ? await audioCodecsOf(input, mark.signal) : [],
+        style: mark.style,
+      }),
+      { signal: mark.signal, timeoutMs: burnDeadlineMs(file.mediaInfo?.duration) },
+    );
   });
 }
 
@@ -498,7 +585,9 @@ export const downloadRoutes = (deps: DownloadDeps) =>
         });
       }
       if (file.kind === "audio" && kind === "proxy") {
-        const stream = Readable.from(proxyAudio(deps, organisationId, file.id));
+        const rendition = await audioRendition(deps.db, organisationId, file.id);
+        if (!rendition) throw new NotFound("Rendition");
+        const stream = Readable.from(decrypted(deps, organisationId, rendition));
         return new Response(stream as unknown as ReadableStream, {
           headers: {
             ...PRIVATE,
@@ -507,7 +596,7 @@ export const downloadRoutes = (deps: DownloadDeps) =>
           },
         });
       }
-      if (file.kind !== "image" && file.kind !== "document")
+      if (file.kind !== "image" && file.kind !== "document" && file.kind !== "video")
         throw new HTTPException(422, { message: "That download is not offered for this file" });
       // Always marked for whoever asked, whatever the project's scope; drawn where and as
       // strongly as the project chose (#31).
@@ -521,6 +610,17 @@ export const downloadRoutes = (deps: DownloadDeps) =>
         style: watermarkOf(project?.watermark),
         signal: c.req.raw.signal,
       };
+      if (file.kind === "video") {
+        const stream = await primed(markedVideo(deps, organisationId, file, kind, mark));
+        const format = burnFormat[kind];
+        return new Response(stream as unknown as ReadableStream, {
+          headers: {
+            ...PRIVATE,
+            "content-type": format.contentType,
+            "content-disposition": attachment(`${stem(file.name)}.${format.extension}`),
+          },
+        });
+      }
       if (file.kind === "document") {
         if (kind === "original" && !isPdf(file.name, file.contentType))
           throw new HTTPException(422, { message: "That download is not offered for this file" });

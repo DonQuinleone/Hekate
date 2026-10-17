@@ -31,6 +31,27 @@ function places(size: "view" | "thumb", position: WatermarkPosition): { x: strin
   return rows.map((y, i) => ({ x: `w*${i % 2 === 0 ? 0.04 : 0.3}`, y: `h*${y}` }));
 }
 
+/**
+ * The ffmpeg filter that draws the mark written in the file at `textPath`: read from a file,
+ * with expansion off, so nothing in a name is read as a filter or a code.
+ */
+export function markFilter(
+  textPath: string,
+  size: "view" | "thumb",
+  style: Pick<WatermarkSettings, "position" | "opacity">,
+): string {
+  const scale = size === "thumb" ? 30 : 60;
+  const face = font ? `fontfile='${font}'` : "font=Sans";
+  const alpha = (style.opacity / 100).toFixed(2);
+  return places(size, style.position)
+    .map(
+      (t) =>
+        `drawtext=${face}:textfile='${textPath}':expansion=none:fontsize=h/${scale}:line_spacing=6` +
+        `:fontcolor=0x808080@${alpha}:x=${t.x}:y=${t.y}`,
+    )
+    .join(",");
+}
+
 /** What a marked picture is written as. */
 export type MarkedFormat = "webp" | "jpeg" | "png" | "tiff";
 
@@ -67,16 +88,7 @@ export async function markPicture(
 ): Promise<void> {
   const { size = "view", style = defaultWatermark } = options;
   const mark = `${output}.txt`;
-  // From a file, with expansion off: nothing in a name is read as a filter or a code.
   await writeFile(mark, options.text);
-  const scale = size === "thumb" ? 30 : 60;
-  const face = font ? `fontfile='${font}'` : "font=Sans";
-  const alpha = (style.opacity / 100).toFixed(2);
-  const filters = places(size, style.position).map(
-    (t) =>
-      `drawtext=${face}:textfile='${mark}':expansion=none:fontsize=h/${scale}:line_spacing=6` +
-      `:fontcolor=0x808080@${alpha}:x=${t.x}:y=${t.y}`,
-  );
   await run(
     "ffmpeg",
     [
@@ -91,7 +103,7 @@ export async function markPicture(
       "-i",
       `file:${input}`,
       "-vf",
-      filters.join(","),
+      markFilter(mark, size, style),
       "-frames:v",
       "1",
       ...encoders[options.format],
