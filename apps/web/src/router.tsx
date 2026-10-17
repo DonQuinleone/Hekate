@@ -112,15 +112,15 @@ const loopSearchSchema = z.object({
     .optional()
     .catch(undefined),
 });
-/** A file page's address: the passage looped, and the QA view when it is open. */
+/** A file page's address: the passage looped, and the QA or triage view when one is open. */
 const fileSearchSchema = loopSearchSchema.extend({
-  view: z.enum(["qa"]).optional().catch(undefined),
+  view: z.enum(["qa", "triage"]).optional().catch(undefined),
   /** The details sheet, open beside the file. */
   sheet: z.enum(["details"]).optional().catch(undefined),
 });
 const fileSearch = (
   search: Record<string, unknown>,
-): { loop?: string; view?: "qa"; sheet?: "details" } => fileSearchSchema.parse(search);
+): { loop?: string; view?: "qa" | "triage"; sheet?: "details" } => fileSearchSchema.parse(search);
 
 /** Every page: follows the device's dark or light while the theme is "system". */
 function Root() {
@@ -426,7 +426,9 @@ const file = createRoute({
         }
         view={view ?? "review"}
         onView={(next) =>
-          void navigate({ search: (prev) => ({ ...prev, view: next === "qa" ? "qa" : undefined }) })
+          void navigate({
+            search: (prev) => ({ ...prev, view: next === "review" ? undefined : next }),
+          })
         }
       />
     );

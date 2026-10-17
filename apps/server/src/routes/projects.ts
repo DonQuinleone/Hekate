@@ -19,6 +19,7 @@ import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import { projectFigures } from "../project-figures.ts";
 import type { TenantVariables } from "../tenancy.ts";
+import { seedCategories } from "./categories.ts";
 
 const { projects, files, users, projectRoles, projectMembers, reviews } = schema;
 
@@ -134,6 +135,8 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
           })
           .returning();
         if (!created) throw new Error("Project insert returned no row");
+        // Its comment categories, the defaults (#36).
+        await seedCategories(tx, organisationId, created.id);
         const made = await tx
           .insert(projectRoles)
           .values(

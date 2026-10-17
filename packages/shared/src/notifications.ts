@@ -22,6 +22,8 @@ export const notificationKinds = [
   "guest_opened",
   /** A review waiting on you is due tomorrow. */
   "due_soon",
+  /** Someone sent you the comments assigned to you on a file. */
+  "assigned",
 ] as const;
 export type NotificationKind = (typeof notificationKinds)[number];
 
@@ -47,6 +49,7 @@ export const notificationDefaults: Record<NotificationKind, NotificationChannels
   processing_failed: { app: true, mail: true },
   guest_opened: { app: false, mail: false },
   due_soon: { app: true, mail: true },
+  assigned: { app: true, mail: true },
 };
 
 /** Reviews asked of you and mentions always reach you in the app, whatever you choose. */

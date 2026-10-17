@@ -30,7 +30,6 @@ type Decision = {
   deferred?: string;
   assigneeId?: string;
   resolved?: boolean;
-  carried?: boolean;
   skipped?: boolean;
 };
 
@@ -57,6 +56,9 @@ export function TriagePage({ file }: { file: File }) {
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [assigning, setAssigning] = useState(false);
+  const [deferring, setDeferring] = useState(false);
+  const [finished, setFinished] = useState(false);
+  const stages = (workflow?.stages ?? []).filter((s) => s.kind === "task").map((s) => s.name);
   const current = queue[index];
   const playback = usePlayback(
     file.media.duration,
@@ -75,10 +77,7 @@ export function TriagePage({ file }: { file: File }) {
         <span className="tabular text-[13px] text-ink-3">
           {done} of {queue.length}
         </span>
-        <Button
-          variant="secondary"
-          onClick={() => navigate({ to: "/files/$fileId", params: { fileId: file.id } })}
-        >
+        <Button variant="secondary" onClick={() => setFinished(true)}>
           Done
         </Button>
       </>
@@ -93,7 +92,11 @@ export function TriagePage({ file }: { file: File }) {
       Object.fromEntries([...Object.entries(d), ...ids.map((id) => [id, { ...d[id], ...patch }])]),
     );
     setSelected(new Set());
-    setIndex((i) => Math.min(queue.length - 1, i + 1));
+    const marked = new Set([...Object.keys(decisions), ...ids]);
+    const next = queue.findIndex((c, i) => i > index && !marked.has(c.id));
+    const any = next >= 0 ? next : queue.findIndex((c) => !marked.has(c.id));
+    if (any < 0) setFinished(true);
+    else setIndex(any);
   };
   // biome-ignore lint/correctness/useExhaustiveDependencies: the loop follows the current comment only.
   useEffect(() => {
@@ -106,18 +109,23 @@ export function TriagePage({ file }: { file: File }) {
   }, [current?.id]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (inField(e) || e.metaKey || e.ctrlKey) return;
+      if (inField(e) || e.metaKey || e.ctrlKey || finished || assigning || deferring) return;
       const n = Number(e.key);
       if (n >= 1 && n <= categories.length) decide({ categoryId: categories[n - 1]?.id });
-      else if (e.key === "d")
-        decide({ deferred: workflow?.stages.find((s) => s.kind === "task")?.name ?? "later" });
+      // j, k and l stay with the player, as everywhere else.
+      else if (e.key === "d") setDeferring(true);
       else if (e.key === "r") decide({ resolved: true });
-      else if (e.key === "c") decide({ carried: true });
       else if (e.key === "s") decide({ skipped: true });
       else if (e.key === "a") setAssigning(true);
-      else if (e.key === "j" || e.key === "ArrowDown")
-        setIndex((i) => Math.min(queue.length - 1, i + 1));
-      else if (e.key === "k" || e.key === "ArrowUp") setIndex((i) => Math.max(0, i - 1));
+      else if (e.key === "x" && current)
+        setSelected((s) => {
+          const n = new Set(s);
+          if (n.has(current.id)) n.delete(current.id);
+          else n.add(current.id);
+          return n;
+        });
+      else if (e.key === "ArrowDown") setIndex((i) => Math.min(queue.length - 1, i + 1));
+      else if (e.key === "ArrowUp") setIndex((i) => Math.max(0, i - 1));
       else if (e.key === " ") {
         e.preventDefault();
         playback.toggle();
@@ -143,6 +151,15 @@ export function TriagePage({ file }: { file: File }) {
           }
         />
       </div>
+    );
+  if (finished)
+    return (
+      <TriageSummary
+        queue={queue}
+        decisions={decisions}
+        onBack={() => setFinished(false)}
+        onDone={() => navigate({ to: "/files/$fileId", params: { fileId: file.id } })}
+      />
     );
   const returning = comments.filter(
     (c) => c.fileId === file.id && c.deferredToStage && !c.resolved,
@@ -307,23 +324,34 @@ export function TriagePage({ file }: { file: File }) {
               </div>
               <Label>Then</Label>
               <div className="flex flex-wrap gap-1.5">
-                {key(
-                  "D",
-                  `Defer to ${workflow?.stages.find((s) => s.kind === "task")?.name ?? "a stage"}`,
-                  () => decide({ deferred: "later" }),
-                )}
+                {key("D", "Defer to a stage…", () => setDeferring(true))}
                 {key("A", "Assign…", () => setAssigning(true))}
                 {key("R", "Resolve", () => decide({ resolved: true }))}
-                {key(
-                  "C",
-                  decisions[current.id]?.carried
-                    ? "Carried to the next version"
-                    : "Carry to the next version",
-                  () => decide({ carried: true }),
-                  Boolean(decisions[current.id]?.carried),
-                )}
                 {key("S", "Skip", () => decide({ skipped: true }))}
               </div>
+              {deferring && (
+                <div className="rise-in flex items-center gap-2">
+                  <Select
+                    autoFocus
+                    defaultValue=""
+                    className="w-56"
+                    onChange={(e) => {
+                      if (e.target.value) decide({ deferred: e.target.value });
+                      setDeferring(false);
+                    }}
+                  >
+                    <option value="">Defer to…</option>
+                    {stages.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </Select>
+                  <Button variant="ghost" size="sm" onClick={() => setDeferring(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              )}
               {assigning && (
                 <div className="rise-in flex items-center gap-2">
                   <Select
@@ -348,7 +376,8 @@ export function TriagePage({ file }: { file: File }) {
                 </div>
               )}
               <p className="text-[12px] text-ink-3">
-                <Kbd>J</Kbd> <Kbd>K</Kbd> move · a key acts on the selection when some are ticked
+                <Kbd>↑</Kbd> <Kbd>↓</Kbd> move · <Kbd>X</Kbd> ticks · a key acts on every ticked
+                comment
               </p>
             </div>
           </>
@@ -362,9 +391,7 @@ export function TriagePage({ file }: { file: File }) {
             const list = [
               ...returning.filter((c) => c.deferredToStage === s.name),
               ...queue.filter(
-                (c) =>
-                  decisions[c.id]?.deferred &&
-                  (decisions[c.id]?.deferred === s.name || decisions[c.id]?.deferred === "later"),
+                (c) => decisions[c.id]?.deferred && decisions[c.id]?.deferred === s.name,
               ),
             ];
             return (
@@ -384,13 +411,113 @@ export function TriagePage({ file }: { file: File }) {
               </div>
             );
           })}
-        <Label className="mt-2">Carried on to V{(inTrack?.version.number ?? 0) + 1}</Label>
-        <span className="text-[12px] text-ink-3">
-          {queue.filter((c) => decisions[c.id]?.carried).length +
-            queue.filter((c) => !decisions[c.id]).length}{" "}
-          threads, anchors mapped once the versions align.
-        </span>
+        {inTrack && (
+          <>
+            <Label className="mt-2">Goes on to V{inTrack.version.number + 1}</Label>
+            <span className="text-[12px] text-ink-3">
+              {queue.filter((c) => !decisions[c.id]?.resolved).length} open threads, offered for
+              carrying when the next version is made.
+            </span>
+          </>
+        )}
       </aside>
+    </div>
+  );
+}
+
+/** What a sitting decided, and each person's list to send them. */
+function TriageSummary({
+  queue,
+  decisions,
+  onBack,
+  onDone,
+}: {
+  queue: Comment[];
+  decisions: Record<string, Decision>;
+  onBack: () => void;
+  onDone: () => void;
+}) {
+  const [sent, setSent] = useState<Set<string>>(new Set());
+  const decided = queue.filter((c) => decisions[c.id] && !decisions[c.id]?.skipped);
+  const left = queue.length - decided.length;
+  const counts: [string, number][] = [
+    ...categories.map((c): [string, number] => [
+      c.name,
+      decided.filter((d) => decisions[d.id]?.categoryId === c.id).length,
+    ]),
+    ["Deferred", decided.filter((d) => decisions[d.id]?.deferred).length] as [string, number],
+    ["Resolved", decided.filter((d) => decisions[d.id]?.resolved).length] as [string, number],
+    ["Assigned", decided.filter((d) => decisions[d.id]?.assigneeId).length] as [string, number],
+  ].filter(([, n]) => n > 0);
+  const assigned = new Map<string, number>();
+  for (const c of decided) {
+    const who = decisions[c.id]?.assigneeId;
+    if (who) assigned.set(who, (assigned.get(who) ?? 0) + 1);
+  }
+  return (
+    <div className="fade-in mx-auto flex w-full max-w-[640px] flex-col gap-6 px-4 py-8 @3xl/app:px-6">
+      <div className="flex flex-col gap-1">
+        <h2 className="text-[18px] font-medium text-ink">Triage done</h2>
+        <p className="text-ink-2">
+          {decided.length} of {queue.length} comments decided
+          {left > 0 ? `; ${left} skipped or left for later.` : "."}
+        </p>
+      </div>
+      {counts.length > 0 && (
+        <dl className="flex flex-col border-t border-line">
+          {counts.map(([term, n]) => (
+            <div
+              key={term}
+              className="flex items-center justify-between border-b border-line py-2.5"
+            >
+              <dt className="text-[13px] text-ink-2">{term}</dt>
+              <dd className="tabular text-[13px] text-ink">{n}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {assigned.size > 0 && (
+        <div className="flex flex-col gap-2">
+          <Label>Lists to send</Label>
+          <ul className="flex flex-col border-t border-line">
+            {[...assigned].map(([id, count]) => {
+              const name = personById(id).name;
+              return (
+                <li key={id} className="flex items-center gap-3 border-b border-line py-2">
+                  <Avatar personId={id} size={22} />
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
+                    {name}
+                    <span className="tabular ml-2 text-ink-3">
+                      {count} {count === 1 ? "comment" : "comments"}
+                    </span>
+                  </span>
+                  {sent.has(id) ? (
+                    <span className="text-[13px] text-ink-3">Sent</span>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setSent((s) => new Set(s).add(id))}
+                    >
+                      Send {name.split(" ")[0]} their list
+                    </Button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <Button variant="primary" onClick={onDone}>
+          Back to the recording
+        </Button>
+        {left > 0 && (
+          <Button variant="ghost" onClick={onBack}>
+            Back to the queue
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

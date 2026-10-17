@@ -351,6 +351,13 @@
       "when": 1792165230226,
       "tag": "0049_version_checks",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1792166883248,
+      "tag": "0050_comment_categories",
+      "breakpoints": true
     }
   ]
 }

@@ -28,6 +28,8 @@ function position(anchor: Anchor | null): [number, number] {
  */
 export function threadsOf(comments: Comment[]): {
   open: Thread[];
+  /** Open, but set aside until a later stage (#36). */
+  deferred: Thread[];
   resolved: Thread[];
   hidden: Thread[];
 } {
@@ -48,7 +50,8 @@ export function threadsOf(comments: Comment[]): {
   });
   const shown = ordered.filter((t) => t.comment.carry?.visible !== false);
   return {
-    open: shown.filter((t) => !t.comment.resolvedAt),
+    open: shown.filter((t) => !t.comment.resolvedAt && !t.comment.deferredTo),
+    deferred: shown.filter((t) => !t.comment.resolvedAt && t.comment.deferredTo),
     resolved: shown.filter((t) => t.comment.resolvedAt),
     hidden: ordered.filter((t) => t.comment.carry?.visible === false),
   };

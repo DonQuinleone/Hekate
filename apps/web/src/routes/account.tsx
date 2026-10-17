@@ -60,6 +60,7 @@ const kindCopy: Record<NotificationKind, string> = {
   processing_failed: "Processing fails on your upload",
   guest_opened: "A guest opens a review you asked for",
   due_soon: "A review waiting on you is due tomorrow",
+  assigned: "Someone sends you the comments assigned to you",
 };
 
 function Channel({
