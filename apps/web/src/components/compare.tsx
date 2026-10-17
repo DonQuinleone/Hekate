@@ -32,29 +32,17 @@ import { Button } from "./ui/button";
  * One source playing silently in step with the master player, so switching to it is
  * instant: no new stream to start, no gap. It follows play, pause, seeks and loops.
  */
-function Follower({
-  playback,
-  master,
-  volume,
-  follow,
-  onFail,
-}: {
-  playback: Playback;
-  master: HTMLMediaElement;
-  /** 0 while another source is heard. */
-  volume: number;
-  /** Where this source should be for a time in the master: the same music, or the same time. */
-  follow: (masterTime: number) => number;
-  /** The stream could not be loaded, so this source cannot be heard. */
-  onFail: () => void;
-}) {
+/**
+ * A protected stream attached to an audio element with hls.js, on the rendition the main
+ * player would choose: lossless where the browser can. `onFail` hears a stream that cannot load.
+ */
+function useStream(
+  element: React.RefObject<HTMLAudioElement | null>,
+  playback: Playback,
+  onFail: () => void,
+) {
   const fail = useRef(onFail);
   fail.current = onFail;
-  const position = useRef(follow);
-  position.current = follow;
-
-  const element = useRef<HTMLAudioElement>(null);
-
   useEffect(() => {
     const audio = element.current;
     if (!audio) return;
@@ -86,13 +74,49 @@ function Follower({
       hls?.destroy();
       audio.removeAttribute("src");
     };
-  }, [playback]);
+  }, [element, playback]);
+}
+
+export function Follower({
+  playback,
+  master,
+  volume,
+  follow,
+  onFail,
+  onElement,
+}: {
+  playback: Playback;
+  master: HTMLMediaElement;
+  /** 0 while another source is heard. */
+  volume: number;
+  /** Where this source should be for a time in the master: the same music, or the same time. */
+  follow: (masterTime: number) => number;
+  /** The stream could not be loaded, so this source cannot be heard. */
+  onFail: () => void;
+  /** Its element, for a waveform to follow. */
+  onElement?: (element: HTMLAudioElement | null) => void;
+}) {
+  const fail = useRef(onFail);
+  fail.current = onFail;
+  const position = useRef(follow);
+  position.current = follow;
+
+  const element = useRef<HTMLAudioElement>(null);
+  useStream(element, playback, onFail);
+  const report = useRef(onElement);
+  report.current = onElement;
+  useEffect(() => {
+    report.current?.(element.current);
+    return () => report.current?.(null);
+  }, []);
 
   useEffect(() => {
     const audio = element.current;
     if (!audio) return;
     const sync = () => {
-      const target = Math.max(0, position.current(master.currentTime));
+      // Past this source's end (the master runs on through music it lacks), it waits there.
+      const end = Number.isFinite(audio.duration) ? audio.duration : Number.POSITIVE_INFINITY;
+      const target = Math.min(end, Math.max(0, position.current(master.currentTime)));
       if (needsResync(target, audio.currentTime)) audio.currentTime = target;
     };
     const play = () => {
@@ -119,7 +143,10 @@ function Follower({
     mute();
     // Loops and seeks move the master; drift is put right a few times a second.
     const timer = window.setInterval(() => {
-      if (!master.paused) sync();
+      if (master.paused) return;
+      sync();
+      // Back within this source after waiting at its end: play on.
+      if (audio.paused && audio.currentTime < audio.duration) play();
     }, 250);
     sync();
     if (!master.paused) play();
@@ -144,17 +171,52 @@ function Follower({
 }
 
 /** A follower needs its own protected stream, issued to this session like any other. */
-function FollowerSource({
+export function FollowerSource({
   fileId,
   master,
   volume,
   follow,
   onFail,
+  onElement,
 }: {
   fileId: string;
   master: HTMLMediaElement;
   volume: number;
   follow: (masterTime: number) => number;
+  onFail: () => void;
+  onElement?: (element: HTMLAudioElement | null) => void;
+}) {
+  const { data, error } = useQuery(playbackQuery(fileId));
+  const fail = useRef(onFail);
+  fail.current = onFail;
+  useEffect(() => {
+    if (error) fail.current();
+  }, [error]);
+  return data ? (
+    <Follower
+      playback={data}
+      master={master}
+      volume={volume}
+      follow={follow}
+      onFail={onFail}
+      onElement={onElement}
+    />
+  ) : null;
+}
+
+/**
+ * A file's protected stream on an element of its own, never shown: the master another source
+ * follows, played with keys and waveforms rather than the full player.
+ */
+export function StreamSource({
+  fileId,
+  volume,
+  onElement,
+  onFail,
+}: {
+  fileId: string;
+  volume: number;
+  onElement: (element: HTMLAudioElement | null) => void;
   onFail: () => void;
 }) {
   const { data, error } = useQuery(playbackQuery(fileId));
@@ -164,8 +226,34 @@ function FollowerSource({
     if (error) fail.current();
   }, [error]);
   return data ? (
-    <Follower playback={data} master={master} volume={volume} follow={follow} onFail={onFail} />
+    <StreamElement playback={data} volume={volume} onElement={onElement} onFail={onFail} />
   ) : null;
+}
+
+function StreamElement({
+  playback,
+  volume,
+  onElement,
+  onFail,
+}: {
+  playback: Playback;
+  volume: number;
+  onElement: (element: HTMLAudioElement | null) => void;
+  onFail: () => void;
+}) {
+  const element = useRef<HTMLAudioElement>(null);
+  useStream(element, playback, onFail);
+  const report = useRef(onElement);
+  report.current = onElement;
+  useEffect(() => {
+    report.current(element.current);
+    return () => report.current(null);
+  }, []);
+  useEffect(() => {
+    if (element.current) element.current.volume = volume;
+  }, [volume]);
+  // biome-ignore lint/a11y/useMediaCaption: played with keys and waveforms, never shown.
+  return <audio ref={element} preload="auto" />;
 }
 
 const chip =

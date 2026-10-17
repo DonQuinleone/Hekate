@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  compareAlignment,
   composeAlignments,
   invertAlignment,
   mapTime,
@@ -86,5 +87,38 @@ describe("remapAnchor", () => {
   it("leaves anchors without a time in the recording", () => {
     expect(remapAnchor(later, { kind: "bar", from: { bar: 9, beat: 1 } })).toBeNull();
     expect(remapAnchor(later, null)).toBeNull();
+  });
+});
+
+describe("how well two versions line up", () => {
+  const ready = (quality: number) => ({ status: "ready" as const, quality });
+  const points: [number, number][] = [
+    [0, 0],
+    [60, 62],
+  ];
+
+  it("is ready when every step between them is usable, as good as the weakest", () => {
+    expect(
+      compareAlignment([{ rows: [ready(0.9)] }, { rows: [ready(0.7), ready(0.95)] }], points),
+    ).toEqual({ status: "ready", quality: 0.9, points });
+  });
+
+  it("waits on a step still being worked out, and says which are poor, failed or missing", () => {
+    expect(
+      compareAlignment(
+        [{ rows: [ready(0.9)] }, { rows: [{ status: "pending", quality: null }] }],
+        null,
+      ).status,
+    ).toBe("aligning");
+    expect(compareAlignment([{ rows: [ready(0.9)] }, { rows: [ready(0.31)] }], null)).toEqual({
+      status: "poor",
+      quality: 0.31,
+      points: null,
+    });
+    expect(compareAlignment([{ rows: [{ status: "failed", quality: null }] }], null).status).toBe(
+      "failed",
+    );
+    expect(compareAlignment([{ rows: [ready(0.9)] }, { rows: [] }], null).status).toBe("none");
+    expect(compareAlignment([], null).status).toBe("none");
   });
 });
