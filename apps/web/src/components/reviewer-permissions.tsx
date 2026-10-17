@@ -10,6 +10,7 @@ import { type FormEvent, useId, useState } from "react";
 import { cn } from "~/lib/cn";
 import { fromLocalInput, toLocalInput } from "~/lib/permissions";
 import { Button } from "./ui/button";
+import { Choice } from "./ui/choice";
 import { Input } from "./ui/input";
 import { Toggle } from "./ui/toggle";
 
@@ -23,6 +24,8 @@ const toolLabels: Record<ReviewerTool, string> = {
   spectrogram: "Spectrogram",
   meters: "Meters",
   loops: "Loops",
+  qa: "QA",
+  score: "Score",
 };
 
 const chip = "h-7 cursor-pointer rounded-chip border px-2.5 text-xs";
@@ -44,6 +47,7 @@ export function ReviewerPermissionsEditor({
   kind,
   guest,
   initial,
+  items,
   pending,
   error,
   onSave,
@@ -54,6 +58,8 @@ export function ReviewerPermissionsEditor({
   /** A guest gets exactly this; a member's comments and tools follow their project role. */
   guest: boolean;
   initial: ReviewerPermissions;
+  /** The review's items, to choose which a guest sees; left out before the review exists. */
+  items?: { id: string; name: string }[];
   pending: boolean;
   error: string | null;
   onSave: (change: ReviewerPermissionsChange) => void;
@@ -62,6 +68,15 @@ export function ReviewerPermissionsEditor({
   const [p, setP] = useState(initial);
   const [from, setFrom] = useState(toLocalInput(initial.startsAt));
   const [until, setUntil] = useState(toLocalInput(initial.expiresAt));
+  const [plays, setPlays] = useState(initial.maxPlays ? String(initial.maxPlays) : "");
+  const shown = p.items ?? null;
+  const toggleItem = (item: string) => {
+    const all = (items ?? []).map((i) => i.id);
+    const current = shown ?? all;
+    const next = current.includes(item) ? current.filter((i) => i !== item) : [...current, item];
+    // Every item chosen is the same as no choice: new items join them too.
+    setP({ ...p, items: next.length === all.length ? null : next });
+  };
   const id = useId();
   const toggleTool = (tool: ReviewerTool) =>
     setP((x) => ({
@@ -75,7 +90,14 @@ export function ReviewerPermissionsEditor({
       decide: p.decide,
       comments: p.comments,
       tools: reviewerTools.filter((t) => p.tools.includes(t)),
-      ...(guest ? { download: p.download ?? "none" } : {}),
+      ...(guest
+        ? {
+            download: p.download ?? "none",
+            history: p.history ?? false,
+            items: shown,
+            maxPlays: plays.trim() ? Math.max(1, Math.round(Number(plays))) : null,
+          }
+        : {}),
       startsAt: fromLocalInput(from),
       expiresAt: fromLocalInput(until),
     });
@@ -117,6 +139,13 @@ export function ReviewerPermissionsEditor({
             label="Record a decision"
             checked={p.decide}
             onChange={(decide) => setP({ ...p, decide })}
+          />
+        )}
+        {guest && (
+          <Toggle
+            label="Earlier versions"
+            checked={p.history ?? false}
+            onChange={(history) => setP({ ...p, history })}
           />
         )}
       </div>
@@ -161,7 +190,23 @@ export function ReviewerPermissionsEditor({
           )}
         </fieldset>
       )}
-      <fieldset className="m-0 grid grid-cols-1 gap-3 border-0 p-0 sm:grid-cols-2">
+      {guest && items && items.length > 1 && (
+        <fieldset className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0">
+          <legend className="label mb-2">Items they see</legend>
+          {items.map((item) => (
+            <Choice
+              key={item.id}
+              checked={shown === null || shown.includes(item.id)}
+              // At least one: a reviewer with nothing to review is no reviewer.
+              disabled={shown !== null && shown.length === 1 && shown.includes(item.id)}
+              onChange={() => toggleItem(item.id)}
+            >
+              {item.name}
+            </Choice>
+          ))}
+        </fieldset>
+      )}
+      <fieldset className="m-0 grid min-w-0 grid-cols-1 gap-3 border-0 p-0 sm:grid-cols-2">
         <legend className="label mb-2">Access</legend>
         <span className="flex flex-col gap-1">
           <label htmlFor={`${id}-from`} className="text-xs text-ink-3">
@@ -185,6 +230,23 @@ export function ReviewerPermissionsEditor({
             onChange={(e) => setUntil(e.target.value)}
           />
         </span>
+        {guest && (
+          <span className="flex flex-col gap-1">
+            <label htmlFor={`${id}-plays`} className="text-xs text-ink-3">
+              Plays of each file, at most
+            </label>
+            <Input
+              id={`${id}-plays`}
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={1000}
+              placeholder="No limit"
+              value={plays}
+              onChange={(e) => setPlays(e.target.value)}
+            />
+          </span>
+        )}
       </fieldset>
       <p className="m-0 text-xs text-ink-3">
         Left empty, access runs from now until the review ends.

@@ -3477,7 +3477,12 @@ describe.runIf(url)("api", () => {
           email?: string | null;
         }[];
         decisions: { decision: string; reviewerName: string | null }[];
-        items: { kind: string; fileId: string | null; version?: { number: number } | null }[];
+        items: {
+          id: string;
+          kind: string;
+          fileId: string | null;
+          version?: { number: number } | null;
+        }[];
         you: { active: boolean; canDecide: boolean; canSubmit: boolean };
       }
       const reviewOf = async (res: Response) =>
@@ -6053,6 +6058,146 @@ describe.runIf(url)("api", () => {
           const id =
             ((await getAs(`/api/files/${s.mix}/comments`, s.cookie)).json as unknown) && written;
           expect(id).toBeTruthy();
+        });
+
+        it("holds a guest to the items, versions, tools and plays their review gives", async () => {
+          const s = await invited();
+          const reviewer = s.review.reviewers.find((r) => r.guest);
+          const grant = (permissions: Record<string, unknown>) =>
+            app.request(`/api/reviews/${s.review.id}/reviewers/${reviewer?.id}`, {
+              ...json({ permissions }, s.owner),
+              method: "PATCH",
+            });
+          const sees = async (fileId: string) =>
+            (await getAs(`/api/files/${fileId}`, s.cookie)).status;
+          // A second version: the guest is shown the latest, and the first only with history.
+          const blob = await storage.put(s.organisationId, Buffer.from("v2"));
+          const [v2] = await db
+            .insert(schema.files)
+            .values({
+              organisationId: s.organisationId,
+              projectId: s.projectId,
+              name: "Mix v2.wav",
+              kind: "audio",
+              blobId: blob.id,
+              contentType: "audio/wav",
+              byteSize: blob.byteSize,
+              streamStatus: "ready",
+              mediaInfo: {
+                duration: 60,
+                audio: { codec: "pcm_s24le", channels: 2, sampleRate: 48000 },
+              },
+            })
+            .returning();
+          const second = await app.request(
+            `/api/tracks/${s.trackId}/versions`,
+            json({ variations: [{ fileId: v2?.id, name: "Mix" }] }, s.owner),
+          );
+          expect(second.status).toBe(201);
+          expect(await sees(v2?.id ?? "")).toBe(200);
+          expect(await sees(s.mix)).toBe(404);
+          expect((await grant({ history: true })).status).toBe(200);
+          expect(await sees(s.mix)).toBe(200);
+          // A review that names version 1 shows it and those before it, never a later one.
+          const [v1] = await db
+            .select({ id: schema.versions.id })
+            .from(schema.versions)
+            .where(and(eq(schema.versions.trackId, s.trackId), eq(schema.versions.number, 1)));
+          await db
+            .update(schema.reviewItems)
+            .set({ versionId: v1?.id ?? null })
+            .where(eq(schema.reviewItems.reviewId, s.review.id));
+          expect(await sees(s.mix)).toBe(200);
+          expect(await sees(v2?.id ?? "")).toBe(404);
+          await db
+            .update(schema.reviewItems)
+            .set({ versionId: null })
+            .where(eq(schema.reviewItems.reviewId, s.review.id));
+
+          // The score beside the recording, only with the score tool.
+          await db
+            .update(schema.tracks)
+            .set({ scoreFileId: s.artwork })
+            .where(eq(schema.tracks.id, s.trackId));
+          expect((await grant({ tools: ["loops"] })).status).toBe(200);
+          expect(await sees(s.artwork)).toBe(404);
+          // QA is a tool of its own now, apart from the meters.
+          expect((await getAs(`/api/files/${v2?.id}/qa`, s.cookie)).status).toBe(403);
+          expect((await grant({ tools: ["loops", "score", "qa"] })).status).toBe(200);
+          expect(await sees(s.artwork)).toBe(200);
+          expect((await getAs(`/api/files/${v2?.id}/qa`, s.cookie)).status).not.toBe(403);
+
+          // At most two plays of each file; a third start is refused. Plays through another
+          // review do not count against this one.
+          const [mine] = await db
+            .select({ guestId: schema.reviewReviewers.guestId })
+            .from(schema.reviewReviewers)
+            .where(eq(schema.reviewReviewers.id, reviewer?.id ?? ""));
+          await db.insert(schema.accessEvents).values(
+            [1, 2].map(() => ({
+              organisationId: s.organisationId,
+              action: "stream.session" as const,
+              actorType: "guest" as const,
+              guestId: mine?.guestId ?? null,
+              actorLabel: "An earlier review",
+              projectId: s.projectId,
+              fileId: v2?.id ?? null,
+              reviewId: null,
+            })),
+          );
+          expect((await grant({ maxPlays: 2 })).status).toBe(200);
+          const play = () => app.request(`/api/files/${v2?.id}/playback`, json({}, s.cookie));
+          expect((await play()).status).toBe(201);
+          expect((await play()).status).toBe(201);
+          const third = await play();
+          expect(third.status).toBe(403);
+          expect(((await third.json()) as { error: { code: string } }).error.code).toBe(
+            "plays_used",
+          );
+          // Members are not counted.
+          expect(
+            (await app.request(`/api/files/${v2?.id}/playback`, json({}, s.owner))).status,
+          ).toBe(201);
+        });
+
+        it("shows a guest only the items their review names, which must be its own", async () => {
+          const s = await studio();
+          mailer.sent.length = 0;
+          const review = await reviewOf(
+            await request(s.owner, s.projectId, {
+              kind: "feedback",
+              title: "Album master",
+              items: [{ trackId: s.trackId }, { fileId: s.artwork }],
+              reviewers: [guest],
+            }),
+          );
+          const res = await signIn(linkFor("conductor@example.test"));
+          const cookie = cookieOf(res);
+          const reviewer = review.reviewers.find((r) => r.guest);
+          const trackItem = review.items.find((i) => i.kind === "track")?.id;
+          const grant = (permissions: Record<string, unknown>) =>
+            app.request(`/api/reviews/${review.id}/reviewers/${reviewer?.id}`, {
+              ...json({ permissions }, s.owner),
+              method: "PATCH",
+            });
+          expect((await getAs(`/api/files/${s.artwork}`, cookie)).status).toBe(200);
+          // Not another review's item, and not none.
+          expect((await grant({ items: ["01890000-0000-7000-8000-000000000000"] })).status).toBe(
+            422,
+          );
+          expect((await grant({ items: [] })).status).toBe(422);
+          expect((await grant({ items: [trackItem] })).status).toBe(200);
+          expect((await getAs(`/api/files/${s.artwork}`, cookie)).status).toBe(404);
+          expect((await getAs(`/api/files/${s.mix}`, cookie)).status).toBe(200);
+          const theirs = (await (await getAs(`/api/reviews/${review.id}`, cookie)).json()) as {
+            review: { items: { id: string }[] };
+          };
+          expect(theirs.review.items.map((i) => i.id)).toEqual([trackItem]);
+          // The owner still sees both.
+          const ours = (await (await getAs(`/api/reviews/${review.id}`, s.owner)).json()) as {
+            review: { items: unknown[] };
+          };
+          expect(ours.review.items).toHaveLength(2);
         });
 
         it("lets a guest download only what their review grants", async () => {

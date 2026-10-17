@@ -995,3 +995,16 @@ test("file-download", async ({ page }) => {
   expect(bytes.toString("latin1", 4, 8)).toBe("ftyp");
   expect(bytes.length).toBeGreaterThan(50_000);
 });
+
+// Per-reviewer permissions (#55): a guest's items, earlier versions, tools, download and plays.
+test("review-reviewer-permissions", async ({ page }) => {
+  await page.goto(`/reviews/${seeded().reviewId}`);
+  await page.getByRole("button", { name: "Actions for Mira Solberg" }).click();
+  await page.getByRole("menuitem", { name: "Override permissions for this review…" }).click();
+  const form = page.getByRole("form", { name: "What Mira Solberg may do" });
+  await expect(form.getByRole("group", { name: "Items they see" })).toBeVisible();
+  await expect(form.getByLabel("Plays of each file, at most")).toBeVisible();
+  await form.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await saveScreen(page, "review-reviewer-permissions");
+  await checkScreen(page);
+});

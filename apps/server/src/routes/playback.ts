@@ -2,15 +2,15 @@ import { type Database, inOrg, schema } from "@hekate/db";
 import type { ReviewerTool } from "@hekate/shared";
 import { unwrapKey } from "@hekate/storage";
 import { zValidator } from "@hono/zod-validator";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, count, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { type Actor, canOnFile, fileAccess, guestFileReviews } from "../access.ts";
+import { type Actor, canOnFile, fileAccess, guestFileReviews, guestReach } from "../access.ts";
 import { alignmentsFrom } from "../alignment-graph.ts";
 import { type Audit, requestInfo } from "../audit.ts";
-import { NotFound } from "../errors.ts";
+import { CodedException, NotFound } from "../errors.ts";
 import type { PlaySessionVariables, ViewerVariables } from "../guests.ts";
 import type { Keyring } from "../keyring.ts";
 import { watermark, watermarkText } from "../media/watermark.ts";
@@ -31,6 +31,7 @@ import {
 import { noteOpened } from "./reviews.ts";
 
 const {
+  accessEvents,
   filePages,
   files,
   guests,
@@ -416,17 +417,51 @@ export const fileRoutes = (deps: PlaybackDeps) =>
         ...(reviewId ? { reviewId } : {}),
         expiresAt,
       });
-      await deps.audit.record(
-        organisationId,
-        await deps.audit.actor(actor),
-        {
-          action: "stream.session",
-          projectId: file.projectId,
-          fileId: file.id,
-          ...(reviewId ? { reviewId } : {}),
-        },
-        requestInfo(c, deps.trustProxy),
-      );
+      const event = {
+        action: "stream.session" as const,
+        projectId: file.projectId,
+        fileId: file.id,
+        ...(reviewId ? { reviewId } : {}),
+      };
+      const who = await deps.audit.actor(actor);
+      const request = requestInfo(c, deps.trustProxy);
+      // A review may limit how often a guest plays each file (#55): every start is a play,
+      // counted and recorded together, one start at a time per guest and file. The limit and
+      // the count are the review's this play goes through, so a new review starts afresh.
+      const limit =
+        actor.kind === "guest"
+          ? ((await guestReach(deps.db, actor)).get(file.id)?.find((r) => r.reviewId === reviewId)
+              ?.permissions.maxPlays ?? null)
+          : null;
+      if (actor.kind === "guest" && limit !== null) {
+        const allowed = await deps.db.transaction(async (tx) => {
+          await tx.execute(
+            sql`select pg_advisory_xact_lock(hashtext(${`plays:${actor.guestId}:${file.id}:${reviewId}`}))`,
+          );
+          const [played] = await tx
+            .select({ n: count() })
+            .from(accessEvents)
+            .where(
+              inOrg(
+                accessEvents,
+                organisationId,
+                eq(accessEvents.guestId, actor.guestId),
+                eq(accessEvents.fileId, file.id),
+                eq(accessEvents.action, "stream.session"),
+                reviewId ? eq(accessEvents.reviewId, reviewId) : undefined,
+              ),
+            );
+          if ((played?.n ?? 0) >= limit) return false;
+          await deps.audit.record(organisationId, who, event, request, tx);
+          return true;
+        });
+        if (!allowed)
+          throw new CodedException(
+            403,
+            "plays_used",
+            `You have played this file the ${limit === 1 ? "one time" : `${limit} times`} the review allows.`,
+          );
+      } else await deps.audit.record(organisationId, who, event, request);
       return c.json(
         {
           url: `/api/play/${token}/master.m3u8`,

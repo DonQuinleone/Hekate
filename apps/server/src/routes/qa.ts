@@ -28,7 +28,7 @@ export const fileQaRoutes = (db: Database) =>
   new Hono<{ Variables: ViewerVariables }>().get("/:id/qa", idParam, async (c) => {
     const { id } = c.req.valid("param");
     const access = await canOnFile(db, c.var.actor, "view", id);
-    if (access.grant && !access.grant.tools.includes("meters")) {
+    if (access.grant && !access.grant.tools.includes("qa")) {
       throw new HTTPException(403, { message: "This review does not include that tool" });
     }
     const organisationId = c.var.organisationId;
