@@ -395,11 +395,20 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
           <Section title="Templates">
             <Row
               name="Save as a template"
-              hint="Roles, tool access, categories, delivery profile and workflow, without the files."
+              hint="Roles, categories, delivery profile, QA rules and version checks, without the files."
             >
               <Button variant="secondary" size="md">
-                Save template
+                Save template…
               </Button>
+            </Row>
+            <Row
+              name="Solo recital"
+              hint="From Joplin Rags · 6 roles · 5 categories · saved by Alex Rivera"
+            >
+              <ActionMenu
+                label="Solo recital"
+                actions={[{ label: "Remove template", danger: true, onSelect: () => {} }]}
+              />
             </Row>
           </Section>
           <Danger>

@@ -100,11 +100,16 @@ export function NewProject({ onClose, bare = false }: { onClose: () => void; bar
         Start from
         <Select defaultValue="">
           <option value="">The default roles and settings</option>
-          {viewer.projects().map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}'s roles and settings
-            </option>
-          ))}
+          <optgroup label="Templates">
+            <option value="template:recital">Solo recital</option>
+          </optgroup>
+          <optgroup label="Projects">
+            {viewer.projects().map((p) => (
+              <option key={p.id} value={`project:${p.id}`}>
+                {p.name}'s roles and settings
+              </option>
+            ))}
+          </optgroup>
         </Select>
         <span className="text-[13px] text-ink-3">Nothing else is copied: no files, no people.</span>
       </label>

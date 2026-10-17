@@ -56,6 +56,7 @@ import {
   type ProfileSource,
   type ProjectPermission,
   type ProjectProfile,
+  type ProjectTemplate,
   permissionsOfLevels,
   type QaFinding,
   type QaSettings,
@@ -459,6 +460,37 @@ export function useArchiveProject() {
       void client.invalidateQueries();
     },
   });
+}
+
+/** The workspace's project templates (#240), newest first. */
+export const templatesQuery = queryOptions({
+  queryKey: ["templates"],
+  queryFn: async () =>
+    (await json<{ templates: ProjectTemplate[] }>(await api.templates.$get())).templates,
+});
+
+/** Saving a project's set-up as a template, and removing one. */
+export function useTemplateMutations() {
+  const client = useQueryClient();
+  const refresh = () => client.invalidateQueries({ queryKey: templatesQuery.queryKey });
+  return {
+    save: useMutation({
+      mutationFn: async ({ projectId, name }: { projectId: string; name: string }) =>
+        (
+          await json<{ template: ProjectTemplate }>(
+            await api.projects[":id"].template.$post({ param: { id: projectId }, json: { name } }),
+          )
+        ).template,
+      onSuccess: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api.templates[":id"].$delete({ param: { id } });
+        if (!res.ok) await json(res);
+      },
+      onSuccess: refresh,
+    }),
+  };
 }
 
 export interface Member {

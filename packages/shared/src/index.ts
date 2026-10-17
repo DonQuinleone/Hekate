@@ -34,4 +34,5 @@ export * from "./spectrogram.ts";
 export * from "./sso.ts";
 export * from "./tags.ts";
 export * from "./takes.ts";
+export * from "./templates.ts";
 export * from "./tracks.ts";
