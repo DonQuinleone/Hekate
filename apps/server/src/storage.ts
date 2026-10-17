@@ -86,7 +86,7 @@ export interface UploadSession {
 
 /** Binds a blob's ciphertext and data key to that blob, so neither can be moved to another. */
 const blobAad = (blobId: string) => Buffer.from(`blob:${blobId}`);
-const dataKeyContext = (blobId: string) => `blob:${blobId}`;
+export const dataKeyContext = (blobId: string) => `blob:${blobId}`;
 
 export function createStorage(db: Database, backends: Backends, keyring: Keyring): Storage {
   const blobIn = async (organisationId: string, blobId: string) => {

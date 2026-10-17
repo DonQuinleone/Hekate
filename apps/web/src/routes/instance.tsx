@@ -8,6 +8,7 @@ import {
   instanceActions,
   instanceSections,
   instanceSectionsFor,
+  WORKSPACE_DELETE_GRACE_DAYS,
   type WorkspaceState,
 } from "@hekate/shared";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -18,7 +19,7 @@ import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
-import { Row, Section } from "~/components/settings";
+import { Danger, Row, Section } from "~/components/settings";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
@@ -34,10 +35,13 @@ import { ago } from "~/lib/comments";
 import { formatDates } from "~/lib/locale";
 import {
   instanceAccessQuery,
+  instanceKeysQuery,
   instanceMembersQuery,
   instanceOperatorsQuery,
   instanceOverviewQuery,
   instanceProjectsQuery,
+  instanceSettingsQuery,
+  instanceStorageQuery,
   instanceWorkspaceQuery,
   instanceWorkspacesQuery,
   json,
@@ -347,7 +351,14 @@ function StateDot({ state }: { state: WorkspaceState }) {
   );
 }
 
-type WorkspaceTab = "overview" | "members" | "projects";
+type WorkspaceTab =
+  | "overview"
+  | "members"
+  | "projects"
+  | "storage"
+  | "billing"
+  | "settings"
+  | "keys";
 
 /** One workspace: what it is, where it stands, and its tabs. */
 function WorkspaceDetail({ id, operator }: { id: string; operator: boolean }) {
@@ -371,7 +382,13 @@ function WorkspaceDetail({ id, operator }: { id: string; operator: boolean }) {
           <h2 className="m-0 truncate text-[20px] font-medium tracking-tight text-ink">{w.name}</h2>
           <p className="tabular m-0 text-[13px] text-ink-3">
             {w.slug} · since {since.format(new Date(w.createdAt))}
-            {w.state === "suspended" && <span className="text-signal"> · suspended</span>}
+            {w.state === "suspended" && (
+              <span className="text-signal">
+                {w.deleteAfter
+                  ? ` · deleted on ${since.format(new Date(w.deleteAfter))}`
+                  : " · suspended"}
+              </span>
+            )}
           </p>
         </div>
         {operator && (
@@ -403,6 +420,10 @@ function WorkspaceDetail({ id, operator }: { id: string; operator: boolean }) {
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="members">Members · {w.members}</TabsTrigger>
           <TabsTrigger value="projects">Projects · {w.projects}</TabsTrigger>
+          <TabsTrigger value="storage">Storage</TabsTrigger>
+          <TabsTrigger value="billing">Billing</TabsTrigger>
+          <TabsTrigger value="settings">Settings</TabsTrigger>
+          <TabsTrigger value="keys">Keys</TabsTrigger>
         </TabsList>
         <TabsContent value="overview" className="flex flex-col gap-6 pt-6">
           <WorkspaceOverview workspace={w} />
@@ -412,6 +433,22 @@ function WorkspaceDetail({ id, operator }: { id: string; operator: boolean }) {
         </TabsContent>
         <TabsContent value="projects" className="flex flex-col gap-6 pt-6">
           <WorkspaceProjects id={id} />
+        </TabsContent>
+        <TabsContent value="storage" className="flex flex-col gap-6 pt-6">
+          <WorkspaceStorage id={id} />
+        </TabsContent>
+        <TabsContent value="billing" className="flex flex-col gap-6 pt-6">
+          <WorkspaceBilling />
+        </TabsContent>
+        <TabsContent value="settings" className="flex flex-col gap-6 pt-6">
+          <WorkspaceSettingsTab
+            workspace={w}
+            operator={operator}
+            onSuspend={() => setSuspending(true)}
+          />
+        </TabsContent>
+        <TabsContent value="keys" className="flex flex-col gap-6 pt-6">
+          <WorkspaceKeys id={id} operator={operator} />
         </TabsContent>
       </Tabs>
     </div>
@@ -592,6 +629,325 @@ function WorkspaceProjects({ id }: { id: string }) {
           <span className="text-[12px] text-ink-3">{p.archived ? "archived" : "active"}</span>
         </Row>
       ))}
+    </Section>
+  );
+}
+
+function WorkspaceStorage({ id }: { id: string }) {
+  const { data: s } = useQuery(instanceStorageQuery(id));
+  if (!s) return null;
+  return (
+    <>
+      <Section title="Storage" intro="Sizes before encryption.">
+        <Row
+          name="Used"
+          hint={`${formatBytes(s.originalBytes)} of originals, ${formatBytes(s.derivedBytes)} made from them for playback, waveforms and pages`}
+          inline
+        >
+          <span className="tabular text-[13px] text-ink-2">
+            {formatBytes(s.originalBytes + s.derivedBytes)}
+          </span>
+        </Row>
+        <Row
+          name="New objects go to"
+          hint={
+            s.backendIsDefault ? "The instance’s default backend." : "Chosen for this workspace."
+          }
+          inline
+        >
+          <span className="text-[13px] text-ink-2">{s.backend}</span>
+        </Row>
+        {s.backends.map((b) => (
+          <Row
+            key={b.name}
+            name={b.name}
+            hint={`${b.objects} ${b.objects === 1 ? "object" : "objects"}`}
+            inline
+          >
+            <span className="tabular text-[13px] text-ink-2">{formatBytes(b.bytes)}</span>
+          </Row>
+        ))}
+      </Section>
+      <Section
+        title="Housekeeping"
+        intro="What the nightly reconciliation found in this workspace and has not resolved."
+      >
+        <Row
+          name="Missing"
+          hint="Records whose bytes are gone from storage. Restore them from a backup."
+          inline
+        >
+          <span
+            className={cn(
+              "tabular text-[13px]",
+              s.findings.missing > 0 ? "text-signal" : "text-ink-2",
+            )}
+          >
+            {s.findings.missing}
+          </span>
+        </Row>
+        <Row name="Orphans" hint="Bytes in storage that no record accounts for." inline>
+          <span className="tabular text-[13px] text-ink-2">{s.findings.orphans}</span>
+        </Row>
+      </Section>
+    </>
+  );
+}
+
+function WorkspaceBilling() {
+  return (
+    <Section title="Plan">
+      <Row
+        name="This instance does not charge"
+        hint="Plans, trials and invoices appear here once billing is set up for the instance."
+      />
+    </Section>
+  );
+}
+
+const secondFactorWords: Record<string, string> = {
+  off: "Not required",
+  admins: "Required of owners and admins",
+  everyone: "Required of everyone",
+};
+
+/** What the workspace's owner set, read-only, and what only an operator does with it. */
+function WorkspaceSettingsTab({
+  workspace: w,
+  operator,
+  onSuspend,
+}: {
+  workspace: InstanceWorkspaceDetail;
+  operator: boolean;
+  onSuspend: () => void;
+}) {
+  const client = useQueryClient();
+  const { data: s } = useQuery(instanceSettingsQuery(w.id));
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const refresh = () => client.invalidateQueries({ queryKey: ["instance"] });
+  const reinstate = useMutation({
+    mutationFn: async () =>
+      json(await api.instance.workspaces[":id"].reinstate.$post({ param: { id: w.id } })),
+    onSuccess: refresh,
+    onError: (e) => setError(e.message),
+  });
+  const keep = useMutation({
+    mutationFn: async () =>
+      json(await api.instance.workspaces[":id"].delete.cancel.$post({ param: { id: w.id } })),
+    onSuccess: refresh,
+    onError: (e) => setError(e.message),
+  });
+  if (!s) return null;
+  return (
+    <>
+      {deleting && <DeleteWorkspace workspace={w} onClose={() => setDeleting(false)} />}
+      <Section
+        title="Sign-in"
+        intro="As its owner set it. Operators read these; the workspace changes them."
+      >
+        <Row name="Subdomain" inline>
+          <span className="text-[13px] text-ink-2">{w.slug}</span>
+        </Row>
+        <Row
+          name="Single sign-on"
+          hint={s.sso?.enforced ? "The only way in for members other than owners." : undefined}
+          inline
+        >
+          <span className="text-[13px] text-ink-2">{s.sso ? s.sso.protocol : "Not set up"}</span>
+        </Row>
+        <Row name="Directory" inline>
+          <span className="text-[13px] text-ink-2">{s.directory ? "On" : "Off"}</span>
+        </Row>
+        <Row
+          name="Second factor"
+          hint={
+            s.securityKeyForAdmins ? "Owners and admins sign in with a security key." : undefined
+          }
+          inline
+        >
+          <span className="text-[13px] text-ink-2">
+            {secondFactorWords[s.secondFactor] ?? s.secondFactor}
+          </span>
+        </Row>
+      </Section>
+      <Section title="Guests">
+        <Row name="Links last" inline>
+          <span className="tabular text-[13px] text-ink-2">
+            {s.guestLinkDays} {s.guestLinkDays === 1 ? "day" : "days"}
+          </span>
+        </Row>
+        <Row name="Opening a link" inline>
+          <span className="text-[13px] text-ink-2">
+            {s.guestVerification === "code" ? "Asks for an emailed code" : "Opens by itself"}
+          </span>
+        </Row>
+      </Section>
+      {operator && (
+        <Danger>
+          <Row
+            name={w.state === "suspended" ? "Reinstate" : "Suspend"}
+            hint="Suspending keeps everything and lets nobody in."
+          >
+            {w.state === "suspended" ? (
+              <Button variant="secondary" size="md" onClick={() => reinstate.mutate()}>
+                Reinstate
+              </Button>
+            ) : (
+              <Button variant="secondary" size="md" onClick={onSuspend}>
+                Suspend…
+              </Button>
+            )}
+          </Row>
+          {w.deleteAfter ? (
+            <Row
+              name={`Deleted on ${since.format(new Date(w.deleteAfter))}`}
+              hint="With everything in it. Until then, keeping it or reinstating it changes nothing."
+            >
+              <Button variant="secondary" size="md" onClick={() => keep.mutate()}>
+                Keep it
+              </Button>
+            </Row>
+          ) : (
+            <Row
+              name="Delete"
+              hint={
+                w.state === "suspended"
+                  ? `${WORKSPACE_DELETE_GRACE_DAYS} days after you ask, with everything in it.`
+                  : "Suspend it first; it is deleted after a grace period."
+              }
+            >
+              <Button
+                variant="ghost"
+                size="md"
+                disabled={w.state !== "suspended"}
+                onClick={() => setDeleting(true)}
+              >
+                Delete…
+              </Button>
+            </Row>
+          )}
+          {error && (
+            <p role="alert" className="m-0 px-4 py-3 text-[13px] text-signal">
+              {error}
+            </p>
+          )}
+        </Danger>
+      )}
+    </>
+  );
+}
+
+function DeleteWorkspace({
+  workspace,
+  onClose,
+}: {
+  workspace: InstanceWorkspace;
+  onClose: () => void;
+}) {
+  const client = useQueryClient();
+  const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const remove = useMutation({
+    mutationFn: async () =>
+      json(await api.instance.workspaces[":id"].delete.$post({ param: { id: workspace.id } })),
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: ["instance"] });
+      onClose();
+    },
+    onError: (e) => setError(e.message),
+  });
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    remove.mutate();
+  };
+  return (
+    <Dialog
+      title={`Delete ${workspace.name}`}
+      description={`In ${WORKSPACE_DELETE_GRACE_DAYS} days its members, projects, files, reviews, keys and access log are deleted, and its stored files with them. Until then it stays suspended, and keeping it changes nothing.`}
+      onClose={onClose}
+      width="sm"
+      footer={
+        <>
+          <Button variant="ghost" size="md" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="md"
+            type="submit"
+            form="delete-workspace"
+            disabled={remove.isPending || name.trim() !== workspace.name}
+          >
+            Delete in {WORKSPACE_DELETE_GRACE_DAYS} days
+          </Button>
+        </>
+      }
+    >
+      <form id="delete-workspace" onSubmit={submit} className="flex flex-col gap-3">
+        <Field label={`Type ${workspace.name} to confirm`} error={error}>
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoComplete="off"
+            autoFocus
+          />
+        </Field>
+      </form>
+    </Dialog>
+  );
+}
+
+function WorkspaceKeys({ id, operator }: { id: string; operator: boolean }) {
+  const client = useQueryClient();
+  const { data: k } = useQuery(instanceKeysQuery(id));
+  const [error, setError] = useState<string | null>(null);
+  const rotate = useMutation({
+    mutationFn: async () =>
+      json(await api.instance.workspaces[":id"].keys.rotate.$post({ param: { id } })),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["instance", "workspace", id, "keys"] }),
+    onError: (e) => setError(e.message),
+  });
+  if (!k) return null;
+  const latest = k.versions[0];
+  return (
+    <Section
+      title="Keys"
+      intro="The workspace’s key wraps the key of every file it holds, and is itself wrapped by the instance’s master key. Rotating it makes a new version and rewraps everything in the background; earlier versions are kept so nothing becomes unreadable."
+    >
+      <Row
+        name="Workspace key"
+        hint={
+          latest
+            ? [
+                `Version ${latest.version}, made ${since.format(new Date(latest.createdAt))}`,
+                k.pending > 0
+                  ? `${k.pending} still wrapped by an earlier version, rewrapping`
+                  : k.versions.length > 1
+                    ? "everything rewrapped"
+                    : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            : "Made when its first file is stored."
+        }
+      >
+        {operator && latest && (
+          <Button
+            variant="secondary"
+            size="md"
+            disabled={rotate.isPending || k.pending > 0}
+            onClick={() => rotate.mutate()}
+          >
+            Rotate
+          </Button>
+        )}
+      </Row>
+      {error && (
+        <p role="alert" className="m-0 px-4 py-3 text-[13px] text-signal">
+          {error}
+        </p>
+      )}
     </Section>
   );
 }
