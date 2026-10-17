@@ -35,9 +35,10 @@ const screens = join(import.meta.dirname, "../test-results/screens");
 /** Keeps a capture of the whole page, named for the screen, for people and CI to look at. */
 export async function saveScreen(page: Page, name: string) {
   mkdirSync(screens, { recursive: true });
-  // The seed runs once; the screens run at each width, so the width's project names the file.
+  // The seed and the installer run once; the screens run at each width, so the width's project
+  // names the file.
   const project = test.info().project.name;
-  const file = project === "seed" ? name : `${name}-${project}`;
+  const file = project === "seed" || project === "install" ? name : `${name}-${project}`;
   // Transitions finish first, so a capture never shows a control halfway to its new state.
   await page.screenshot({
     path: join(screens, `${file}.png`),

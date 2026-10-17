@@ -7,6 +7,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import type { Auth } from "../auth.ts";
+import { requireSetupCode, type SetupGate } from "../setup-code.ts";
 
 export const setupInput = z.object({
   name: z.string().trim().min(1).max(120),
@@ -31,11 +32,16 @@ async function hasUsers(db: Database) {
  * First-run setup: creates the first account, its organisation (or adopts the one an earlier,
  * pre-authentication install created) and makes the account its owner. Closed once any account exists.
  * Setup is serialised in-process; the unique email constraint is the backstop across processes.
+ * The server's setup code guards it (decision 061), so whoever finds a fresh instance first
+ * cannot claim it.
  */
-export const setupRoutes = (db: Database, auth: Auth, leakCheck: boolean) => {
+export const setupRoutes = (db: Database, auth: Auth, leakCheck: boolean, gate?: SetupGate) => {
   let running: Promise<unknown> = Promise.resolve();
   return new Hono()
     .get("/", async (c) => c.json({ needed: !(await hasUsers(db)) }))
+    .use("/", async (c, next) =>
+      c.req.method === "POST" && gate ? requireSetupCode(gate)(c, next) : next(),
+    )
     .post("/", zValidator("json", setupInput), async (c) => {
       const input = c.req.valid("json");
       const run = running.then(async () => {

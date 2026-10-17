@@ -21,6 +21,7 @@ import { projectGroupRoutes } from "./routes/groups.ts";
 import { guestRoutes } from "./routes/guest.ts";
 import { health } from "./routes/health.ts";
 import { homeRoutes } from "./routes/home.ts";
+import { installRoutes } from "./routes/install.ts";
 import { invitationRoutes } from "./routes/invitations.ts";
 import { projectMarkRoutes } from "./routes/marks.ts";
 import { accountRoutes, meRoutes } from "./routes/me.ts";
@@ -47,6 +48,7 @@ import {
 } from "./routes/tracks.ts";
 import { uploadRoutes } from "./routes/uploads.ts";
 import { securityHeaders } from "./security-headers.ts";
+import type { SetupGate } from "./setup-code.ts";
 import type { Storage } from "./storage.ts";
 import { requireOrganisation, requireSession } from "./tenancy.ts";
 
@@ -75,6 +77,8 @@ export interface AppDeps {
   passwordLeakCheck?: boolean;
   /** The instance asks every account for a second factor (REQUIRE_SECOND_FACTOR). */
   requireSecondFactor?: boolean;
+  /** Guards creating the first owner with the code from the server's log (decision 061). */
+  setupGate?: SetupGate;
 }
 
 export function createApi(deps: AppDeps) {
@@ -110,7 +114,11 @@ export function createApi(deps: AppDeps) {
   return (
     new Hono()
       .route("/health", health(deps.db))
-      .route("/setup", setupRoutes(deps.db, deps.auth, deps.passwordLeakCheck ?? false))
+      .route(
+        "/setup",
+        setupRoutes(deps.db, deps.auth, deps.passwordLeakCheck ?? false, deps.setupGate),
+      )
+      .route("/install", installRoutes(null))
       .route("/sign-in-methods", signInMethodRoutes(deps.db))
       // Deleting the account needs no workspace; it answers before the workspace check below.
       .route(

@@ -5,6 +5,7 @@ import { createDb } from "@hekate/db";
 import { createBackends } from "@hekate/storage";
 import { describeReport, verifyBackup } from "./backup-verify.ts";
 import { createKeyring } from "./keyring.ts";
+import { readSettingsFile, settingsPath, withSettings } from "./settings-file.ts";
 import { settingsOrExit } from "./startup.ts";
 import { createStorage } from "./storage.ts";
 
@@ -24,7 +25,9 @@ if (!Number.isInteger(sample) || sample < 0) {
   process.exit(2);
 }
 
-const { config, storageConfig } = settingsOrExit();
+const { config, storageConfig } = settingsOrExit(
+  withSettings(process.env, readSettingsFile(settingsPath(process.env))),
+);
 const { db, close } = createDb(config.DATABASE_URL);
 const keyring = createKeyring(db, {
   current: config.MASTER_KEY,

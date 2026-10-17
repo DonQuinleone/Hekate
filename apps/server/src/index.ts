@@ -1,133 +1,51 @@
-import { createDb, runMigrations } from "@hekate/db";
-import { createBackends, StorageConfigError } from "@hekate/storage";
+import { randomBytes } from "node:crypto";
 import { serve } from "@hono/node-server";
-import { createApp } from "./app.ts";
-import { createAudit } from "./audit.ts";
-import { createAuth } from "./auth.ts";
-import { createJobs } from "./jobs.ts";
-import { createKeyring, UnknownMasterKeyError } from "./keyring.ts";
-import { createMailer } from "./mail.ts";
-import { startWorkers } from "./media/workers.ts";
-import { deliverDigests, deliverInstant } from "./notifications.ts";
-import { playbackSecret } from "./playback.ts";
-import { purgeRequestLimits } from "./rate-limit.ts";
-import { remindDue } from "./reminders.ts";
-import { purgeDownloadTickets } from "./routes/downloads.ts";
-import { purgeAttempts } from "./sign-in.ts";
-import { settingsOrExit } from "./startup.ts";
-import { serveWeb } from "./static.ts";
-import { createStorage } from "./storage.ts";
-import { recordedReconciliation } from "./storage-usage.ts";
+import { boot } from "./boot.ts";
+import { createInstallApp } from "./install-app.ts";
+import { needsInstall, readSettingsFile, settingsPath, withSettings } from "./settings-file.ts";
+import { createSetupGate, setupMessage } from "./setup-code.ts";
 import { version } from "./version.ts";
 
-const { config, storageConfig } = settingsOrExit();
-if (config.MIGRATE_ON_START) await runMigrations(config.DATABASE_URL);
+// The environment, with the settings the installer wrote beneath it (decision 061).
+const settingsFile = settingsPath(process.env);
+const settings = () => withSettings(process.env, readSettingsFile(settingsFile));
+const gate = createSetupGate({ code: process.env.HEKATE_SETUP_CODE });
 
-// Refuse to start with storage that is unreachable or read-only.
-const backends = await (async () => {
-  try {
-    const configured = createBackends(storageConfig);
-    await configured.checkAll();
-    return configured;
-  } catch (error) {
-    if (!(error instanceof StorageConfigError)) throw error;
-    console.error(error.message);
-    process.exit(1);
-  }
-})();
+type Handler = (request: Request) => Response | Promise<Response>;
+let handler: Handler;
+let stop = async () => {};
 
-const { db, close } = createDb(config.DATABASE_URL);
-const mailer = createMailer({ smtpUrl: config.SMTP_URL, from: config.MAIL_FROM });
-const keyring = createKeyring(db, {
-  current: config.MASTER_KEY,
-  previous: config.MASTER_KEYS_PREVIOUS,
-});
-const auth = createAuth({
-  db,
-  secret: config.AUTH_SECRET,
-  baseURL: config.PUBLIC_URL,
-  trustedOrigins: config.TRUSTED_ORIGINS,
-  mailer,
-  audit: createAudit(db),
-  leakCheck: config.PASSWORD_LEAK_CHECK,
-  maxPasskeys: config.MAX_PASSKEYS,
-  ssoTrustedOrigins: config.SSO_TRUSTED_ORIGINS,
-  keyring,
-});
-
-// Every organisation key must open with a configured master key; keys wrapped by a
-// previous master key are re-wrapped with the current one (docs/security.md).
-try {
-  const { rewrapped } = await keyring.reconcile();
-  if (rewrapped > 0) {
-    console.log(
-      `Re-wrapped ${rewrapped} organisation key(s) with the current master key. MASTER_KEYS_PREVIOUS can now be removed.`,
-    );
-  }
-} catch (error) {
-  if (!(error instanceof UnknownMasterKeyError)) throw error;
-  console.error(error.message);
-  process.exit(1);
-}
-const storage = createStorage(db, backends, keyring);
-
-const audit = createAudit(db);
-const jobs = createJobs({ connectionString: config.DATABASE_URL });
-await jobs.start();
-if (config.WORKER) {
-  await startWorkers(
-    jobs,
-    { db, storage, keyring, jobs, ...(config.WORK_DIR ? { workDir: config.WORK_DIR } : {}) },
-    config.WORKER_CONCURRENCY,
-  );
-  await jobs.work("storage-reconcile", async () => {
-    const reports = await recordedReconciliation(
-      { db, storage, audit },
-      { remove: config.STORAGE_RECONCILE === "remove" },
-    );
-    for (const r of reports) {
-      if (r.orphanObjects + r.unreferencedBlobs + r.missingObjects + r.removed === 0) continue;
-      console.log(
-        `Storage ${r.backend}: ${r.orphanObjects} orphan object(s), ${r.unreferencedBlobs} unused blob(s), ${r.missingObjects} missing, ${r.removed} removed`,
-      );
-    }
-  });
-  await jobs.work("notifications-mail", async () => {
-    await deliverInstant(db, mailer, config.PUBLIC_URL);
-  });
-  await jobs.work("notifications-digest", async () => {
-    await deliverDigests(db, mailer, config.PUBLIC_URL);
-  });
-  await jobs.work("sign-in-attempts-purge", async () => {
-    await purgeAttempts(db);
-    await purgeRequestLimits(db);
-    await purgeDownloadTickets(db);
-  });
-  await jobs.work("reviews-remind", async () => {
-    await remindDue({ db, mailer, audit, publicUrl: config.PUBLIC_URL });
-  });
+/** The configured server: from the start, or once the installer has finished. */
+async function start() {
+  const booted = await boot(settings(), { gate });
+  handler = (request) => booted.app.fetch(request);
+  stop = booted.stop;
+  if (booted.needsOwner) console.log(setupMessage(gate, booted.publicUrl));
+  return booted.port;
 }
 
-const app = createApp({
-  db,
-  auth,
-  mailer,
-  storage,
-  audit,
-  jobs,
-  keyring,
-  playbackSecret: playbackSecret(config.AUTH_SECRET),
-  publicUrl: config.PUBLIC_URL,
-  trustProxy: config.TRUST_PROXY,
-  passwordLeakCheck: config.PASSWORD_LEAK_CHECK,
-  requireSecondFactor: config.REQUIRE_SECOND_FACTOR,
-  maxPasskeys: config.MAX_PASSKEYS,
-  ssoTrustedOrigins: config.SSO_TRUSTED_ORIGINS,
-  storageReconcile: config.STORAGE_RECONCILE,
-});
-if (config.WEB_DIST) serveWeb(app, config.WEB_DIST, { docsUrl: config.HEKATE_DOCS_URL });
+const port = needsInstall(process.env, readSettingsFile(settingsFile))
+  ? (() => {
+      const port = Number(process.env.PORT || 3000);
+      const installer = createInstallApp({
+        env: process.env,
+        settingsFile,
+        gate,
+        nonce: randomBytes(24).toString("base64url"),
+        finish: async () => {
+          await start();
+          console.log("Installed. Hekate is starting.");
+        },
+        webDist: process.env.WEB_DIST,
+        docsUrl: process.env.HEKATE_DOCS_URL || "https://docs.hekate.studio",
+      });
+      handler = (request) => installer.fetch(request);
+      console.log(setupMessage(gate, process.env.PUBLIC_URL || `http://localhost:${port}`));
+      return port;
+    })()
+  : await start();
 
-const server = serve({ fetch: app.fetch, port: config.PORT }, (info) => {
+const server = serve({ fetch: (request) => handler(request), port }, (info) => {
   console.log(`Hekate ${version} listening on :${info.port}`);
 });
 
@@ -137,11 +55,6 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     if (stopping) return;
     stopping = true;
     server.close();
-    // Let running jobs finish (or give up at the timeout) before closing the database.
-    void jobs
-      .stop()
-      .catch((error: unknown) => console.error("Stopping the job queue failed:", error))
-      .then(() => close())
-      .then(() => process.exit(0));
+    void stop().then(() => process.exit(0));
   });
 }

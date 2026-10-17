@@ -23,7 +23,7 @@ export const fileSettings = [
   "MASTER_KEYS_PREVIOUS",
 ];
 
-function withFileSettings(env: Record<string, string | undefined>) {
+export function withFileSettings(env: Record<string, string | undefined>) {
   const resolved = { ...env };
   // A file that cannot be read is a problem like any other, reported with the rest.
   const problems: ConfigProblem[] = [];
@@ -124,6 +124,27 @@ const schema = z.object({
         group: "Server",
         description:
           "Directory holding the built web app, served with a single-page fallback. Set in the app image.",
+      }),
+    ),
+  HEKATE_SETTINGS_FILE: z
+    .string()
+    .optional()
+    .meta(
+      info({
+        group: "Server",
+        description:
+          "The file the installer writes its settings to, read at every start beneath the environment (which wins). Set to /config/hekate.env in the app image; data/hekate.env otherwise.",
+        example: "/config/hekate.env",
+      }),
+    ),
+  HEKATE_SETUP_CODE: z
+    .string()
+    .optional()
+    .meta(
+      info({
+        group: "Server",
+        description:
+          "The code that opens the installer and creates the first owner, three groups of four letters and digits. Leave unset: the server makes a new one at each start and prints it in its log.",
       }),
     ),
   DATABASE_URL: z

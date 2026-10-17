@@ -13,24 +13,37 @@ cd Hekate
 cp .env.example .env
 ```
 
-Set at least these in `.env`:
+Set two things in `.env`:
 
 | Setting | What to put |
 | --- | --- |
 | `HEKATE_DOMAIN` | The domain people will open, such as `review.example.com`. |
 | `POSTGRES_PASSWORD` | A long random password for the database. |
-| `AUTH_SECRET` | 32 random characters or more: `openssl rand -hex 32`. |
-| `MASTER_KEY` | 32 random bytes: `openssl rand -base64 32`. Keep a copy apart from the server; without it nothing stored can be read. |
 
-Then start it:
+Then start it and read the setup code from its log:
 
 ```sh
 docker compose -f deploy/compose.yml up -d
+docker compose -f deploy/compose.yml logs app
 ```
 
-Open `https://` and your domain. The first visit asks you to create the owner's account and the first workspace; after that, accounts are by invitation.
+The log says `Hekate is not set up yet` and gives a code such as `7KQ2-M9XD-4HPW`. Only someone who can read the server's log has it, so nobody who finds a fresh instance first can claim it.
 
-If a setting is missing or wrong, Hekate does not start: `docker compose -f deploy/compose.yml logs app` lists every problem at once, with what would be valid. Every setting is in [Configuration](configuration/).
+## The installer
+
+Open `https://` and your domain, and enter the code. The installer tests each step before it saves it, and picks up where you left off if you close the page:
+
+1. **Requirements:** the media tools, a writable settings directory, disk and memory.
+2. **Database:** reached and brought up to date.
+3. **Storage:** a local directory or an S3-compatible bucket, written to and read back. See [Storage](storage/).
+4. **Master key:** made in your browser, or one you bring. It opens every file: keep a copy where the server cannot reach it, apart from your backups.
+5. **Mail:** SMTP, with the hosts of the common providers filled in, and a test message.
+6. **Address:** looked up and asked for a code only this server knows, so you know it reaches this server.
+7. **First workspace:** its name, and you as its owner. After that, accounts are by invitation.
+
+The installer keeps what it is given in `/config/hekate.env`, on a volume of its own (`settings`), readable by the server alone. Anything also set in `.env` (the database URL and the address, in the Compose file) is shown as fixed and never overwritten; set `MASTER_KEY` and `AUTH_SECRET` in `.env` too, if you would rather keep every setting there.
+
+If a setting is wrong once installed, Hekate does not start: `docker compose -f deploy/compose.yml logs app` lists every problem at once, with what would be valid. Every setting is in [Configuration](configuration/).
 
 ## The image
 

@@ -84,7 +84,7 @@ export class ApiError extends Error {
   }
 }
 
-async function json<T>(res: Response): Promise<T> {
+export async function json<T>(res: Response): Promise<T> {
   if (res.status === 401) throw new SignedOutError("Your session has ended. Sign in again.");
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as {
@@ -152,6 +152,13 @@ export const meQuery = queryOptions({
     return json<Me>(res);
   },
   staleTime: 60_000,
+});
+
+/** Whether the server is still being installed: it then serves the installer and nothing else. */
+export const installQuery = queryOptions({
+  queryKey: ["install"],
+  queryFn: async () => (await json<{ installing: boolean }>(await api.install.$get())).installing,
+  staleTime: Number.POSITIVE_INFINITY,
 });
 
 export const setupQuery = queryOptions({

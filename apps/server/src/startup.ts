@@ -16,6 +16,18 @@ export function settingsOrExit(env: Record<string, string | undefined> = process
   config: Config;
   storageConfig: StorageConfig;
 } {
+  const checked = settingsOrProblems(env);
+  if ("problems" in checked) {
+    console.error(formatProblems(checked.problems));
+    process.exit(1);
+  }
+  return checked;
+}
+
+/** The same check, returning the problems rather than exiting: the installer reports them. */
+export function settingsOrProblems(
+  env: Record<string, string | undefined>,
+): { config: Config; storageConfig: StorageConfig } | { problems: ConfigProblem[] } {
   const problems: ConfigProblem[] = [];
   let config: Config | undefined;
   let storageConfig: StorageConfig | undefined;
@@ -38,9 +50,6 @@ export function settingsOrExit(env: Record<string, string | undefined> = process
       );
     }
   }
-  if (problems.length > 0 || !config || !storageConfig) {
-    console.error(formatProblems(problems));
-    process.exit(1);
-  }
+  if (problems.length > 0 || !config || !storageConfig) return { problems };
   return { config, storageConfig };
 }

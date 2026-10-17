@@ -1,5 +1,8 @@
 # Self-hosted Hekate: the app, PostgreSQL and Caddy (automatic HTTPS).
-# Usage: cp .env.example .env, edit it, then: docker compose -f deploy/compose.yml up -d
+# Usage: cp .env.example .env, set HEKATE_DOMAIN and POSTGRES_PASSWORD, then:
+#   docker compose -f deploy/compose.yml up -d
+# and open https://HEKATE_DOMAIN with the setup code from: docker compose -f deploy/compose.yml logs app
+# The installer does the rest; anything also set in .env is shown as fixed and never overwritten.
 # The app is the released, signed image. To build it from this checkout instead:
 #   docker compose -f deploy/compose.yml -f deploy/compose.build.yml up -d --build
 name: hekate
@@ -18,10 +21,13 @@ services:
       PUBLIC_URL: https://${HEKATE_DOMAIN:-localhost}
       # The media volume, whatever .env says for development.
       STORAGE_LOCAL_PATH: /data/storage
-      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET to at least 32 random characters}
-      MASTER_KEY: ${MASTER_KEY:?set MASTER_KEY (openssl rand -base64 32) and back it up}
+      # AUTH_SECRET and MASTER_KEY come from .env when set there; otherwise the installer makes
+      # them and keeps them in the settings volume (/config/hekate.env).
     volumes:
       - media:/data
+      # The installer's settings, the master key among them: apart from the media, so a copy of
+      # the media never carries the key that opens it.
+      - settings:/config
     # Nothing in the image is written to: media goes to /data, scratch to memory.
     read_only: true
     # Decrypted media exists only while a job runs; keep it in memory, never on disk.
@@ -64,6 +70,7 @@ services:
 
 volumes:
   media:
+  settings:
   postgres:
   caddy-data:
   caddy-config:
