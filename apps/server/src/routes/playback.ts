@@ -23,6 +23,7 @@ import {
 import { admit, tooMany } from "../rate-limit.ts";
 import type { Storage } from "../storage.ts";
 import {
+  assertOpen,
   assertSecondFactor,
   assertSignedInThrough,
   membershipOf,
@@ -508,8 +509,9 @@ export const playRoutes = (deps: PlaybackDeps) => {
       if (!membership) {
         throw new HTTPException(403, { message: "This playback link is not valid for you" });
       }
-      // A workspace that has come to ask for a second factor, or for single sign-on, ends
-      // playback at once too.
+      // A workspace suspended, or that has come to ask for a second factor or for single
+      // sign-on, ends playback at once too.
+      await assertOpen(deps.db, claims.organisationId);
       await assertSignedInThrough(deps.db, claims.sessionId, {
         organisationId: claims.organisationId,
         role: membership.role,

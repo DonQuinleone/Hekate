@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { type Database, inOrg, schema } from "@hekate/db";
 import { workspaceSettingsOf } from "@hekate/shared";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull, notExists, sql } from "drizzle-orm";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { createMiddleware } from "hono/factory";
@@ -16,11 +16,22 @@ import {
   mayResend,
   newGuestCode,
 } from "./guest-code.ts";
-import { assertSecondFactor, organisationFor, type SecondFactorRule } from "./tenancy.ts";
+import {
+  assertOpen,
+  assertSecondFactor,
+  organisationFor,
+  type SecondFactorRule,
+} from "./tenancy.ts";
 
 const { guests, guestLinks, guestSessions, organisations } = schema;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** A guest's link or session stops while an operator has their workspace suspended (#174). */
+const workspaceOpen = (organisationId: typeof guestLinks.organisationId) =>
+  notExists(
+    sql`(select 1 from ${organisations} where ${organisations.id} = ${organisationId} and ${organisations.suspendedAt} is not null)`,
+  );
 /** A guest's browser stays signed in for a fortnight, unless revoked. */
 export const GUEST_SESSION_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000;
 export const GUEST_COOKIE = "hekate_guest";
@@ -122,6 +133,7 @@ export async function useGuestLink(
           isNull(guestLinks.usedAt),
           isNull(guestLinks.revokedAt),
           gt(guestLinks.expiresAt, now),
+          workspaceOpen(guestLinks.organisationId),
         ),
       )
       .returning();
@@ -143,6 +155,7 @@ async function usableLink(tx: Tx, token: string, now: Date) {
         isNull(guestLinks.usedAt),
         isNull(guestLinks.revokedAt),
         gt(guestLinks.expiresAt, now),
+        workspaceOpen(guestLinks.organisationId),
       ),
     )
     .for("update");
@@ -164,6 +177,7 @@ export async function verificationFor(db: Database, token: string, now = new Dat
         isNull(guestLinks.usedAt),
         isNull(guestLinks.revokedAt),
         gt(guestLinks.expiresAt, now),
+        isNull(organisations.suspendedAt),
       ),
     );
   return row ? workspaceSettingsOf(row.settings).guestVerification : null;
@@ -310,11 +324,13 @@ export async function guestSessionOf(db: Database, c: Context, now = new Date())
     })
     .from(guestSessions)
     .innerJoin(guests, eq(guests.id, guestSessions.guestId))
+    .innerJoin(organisations, eq(organisations.id, guestSessions.organisationId))
     .where(
       and(
         eq(guestSessions.tokenHash, hashToken(token)),
         isNull(guestSessions.revokedAt),
         gt(guestSessions.expiresAt, now),
+        isNull(organisations.suspendedAt),
       ),
     );
   return row ?? null;
@@ -349,6 +365,7 @@ export const requireViewer = (auth: Auth, db: Database, rule: SecondFactorRule) 
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (session) {
       const membership = await organisationFor(db, session.user.id, session.session.id);
+      await assertOpen(db, membership.organisationId);
       await assertSecondFactor(db, session.session.id, membership, rule);
       c.set("actor", {
         kind: "member",

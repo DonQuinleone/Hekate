@@ -982,6 +982,38 @@ export function InvitationPage() {
 }
 
 /** The visitor's side of an upload request: no account, one folder, a limit and an expiry. */
+/**
+ * A member whose workspace the instance's operators suspended (#174): why, and the way out,
+ * to another workspace of theirs or signed out. Nothing of the workspace is shown.
+ */
+export function SuspendedPage() {
+  const navigate = useNavigate();
+  return (
+    <Frame
+      title="Lantern Pictures is suspended"
+      intro="The instance’s operators suspended it: The invoice for October is unpaid. Nothing in it is lost; it opens again once they reinstate it."
+    >
+      <div className="flex flex-col gap-2">
+        <span className="text-[13px] text-ink-2">Your other workspaces</span>
+        <Button
+          variant="secondary"
+          size="lg"
+          className="justify-start"
+          onClick={() => navigate({ to: "/" })}
+        >
+          {organisation.name}
+        </Button>
+      </div>
+      <Link
+        to="/sign-in"
+        className="self-start text-[13px] text-ink-3 transition-colors hover:text-ink"
+      >
+        Sign out
+      </Link>
+    </Frame>
+  );
+}
+
 export function UploadRequestPage({ code }: { code: string }) {
   const { settings } = useViewer();
   const [files, setFiles] = useState<string[]>([]);

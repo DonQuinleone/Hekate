@@ -1,15 +1,18 @@
 import {
   formatBytes,
   type InstanceAccess,
+  type InstanceMemberRow,
   type InstanceSection,
   type InstanceWorkspace,
+  type InstanceWorkspaceDetail,
   instanceActions,
   instanceSections,
   instanceSectionsFor,
+  type WorkspaceState,
 } from "@hekate/shared";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useDeferredValue, useEffect, useRef, useState } from "react";
 import { Stat } from "~/components/dashboard";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
@@ -19,8 +22,11 @@ import { Row, Section } from "~/components/settings";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
-import { Input } from "~/components/ui/input";
+import { Input, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
+import { Segmented } from "~/components/ui/segmented";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
+import { actionCopy } from "~/lib/access-log";
 import { api } from "~/lib/api";
 import { authClient } from "~/lib/auth";
 import { cn } from "~/lib/cn";
@@ -28,8 +34,11 @@ import { ago } from "~/lib/comments";
 import { formatDates } from "~/lib/locale";
 import {
   instanceAccessQuery,
+  instanceMembersQuery,
   instanceOperatorsQuery,
   instanceOverviewQuery,
+  instanceProjectsQuery,
+  instanceWorkspaceQuery,
   instanceWorkspacesQuery,
   json,
 } from "~/lib/queries";
@@ -57,6 +66,7 @@ export function InstancePage({ section }: { section: InstanceSection }) {
   const current = sections.includes(section) ? section : (sections[0] ?? "workspaces");
   const meta = instanceSections[current];
   const operatorView = access.operator && !access.keyNeeded;
+  if (current === "workspaces") return <Workspaces access={access} />;
   return (
     <Page className="gap-10">
       <PageHeader
@@ -69,12 +79,11 @@ export function InstancePage({ section }: { section: InstanceSection }) {
         title={meta.label}
       />
       <p className="m-0 max-w-[620px] text-[14px] text-ink-2">{meta.hint}.</p>
-      {access.keyNeeded && current !== "workspaces" ? (
+      {access.keyNeeded ? (
         <KeyNeeded />
       ) : (
         <>
           {current === "overview" && operatorView && <Overview />}
-          {current === "workspaces" && <Workspaces access={access} />}
           {current === "operators" && operatorView && <Operators />}
         </>
       )}
@@ -200,82 +209,584 @@ function Overview() {
   );
 }
 
-/** The workspaces this viewer may see, and the chosen one's figures; its tabs follow in #174. */
+type WorkspaceFilter = "" | WorkspaceState;
+const filters: { value: WorkspaceFilter; label: string }[] = [
+  { value: "", label: "All" },
+  { value: "active", label: "Active" },
+  { value: "suspended", label: "Suspended" },
+];
+
+/**
+ * The workspaces this viewer may see, as a full-height split (#174): the list at the left,
+ * searched and filtered, paging as it scrolls; the chosen workspace's tabs at the right.
+ */
 function Workspaces({ access }: { access: InstanceAccess }) {
-  const { data: workspaces = [] } = useQuery(instanceWorkspacesQuery);
+  const operator = access.operator && !access.keyNeeded;
   const [q, setQ] = useState("");
+  const [filter, setFilter] = useState<WorkspaceFilter>("");
   const [chosen, setChosen] = useState<string | null>(null);
-  const shown = workspaces.filter(
-    (w) => !q || `${w.name} ${w.slug}`.toLowerCase().includes(q.trim().toLowerCase()),
+  const [creating, setCreating] = useState(false);
+  const search = useDeferredValue(q.trim());
+  const list = useInfiniteQuery(
+    instanceWorkspacesQuery({ q: search || undefined, state: filter || undefined }),
   );
-  const current = shown.find((w) => w.id === chosen) ?? shown[0];
+  const workspaces = list.data?.pages.flatMap((p) => p.workspaces) ?? [];
+  const total = list.data?.pages[0]?.total ?? 0;
+  const current = workspaces.find((w) => w.id === chosen) ?? workspaces[0];
+  const more = useRef<HTMLDivElement>(null);
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = list;
+  useEffect(() => {
+    const end = more.current;
+    if (!end || !hasNextPage) return;
+    const seen = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting) && !isFetchingNextPage) void fetchNextPage();
+    });
+    seen.observe(end);
+    return () => seen.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
   return (
-    <div className="flex flex-col gap-6 @3xl/app:flex-row @3xl/app:items-start">
-      <div className="flex w-full shrink-0 flex-col gap-2 @3xl/app:w-[280px]">
-        {(access.operator || workspaces.length > 6) && (
-          <Input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Find a workspace"
-            aria-label="Find a workspace"
+    <>
+      <PageHeader
+        crumbs={[{ key: "instance", link: <Link to="/instance">Instance</Link> }]}
+        title="Workspaces"
+        actions={
+          operator ? (
+            <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
+              <Icon name="plus" size={14} />
+              Workspace
+            </Button>
+          ) : undefined
+        }
+      />
+      {creating && (
+        <NewWorkspace
+          onClose={() => setCreating(false)}
+          onMade={(id) => {
+            setFilter("");
+            setQ("");
+            setChosen(id);
+          }}
+        />
+      )}
+      <div className="flex h-full min-h-0 flex-col @3xl/app:flex-row">
+        <div className="flex w-full shrink-0 flex-col border-b border-line @3xl/app:w-[300px] @3xl/app:border-r @3xl/app:border-b-0">
+          <div className="flex flex-col gap-2 p-3">
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Name or subdomain"
+              aria-label="Find a workspace by name or subdomain"
+            />
+            {operator && (
+              <Segmented
+                label="Show"
+                value={filter}
+                options={filters}
+                onChange={setFilter}
+                className="self-start"
+              />
+            )}
+          </div>
+          <div className="scroll-quiet flex max-h-[40vh] min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2 @3xl/app:max-h-none">
+            <ul aria-label="Workspaces" className="m-0 flex list-none flex-col gap-0.5 p-0">
+              {workspaces.map((w) => (
+                <li key={w.id}>
+                  <button
+                    type="button"
+                    onClick={() => setChosen(w.id)}
+                    aria-current={w.id === current?.id ? "true" : undefined}
+                    className={cn(
+                      "flex w-full items-center gap-2.5 rounded-control px-2.5 py-2 text-left transition-colors hover:bg-raised/60",
+                      w.id === current?.id && "bg-raised shadow-1",
+                    )}
+                  >
+                    <StateDot state={w.state} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] text-ink">{w.name}</span>
+                      <span className="block truncate text-[12px] text-ink-3">
+                        {people(w.members)} · {formatBytes(w.storageBytes)}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {list.isSuccess && workspaces.length === 0 && (
+              <p className="px-3 py-6 text-center text-[13px] text-ink-3">
+                {q || filter ? "Nothing matches." : "No workspaces yet."}
+              </p>
+            )}
+            <div ref={more} />
+            {workspaces.length > 0 && (
+              <p className="px-2.5 pt-2 pb-1 text-[11px] text-ink-3">
+                {workspaces.length} of {total}
+                {hasNextPage ? " · more load as you scroll" : ""}
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="scroll-quiet min-h-0 min-w-0 flex-1 overflow-y-auto">
+          {current && <WorkspaceDetail key={current.id} id={current.id} operator={operator} />}
+        </div>
+      </div>
+    </>
+  );
+}
+
+const people = (n: number) => `${n} ${n === 1 ? "person" : "people"}`;
+
+function StateDot({ state }: { state: WorkspaceState }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "size-[7px] shrink-0 rounded-full",
+        state === "suspended" ? "bg-ink-3" : "bg-ok",
+      )}
+    />
+  );
+}
+
+type WorkspaceTab = "overview" | "members" | "projects";
+
+/** One workspace: what it is, where it stands, and its tabs. */
+function WorkspaceDetail({ id, operator }: { id: string; operator: boolean }) {
+  const client = useQueryClient();
+  const { data: w } = useQuery(instanceWorkspaceQuery(id));
+  const [tab, setTab] = useState<WorkspaceTab>("overview");
+  const [suspending, setSuspending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const reinstate = useMutation({
+    mutationFn: async () =>
+      json(await api.instance.workspaces[":id"].reinstate.$post({ param: { id } })),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["instance"] }),
+    onError: (e) => setError(e.message),
+  });
+  if (!w) return null;
+  return (
+    <div className="fade-in flex flex-col gap-6 px-5 py-6 @3xl/app:px-10 @3xl/app:py-8">
+      {suspending && <SuspendWorkspace workspace={w} onClose={() => setSuspending(false)} />}
+      <div className="flex items-end gap-3">
+        <div className="min-w-0 flex-1">
+          <h2 className="m-0 truncate text-[20px] font-medium tracking-tight text-ink">{w.name}</h2>
+          <p className="tabular m-0 text-[13px] text-ink-3">
+            {w.slug} · since {since.format(new Date(w.createdAt))}
+            {w.state === "suspended" && <span className="text-signal"> · suspended</span>}
+          </p>
+        </div>
+        {operator && (
+          <ActionMenu
+            always
+            label={w.name}
+            actions={[
+              w.state === "suspended"
+                ? { label: "Reinstate", onSelect: () => reinstate.mutate() }
+                : { label: "Suspend…", danger: true, onSelect: () => setSuspending(true) },
+            ]}
           />
         )}
-        <ul aria-label="Workspaces" className="m-0 flex list-none flex-col gap-0.5 p-0">
-          {shown.map((w) => (
-            <li key={w.id}>
-              <button
-                type="button"
-                onClick={() => setChosen(w.id)}
-                aria-current={w.id === current?.id ? "true" : undefined}
-                className={cn(
-                  "flex w-full items-center gap-2.5 rounded-control px-2.5 py-2 text-left transition-colors hover:bg-raised/60",
-                  w.id === current?.id && "bg-raised shadow-1",
-                )}
-              >
-                <span aria-hidden="true" className="size-[7px] shrink-0 rounded-full bg-ok" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[14px] text-ink">{w.name}</span>
-                  <span className="block truncate text-[12px] text-ink-3">
-                    {w.members} {w.members === 1 ? "person" : "people"} ·{" "}
-                    {formatBytes(w.storageBytes)}
-                  </span>
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-        {shown.length === 0 && (
-          <p className="px-2.5 py-4 text-[13px] text-ink-3">
-            {q ? "Nothing matches." : "No workspaces yet."}
-          </p>
-        )}
       </div>
-      {current && <WorkspaceSummary workspace={current} />}
+      {w.state === "suspended" && (
+        <p className="m-0 max-w-[620px] text-[13px] text-ink-2">
+          Suspended {w.suspendedAt ? ago(w.suspendedAt) : ""}
+          {w.suspendedReason ? `: ${w.suspendedReason}` : "."} Its members see this, and its guests’
+          links do not open until it is reinstated.
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="m-0 text-[13px] text-signal">
+          {error}
+        </p>
+      )}
+      <Tabs value={tab} onValueChange={(v) => setTab(v as WorkspaceTab)}>
+        <TabsList className="overflow-x-auto">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="members">Members · {w.members}</TabsTrigger>
+          <TabsTrigger value="projects">Projects · {w.projects}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="overview" className="flex flex-col gap-6 pt-6">
+          <WorkspaceOverview workspace={w} />
+        </TabsContent>
+        <TabsContent value="members" className="flex flex-col gap-6 pt-6">
+          <WorkspaceMembers id={id} operator={operator} />
+        </TabsContent>
+        <TabsContent value="projects" className="flex flex-col gap-6 pt-6">
+          <WorkspaceProjects id={id} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
 
-function WorkspaceSummary({ workspace }: { workspace: InstanceWorkspace }) {
+function WorkspaceOverview({ workspace: w }: { workspace: InstanceWorkspaceDetail }) {
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-6">
-      <div className="min-w-0">
-        <h2 className="m-0 truncate text-[20px] font-medium tracking-tight text-ink">
-          {workspace.name}
-        </h2>
-        <p className="tabular m-0 text-[13px] text-ink-3">
-          {workspace.slug} · since {since.format(new Date(workspace.createdAt))}
-        </p>
-      </div>
-      <div className="grid grid-cols-2 gap-3 @3xl/app:grid-cols-3">
-        <Stat label="People" value={workspace.members} hint="members" />
-        <Stat label="Projects" value={workspace.projects} hint="active and archived" />
+    <>
+      <div className="grid grid-cols-2 gap-3 @3xl/app:grid-cols-4">
         <Stat
-          label="Storage"
-          value={formatBytes(workspace.storageBytes)}
-          hint="before encryption"
+          label="People"
+          value={w.members}
+          hint={w.guests > 0 ? `and ${w.guests} ${w.guests === 1 ? "guest" : "guests"}` : "members"}
+        />
+        <Stat
+          label="Projects"
+          value={w.projects}
+          hint={`${w.activeReviews} active ${w.activeReviews === 1 ? "review" : "reviews"}`}
+        />
+        <Stat label="Storage" value={formatBytes(w.storageBytes)} hint="before encryption" />
+        <Stat
+          label="Sign-in"
+          value={w.signIn.method === "sso" ? (w.signIn.provider ?? "SSO") : "Password"}
+          hint={w.signIn.secondFactor ? "second factor required" : "no second factor"}
         />
       </div>
-    </div>
+      {w.invited.length > 0 && (
+        <Section title="Waiting to join">
+          {w.invited.map((i) => (
+            <Row
+              key={i.email}
+              name={i.email}
+              hint={`Invited as ${i.role} · the link lasts until ${since.format(new Date(i.expiresAt))}`}
+            />
+          ))}
+        </Section>
+      )}
+      <Section title="Recently in this workspace">
+        {w.recent.length === 0 ? (
+          <Row name="Nothing yet" hint="What its members and guests do is listed as it happens." />
+        ) : (
+          w.recent.map((r) => (
+            <Row
+              key={`${r.at}${r.action}${r.actor}`}
+              name={
+                <span>
+                  <span className="text-ink">{actorName(r.actor)}</span>
+                  <span className="text-ink-3"> · </span>
+                  <span className="text-ink-2">{actionCopy[r.action] ?? r.action}</span>
+                </span>
+              }
+              inline
+            >
+              <span className="tabular text-[12px] text-ink-3">{ago(r.at)}</span>
+            </Row>
+          ))
+        )}
+      </Section>
+    </>
+  );
+}
+
+/** The log keeps "Name <address>"; the name is enough here. */
+const actorName = (label: string) => {
+  const at = label.indexOf(" <");
+  return at > 0 ? label.slice(0, at) : label;
+};
+
+const factorWords: Record<InstanceMemberRow["factor"], string> = {
+  key: "passkey or security key",
+  app: "code app",
+  none: "none",
+};
+
+function WorkspaceMembers({ id, operator }: { id: string; operator: boolean }) {
+  const { data: members = [] } = useQuery(instanceMembersQuery(id));
+  const [said, setSaid] = useState<{ text: string; error: boolean } | null>(null);
+  const help = useMutation({
+    mutationFn: async ({ userId, action }: { userId: string; action: MemberHelp }) =>
+      json(
+        await api.instance.workspaces[":id"].members[":userId"][":action"].$post({
+          param: { id, userId, action },
+        }),
+      ),
+    onSuccess: (_d, { action }) => setSaid({ text: helpDone[action], error: false }),
+    onError: (e) => setSaid({ text: e.message, error: true }),
+  });
+  return (
+    <Section
+      title="People"
+      intro={
+        operator
+          ? "Members of this workspace. Operators never sign in as anyone; what you do here is logged against your name."
+          : "Members of this workspace."
+      }
+    >
+      {members.map((m) => (
+        <Row
+          key={m.userId}
+          name={
+            <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+              {m.name}
+              <span className="truncate text-[12px] text-ink-3">{m.email}</span>
+            </span>
+          }
+          hint={[
+            roleWords[m.role] ?? m.role,
+            m.lastSeenAt ? `seen ${ago(m.lastSeenAt)}` : "not seen yet",
+            `second factor: ${factorWords[m.factor]}`,
+          ].join(" · ")}
+          inline
+        >
+          {operator && (
+            <ActionMenu
+              always
+              label={m.name}
+              actions={[
+                {
+                  label: "Send a password reset",
+                  onSelect: () => help.mutate({ userId: m.userId, action: "password-reset" }),
+                },
+                {
+                  label: "Reset the second factor",
+                  onSelect: () => help.mutate({ userId: m.userId, action: "second-factor" }),
+                },
+                "divider",
+                {
+                  label: "Sign out everywhere",
+                  danger: true,
+                  onSelect: () => help.mutate({ userId: m.userId, action: "sessions" }),
+                },
+              ]}
+            />
+          )}
+        </Row>
+      ))}
+      {said && (
+        <p
+          role={said.error ? "alert" : "status"}
+          className={cn("m-0 px-4 py-3 text-[13px]", said.error ? "text-signal" : "text-ink-2")}
+        >
+          {said.text}
+        </p>
+      )}
+    </Section>
+  );
+}
+
+type MemberHelp = "sessions" | "password-reset" | "second-factor";
+const helpDone: Record<MemberHelp, string> = {
+  sessions: "Signed out everywhere. They sign in again on each device.",
+  "password-reset": "A code to set a new password is on its way to them.",
+  "second-factor":
+    "Their code app and passkeys are gone. They sign in with their password and add one again.",
+};
+const roleWords: Record<string, string> = { owner: "Owner", admin: "Admin", member: "Member" };
+
+function WorkspaceProjects({ id }: { id: string }) {
+  const { data: projects, isSuccess } = useQuery(instanceProjectsQuery(id));
+  return (
+    <Section title="Projects" intro="Names and sizes only; the content stays the workspace’s.">
+      {isSuccess && projects.length === 0 && (
+        <Row name="No projects yet" hint="Its members make them from their Projects page." />
+      )}
+      {projects?.map((p) => (
+        <Row
+          key={p.id}
+          name={p.name}
+          hint={[
+            p.profile,
+            `${p.files} ${p.files === 1 ? "file" : "files"}`,
+            formatBytes(p.storageBytes),
+            `${p.openReviews} open ${p.openReviews === 1 ? "review" : "reviews"}`,
+          ].join(" · ")}
+          inline
+        >
+          <span className="text-[12px] text-ink-3">{p.archived ? "archived" : "active"}</span>
+        </Row>
+      ))}
+    </Section>
+  );
+}
+
+/** A new workspace: a name, its subdomain, and its first owner, who is invited. */
+function NewWorkspace({ onClose, onMade }: { onClose: () => void; onMade: (id: string) => void }) {
+  const client = useQueryClient();
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [slugTouched, setSlugTouched] = useState(false);
+  const [ownerEmail, setOwnerEmail] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  /** The invitation's link, when its mail could not be sent, to pass on by hand. */
+  const [unsent, setUnsent] = useState<string | null>(null);
+  const make = useMutation({
+    mutationFn: async () =>
+      json<{ id: string; link: string; mailed: boolean }>(
+        await api.instance.workspaces.$post({ json: { name, slug, ownerEmail } }),
+      ),
+    onSuccess: async ({ id, link, mailed }) => {
+      await client.invalidateQueries({ queryKey: ["instance"] });
+      onMade(id);
+      if (mailed) onClose();
+      else setUnsent(link);
+    },
+    onError: (e) => setError(e.message),
+  });
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    make.mutate();
+  };
+  if (unsent)
+    return (
+      <Dialog
+        title={`${name} is made`}
+        description="Its invitation could not be mailed. Pass this link to its first owner yourself: it works once, for a week."
+        onClose={onClose}
+        width="sm"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={() => void navigator.clipboard?.writeText(unsent)}
+            >
+              <Icon name="copy" size={13} />
+              Copy the link
+            </Button>
+            <Button variant="primary" size="md" onClick={onClose}>
+              Done
+            </Button>
+          </>
+        }
+      >
+        <Field label="Invitation link">
+          <Input value={unsent} readOnly onFocus={(e) => e.currentTarget.select()} />
+        </Field>
+      </Dialog>
+    );
+  return (
+    <Dialog
+      title="New workspace"
+      description="A tenant of its own: members, projects, settings and keys. Its first owner is invited by email."
+      onClose={onClose}
+      width="sm"
+      footer={
+        <>
+          <Button variant="ghost" size="md" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="md"
+            type="submit"
+            form="new-workspace"
+            disabled={make.isPending}
+          >
+            Create
+          </Button>
+        </>
+      }
+    >
+      <form id="new-workspace" onSubmit={submit} className="flex flex-col gap-4">
+        <Field label="Name">
+          <Input
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              if (!slugTouched) setSlug(slugFrom(e.target.value));
+            }}
+            placeholder="Lantern Pictures"
+            required
+            autoFocus
+          />
+        </Field>
+        <Field label="Subdomain" hint="Lower-case letters, digits and hyphens.">
+          <Input
+            value={slug}
+            onChange={(e) => {
+              setSlugTouched(true);
+              setSlug(e.target.value);
+            }}
+            placeholder="lantern"
+            required
+          />
+        </Field>
+        <Field label="First owner’s email" error={error}>
+          <Input
+            type="email"
+            value={ownerEmail}
+            onChange={(e) => setOwnerEmail(e.target.value)}
+            placeholder="owner@lantern.example"
+            autoComplete="off"
+            required
+          />
+        </Field>
+      </form>
+    </Dialog>
+  );
+}
+
+const slugFrom = (name: string) =>
+  name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40)
+    .replace(/-$/, "");
+
+function SuspendWorkspace({
+  workspace,
+  onClose,
+}: {
+  workspace: InstanceWorkspace;
+  onClose: () => void;
+}) {
+  const client = useQueryClient();
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const suspend = useMutation({
+    mutationFn: async () =>
+      json(
+        await api.instance.workspaces[":id"].suspend.$post({
+          param: { id: workspace.id },
+          json: { reason },
+        }),
+      ),
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: ["instance"] });
+      onClose();
+    },
+    onError: (e) => setError(e.message),
+  });
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    suspend.mutate();
+  };
+  return (
+    <Dialog
+      title={`Suspend ${workspace.name}`}
+      description="Everything is kept and nobody gets in: its members see the reason, and its guests’ links stop working, until you reinstate it."
+      onClose={onClose}
+      width="sm"
+      footer={
+        <>
+          <Button variant="ghost" size="md" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="md"
+            type="submit"
+            form="suspend-workspace"
+            disabled={suspend.isPending}
+          >
+            Suspend
+          </Button>
+        </>
+      }
+    >
+      <form id="suspend-workspace" onSubmit={submit} className="flex flex-col gap-3">
+        <Field label="Why" hint="Its members read this." error={error}>
+          <Textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="The invoice for October is unpaid."
+            rows={3}
+            maxLength={500}
+            required
+            autoFocus
+          />
+        </Field>
+      </form>
+    </Dialog>
   );
 }
 

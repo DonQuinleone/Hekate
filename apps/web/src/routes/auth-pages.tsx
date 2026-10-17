@@ -13,7 +13,7 @@ import { api } from "~/lib/api";
 import { authClient } from "~/lib/auth";
 import { cn } from "~/lib/cn";
 import { passwordStrength } from "~/lib/password";
-import { meQuery, signInMethodsQuery } from "~/lib/queries";
+import { meQuery, signInMethodsQuery, useSwitchOrganisation } from "~/lib/queries";
 
 export function Frame({
   title,
@@ -824,5 +824,61 @@ export function SecondFactorPage() {
     return <AddPasskey page reason={reason} onAdded={() => undefined} shell={shell} />;
   return (
     <CodeAppSetup page reason={reason} onDone={() => void navigate({ to: "/" })} shell={shell} />
+  );
+}
+
+/**
+ * A member whose workspace the instance's operators have suspended (#174): why, and the way
+ * out, to another workspace of theirs or signed out. Nothing of the workspace is shown.
+ */
+export function SuspendedPage() {
+  const navigate = useNavigate();
+  const client = useQueryClient();
+  const { data: me } = useQuery(meQuery);
+  const switchTo = useSwitchOrganisation();
+  const workspace = me?.organisations.find((o) => o.id === me.activeOrganisationId);
+  const others = me?.organisations.filter((o) => !o.suspended) ?? [];
+  const reason = workspace?.suspended?.reason;
+  return (
+    <Frame
+      title={`${workspace?.name ?? "This workspace"} is suspended`}
+      intro={
+        reason
+          ? `The instance’s operators suspended it: ${reason} Nothing in it is lost; it opens again once they reinstate it.`
+          : "The instance’s operators suspended it. Nothing in it is lost; it opens again once they reinstate it."
+      }
+    >
+      {others.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <span className="text-[13px] text-ink-2">Your other workspaces</span>
+          {others.map((o) => (
+            <Button
+              key={o.id}
+              variant="secondary"
+              size="lg"
+              className="justify-start"
+              disabled={switchTo.isPending}
+              onClick={async () => {
+                await switchTo.mutateAsync(o.id);
+                await navigate({ to: "/" });
+              }}
+            >
+              {o.name}
+            </Button>
+          ))}
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={async () => {
+          await authClient.signOut();
+          client.clear();
+          await navigate({ to: "/sign-in", search: {} });
+        }}
+        className="self-start text-[13px] text-ink-3 transition-colors hover:text-ink"
+      >
+        Sign out
+      </button>
+    </Frame>
   );
 }

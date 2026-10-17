@@ -76,6 +76,8 @@ async function api<T>(page: Page, method: string, path: string, body?: unknown):
     data: body === undefined ? undefined : body,
   });
   expect(response.ok(), `${method} ${path}: ${await response.text()}`).toBe(true);
+  // A 204 says it is done and carries nothing to read.
+  if (response.status() === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
@@ -399,6 +401,45 @@ setup("seed", async ({ page, browser }) => {
     dueAt: "2026-10-10T17:00:00Z",
   });
 
+  // Other workspaces on the instance (#174), one of them suspended: its owner is told why.
+  for (const [name, slug] of [
+    ["North Choir Collective", "north-choir"],
+    ["Saltmarsh Films", "saltmarsh"],
+  ] as const)
+    await api(page, "POST", "/api/instance/workspaces", {
+      name,
+      slug,
+      ownerEmail: `owner@${slug}.example`,
+    });
+  const lantern = await api<{ id: string; link: string }>(
+    page,
+    "POST",
+    "/api/instance/workspaces",
+    { name: "Lantern Pictures", slug: "lantern", ownerEmail: "mira@lantern.example" },
+  );
+  const lanternOwner = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+  const lanternPage = await lanternOwner.newPage();
+  await api(lanternPage, "POST", `/api/invitations/${lantern.link.split("/invite/")[1]}/accept`, {
+    name: "Mira Solberg",
+    password: "correct horse battery",
+  });
+  await api(page, "POST", `/api/instance/workspaces/${lantern.id}/suspend`, {
+    reason: "The invoice for October is unpaid.",
+  });
+  await lanternPage.clock.setFixedTime(FIXED_TIME);
+  await lanternPage.goto("/");
+  await lanternPage.waitForURL(/\/suspended$/);
+  await expect(lanternPage.getByText("Lantern Pictures is suspended")).toBeVisible();
+  for (const [name, viewport] of [
+    ["suspended", { width: 1440, height: 900 }],
+    ["suspended-phone", { width: 390, height: 844 }],
+  ] as const) {
+    await lanternPage.setViewportSize(viewport);
+    await checkScreen(lanternPage);
+    await saveScreen(lanternPage, name);
+  }
+  await lanternOwner.close();
+
   // The same moment for every run, so dates and "ago" read the same in every capture.
   const sql = postgres(process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL ?? "", {
     onnotice: () => undefined,
@@ -407,7 +448,7 @@ setup("seed", async ({ page, browser }) => {
     const columns = await sql<{ table_name: string; column_name: string }[]>`
       select table_name, column_name from information_schema.columns
       where table_schema = 'public' and data_type like 'timestamp%'
-        and column_name in ('created_at', 'updated_at', 'decided_at', 'viewed_at', 'submitted_at', 'resolved_at', 'occurred_at', 'opened_at', 'completed_at')`;
+        and column_name in ('created_at', 'updated_at', 'decided_at', 'viewed_at', 'submitted_at', 'resolved_at', 'occurred_at', 'opened_at', 'completed_at', 'suspended_at')`;
     for (const { table_name: table, column_name: column } of columns) {
       // The decision log and the access log refuse changes (migrations 0006 and 0016); the
       // seed owns its tables, and lets its fixed clock through by pausing their triggers.
