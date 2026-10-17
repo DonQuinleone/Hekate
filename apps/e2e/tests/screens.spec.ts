@@ -468,6 +468,16 @@ test("file-finding-comment", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The QA report to take away (#43): its formats, and what it is stamped with.
+test("file-qa-report", async ({ page }) => {
+  await page.goto(`/files/${seeded().dryFileId}?view=qa`);
+  await settle(page, "ul[aria-label=Findings] li");
+  await page.getByRole("button", { name: "QA report" }).click();
+  await settle(page, "[role=dialog] button:has-text('Download PDF')");
+  await saveScreen(page, "file-qa-report");
+  await checkScreen(page);
+});
+
 // The bell's panel, open over the list it leads to.
 test("bell", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
