@@ -8614,6 +8614,9 @@ describe.runIf(url)("api", () => {
             ).folder.id;
           const masters = await folder("Masters");
           const final = await folder("Final", masters);
+          // Siblings differing only by case: one written exactly is found, none is guessed.
+          await folder("masters");
+          await folder("FINAL", masters);
           const [mira] = await db
             .insert(schema.guests)
             .values({
@@ -8630,7 +8633,7 @@ describe.runIf(url)("api", () => {
                 to: "Reviewer, Mira Solberg (guest), Ines Arlow <ines@example.test>",
                 expires: "7",
               }),
-              at("file", "move", "File it", 2, { folder: "masters / Final" }),
+              at("file", "move", "File it", 2, { folder: "Masters / Final" }),
               at("done", "finish", "Delivered", 3, { status: "Delivered" }),
             ],
             [
@@ -8644,11 +8647,13 @@ describe.runIf(url)("api", () => {
             [
               at("start", "upload", "A version is uploaded", 0),
               at("file", "move", "Put it away", 1, { folder: "Nowhere" }),
-              at("done", "finish", "Done", 2),
+              at("guess", "move", "Guess", 2, { folder: "MASTERS/Final" }),
+              at("done", "finish", "Done", 3),
             ],
             [
               { id: "1", from: "start", outcome: "happened", to: "file" },
-              { id: "2", from: "file", outcome: "moved", to: "done" },
+              { id: "2", from: "file", outcome: "moved", to: "guess" },
+              { id: "3", from: "guess", outcome: "moved", to: "done" },
             ],
           );
           await app.request(
@@ -8695,14 +8700,15 @@ describe.runIf(url)("api", () => {
             expect(until).toBeLessThan(Date.now() + 8 * 86_400_000);
           }
 
-          // Filed in Masters/Final, the folder found whatever its case and spacing.
+          // Filed in Masters/Final, each written exactly though its siblings differ by case.
           const [track] = await db
             .select({ folderId: schema.tracks.folderId, status: schema.tracks.workflowStatus })
             .from(schema.tracks)
             .where(eq(schema.tracks.id, s.trackId));
           expect(track?.folderId).toBe(final);
 
-          // A folder that is not there is told to whoever started the run, which carries on.
+          // A folder that is not there, or that only a guess would find, is told to whoever
+          // started the run, which carries on.
           const told = await db
             .select({ text: schema.notifications.text, detail: schema.notifications.detail })
             .from(schema.notifications)
@@ -8712,7 +8718,12 @@ describe.runIf(url)("api", () => {
                 eq(schema.notifications.kind, "workflow"),
               ),
             );
-          expect(told).toEqual([
+          expect(told.sort((a, b) => a.text.localeCompare(b.text))).toEqual([
+            {
+              text: "Guess could not move Maple Leaf Rag",
+              detail:
+                "Several folders are called MASTERS; the stage must name one exactly as it is written.",
+            },
             {
               text: "Put it away could not move Maple Leaf Rag",
               detail: "The project has no folder Nowhere.",

@@ -305,8 +305,9 @@ class MoveRefused extends Error {}
 
 /**
  * A move stage (decision 121): the track filed in the folder its `folder` names, by its path from
- * the top of the project ("Masters", or "Masters/2026"); an empty one is the top itself. The
- * folder is held while the track moves, so it cannot be deleted under it.
+ * the top of the project ("Masters", or "Masters/2026"), whatever their case (one written exactly
+ * first); an empty one is the top itself. The folder is held while the track moves, so it cannot
+ * be deleted under it.
  */
 async function moveTrack(
   tx: Tx,
@@ -319,8 +320,8 @@ async function moveTrack(
     .filter(Boolean);
   let folderId: string | null = null;
   for (const name of names) {
-    const [folder]: { id: string }[] = await tx
-      .select({ id: folders.id })
+    const matches: { id: string; name: string }[] = await tx
+      .select({ id: folders.id, name: folders.name })
       .from(folders)
       .where(
         inOrg(
@@ -331,9 +332,17 @@ async function moveTrack(
           sql`lower(${folders.name}) = ${name.toLowerCase()}`,
         ),
       )
-      .limit(1)
       .for("share");
-    if (!folder) throw new MoveRefused(`The project has no folder ${names.join("/")}.`);
+    // Names are matched whatever their case, but one written exactly as it is comes first;
+    // folders that differ only by case, none of them written exactly, are not guessed between.
+    const folder =
+      matches.find((m) => m.name === name) ?? (matches.length === 1 ? matches[0] : null);
+    if (!folder)
+      throw new MoveRefused(
+        matches.length > 1
+          ? `Several folders are called ${name}; the stage must name one exactly as it is written.`
+          : `The project has no folder ${names.join("/")}.`,
+      );
     folderId = folder.id;
   }
   await tx
