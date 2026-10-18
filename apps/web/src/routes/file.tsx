@@ -306,7 +306,14 @@ export function FilePage({
   const gain = normalised && file.normalisation ? file.normalisation.gain : 1;
   /** Loop the passage and hear it from where it began; one key then flips to this version. */
   const beforeAfter = (target: BeforeAfter) => {
-    setFocus({ fileId: target.fileId, shift: target.shift, nonce: Date.now() });
+    setFocus({
+      fileId: target.fileId,
+      shift: target.shift,
+      nonce: Date.now(),
+      ...(target.label && file.variation
+        ? { outside: { label: target.label, trackId: file.variation.trackId } }
+        : {}),
+    });
     onLoop(target.loop);
     if (media) {
       media.currentTime = target.loop.start;

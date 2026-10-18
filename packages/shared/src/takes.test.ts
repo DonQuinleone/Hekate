@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  barSpan,
   barsLabel,
   clockOf,
   coverageGaps,
@@ -85,5 +86,23 @@ describe("takes and their bars", () => {
     expect(clockOf(92)).toBe("1:32");
     expect(clockOf(3723.04)).toBe("1:02:03");
     expect(parseClock(clockOf(61.25))).toBe(61.3);
+  });
+});
+
+describe("a bar in a take", () => {
+  const take = { barFrom: 9, barTo: 16, inPoint: 2, outPoint: 18, duration: 20 };
+  it("lies where the take's bars spread evenly over its in and out points", () => {
+    expect(barSpan(take, 9)).toEqual([2, 4]);
+    expect(barSpan(take, 16)).toEqual([16, 18]);
+    // Without in and out points, over the whole file.
+    expect(barSpan({ ...take, inPoint: null, outPoint: null }, 10)).toEqual([2.5, 5]);
+    // One bar given: the take is that bar.
+    expect(barSpan({ ...take, barTo: null }, 9)).toEqual([2, 18]);
+  });
+  it("cannot be said outside the take's bars or without its length", () => {
+    expect(barSpan(take, 8)).toBeNull();
+    expect(barSpan(take, 17)).toBeNull();
+    expect(barSpan({ ...take, outPoint: null, duration: null }, 9)).toBeNull();
+    expect(barSpan({ ...take, barFrom: null, barTo: null }, 9)).toBeNull();
   });
 });
