@@ -7,18 +7,22 @@ import { useEffect } from "react";
  * which carries every channel as recorded.
  */
 
-/** What is chosen: one channel soloed, any muted, and whether surround folds down to stereo. */
+/**
+ * What is chosen: one channel soloed, any muted, and whether surround folds down to stereo or
+ * is rendered binaurally for headphones (one or the other).
+ */
 export interface ChannelMix {
   solo: number | null;
   muted: readonly number[];
   downmix: boolean;
+  binaural: boolean;
 }
 
-export const plainMix: ChannelMix = { solo: null, muted: [], downmix: false };
+export const plainMix: ChannelMix = { solo: null, muted: [], downmix: false, binaural: false };
 
 /** Whether a mix changes anything: the plain one is the recording as the browser plays it. */
 export const isPlain = (mix: ChannelMix) =>
-  mix.solo === null && mix.muted.length === 0 && !mix.downmix;
+  mix.solo === null && mix.muted.length === 0 && !mix.downmix && !mix.binaural;
 
 /**
  * Speakers as engineers name them, from ffmpeg's channel labels (FL, FR, FC, LFE...). The rear
@@ -116,6 +120,108 @@ export function mixUnavailable(channels: number, rendition: string | null): stri
   return "Choose Lossless to hear each channel.";
 }
 
+/** Degrees to the left of straight ahead (azimuth) and above the ear (elevation). */
+interface Direction {
+  azimuth: number;
+  elevation: number;
+}
+
+/**
+ * Where each speaker stands around the listener, as ITU-R BS.2051 places them: the front pair
+ * at 30°, the surrounds of 5.1 at 110°, those of 7.1 at 90° (sides) and 135° (rears), and the
+ * height layer 30° up. The LFE has no place: it is heard from everywhere.
+ */
+export function speakerDirection(label: string, labels: readonly string[]): Direction | null {
+  const withRears = labels.includes("SL") && labels.includes("BL");
+  const at = (azimuth: number, elevation = 0) => ({ azimuth, elevation });
+  switch (label) {
+    case "FL":
+      return at(30);
+    case "FR":
+      return at(-30);
+    case "FC":
+      return at(0);
+    case "FLC":
+      return at(15);
+    case "FRC":
+      return at(-15);
+    case "SL":
+      return at(withRears ? 90 : 110);
+    case "SR":
+      return at(withRears ? -90 : -110);
+    case "BL":
+      return at(withRears ? 135 : 110);
+    case "BR":
+      return at(withRears ? -135 : -110);
+    case "BC":
+      return at(180);
+    case "TFL":
+      return at(45, 30);
+    case "TFR":
+      return at(-45, 30);
+    case "TFC":
+      return at(0, 30);
+    case "TSL":
+      return at(90, 30);
+    case "TSR":
+      return at(-90, 30);
+    case "TBL":
+      return at(135, 30);
+    case "TBR":
+      return at(-135, 30);
+    case "TBC":
+      return at(180, 30);
+    case "TC":
+      return at(0, 90);
+    // The wides, the surround directs and a downmix pair, as ffmpeg names them.
+    case "WL":
+      return at(60);
+    case "WR":
+      return at(-60);
+    case "SDL":
+      return at(90);
+    case "SDR":
+      return at(-90);
+    case "DL":
+      return at(30);
+    case "DR":
+      return at(-30);
+    // The bottom layer, below the ear.
+    case "BFL":
+      return at(45, -30);
+    case "BFR":
+      return at(-45, -30);
+    case "BFC":
+      return at(0, -30);
+    default:
+      return null;
+  }
+}
+
+const isLfe = (label: string) => /^LFE\d?$/.test(label);
+
+/**
+ * Whether a layout can be heard binaurally: each channel an LFE or a speaker with a known
+ * place. One that is neither would be guessed at, so the option is not offered.
+ */
+export const canBinaural = (labels: readonly string[] | null) =>
+  Boolean(labels?.every((l) => isLfe(l) || speakerDirection(l, labels) !== null));
+
+/**
+ * A direction as Web Audio's coordinates, a metre away: the listener at the origin facing −z,
+ * x to the right, y up.
+ */
+export function panPosition({ azimuth, elevation }: Direction) {
+  const a = (azimuth * Math.PI) / 180;
+  const e = (elevation * Math.PI) / 180;
+  const round = (n: number) => Math.round(n * 1e6) / 1e6 || 0;
+  return {
+    x: round(-Math.sin(a) * Math.cos(e)),
+    y: round(Math.sin(e)),
+    z: round(-Math.cos(a) * Math.cos(e)),
+  };
+}
+
 /** Each channel's level under a mix: a solo silences the rest, a mute its channel. */
 export const channelGains = (channels: number, mix: ChannelMix) =>
   Array.from({ length: channels }, (_, i) =>
@@ -129,7 +235,7 @@ export function mixLabel(mix: ChannelMix, names: readonly string[]): string | nu
     mix.solo === null && mix.muted.length > 0
       ? `${mix.muted.map((i) => names[i] ?? i + 1).join(", ")} muted`
       : null,
-    mix.downmix ? "stereo downmix" : null,
+    mix.binaural ? "binaural" : mix.downmix ? "stereo downmix" : null,
   ].filter(Boolean) as string[];
   if (parts.length === 0) return null;
   const text = parts.join(", ");
@@ -175,7 +281,42 @@ export function useChannelMix(
     const levels = channelGains(channels, mix);
     const nodes: AudioNode[] = [splitter];
     // A fold-down needs to know which speaker each channel is; without that, none is made.
-    if (mix.downmix && labels) {
+    if (mix.binaural && labels && canBinaural(labels)) {
+      // Each speaker at its place around the listener, through the browser's HRTF; the LFE
+      // to both ears. Scaled by the speakers' count so a wide layout is no louder than stereo.
+      const placed = labels.filter((l) => speakerDirection(l, labels)).length;
+      const scale = Math.sqrt(2 / Math.max(2, placed));
+      const out = context.createGain();
+      out.gain.value = scale;
+      labels.forEach((label, i) => {
+        const gain = context.createGain();
+        gain.gain.value = levels[i] ?? 0;
+        splitter.connect(gain, i);
+        nodes.push(gain);
+        const direction = speakerDirection(label, labels);
+        // canBinaural leaves only the LFE without a place: to both ears.
+        if (!direction) {
+          gain.gain.value *= HALF;
+          gain.connect(out);
+          return;
+        }
+        const { x, y, z } = panPosition(direction);
+        // No fall-off with distance: only the direction is wanted.
+        const panner = new PannerNode(context, {
+          panningModel: "HRTF",
+          rolloffFactor: 0,
+          positionX: x,
+          positionY: y,
+          positionZ: z,
+        });
+        gain.connect(panner);
+        panner.connect(out);
+        nodes.push(panner);
+      });
+      context.destination.channelCount = 2;
+      out.connect(context.destination);
+      nodes.push(out);
+    } else if (mix.downmix && labels) {
       const merger = context.createChannelMerger(2);
       downmixGains(labels).forEach((share, i) => {
         for (const [output, amount] of [

@@ -859,6 +859,10 @@ test("file-channels", async ({ page }) => {
     await menu.getByRole("button", { name: "Solo C" }).click();
     await menu.getByRole("switch", { name: "Hear the stereo downmix" }).click();
     await expect(page.getByRole("button", { name: /^Channels: solo c/ })).toBeVisible();
+    // Binaural in its place: one or the other.
+    await menu.getByRole("switch", { name: "Hear it binaurally, on headphones" }).click();
+    await expect(page.getByRole("button", { name: "Channels: solo c, binaural" })).toBeVisible();
+    await expect(menu.getByRole("switch", { name: "Hear the stereo downmix" })).not.toBeChecked();
   }
   await saveScreen(page, "file-channels");
   await checkScreen(page);
