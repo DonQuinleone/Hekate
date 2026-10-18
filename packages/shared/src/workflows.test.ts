@@ -4,6 +4,7 @@ import {
   completeNode,
   flowShape,
   measuredState,
+  namedPeople,
   simulateWorkflow,
   stageClock,
   startRun,
@@ -383,5 +384,41 @@ describe("stageClock", () => {
     expect(at("approval", { due: "3" })).toBeNull();
     expect(at("checks")).toBeNull();
     expect(at("notify")).toBeNull();
+  });
+});
+
+describe("namedPeople", () => {
+  it("reads roles and groups, guests by name, and anyone by email", () => {
+    expect(
+      namedPeople(
+        "Producer, Soloists ,Mira Solberg (guest), tomas@example.test, Ines Arlow <INES@example.test>",
+      ),
+    ).toEqual([
+      { kind: "name", name: "Producer" },
+      { kind: "name", name: "Soloists" },
+      { kind: "guest", name: "Mira Solberg" },
+      { kind: "email", email: "tomas@example.test" },
+      { kind: "email", email: "ines@example.test", name: "Ines Arlow" },
+    ]);
+  });
+
+  it("names nobody where nothing is written", () => {
+    expect(namedPeople(undefined)).toEqual([]);
+    expect(namedPeople(" , ")).toEqual([]);
+    expect(namedPeople("<alex@example.test>")).toEqual([
+      { kind: "email", email: "alex@example.test" },
+    ]);
+  });
+
+  it("takes what is not an email or a guest as a name, quickly whatever its length", () => {
+    expect(namedPeople("a@b@c, Producer <not an email>, (guest)")).toEqual([
+      { kind: "name", name: "a@b@c" },
+      { kind: "name", name: "Producer <not an email>" },
+      { kind: "name", name: "(guest)" },
+    ]);
+    const long = `<${"!@".repeat(50_000)}, ${" ".repeat(100_000)}x (guest)`;
+    const started = performance.now();
+    expect(namedPeople(long)).toHaveLength(2);
+    expect(performance.now() - started).toBeLessThan(500);
   });
 });
