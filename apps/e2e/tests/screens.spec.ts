@@ -1090,8 +1090,13 @@ test("file-comment-shared-takes", async ({ page }) => {
   const dialog = page.getByRole("dialog", { name: "Takes for bar 9" });
   await expect(dialog.getByRole("listitem")).toHaveCount(1);
   await expect(dialog).toContainText("Warm-up run");
+  await expect(dialog.getByRole("button", { name: /^Audition take \d+ at bar 9$/ })).toBeVisible();
   await saveScreen(page, "file-comment-shared-takes");
   await checkScreen(page);
+  // Auditioned from here as from Other takes (#46): the dialog closes on the comparison.
+  await dialog.getByRole("button", { name: /^Audition take/ }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole("region", { name: "Compare" })).toContainText("T1");
 });
 
 // Attaching files to a comment (#133): chosen, shown before sending, and on the thread.

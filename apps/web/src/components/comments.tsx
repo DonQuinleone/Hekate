@@ -681,6 +681,19 @@ function ThreadView({
   const [asking, setAsking] = useState<"defer" | "assign" | null>(null);
   const { comment, replies } = thread;
   const anchor = comment.anchor;
+  // A take heard against this recording from the moment a bar thread was written (#46): the
+  // take's bar lined up with it, looped, level-matched, one key flipping between them.
+  const heardAt = anchor?.kind === "bar" ? anchor.at : undefined;
+  const audition =
+    onBeforeAfter && heardAt !== undefined
+      ? (take: { fileId: string; number: number; span: [number, number] }) =>
+          onBeforeAfter({
+            fileId: take.fileId,
+            label: `T${take.number}`,
+            shift: take.span[0] - heardAt,
+            loop: { start: heardAt, end: heardAt + (take.span[1] - take.span[0]) },
+          })
+      : undefined;
   const carry = comment.carry;
   /** This version's number, for "Fixed in V3". */
   const here = comment.history?.hops.find((h) => h.fileId === fileId)?.versionNumber;
@@ -961,6 +974,7 @@ function ThreadView({
           takes={comment.takes}
           bar={anchor?.kind === "bar" ? anchor.from.bar : undefined}
           guest={guest}
+          onAudition={audition}
           onUnshare={
             canTriage && takesOf
               ? (takeId) => mutations.unshareTake.mutate({ commentId: comment.id, takeId })
@@ -991,19 +1005,7 @@ function ThreadView({
           onClose={() => setTakesOpen(false)}
           // Heard against this recording from the moment the thread was written (#46): the
           // take's bar lined up with it, looped, level-matched, one key flipping between them.
-          onAudition={
-            onBeforeAfter && anchor.at !== undefined
-              ? (take) => {
-                  const at = anchor.at ?? 0;
-                  onBeforeAfter({
-                    fileId: take.fileId,
-                    label: `T${take.number}`,
-                    shift: take.span[0] - at,
-                    loop: { start: at, end: at + (take.span[1] - take.span[0]) },
-                  });
-                }
-              : undefined
-          }
+          onAudition={audition}
           share={
             canTriage
               ? {
