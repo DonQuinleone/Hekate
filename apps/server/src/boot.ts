@@ -153,11 +153,17 @@ export async function boot(
     await jobs.work("reviews-remind", async () => {
       await remindDue({ db, mailer, audit, publicUrl: config.PUBLIC_URL });
     });
+    // A wait that ends may lead to a stage that asks for a review (#25).
+    const runner = {
+      db,
+      jobs,
+      reviews: { db, audit, mailer, publicUrl: config.PUBLIC_URL, trustProxy: false },
+    };
     await jobs.work("workflow-wait", async (data) => {
-      await waitElapsed({ db, jobs }, data);
+      await waitElapsed(runner, data);
     });
     await jobs.work("workflow-waits-sweep", async () => {
-      await sweepWaits({ db, jobs });
+      await sweepWaits(runner);
     });
   }
 
