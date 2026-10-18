@@ -34,6 +34,7 @@ import {
   type FileKind,
   type GroupInput,
   type GuestInput,
+  type ImportMarkersInput,
   type InspectKind,
   type InstanceAccess,
   type InstanceFlag,
@@ -1170,6 +1171,9 @@ export interface Comment {
   todoDoneByName: string | null;
   /** The channel it is about (#74), by its place in the file's order; null is all of them. */
   channel: number | null;
+  /** The marker list it was imported from (#134), and who imported it (hidden from guests). */
+  importedFrom: string | null;
+  importedByName: string | null;
 }
 
 export interface CommentCarry {
@@ -1304,6 +1308,14 @@ export function useCommentMutations(fileId: string) {
       }) =>
         json<{ comment: Comment }>(
           await api.files[":id"].comments.$post({ param: { id: fileId }, json: input }),
+        ),
+      onSuccess: refresh,
+    }),
+    /** Markers read from another application's list, as comments (#134). */
+    importMarkers: useMutation({
+      mutationFn: async (input: ImportMarkersInput) =>
+        json<{ imported: number }>(
+          await api.files[":id"].comments.import.$post({ param: { id: fileId }, json: input }),
         ),
       onSuccess: refresh,
     }),

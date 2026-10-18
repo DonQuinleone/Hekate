@@ -107,6 +107,11 @@ export function Thread({
           {isGuest && !mine ? author.name.split(" ")[0] : author.name}
         </span>
         <span className="tabular text-[12px] text-ink-3">{ago(comment.createdAt)}</span>
+        {comment.importedFrom && (
+          <span className="min-w-0 truncate text-[12px] text-ink-3">
+            from {comment.importedFrom}
+          </span>
+        )}
         <span className="ml-auto flex items-center gap-1">
           {number !== null ? (
             <span className="tabular text-[12px] text-ink-3">#{number}</span>

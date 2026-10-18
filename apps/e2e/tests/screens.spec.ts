@@ -1424,6 +1424,40 @@ test("request-review-filled", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Marker list import (#134): an editor's markers read in the page, their colours mapped to
+// categories, the one past the end of the file shown and left out. Not imported here, so the
+// seeded threads stay as every other screen expects.
+test("file-import-markers", async ({ page }) => {
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page.getByRole("button", { name: "Actions for file" }).click();
+  await page.getByRole("menuitem", { name: "Import a marker list…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Import a marker list" });
+  await expect(dialog.getByText("Drop the marker list here, or choose it")).toBeVisible();
+  await dialog.getByLabel("Marker list").setInputFiles({
+    name: "Maple V2 markers.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from(
+      [
+        "Tomas Varga\t01:00:06:05\tA1\tred\tPedal noise on the left\t1",
+        "Tomas Varga\t01:00:17:15\tA1\tgreen\tKeep the rubato\t50",
+        "Tomas Varga\t01:00:52:00\tA1\tyellow\tCheck the ending\t1",
+        "",
+      ].join("\n"),
+    ),
+  });
+  await expect(dialog.getByText(/Avid Media Composer markers · 3 markers/)).toBeVisible();
+  await expect(dialog.getByText("past the end of the file")).toBeVisible();
+  // The rate worked out from the frames can be changed, and the choice stays to change again.
+  await dialog.getByLabel("Timecode rate").selectOption("30");
+  await expect(dialog.getByText("As chosen; its timeline starts at 01:00:00:00.")).toBeVisible();
+  await dialog.getByLabel("Timecode rate").selectOption("25");
+  await dialog.getByLabel("Category for red").selectOption({ label: "Noise" });
+  await expect(dialog.getByRole("button", { name: "Import 2 comments" })).toBeEnabled();
+  await saveScreen(page, "file-import-markers");
+  await checkScreen(page);
+});
+
 // Comment export (#99): the file's threads as a marker list, previewed, then downloaded.
 test("file-export-comments", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}`);

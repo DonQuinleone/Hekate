@@ -182,7 +182,7 @@ export function ImportCommentsDialog({ onClose }: { onClose: () => void }) {
   return (
     <Dialog
       title="Import a marker list"
-      description="Pyramix, SADiE, Pro Tools, Sequoia, Nuendo, Reaper, Final Cut Pro, DaVinci Resolve, Premiere Pro, Avid, CSV or plain text."
+      description="Pro Tools, Nuendo, Reaper, Final Cut Pro, DaVinci Resolve, Premiere Pro, Avid, CSV or plain text."
       onClose={onClose}
       footer={
         <>
@@ -209,7 +209,7 @@ export function ImportCommentsDialog({ onClose }: { onClose: () => void }) {
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-2 text-[13px] text-ink-2">
             <Icon name="file" size={14} className="text-ink-3" />
-            Maple V2 markers.txt · Pyramix marker list · {rows.length} rows
+            Maple V2 markers.txt · Avid Media Composer markers · {rows.length} markers
           </div>
           <div className="grid gap-4 @md/app:grid-cols-2">
             <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">

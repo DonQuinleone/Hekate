@@ -28,6 +28,7 @@ export const actionCopy: Record<string, string> = {
   "comment.attachment_add": "File attached",
   "comment.attachment_download": "Attachment downloaded",
   "comment.export": "Comments exported",
+  "comment.import": "Marker list imported",
   "organisation.rename": "Workspace renamed",
   "organisation.settings": "Workspace settings changed",
   "organisation.directory": "Directory settings changed",

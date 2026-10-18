@@ -29,6 +29,7 @@ import { FileDetailsSheet } from "~/components/file-details";
 import { mediaSummary } from "~/components/files";
 import { Icon } from "~/components/icons";
 import { Loudness } from "~/components/loudness";
+import { ImportMarkersDialog } from "~/components/marker-import";
 import { type Crumb, PageHeader } from "~/components/page-header";
 import { CommentsSplitter, PanelPlacement } from "~/components/panel-placement";
 import { Player } from "~/components/player";
@@ -242,6 +243,7 @@ export function FilePage({
   /** On a document: the page shown, and the region drawn or thread picked on it. */
   const [pageFocus, setPageFocus] = useState<PageFocus>(initialFocus);
   const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [chosenNormal, setChosenNormal] = useNormalisedChoice();
   // Arriving from another version or variation: start where that one was (#15).
   const { media, onMedia } = useFileMedia(fileId, startAt, onStarted);
@@ -484,6 +486,9 @@ export function FilePage({
                   label="file"
                   actions={[
                     { label: "Export comments…", onSelect: () => setExporting(true) },
+                    ...(file.kind === "audio" || file.kind === "video"
+                      ? [{ label: "Import a marker list…", onSelect: () => setImporting(true) }]
+                      : []),
                     { label: "Triage comments", onSelect: () => onView("triage") },
                   ]}
                 />
@@ -493,6 +498,7 @@ export function FilePage({
         }
       />
       {exporting && <ExportCommentsDialog file={file} onClose={() => setExporting(false)} />}
+      {importing && <ImportMarkersDialog file={file} onClose={() => setImporting(false)} />}
       {!guest && showDetails && (
         <FileDetailsSheet fileId={file.id} onClose={() => onDetails(false)} />
       )}

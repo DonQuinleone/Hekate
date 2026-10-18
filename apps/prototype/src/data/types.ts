@@ -223,6 +223,8 @@ export interface Comment {
   reviewId?: string;
   /** A channel the comment is about, for multichannel files. */
   channel?: string;
+  /** The marker list it was imported from (#134). */
+  importedFrom?: string;
 }
 
 export interface CommentCategory {

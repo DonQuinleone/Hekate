@@ -469,6 +469,14 @@ function CommentBody({
           {ago(comment.createdAt)}
           {comment.editedAt && " · edited"}
         </span>
+        {comment.importedFrom && (
+          <span
+            className="min-w-0 truncate text-ink-3"
+            title={`Imported from ${comment.importedFrom}${comment.importedByName ? ` by ${comment.importedByName}` : ""}`}
+          >
+            from {comment.importedFrom}
+          </span>
+        )}
         {editable && !editing && (
           <button
             type="button"

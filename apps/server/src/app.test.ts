@@ -8300,6 +8300,99 @@ describe.runIf(url)("api", () => {
         expect((await create({ body: "On the left?", channel: 0 }, s.composer)).status).toBe(422);
       });
 
+      it("imports a marker list as comments, for those who triage, saying where they came from", async () => {
+        const s = await studio();
+        const categories = (
+          (await (await getAs(`/api/projects/${s.projectId}/categories`, s.owner)).json()) as {
+            categories: { id: string; name: string }[];
+          }
+        ).categories;
+        const noise = categories.find((k) => k.name === "Noise")?.id;
+        const send = (body: unknown, cookie = s.owner, fileId = s.mix) =>
+          app.request(`/api/files/${fileId}/comments/import`, json(body, cookie));
+        const list = {
+          listName: "Maple V2 markers.txt",
+          authorId: s.ids.composer,
+          markers: [
+            { start: 6.2, end: null, body: "Pedal noise", categoryId: noise },
+            { start: 17.6, end: 19.6, body: "Keep the rubato" },
+            { start: null, end: null, body: "Lovely overall" },
+          ],
+        };
+        // Reviewers may comment, but importing is triage's.
+        expect((await send(list, s.composer)).status).toBe(403);
+        // Times past the end, and authors and categories from elsewhere, are refused.
+        const past = await send({
+          ...list,
+          markers: [{ start: 75, end: null, body: "Too late" }],
+        });
+        expect(past.status).toBe(422);
+        expect(await past.text()).toContain("Marker 1");
+        expect((await send({ ...list, authorId: "someone-else" })).status).toBe(422);
+        expect(
+          (
+            await send({
+              ...list,
+              markers: [{ start: 1, end: null, body: "Hiss", categoryId: crypto.randomUUID() }],
+            })
+          ).status,
+        ).toBe(422);
+        expect(
+          (await send({ ...list, markers: [{ start: 5, end: 4, body: "Backwards" }] })).status,
+        ).toBe(400);
+
+        const done = await send(list);
+        expect(done.status).toBe(201);
+        expect(await done.json()).toEqual({ imported: 3 });
+        const listed = (await (await getAs(`/api/files/${s.mix}/comments`, s.owner)).json()) as {
+          comments: {
+            body: string;
+            authorId: string | null;
+            anchor: unknown;
+            categoryId: string | null;
+            importedFrom: string | null;
+            importedByName: string | null;
+          }[];
+        };
+        const pedal = listed.comments.find((t) => t.body === "Pedal noise");
+        expect(pedal).toMatchObject({
+          authorId: s.ids.composer,
+          anchor: { kind: "time", start: 6.2, end: 6.2 },
+          categoryId: noise,
+          importedFrom: "Maple V2 markers.txt",
+          importedByName: expect.any(String),
+        });
+        expect(listed.comments.find((t) => t.body === "Keep the rubato")?.anchor).toEqual({
+          kind: "time",
+          start: 17.6,
+          end: 19.6,
+        });
+        expect(listed.comments.find((t) => t.body === "Lovely overall")?.anchor).toBeNull();
+        const logged = await audit.query(s.organisationId, { action: "comment.import", limit: 5 });
+        expect(logged.events[0]?.details).toMatchObject({
+          list: "Maple V2 markers.txt",
+          comments: 3,
+        });
+        // A member outside the project finds nothing; nor does the owner of another workspace.
+        const outsider = await joinAs(s.owner, "outsider-marker-import@example.test");
+        expect([403, 404]).toContain((await send(list, outsider)).status);
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Saltmarsh Films", slug: "saltmarsh-marker-import" })
+          .returning({ id: schema.organisations.id });
+        const outsiderId = (
+          (await (await getAs("/api/me", outsider)).json()) as { user: { id: string } }
+        ).user.id;
+        await db
+          .insert(schema.members)
+          .values({ organisationId: other?.id ?? "", userId: outsiderId, role: "owner" });
+        await app.request("/api/me/organisation", {
+          ...json({ organisationId: other?.id }, outsider),
+          method: "PUT",
+        });
+        expect((await send(list, outsider)).status).toBe(404);
+      });
+
       it("checks a new version before it lands, carries as chosen, and replaces a file keeping its threads", async () => {
         const s = await studio();
         const send = (method: string, url: string, body: unknown, cookie: string) =>
