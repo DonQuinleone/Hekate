@@ -66,3 +66,48 @@ export function usedAtBar(
 /** The takes a version's list uses at all. */
 export const takesUsed = (d: EditDecisions | null | undefined) =>
   new Set((d?.uses ?? []).flatMap((u) => (u.takeId ? [u.takeId] : [])));
+
+/** One stretch of a version's lane: where it plays, and what it comes from. */
+export interface EditSegment {
+  start: number;
+  end: number;
+  /** "T12", else the source as the list names it. */
+  label: string;
+  /** Whether it comes from a take of this track. */
+  take: boolean;
+  /** The bars of the take it uses, where they are known: "bars 9 to 16". */
+  bars: string | null;
+}
+
+/**
+ * A version's edits as stretches along its timeline (#56), in order. An edit filling two
+ * tracks of the list (AA, or A and A2) is one stretch; where edits overlap, as a dissolve
+ * does, each later one starts where the one before ends, so the lane reads as cuts.
+ */
+export function editSegments(
+  d: EditDecisions | null | undefined,
+  numberOf: (takeId: string) => number | undefined,
+): EditSegment[] {
+  const uses = [...(d?.uses ?? [])].sort(
+    (a, b) => a.event.recordIn - b.event.recordIn || a.event.recordOut - b.event.recordOut,
+  );
+  const out: EditSegment[] = [];
+  for (const use of uses) {
+    const line = editLine(use, numberOf);
+    const start = Math.max(use.event.recordIn, out.at(-1)?.end ?? 0);
+    const end = use.event.recordOut;
+    if (end <= start) continue;
+    out.push({
+      start,
+      end,
+      label: line.take ?? line.source,
+      take: line.take !== null,
+      bars: line.bars,
+    });
+  }
+  return out;
+}
+
+/** The stretch playing at a moment, if any. */
+export const segmentAt = (segments: readonly EditSegment[], at: number) =>
+  segments.find((s) => s.start <= at && at < s.end) ?? null;

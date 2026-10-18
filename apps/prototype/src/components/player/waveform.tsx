@@ -348,3 +348,55 @@ export function Ruler({
     </div>
   );
 }
+
+/** One stretch of a version as its edit decision list cuts it: the take and the bars. */
+export interface EditStretch {
+  start: number;
+  end: number;
+  label: string;
+  bars: string | null;
+  take: boolean;
+}
+
+/**
+ * A version's edits under its waveform: which take each stretch comes from, as the version's
+ * edit decision list says. A click goes to the start of the edit, to hear the cut into it.
+ */
+export function EditLane({
+  edits,
+  duration,
+  playback,
+  className,
+}: {
+  edits: EditStretch[];
+  duration: number;
+  playback: Playback;
+  className?: string;
+}) {
+  const share = (t: number) => Math.min(100, (t / duration) * 100);
+  const playing = edits.find((e) => e.start <= playback.time && playback.time < e.end);
+  return (
+    <div className={cn("relative h-6 overflow-hidden rounded-[3px]", className)}>
+      {edits.map((e) => (
+        <button
+          key={e.start}
+          type="button"
+          tabIndex={-1}
+          aria-label={`${e.label}${e.bars ? `, ${e.bars}` : ""}: hear it from its start`}
+          onClick={() => playback.seek(e.start)}
+          className={cn(
+            "absolute inset-y-0 flex items-center border-l border-ground px-1.5 text-left text-[11px] leading-none",
+            e.take ? "bg-raised text-ink-2" : "border-y border-y-hairline text-ink-3",
+            e === playing && "bg-edge text-ink",
+          )}
+          style={{ left: `${share(e.start)}%`, width: `${share(e.end) - share(e.start)}%` }}
+        >
+          <span className="truncate">
+            {e.label}
+            {e.bars && <span className="text-ink-3"> · {e.bars}</span>}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
