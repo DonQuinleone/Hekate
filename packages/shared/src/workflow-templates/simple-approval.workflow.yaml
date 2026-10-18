@@ -1,0 +1,48 @@
+# A Hekate workflow: https://donquinleone.github.io/Hekate/use/workflow-files/
+hekate: workflow/1
+name: Simple approval
+nodes:
+  - id: start
+    event: upload
+    name: A version is uploaded
+    at: [0, 0]
+  - id: approval
+    action: approval
+    name: Approval
+    with:
+      who: Reviewer
+      order: All at once
+      rule: Everyone approves
+      status: In review
+      due: "5"
+    at: [320, 0]
+  - id: done
+    action: finish
+    name: Approved
+    with:
+      status: Approved
+    at: [640, 0]
+  - id: changes
+    action: task
+    name: Make the changes
+    with:
+      who: Producer
+      status: Changes requested
+    at: [640, 120]
+connectors:
+  - id: c1
+    from: start.happened
+    to: approval
+  - id: c2
+    from: approval.approved
+    to: done
+  - id: c3
+    from: approval.changes
+    to: changes
+  - id: c4
+    from: approval.mixed
+    to: changes
+  - id: c5
+    from: changes.done
+    to: approval
+    until: 5
