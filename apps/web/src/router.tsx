@@ -65,6 +65,7 @@ import { ReviewPage } from "~/routes/review";
 import { SearchPage } from "~/routes/search";
 import { SessionPage, SessionsPage } from "~/routes/sessions";
 import { TrackPage } from "~/routes/track";
+import { WorkflowsPage } from "~/routes/workflows";
 import { WorkspaceSettingsPage } from "~/routes/workspace-settings";
 
 /** Pages that are not a member's, where a session ending means nothing to undo. */
@@ -487,6 +488,15 @@ const projectSettings = createRoute({
     return <ProjectSettingsPage projectId={projectId} section={section} />;
   },
 });
+// The project's workflows (#26), opened from its settings, as in the prototype.
+const projectWorkflows = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/workflow",
+  component: function ProjectWorkflowsRoute() {
+    const { projectId } = projectWorkflows.useParams();
+    return <WorkflowsPage projectId={projectId} />;
+  },
+});
 const track = createRoute({
   getParentRoute: () => app,
   path: "/tracks/$trackId",
@@ -704,6 +714,7 @@ export const router = createRouter({
       projectSessions,
       session,
       projectSettings,
+      projectWorkflows,
       track,
       trackCompare,
       file,

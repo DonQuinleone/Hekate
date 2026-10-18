@@ -5360,6 +5360,9 @@ describe.runIf(url)("api", () => {
             { workflow: "edit" },
             () => send("PATCH", `/api/projects/${projectId}`, { requireEdl: false }, listener),
           ],
+          // A workflow's builder chooses who each stage asks among the project's roles (#26),
+          // though not among its members.
+          [{ workflow: "edit" }, () => getAs(`/api/projects/${projectId}/roles`, listener)],
           [
             { files: "delete" },
             async () =>

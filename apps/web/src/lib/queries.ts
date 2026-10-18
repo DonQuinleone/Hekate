@@ -97,6 +97,9 @@ import {
   type UpdateProjectInput,
   type WatermarkPosition,
   type WatermarkSettings,
+  type WorkflowChange,
+  type WorkflowInput,
+  type WorkflowSummary,
   type WorkspaceSettings,
   type WorkspaceSettingsInput,
   type WorkspaceState,
@@ -3382,4 +3385,75 @@ export function useRealign(trackId: string) {
       ),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tracks", trackId, "compare"] }),
   });
+}
+
+/** A project's workflows (#25, #26): its own, then the tracks' own, each with what it breaks. */
+export const projectWorkflowsQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "workflows"],
+    queryFn: async () =>
+      (
+        await json<{ workflows: WorkflowSummary[] }>(
+          await api.projects[":id"].workflows.$get({ param: { id: projectId } }),
+        )
+      ).workflows,
+  });
+
+/**
+ * Making, changing and removing a project's workflows (#26). A change is worked out from the
+ * workflow as it stands when its turn comes, and carries the version it was made from: changes
+ * run one at a time, so each builds on the last, and one made over someone else's is refused.
+ */
+export function useWorkflowMutations(projectId: string) {
+  const client = useQueryClient();
+  const key = projectWorkflowsQuery(projectId).queryKey;
+  const put = (workflow: WorkflowSummary) =>
+    client.setQueryData(key, (list) =>
+      list?.some((w) => w.id === workflow.id)
+        ? list.map((w) => (w.id === workflow.id ? workflow : w))
+        : [...(list ?? []), workflow],
+    );
+  return {
+    create: useMutation({
+      mutationFn: async (input: WorkflowInput) =>
+        (
+          await json<{ workflow: WorkflowSummary }>(
+            await api.projects[":id"].workflows.$post({ param: { id: projectId }, json: input }),
+          )
+        ).workflow,
+      onSuccess: put,
+    }),
+    change: useMutation({
+      scope: { id: `project-workflows-${projectId}` },
+      mutationFn: async ({
+        id,
+        change,
+      }: {
+        id: string;
+        change: (current: WorkflowSummary) => Omit<WorkflowChange, "version">;
+      }) => {
+        const current = client.getQueryData(key)?.find((w) => w.id === id);
+        if (!current) throw new Error("That workflow is no longer here");
+        return (
+          await json<{ workflow: WorkflowSummary }>(
+            await api.workflows[":id"].$patch({
+              param: { id },
+              json: { ...change(current), version: current.version },
+            }),
+          )
+        ).workflow;
+      },
+      onSuccess: put,
+      // Refused (someone else's change came first, or it cannot run): show it as it is now.
+      onError: () => client.invalidateQueries({ queryKey: key }),
+    }),
+    remove: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api.workflows[":id"].$delete({ param: { id } });
+        if (!res.ok) await json(res);
+      },
+      onSuccess: (_done, id) =>
+        client.setQueryData(key, (list) => list?.filter((w) => w.id !== id)),
+    }),
+  };
 }
