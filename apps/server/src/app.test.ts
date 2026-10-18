@@ -55,7 +55,7 @@ import { remindDue } from "./reminders.ts";
 import { createSetupGate, SETUP_CODE_HEADER } from "./setup-code.ts";
 import { createStorage } from "./storage.ts";
 import { expireUploads } from "./uploads.ts";
-import { fileMeasured, sweepRuns, waitElapsed, workflowsFor } from "./workflow-runner.ts";
+import { clockElapsed, fileMeasured, sweepRuns, workflowsFor } from "./workflow-runner.ts";
 import { rewrapBehind, rewrapOrganisation } from "./workspace-keys.ts";
 import { purgeDueWorkspaces } from "./workspace-purge.ts";
 
@@ -8213,7 +8213,7 @@ describe.runIf(url)("api", () => {
           };
           expect(wait).toMatchObject({ runId: run?.id, nodeId: "rest" });
           // A wait from a step the run has moved past changes nothing.
-          await waitElapsed(
+          await clockElapsed(
             { db, jobs },
             { ...wait, stepId: "0199f000-0000-7000-8000-000000000001" },
           );
@@ -8222,7 +8222,7 @@ describe.runIf(url)("api", () => {
           expect(await sweepRuns({ db, jobs })).toBe(0);
           expect(await sweepRuns({ db, jobs }, new Date(Date.now() + 2 * 86_400_000))).toBe(1);
           // The job arriving after the sweep changes nothing.
-          await waitElapsed({ db, jobs }, wait);
+          await clockElapsed({ db, jobs }, wait);
           [run] = await runs();
           expect(run).toMatchObject({ state: "finished", status: "Approved", waiting: [] });
           expect(run?.steps.map((st) => [st.nodeId, st.outcome])).toEqual([
@@ -8488,6 +8488,97 @@ describe.runIf(url)("api", () => {
           await version("Straight v4.wav");
           expect(await latestRun()).toMatchObject({ state: "finished" });
           expect(await stageReviews()).toHaveLength(2);
+        });
+
+        it("ends a feedback stage overdue when its due date passes first (#25)", async () => {
+          const s = await studio();
+          const at = (id: string, type: string, name: string, x: number, config = {}) => ({
+            id,
+            type,
+            name,
+            x,
+            y: 0,
+            config,
+          });
+          const definition = {
+            nodes: [
+              at("start", "upload", "A version is uploaded", 0),
+              at("fb", "feedback", "Conductor", 1, { who: "Reviewer", due: "2" }),
+              at("thanks", "finish", "Heard", 2, { status: "Heard" }),
+              at("late", "finish", "Chased", 2, { status: "Chased" }),
+            ],
+            connectors: [
+              { id: "1", from: "start", outcome: "happened", to: "fb" },
+              { id: "2", from: "fb", outcome: "done", to: "thanks" },
+              { id: "3", from: "fb", outcome: "overdue", to: "late" },
+            ],
+          };
+          const made = (await (
+            await app.request(
+              `/api/projects/${s.projectId}/workflows`,
+              json({ name: "Conductor's notes", definition }, s.owner),
+            )
+          ).json()) as { workflow: { id: string } };
+          await app.request(`/api/workflows/${made.workflow.id}`, {
+            ...json({ active: true }, s.owner),
+            method: "PATCH",
+          });
+          const latest = async () =>
+            (
+              (await (await getAs(`/api/tracks/${s.trackId}/workflow-runs`, s.owner)).json()) as {
+                runs: {
+                  state: string;
+                  status: string | null;
+                  steps: {
+                    nodeId: string | null;
+                    outcome: string | null;
+                    byUserId: string | null;
+                  }[];
+                }[];
+              }
+            ).runs[0];
+          const runner = { db, jobs };
+
+          // The review is asked for, due in two days, and the stage's clock is queued for then.
+          sent.length = 0;
+          await app.request(
+            `/api/tracks/${s.trackId}/versions`,
+            json({ variations: [{ fileId: s.artwork, name: "Mix" }] }, s.owner),
+          );
+          const clock = sent.find((j) => j.name === "workflow-wait")?.data as {
+            organisationId: string;
+            runId: string;
+            nodeId: string;
+            stepId: string;
+          };
+          expect(clock).toMatchObject({ nodeId: "fb" });
+          const [review] = await db
+            .select({ status: schema.reviews.status, dueAt: schema.reviews.dueAt })
+            .from(schema.reviews)
+            .where(eq(schema.reviews.projectId, s.projectId));
+          expect(review?.status).toBe("open");
+          expect(review?.dueAt?.getTime()).toBeGreaterThan(Date.now() + 86_400_000);
+
+          // Not yet due: nothing moves. Once due, the sweep ends it overdue, as the job would.
+          expect(await sweepRuns(runner)).toBe(0);
+          expect((await latest())?.state).toBe("running");
+          expect(await sweepRuns(runner, new Date(Date.now() + 3 * 86_400_000))).toBe(1);
+          const run = await latest();
+          expect(run).toMatchObject({ state: "finished", status: "Chased" });
+          expect(run?.steps.at(-1)).toMatchObject({
+            nodeId: "fb",
+            outcome: "overdue",
+            byUserId: null,
+          });
+          // The review stays open, as late notes are still welcome; the job arriving after the
+          // sweep changes nothing.
+          await clockElapsed(runner, clock);
+          expect((await latest())?.steps).toHaveLength(run?.steps.length ?? 0);
+          const [still] = await db
+            .select({ status: schema.reviews.status })
+            .from(schema.reviews)
+            .where(eq(schema.reviews.projectId, s.projectId));
+          expect(still?.status).toBe("open");
         });
 
         it("tells whoever started the run when a stage's review cannot be asked (#25)", async () => {

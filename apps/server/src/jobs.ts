@@ -75,7 +75,10 @@ export const jobDefinitions = {
     options: { retryLimit: 1, expireInSeconds: 30 * 60 },
     schedule: "3 * * * *",
   },
-  /** A workflow's wait has run its days (#25): its run carries on, if it still waits there. */
+  /**
+   * A workflow node's clock has run out (#25): a wait its days, a feedback or task stage its due
+   * date. Its run carries on, if it still waits there.
+   */
   "workflow-wait": {
     data: z.object({
       organisationId: z.uuid(),
@@ -94,8 +97,8 @@ export const jobDefinitions = {
     options: { retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 10 * 60 },
   },
   /**
-   * End the workflow waits whose days have passed, and the checks stages whose files have all
-   * been measured, where no queued job did (#25). Hourly.
+   * End the workflow clocks that have run out (waits, and stages past their due date), and the
+   * checks stages whose files have all been measured, where no queued job did (#25). Hourly.
    */
   "workflow-waits-sweep": {
     data: z.object({}),
