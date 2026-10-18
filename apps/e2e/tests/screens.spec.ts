@@ -793,6 +793,18 @@ test("project-settings-deletion", async ({ page }) => {
   await checkScreen(page);
 });
 
+// How fast it plays (#15): the speed menu, opening upward inside the player.
+test("file-speed", async ({ page }) => {
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page.getByRole("button", { name: /^Speed/ }).click();
+  await page.getByRole("menuitemradio", { name: "0.75×" }).click();
+  await expect(page.getByRole("button", { name: /^Speed 0\.75×/ })).toBeVisible();
+  await page.getByRole("button", { name: /^Speed/ }).click();
+  await saveScreen(page, "file-speed");
+  await checkScreen(page);
+});
+
 // A recording's channels heard apart (#74): its answers amended in the page alone to a 5.1
 // file's, the centre soloed and the downmix on.
 test("file-channels", async ({ page }) => {

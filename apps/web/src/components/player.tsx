@@ -29,6 +29,7 @@ import { usePlayerView } from "~/lib/player-view";
 import { type Playback, type Rendition, usePreferences, useSavePreferences } from "~/lib/queries";
 import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
 import { readView, type SpectrogramView } from "~/lib/spectrogram";
+import { holdRate } from "~/lib/speed";
 import { useViewer } from "~/lib/viewer";
 import { ChannelsButton, ChannelsPanel } from "./channels";
 import { Icon } from "./icons";
@@ -37,6 +38,7 @@ import { Spectrogram, type SpectrogramChannelChoice } from "./spectrogram";
 import { SpectrogramLook, SpectrogramSettings } from "./spectrogram-settings";
 import { Button } from "./ui/button";
 import { Input, Select } from "./ui/input";
+import { Dropdown } from "./ui/menu";
 import { Segmented } from "./ui/segmented";
 import { Slider } from "./ui/slider";
 import { Toggle } from "./ui/toggle";
@@ -129,6 +131,12 @@ export function preferredRendition(available: Rendition[]): Rendition | undefine
     .filter((r) => order.includes(r.name))
     .sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name))[0];
 }
+
+/** The speeds offered, as the prototype's: slower to follow a passage, faster to skim. */
+export const playbackRates = [0.5, 0.75, 1, 1.25, 1.5] as const;
+
+/** A speed as the player shows it: "1×", "0.75×". */
+export const rateLabel = (rate: number) => `${rate}×`;
 
 interface Choice {
   rendition: Rendition;
@@ -233,6 +241,8 @@ export function Player({
   const [duration, setDuration] = useState(info?.duration ?? 0);
   const [buffered, setBuffered] = useState(0);
   const [muted, setMuted] = useState(false);
+  /** How fast it plays (#15), as the prototype offers; pitch is kept. */
+  const [rate, setRate] = useState(1);
   /** A source is attached, so play can start. */
   const [ready, setReady] = useState(false);
   /** Safari on iOS plays the stream itself, so its errors come from the element, not hls.js. */
@@ -373,6 +383,9 @@ export function Player({
     hls.current.nextLevel = index;
     setLevel(index);
   };
+
+  // The speed holds through a new source (a rendition, a version), which resets the element's.
+  useEffect(() => (element ? holdRate(element, rate) : undefined), [element, rate]);
 
   const toggle = useCallback(() => {
     const element = media.current;
@@ -761,6 +774,17 @@ export function Player({
             >
               <Icon name={muted ? "mute" : "volume"} size={14} />
             </Button>
+            <Dropdown
+              size="sm"
+              label="Speed"
+              above
+              value={<span className="tabular">{rateLabel(rate)}</span>}
+              actions={playbackRates.map((r) => ({
+                label: rateLabel(r),
+                checked: rate === r,
+                onSelect: () => setRate(r),
+              }))}
+            />
             {(kind === "audio" || offersNormalise) && (
               <Button
                 variant="ghost"

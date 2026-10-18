@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Rendition } from "~/lib/queries";
-import { audioBuffer, preferredRendition, renditionLabel } from "./player";
+import {
+  audioBuffer,
+  playbackRates,
+  preferredRendition,
+  rateLabel,
+  renditionLabel,
+} from "./player";
 
 const rendition = (name: string, extra: Partial<Rendition> = {}): Rendition => ({
   id: name,
@@ -56,5 +62,12 @@ describe("player", () => {
       maxBufferLength: 30,
       backBufferLength: 10,
     });
+  });
+});
+
+describe("speed (#15)", () => {
+  it("offers the prototype's speeds, normal among them, said as people say them", () => {
+    expect(playbackRates).toContain(1);
+    expect(playbackRates.map(rateLabel)).toEqual(["0.5×", "0.75×", "1×", "1.25×", "1.5×"]);
   });
 });
