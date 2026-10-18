@@ -1055,6 +1055,32 @@ test("file-comment-other-takes", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Auditioning a take at the bar (#46): it joins the comparison, lined up with the moment the
+// thread was written, heard first, with the bar looped.
+test("file-comment-audition-take", async ({ page }) => {
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  const thread = page
+    .getByRole("listitem")
+    .filter({ hasText: "The left hand rushes through these bars." });
+  await thread.getByRole("button", { name: "Other takes" }).click();
+  const panel = page.getByRole("region", { name: "Other takes for bar 9" });
+  const audition = panel.getByRole("button", { name: /^Audition take \d+ at bar 9$/ }).first();
+  const name = (await audition.getAttribute("aria-label")) ?? "";
+  const take = `T${/take (\d+)/.exec(name)?.[1]}`;
+  await audition.click();
+  const compare = page.getByRole("region", { name: "Compare" });
+  // Pinned among the sources, and the one heard.
+  await expect(compare.getByRole("button", { name: take, pressed: true })).toHaveCount(2);
+  // The bar looped from where the thread was written.
+  await expect(page).toHaveURL(/loop=14\.2-/);
+  await expect(panel.getByRole("status")).toContainText("Auditioning at bar 9");
+  await expect(panel.getByRole("button", { name: name, pressed: true })).toBeVisible();
+  await panel.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await saveScreen(page, "file-comment-audition-take");
+  await checkScreen(page);
+});
+
 // Takes shared on a thread (#133): one line in it, opening the list to hear them.
 test("file-comment-shared-takes", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
