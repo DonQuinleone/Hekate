@@ -1,4 +1,4 @@
-import { type OverviewSection, overviewSections, profiles } from "@hekate/shared";
+import { type OverviewSection, overviewSections, profiles, reviewKindNames } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
@@ -363,8 +363,7 @@ export function ProjectOverview({ project }: { project: Project }) {
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[14px] text-ink">{r.title}</span>
                     <span className="block truncate text-[12px] text-ink-3">
-                      {r.kind === "approval" ? "Approval" : "Feedback"} · {r.submitted} of{" "}
-                      {r.reviewers} responded
+                      {reviewKindNames[r.kind]} · {r.submitted} of {r.reviewers} responded
                     </span>
                   </span>
                   {r.dueAt && (

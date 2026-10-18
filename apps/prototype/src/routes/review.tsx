@@ -13,6 +13,7 @@ import { Button } from "~/components/ui/button";
 import { Input, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import {
+  accessLog,
   comments,
   fileById,
   groups,
@@ -28,6 +29,7 @@ import {
   workflows,
 } from "~/data";
 import { cn } from "~/lib/cn";
+
 import { fileDetails } from "~/lib/files";
 import { ago, dueIn, formatDate, formatLongDate, formatTime, plural } from "~/lib/format";
 import {
@@ -50,6 +52,17 @@ export const outcomeCopy = (r: Review) => {
   if (r.kind === "share") return "Shared";
   return "In review";
 };
+
+/** How often one of a share's people played and downloaded what it shares, from the log. */
+function shareUsage(reviewId: string, personId: string) {
+  const theirs = accessLog.filter((e) => e.reviewId === reviewId && e.personId === personId);
+  const plays = theirs.filter((e) => e.action === "stream.session").length;
+  const downloads = theirs.filter((e) => e.action === "download").length;
+  return [
+    `${plays} ${plays === 1 ? "play" : "plays"}`,
+    ...(downloads > 0 ? [`${downloads} ${downloads === 1 ? "download" : "downloads"}`] : []),
+  ].join(" · ");
+}
 
 /** The files a review item resolves to, and what to call it. */
 export function resolveItem(item: Review["items"][number]) {
@@ -327,6 +340,12 @@ function Reviewers({ review, manage }: { review: Review; manage: boolean }) {
                               )}
                               {review.kind === "approval" && !r.permissions.decide && (
                                 <span>· comments only</span>
+                              )}
+                              {/* A share's people, as those who run it see them: how much. */}
+                              {review.kind === "share" && !viewer.isGuest && (
+                                <span className="tabular">
+                                  · {shareUsage(review.id, r.personId)}
+                                </span>
                               )}
                             </div>
                           </div>

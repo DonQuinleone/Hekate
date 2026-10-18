@@ -4,6 +4,7 @@ import {
   type ReviewerPermissions,
   type ReviewerPermissionsChange,
   type ReviewerTool,
+  type ReviewKind,
   reviewerTools,
 } from "@hekate/shared";
 import { type FormEvent, useId, useState } from "react";
@@ -55,7 +56,7 @@ export function ReviewerPermissionsEditor({
   onCancel,
 }: {
   name: string;
-  kind: "approval" | "feedback";
+  kind: ReviewKind;
   /** A guest gets exactly this; a member's comments and tools follow their project role. */
   guest: boolean;
   initial: ReviewerPermissions;
@@ -67,6 +68,8 @@ export function ReviewerPermissionsEditor({
   onCancel: () => void;
 }) {
   const [p, setP] = useState(initial);
+  // A share's people only listen and look (#138): no comments, decisions or invitations.
+  const share = kind === "share";
   const [from, setFrom] = useState(toLocalInput(initial.startsAt));
   const [until, setUntil] = useState(toLocalInput(initial.expiresAt));
   const [plays, setPlays] = useState(initial.maxPlays ? String(initial.maxPlays) : "");
@@ -110,7 +113,7 @@ export function ReviewerPermissionsEditor({
       aria-label={`What ${name} may do`}
       className="mt-1 flex flex-col gap-4 rounded-panel border border-hairline bg-surface p-4"
     >
-      {guest && (
+      {guest && !share && (
         <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
           <legend className="label mb-2">Comments they see</legend>
           <div className="flex flex-wrap gap-1">
@@ -129,7 +132,7 @@ export function ReviewerPermissionsEditor({
         </fieldset>
       )}
       <div className="flex max-w-72 flex-col gap-2.5">
-        {guest && (
+        {guest && !share && (
           <Toggle
             label="Comment"
             checked={p.comment}
@@ -143,11 +146,13 @@ export function ReviewerPermissionsEditor({
             onChange={(decide) => setP({ ...p, decide })}
           />
         )}
-        <Toggle
-          label="Invite others"
-          checked={p.invite ?? false}
-          onChange={(invite) => setP({ ...p, invite })}
-        />
+        {!share && (
+          <Toggle
+            label="Invite others"
+            checked={p.invite ?? false}
+            onChange={(invite) => setP({ ...p, invite })}
+          />
+        )}
         {guest && (
           <Toggle
             label="Earlier versions"

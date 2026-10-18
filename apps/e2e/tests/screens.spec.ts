@@ -303,6 +303,12 @@ const screens: Screen[] = [
     path: (s) => `/reviews/${s.reviewStates.overdue}`,
     ready: "text=overdue",
   },
+  // A share (#138): those it is shared with, opened or not, and nothing asked of them.
+  {
+    name: "review-share",
+    path: (s) => `/reviews/${s.shareId}`,
+    ready: "section:has-text('Shared with') li",
+  },
   { name: "inbox", path: () => "/inbox", ready: "main a:has-text('Album masters')" },
   {
     name: "inbox-review",
@@ -517,6 +523,18 @@ test("file-qa-report", async ({ page }) => {
   await page.getByRole("button", { name: "QA report" }).click();
   await settle(page, "[role=dialog] button:has-text('Download PDF')");
   await saveScreen(page, "file-qa-report");
+  await checkScreen(page);
+});
+
+// Sharing (#138): the Share dialog, from the project's Reviews, a track and someone chosen.
+test("share-dialog", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/reviews`);
+  await settle(page, "main >> text=Rehearsal takes");
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  await settle(page, "[role=dialog] >> text=Maple Leaf Rag");
+  await page.getByRole("dialog").getByRole("checkbox").first().check();
+  await saveScreen(page, "share-dialog");
   await checkScreen(page);
 });
 
