@@ -44,6 +44,7 @@ export function LoopSurface({
   onSeek,
   onLoop,
   label,
+  valueText,
   className,
   children,
 }: {
@@ -54,6 +55,8 @@ export function LoopSurface({
   /** Make a loop from a drag; without it, the surface only seeks. */
   onLoop?: (loop: Loop) => void;
   label: string;
+  /** What the surface reads as, where it is not the loop: the edit at the playhead. */
+  valueText?: string;
   className?: string;
   children?: ReactNode;
 }) {
@@ -74,7 +77,8 @@ export function LoopSurface({
         aria-valuemax={duration}
         aria-valuenow={loop?.start ?? 0}
         aria-valuetext={
-          loop ? `Loop ${preciseTime(loop.start)} to ${preciseTime(loop.end)}` : "No loop"
+          valueText ??
+          (loop ? `Loop ${preciseTime(loop.start)} to ${preciseTime(loop.end)}` : "No loop")
         }
         tabIndex={-1}
         className="absolute inset-0 z-10 cursor-crosshair touch-none select-none"

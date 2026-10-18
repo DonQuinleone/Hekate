@@ -18,7 +18,13 @@ import {
   type View,
   ViewMenu,
 } from "~/components/player/transport";
-import { type Marker, Ruler, Waveform } from "~/components/player/waveform";
+import {
+  EditLane,
+  type EditStretch,
+  type Marker,
+  Ruler,
+  Waveform,
+} from "~/components/player/waveform";
 import { QaView } from "~/components/qa";
 import { VideoQaView } from "~/components/qa-video";
 import { Dot } from "~/components/status";
@@ -576,6 +582,25 @@ export function FilePage({
     inTrack !== null &&
     tools.has("takes") &&
     allTakes.some((t) => t.trackId === inTrack.track.id && t.coverage);
+  // The version's edit decision list, as a lane under its waveform: the take of each stretch.
+  const edits: EditStretch[] =
+    isAudio && inTrack && tools.has("takes")
+      ? allTakes
+          .filter((t) => t.trackId === inTrack.track.id)
+          .flatMap((t) =>
+            (t.usedIn ?? [])
+              .filter((u) => u.versionNumber === inTrack.version.number)
+              .map((u) => ({
+                start: (u.barFrom - 1) * 1.2,
+                end: Math.min(duration, u.barTo * 1.2),
+                label: `T${t.number}`,
+                bars: `bars ${u.barFrom} to ${u.barTo}`,
+                take: true,
+              })),
+          )
+          .filter((e) => e.start < duration)
+          .sort((a, b) => a.start - b.start)
+      : [];
 
   const versionMenu = inTrack && (access.history || inTrack.track.versions.length === 1) && (
     <Dropdown
@@ -911,6 +936,9 @@ export function FilePage({
                 style={{ left: `${(playback.time / duration) * 100}%` }}
               />
             </div>
+          )}
+          {edits.length > 0 && (
+            <EditLane edits={edits} duration={duration} playback={playback} className="mt-1.5" />
           )}
           <Ruler duration={duration} className="mt-1" />
         </div>

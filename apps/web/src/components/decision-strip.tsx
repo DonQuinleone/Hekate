@@ -62,7 +62,7 @@ export function DecisionStrip({ reviewId }: { reviewId: string }) {
         <Link
           to={guest ? "/g/reviews/$reviewId" : "/reviews/$reviewId"}
           params={{ reviewId }}
-          className="min-w-0 truncate font-medium text-ink-2 no-underline hover:text-ink"
+          className="block min-w-0 truncate py-0.5 leading-5 font-medium text-ink-2 no-underline hover:text-ink"
         >
           {review.title}
         </Link>

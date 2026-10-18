@@ -1367,6 +1367,26 @@ test("track-takes-edits", async ({ page }) => {
   ).toHaveCount(3);
 });
 
+// V2's edits under its waveform (#56): a click on one goes to where it starts.
+test("file-recording-edits", async ({ page }) => {
+  await page.goto(`/files/${seeded().dryFileId}`);
+  const lane = page.getByRole("slider", { name: /^Edits: 4/ });
+  await expect(lane).toBeVisible();
+  const player = page.getByRole("region", { name: "Player" });
+  await expect(player).toContainText("T3 · bars");
+  await expect(player).toContainText("Pick-up, bar 17.wav");
+  // Read out as words too, and the edit at the playhead named.
+  await expect(page.getByRole("list", { name: "Edits" }).getByRole("listitem")).toHaveCount(4);
+  // A click part of the way into T3's edit (6 to 14 seconds) goes to its start.
+  const box = await lane.boundingBox();
+  const duration = Number(await page.getByRole("slider", { name: "Position" }).getAttribute("max"));
+  if (!box || !(duration > 14)) throw new Error("The lane or the recording is not as seeded");
+  await page.mouse.click(box.x + (box.width * 11) / duration, box.y + box.height / 2);
+  await expect(page.getByRole("slider", { name: "Position" })).toHaveValue(/^6(\.0+)?$/);
+  await expect(lane).toHaveAttribute("aria-valuetext", /^Playing T3, bars/);
+  await checkScreen(page);
+});
+
 // Project templates (#240): saving one from the project's settings, and starting from one.
 test("project-template-save", async ({ page }) => {
   await page.goto(`/projects/${seeded().musicProjectId}/settings`);
