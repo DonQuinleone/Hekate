@@ -1012,12 +1012,15 @@ export function SharedTakes({
   bar,
   guest,
   onUnshare,
+  onAudition,
 }: {
   takes: SharedTake[];
   bar?: number;
   /** A guest reviewer hears them in their own player. */
   guest: boolean;
   onUnshare?: (takeId: string) => void;
+  /** Hear one at the thread's bar against the recording (#46), as in Other takes. */
+  onAudition?: (take: { fileId: string; number: number; span: [number, number] }) => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -1036,7 +1039,9 @@ export function SharedTakes({
           description={
             bar === undefined
               ? "Shared on this thread. Each opens in the player."
-              : `Shared on this thread. Each opens in the player, looped on bar ${bar} where the take's bars place it.`
+              : onAudition
+                ? `Shared on this thread. Audition hears one against this recording at bar ${bar}; each also opens in its own player, looped on the bar.`
+                : `Shared on this thread. Each opens in the player, looped on bar ${bar} where the take's bars place it.`
           }
           onClose={() => setOpen(false)}
           footer={
@@ -1068,6 +1073,22 @@ export function SharedTakes({
                     <span className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2">
                       <OtherTake take={t} />
                     </span>
+                  )}
+                  {onAudition && span && t.file?.streamStatus === "ready" && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="shrink-0"
+                      aria-label={`Audition take ${t.number} at bar ${bar}`}
+                      title="Heard against this recording at the bar, looped and level-matched; the number keys flip between them"
+                      onClick={() => {
+                        // Closed, so the recording and the comparison are in view to hear it.
+                        setOpen(false);
+                        onAudition({ fileId: t.file?.id ?? "", number: t.number, span });
+                      }}
+                    >
+                      Audition
+                    </Button>
                   )}
                   {onUnshare && (
                     <Button
