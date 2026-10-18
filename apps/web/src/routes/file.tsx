@@ -1,4 +1,6 @@
 import {
+  admHeading,
+  admLine,
   formatBytes,
   formatChannels,
   formatDuration,
@@ -633,6 +635,14 @@ export function FilePage({
                       ),
                     )}
                   </dl>
+                  {file.mediaInfo.metadata.adm && (
+                    <div className="flex flex-col gap-1 pt-1">
+                      <h3 className="label m-0">{admHeading(file.mediaInfo.metadata.adm)}</h3>
+                      <p className="m-0 text-[13px] text-ink-2">
+                        {admLine(file.mediaInfo.metadata.adm)}
+                      </p>
+                    </div>
+                  )}
                 </section>
               )}
             </div>

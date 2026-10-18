@@ -9,6 +9,34 @@ function framesPerSecond(rate: string | undefined): number | null {
   return Number.isFinite(fps) && fps > 0 && fps <= 1000 ? Math.round(fps) : null;
 }
 
+type Adm = NonNullable<EmbeddedMetadata["adm"]>;
+
+/** "7.1.2 bed + 12 objects": an ADM master's bed and objects, in a phrase. */
+export function admShape(adm: Adm): string {
+  const bed =
+    adm.bed === 0 ? "no bed" : adm.layout ? `${adm.layout} bed` : `${adm.bed}-channel bed`;
+  if (adm.objects === 0) return bed;
+  const objects = `${adm.objects} ${adm.objects === 1 ? "object" : "objects"}`;
+  return adm.bed === 0 ? objects : `${bed} + ${objects}`;
+}
+
+/**
+ * An ADM master's description in a line (#74), as the QA view and its report show it:
+ * "7.1.4 bed + 2 objects · programme “Maple Leaf Rag” · Dolby metadata present".
+ */
+export function admLine(adm: Adm): string {
+  return [
+    admShape(adm),
+    adm.programme ? `programme “${adm.programme}”` : null,
+    adm.dolby ? "Dolby metadata present" : "no Dolby metadata",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** What the line is headed: Dolby's own metadata marks an Atmos master. */
+export const admHeading = (adm: Adm) => (adm.dolby ? "ADM · Dolby Atmos" : "ADM");
+
 const two = (n: number) => String(n).padStart(2, "0");
 
 /**

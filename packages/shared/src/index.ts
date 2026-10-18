@@ -17,6 +17,7 @@ export * from "./format.ts";
 export * from "./inspect.ts";
 export * from "./install.ts";
 export * from "./instance.ts";
+export * from "./layouts.ts";
 export * from "./loudness.ts";
 export * from "./media.ts";
 export * from "./metadata.ts";

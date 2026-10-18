@@ -5,6 +5,10 @@ import {
   type DeliveryProfile,
   deliveryProfileIds,
   deliveryProfiles,
+  type LayoutName,
+  layoutChannels,
+  layoutLabel,
+  layoutNames,
   type ProfileRef,
   profileFor,
 } from "@hekate/shared";
@@ -26,18 +30,63 @@ export function useWorkspaceAdmin() {
 /** A level in decibels, with a true minus sign. */
 export const formatDb = (value: number) => (value < 0 ? `−${Math.abs(value)}` : String(value));
 
-const layouts: { channels: number | null; label: string }[] = [
-  { channels: null, label: "Any layout" },
-  { channels: 1, label: "Mono" },
-  { channels: 2, label: "Stereo" },
-  { channels: 6, label: "5.1" },
-  { channels: 8, label: "7.1" },
-  { channels: 12, label: "7.1.4" },
+interface LayoutChoice {
+  value: string;
+  label: string;
+  channels: number | null;
+  layout: LayoutName | null;
+  atmos: boolean;
+}
+
+/** What a profile can ask of the channels: any, a layout (#74), or an ADM master. */
+const layoutChoices: LayoutChoice[] = [
+  { value: "", label: "Any layout", channels: null, layout: null, atmos: false },
+  ...layoutNames.map((name) => ({
+    value: name,
+    label: layoutLabel(name),
+    channels: layoutChannels(name),
+    layout: name,
+    atmos: false,
+  })),
+  { value: "atmos", label: "Dolby Atmos (ADM BWF)", channels: null, layout: null, atmos: true },
 ];
 
-const layoutOf = (channels: number | null) =>
-  layouts.find((l) => l.channels === channels)?.label ??
-  `${channels} ${channels === 1 ? "channel" : "channels"}`;
+/**
+ * The choice a profile makes: its layout, else Atmos, else any layout, else its number of
+ * channels alone. A profile made before layouts were (#74) keeps asking for a count only,
+ * never a layout it did not choose.
+ */
+export function layoutChoiceOf(
+  p: Pick<DeliveryProfile, "channels" | "layout" | "atmos">,
+): LayoutChoice {
+  const known =
+    layoutChoices.find((c) => p.layout && c.layout === p.layout && Boolean(p.atmos) === c.atmos) ??
+    (p.atmos && !p.layout ? layoutChoices.find((c) => c.atmos) : undefined) ??
+    (!p.layout && !p.atmos && p.channels === null ? layoutChoices[0] : undefined);
+  if (known) return known;
+  const label = p.channels
+    ? `${p.channels} ${p.channels === 1 ? "channel" : "channels"}`
+    : "Any layout";
+  return {
+    value: `channels:${p.channels ?? ""}`,
+    label,
+    channels: p.channels,
+    layout: p.layout ?? null,
+    atmos: Boolean(p.atmos),
+  };
+}
+
+/** What a profile asks of the channels, as its summary says it: one or two by name. */
+const layoutSummary = (p: DeliveryProfile) =>
+  p.atmos
+    ? "Dolby Atmos (ADM BWF)"
+    : p.layout
+      ? layoutLabel(p.layout)
+      : p.channels === null
+        ? "Any layout"
+        : p.channels <= 2
+          ? layoutLabel(`${p.channels}.0`)
+          : `${p.channels} channels`;
 
 /** What a delivery profile asks for, in one line. */
 export function profileSummary(p: DeliveryProfile): string {
@@ -49,7 +98,7 @@ export function profileSummary(p: DeliveryProfile): string {
     `${formatDb(p.truePeakMax)} dBTP`,
     p.sampleRates.atLeast ? `${rates} or more` : rates,
     p.bitDepthMin ? `${p.bitDepthMin}-bit${p.bitDepthExact ? "" : " or more"}` : "Any depth",
-    layoutOf(p.channels),
+    layoutSummary(p),
   ].join(" · ");
 }
 
@@ -113,7 +162,11 @@ export function ProfileEditor({
   );
   const [atLeast, setAtLeast] = useState(profile?.sampleRates.atLeast ?? true);
   const [bitDepth, setBitDepth] = useState(String(profile?.bitDepthMin ?? 24));
-  const [channels, setChannels] = useState(String(profile?.channels ?? ""));
+  const initial = layoutChoiceOf(profile ?? { channels: null });
+  const choices = layoutChoices.some((c) => c.value === initial.value)
+    ? layoutChoices
+    : [...layoutChoices, initial];
+  const [layout, setLayout] = useState(initial.value);
   const [invalid, setInvalid] = useState<string | null>(null);
   const saving = profile ? update : create;
 
@@ -121,13 +174,16 @@ export function ProfileEditor({
     event.preventDefault();
     // Typed minus signs read as numbers too.
     const number = (text: string) => Number.parseFloat(text.replace("−", "-"));
+    const chosen = choices.find((c) => c.value === layout) ?? initial;
     const parsed = customProfileInput.safeParse({
       label,
       loudness: hasLoudness ? { target: number(target), tolerance: number(tolerance) } : null,
       truePeakMax: number(truePeak),
       sampleRates: { rates: ratesFrom(rates), atLeast },
       bitDepthMin: bitDepth ? Number(bitDepth) : null,
-      channels: channels ? Number(channels) : null,
+      channels: chosen.channels,
+      layout: chosen.layout,
+      atmos: chosen.atmos,
     });
     if (!parsed.success) {
       setInvalid(parsed.error.issues[0]?.message ?? "Check the numbers");
@@ -230,10 +286,10 @@ export function ProfileEditor({
           </label>
           <label className={field}>
             Layout
-            <Select value={channels} onChange={(e) => setChannels(e.target.value)}>
-              {layouts.map((l) => (
-                <option key={l.label} value={l.channels ?? ""}>
-                  {l.label}
+            <Select value={layout} onChange={(e) => setLayout(e.target.value)}>
+              {choices.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
                 </option>
               ))}
             </Select>

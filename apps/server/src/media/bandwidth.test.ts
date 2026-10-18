@@ -1,7 +1,8 @@
-import { SPECTROGRAM_FLOOR, type Spectrogram } from "@hekate/shared";
+import { encodeSpectrogram, SPECTROGRAM_FLOOR, type Spectrogram } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
 import { declaredLength, integrityFinding } from "./analysis.ts";
 import { averageSpectrum, bandwidthFinding } from "./bandwidth.ts";
+import { lfeFinding, lfeOf } from "./lfe.ts";
 
 /** A level in dB as a spectrogram stores it. */
 const byte = (db: number) =>
@@ -68,6 +69,56 @@ describe("how high a recording reaches (#41)", () => {
     expect(check(spectrogram(48_000, () => SPECTROGRAM_FLOOR))).toBeNull();
     expect(check(spectrogram(48_000, (hz) => (hz < 500 ? -20 : SPECTROGRAM_FLOOR)))).toBeNull();
     expect(bandwidthFinding(averageSpectrum([]))).toBeNull();
+  });
+});
+
+describe("what the LFE carries (#74)", () => {
+  const lfe = (s: Spectrogram) => lfeFinding(averageSpectrum([s]), 3);
+
+  it("passes an LFE low-passed at its crossover", () => {
+    // 24 dB an octave above 120 Hz, as a bass-management filter leaves it.
+    const filtered = spectrogram(48_000, (hz) =>
+      Math.max(-110, hz < 120 ? -20 : -20 - 24 * Math.log2(hz / 120)),
+    );
+    expect(lfe(filtered)).toMatchObject({
+      check: "lfe",
+      severity: "pass",
+      channel: 3,
+      summary: "Nothing above the 120 Hz crossover on the LFE",
+    });
+  });
+
+  it("fails content above the crossover, and full-range content as channels out of order", () => {
+    const leaking = spectrogram(48_000, (hz) =>
+      hz < 120 ? -20 : hz < 1000 ? -32 : SPECTROGRAM_FLOOR,
+    );
+    expect(lfe(leaking)).toMatchObject({
+      severity: "fail",
+      summary: expect.stringMatching(
+        /^Content above the 120 Hz crossover on the LFE \(channel 4\), at 2\d\d Hz only 12 dB below its bass: low-pass it at 120 Hz$/,
+      ),
+    });
+    // A vocal where the LFE should be: film order puts the LFE last.
+    const vocal = spectrogram(48_000, (hz) => (hz < 100 ? -40 : hz < 8000 ? -22 : -60));
+    expect(lfe(vocal)).toMatchObject({
+      severity: "fail",
+      summary: expect.stringMatching(/^Full-range content on the LFE \(channel 4\): most likely/),
+    });
+  });
+
+  it("records a silent LFE as looked at, and finds the LFE among the channels", () => {
+    expect(lfe(spectrogram(48_000, () => SPECTROGRAM_FLOOR))).toMatchObject({
+      severity: "pass",
+      summary: "Nothing on the LFE (channel 4)",
+    });
+    const quiet = encodeSpectrogram(spectrogram(48_000, () => SPECTROGRAM_FLOOR));
+    const full = encodeSpectrogram(spectrogram(48_000, () => -20));
+    const spectra = [0, 1, 2, 3, 4, 5].map((c) => ({
+      channel: String(c),
+      bytes: c === 3 ? full : quiet,
+    }));
+    expect(lfeOf(spectra, [3]).map((f) => [f.channel, f.severity])).toEqual([[3, "fail"]]);
+    expect(lfeOf(spectra, [])).toEqual([]);
   });
 });
 

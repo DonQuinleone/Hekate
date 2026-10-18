@@ -61,11 +61,12 @@ export async function qaReportOf(db: Database, organisationId: string, id: strin
   if (!file) throw new NotFound("File");
   const channels = file.mediaInfo?.audio?.channels;
   if (!channels) return null;
+  const adm = Boolean(file.mediaInfo?.metadata?.adm);
 
   // The file's own profile, else its track's, its project's or the workspace's (#144).
   const profiles = await profilesForFiles(db, organisationId, [id]);
-  const chosen = profiles.of(id, channels);
-  const inherited = profiles.inherited(id, channels);
+  const chosen = profiles.of(id, channels, adm);
+  const inherited = profiles.inherited(id, channels, adm);
   const [measured] = await db
     .select({ summary: loudness.summary })
     .from(loudness)

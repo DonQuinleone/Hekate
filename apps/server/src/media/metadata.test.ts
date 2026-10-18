@@ -1,7 +1,15 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseBext, parseIxml, readWaveChunks, tagsOf } from "./metadata.ts";
+import {
+  parseAdm,
+  parseBext,
+  parseChna,
+  parseIxml,
+  readWaveChunks,
+  speakerRole,
+  tagsOf,
+} from "./metadata.ts";
 import { withWorkspace } from "./workspace.ts";
 
 /** A chunk: its id, its size and its body, padded to an even length. */
@@ -38,6 +46,56 @@ const bextBody = (fields: { description?: string; originator?: string; history?:
 };
 
 const fmt = chunk("fmt ", Buffer.alloc(16));
+
+/** A chna body listing these tracks (index, track format), as an ADM master lays it out. */
+const chnaBody = (tracks: [number, string][]) => {
+  const body = Buffer.alloc(4 + 40 * tracks.length);
+  body.writeUInt16LE(tracks.length, 0);
+  body.writeUInt16LE(tracks.length, 2);
+  tracks.forEach(([index, trackRef], i) => {
+    const at = 4 + 40 * i;
+    body.writeUInt16LE(index, at);
+    body.write(`ATU_${String(i + 1).padStart(8, "0")}`, at + 2, "latin1");
+    body.write(trackRef, at + 14, "latin1");
+    body.write("AP_00010017", at + 28, "latin1");
+  });
+  return body;
+};
+
+/** A 7.1.4 bed by the common definitions (ITU-R BS.2094), then two objects. */
+const atmosTracks: [number, string][] = [
+  ...[
+    "0001",
+    "0002",
+    "0003",
+    "0004",
+    "000a",
+    "000b",
+    "001c",
+    "001d",
+    "000d",
+    "000f",
+    "0010",
+    "0012",
+  ].map((id, i): [number, string] => [i + 1, `AT_0001${id}_01`]),
+  [13, "AT_00031001_01"],
+  [14, "AT_00031002_01"],
+];
+
+const axml = Buffer.from(
+  `<ebuCoreMain><coreMetadata><format><audioFormatExtended>
+  <audioProgramme audioProgrammeID="APR_1001" audioProgrammeName="Maple Leaf Rag &amp; Bethena" start="00:00:00.00000">
+  </audioProgramme>
+  <audioChannelFormat audioChannelFormatID="AC_00011001" typeDefinition="DirectSpeakers"><audioBlockFormat><speakerLabel>RC_L</speakerLabel></audioBlockFormat></audioChannelFormat>
+  <audioChannelFormat audioChannelFormatID="AC_00011002" typeDefinition="DirectSpeakers"><audioBlockFormat><speakerLabel>RC_R</speakerLabel></audioBlockFormat></audioChannelFormat>
+  <audioChannelFormat audioChannelFormatID="AC_00011003" typeDefinition="DirectSpeakers"><audioBlockFormat><speakerLabel>RC_C</speakerLabel></audioBlockFormat></audioChannelFormat>
+  <audioChannelFormat audioChannelFormatID="AC_00011004" typeDefinition="DirectSpeakers"><audioBlockFormat><speakerLabel>RC_LFE</speakerLabel></audioBlockFormat></audioChannelFormat>
+  <audioChannelFormat audioChannelFormatID="AC_00011005" typeDefinition="DirectSpeakers"><audioBlockFormat><speakerLabel>RC_Ls</speakerLabel></audioBlockFormat></audioChannelFormat>
+  <audioChannelFormat audioChannelFormatID="AC_00011006" typeDefinition="DirectSpeakers"><audioBlockFormat><speakerLabel>RC_Rs</speakerLabel></audioBlockFormat></audioChannelFormat>
+  <audioChannelFormat audioChannelFormatID="AC_00011007" typeDefinition="DirectSpeakers"><audioBlockFormat><speakerLabel>RC_Ltm</speakerLabel></audioBlockFormat></audioChannelFormat>
+  <audioChannelFormat audioChannelFormatID="AC_00011008" typeDefinition="DirectSpeakers"><audioBlockFormat><speakerLabel>RC_Rtm</speakerLabel></audioBlockFormat></audioChannelFormat>
+  </audioFormatExtended></format></coreMetadata></ebuCoreMain>`,
+);
 
 describe("what a recording says about itself (#41)", () => {
   it("reads bext's fields as written", () => {
@@ -123,6 +181,80 @@ describe("what a recording says about itself (#41)", () => {
     });
   });
 
+  it("reads an ADM master's bed, objects and programme (#74)", async () => {
+    await withWorkspace(undefined, async (dir) => {
+      const path = join(dir, "atmos.wav");
+      await writeFile(
+        path,
+        wave([
+          fmt,
+          chunk("chna", chnaBody(atmosTracks)),
+          chunk("data", Buffer.alloc(64)),
+          chunk("axml", axml),
+          chunk("dbmd", Buffer.alloc(16)),
+        ]),
+      );
+      expect((await readWaveChunks(path)).adm).toEqual({
+        bytes: axml.length,
+        programme: "Maple Leaf Rag & Bethena",
+        bed: 12,
+        layout: "7.1.4",
+        objects: 2,
+        lfe: [3],
+        dolby: true,
+      });
+      // A wave file without chna is no ADM master: read, and found to have none.
+      const plain = join(dir, "plain.wav");
+      await writeFile(plain, wave([fmt, chunk("data", Buffer.alloc(8))]));
+      expect((await readWaveChunks(plain)).adm).toBeNull();
+    });
+  });
+
+  it("names a bed from the speaker labels a renderer gives its own channels (#74)", () => {
+    const tracks = (list: [number, string][]) =>
+      list.map(([index, trackRef]) => ({ index, trackRef }));
+    const custom = Array.from({ length: 8 }, (_, i): [number, string] => [
+      i + 1,
+      `AT_0001100${i + 1}_01`,
+    ]);
+    expect(parseAdm(tracks(custom), axml, axml.length, false)).toMatchObject({
+      bed: 8,
+      layout: "5.1.2",
+      objects: 0,
+      lfe: [3],
+      dolby: false,
+    });
+    // A channel the axml does not describe leaves the bed unnamed, never misnamed.
+    const unknown = parseAdm(tracks([...custom, [9, "AT_00011009_01"]]), axml, axml.length, false);
+    expect(unknown).toMatchObject({ bed: 9 });
+    expect(unknown.layout).toBeUndefined();
+    // An entry for track 0 is unused; a track listed twice counts once.
+    expect(
+      parseChna(
+        chnaBody([
+          [0, "AT_00010001_01"],
+          [1, "AT_00010001_01"],
+        ]),
+      ),
+    ).toEqual([{ index: 1, trackRef: "AT_00010001_01" }]);
+    const twice: [number, string][] = [
+      [1, "AT_00031001_01"],
+      [1, "AT_00031001_01"],
+    ];
+    expect(parseAdm(tracks(twice), undefined, 0, false)).toMatchObject({ bed: 0, objects: 1 });
+  });
+
+  it("tells LFE and height speakers from the rest, by ITU's labels and Dolby's", () => {
+    expect(speakerRole("urn:itu:bs:2051:0:speaker:LFE1")).toBe("lfe");
+    expect(speakerRole("RC_LFE")).toBe("lfe");
+    expect(speakerRole("urn:itu:bs:2051:0:speaker:U+030")).toBe("height");
+    expect(speakerRole("T+000")).toBe("height");
+    expect(speakerRole("RC_Rtr")).toBe("height");
+    expect(speakerRole("RC_Lts")).toBe("height");
+    expect(speakerRole("M+030")).toBe("main");
+    expect(speakerRole("RC_Ls")).toBe("main");
+  });
+
   it("gives up quietly on what is not a wave file, or stops making sense", async () => {
     await withWorkspace(undefined, async (dir) => {
       const flac = join(dir, "tone.flac");
@@ -140,6 +272,7 @@ describe("what a recording says about itself (#41)", () => {
       );
       expect(await readWaveChunks(broken)).toEqual({
         bext: expect.objectContaining({ originator: "Endless Hall Records" }),
+        adm: null,
       });
     });
   });

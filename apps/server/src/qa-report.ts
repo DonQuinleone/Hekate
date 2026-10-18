@@ -1,4 +1,6 @@
 import {
+  admHeading,
+  admLine,
   formatClock,
   type LoudnessSummary,
   type MediaInfo,
@@ -158,6 +160,14 @@ export function qaReportLines(r: QaReportInput): TextLine[] {
           ...metadataRows(r.format.metadata, r.format.audio?.sampleRate).map(
             ([label, value]): TextLine => ({ text: `${label}: ${value}`, size: 9 }),
           ),
+          ...(r.format.metadata.adm
+            ? [
+                {
+                  text: `${admHeading(r.format.metadata.adm)}: ${admLine(r.format.metadata.adm)}`,
+                  size: 9,
+                },
+              ]
+            : []),
         ]
       : []),
     { text: "Loudness", bold: true, space: 10 },

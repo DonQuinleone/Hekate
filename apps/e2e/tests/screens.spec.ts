@@ -793,6 +793,67 @@ test("project-settings-deletion", async ({ page }) => {
   await checkScreen(page);
 });
 
+// An Atmos master's checks (#74): its ADM read as a bed and objects, the LFE judged against
+// its crossover. The file's answers are amended in this page alone; the seed stays stereo.
+test("file-qa-atmos", async ({ page }) => {
+  const id = seeded().dryFileId;
+  await page.route(`**/api/files/${id}`, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      file: { mediaInfo: { audio: Record<string, unknown>; metadata: Record<string, unknown> } };
+    };
+    Object.assign(body.file.mediaInfo.audio, { channels: 14, channelLayout: "14 channels" });
+    body.file.mediaInfo.metadata.adm = {
+      bytes: 48_000,
+      programme: "Maple Leaf Rag",
+      bed: 12,
+      layout: "7.1.4",
+      objects: 2,
+      lfe: [3],
+      dolby: true,
+    };
+    await route.fulfill({ response, json: body });
+  });
+  await page.route(`**/api/files/${id}/qa`, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      profile: Record<string, unknown>;
+      inherited: Record<string, unknown>;
+      findings: Record<string, unknown>[];
+    };
+    const whole = { channel: null, start: null, end: null, details: {} };
+    // Suggested by the ADM, as nothing else chose.
+    const atmos = { id: "atmos", label: "Dolby Atmos (ADM BWF)", source: "suggested" };
+    body.profile = { ...body.profile, ...atmos, chosen: false };
+    body.inherited = atmos;
+    body.findings = [
+      {
+        check: "lfe",
+        severity: "fail",
+        summary:
+          "Content above the 120 Hz crossover on the LFE (channel 4), at 281 Hz only 12 dB below its bass: low-pass it at 120 Hz",
+        ...whole,
+        channel: 3,
+      },
+      {
+        check: "atmos",
+        severity: "pass",
+        summary: "ADM BWF: 7.1.4 bed + 2 objects, with Dolby metadata",
+        ...whole,
+      },
+      ...body.findings.filter((f) => f.check !== "format" && f.check !== "loudness"),
+    ];
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto(`/files/${id}?view=qa`);
+  await settle(page, "section[aria-label='Embedded metadata'] >> text=ADM · Dolby Atmos");
+  await saveScreen(page, "file-qa-atmos");
+  await checkScreen(page);
+  await page.locator("section[aria-label='Embedded metadata']").scrollIntoViewIfNeeded();
+  await saveScreen(page, "file-qa-atmos-metadata");
+  await checkScreen(page);
+});
+
 // Normalised playback as each person's choice (#240): the View menu's switch, and the level heard.
 // The file's answer is amended in this page alone, so no other capture sees the project change.
 test("file-normalised", async ({ page }) => {
