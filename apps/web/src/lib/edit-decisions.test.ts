@@ -4,7 +4,9 @@ import {
   barsUsedOf,
   decisionsSummary,
   editLine,
+  editSegments,
   rateName,
+  segmentAt,
   takesUsed,
   usedAtBar,
 } from "./edit-decisions";
@@ -90,5 +92,61 @@ describe("edit decisions (#56)", () => {
     expect(usedAtBar(d, "b", 6)).toBeNull();
     expect(usedAtBar(null, "a", 6)).toBeNull();
     expect([...takesUsed(d)]).toEqual(["a", "b"]);
+  });
+});
+
+describe("the edit lane", () => {
+  const numberOf = (id: string) => ({ a: 12, b: 3 })[id];
+  const at = (
+    recordIn: number,
+    recordOut: number,
+    over: Partial<EdlUse> = {},
+    clip?: string | null,
+  ) => {
+    const u = use(over, clip);
+    return { ...u, event: { ...u.event, recordIn, recordOut } };
+  };
+
+  it("lays the edits along the version in order, named by their takes", () => {
+    const segments = editSegments(
+      decisions([at(10, 20, { takeId: "b", bars: [9, 16] }), at(0, 10)]),
+      numberOf,
+    );
+    expect(segments).toEqual([
+      { start: 0, end: 10, label: "T12", take: true, bars: "bars 6 to 12" },
+      { start: 10, end: 20, label: "T3", take: true, bars: "bars 9 to 16" },
+    ]);
+  });
+
+  it("makes one stretch of an edit on two tracks, and cuts at a dissolve", () => {
+    const segments = editSegments(
+      decisions([at(0, 10), at(0, 10), at(8, 20, { takeId: "b" })]),
+      numberOf,
+    );
+    expect(segments.map((s) => [s.start, s.end, s.label])).toEqual([
+      [0, 10, "T12"],
+      [10, 20, "T3"],
+    ]);
+  });
+
+  it("names a source that is no take of this track as the list does", () => {
+    const [segment] = editSegments(
+      decisions([at(0, 4, { takeId: null, bars: null }, "Pick-up, bar 17.wav")]),
+      numberOf,
+    );
+    expect(segment).toEqual({
+      start: 0,
+      end: 4,
+      label: "Pick-up, bar 17.wav",
+      take: false,
+      bars: null,
+    });
+    expect(editSegments(null, numberOf)).toEqual([]);
+  });
+
+  it("finds the stretch playing", () => {
+    const segments = editSegments(decisions([at(0, 10), at(10, 20, { takeId: "b" })]), numberOf);
+    expect(segmentAt(segments, 10)?.label).toBe("T3");
+    expect(segmentAt(segments, 25)).toBeNull();
   });
 });

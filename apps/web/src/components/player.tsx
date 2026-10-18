@@ -33,6 +33,7 @@ import {
   useChannelMix,
 } from "~/lib/channel-mix";
 import { cn } from "~/lib/cn";
+import type { EditSegment } from "~/lib/edit-decisions";
 import { type Loop, loopEntry, loopFrom, type Rolls, roll, wrapTarget } from "~/lib/loop";
 import { usePlayerView } from "~/lib/player-view";
 import { type Playback, type Rendition, usePreferences, useSavePreferences } from "~/lib/queries";
@@ -42,6 +43,7 @@ import { holdRate } from "~/lib/speed";
 import { useViewer } from "~/lib/viewer";
 import { anchoredScroll, followScroll, maxZoom, panScroll, zoomLabel, zoomStep } from "~/lib/zoom";
 import { ChannelsButton, ChannelsPanel } from "./channels";
+import { EditLane } from "./edit-lane";
 import { Icon } from "./icons";
 import { LoopControls, LoopSurface } from "./loop";
 import { Spectrogram, type SpectrogramChannelChoice } from "./spectrogram";
@@ -195,6 +197,7 @@ export function Player({
   onMedia,
   markers = [],
   findings = [],
+  edits = [],
   loop = null,
   onLoop = () => {},
   cue,
@@ -215,6 +218,8 @@ export function Player({
   markers?: TimelineMarker[];
   /** What the quality checks found, marked under the timeline (#43). */
   findings?: FindingMark[];
+  /** A version's edits, from its edit decision list, laid under the waveform (#56). */
+  edits?: readonly EditSegment[];
   /** The passage being looped; kept by the page so it holds across files. */
   loop?: Loop | null;
   onLoop?: (loop: Loop | null) => void;
@@ -773,8 +778,16 @@ export function Player({
                     </div>
                   )}
                 </LoopSurface>
+                {edits.length > 0 && duration > 0 && (
+                  <div className="mt-1.5">
+                    <EditLane edits={edits} duration={duration} time={time} onSeek={seek} />
+                  </div>
+                )}
               </div>
             </div>
+          )}
+          {kind === "video" && edits.length > 0 && duration > 0 && (
+            <EditLane edits={edits} duration={duration} time={time} onSeek={seek} />
           )}
           {/* Video has no waveform to drag on: the loop lane stands in for it. */}
           {kind === "video" && canLoop && (

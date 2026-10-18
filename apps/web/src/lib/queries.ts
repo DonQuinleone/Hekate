@@ -1763,17 +1763,18 @@ export const trackTakesQuery = (trackId: string) =>
 
 /**
  * A track's edit decisions (#56): the latest version's edit decision list matched to its
- * takes, read at a timecode rate where the list leaves it unsure; null with no list.
+ * takes, read at a timecode rate where the list leaves it unsure; or a given version's list.
+ * Null where there is none.
  */
-export const editDecisionsQuery = (trackId: string, rate?: EdlRate) =>
+export const editDecisionsQuery = (trackId: string, rate?: EdlRate, version?: string) =>
   queryOptions({
-    queryKey: ["tracks", trackId, "edit-decisions", rate ?? null],
+    queryKey: ["tracks", trackId, "edit-decisions", rate ?? null, version ?? null],
     queryFn: async () =>
       (
         await json<{ decisions: EditDecisions | null }>(
           await api.tracks[":id"]["edit-decisions"].$get({
             param: { id: trackId },
-            query: rate ? { rate: String(rate) } : {},
+            query: { ...(rate ? { rate: String(rate) } : {}), ...(version ? { version } : {}) },
           }),
         )
       ).decisions,

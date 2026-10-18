@@ -11,7 +11,7 @@ import {
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useId, useMemo, useState } from "react";
 import {
   type BeforeAfter,
   type CommentSeed,
@@ -41,6 +41,7 @@ import { Button } from "~/components/ui/button";
 import { ActionMenu } from "~/components/ui/menu";
 import { cn } from "~/lib/cn";
 import { threadsOf } from "~/lib/comments";
+import { editSegments } from "~/lib/edit-decisions";
 import { useFileMedia } from "~/lib/file-media";
 import { formatDates } from "~/lib/locale";
 import type { Loop } from "~/lib/loop";
@@ -50,11 +51,13 @@ import { usePlayerView } from "~/lib/player-view";
 import {
   commentsQuery,
   downloadsQuery,
+  editDecisionsQuery,
   type FileDetail,
   fileQuery,
   playbackQuery,
   projectQuery,
   qaQuery,
+  trackTakesQuery,
   useMarks,
   usePreferences,
   useProjectCan,
@@ -88,8 +91,11 @@ function Playback({
   normalised,
   onNormalised,
   showFindings,
+  showEdits,
 }: {
   file: FileDetail;
+  /** Whether to lay a version's edit decisions under its waveform (#56): for those who see takes. */
+  showEdits: boolean;
   /** Whether to mark what the quality checks found on the timeline (#43). */
   showFindings: boolean;
   onMedia: (element: HTMLMediaElement | null) => void;
@@ -108,6 +114,19 @@ function Playback({
   const regions = useRegionMarkers(file.id, !file.grant?.listenOnly);
   const { data: qa } = useQuery({ ...qaQuery(file.id), enabled: showFindings });
   const findings = showFindings ? findingMarks(qa?.findings ?? []) : [];
+  const variation = showEdits ? file.variation : null;
+  const { data: decisions } = useQuery({
+    ...editDecisionsQuery(variation?.trackId ?? "", undefined, variation?.versionId),
+    enabled: Boolean(variation),
+  });
+  const { data: takes } = useQuery({
+    ...trackTakesQuery(variation?.trackId ?? ""),
+    enabled: Boolean(decisions),
+  });
+  const edits = useMemo(
+    () => editSegments(decisions, (id) => takes?.find((t) => t.id === id)?.number),
+    [decisions, takes],
+  );
   const ready = file.streamStatus === "ready";
   // Only a recording plays: asking for a document's playback would log a session for nothing.
   const plays = file.kind === "audio" || file.kind === "video";
@@ -150,6 +169,7 @@ function Playback({
       onMedia={onMedia}
       markers={markers}
       findings={findings}
+      edits={variation ? edits : []}
       loop={loop}
       onLoop={onLoop}
       cue={cue}
@@ -387,6 +407,7 @@ export function FilePage({
       normalised={normalised}
       onNormalised={setChosenNormal}
       showFindings={Boolean(file.mediaInfo?.audio) && allows("qa")}
+      showEdits={!guest && can("view_takes")}
     />
   );
   if (shown === "triage")
