@@ -205,7 +205,7 @@ function bitDepth(stream: ProbeStream): number | undefined {
  */
 export function parseProbe(
   output: ProbeOutput,
-  wave: Pick<EmbeddedMetadata, "bext" | "ixml"> = {},
+  wave: Pick<EmbeddedMetadata, "bext" | "ixml" | "adm"> = {},
 ): MediaInfo {
   const streams = output.streams ?? [];
   const audio = streams.find((s) => s.codec_type === "audio");
@@ -246,6 +246,8 @@ export function parseProbe(
     const metadata: EmbeddedMetadata = { tags };
     if (wave.bext) metadata.bext = wave.bext;
     if (wave.ixml) metadata.ixml = wave.ixml;
+    // Only a wave file carries ADM here; anything else has been read and has none (#74).
+    metadata.adm = wave.adm ?? null;
     if (artwork?.codec_name && artwork.width && artwork.height)
       metadata.artwork = {
         codec: artwork.codec_name,
@@ -280,7 +282,7 @@ export async function probe(path: string, options: RunOptions = {}): Promise<Med
   } catch {
     throw new MediaToolError("ffprobe returned output that is not JSON");
   }
-  // A wave file's bext and iXML are read from the file; metadata never stops a probe.
+  // A wave file's bext, iXML and ADM are read from the file; metadata never stops a probe.
   const wave = parsed.format?.format_name?.split(",").includes("wav")
     ? await readWaveChunks(path).catch(() => ({}))
     : {};

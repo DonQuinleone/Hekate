@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { fileLayout, type LayoutName, layoutLabel, layoutNames } from "./layouts.ts";
 import type { LoudnessSummary } from "./loudness.ts";
 import type { MediaInfo } from "./media.ts";
+import { admShape } from "./metadata.ts";
 
 /**
  * Quality checks (#41, docs/domain.md): what the media worker finds in a recording, as
@@ -18,6 +20,10 @@ export type QaSeverity = (typeof qaSeverities)[number];
 
 export const qaChecks = [
   "format",
+  /** How the channels are laid out, against the profile's layout (#74). */
+  "layout",
+  /** Whether an ADM master's description of its bed and objects is there when asked for (#74). */
+  "atmos",
   /** Whether the file decodes cleanly to the length it declares (#41). */
   "integrity",
   "loudness",
@@ -31,6 +37,8 @@ export const qaChecks = [
   "dead-channel",
   "imbalance",
   "phase",
+  /** Content on the LFE channel above its crossover (#74). */
+  "lfe",
   /** How high the content reaches: a wall where lossy encoding cut it, or an upsampled file. */
   "bandwidth",
   /** One of the project's own rules (#144); its name is in the finding's details. */
@@ -64,8 +72,12 @@ export interface DeliveryProfile {
   /** Bits per sample, at least (or exactly, when `bitDepthExact`). */
   bitDepthMin: number | null;
   bitDepthExact?: boolean;
-  /** How many channels; null takes any layout. */
+  /** How many channels; null takes any number. */
   channels: number | null;
+  /** How they are laid out (#74); for an ADM master, its bed. Null or absent takes any. */
+  layout?: LayoutName | null;
+  /** Whether it is delivered as ADM BWF, its bed and objects described in the file (#74). */
+  atmos?: boolean;
 }
 
 export const deliveryProfileIds = [
@@ -120,14 +132,17 @@ export const deliveryProfiles: Record<DeliveryProfileId, DeliveryProfile> = {
     sampleRates: { rates: [48_000], atLeast: false },
     bitDepthMin: 24,
     channels: 6,
+    layout: "5.1",
   },
   atmos: {
-    label: "Dolby Atmos (7.1.4 bed)",
+    label: "Dolby Atmos (ADM BWF)",
     loudness: { target: -18, tolerance: 1 },
     truePeakMax: -1,
     sampleRates: { rates: [48_000], atLeast: false },
     bitDepthMin: 24,
-    channels: 12,
+    // As many channels as its bed and objects need.
+    channels: null,
+    atmos: true,
   },
 };
 
@@ -148,6 +163,8 @@ export const customProfileInput = z.object({
   bitDepthMin: z.union([z.literal(16), z.literal(24), z.literal(32)]).nullable(),
   bitDepthExact: z.boolean().optional(),
   channels: z.number().int().min(1).max(64).nullable(),
+  layout: z.enum(layoutNames).nullable().optional(),
+  atmos: z.boolean().optional(),
 });
 export type CustomProfileInput = z.infer<typeof customProfileInput>;
 
@@ -201,19 +218,24 @@ export function effectiveProfile(
   refs: Partial<Record<Exclude<ProfileSource, "suggested">, ProfileRef | null>>,
   channels: number,
   customs: readonly CustomProfile[],
+  /** Whether the file is an ADM master (#74); asked of every caller, so none forgets it. */
+  adm: boolean,
 ): { ref: ProfileRef; profile: DeliveryProfile; source: ProfileSource } {
   for (const source of ["file", "track", "project", "workspace"] as const) {
     const ref = refs[source];
     const profile = profileFor(ref, customs);
     if (ref && profile) return { ref, profile, source };
   }
-  const id = suggestedProfile(channels);
+  const id = suggestedProfile(channels, adm);
   return { ref: id, profile: deliveryProfiles[id], source: "suggested" };
 }
 
-/** The profile a project without one is checked against, from the file's channels. */
-export function suggestedProfile(channels: number): DeliveryProfileId {
-  if (channels >= 12) return "atmos";
+/**
+ * The profile a project without one is checked against, from the file's channels: an ADM
+ * master, or anything as wide as a 7.1.4 bed, is most likely meant for Atmos.
+ */
+export function suggestedProfile(channels: number, adm = false): DeliveryProfileId {
+  if (adm || channels >= 12) return "atmos";
   if (channels >= 6) return "surround";
   return "streaming";
 }
@@ -275,6 +297,7 @@ export function deliveryFindings(
       },
     });
   }
+  out.push(...layoutFindings(profile, info));
   if (!summary) return out;
 
   if (profile.loudness && summary.integrated !== null) {
@@ -341,6 +364,89 @@ export function deliveryFindings(
   return out;
 }
 
+/**
+ * The layout and Atmos checks (#74): how the channels are laid out against the profile's
+ * layout, and whether an ADM master's description is there when the profile asks for one.
+ */
+function layoutFindings(profile: DeliveryProfile, info: MediaInfo | null): QaFinding[] {
+  const audio = info?.audio;
+  if (!audio) return [];
+  const out: QaFinding[] = [];
+  const whole = { channel: null, start: null, end: null } as const;
+  const adm = info.metadata?.adm;
+  // A count the format check already fails is not reported again as a layout.
+  if (profile.layout && (profile.channels === null || profile.channels === audio.channels)) {
+    const actual = fileLayout(info);
+    const asked = layoutLabel(profile.layout);
+    const details = {
+      layout: actual,
+      asked: profile.layout,
+      reported: audio.channelLayout ?? null,
+    };
+    out.push(
+      actual === profile.layout
+        ? {
+            check: "layout",
+            severity: "pass",
+            summary: `${asked}, as ${profile.label} asks`,
+            ...whole,
+            details,
+          }
+        : actual === null
+          ? {
+              check: "layout",
+              severity: "warn",
+              summary: `The file does not say how its ${audio.channels} channels are laid out; ${profile.label} asks for ${asked}`,
+              ...whole,
+              details,
+            }
+          : {
+              check: "layout",
+              severity: "fail",
+              summary: `Laid out as ${layoutLabel(actual)}; ${profile.label} asks for ${asked}`,
+              ...whole,
+              details,
+            },
+    );
+  }
+  // Files read before ADM was (adm absent) are not judged: nothing is known either way.
+  if (adm === undefined) return out;
+  const details = {
+    bed: adm?.bed ?? null,
+    layout: adm?.layout ?? null,
+    objects: adm?.objects ?? null,
+    dolby: adm?.dolby ?? null,
+  };
+  if (profile.atmos && adm === null) {
+    out.push({
+      check: "atmos",
+      severity: "fail",
+      summary: `No ADM metadata: ${profile.label} is delivered as ADM BWF, its bed and objects described in the file`,
+      ...whole,
+      details,
+    });
+  } else if (profile.atmos && adm) {
+    out.push({
+      check: "atmos",
+      severity: adm.dolby ? "pass" : "warn",
+      summary: adm.dolby
+        ? `ADM BWF: ${admShape(adm)}, with Dolby metadata`
+        : `ADM BWF: ${admShape(adm)}, but no Dolby metadata (the dbmd chunk Dolby's renderer writes, with its downmix and headphone settings)`,
+      ...whole,
+      details,
+    });
+  } else if (adm) {
+    out.push({
+      check: "atmos",
+      severity: "info",
+      summary: `An ADM master (${admShape(adm)}), which ${profile.label} does not ask for`,
+      ...whole,
+      details,
+    });
+  }
+  return out;
+}
+
 const severityOrder: Record<QaSeverity, number> = { fail: 0, warn: 1, info: 2, pass: 3 };
 
 /** Findings worst first, each check together, then in the order they occur. */
@@ -356,6 +462,8 @@ export const orderFindings = (findings: readonly QaFinding[]) =>
 /** What each check is called in the list, in reports, and in the project's QA rules. */
 export const qaCheckNames: Record<QaCheck, string> = {
   format: "Format",
+  layout: "Layout",
+  atmos: "Atmos",
   integrity: "Integrity",
   loudness: "Loudness",
   "true-peak": "True peak",
@@ -368,6 +476,7 @@ export const qaCheckNames: Record<QaCheck, string> = {
   "dead-channel": "Dead channel",
   imbalance: "Balance",
   phase: "Phase",
+  lfe: "LFE",
   bandwidth: "Bandwidth",
   // The project's own rules: the finding's summary starts with the rule's name.
   custom: "Project rule",

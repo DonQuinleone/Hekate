@@ -103,15 +103,18 @@ export async function profilesForFiles(db: Reader, organisationId: string, fileI
     of(
       fileId: string,
       channels: number,
+      /** Whether it is an ADM master (#74), which suggests Atmos. */
+      adm = false,
     ): { ref: ProfileRef; profile: DeliveryProfile; source: ProfileSource } {
-      return effectiveProfile(refs.get(fileId) ?? { workspace }, channels, customs);
+      return effectiveProfile(refs.get(fileId) ?? { workspace }, channels, customs, adm);
     },
     /** What it would be measured against without a choice of its own. */
-    inherited(fileId: string, channels: number) {
+    inherited(fileId: string, channels: number, adm = false) {
       return effectiveProfile(
         { ...(refs.get(fileId) ?? { workspace }), file: null },
         channels,
         customs,
+        adm,
       );
     },
   };

@@ -67,7 +67,7 @@ describe("probe output", () => {
         pixelFormat: "yuv422p10le",
       },
       // The cover art is not video, but it is the file's artwork.
-      metadata: { tags: {}, artwork: { codec: "mjpeg", width: 600, height: 600 } },
+      metadata: { tags: {}, adm: null, artwork: { codec: "mjpeg", width: 600, height: 600 } },
     });
   });
 
@@ -102,6 +102,8 @@ describe("probe output", () => {
       // A wave file's date is its origination date, shown with the bext.
       tags: { title: "Maple Leaf Rag", isrc: "GBEHR2600001", albumArtist: "Endless Hall Records" },
       bext: { originator: "Endless Hall Records", originationDate: "2026-10-14" },
+      // Read, and found to be no ADM master (#74).
+      adm: null,
     });
   });
 

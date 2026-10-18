@@ -48,6 +48,28 @@ export const embeddedMetadata = z.object({
     })
     .partial()
     .default({}),
+  /**
+   * An ADM BWF master's description of itself (#74), from its chna and axml chunks: the bed
+   * (channels fed straight to speakers) and the objects. Dolby Atmos masters are delivered so.
+   */
+  adm: z
+    .object({
+      /** Size of the axml chunk, in bytes; 0 when there is none. */
+      bytes: z.number().int().nonnegative(),
+      programme: z.string().optional(),
+      /** How many channels the bed has, and its layout where its speakers name one. */
+      bed: z.number().int().nonnegative(),
+      layout: z.string().optional(),
+      /** How many channels carry objects. */
+      objects: z.number().int().nonnegative(),
+      /** The channels carrying LFE, 0-based. */
+      lfe: z.array(z.number().int().nonnegative()),
+      /** Whether Dolby's own metadata (the dbmd chunk its renderer writes) is in the file. */
+      dolby: z.boolean(),
+    })
+    // Null once the file has been read and has none; absent on files read before ADM was.
+    .nullable()
+    .optional(),
   artwork: z
     .object({
       codec: z.string(),

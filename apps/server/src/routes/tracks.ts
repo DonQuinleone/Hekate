@@ -405,17 +405,21 @@ export const trackRoutes = (
       const refusals = versionRefusals(
         { truePeak: Boolean(project?.checkTruePeak), edl: Boolean(project?.requireEdl) },
         // Each file against its own profile, else this track's, the project's or the workspace's.
-        (f) =>
-          effectiveProfile(
+        (f) => {
+          const file = measured.find((m) => m.id === f.id);
+          return effectiveProfile(
             {
-              file: measured.find((m) => m.id === f.id)?.deliveryProfile ?? null,
+              file: file?.deliveryProfile ?? null,
               track: track.deliveryProfile,
               project: project?.deliveryProfile ?? null,
               workspace: workspace.deliveryProfile,
             },
             f.channels,
             customs,
-          ).profile,
+            // An ADM master is measured against Atmos, as on its QA view (#74).
+            Boolean(file?.mediaInfo?.metadata?.adm),
+          ).profile;
+        },
         measured.map((f) => ({
           id: f.id,
           name: f.name,
