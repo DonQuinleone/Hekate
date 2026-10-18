@@ -182,6 +182,7 @@ const actionLabel: Record<NotificationKind, string> = {
   deletion_requested: "Open the project's settings",
   due_soon: "Open the review",
   assigned: "Open your comments",
+  workflow: "Open the track",
 };
 
 /** Why each kind of mail came. */
@@ -197,6 +198,7 @@ const whyFoot: Record<NotificationKind, string> = {
     "You get this because deleting a project needs a workspace owner's confirmation.",
   due_soon: "A reminder, sent once, the day before the due date.",
   assigned: "You get this because the comments are assigned to you.",
+  workflow: "You get this because a project's workflow names you or your role.",
 };
 
 /** The workspace a mail comes from: its name, and its own subject lines. */

@@ -7,7 +7,7 @@ import {
   workflowProblems,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { asc, eq, isNull, or, sql } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -157,33 +157,3 @@ export const workflowRoutes = (db: Database) =>
       });
       return c.body(null, 204);
     });
-
-/**
- * The workflows that run for a track: its own, where it has any switched on, else the project's
- * (decision 040: a track's workflows replace the project's). Only those switched on.
- */
-export async function workflowsFor(
-  db: Database,
-  organisationId: string,
-  projectId: string,
-  trackId: string | null,
-) {
-  // One read, so the track's and the project's are seen as they stood at one moment.
-  const rows = await db
-    .select()
-    .from(workflows)
-    .where(
-      inOrg(
-        workflows,
-        organisationId,
-        eq(workflows.projectId, projectId),
-        eq(workflows.active, true),
-        trackId === null
-          ? isNull(workflows.trackId)
-          : or(isNull(workflows.trackId), eq(workflows.trackId, trackId)),
-      ),
-    )
-    .orderBy(asc(workflows.createdAt));
-  const own = rows.filter((w) => trackId !== null && w.trackId === trackId);
-  return own.length > 0 ? own : rows.filter((w) => w.trackId === null);
-}

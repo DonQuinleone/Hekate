@@ -43,6 +43,8 @@ import {
   type TemplateContent,
   type WatermarkSettings,
   type WorkflowDefinition,
+  type WorkflowEffect,
+  type WorkflowRun,
 } from "@hekate/shared";
 import { type SQL, sql } from "drizzle-orm";
 import {
@@ -623,6 +625,68 @@ export const workflows = pgTable(
 );
 
 /**
+ * A workflow running for a track (#25): the definition it started with, kept whatever later
+ * changes are made to the workflow, and where the engine (`WorkflowRun`) stands. One runs per
+ * workflow and track at a time.
+ */
+export const workflowRuns = pgTable(
+  "workflow_runs",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: projectId(),
+    workflowId: uuid("workflow_id").references(() => workflows.id, { onDelete: "set null" }),
+    workflowName: text("workflow_name").notNull(),
+    workflowVersion: integer("workflow_version").notNull(),
+    definition: jsonb("definition").$type<WorkflowDefinition>().notNull(),
+    trackId: uuid("track_id")
+      .notNull()
+      .references((): AnyPgColumn => tracks.id, { onDelete: "cascade" }),
+    /** The version whose arrival started it, where one did. */
+    versionId: uuid("version_id").references((): AnyPgColumn => versions.id, {
+      onDelete: "set null",
+    }),
+    state: text("state").$type<WorkflowRun["state"] | "cancelled">().notNull(),
+    engine: jsonb("engine").$type<WorkflowRun>().notNull(),
+    startedBy: text("started_by").references(() => users.id, { onDelete: "set null" }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    index("workflow_runs_org_idx").on(t.organisationId),
+    index("workflow_runs_track_idx").on(t.trackId, t.state),
+    index("workflow_runs_workflow_idx").on(t.workflowId),
+    // One run of a workflow at a time for a track.
+    uniqueIndex("workflow_runs_running_idx")
+      .on(t.workflowId, t.trackId)
+      .where(sql`state = 'running'`),
+  ],
+);
+
+/** Every move a run made (#25): the node and outcome it moved on from, and what it did. */
+export const workflowSteps = pgTable(
+  "workflow_steps",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => workflowRuns.id, { onDelete: "cascade" }),
+    /** The node that ended and how; null for the trigger that started the run. */
+    nodeId: text("node_id"),
+    outcome: text("outcome"),
+    effects: jsonb("effects").$type<WorkflowEffect[]>().notNull(),
+    /** Who ended the node by hand, where someone did. */
+    byUserId: text("by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("workflow_steps_org_idx").on(t.organisationId),
+    index("workflow_steps_run_idx").on(t.runId, t.createdAt),
+  ],
+);
+
+/**
  * A take (#21): a snippet recorded for a track, never a version of it. For now one scratch mix
  * (`files.takeId`); stems with a mixer come later. Its bars and in and out points are optional:
  * bars matter for a classical piece and not for a pop song.
@@ -787,6 +851,8 @@ export const tracks = pgTable(
     commentReferences: jsonb("comment_references").$type<CommentReferences>(),
     /** How its recordings play normalised, over the project's; null keeps the project's (#98). */
     normalisation: text("normalisation").$type<NormalisationMode>(),
+    /** Where it stands in its workflow ("Editing"), as the last action to set one left it (#25). */
+    workflowStatus: text("workflow_status"),
     position: integer("position").notNull().default(0),
     ...timestamps,
   },

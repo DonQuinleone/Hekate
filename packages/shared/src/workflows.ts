@@ -632,3 +632,31 @@ export interface WorkflowSummary {
   problems: WorkflowProblem[];
   updatedAt: string;
 }
+
+/** Starting a workflow by hand on a track, from its "Started by hand" trigger. */
+export const workflowRunStartInput = z.object({ workflowId: z.uuid() });
+
+/** A step a run waits on, ended by hand, by one of its outcomes. */
+export const workflowStepInput = z.object({ nodeId: ident, outcome: ident });
+
+/** A run as a track shows it: where it stands, and every move it made. */
+export interface WorkflowRunSummary {
+  id: string;
+  workflowId: string | null;
+  workflowName: string;
+  workflowVersion: number;
+  trackId: string;
+  state: WorkflowRun["state"] | "cancelled";
+  status: string | null;
+  /** The steps it waits on, by name. */
+  waiting: { nodeId: string; name: string; type: NodeType }[];
+  steps: {
+    nodeId: string | null;
+    outcome: string | null;
+    effects: WorkflowEffect[];
+    byUserId: string | null;
+    at: string;
+  }[];
+  startedAt: string;
+  endedAt: string | null;
+}
