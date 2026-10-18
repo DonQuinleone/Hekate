@@ -3,6 +3,7 @@ import {
   checksOutcome,
   completeNode,
   type MeasuredFile,
+  measuredState,
   startRun,
   triggersOf,
   type WorkflowContext,
@@ -587,23 +588,17 @@ async function checkedFiles(db: Database, organisationId: string, run: RunRow) {
     .where(inOrg(variations, organisationId, eq(variations.versionId, version.id)));
   const seen: MeasuredFile[] = [];
   for (const file of rows) {
-    if (!file.mediaInfo) {
-      // Sound and picture are measured once probed; anything else is not checked.
-      const media = file.kind === "audio" || file.kind === "video";
-      seen.push({
-        state: !media ? "unchecked" : file.streamStatus === "failed" ? "unmeasurable" : "measuring",
-      });
-    } else if (!file.mediaInfo.audio?.channels) seen.push({ state: "unchecked" });
-    else if (file.analysisStatus === "failed") seen.push({ state: "unmeasurable" });
-    else if (file.analysisStatus !== "ready") seen.push({ state: "measuring" });
-    else {
-      const report = await qaReportOf(db, organisationId, file.id);
-      seen.push(
-        report
-          ? { state: "checked", severities: report.findings.map((f) => f.severity) }
-          : { state: "unchecked" },
-      );
+    const state = measuredState(file);
+    if (state !== "measured") {
+      seen.push({ state });
+      continue;
     }
+    const report = await qaReportOf(db, organisationId, file.id);
+    seen.push(
+      report
+        ? { state: "checked", severities: report.findings.map((f) => f.severity) }
+        : { state: "unchecked" },
+    );
   }
   return seen;
 }

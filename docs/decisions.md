@@ -521,6 +521,6 @@ When a run reaches an approval or a feedback stage (#25), Hekate asks for the re
 
 A *Run the checks* stage (#25) is ended by Hekate, not by a person: it reads the quality report (decisions on #41, #43, #74 and #144) of every file of the track's version that started the run (else its latest), as the project wants its checks, and ends by the worst of them.
 
-- **Its outcome.** *Failed* when any check fails, or when a file with sound could not be measured (its probe or its analysis failed); *warnings* when any check warns; *passed* otherwise. A version with nothing to check (a score, a picture, a video without sound) passes.
+- **Its outcome.** *Failed* when any check fails, or when a recording or video could not be read or measured (its probe found nothing it could read, or its analysis failed); *warnings* when any check warns; *passed* otherwise. A version with nothing to check (a score, a picture, a video without sound) passes.
 - **When.** At once where every file has been measured; otherwise when the last one has, as the media worker says so (a `workflow-checks` job). The hourly sweep that ends waits (decision 117) ends these too, should that job have been lost. A run that has moved past the stage is left as it is.
 - **By hand.** Those who edit workflows may still end it by hand, by one of its outcomes, as any stage; a file whose measuring never finishes would otherwise hold the run.

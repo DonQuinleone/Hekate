@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { MediaInfo } from "./media.ts";
 import type { QaSeverity } from "./qa.ts";
 
 /**
@@ -629,6 +630,27 @@ export type MeasuredFile =
   | { state: "unchecked" }
   | { state: "unmeasurable" }
   | { state: "checked"; severities: QaSeverity[] };
+
+/**
+ * How far a file has been measured, for a checks stage: still being measured, not checked, not
+ * measurable, or measured, when its quality report is to be read. Sound and picture are measured
+ * once probed. A recording whose probe found no sound, or a video in which it found neither sound
+ * nor picture, could not be read; a silent video, like a score, is not checked.
+ */
+export function measuredState(file: {
+  kind: string;
+  mediaInfo: MediaInfo | null;
+  streamStatus: string;
+  analysisStatus: string;
+}): "measuring" | "unchecked" | "unmeasurable" | "measured" {
+  const media = file.kind === "audio" || file.kind === "video";
+  if (!media) return "unchecked";
+  if (!file.mediaInfo) return file.streamStatus === "failed" ? "unmeasurable" : "measuring";
+  if (!file.mediaInfo.audio?.channels)
+    return file.kind === "audio" || !file.mediaInfo.video ? "unmeasurable" : "unchecked";
+  if (file.analysisStatus === "failed") return "unmeasurable";
+  return file.analysisStatus === "ready" ? "measured" : "measuring";
+}
 
 /**
  * How a checks stage ends (decision 119): null while any file is still being measured; failed
