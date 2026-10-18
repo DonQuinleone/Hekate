@@ -1,7 +1,19 @@
 import { flowShape, outcomesOf, type WorkflowDefinition, workflowFromYaml } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
 import { workflowTemplates } from "./workflow-code";
-import { CHIP_H, connectorChip, fits, leadOf, loopLanes, tidied } from "./workflow-layout";
+import {
+  CHIP_H,
+  chipShown,
+  connectorChip,
+  depthBelow,
+  fits,
+  LANE_FIRST,
+  LANE_STEP,
+  leadOf,
+  loopLanes,
+  routing,
+  tidied,
+} from "./workflow-layout";
 import { boundsOf, NODE_H, NODE_W, outPort } from "./workflow-nodes";
 
 const step = (
@@ -191,7 +203,7 @@ describe("chips where steps sit close", () => {
       nodes: album.nodes.map((n, i) => ({ ...n, x: i * 320, y: 0 })),
     };
     const { loops } = flowShape(close);
-    const fit = fits(close, loops);
+    const fit = fits(close);
     for (const c of close.connectors) {
       if (loops.has(c.id)) continue;
       const from = close.nodes.find((n) => n.id === c.from);
@@ -207,8 +219,36 @@ describe("chips where steps sit close", () => {
 
   it("are whole where there is room, as after tidying up", () => {
     const laid = tidied(album);
-    const fit = fits(laid, flowShape(laid).loops);
+    const fit = fits(laid);
     expect(fit.get("label")?.lead).toBe(leadOf(laid, "label"));
+  });
+});
+
+describe("steps so close a connector runs beneath", () => {
+  it("still bound the chips, which give way to the port's own words", () => {
+    // Engineer edits starts 40 px past the end of Soloists' notes: too close to curve into.
+    const cramped: WorkflowDefinition = {
+      ...album,
+      nodes: album.nodes.map((n) => ({
+        ...n,
+        x: n.id === "notes" ? 0 : n.id === "edit" ? NODE_W + 40 : 2000,
+        y: 0,
+      })),
+    };
+    const route = routing(cramped);
+    for (const c of cramped.connectors.filter((x) => x.from === "notes" && x.to === "edit")) {
+      expect(route.below.has(c.id), c.id).toBe(true);
+      expect(chipShown(cramped, route, c), c.id).toBe(0);
+    }
+  });
+});
+
+describe("the room beneath a workflow", () => {
+  it("reaches past its deepest lane, and is none without lanes", () => {
+    const route = routing(album);
+    const deepest = Math.max(...route.lanes.lane.values());
+    expect(depthBelow(route)).toBeGreaterThan(LANE_FIRST + deepest * LANE_STEP);
+    expect(depthBelow(routing(tidied(delivery)))).toBe(0);
   });
 });
 

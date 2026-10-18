@@ -56,12 +56,14 @@ export interface Fit {
  * before the nearest step they lead to (less the curve's room): where steps sit close, as a
  * hand-made layout may have them, chips are cut short rather than run into the next step.
  */
-export function fits(flow: WorkflowDefinition, below: ReadonlySet<string>): Map<string, Fit> {
+export function fits(flow: WorkflowDefinition): Map<string, Fit> {
   const at = new Map(flow.nodes.map((n) => [n.id, n]));
   const out = new Map<string, Fit>();
   for (const n of flow.nodes) {
+    // Every step a connector leads to further right bounds the chips, even one so close that
+    // its connector runs beneath: the chips would run into it all the same.
     const rooms = flow.connectors
-      .filter((c) => c.from === n.id && !below.has(c.id))
+      .filter((c) => c.from === n.id && (at.get(c.to)?.x ?? Number.NEGATIVE_INFINITY) > n.x)
       .map((c) => (at.get(c.to)?.x ?? Number.POSITIVE_INFINITY) - n.x - NODE_W - 48);
     const room = Math.min(Number.POSITIVE_INFINITY, ...rooms);
     const lead = Math.max(28, Math.min(leadOf(flow, n.id), room));
@@ -264,7 +266,7 @@ export function routing(flow: WorkflowDefinition): Routing {
       })
       .map((c) => c.id),
   );
-  return { below, lanes: loopLanes(flow, below), fit: fits(flow, below) };
+  return { below, lanes: loopLanes(flow, below), fit: fits(flow) };
 }
 
 /** How wide a connector's chip is drawn, or 0 when it is not: no words, or no room for them. */
@@ -273,4 +275,14 @@ export function chipShown(flow: WorkflowDefinition, route: Routing, c: WorkflowC
   if (!words) return 0;
   const width = Math.min(chipWidth(words), route.fit.get(c.from)?.chip ?? 0);
   return width >= CHIP_MIN ? width : 0;
+}
+
+/** Where the first lane beneath a workflow runs, below its lowest step, and the step between lanes. */
+export const LANE_FIRST = 36;
+export const LANE_STEP = 18;
+
+/** How far beneath its lowest step a workflow's lanes reach: room kept before the next. */
+export function depthBelow(route: Routing): number {
+  const lanes = [...route.lanes.lane.values()];
+  return lanes.length === 0 ? 0 : LANE_FIRST + Math.max(...lanes) * LANE_STEP + 12;
 }

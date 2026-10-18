@@ -25,7 +25,17 @@ import { Dropdown } from "~/components/ui/menu";
 import { Committed, StepField } from "~/components/workflow-fields";
 import { cn } from "~/lib/cn";
 import { useShortcuts } from "~/lib/shortcuts";
-import { CHIP_GAP, CHIP_H, chipShown, connectorChip, routing, tidied } from "~/lib/workflow-layout";
+import {
+  CHIP_GAP,
+  CHIP_H,
+  chipShown,
+  connectorChip,
+  depthBelow,
+  LANE_FIRST,
+  LANE_STEP,
+  routing,
+  tidied,
+} from "~/lib/workflow-layout";
 import {
   BAND_GAP,
   type Bounds,
@@ -205,16 +215,23 @@ export function WorkflowCanvas({
   >(null);
 
   /* Bands: every workflow on one canvas, one above the other. */
+  // How each workflow's connectors are drawn clear of one another.
+  const routes = useMemo(
+    () => new Map(workflows.map((w) => [w.id, routing(w.definition)])),
+    [workflows],
+  );
   const bands = useMemo(() => {
     let y = 0;
     return workflows.map((w) => {
       const b = boundsOf(w.definition.nodes);
       const height = b.maxY - b.minY;
       const band = { flow: w, offsetY: y - b.minY, bounds: b, top: y, height };
-      y += height + BAND_GAP;
+      // The next workflow starts below this one's lanes, however many it has.
+      const route = routes.get(w.id);
+      y += height + (route ? depthBelow(route) : 0) + BAND_GAP;
       return band;
     });
-  }, [workflows]);
+  }, [workflows, routes]);
   const bandOf = (flowId: string) => bands.find((b) => b.flow.id === flowId);
   const placed = (flowId: string, n: WorkflowNode): WorkflowNode => ({
     ...n,
@@ -232,11 +249,6 @@ export function WorkflowCanvas({
     [bands],
   );
   const worldBounds = useMemo(() => boundsOf(everything), [everything]);
-  // How each workflow's connectors are drawn clear of one another.
-  const routes = useMemo(
-    () => new Map(workflows.map((w) => [w.id, routing(w.definition)])),
-    [workflows],
-  );
   const allProblems = workflows.flatMap((w) => w.problems.map((p) => ({ ...p, flowId: w.id })));
   const flowById = (flowId: string) => workflows.find((w) => w.id === flowId);
   const selectedFlow = selection ? flowById(selection.flowId) : undefined;
@@ -777,7 +789,7 @@ export function WorkflowCanvas({
             >
               {bands.map((b) => {
                 const flow = b.flow.definition;
-                const floorBase = b.bounds.maxY + b.offsetY + 36;
+                const floorBase = b.bounds.maxY + b.offsetY + LANE_FIRST;
                 const { loops } = flowShape(flow);
                 const at = new Map(flow.nodes.map((n) => [n.id, n]));
                 const { below, lanes, fit } = routes.get(b.flow.id) ?? routing(flow);
@@ -790,7 +802,7 @@ export function WorkflowCanvas({
                   const z = inPort(placed(b.flow.id, to));
                   const d = connectorPath(a, z, {
                     loop: below.has(c.id),
-                    floor: floorBase + (lanes.lane.get(c.id) ?? 0) * 18,
+                    floor: floorBase + (lanes.lane.get(c.id) ?? 0) * LANE_STEP,
                     lead: fit.get(c.from)?.lead,
                     out: lanes.out.get(c.id),
                     into: lanes.into.get(c.id),
