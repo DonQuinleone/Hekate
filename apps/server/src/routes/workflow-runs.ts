@@ -7,9 +7,8 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, can } from "../access.ts";
 import { NotFound } from "../errors.ts";
-import type { Jobs } from "../jobs.ts";
 import type { TenantVariables } from "../tenancy.ts";
-import { completeStep, runsOf, startByHand } from "../workflow-runner.ts";
+import { completeStep, type RunnerDeps, runsOf, startByHand } from "../workflow-runner.ts";
 
 const { tracks, workflowRuns, workflows } = schema;
 
@@ -53,8 +52,9 @@ async function trackOf(db: Database, organisationId: string, id: string) {
  * A track's workflow runs (#25), under `/api/tracks/:id/workflow-runs`: seeing them, with each
  * one's log (`view_workflows`), and starting one by hand (`edit_workflows`).
  */
-export const trackWorkflowRunRoutes = (db: Database, jobs: Pick<Jobs, "send">) =>
-  new Hono<{ Variables: TenantVariables }>()
+export const trackWorkflowRunRoutes = (runner: RunnerDeps) => {
+  const { db } = runner;
+  return new Hono<{ Variables: TenantVariables }>()
     .get("/:id/workflow-runs", idParam, async (c) => {
       const organisationId = c.var.organisationId;
       const track = await trackOf(db, organisationId, c.req.valid("param").id);
@@ -83,7 +83,7 @@ export const trackWorkflowRunRoutes = (db: Database, jobs: Pick<Jobs, "send">) =
       if (!workflow.active)
         throw new HTTPException(409, { message: "This workflow is switched off" });
       const run = await startByHand(
-        { db, jobs },
+        runner,
         { organisationId, projectId: track.projectId, trackId: track.id, userId: c.var.userId },
         workflow,
       );
@@ -92,10 +92,12 @@ export const trackWorkflowRunRoutes = (db: Database, jobs: Pick<Jobs, "send">) =
       );
       return c.json({ run: logged ? summaryOf(logged) : null }, 201);
     });
+};
 
 /** `/api/workflow-runs/:id/steps`: a step the run waits on, ended by hand (`edit_workflows`). */
-export const workflowRunRoutes = (db: Database, jobs: Pick<Jobs, "send">) =>
-  new Hono<{ Variables: TenantVariables }>().post(
+export const workflowRunRoutes = (runner: RunnerDeps) => {
+  const { db } = runner;
+  return new Hono<{ Variables: TenantVariables }>().post(
     "/:id/steps",
     idParam,
     zValidator("json", workflowStepInput),
@@ -108,13 +110,17 @@ export const workflowRunRoutes = (db: Database, jobs: Pick<Jobs, "send">) =>
       if (!run) throw new NotFound("Run");
       await can(db, actorOf(c.var), "edit_workflows", run.projectId);
       const { nodeId, outcome } = c.req.valid("json");
-      const moved = await completeStep(
-        { db, jobs },
-        { organisationId, runId: c.req.valid("param").id, nodeId, outcome, userId: c.var.userId },
-      );
+      const moved = await completeStep(runner, {
+        organisationId,
+        runId: c.req.valid("param").id,
+        nodeId,
+        outcome,
+        userId: c.var.userId,
+      });
       const [logged] = (await runsOf(db, organisationId, run.trackId)).filter(
         (r) => r.run.id === moved?.id,
       );
       return c.json({ run: logged ? summaryOf(logged) : null });
     },
   );
+};

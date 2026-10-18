@@ -40,7 +40,7 @@ import { projectStorageRoutes } from "./routes/project-storage.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { fileQaRoutes } from "./routes/qa.ts";
 import { fileRetryRoutes } from "./routes/retry.ts";
-import { projectReviewRoutes, reviewRoutes } from "./routes/reviews.ts";
+import { projectReviewRoutes, type ReviewDeps, reviewRoutes } from "./routes/reviews.ts";
 import { searchRoutes } from "./routes/search.ts";
 import { projectSessionRoutes, sessionRoutes } from "./routes/sessions.ts";
 import { setupRoutes } from "./routes/setup.ts";
@@ -64,6 +64,7 @@ import { securityHeaders } from "./security-headers.ts";
 import type { SetupGate } from "./setup-code.ts";
 import type { Storage } from "./storage.ts";
 import { requireOrganisation, requireSession } from "./tenancy.ts";
+import { type RunnerDeps, reviewSettled } from "./workflow-runner.ts";
 
 export interface AppDeps {
   db: Database;
@@ -128,13 +129,16 @@ export function createApi(deps: AppDeps) {
     trustProxy: deps.trustProxy ?? false,
     workDir: deps.workDir,
   };
-  const reviewDeps = {
+  const reviewDeps: ReviewDeps = {
     db: deps.db,
     audit: deps.audit,
     mailer: deps.mailer,
     publicUrl: deps.publicUrl,
     trustProxy: deps.trustProxy ?? false,
   };
+  // Workflows ask for reviews, and a review's outcome moves its workflow on (#25).
+  const runner: RunnerDeps = { db: deps.db, jobs: deps.jobs, reviews: reviewDeps };
+  reviewDeps.onSettled = (review, by) => reviewSettled(runner, review, by);
   return (
     new Hono()
       .route("/health", health(deps.db))
@@ -246,12 +250,13 @@ export function createApi(deps: AppDeps) {
           deps.audit,
           deps.trustProxy ?? false,
           deps.storage,
+          runner,
         ),
       )
       .route("/tracks", trackTakeRoutes(deps.db))
       .route("/tracks", editDecisionRoutes(deps.db, deps.storage))
       .route("/tracks", trackCompareRoutes(deps.db, deps.jobs))
-      .route("/tracks", trackWorkflowRunRoutes(deps.db, deps.jobs))
+      .route("/tracks", trackWorkflowRunRoutes(runner))
       .use("/takes/*", ...member)
       .route("/takes", takeRoutes(deps.db))
       .use("/sessions/*", ...member)
@@ -259,7 +264,7 @@ export function createApi(deps: AppDeps) {
       .use("/workflows/*", ...member)
       .route("/workflows", workflowRoutes(deps.db))
       .use("/workflow-runs/*", ...member)
-      .route("/workflow-runs", workflowRunRoutes(deps.db, deps.jobs))
+      .route("/workflow-runs", workflowRunRoutes(runner))
       .use("/versions/*", ...member)
       .route("/versions", versionRoutes(deps.db))
       .use("/variations/*", ...member)
