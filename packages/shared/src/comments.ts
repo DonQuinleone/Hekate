@@ -94,7 +94,7 @@ export const resolveCommentInput = z.object({ resolved: z.boolean() });
 export type CreateCommentInput = z.infer<typeof createCommentInput>;
 
 /** A little slack for players that report the end a few frames late. */
-const END_TOLERANCE = 0.5;
+export const END_TOLERANCE = 0.5;
 
 /**
  * Why an anchor cannot point into a file, or null when it can: time needs audio or video

@@ -1,0 +1,2 @@
+Tomas Varga	01:00:06:05	A1	red	Pedal noise	1
+Ines Arlow	01:00:17:15	A1	green	Keep the rubato	50

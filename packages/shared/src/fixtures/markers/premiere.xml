@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE xmeml>
+<xmeml version="4">
+  <sequence id="sequence-1">
+    <name>Opening titles</name>
+    <duration>1500</duration>
+    <rate><timebase>25</timebase><ntsc>FALSE</ntsc></rate>
+    <timecode>
+      <rate><timebase>25</timebase><ntsc>FALSE</ntsc></rate>
+      <string>01:00:00:00</string>
+      <frame>90000</frame>
+      <displayformat>NDF</displayformat>
+    </timecode>
+    <media>
+      <video><track/></video>
+      <audio><track/></audio>
+    </media>
+    <marker>
+      <name>Logo too early</name>
+      <comment>Hold it two frames</comment>
+      <in>155</in>
+      <out>-1</out>
+    </marker>
+    <marker>
+      <name>Music swells</name>
+      <comment/>
+      <in>500</in>
+      <out>625</out>
+    </marker>
+  </sequence>
+</xmeml>

@@ -1,0 +1,14 @@
+SESSION NAME:	Maple Leaf Rag
+SAMPLE RATE:	48000.000000
+BIT DEPTH:	24-bit
+SESSION START TIMECODE:	01:00:00:00
+TIMECODE FORMAT:	25 Frame
+# OF AUDIO TRACKS:	2
+# OF AUDIO CLIPS:	4
+# OF AUDIO FILES:	2
+
+
+M A R K E R S  L I S T I N G
+#   	LOCATION     	TIME REFERENCE    	UNITS    	NAME                             	COMMENTS
+1   	01:00:06:05  	297600            	Samples  	Pedal noise                      	Left hand, before the downbeat
+2   	01:00:17:15  	844800            	Samples  	Keep the rubato                  	
