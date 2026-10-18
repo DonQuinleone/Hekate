@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  canBinaural,
   channelGains,
   downmixGains,
   isPlain,
   mixLabel,
   mixUnavailable,
+  panPosition,
   plainMix,
+  speakerDirection,
   speakerNames,
 } from "./channel-mix";
 
@@ -71,5 +74,33 @@ describe("hearing a recording's channels (#74)", () => {
     expect(mixUnavailable(6, "aac-256")).toMatch(/stereo downmix: choose Lossless/);
     expect(mixUnavailable(6, "eac3")).toMatch(/Dolby stream/);
     expect(mixUnavailable(12, "flac")).toMatch(/12 channels; a browser plays up to 8/);
+  });
+
+  it("places each speaker around the listener for a binaural render, the LFE nowhere", () => {
+    expect(speakerDirection("FL", fiveOne)).toEqual({ azimuth: 30, elevation: 0 });
+    // 5.1's surrounds at 110°; 7.1's sides at 90° and rears at 135°.
+    expect(speakerDirection("SR", fiveOne)).toEqual({ azimuth: -110, elevation: 0 });
+    expect(speakerDirection("SL", sevenOne)).toEqual({ azimuth: 90, elevation: 0 });
+    expect(speakerDirection("BL", sevenOne)).toEqual({ azimuth: 135, elevation: 0 });
+    expect(speakerDirection("TFL", [...sevenOne, "TFL"])).toEqual({ azimuth: 45, elevation: 30 });
+    expect(speakerDirection("LFE", fiveOne)).toBeNull();
+    expect(speakerDirection("WL", [...sevenOne, "WL", "WR"])).toEqual({
+      azimuth: 60,
+      elevation: 0,
+    });
+    // Offered only where every channel is an LFE or has a place.
+    expect(canBinaural(fiveOne)).toBe(true);
+    expect(canBinaural([...sevenOne, "LFE2"])).toBe(true);
+    expect(canBinaural(["FL", "FR", "FC", "XQ"])).toBe(false);
+    expect(canBinaural(null)).toBe(false);
+    // Web Audio faces −z with x to the right: the centre ahead, the left to the left, the top up.
+    expect(panPosition({ azimuth: 0, elevation: 0 })).toEqual({ x: 0, y: 0, z: -1 });
+    expect(panPosition({ azimuth: 90, elevation: 0 })).toEqual({ x: -1, y: 0, z: 0 });
+    expect(panPosition({ azimuth: 0, elevation: 90 })).toMatchObject({ y: 1 });
+  });
+
+  it("says when it is heard binaurally", () => {
+    expect(mixLabel({ ...plainMix, binaural: true }, speakerNames(fiveOne, 6))).toBe("Binaural");
+    expect(isPlain({ ...plainMix, binaural: true })).toBe(false);
   });
 });
