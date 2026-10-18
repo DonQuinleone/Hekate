@@ -805,6 +805,25 @@ test("file-speed", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Zoomed into a recording (#34): two steps in, the view scrolled with the playhead.
+test("file-zoom", async ({ page }) => {
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page.getByRole("button", { name: "Zoom into the waveform" }).click();
+  await page.getByRole("button", { name: "Zoom into the waveform" }).click();
+  await expect(page.getByRole("button", { name: "4×" })).toBeVisible();
+  // Focused, the arrow keys move along it rather than seek.
+  const surface = page.getByRole("group", { name: /^Waveform, zoomed 4 times/ });
+  await surface.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => surface.evaluate((e) => e.scrollLeft)).toBeGreaterThan(0);
+  await expect(page.getByText("0:00 / 0:40")).toBeVisible();
+  await page.keyboard.press("Home");
+  await expect.poll(() => surface.evaluate((e) => e.scrollLeft)).toBe(0);
+  await saveScreen(page, "file-zoom");
+  await checkScreen(page);
+});
+
 // A recording's channels heard apart (#74): its answers amended in the page alone to a 5.1
 // file's, the centre soloed and the downmix on.
 test("file-channels", async ({ page }) => {

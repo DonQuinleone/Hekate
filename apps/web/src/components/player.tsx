@@ -15,7 +15,15 @@ import {
   waveColours,
 } from "@hekate/shared";
 import type Hls from "hls.js";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   type ChannelMix,
   mixUnavailable,
@@ -31,6 +39,7 @@ import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
 import { readView, type SpectrogramView } from "~/lib/spectrogram";
 import { holdRate } from "~/lib/speed";
 import { useViewer } from "~/lib/viewer";
+import { anchoredScroll, followScroll, maxZoom, panScroll, zoomLabel, zoomStep } from "~/lib/zoom";
 import { ChannelsButton, ChannelsPanel } from "./channels";
 import { Icon } from "./icons";
 import { LoopControls, LoopSurface } from "./loop";
@@ -304,6 +313,57 @@ export function Player({
   const [looping, setLooping] = useState(true);
   const [rolls, setRolls] = useRolls();
   const active = Boolean(loop) && looping;
+  // Zoomed into the waveform and spectrogram (#34); the scrub bar keeps the whole file.
+  const [surface, setSurface] = useState<HTMLDivElement | null>(null);
+  const [surfaceWidth, setSurfaceWidth] = useState(0);
+  const [chosenZoom, setZoom] = useState(1);
+  const mostZoom = maxZoom(duration, info?.audio?.sampleRate ?? 0, surfaceWidth);
+  const zoom = Math.min(chosenZoom, mostZoom);
+  /** Where the view was when the zoom changed, to keep the same moment under the anchor. */
+  const zooming = useRef<{ from: number; scroll: number; anchor: number } | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each file opens whole.
+  useEffect(() => setZoom(1), [fileId]);
+  useEffect(() => {
+    if (!surface) return;
+    const observer = new ResizeObserver(([entry]) =>
+      setSurfaceWidth(Math.round(entry?.contentRect.width ?? 0)),
+    );
+    observer.observe(surface);
+    return () => observer.disconnect();
+  }, [surface]);
+  const zoomTo = (next: number) => {
+    const element = surface;
+    if (!element || next === zoom) return;
+    const view = element.clientWidth;
+    const playhead =
+      duration > 0 ? (time / duration) * element.scrollWidth - element.scrollLeft : -1;
+    zooming.current = {
+      from: zoom,
+      scroll: element.scrollLeft,
+      anchor: playhead >= 0 && playhead <= view ? playhead : view / 2,
+    };
+    setZoom(next);
+  };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only a new zoom moves the view.
+  useLayoutEffect(() => {
+    const element = surface;
+    const from = zooming.current;
+    zooming.current = null;
+    if (element && from)
+      element.scrollLeft = anchoredScroll(from.scroll, from.anchor, from.from, zoom);
+  }, [zoom]);
+  // The playhead stays in view as it plays or is moved, a page at a time.
+  useEffect(() => {
+    const element = surface;
+    if (!element || zoom <= 1 || !(duration > 0)) return;
+    const next = followScroll(
+      element.scrollLeft,
+      element.clientWidth,
+      element.scrollWidth,
+      (time / duration) * element.scrollWidth,
+    );
+    if (next !== null) element.scrollLeft = next;
+  }, [surface, time, zoom, duration]);
 
   useEffect(() => {
     const element = media.current;
@@ -516,6 +576,21 @@ export function Player({
       label: info?.video?.fps ? "One frame forward" : "A hundredth of a second forward",
       run: () => stepBy(1),
     },
+    ...(kind === "audio" && mostZoom > 1
+      ? [
+          {
+            keys: ["="],
+            label: "Zoom into the waveform",
+            run: () => zoomTo(zoomStep(zoom, 1, mostZoom)),
+          },
+          {
+            keys: ["-"],
+            label: "Zoom out of the waveform",
+            run: () => zoomTo(zoomStep(zoom, -1, mostZoom)),
+          },
+          { keys: ["0"], label: "Fit the whole file", run: () => zoomTo(1) },
+        ]
+      : []),
     ...(canLoop
       ? [
           { keys: ["i"], label: "Loop from the playhead", run: () => edge("in") },
@@ -603,69 +678,97 @@ export function Player({
       ) : (
         <div className="flex flex-col gap-3 px-4 py-4">
           {kind === "audio" && element && (
-            <LoopSurface
-              duration={duration}
-              loop={loop}
-              active={active}
-              onSeek={seek}
-              onLoop={canLoop ? setLoop : undefined}
-              label={
-                canLoop
-                  ? "Waveform: click to move the playhead, drag to loop a passage"
-                  : "Waveform: click to move the playhead"
-              }
-              className="flex flex-col gap-3"
+            // Scrolls once zoomed in; everything on the surface widens with it.
+            <div
+              ref={setSurface}
+              className={cn(zoom > 1 && "overflow-x-auto overscroll-x-contain")}
+              // Zoomed in, it scrolls, so the keyboard can reach it and move along it.
+              {...(zoom > 1 && {
+                tabIndex: 0,
+                role: "group",
+                "aria-label": `Waveform, zoomed ${zoom} times: the arrow keys move along it`,
+                onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+                  const box = event.currentTarget;
+                  const next = panScroll(
+                    event.key,
+                    box.scrollLeft,
+                    box.clientWidth,
+                    box.scrollWidth,
+                  );
+                  if (next === null || event.altKey || event.metaKey || event.ctrlKey) return;
+                  // Handled here, so the player's own arrows do not seek as well.
+                  event.preventDefault();
+                  box.scrollLeft = next;
+                },
+              })}
+              data-zoom={zoom}
             >
-              {element && (display === "waveform" || display === "both") && (
-                <Waveform
-                  fileId={fileId}
-                  media={element}
+              <div style={{ width: `${zoom * 100}%` }}>
+                <LoopSurface
                   duration={duration}
-                  layout={info?.audio?.channelLayout}
-                  view={view}
-                  look={look}
-                />
-              )}
-              {element && (display === "spectrogram" || display === "both") && (
-                <Spectrogram
-                  fileId={fileId}
-                  media={element}
-                  duration={duration}
-                  layout={info?.audio?.channelLayout}
-                  channel={spectrumChannel}
-                  view={spectrum}
-                  height={WAVEFORM_HEIGHT}
-                />
-              )}
-              {element && display === "overlay" && (
-                // The waveform, drawn see-through, sits on the spectrogram and keeps the playhead.
-                <div className="relative">
-                  <div className="absolute inset-0">
+                  loop={loop}
+                  active={active}
+                  onSeek={seek}
+                  onLoop={canLoop ? setLoop : undefined}
+                  label={
+                    canLoop
+                      ? "Waveform: click to move the playhead, drag to loop a passage"
+                      : "Waveform: click to move the playhead"
+                  }
+                  className="flex flex-col gap-3"
+                >
+                  {element && (display === "waveform" || display === "both") && (
+                    <Waveform
+                      fileId={fileId}
+                      media={element}
+                      duration={duration}
+                      layout={info?.audio?.channelLayout}
+                      view={view}
+                      look={look}
+                    />
+                  )}
+                  {element && (display === "spectrogram" || display === "both") && (
                     <Spectrogram
                       fileId={fileId}
                       media={element}
                       duration={duration}
                       layout={info?.audio?.channelLayout}
-                      // Row for row under the waveform: each channel, or all of them combined.
-                      channel={view === "combined" ? "all" : "each"}
+                      channel={spectrumChannel}
                       view={spectrum}
                       height={WAVEFORM_HEIGHT}
-                      playhead={false}
-                      labels={false}
                     />
-                  </div>
-                  <Waveform
-                    fileId={fileId}
-                    media={element}
-                    duration={duration}
-                    layout={info?.audio?.channelLayout}
-                    view={view}
-                    look={look}
-                    overlay
-                  />
-                </div>
-              )}
-            </LoopSurface>
+                  )}
+                  {element && display === "overlay" && (
+                    // The waveform, drawn see-through, sits on the spectrogram and keeps the playhead.
+                    <div className="relative">
+                      <div className="absolute inset-0">
+                        <Spectrogram
+                          fileId={fileId}
+                          media={element}
+                          duration={duration}
+                          layout={info?.audio?.channelLayout}
+                          // Row for row under the waveform: each channel, or all of them combined.
+                          channel={view === "combined" ? "all" : "each"}
+                          view={spectrum}
+                          height={WAVEFORM_HEIGHT}
+                          playhead={false}
+                          labels={false}
+                        />
+                      </div>
+                      <Waveform
+                        fileId={fileId}
+                        media={element}
+                        duration={duration}
+                        layout={info?.audio?.channelLayout}
+                        view={view}
+                        look={look}
+                        overlay
+                      />
+                    </div>
+                  )}
+                </LoopSurface>
+              </div>
+            </div>
           )}
           {/* Video has no waveform to drag on: the loop lane stands in for it. */}
           {kind === "video" && canLoop && (
@@ -805,6 +908,36 @@ export function Player({
                 open={channelsOpen}
                 onToggle={() => setChannelsOpen((open) => !open)}
               />
+            )}
+            {kind === "audio" && mostZoom > 1 && (
+              <span className="flex items-center gap-0.5">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Zoom out of the waveform"
+                  disabled={zoom <= 1}
+                  onClick={() => zoomTo(zoomStep(zoom, -1, mostZoom))}
+                >
+                  <Icon name="zoomOut" size={14} />
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => zoomTo(1)}
+                  title="Fit the whole file (0)"
+                  className="tabular h-7 min-w-10 cursor-pointer rounded-chip border-0 bg-transparent px-1.5 text-xs text-ink-2 hover:text-ink"
+                >
+                  {zoomLabel(zoom)}
+                </button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Zoom into the waveform"
+                  disabled={zoom >= mostZoom}
+                  onClick={() => zoomTo(zoomStep(zoom, 1, mostZoom))}
+                >
+                  <Icon name="zoomIn" size={14} />
+                </Button>
+              </span>
             )}
             {/* What is heard, at the right, before the format it is heard in. */}
             {normalised && normalisation && (

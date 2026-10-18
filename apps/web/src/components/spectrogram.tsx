@@ -24,6 +24,9 @@ const token = (name: string) =>
 const TICKS = [50, 100, 200, 500, 1000, 2000, 5000, 10_000, 20_000, 40_000];
 const tickLabel = (hz: number) => (hz >= 1000 ? `${hz / 1000}k` : `${hz}`);
 
+/** Wider than this, browsers refuse to draw a canvas at all. */
+const MAX_CANVAS_WIDTH = 16_384;
+
 /** One spectrogram drawn to fill its box at the screen's resolution. */
 function Plane({
   spectrogram,
@@ -60,7 +63,8 @@ function Plane({
     const context = element?.getContext("2d");
     if (!element || !context || size.width === 0 || size.height === 0) return;
     const ratio = window.devicePixelRatio || 1;
-    const width = Math.round(size.width * ratio);
+    // A zoomed plane can be wider than a canvas may be; the stored spectra are coarser anyway.
+    const width = Math.min(Math.round(size.width * ratio), MAX_CANVAS_WIDTH);
     const height = Math.round(size.height * ratio);
     element.width = width;
     element.height = height;
