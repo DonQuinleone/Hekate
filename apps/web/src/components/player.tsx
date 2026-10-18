@@ -1,4 +1,5 @@
 import {
+  channelLabels,
   formatChannels,
   formatDuration,
   type MediaInfo,
@@ -14,7 +15,14 @@ import {
   waveColours,
 } from "@hekate/shared";
 import type Hls from "hls.js";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ChannelMix,
+  mixUnavailable,
+  plainMix,
+  speakerNames,
+  useChannelMix,
+} from "~/lib/channel-mix";
 import { cn } from "~/lib/cn";
 import { type Loop, loopEntry, loopFrom, type Rolls, roll, wrapTarget } from "~/lib/loop";
 import { usePlayerView } from "~/lib/player-view";
@@ -22,6 +30,7 @@ import { type Playback, type Rendition, usePreferences, useSavePreferences } fro
 import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
 import { readView, type SpectrogramView } from "~/lib/spectrogram";
 import { useViewer } from "~/lib/viewer";
+import { ChannelsButton, ChannelsPanel } from "./channels";
 import { Icon } from "./icons";
 import { LoopControls, LoopSurface } from "./loop";
 import { Spectrogram, type SpectrogramChannelChoice } from "./spectrogram";
@@ -233,6 +242,19 @@ export function Player({
   const { view: playerView, setView: setPlayerView, split, setSplit } = usePlayerView();
   const savePreferences = useSavePreferences();
   const channels = info?.audio?.channels ?? 0;
+  // Each channel to hear apart (#74), over the lossless stream that carries them all.
+  const [mix, setMix] = useState<ChannelMix>(plainMix);
+  const [channelsOpen, setChannelsOpen] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each file starts as recorded.
+  useEffect(() => setMix(plainMix), [fileId]);
+  const channelLayout = info?.audio?.channelLayout;
+  const labels = useMemo(() => channelLabels(channelLayout, channels), [channelLayout, channels]);
+  const names = useMemo(() => speakerNames(labels, channels), [labels, channels]);
+  const heardRendition = choices.find((c) => c.level === level)?.rendition.name ?? null;
+  const channelsUnavailable = mixUnavailable(channels, heardRendition);
+  // Folding down needs each channel's speaker; a file that does not say offers no downmix.
+  const heardMix = channelsUnavailable ? plainMix : labels ? mix : { ...mix, downmix: false };
+  useChannelMix(element, channels, labels, heardMix);
   const view: WaveformView = split && channels > 1 ? "channels" : "combined";
   const display: Display =
     !canSpectrogram || playerView.spectrogram === "off"
@@ -752,6 +774,14 @@ export function Player({
                 View
               </Button>
             )}
+            {kind === "audio" && channels >= 2 && (
+              <ChannelsButton
+                names={names}
+                mix={heardMix}
+                open={channelsOpen}
+                onToggle={() => setChannelsOpen((open) => !open)}
+              />
+            )}
             {/* What is heard, at the right, before the format it is heard in. */}
             {normalised && normalisation && (
               <span className="tabular ml-auto text-xs text-ink-3">
@@ -798,6 +828,15 @@ export function Player({
               onLoop={(next) => onLoop(next)}
               onActive={setLooping}
               onRolls={setRolls}
+            />
+          )}
+          {channelsOpen && kind === "audio" && channels >= 2 && (
+            <ChannelsPanel
+              names={names}
+              mix={heardMix}
+              canDownmix={labels !== null}
+              onMix={setMix}
+              unavailable={channelsUnavailable}
             />
           )}
           {settingsOpen && (

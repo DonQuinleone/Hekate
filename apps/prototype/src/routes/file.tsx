@@ -544,10 +544,9 @@ export function FilePage({
     : [];
   const channels = file.media.channels ?? 2;
   const hearing =
+    // A downmix or a soloed channel is said on the Channels button itself.
     channels > 2
-      ? view.downmix
-        ? "stereo downmix"
-        : `${file.media.layout?.split(" ")[0]} lossless`
+      ? `${file.media.layout?.split(" ")[0]} lossless`
       : view.normalised
         ? "normalised to −16 LUFS"
         : undefined;
@@ -724,11 +723,13 @@ export function FilePage({
             <AudioLayoutMenu layout={file.media.layout ?? "stereo"} />
           </>
         )}
+        {isAudio && !pending && !failed && channels >= 2 && (
+          <AudioLayoutMenu layout={file.media.layout ?? "stereo"} />
+        )}
         {isAudio && !pending && !failed && (
           <ViewMenu
             view={view}
             onView={setView}
-            channels={channels}
             spectrogramAllowed={tools.has("spectrogram")}
             normaliseAllowed={tools.has("normalise") && project.normalisation === "optional"}
           />

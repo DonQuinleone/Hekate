@@ -261,7 +261,10 @@ export function GoTo({ onGo }: { onGo: (seconds: number) => void }) {
   );
 }
 
-/** The audio layout of a cut: stereo, 5.1 or an Atmos bed, with solo and mute per channel. */
+/**
+ * The channels of a recording or a cut (#74): stereo, 5.1 or an Atmos bed, with solo and mute
+ * per channel and a stereo downmix of anything wider. The button says what is changed.
+ */
 export function AudioLayoutMenu({ layout }: { layout: string }) {
   const [open, setOpen, box] = usePopover();
   const channels = layout.startsWith("5.1")
@@ -271,6 +274,14 @@ export function AudioLayoutMenu({ layout }: { layout: string }) {
       : ["L", "R"];
   const [muted, setMuted] = useState<Set<string>>(new Set());
   const [solo, setSolo] = useState<string | null>(null);
+  const [downmix, setDownmix] = useState(false);
+  const heard = [
+    solo ? `Solo ${solo}` : null,
+    !solo && muted.size > 0 ? `${[...muted].join(", ")} muted` : null,
+    downmix ? "stereo downmix" : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
   return (
     <div ref={box} className="relative">
       <button
@@ -282,11 +293,14 @@ export function AudioLayoutMenu({ layout }: { layout: string }) {
         )}
       >
         <Icon name="volume" size={14} />
-        {layout.split(" ")[0]}
+        Channels
+        {heard && (
+          <span className="text-signal">{heard.charAt(0).toUpperCase() + heard.slice(1)}</span>
+        )}
       </button>
       {open && (
         <div className="rise-in absolute right-0 z-30 mt-1 flex w-64 flex-col gap-2 rounded-panel bg-overlay p-3 shadow-3">
-          <span className="text-[13px] text-ink">Audio layout: {layout}</span>
+          <span className="text-[13px] text-ink">Channels: {layout}</span>
           <ul className="flex flex-col gap-1">
             {channels.map((c) => (
               <li key={c} className="flex items-center gap-2 text-[13px] text-ink-2">
@@ -329,10 +343,25 @@ export function AudioLayoutMenu({ layout }: { layout: string }) {
               </li>
             ))}
           </ul>
-          <div className="flex items-center justify-between text-[13px] text-ink">
-            Hear the stereo downmix
-            <Switch label="Stereo downmix" checked={channels.length > 2} onChange={() => {}} />
-          </div>
+          {channels.length > 2 && (
+            <div className="flex items-center justify-between text-[13px] text-ink">
+              Hear the stereo downmix
+              <Switch label="Hear the stereo downmix" checked={downmix} onChange={setDownmix} />
+            </div>
+          )}
+          {heard && (
+            <button
+              type="button"
+              onClick={() => {
+                setSolo(null);
+                setMuted(new Set());
+                setDownmix(false);
+              }}
+              className="w-fit text-[13px] text-ink-3 hover:text-ink"
+            >
+              Hear it as recorded
+            </button>
+          )}
         </div>
       )}
     </div>
