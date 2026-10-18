@@ -402,3 +402,7 @@ The player hears a recording's channels apart (#74), as the prototype's audio la
 ## 099. A recording plays slower or faster, its pitch kept
 
 The player plays a recording at half speed to one and a half (0.5×, 0.75×, 1×, 1.25×, 1.5×), as the prototype's rate menu offers (#15), for following a fast passage or hearing a long take through quickly. The browser stretches time and keeps the pitch, so a slowed passage is still in tune. The speed holds while the player changes rendition, and is not remembered: the player opens at 1×. On the compare page the version that leads sets the speed and the one following keeps to it, as it keeps to its position. The menu sits after the mute button and opens upward, as the player's frame clips anything that opens below it.
+
+## 100. The front pair's mid and side are metered as it plays
+
+Beside the phase meter, the loudness panel meters the front pair's mid, (L+R)/2, and side, (L−R)/2, as RMS at the playhead (#34), as the prototype's meters do (M, S and the correlation): a side close to the mid is wide or out of phase, a side far below it narrow. They are measured with the loudness, from the same sums that give the correlation, so no audio is analysed in the browser and nothing more is decoded, and they are stored as two more values a frame in the loudness series, marked by a flag, so a series measured before reads as it did. Files analysed before have only the correlation until they are analysed again; mono files have neither.
