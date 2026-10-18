@@ -114,7 +114,7 @@ export function SessionsPage({ projectId }: { projectId: string }) {
                       {s.tracks.length === 0 ? "No tracks" : count(s.tracks.length, "track")}
                     </span>
                     <span className="tabular text-right text-[13px] text-ink-3">
-                      {formatDuration(s.duration)}
+                      {s.takes > 0 ? formatDuration(s.duration) : ""}
                     </span>
                   </Link>
                 </li>
