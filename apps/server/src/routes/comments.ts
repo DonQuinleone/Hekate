@@ -14,6 +14,7 @@ import {
   deferralAfter,
   editCommentInput,
   exportComments,
+  importMarkersInput,
   mentionedIn,
   mentionRanges,
   resolveCommentInput,
@@ -54,6 +55,7 @@ const {
 const resolver = alias(users, "resolver");
 const assignee = alias(users, "assignee");
 const doneBy = alias(users, "done_by");
+const importer = alias(users, "importer");
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
@@ -97,6 +99,9 @@ const commentColumns = {
   todoDoneByName: doneBy.name,
   /** The channel it is about (#74); null is all of them. */
   channel: comments.channel,
+  /** The marker list it came from (#134), and who imported it. */
+  importedFrom: comments.importedFrom,
+  importedByName: importer.name,
 };
 
 function selectComments(db: Database, organisationId: string, where: SQL | undefined) {
@@ -108,6 +113,7 @@ function selectComments(db: Database, organisationId: string, where: SQL | undef
     .leftJoin(resolver, eq(comments.resolvedById, resolver.id))
     .leftJoin(assignee, eq(comments.assigneeId, assignee.id))
     .leftJoin(doneBy, eq(comments.todoDoneById, doneBy.id))
+    .leftJoin(importer, eq(comments.importedById, importer.id))
     .where(inOrg(comments, organisationId, where));
 }
 
@@ -286,6 +292,7 @@ export async function threadsOn(
           todo: false,
           todoDoneAt: null,
           todoDoneByName: null,
+          importedByName: null,
         }))
       : rows;
   return shown.map((row) => {
@@ -757,6 +764,123 @@ export const fileCommentRoutes = (
         },
         201,
       );
+    })
+    /**
+     * A marker list from another application, as comments (#134): the markers the browser
+     * read from it and chose, each checked as a comment's anchor would be, written together.
+     * Triage's to do, as it may say whose markers they were and give them categories; each
+     * comment keeps the list's name and who imported it, and the import is in the access log.
+     * Nobody is notified of each: a list can bring hundreds.
+     */
+    .post("/:id/comments/import", idParam, zValidator("json", importMarkersInput), async (c) => {
+      const organisationId = c.var.organisationId;
+      const input = c.req.valid("json");
+      const actor = c.var.actor;
+      const fileId = c.req.valid("param").id;
+      await canOnFile(db, actor, "comment", fileId);
+      await canOnFile(db, actor, "triage", fileId);
+      if (actor.kind === "guest") throw new HTTPException(403);
+      const [file] = await db
+        .select({
+          id: files.id,
+          kind: files.kind,
+          mediaInfo: files.mediaInfo,
+          pageCount: files.pageCount,
+          projectId: files.projectId,
+          profile: projects.profile,
+          references: projects.commentReferences,
+        })
+        .from(files)
+        .innerJoin(
+          projects,
+          and(eq(projects.id, files.projectId), eq(projects.organisationId, organisationId)),
+        )
+        .where(inOrg(files, organisationId, eq(files.id, fileId)));
+      if (!file) throw new NotFound("File");
+
+      // Whose markers they were: someone in the project, as a mention would be.
+      const authorId = input.authorId ?? actor.userId;
+      if (authorId !== actor.userId) {
+        const people = await projectPeople(db, organisationId, file.projectId);
+        if (!people.some((p) => p.id === authorId))
+          throw new CodedException(
+            422,
+            "author_outside",
+            "Markers can be imported only as someone in this project's",
+          );
+      }
+      const categoryIds = [
+        ...new Set(input.markers.flatMap((m) => (m.categoryId ? [m.categoryId] : []))),
+      ];
+      const categories =
+        categoryIds.length === 0
+          ? []
+          : await db
+              .select({
+                id: commentCategories.id,
+                handling: commentCategories.handling,
+                stage: commentCategories.stage,
+              })
+              .from(commentCategories)
+              .where(
+                inOrg(
+                  commentCategories,
+                  organisationId,
+                  inArray(commentCategories.id, categoryIds),
+                  eq(commentCategories.projectId, file.projectId),
+                ),
+              );
+      if (categories.length !== categoryIds.length)
+        throw new HTTPException(422, { message: "Categories must come from this project" });
+
+      const context = {
+        kind: file.kind,
+        duration: file.mediaInfo?.duration,
+        pages: file.pageCount,
+        profile: file.profile,
+        references: await referencesOfFile(db, organisationId, file.id, {
+          profile: file.profile,
+          commentReferences: file.references,
+        }),
+      };
+      const rows = input.markers.map((marker, i) => {
+        const anchor =
+          marker.start === null
+            ? null
+            : ({ kind: "time", start: marker.start, end: marker.end ?? marker.start } as const);
+        const problem = anchor ? anchorProblem(anchor, context) : null;
+        if (problem) throw new HTTPException(422, { message: `Marker ${i + 1}: ${problem}` });
+        const category = categories.find((k) => k.id === marker.categoryId) ?? null;
+        return {
+          organisationId,
+          fileId: file.id,
+          authorId,
+          anchor,
+          body: marker.body,
+          importedFrom: input.listName,
+          importedById: actor.userId,
+          ...(category && {
+            categoryId: category.id,
+            deferredTo: deferralAfter(null, { categoryId: category.id }, category),
+          }),
+        };
+      });
+      await db.transaction(async (tx) => {
+        await tx.insert(comments).values(rows);
+        await audit.record(
+          organisationId,
+          await audit.actor({ userId: actor.userId }),
+          {
+            action: "comment.import",
+            projectId: file.projectId,
+            fileId: file.id,
+            details: { list: input.listName, comments: rows.length },
+          },
+          requestInfo(c, trustProxy),
+          tx,
+        );
+      });
+      return c.json({ imported: rows.length }, 201);
     });
 
 /**

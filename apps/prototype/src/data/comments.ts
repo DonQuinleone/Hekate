@@ -146,6 +146,7 @@ export const comments: Comment[] = [
     reference: { bar: 21, barTo: 32 },
     categoryId: "cat-balance",
     channel: "R",
+    importedFrom: "Maple V2 markers.txt",
   },
   // Maple Leaf Rag V2 wet
   {
