@@ -1,6 +1,6 @@
 import type { QaFinding } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
-import { findingLoop, findingMarks } from "./qa";
+import { filterFindings, findingLoop, findingMarks } from "./qa";
 
 const finding = (start: number | null, end: number | null) =>
   ({ start, end }) as unknown as QaFinding;
@@ -33,5 +33,33 @@ describe("findingMarks (#43)", () => {
       { start: 12, end: 12.5, severity: "fail" },
       { start: 30, end: null, severity: "warn" },
     ]);
+  });
+});
+
+describe("filterFindings (#43)", () => {
+  const finding = (check: QaFinding["check"], severity: QaFinding["severity"]): QaFinding => ({
+    check,
+    severity,
+    summary: "",
+    channel: null,
+    start: null,
+    end: null,
+    details: {},
+  });
+  const all = [
+    finding("clipping", "fail"),
+    finding("clipping", "warn"),
+    finding("loudness", "fail"),
+    finding("silence", "info"),
+  ];
+  it("narrows to a severity, a check, both, or neither", () => {
+    const none = { severity: null, check: null };
+    expect(filterFindings(all, none)).toEqual(all);
+    expect(filterFindings(all, { ...none, severity: "fail" }).map((f) => f.check)).toEqual([
+      "clipping",
+      "loudness",
+    ]);
+    expect(filterFindings(all, { ...none, check: "clipping" })).toHaveLength(2);
+    expect(filterFindings(all, { severity: "warn", check: "loudness" })).toEqual([]);
   });
 });

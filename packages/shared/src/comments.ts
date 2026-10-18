@@ -27,10 +27,19 @@ export const createCommentInput = z
     anchor: anchor.nullish(),
     parentId: z.uuid().nullish(),
     mentions: commentMentions.optional(),
+    /**
+     * The thread's category from the start (#43), as triage would set it: for those who
+     * triage, as when a finding becomes a comment.
+     */
+    categoryId: z.uuid().nullish(),
   })
   .refine((c) => !(c.parentId && c.anchor), {
     message: "A reply takes its thread's anchor",
     path: ["anchor"],
+  })
+  .refine((c) => !(c.parentId && c.categoryId), {
+    message: "A reply takes its thread's category",
+    path: ["categoryId"],
   });
 
 export const editCommentInput = z.object({

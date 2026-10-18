@@ -1097,6 +1097,12 @@ export function Comments({
   /** The playhead when writing began; null for a whole-file comment. */
   const [at, setAt] = useState<number | null>(null);
   const [wholeFile, setWholeFile] = useState(false);
+  /**
+   * Those who triage give a new thread its category as they write it, as the prototype's
+   * composer offers (#43): a finding turned into a comment is filed at once.
+   */
+  const [categoryId, setCategoryId] = useState("");
+  const categoryOffered = canTriage && categories.length > 0;
   /** With a loop set, new comments point at the looped passage unless told otherwise. */
   const [onPassage, setOnPassage] = useState(true);
   const [showResolved, setShowResolved] = useState(false);
@@ -1256,6 +1262,7 @@ export function Comments({
           body,
           anchor: anchorNow(),
           mentions,
+          ...(categoryOffered && categoryId ? { categoryId } : {}),
         });
         return made.id;
       }}
@@ -1263,6 +1270,7 @@ export function Comments({
       onSaved={() => {
         setAt(null);
         setWholeFile(false);
+        setCategoryId("");
         setSheet(false);
         setBars("");
         setScorePage("");
@@ -1423,6 +1431,22 @@ export function Comments({
             Whole file
           </button>
         </span>
+      )}
+      {categoryOffered && (
+        <Select
+          size="sm"
+          aria-label="Category"
+          value={categoryId}
+          onChange={(e) => setCategoryId(e.target.value)}
+          className="w-auto max-w-40"
+        >
+          <option value="">No category</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </Select>
       )}
     </Composer>
   );

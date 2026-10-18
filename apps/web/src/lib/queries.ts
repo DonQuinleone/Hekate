@@ -1296,6 +1296,7 @@ export function useCommentMutations(fileId: string) {
         anchor?: Anchor | null;
         parentId?: string;
         mentions?: string[];
+        categoryId?: string | null;
       }) =>
         json<{ comment: Comment }>(
           await api.files[":id"].comments.$post({ param: { id: fileId }, json: input }),

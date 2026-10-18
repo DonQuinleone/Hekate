@@ -3,9 +3,11 @@ import {
   formatClock,
   type ProfileRef,
   type ProfileSource,
+  type QaCheck,
   type QaFinding,
   type QaSeverity,
   qaCheckNames,
+  qaChecks,
   qaSeverityNames,
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -250,6 +252,27 @@ function FindingGroup({
   );
 }
 
+/** What the QA list is narrowed to (#43): one severity of problem, one check, or neither. */
+export interface FindingFilter {
+  severity: Exclude<QaSeverity, "pass"> | null;
+  check: QaCheck | null;
+}
+
+/** The findings a filter leaves. */
+export const filterFindings = (findings: readonly QaFinding[], filter: FindingFilter) =>
+  findings.filter(
+    (f) =>
+      (!filter.severity || f.severity === filter.severity) &&
+      (!filter.check || f.check === filter.check),
+  );
+
+/** How the tally counts each severity of problem, as checks rather than findings. */
+const tallyWords: Record<Exclude<QaSeverity, "pass">, (n: number) => string> = {
+  fail: (n) => `${n} failed`,
+  warn: (n) => `${n} to look at`,
+  info: (n) => `${n} ${n === 1 ? "note" : "notes"}`,
+};
+
 /**
  * The quality checks of a recording (#41): problems first, worst first, each playing from
  * where it is; what passed below, folded. Checked against the nearest delivery profile (the
@@ -276,6 +299,7 @@ export function QualityChecks({
   const { data: customs = [] } = useQuery({ ...customProfilesQuery, enabled: canChoose });
   const [showPassed, setShowPassed] = useState(false);
   const [report, setReport] = useState(false);
+  const [filter, setFilter] = useState<FindingFilter>({ severity: null, check: null });
   const { data: changes } = useQuery(qaChangesQuery(fileId));
   // Once this version is measured, what changed since the last can be said at once.
   const client = useQueryClient();
@@ -286,6 +310,7 @@ export function QualityChecks({
   /** The problems not found in the previous version, to label as new. */
   const fresh = new Set((changes?.new ?? []).map(findingKey));
   const id = useId();
+  const checkId = useId();
   if (!data) return null;
   const problems = data.findings.filter((f) => f.severity !== "pass");
   const passed = data.findings.filter((f) => f.severity === "pass");
@@ -297,21 +322,59 @@ export function QualityChecks({
     media.currentTime = t;
     void media.play().catch(() => undefined);
   };
-  const tally = [
-    count("fail") && `${count("fail")} failed`,
-    count("warn") && `${count("warn")} to look at`,
-    `${count("pass")} passed`,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  // Each count of a problem narrows the list to it (#43); pressed again, it lets go.
+  const counted = (["fail", "warn", "info"] as const).filter((s) => count(s) > 0);
+  const tally = (
+    <>
+      {counted.map((s) => (
+        <span key={s} className="contents">
+          <button
+            type="button"
+            aria-pressed={filter.severity === s}
+            onClick={() => setFilter((f) => ({ ...f, severity: f.severity === s ? null : s }))}
+            className={cn(
+              "tabular cursor-pointer rounded-control border-0 bg-transparent p-0 text-xs hover:text-ink",
+              filter.severity === s ? "text-ink underline underline-offset-4" : "text-ink-3",
+            )}
+          >
+            {tallyWords[s](count(s))}
+          </button>
+          <span aria-hidden="true">·</span>
+        </span>
+      ))}
+      <span>{count("pass")} passed</span>
+    </>
+  );
+  // The checks among the problems, to narrow to one, where there is more than one.
+  const problemChecks = qaChecks.filter((c) => problems.some((f) => f.check === c));
+  const shown = filterFindings(problems, filter);
 
   return (
     <section aria-label="Checks" className="flex flex-col gap-4 border-t border-hairline pt-5">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
         <h2 className="m-0 text-[15px] font-medium">Checks</h2>
-        <span className="tabular text-xs text-ink-3">
+        <span className="tabular flex flex-wrap items-baseline gap-x-1.5 text-xs text-ink-3">
           {data.status === "ready" ? tally : waitingCopy[data.status]}
         </span>
+        {problemChecks.length > 1 && (
+          <Select
+            size="sm"
+            id={checkId}
+            aria-label="Check"
+            value={filter.check ?? ""}
+            onChange={(e) =>
+              setFilter((f) => ({ ...f, check: (e.target.value || null) as QaCheck | null }))
+            }
+            className="w-auto"
+          >
+            <option value="">Every check</option>
+            {problemChecks.map((c) => (
+              <option key={c} value={c}>
+                {checkNames[c]}
+              </option>
+            ))}
+          </Select>
+        )}
         <span className="ml-auto flex items-center gap-2 text-xs text-ink-3">
           <label htmlFor={id}>Against</label>
           {canChoose ? (
@@ -333,9 +396,21 @@ export function QualityChecks({
           )}
         </span>
       </div>
-      {problems.length > 0 && (
+      {problems.length > 0 && shown.length === 0 && (
+        <p className="m-0 text-[13px] text-ink-3">
+          Nothing found of that kind.{" "}
+          <button
+            type="button"
+            onClick={() => setFilter({ severity: null, check: null })}
+            className="cursor-pointer border-0 bg-transparent p-0 text-ink-2 underline underline-offset-4 hover:text-ink"
+          >
+            Show every finding
+          </button>
+        </p>
+      )}
+      {shown.length > 0 && (
         <ul className="m-0 list-none border-t border-hairline p-0" aria-label="Findings">
-          {groupFindings(problems).map((group) =>
+          {groupFindings(shown).map((group) =>
             group.length > 2 ? (
               <FindingGroup
                 onComment={onComment}
