@@ -3,6 +3,9 @@ import {
   barsOf,
   clockOf,
   coverageGaps,
+  type EditDecisions,
+  type EdlRate,
+  edlRates,
   formatDuration,
   gapsLabel,
   parseClock,
@@ -17,7 +20,14 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type DragEvent, type FormEvent, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
-import { type Track, trackTakesQuery, useProjectCan, useTakeMutations } from "~/lib/queries";
+import { barsUsedOf, decisionsSummary, editLine, rateName } from "~/lib/edit-decisions";
+import {
+  editDecisionsQuery,
+  type Track,
+  trackTakesQuery,
+  useProjectCan,
+  useTakeMutations,
+} from "~/lib/queries";
 import { uploadFile } from "~/lib/upload";
 import { Empty } from "./empty";
 import { Icon } from "./icons";
@@ -77,6 +87,11 @@ export function TakeManager({ track }: { track: Track }) {
   const { add, change, remove } = useTakeMutations(track.id);
   const [filter, setFilter] = useState<"all" | "best">("all");
   const [bar, setBar] = useState("");
+  // The latest version's edit decision list, matched to these takes (#56).
+  const [rate, setRate] = useState<EdlRate | undefined>(undefined);
+  const { data: decisions } = useQuery(editDecisionsQuery(track.id, rate));
+  const [mode, setMode] = useState<"takes" | "edits">("takes");
+  const showing = decisions ? mode : "takes";
   const [editing, setEditing] = useState<TakeRow | null>(null);
   const [sending, setSending] = useState<Sending[]>([]);
   const [dragging, setDragging] = useState(false);
@@ -203,7 +218,18 @@ export function TakeManager({ track }: { track: Track }) {
                 (gaps.length > 0 ? ` · no take of ${gapsLabel(gaps)}` : " · every bar covered")}
             </span>
             <div className="ml-auto flex flex-wrap items-center gap-2">
-              {withBars && (
+              {decisions && (
+                <Segmented
+                  label="Show"
+                  value={mode}
+                  onChange={setMode}
+                  options={[
+                    { value: "takes", label: "Coverage" },
+                    { value: "edits", label: "Edit decisions" },
+                  ]}
+                />
+              )}
+              {withBars && showing === "takes" && (
                 <Input
                   size="sm"
                   inputMode="numeric"
@@ -214,82 +240,99 @@ export function TakeManager({ track }: { track: Track }) {
                   className="w-20"
                 />
               )}
-              <Segmented
-                label="Which takes"
-                value={filter}
-                onChange={setFilter}
-                options={[
-                  { value: "all", label: "All" },
-                  { value: "best", label: "Best" },
-                ]}
-              />
+              {showing === "takes" && (
+                <Segmented
+                  label="Which takes"
+                  value={filter}
+                  onChange={setFilter}
+                  options={[
+                    { value: "all", label: "All" },
+                    { value: "best", label: "Best" },
+                  ]}
+                />
+              )}
               {addButton}
             </div>
           </div>
-          <div className="scroll-quiet overflow-x-auto">
-            <ul
-              aria-label="Takes of this track"
-              className={cn(
-                "grid grid-cols-[minmax(0,1fr)_40px]",
-                // On a narrow screen a take's bars are written in its line instead of drawn.
-                withBars && "@2xl/app:grid-cols-[minmax(220px,280px)_minmax(0,1fr)_40px]",
-              )}
-            >
-              {withBars && (
-                <li
-                  aria-hidden="true"
-                  className="col-span-3 hidden grid-cols-subgrid border-b border-line @2xl/app:grid"
-                >
-                  <span className="eyebrow px-4 py-1.5">Take</span>
-                  <span className="relative mr-2 h-7">
-                    {Array.from({ length: end / 10 + 1 }, (_, i) => (
-                      <span
-                        key={String(i)}
-                        className={cn(
-                          "tabular absolute top-1.5 text-[11px] text-ink-3",
-                          i > 0 && "-translate-x-full pr-1",
-                        )}
-                        // Each ten ends on the line after its last bar.
-                        style={{ left: `${i * 10 * (100 / end)}%` }}
-                      >
-                        {i === 0 ? "bar 1" : i * 10}
-                      </span>
-                    ))}
-                    {/* The bars no take covers, marked under the ruler. */}
-                    {gaps.map(([from, to]) => (
-                      <span
-                        key={from}
-                        className="absolute bottom-0 h-1 rounded-full bg-signal/60"
-                        style={{
-                          left: `${(from - 1) * (100 / end)}%`,
-                          width: `${(to - from + 1) * (100 / end)}%`,
-                        }}
-                      />
-                    ))}
-                  </span>
-                  <span />
-                </li>
-              )}
-              {shown.map((t) => (
-                <TakeLine
-                  key={t.id}
-                  take={t}
-                  end={withBars ? end : null}
-                  canEdit={canEdit}
-                  onEdit={() => setEditing(t)}
-                  onStar={() => change.mutate({ id: t.id, starred: !t.starred })}
-                  onRemove={() => remove.mutate(t.id)}
-                />
-              ))}
-              {shown.length === 0 && (
-                <li className="col-span-full px-4 py-6 text-[13px] text-ink-3">
-                  {asked
-                    ? `No take covers bar ${wanted}${filter === "best" ? " among the best" : ""}.`
-                    : "No take is starred or rated four or more yet."}
-                </li>
-              )}
-            </ul>
-          </div>
+          {showing === "edits" && decisions ? (
+            <EditDecisionList
+              decisions={decisions}
+              numberOf={(id) => takes.find((t) => t.id === id)?.number}
+              rate={rate}
+              onRate={setRate}
+            />
+          ) : (
+            <div className="scroll-quiet overflow-x-auto">
+              <ul
+                aria-label="Takes of this track"
+                className={cn(
+                  "grid grid-cols-[minmax(0,1fr)_40px]",
+                  // On a narrow screen a take's bars are written in its line instead of drawn.
+                  withBars && "@2xl/app:grid-cols-[minmax(220px,280px)_minmax(0,1fr)_40px]",
+                )}
+              >
+                {withBars && (
+                  <li
+                    aria-hidden="true"
+                    className="col-span-3 hidden grid-cols-subgrid border-b border-line @2xl/app:grid"
+                  >
+                    <span className="eyebrow px-4 py-1.5">Take</span>
+                    <span className="relative mr-2 h-7">
+                      {Array.from({ length: end / 10 + 1 }, (_, i) => (
+                        <span
+                          key={String(i)}
+                          className={cn(
+                            "tabular absolute top-1.5 text-[11px] text-ink-3",
+                            i > 0 && "-translate-x-full pr-1",
+                          )}
+                          // Each ten ends on the line after its last bar.
+                          style={{ left: `${i * 10 * (100 / end)}%` }}
+                        >
+                          {i === 0 ? "bar 1" : i * 10}
+                        </span>
+                      ))}
+                      {/* The bars no take covers, marked under the ruler. */}
+                      {gaps.map(([from, to]) => (
+                        <span
+                          key={from}
+                          className="absolute bottom-0 h-1 rounded-full bg-signal/60"
+                          style={{
+                            left: `${(from - 1) * (100 / end)}%`,
+                            width: `${(to - from + 1) * (100 / end)}%`,
+                          }}
+                        />
+                      ))}
+                    </span>
+                    <span />
+                  </li>
+                )}
+                {shown.map((t) => (
+                  <TakeLine
+                    key={t.id}
+                    take={t}
+                    end={withBars ? end : null}
+                    used={barsUsedOf(decisions, t.id)}
+                    usedIn={
+                      decisions?.uses.some((u) => u.takeId === t.id)
+                        ? `V${decisions.version.number}`
+                        : null
+                    }
+                    canEdit={canEdit}
+                    onEdit={() => setEditing(t)}
+                    onStar={() => change.mutate({ id: t.id, starred: !t.starred })}
+                    onRemove={() => remove.mutate(t.id)}
+                  />
+                ))}
+                {shown.length === 0 && (
+                  <li className="col-span-full px-4 py-6 text-[13px] text-ink-3">
+                    {asked
+                      ? `No take covers bar ${wanted}${filter === "best" ? " among the best" : ""}.`
+                      : "No take is starred or rated four or more yet."}
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
           {sending.length > 0 && (
             <ul aria-label="Takes being added" className="border-t border-line px-4 py-2">
               {sending.map((s) => (
@@ -339,6 +382,8 @@ export function TakeManager({ track }: { track: Track }) {
 function TakeLine({
   take,
   end,
+  used,
+  usedIn,
   canEdit,
   onEdit,
   onStar,
@@ -347,6 +392,10 @@ function TakeLine({
   take: TakeRow;
   /** The ruler's last bar, or null where no take has bars. */
   end: number | null;
+  /** The bars of it the latest version uses, from its edit decision list (#56). */
+  used: [number, number][];
+  /** The version whose list uses it ("V3"), or null. */
+  usedIn: string | null;
   canEdit: boolean;
   onEdit: () => void;
   onStar: () => void;
@@ -386,6 +435,7 @@ function TakeLine({
             />
           )}
           <Rating value={take.rating} />
+          {usedIn && <span className="text-[12px] text-signal">in {usedIn}</span>}
         </span>
         <span className="block truncate text-[12px] text-ink-3">
           {take.file ? "" : "Its file is gone · "}
@@ -440,6 +490,18 @@ function TakeLine({
           ) : (
             <span className="absolute top-2.5 left-2 text-[12px] text-ink-3">No bars</span>
           )}
+          {/* What the version uses of it, under its bars. */}
+          {used.map(([from, to]) => (
+            <span
+              key={from}
+              aria-hidden="true"
+              className="absolute top-7 h-1 rounded-full bg-signal"
+              style={{
+                left: `${(Math.max(from, 1) - 1) * (100 / end)}%`,
+                width: `${(to - Math.max(from, 1) + 1) * (100 / end)}%`,
+              }}
+            />
+          ))}
         </span>
       )}
       <span className="pr-2">
@@ -456,6 +518,88 @@ function TakeLine({
         )}
       </span>
     </li>
+  );
+}
+
+/**
+ * The latest version's edits in order, as its edit decision list gives them (#56): where in
+ * the version each falls, the take it comes from (or the source, where it is no take of this
+ * track), where in the take and which of its bars. The timecode rate can be set where the
+ * list does not say it.
+ */
+function EditDecisionList({
+  decisions,
+  numberOf,
+  rate,
+  onRate,
+}: {
+  decisions: EditDecisions;
+  numberOf: (takeId: string) => number | undefined;
+  rate: EdlRate | undefined;
+  onRate: (rate: EdlRate | undefined) => void;
+}) {
+  return (
+    <div className="flex flex-col">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-4 py-2 text-[13px] text-ink-3">
+        <span className="min-w-0 flex-1">{decisionsSummary(decisions)}</span>
+        {decisions.dropFrame ? (
+          // Drop frame exists only at 29.97: nothing to choose.
+          <span>{rateName(decisions.fps, true)}, as the list says</span>
+        ) : (
+          <Select
+            size="sm"
+            aria-label="Timecode rate"
+            value={rate === undefined ? "" : String(rate)}
+            onChange={(e) =>
+              onRate(e.target.value === "" ? undefined : (Number(e.target.value) as EdlRate))
+            }
+            className="w-auto"
+          >
+            <option value="">
+              {rateName(decisions.fps, decisions.dropFrame)}
+              {decisions.fpsGuessed ? ", worked out" : ", as the list says"}
+            </option>
+            {edlRates.map((r) => (
+              <option key={r} value={String(r)}>
+                {rateName(r, r === 29.97)}
+              </option>
+            ))}
+          </Select>
+        )}
+      </div>
+      {decisions.uses.length === 0 ? (
+        <p className="m-0 px-4 py-6 text-[13px] text-ink-3">
+          The list has no edits from a recording.
+        </p>
+      ) : (
+        <ol aria-label="Edit decisions" className="m-0 list-none p-0">
+          {decisions.uses.map((use, i) => {
+            const line = editLine(use, numberOf);
+            return (
+              <li
+                key={`${use.event.number}-${String(i)}`}
+                className="grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)] gap-x-4 border-b border-line px-4 py-2 text-[13px] last:border-b-0 @2xl/app:grid-cols-[8rem_minmax(0,14rem)_minmax(0,1fr)_minmax(0,9rem)]"
+              >
+                <span className="tabular text-ink-2">{line.when}</span>
+                <span className="min-w-0 truncate">
+                  {line.take ? (
+                    <span className="tabular font-medium text-ink">{line.take}</span>
+                  ) : (
+                    <span className="text-ink-3">{line.source}</span>
+                  )}
+                </span>
+                <span className="col-start-2 min-w-0 truncate text-ink-3 @2xl/app:col-start-auto">
+                  {line.place}
+                </span>
+                <span className="col-start-2 text-ink-3 @2xl/app:col-start-auto">
+                  {line.bars ?? ""}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </div>
   );
 }
 

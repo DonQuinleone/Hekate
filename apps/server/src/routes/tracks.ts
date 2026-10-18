@@ -11,6 +11,7 @@ import {
   trackNormalisationInput,
   trackReferencesInput,
   updateTrackInput,
+  versionEdlInput,
   versionRefusals,
   withPrimary,
   workspaceSettingsOf,
@@ -348,24 +349,8 @@ export const trackRoutes = (
         })
         .from(projects)
         .where(inOrg(projects, organisationId, eq(projects.id, track.projectId)));
-      if (input.edlFileId) {
-        const [edl] = await db
-          .select({ name: files.name })
-          .from(files)
-          .where(
-            inOrg(
-              files,
-              organisationId,
-              eq(files.projectId, track.projectId),
-              eq(files.id, input.edlFileId),
-            ),
-          );
-        if (!edl)
-          throw new HTTPException(422, { message: "Files must come from the same project" });
-        if (!/\.edl$/i.test(edl.name)) {
-          throw new HTTPException(422, { message: "An edit decision list is an .edl file" });
-        }
-      }
+      if (input.edlFileId)
+        await assertEdlFile(db, organisationId, track.projectId, input.edlFileId);
       const [customs, [org]] = await Promise.all([
         customProfilesOf(db, organisationId),
         db
@@ -573,12 +558,39 @@ async function versionOf(db: Database, organisationId: string, id: string) {
 }
 
 /** `/api/versions/:id/variations`: another treatment of the same edit. */
+/** An edit decision list for a version: an .edl file of the same project, or a 422. */
+async function assertEdlFile(
+  db: Database,
+  organisationId: string,
+  projectId: string,
+  fileId: string,
+) {
+  const [edl] = await db
+    .select({ name: files.name })
+    .from(files)
+    .where(inOrg(files, organisationId, eq(files.projectId, projectId), eq(files.id, fileId)));
+  if (!edl) throw new HTTPException(422, { message: "Files must come from the same project" });
+  if (!/\.edl$/i.test(edl.name)) {
+    throw new HTTPException(422, { message: "An edit decision list is an .edl file" });
+  }
+}
+
 export const versionRoutes = (db: Database) =>
-  new Hono<{ Variables: TenantVariables }>().post(
-    "/:id/variations",
-    idParam,
-    zValidator("json", addVariationInput),
-    async (c) => {
+  new Hono<{ Variables: TenantVariables }>()
+    // A version's edit decision list, given or changed after it was made (#56), or taken off.
+    .put("/:id/edl", idParam, zValidator("json", versionEdlInput), async (c) => {
+      const organisationId = c.var.organisationId;
+      const { fileId } = c.req.valid("json");
+      const version = await versionOf(db, organisationId, c.req.valid("param").id);
+      await canSeeTrack(db, c.var, version.projectId, "organise");
+      if (fileId) await assertEdlFile(db, organisationId, version.projectId, fileId);
+      await db
+        .update(versions)
+        .set({ edlFileId: fileId, updatedAt: new Date() })
+        .where(inOrg(versions, organisationId, eq(versions.id, version.id)));
+      return c.json({ track: await oneTrack(db, organisationId, version.trackId) });
+    })
+    .post("/:id/variations", idParam, zValidator("json", addVariationInput), async (c) => {
       const organisationId = c.var.organisationId;
       const input = c.req.valid("json");
       const version = await versionOf(db, organisationId, c.req.valid("param").id);
@@ -621,8 +633,7 @@ export const versionRoutes = (db: Database) =>
         throw error;
       }
       return c.json({ track: await oneTrack(db, organisationId, version.trackId) }, 201);
-    },
-  );
+    });
 
 /** `/api/variations/:id/primary`: make this the variation a version opens with. */
 export const variationRoutes = (

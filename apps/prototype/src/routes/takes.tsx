@@ -763,6 +763,32 @@ export function CoverageView({ project }: { project: Project }) {
           </svg>
         </div>
       )}
+      {mode === "edl" && used.length > 0 && (
+        // Each edit in the version's order: the take it comes from and its bars, and what the
+        // list names that is no take of this track.
+        <ol
+          aria-label="Edit decisions"
+          className="flex flex-col rounded-panel-lg border border-line text-[13px]"
+        >
+          {[...used]
+            .sort((a, b) => a.barFrom - b.barFrom)
+            .map((u, i) => (
+              <li
+                key={`${u.take.id}-${String(i)}`}
+                className="flex gap-4 border-b border-line px-4 py-2 last:border-b-0"
+              >
+                <span className="tabular w-10 font-medium text-ink">T{u.take.number}</span>
+                <span className="text-ink-3">
+                  bars {u.barFrom} to {u.barTo}
+                </span>
+              </li>
+            ))}
+          <li className="flex gap-4 px-4 py-2">
+            <span className="w-10" />
+            <span className="text-ink-3">Pick-up, bar 17.wav · not a take of this track</span>
+          </li>
+        </ol>
+      )}
       {mode === "coverage" && gaps.length > 0 && (
         <p className="text-[13px] text-ink-3">
           Proposed: T{its[0]?.number} covers bars {gaps[0]}–{gaps.at(-1)} by its audio.{" "}

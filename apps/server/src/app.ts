@@ -18,6 +18,7 @@ import { categoryRoutes, projectCategoryRoutes } from "./routes/categories.ts";
 import { carryRoutes, commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
 import { directoryRoutes } from "./routes/directory.ts";
 import { downloadRoutes, fileDownloadRoutes } from "./routes/downloads.ts";
+import { editDecisionRoutes } from "./routes/edit-decisions.ts";
 import { fileDetailRoutes } from "./routes/file-details.ts";
 import { fileManageRoutes, folderRoutes, projectFolderRoutes } from "./routes/folders.ts";
 import { projectGroupRoutes } from "./routes/groups.ts";
@@ -242,6 +243,7 @@ export function createApi(deps: AppDeps) {
         ),
       )
       .route("/tracks", trackTakeRoutes(deps.db))
+      .route("/tracks", editDecisionRoutes(deps.db, deps.storage))
       .route("/tracks", trackCompareRoutes(deps.db, deps.jobs))
       .use("/takes/*", ...member)
       .route("/takes", takeRoutes(deps.db))

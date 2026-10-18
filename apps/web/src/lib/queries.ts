@@ -24,6 +24,8 @@ import {
   decodePeaks,
   decodeSpectrogram,
   defaultPreferences,
+  type EditDecisions,
+  type EdlRate,
   type EmailTemplateId,
   type ErrorReport,
   type ErrorReportRow,
@@ -1745,6 +1747,24 @@ export const trackTakesQuery = (trackId: string) =>
       ).takes,
   });
 
+/**
+ * A track's edit decisions (#56): the latest version's edit decision list matched to its
+ * takes, read at a timecode rate where the list leaves it unsure; null with no list.
+ */
+export const editDecisionsQuery = (trackId: string, rate?: EdlRate) =>
+  queryOptions({
+    queryKey: ["tracks", trackId, "edit-decisions", rate ?? null],
+    queryFn: async () =>
+      (
+        await json<{ decisions: EditDecisions | null }>(
+          await api.tracks[":id"]["edit-decisions"].$get({
+            param: { id: trackId },
+            query: rate ? { rate: String(rate) } : {},
+          }),
+        )
+      ).decisions,
+  });
+
 /** Making files into a track's takes, changing a take, and no longer counting one. */
 export function useTakeMutations(trackId: string) {
   const client = useQueryClient();
@@ -1752,6 +1772,8 @@ export function useTakeMutations(trackId: string) {
   const refresh = () => {
     void client.invalidateQueries({ queryKey: key });
     void client.invalidateQueries({ queryKey: ["files"] });
+    // The edit decisions are matched against the takes, their files, bars and points (#56).
+    void client.invalidateQueries({ queryKey: ["tracks", trackId, "edit-decisions"] });
   };
   return {
     add: useMutation({
@@ -1853,6 +1875,22 @@ export function useTrackMutations(projectId: string) {
       onSuccess: refresh,
     }),
     /** A corrected export in place of a variation's file; its threads move with it. */
+    // A version's edit decision list, given after it was made, changed or taken off (#56).
+    setEdl: useMutation({
+      mutationFn: async (input: { versionId: string; fileId: string | null }) =>
+        (
+          await json<{ track: Track }>(
+            await api.versions[":id"].edl.$put({
+              param: { id: input.versionId },
+              json: { fileId: input.fileId },
+            }),
+          )
+        ).track,
+      onSuccess: (track: Track) => {
+        refresh(track);
+        void client.invalidateQueries({ queryKey: ["tracks", track.id, "edit-decisions"] });
+      },
+    }),
     replaceFile: useMutation({
       mutationFn: async (input: { variationId: string; fileId: string }) =>
         (

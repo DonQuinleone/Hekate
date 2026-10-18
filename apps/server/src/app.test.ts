@@ -17,7 +17,7 @@ import {
   mapTime,
 } from "@hekate/shared";
 import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
-import { and, count, eq, inArray, isNotNull, like, ne, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull, like, ne, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, MAX_BODY_BYTES } from "./app.ts";
@@ -7688,6 +7688,120 @@ describe.runIf(url)("api", () => {
             headers: { cookie: s.engineer, origin: "http://localhost:3000" },
           });
           expect(kept.status).toBe(403);
+        });
+
+        it("reads a version's edit decision list and says which take each edit comes from (#56)", async () => {
+          const s = await studio();
+          const upload = async (name: string, body: string, mediaInfo?: unknown) => {
+            const blob = await storage.put(s.organisationId, Buffer.from(body));
+            const [row] = await db
+              .insert(schema.files)
+              .values({
+                organisationId: s.organisationId,
+                projectId: s.projectId,
+                name,
+                kind: mediaInfo ? "audio" : "document",
+                blobId: blob.id,
+                contentType: mediaInfo ? "audio/wav" : "text/plain",
+                byteSize: blob.byteSize,
+                ...(mediaInfo ? { mediaInfo: mediaInfo as never } : {}),
+              })
+              .returning();
+            return row?.id ?? "";
+          };
+          const url = `/api/tracks/${s.trackId}/edit-decisions`;
+          type Read = {
+            decisions: {
+              version: { number: number };
+              fps: number;
+              uses: { takeId: string | null; from: number | null; bars: number[] | null }[];
+            } | null;
+          };
+          // No list yet: nothing to say.
+          expect(((await (await getAs(url, s.composer)).json()) as Read).decisions).toBeNull();
+
+          // Take 12 starts at 10:00:00:00 (its time reference, at 48 kHz), and has bars 1 to 30.
+          const twelve = await upload("Take 12.wav", "pcm", {
+            duration: 60,
+            audio: { sampleRate: 48_000 },
+            metadata: { bext: { timeReference: 36_000 * 48_000 } },
+          });
+          const added = (await (
+            await app.request(
+              `/api/tracks/${s.trackId}/takes`,
+              json({ fileIds: [twelve] }, s.engineer),
+            )
+          ).json()) as { takes: { id: string }[] };
+          const takeId = added.takes[0]?.id ?? "";
+          await app.request(`/api/takes/${takeId}`, {
+            ...json({ barFrom: 1, barTo: 30 }, s.engineer),
+            method: "PATCH",
+          });
+          const list = await upload(
+            "V2.edl",
+            [
+              "TITLE: V2",
+              "FCM: NON-DROP FRAME",
+              "001  TAKE12   AA     C        10:00:10:00 10:00:20:00 01:00:00:00 01:00:10:00",
+              "* FROM CLIP NAME: Take 12.wav",
+              "002  ELSEWHER AA     C        00:00:00:00 00:00:02:00 01:00:10:00 01:00:12:00",
+            ].join("\n"),
+          );
+          // Given to the latest version after it was made, by someone who may organise.
+          const [latest] = await db
+            .select({ id: schema.versions.id })
+            .from(schema.versions)
+            .where(eq(schema.versions.trackId, s.trackId))
+            .orderBy(desc(schema.versions.number))
+            .limit(1);
+          const attach = (fileId: string | null, cookie = s.owner) =>
+            app.request(`/api/versions/${latest?.id}/edl`, {
+              ...json({ fileId }, cookie),
+              method: "PUT",
+            });
+          expect((await attach(list, s.composer)).status).toBe(403);
+          expect((await attach(twelve)).status).toBe(422);
+          expect((await attach(list)).status).toBe(200);
+
+          const read = (await (await getAs(url, s.composer)).json()) as Read;
+          expect(read.decisions).toMatchObject({ fps: 25 });
+          // Ten seconds into a minute of 30 bars, for ten seconds: bars 6 to 10.
+          expect(read.decisions?.uses).toEqual([
+            expect.objectContaining({ takeId, from: 10, bars: [6, 10] }),
+            expect.objectContaining({ takeId: null }),
+          ]);
+          // At a rate asked for; one it cannot be is refused.
+          expect(
+            ((await (await getAs(`${url}?rate=30`, s.composer)).json()) as Read).decisions?.fps,
+          ).toBe(30);
+          expect((await getAs(`${url}?rate=26`, s.composer)).status).toBe(400);
+          // Taken off again, there is nothing to say.
+          expect((await attach(null)).status).toBe(200);
+          expect(((await (await getAs(url, s.composer)).json()) as Read).decisions).toBeNull();
+          expect((await attach(list)).status).toBe(200);
+
+          // A member outside the project finds nothing, nor as the owner of another workspace.
+          const outsider = await joinAs(s.owner, "outsider-edl@example.test");
+          expect((await getAs(url, outsider)).status).toBe(404);
+          const [other] = await db
+            .insert(schema.organisations)
+            .values({ name: "Saltmarsh Films", slug: "saltmarsh-edl" })
+            .returning({ id: schema.organisations.id });
+          const outsiderId = (
+            (await (await getAs("/api/me", outsider)).json()) as { user: { id: string } }
+          ).user.id;
+          await db
+            .insert(schema.members)
+            .values({ organisationId: other?.id ?? "", userId: outsiderId, role: "owner" });
+          expect(
+            (
+              await app.request("/api/me/organisation", {
+                ...json({ organisationId: other?.id }, outsider),
+                method: "PUT",
+              })
+            ).status,
+          ).toBe(200);
+          expect((await getAs(url, outsider)).status).toBe(404);
         });
 
         it("tells a track's followers of new versions, if they can still see it", async () => {
