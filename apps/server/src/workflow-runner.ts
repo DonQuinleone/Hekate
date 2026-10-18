@@ -464,7 +464,8 @@ export async function completeStep(
     /** Who decided, where it is not the person moving the run on (a guest's review). */
     by?: WorkflowContext["by"];
   },
-  check?: (run: RunRow) => boolean,
+  /** Asked with the run locked: false leaves it as it is. */
+  check?: (run: RunRow, tx: Tx) => boolean | Promise<boolean>,
 ): Promise<RunRow | null> {
   const result = await deps.db.transaction(async (tx) => {
     const [row] = await tx
@@ -473,7 +474,7 @@ export async function completeStep(
       .where(inOrg(workflowRuns, at.organisationId, eq(workflowRuns.id, at.runId)))
       .for("update");
     if (!row) throw new NotFound("Run");
-    if (check && !check(row)) return null;
+    if (check && !(await check(row, tx))) return null;
     // A person moving a run on needs the project live; a wait elapsing does not ask.
     if (at.userId) await lockLiveProject(tx, at.organisationId, row.projectId);
     if (row.state !== "running" || !row.engine.active.includes(at.nodeId))
@@ -523,24 +524,28 @@ export async function clockElapsed(
   const node = run?.definition.nodes.find((n) => n.id === job.nodeId);
   const clock = node ? stageClock(node) : null;
   if (!clock) return;
-  const [latest] = await deps.db
-    .select({ id: workflowSteps.id })
-    .from(workflowSteps)
-    .where(
-      inOrg(
-        workflowSteps,
-        job.organisationId,
-        eq(workflowSteps.runId, job.runId),
-        sql`${workflowSteps.effects} @> ${JSON.stringify([{ kind: "start", nodeId: job.nodeId }])}::jsonb`,
-      ),
-    )
-    .orderBy(desc(workflowSteps.createdAt), desc(workflowSteps.id))
-    .limit(1);
-  if (latest?.id !== job.stepId) return;
   await completeStep(
     deps,
     { ...job, outcome: clock.outcome, userId: null },
-    (run) => run.state === "running" && run.engine.active.includes(job.nodeId),
+    // With the run locked, so a step that brings the run back to the node commits either
+    // before this looks (and the clock is stale) or after it has ended the node.
+    async (locked, tx) => {
+      if (locked.state !== "running" || !locked.engine.active.includes(job.nodeId)) return false;
+      const [latest] = await tx
+        .select({ id: workflowSteps.id })
+        .from(workflowSteps)
+        .where(
+          inOrg(
+            workflowSteps,
+            job.organisationId,
+            eq(workflowSteps.runId, job.runId),
+            sql`${workflowSteps.effects} @> ${JSON.stringify([{ kind: "start", nodeId: job.nodeId }])}::jsonb`,
+          ),
+        )
+        .orderBy(desc(workflowSteps.createdAt), desc(workflowSteps.id))
+        .limit(1);
+      return latest?.id === job.stepId;
+    },
   );
 }
 
