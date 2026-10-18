@@ -22,7 +22,12 @@ describe("trackState", () => {
     );
     expect(trackState(latest, [item({ status: "open", versionId: "v1", completedAt: null })])).toBe(
       "not_reviewed",
-    );
+    ); // A share asks nothing of the track, so it never puts it in review (#138).
+    expect(
+      trackState(latest, [
+        item({ kind: "share", status: "open", outcome: null, completedAt: null }),
+      ]),
+    ).toBe("not_reviewed");
   });
 
   it("takes the last approval to settle on the latest", () => {

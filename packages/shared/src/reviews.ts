@@ -4,10 +4,18 @@ import { reviewerPermissionsChange } from "./reviewer-permissions.ts";
 /**
  * Reviews (docs/domain.md, Reviews): someone with the authority asks reviewers about one
  * or more items. An approval review collects a logged *Approved* or *Changes requested*
- * from each reviewer; a feedback review collects comments, then each reviewer submits.
+ * from each reviewer; a feedback review collects comments, then each reviewer submits. A
+ * share (#138) asks nothing: its people listen or look, until it ends, and what they open
+ * is logged.
  */
-export const reviewKinds = ["approval", "feedback"] as const;
+export const reviewKinds = ["approval", "feedback", "share"] as const;
 export type ReviewKind = (typeof reviewKinds)[number];
+/** Each kind as the interface names it. */
+export const reviewKindNames: Record<ReviewKind, string> = {
+  approval: "Approval",
+  feedback: "Feedback",
+  share: "Share",
+};
 
 /** All reviewers at once, or one after another in the order given. */
 export const reviewOrders = ["parallel", "sequence"] as const;
@@ -145,7 +153,11 @@ export const createReviewInput = z
   })
   .transform((r) => {
     const rule = r.kind === "approval" ? (r.rule ?? "all") : null;
-    return { ...r, rule, share: rule === "share" ? (r.share ?? null) : null };
+    const shared = { ...r, rule, share: rule === "share" ? (r.share ?? null) : null };
+    // A share asks nothing, so it has no order to keep, no due date and nothing to remind.
+    return r.kind === "share"
+      ? { ...shared, order: "parallel" as const, dueAt: null, remind: false }
+      : shared;
   });
 export type CreateReviewInput = z.input<typeof createReviewInput>;
 
@@ -212,7 +224,8 @@ export function reviewOutcome(
   share: number | null = null,
 ): ReviewOutcome {
   const reviewers = everyone.filter((r) => !r.observer);
-  if (reviewers.length === 0) return null;
+  // A share asks for nothing, so nothing settles it: it runs until it is stopped.
+  if (reviewers.length === 0 || kind === "share") return null;
   if (kind === "feedback") return reviewers.every((r) => r.submitted) ? "submitted" : null;
   if (rule === "share") {
     const needed = approvalsNeeded(reviewers.length, share ?? 100);
@@ -238,6 +251,16 @@ export function reviewTitleFor(names: string[]): string {
   if (!first) return "Review";
   const rest = names.length - 1;
   return (rest === 0 ? first : `${first} and ${rest} more`).slice(0, 160);
+}
+
+/**
+ * What a share's people may do (#138): listen or look, and download where it says so; never
+ * comment, decide or invite others, whatever the defaults or an override would give.
+ */
+export function shareGrant<P extends { comment: boolean; decide: boolean; invite: boolean }>(
+  permissions: P,
+): P {
+  return { ...permissions, comment: false, decide: false, invite: false };
 }
 
 /** Submitting feedback, with an optional word about the review as a whole. */

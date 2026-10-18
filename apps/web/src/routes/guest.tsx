@@ -1,3 +1,4 @@
+import { reviewKindNames } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -225,13 +226,20 @@ export function GuestHomePage() {
                 <span className="truncate text-sm font-medium text-ink-3">{review.title}</span>
               )}
               <span className="text-xs text-ink-3">
-                {review.kind === "approval" ? "Approval" : "Feedback"}
+                {review.kind === "share" ? "Shared with you" : reviewKindNames[review.kind]}
                 {review.dueAt ? ` · due ${day.format(new Date(review.dueAt))}` : ""}
                 {review.submittedAt ? " · you have responded" : ""}
                 {accessNote(review) ? ` · ${accessNote(review)}` : ""}
               </span>
             </span>
-            <StatusPill state={reviewState(review)} />
+            {/* A share asks nothing, so it has no review status to show (#138). */}
+            {review.kind === "share" ? (
+              <span className="text-xs text-ink-3">
+                {review.status === "open" ? "Shared" : "No longer shared"}
+              </span>
+            ) : (
+              <StatusPill state={reviewState(review)} />
+            )}
           </li>
         ))}
       </ul>

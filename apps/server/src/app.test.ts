@@ -8611,6 +8611,157 @@ describe.runIf(url)("api", () => {
           return { ...s, review, token, cookie: cookieOf(res) };
         };
 
+        it("shares without asking anything, until it ends and only so many plays (#138)", async () => {
+          const s = await studio();
+          await db
+            .update(schema.files)
+            .set({ streamStatus: "ready" })
+            .where(eq(schema.files.id, s.mix));
+          // Someone who may only review cannot share.
+          const body = {
+            kind: "share",
+            title: "Rehearsal takes",
+            message: "For the train.",
+            items: [{ trackId: s.trackId }],
+            reviewers: [s.ids.composer, guest],
+            // Asking for decisions, comments or invitations changes nothing: a share only shares.
+            permissions: {
+              decide: true,
+              comment: true,
+              invite: true,
+              download: "proxy",
+              maxPlays: 1,
+              expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+            },
+            overrides: { [`member:${s.ids.composer}`]: { comment: true, decide: true } },
+          };
+          expect((await request(s.composer, s.projectId, body)).status).toBe(403);
+          mailer.sent.length = 0;
+          const res = await request(s.owner, s.projectId, body);
+          expect(res.status).toBe(201);
+          type Shared = Omit<ReviewBody, "reviewers"> & {
+            kind: string;
+            rule: string | null;
+            dueAt: string | null;
+            reviewers: (ReviewBody["reviewers"][number] & {
+              permissions: Record<string, unknown> | null;
+              usage: { plays: number; downloads: number } | null;
+            })[];
+          };
+          const share = (await reviewOf(res)) as Shared;
+          expect(share).toMatchObject({ kind: "share", rule: null, dueAt: null });
+          for (const r of share.reviewers) {
+            expect(r.permissions).toMatchObject({
+              comment: false,
+              decide: false,
+              invite: false,
+              download: "proxy",
+              maxPlays: 1,
+            });
+          }
+
+          // Told it is theirs: the guest by mail with a link, the member in the app.
+          const mail = [...mailer.sent].reverse().find((m) => m.to === "conductor@example.test");
+          expect(mail?.subject).toMatch(/ shared Rehearsal takes with you$/);
+          expect(mail?.text).toContain("Nothing is asked of you");
+          expect(mail?.text).toContain("up to 1 play of each file");
+          const told = await db
+            .select({ text: schema.notifications.text })
+            .from(schema.notifications)
+            .where(
+              and(
+                eq(schema.notifications.userId, s.ids.composer),
+                eq(schema.notifications.reviewId, share.id),
+              ),
+            );
+          expect(told.map((n) => n.text)).toEqual(['shared "Rehearsal takes" with you']);
+
+          // Nothing to answer, remind of, or wait for: never anyone's turn, and never due.
+          const theirs = (await reviewOf(await getAs(`/api/reviews/${share.id}`, s.composer))).you;
+          expect(theirs).toMatchObject({ canDecide: false, canSubmit: false, active: false });
+          expect(
+            (
+              await app.request(
+                `/api/reviews/${share.id}/decisions`,
+                json({ decision: "approved" }, s.composer),
+              )
+            ).status,
+          ).toBeGreaterThanOrEqual(400);
+          expect(
+            (await app.request(`/api/reviews/${share.id}/submit`, json({}, s.composer))).status,
+          ).toBeGreaterThanOrEqual(400);
+          expect(
+            (await app.request(`/api/reviews/${share.id}/remind`, json({}, s.owner))).status,
+          ).toBe(409);
+          expect(
+            (
+              await app.request(`/api/reviews/${share.id}`, {
+                ...json({ dueAt: new Date(Date.now() + 86_400_000).toISOString() }, s.owner),
+                method: "PATCH",
+              })
+            ).status,
+          ).toBe(422);
+          const listed = (
+            (await (await getAs("/api/reviews", s.composer)).json()) as {
+              reviews: { id: string; yourTurn: boolean }[];
+            }
+          ).reviews.find((r) => r.id === share.id);
+          expect(listed?.yourTurn).toBe(false);
+          // A change cannot make a share ask for comments either.
+          const guestRow = share.reviewers.find((r) => r.guest);
+          expect(
+            (
+              await app.request(`/api/reviews/${share.id}/reviewers/${guestRow?.id}`, {
+                ...json({ permissions: { comment: true } }, s.owner),
+                method: "PATCH",
+              })
+            ).status,
+          ).toBe(200);
+
+          // The guest plays what was shared once, as the share allows, and no more.
+          const signed = await signIn(linkFor("conductor@example.test"));
+          expect(signed.status).toBe(201);
+          const cookie = cookieOf(signed);
+          const opened = (await reviewOf(
+            await getAs(`/api/reviews/${share.id}`, cookie),
+          )) as Shared;
+          expect(opened.reviewers.find((r) => r.guest)?.permissions).toMatchObject({
+            comment: false,
+          });
+          // Those shared with see nobody's plays; those who run it see each person's.
+          expect(opened.reviewers.every((r) => r.usage === null)).toBe(true);
+          const play = () => app.request(`/api/files/${s.mix}/playback`, json({}, cookie));
+          expect((await play()).status).toBe(201);
+          const again = await play();
+          expect(again.status).toBe(403);
+          expect(((await again.json()) as { error: { code: string } }).error.code).toBe(
+            "plays_used",
+          );
+          const run = (await reviewOf(await getAs(`/api/reviews/${share.id}`, s.owner))) as Shared;
+          expect(run.reviewers.map((r) => [r.guest ?? false, r.usage])).toEqual([
+            [false, { plays: 0, downloads: 0 }],
+            [true, { plays: 1, downloads: 0 }],
+          ]);
+
+          // Once it has ended for them, the guest finds nothing.
+          const [row] = await db
+            .select({ permissions: schema.reviewReviewers.permissions })
+            .from(schema.reviewReviewers)
+            .where(eq(schema.reviewReviewers.id, guestRow?.id ?? ""));
+          await db
+            .update(schema.reviewReviewers)
+            .set({
+              permissions: {
+                ...(row?.permissions as Record<string, unknown>),
+                startsAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+                expiresAt: new Date(Date.now() - 86_400_000).toISOString(),
+              } as typeof schema.reviewReviewers.$inferInsert.permissions,
+            })
+            .where(eq(schema.reviewReviewers.id, guestRow?.id ?? ""));
+          expect((await getAs(`/api/reviews/${share.id}`, cookie)).status).toBe(404);
+          expect((await play()).status).toBeGreaterThanOrEqual(403);
+        });
+
         it("tells those who only follow an approval, asking them to follow it rather than approve (#221)", async () => {
           const s = await studio();
           mailer.sent.length = 0;
