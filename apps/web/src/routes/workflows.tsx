@@ -1,16 +1,24 @@
-import { nodeTypes, outcomesOf, type WorkflowNode, type WorkflowSummary } from "@hekate/shared";
+import {
+  nodeTypes,
+  outcomesOf,
+  type WorkflowDefinition,
+  type WorkflowSummary,
+  workflowProblems,
+} from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { Button } from "~/components/ui/button";
-import { Input, Select } from "~/components/ui/input";
+import { Select } from "~/components/ui/input";
+import { Segmented } from "~/components/ui/segmented";
 import { Switch } from "~/components/ui/toggle";
+import { WorkflowCanvas } from "~/components/workflow-canvas";
+import { Committed, StepField } from "~/components/workflow-fields";
 import { cn } from "~/lib/cn";
 import {
-  projectGroupsQuery,
-  projectRolesQuery,
+  ApiError,
   projectTracksQuery,
   projectWorkflowsQuery,
   useProjectCan,
@@ -20,7 +28,6 @@ import {
   basicSteps,
   familyOf,
   familyTiles,
-  type NodeField,
   newWorkflowDefinition,
   nodeLooks,
   withConfig,
@@ -33,13 +40,97 @@ const body =
 
 const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+export type WorkflowView = "basic" | "advanced";
+
+/** A record without one of its entries. */
+const forget = <T,>(record: Record<string, T>, id: string) => {
+  const { [id]: _gone, ...rest } = record;
+  return rest;
+};
+
 /**
- * A project's workflows (#26), as the prototype's builder shows them in its basic view: each as
- * a list of steps, what starts it and where it finishes, with who, when and what happens changed
- * in place. Seen with the workflow level of a role's access; changed by those who edit workflows.
+ * Changes made on the canvas (#26), kept as they are made and saved a moment after the last:
+ * a drag is one save, not one per movement. A change that would stop a workflow that is switched
+ * on from running is held, not sent, until it is mended or the workflow switched off.
  */
-export function WorkflowsPage({ projectId }: { projectId: string }) {
+function useDrafts(projectId: string, workflows: WorkflowSummary[] | undefined) {
+  const { change } = useWorkflowMutations(projectId);
+  const [drafts, setDrafts] = useState<Record<string, WorkflowDefinition>>({});
+  const [held, setHeld] = useState<Record<string, string>>({});
+  const [refused, setRefused] = useState<string | null>(null);
+  const timers = useRef<Record<string, number>>({});
+  // Read when a save runs, so the callbacks below, and the flush on leaving, stay the same.
+  const latest = useRef({ drafts, workflows, change });
+  latest.current = { drafts, workflows, change };
+  const save = useCallback((id: string) => {
+    const definition = latest.current.drafts[id];
+    const workflow = latest.current.workflows?.find((w) => w.id === id);
+    if (!definition || !workflow) return;
+    const breaks = workflowProblems(definition).find((p) => p.level === "error");
+    if (workflow.active && breaks) {
+      setHeld((h) => ({ ...h, [id]: breaks.text }));
+      return;
+    }
+    setHeld((h) => forget(h, id));
+    latest.current.change
+      .mutateAsync({ id, change: () => ({ definition }) })
+      .then(() => setDrafts((d) => (d[id] === definition ? forget(d, id) : d)))
+      .catch((failure: unknown) => {
+        // Refused: what is kept on the server is shown again, and why. A change made since the
+        // refused one began is kept, to be saved in its turn, unless someone else's change came
+        // first: then it was made over a workflow that is no more, and goes too.
+        const overtaken = failure instanceof ApiError && failure.code === "conflict";
+        setDrafts((d) => (overtaken || d[id] === definition ? forget(d, id) : d));
+        setRefused(failure instanceof Error ? failure.message : "That change was refused");
+      });
+  }, []);
+  const edit = useCallback(
+    (id: string, fn: (flow: WorkflowDefinition) => WorkflowDefinition) => {
+      setRefused(null);
+      setDrafts((d) => {
+        const base = d[id] ?? latest.current.workflows?.find((w) => w.id === id)?.definition;
+        return base ? { ...d, [id]: fn(base) } : d;
+      });
+      window.clearTimeout(timers.current[id]);
+      timers.current[id] = window.setTimeout(() => save(id), 600);
+    },
+    [save],
+  );
+  // Leaving the canvas keeps what was changed on it.
+  useEffect(
+    () => () => {
+      for (const [id, timer] of Object.entries(timers.current)) {
+        window.clearTimeout(timer);
+        save(id);
+      }
+    },
+    [save],
+  );
+  const shown = useMemo(
+    () =>
+      workflows?.map((w) => {
+        const definition = drafts[w.id];
+        return definition ? { ...w, definition, problems: workflowProblems(definition) } : w;
+      }),
+    [workflows, drafts],
+  );
+  return { shown, edit, held, refused };
+}
+
+/**
+ * A project's workflows (#26), as the prototype's builder shows them: drawn on a canvas (the
+ * advanced view), or each as a list of steps with who, when and what happens changed in place
+ * (the basic view). Built by those who edit workflows; seen by those who run the project's roles.
+ */
+export function WorkflowsPage({
+  projectId,
+  view = "advanced",
+}: {
+  projectId: string;
+  view?: WorkflowView;
+}) {
   const can = useProjectCan(projectId);
+  const navigate = useNavigate();
   const mayEdit = can("edit_workflows");
   // As in the prototype: the builder is for those who edit workflows, and for those who run
   // the project's roles, who see what a role takes part in without changing it.
@@ -49,8 +140,22 @@ export function WorkflowsPage({ projectId }: { projectId: string }) {
     enabled: mayView,
   });
   const { create } = useWorkflowMutations(projectId);
+  const [focus, setFocus] = useState<string | null>(null);
+  const drafts = useDrafts(projectId, workflows);
   const newWorkflow = () =>
-    create.mutate({ name: "New workflow", definition: newWorkflowDefinition() });
+    create.mutate(
+      { name: "New workflow", definition: newWorkflowDefinition() },
+      { onSuccess: (made) => setFocus(made.id) },
+    );
+  const setView = (next: WorkflowView, flowId?: string) => {
+    if (flowId) setFocus(flowId);
+    void navigate({
+      to: "/projects/$projectId/workflow",
+      params: { projectId },
+      search: next === "advanced" ? {} : { view: next },
+      replace: true,
+    });
+  };
   return (
     <ProjectFrame
       projectId={projectId}
@@ -64,9 +169,51 @@ export function WorkflowsPage({ projectId }: { projectId: string }) {
           Settings
         </Link>
       )}
+      actions={
+        mayView && workflows && workflows.length > 0 ? (
+          <Segmented
+            label="View"
+            value={view}
+            options={[
+              { value: "basic", label: "Basic" },
+              { value: "advanced", label: "Advanced" },
+            ]}
+            onChange={(next) => setView(next)}
+          />
+        ) : undefined
+      }
     >
       {(project) => {
         const editing = mayEdit && !project.archivedAt;
+        const shown = drafts.shown;
+        if (mayView && !error && shown && shown.length > 0 && view === "advanced")
+          return (
+            <div className="flex h-full min-h-0 flex-col">
+              {(Object.keys(drafts.held).length > 0 || drafts.refused || create.error) && (
+                <div
+                  role="status"
+                  className="flex flex-col gap-0.5 border-b border-line bg-raised/40 px-5 py-2 text-[13px] text-ink-2"
+                >
+                  {Object.entries(drafts.held).map(([id, why]) => (
+                    <span key={id}>
+                      Not saved: {shown.find((w) => w.id === id)?.name} is switched on, and this
+                      change would stop it running. {why}
+                    </span>
+                  ))}
+                  {drafts.refused && <span className="text-signal">{drafts.refused}</span>}
+                  {create.error && <span className="text-signal">{create.error.message}</span>}
+                </div>
+              )}
+              <WorkflowCanvas
+                projectId={projectId}
+                workflows={shown}
+                editing={editing}
+                focus={focus}
+                onEdit={drafts.edit}
+                onNew={newWorkflow}
+              />
+            </div>
+          );
         return (
           <div className="scroll-quiet min-h-0 flex-1 overflow-y-auto">
             <div className={body}>
@@ -94,8 +241,8 @@ export function WorkflowsPage({ projectId }: { projectId: string }) {
               ) : (
                 <>
                   <p className="m-0 max-w-[620px] text-[14px] text-ink-2">
-                    Each workflow as a list of steps. Change who, when and what happens on changes
-                    here; the steps themselves and how they connect are drawn in the advanced view.
+                    Each workflow as a list of steps. Change who, when and what happens on changes;
+                    the advanced view holds the same workflow as a graph for anything beyond that.
                   </p>
                   {workflows.map((w) => (
                     <WorkflowSteps
@@ -103,6 +250,7 @@ export function WorkflowsPage({ projectId }: { projectId: string }) {
                       projectId={projectId}
                       workflow={w}
                       editing={editing}
+                      onAdvanced={() => setView("advanced", w.id)}
                     />
                   ))}
                   {editing && (
@@ -133,10 +281,12 @@ function WorkflowSteps({
   projectId,
   workflow,
   editing,
+  onAdvanced,
 }: {
   projectId: string;
   workflow: WorkflowSummary;
   editing: boolean;
+  onAdvanced: () => void;
 }) {
   const { change } = useWorkflowMutations(projectId);
   const { data: tracks } = useQuery(projectTracksQuery(projectId));
@@ -176,6 +326,9 @@ function WorkflowSteps({
           disabled={!editing || (!workflow.active && errors.length > 0) || change.isPending}
           onChange={(active) => change.mutate({ id: workflow.id, change: () => ({ active }) })}
         />
+        <Button variant="secondary" size="md" onClick={onAdvanced}>
+          Open in the advanced view
+        </Button>
       </div>
       <ol
         aria-label={`${workflow.name}: its steps`}
@@ -314,109 +467,5 @@ function WorkflowSteps({
       )}
       {change.error && <p className="m-0 text-[13px] text-signal">{change.error.message}</p>}
     </section>
-  );
-}
-
-/**
- * One setting of a step: chosen from its options or the project's people, or written, as the
- * prototype has them. Written words are kept when the field is left or Return pressed.
- */
-function StepField({
-  projectId,
-  node,
-  field,
-  editing,
-  onChange,
-}: {
-  projectId: string;
-  node: WorkflowNode;
-  field: NodeField;
-  editing: boolean;
-  onChange: (value: string) => void;
-}) {
-  const { data: roles } = useQuery({ ...projectRolesQuery(projectId), enabled: !!field.people });
-  // Groups are asked as themselves by a review; a task or a notification reaches roles only.
-  const withGroups = !!field.people && (node.type === "approval" || node.type === "feedback");
-  const { data: groups } = useQuery({ ...projectGroupsQuery(projectId), enabled: withGroups });
-  const value = node.config[field.id] ?? "";
-  const label = `${node.name}: ${field.label.toLowerCase()}`;
-  const options = field.people
-    ? [
-        ...(field.id === "to" ? ["Everyone in the project"] : []),
-        ...(roles ?? []).map((r) => r.name),
-        ...(withGroups ? (groups ?? []) : []).map((g) => g.name),
-      ]
-    : field.options;
-  return (
-    <span className="flex items-center gap-1.5 text-[12px] whitespace-nowrap text-ink-3">
-      {field.label}
-      {options ? (
-        <Select
-          className="w-auto"
-          size="sm"
-          aria-label={label}
-          value={field.people ? value : value || options[0]}
-          disabled={!editing}
-          onChange={(e) => onChange(e.target.value)}
-        >
-          {field.people && <option value="">Nobody yet</option>}
-          {/* Someone named another way (a guest, several at once) stays as named. */}
-          {value && !options.includes(value) && <option value={value}>{value}</option>}
-          {options.map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-        </Select>
-      ) : (
-        <Committed
-          label={label}
-          value={value}
-          placeholder={field.placeholder}
-          className="w-28"
-          disabled={!editing}
-          onCommit={onChange}
-        />
-      )}
-    </span>
-  );
-}
-
-/** Words kept when the field is left or Return is pressed, not at every key. */
-function Committed({
-  label,
-  value,
-  placeholder,
-  className,
-  disabled,
-  onCommit,
-}: {
-  label: string;
-  value: string;
-  placeholder?: string;
-  className?: string;
-  disabled: boolean;
-  onCommit: (value: string) => void;
-}) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-  const commit = () => {
-    if (draft.trim() !== value) onCommit(draft.trim());
-  };
-  return (
-    <Input
-      size="sm"
-      aria-label={label}
-      value={draft}
-      placeholder={placeholder}
-      className={className}
-      disabled={disabled}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") commit();
-        if (e.key === "Escape") setDraft(value);
-      }}
-    />
   );
 }

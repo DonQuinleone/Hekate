@@ -1917,6 +1917,16 @@ function NodeInspector({
   );
 }
 
+const conditionChoices = [
+  "if the file is audio",
+  "if the file is video",
+  "if the file is a document",
+  "if the file is a picture",
+  "if the file is tagged Final",
+  "if a guest decided",
+  "if a member decided",
+];
+
 function ConnectorInspector({
   connector,
   flow,
@@ -1964,18 +1974,29 @@ function ConnectorInspector({
           </Field>
         )}
         <Field label="Only if">
-          <Input
+          {/* What the model can test (decision 116): the file's kind, a tag, who decided. */}
+          <Select
             value={connector.condition ?? ""}
-            placeholder="if the file is video"
             onChange={(e) => onChange({ condition: e.target.value || undefined })}
-          />
+          >
+            <option value="">Always</option>
+            {connector.condition && !conditionChoices.includes(connector.condition) && (
+              <option>{connector.condition}</option>
+            )}
+            {conditionChoices.map((c) => (
+              <option key={c}>{c}</option>
+            ))}
+          </Select>
         </Field>
         {loop && (
-          <Field label="Way out of the loop">
+          <Field label="Way out of the loop: at most, in times">
             <Input
-              value={connector.until ?? ""}
-              placeholder="at most 3 rounds"
-              onChange={(e) => onChange({ until: e.target.value || undefined })}
+              value={/\d+/.exec(connector.until ?? "")?.[0] ?? ""}
+              placeholder="3"
+              inputMode="numeric"
+              onChange={(e) =>
+                onChange({ until: e.target.value ? `at most ${e.target.value} times` : undefined })
+              }
             />
           </Field>
         )}

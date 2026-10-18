@@ -2,10 +2,21 @@ import type { WorkflowDefinition } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
 import {
   basicSteps,
+  conditionText,
+  connectorPath,
   familyOf,
+  inPort,
+  NODE_H,
+  NODE_W,
   newWorkflowDefinition,
+  outPort,
   withConfig,
   withConnector,
+  withCopy,
+  withLink,
+  withNode,
+  withoutConnector,
+  withoutNode,
 } from "./workflow-nodes";
 
 const at = (id: string, type: WorkflowDefinition["nodes"][number]["type"], name: string) => ({
@@ -86,5 +97,76 @@ describe("familyOf", () => {
     expect(familyOf("share")).toBe("comm");
     expect(familyOf("wait")).toBe("flow");
     expect(familyOf("finish")).toBe("finish");
+  });
+});
+
+describe("the canvas", () => {
+  it("adds a node where it is dropped, wired from the first outcome left free", () => {
+    const added = withNode(album, "notify", { x: 1234, y: 87 }, "ok", "tell");
+    expect(added.nodes.at(-1)).toMatchObject({
+      id: "tell",
+      type: "notify",
+      name: "Notify",
+      x: 1230,
+      y: 90,
+    });
+    // Approved and changes are wired already; some approved is the first free.
+    expect(added.connectors.at(-1)).toMatchObject({ from: "ok", outcome: "mixed", to: "tell" });
+    const loose = withNode(album, "wait", { x: 0, y: 0 }, undefined, "rest");
+    expect(loose.connectors).toHaveLength(album.connectors.length);
+  });
+
+  it("links an outcome to a node once, and never a node to itself", () => {
+    const linked = withLink(album, "fb", "overdue", "ok");
+    expect(linked.connectors.at(-1)).toMatchObject({ from: "fb", outcome: "overdue", to: "ok" });
+    expect(withLink(linked, "fb", "overdue", "ok")).toBe(linked);
+    expect(withLink(album, "fb", "done", "fb")).toBe(album);
+  });
+
+  it("takes a node away with its connectors, and copies one beside itself", () => {
+    const gone = withoutNode(album, "edit");
+    expect(gone.nodes.map((n) => n.id)).not.toContain("edit");
+    expect(gone.connectors.map((c) => c.id)).toEqual(["1", "4", "5"]);
+    expect(withoutConnector(album, "5").connectors.map((c) => c.id)).toEqual(["1", "2", "3", "4"]);
+    const copied = withCopy(album, "fb", "fb2");
+    expect(copied.nodes.at(-1)).toMatchObject({
+      id: "fb2",
+      name: "Conductor (copy)",
+      x: 40,
+      y: 80,
+    });
+  });
+
+  it("places ports down a node's right edge, and curves a forward connector", () => {
+    const node = { type: "approval" as const, x: 100, y: 200 };
+    expect(outPort(node, "approved")).toEqual({ x: 100 + NODE_W, y: 200 + NODE_H / 2 - 18 });
+    expect(outPort(node, "changes")).toEqual({ x: 100 + NODE_W, y: 200 + NODE_H / 2 + 18 });
+    expect(inPort(node)).toEqual({ x: 100, y: 200 + NODE_H / 2 });
+    expect(connectorPath({ x: 0, y: 0 }, { x: 200, y: 0 }, false, 0)).toMatch(/^M0,0 C/);
+    // Backwards, it goes round underneath.
+    expect(connectorPath({ x: 200, y: 0 }, { x: 0, y: 0 }, true, 300)).toContain("V288");
+  });
+
+  it("says a connector's condition and its limit as they read on the canvas", () => {
+    expect(conditionText({ id: "x", from: "a", outcome: "done", to: "b" })).toBeNull();
+    expect(
+      conditionText({
+        id: "x",
+        from: "a",
+        outcome: "done",
+        to: "b",
+        condition: { test: "kind", is: "video" },
+      }),
+    ).toBe("if video");
+    expect(
+      conditionText({
+        id: "x",
+        from: "a",
+        outcome: "done",
+        to: "b",
+        condition: { test: "tag", is: "Live", not: true },
+        until: { times: 3 },
+      }),
+    ).toBe("unless tagged Live, at most 3×");
   });
 });

@@ -221,10 +221,16 @@ const screens: Screen[] = [
     path: (s) => `/projects/${s.musicProjectId}/settings?section=workflow`,
     ready: "main >> text=Checks on a new version",
   },
-  // The project's workflows (#26), opened from its settings: each as a list of steps.
+  // The project's workflows (#26), opened from its settings: drawn on the canvas, and each as a
+  // list of steps.
   {
     name: "workflows",
     path: (s) => `/projects/${s.musicProjectId}/workflow`,
+    ready: "main [data-node]:has-text('Label approval')",
+  },
+  {
+    name: "workflows-basic",
+    path: (s) => `/projects/${s.musicProjectId}/workflow?view=basic`,
     ready: "main h2:has-text('Delivery')",
   },
   {
@@ -565,6 +571,18 @@ test("share-dialog", async ({ page }) => {
   await settle(page, "[role=dialog] >> text=Maple Leaf Rag");
   await page.getByRole("dialog").getByRole("checkbox").first().check();
   await saveScreen(page, "share-dialog");
+  await checkScreen(page);
+});
+
+// The workflow builder's canvas (#26), with a node chosen: its inspector beside it.
+test("workflows-inspector", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/workflow`);
+  await settle(page, "main [data-node]:has-text('Label approval')");
+  await page.getByRole("button", { name: "Label approval, Ask for approval" }).focus();
+  await page.keyboard.press("Enter");
+  await settle(page, "aside[aria-label=Inspector] >> text=When all approved");
+  await saveScreen(page, "workflows-inspector");
   await checkScreen(page);
 });
 

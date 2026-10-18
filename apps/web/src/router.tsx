@@ -492,9 +492,12 @@ const projectSettings = createRoute({
 const projectWorkflows = createRoute({
   getParentRoute: () => app,
   path: "/projects/$projectId/workflow",
+  // Drawn on the canvas, or as lists of steps.
+  validateSearch: z.object({ view: z.enum(["basic", "advanced"]).optional().catch(undefined) }),
   component: function ProjectWorkflowsRoute() {
     const { projectId } = projectWorkflows.useParams();
-    return <WorkflowsPage projectId={projectId} />;
+    const { view } = projectWorkflows.useSearch();
+    return <WorkflowsPage projectId={projectId} view={view} />;
   },
 });
 const track = createRoute({
