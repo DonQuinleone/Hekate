@@ -635,23 +635,26 @@ export type NamedPerson =
  * by email, with their name before it in angle brackets where they are new.
  */
 export function namedPeople(text: string | undefined): NamedPerson[] {
+  // Read with string operations rather than patterns, which slow down on long crafted input.
+  const isEmail = (s: string) => {
+    const at = s.indexOf("@");
+    return at > 0 && at === s.lastIndexOf("@") && at < s.length - 1 && !/[\s<>]/.test(s);
+  };
   return (text ?? "")
     .split(",")
     .map((part) => part.trim())
     .filter(Boolean)
     .map((part): NamedPerson => {
-      const bracketed = /^(.*)<\s*([^<>\s]+@[^<>\s]+)\s*>$/.exec(part);
-      if (bracketed) {
-        const name = bracketed[1]?.trim();
-        return {
-          kind: "email",
-          email: (bracketed[2] ?? "").toLowerCase(),
-          ...(name ? { name } : {}),
-        };
+      const open = part.lastIndexOf("<");
+      if (open >= 0 && part.endsWith(">")) {
+        const email = part.slice(open + 1, -1).trim();
+        const name = part.slice(0, open).trim();
+        if (isEmail(email))
+          return { kind: "email", email: email.toLowerCase(), ...(name ? { name } : {}) };
       }
-      if (/^[^\s@]+@[^\s@]+$/.test(part)) return { kind: "email", email: part.toLowerCase() };
-      const guest = /^(.*?)\s*\(guest\)$/i.exec(part);
-      if (guest?.[1]) return { kind: "guest", name: guest[1] };
+      if (isEmail(part)) return { kind: "email", email: part.toLowerCase() };
+      const guest = part.toLowerCase().endsWith("(guest)") ? part.slice(0, -7).trim() : "";
+      if (guest) return { kind: "guest", name: guest };
       return { kind: "name", name: part };
     });
 }
