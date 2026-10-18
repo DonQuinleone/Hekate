@@ -83,6 +83,8 @@ describe("tenancy", () => {
       "uploads",
       "variations",
       "versions",
+      "workflow_runs",
+      "workflow_steps",
       "workflows",
     ]);
     for (const table of tenantTables) {

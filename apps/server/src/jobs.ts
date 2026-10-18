@@ -75,6 +75,16 @@ export const jobDefinitions = {
     options: { retryLimit: 1, expireInSeconds: 30 * 60 },
     schedule: "3 * * * *",
   },
+  /** A workflow's wait has run its days (#25): its run carries on, if it still waits there. */
+  "workflow-wait": {
+    data: z.object({
+      organisationId: z.uuid(),
+      runId: z.uuid(),
+      nodeId: z.string().min(1).max(64),
+      stepId: z.uuid(),
+    }),
+    options: { retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 10 * 60 },
+  },
   /** Remind reviewers the day before a review waiting on them is due. Hourly. */
   "reviews-remind": {
     data: z.object({}),

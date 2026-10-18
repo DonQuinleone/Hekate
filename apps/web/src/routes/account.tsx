@@ -62,6 +62,7 @@ const kindCopy: Record<NotificationKind, string> = {
   deletion_requested: "Someone asks to delete a project, for an owner to confirm",
   due_soon: "A review waiting on you is due tomorrow",
   assigned: "Someone sends you the comments assigned to you",
+  workflow: "A workflow tells your role something, or gives it a stage to do",
 };
 
 function Channel({

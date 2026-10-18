@@ -36,6 +36,7 @@ import { follow, followersOf, notifyNow } from "../notifications.ts";
 import type { Storage } from "../storage.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { trackStandings } from "../track-standing.ts";
+import { versionArrived } from "../workflow-runner.ts";
 import { folderIn, lockProject } from "./folders.ts";
 
 const {
@@ -475,6 +476,7 @@ export const trackRoutes = (
       const who = letThrough ? await audit.member(c.var.userId) : null;
       let aligning: string[] = [];
       let made = 0;
+      let madeId = "";
       try {
         aligning = await db.transaction(async (tx) => {
           // Lock the track so concurrent new versions take consecutive numbers.
@@ -503,6 +505,7 @@ export const trackRoutes = (
               createdBy: c.var.userId,
             })
             .returning({ id: versions.id });
+          madeId = version?.id ?? "";
           await tx.insert(variations).values(
             withPrimary(input.variations).map((v) => ({
               organisationId,
@@ -571,6 +574,17 @@ export const trackRoutes = (
         },
       ).catch((error: unknown) =>
         console.warn(`Could not tell followers about a new version: ${String(error)}`),
+      );
+      // The project's workflows hear of it (#25): each starts, or carries on, for this track.
+      await versionArrived(
+        { db, jobs },
+        {
+          organisationId,
+          projectId: track.projectId,
+          trackId: id,
+          versionId: madeId,
+          userId: c.var.userId,
+        },
       );
       return c.json({ track: await oneTrack(db, organisationId, id) }, 201);
     });

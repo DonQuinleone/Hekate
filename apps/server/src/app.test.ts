@@ -52,10 +52,10 @@ import { purgeDueProjects } from "./project-purge.ts";
 import { admit } from "./rate-limit.ts";
 import { reconcileStorage } from "./reconcile.ts";
 import { remindDue } from "./reminders.ts";
-import { workflowsFor } from "./routes/workflows.ts";
 import { createSetupGate, SETUP_CODE_HEADER } from "./setup-code.ts";
 import { createStorage } from "./storage.ts";
 import { expireUploads } from "./uploads.ts";
+import { waitElapsed, workflowsFor } from "./workflow-runner.ts";
 import { rewrapBehind, rewrapOrganisation } from "./workspace-keys.ts";
 import { purgeDueWorkspaces } from "./workspace-purge.ts";
 
@@ -8082,6 +8082,167 @@ describe.runIf(url)("api", () => {
           });
           expect(gone.status).toBe(204);
           expect(await runsFor(s.trackId)).toEqual([workflow.id]);
+        });
+
+        it("runs a workflow when a version arrives, and logs each move it makes (#25)", async () => {
+          const s = await studio();
+          const at = (id: string, type: string, name: string, x: number, config = {}) => ({
+            id,
+            type,
+            name,
+            x,
+            y: 0,
+            config,
+          });
+          const definition = {
+            nodes: [
+              at("start", "upload", "A version is uploaded", 0),
+              at("fb", "feedback", "Conductor", 1, { status: "With conductor" }),
+              at("tell", "notify", "Tell the engineer", 2, {
+                to: "Engineer",
+                message: "Notes are in.",
+              }),
+              at("edit", "task", "Engineer edits", 3, { who: "Engineer", status: "Editing" }),
+              at("rest", "wait", "Let it rest", 4, { days: "1" }),
+              at("done", "finish", "Approved", 5, { status: "Approved" }),
+            ],
+            connectors: [
+              { id: "1", from: "start", outcome: "happened", to: "fb" },
+              { id: "2", from: "fb", outcome: "done", to: "tell" },
+              { id: "3", from: "tell", outcome: "sent", to: "edit" },
+              { id: "4", from: "edit", outcome: "done", to: "rest" },
+              { id: "5", from: "rest", outcome: "elapsed", to: "done" },
+            ],
+          };
+          const send = (url: string, body: unknown, cookie = s.owner) =>
+            app.request(url, json(body, cookie));
+          const made = (await (
+            await send(`/api/projects/${s.projectId}/workflows`, {
+              name: "Album review",
+              definition,
+            })
+          ).json()) as { workflow: { id: string } };
+          await app.request(`/api/workflows/${made.workflow.id}`, {
+            ...json({ active: true }, s.owner),
+            method: "PATCH",
+          });
+          type Run = {
+            id: string;
+            state: string;
+            status: string | null;
+            waiting: { nodeId: string }[];
+            steps: { nodeId: string | null; outcome: string | null; effects: { kind: string }[] }[];
+          };
+          const runs = async (cookie = s.owner) =>
+            (
+              (await (await getAs(`/api/tracks/${s.trackId}/workflow-runs`, cookie)).json()) as {
+                runs: Run[];
+              }
+            ).runs;
+          const statusOf = async () =>
+            (
+              await db
+                .select({ status: schema.tracks.workflowStatus })
+                .from(schema.tracks)
+                .where(eq(schema.tracks.id, s.trackId))
+            )[0]?.status;
+          const newVersion = async (name: string) => {
+            const blob = await storage.put(s.organisationId, Buffer.from(name));
+            const [file] = await db
+              .insert(schema.files)
+              .values({
+                organisationId: s.organisationId,
+                projectId: s.projectId,
+                name,
+                kind: "audio",
+                blobId: blob.id,
+                contentType: "audio/wav",
+                byteSize: blob.byteSize,
+                mediaInfo: {
+                  duration: 60,
+                  audio: { codec: "pcm_s24le", channels: 2, sampleRate: 48000 },
+                } as never,
+              })
+              .returning();
+            const added = await send(`/api/tracks/${s.trackId}/versions`, {
+              variations: [{ fileId: file?.id ?? "", name: "Mix" }],
+            });
+            expect(added.status).toBe(201);
+          };
+
+          // A new version starts it: the conductor is asked, and the track says so.
+          await newVersion("Mix v2.wav");
+          let [run] = await runs(s.composer);
+          expect(run).toMatchObject({
+            state: "running",
+            status: "With conductor",
+            waiting: [{ nodeId: "fb" }],
+          });
+          expect(await statusOf()).toBe("With conductor");
+
+          // Ended by hand by those who edit workflows: the engineer is told, and given the edit.
+          const step = (body: unknown, cookie = s.owner) =>
+            send(`/api/workflow-runs/${run?.id}/steps`, body, cookie);
+          expect((await step({ nodeId: "fb", outcome: "done" }, s.engineer)).status).toBe(403);
+          expect((await step({ nodeId: "edit", outcome: "done" })).status).toBe(409);
+          expect((await step({ nodeId: "fb", outcome: "approved" })).status).toBe(422);
+          expect((await step({ nodeId: "fb", outcome: "done" })).status).toBe(200);
+          const told = await db
+            .select({ text: schema.notifications.text, detail: schema.notifications.detail })
+            .from(schema.notifications)
+            .where(
+              and(
+                eq(schema.notifications.userId, s.ids.engineer),
+                eq(schema.notifications.kind, "workflow"),
+              ),
+            );
+          expect(told).toEqual([
+            { text: "Tell the engineer: Maple Leaf Rag", detail: "Notes are in." },
+            { text: "Engineer edits on Maple Leaf Rag is yours", detail: null },
+          ]);
+          expect(await statusOf()).toBe("Editing");
+
+          // The edit done, the wait is queued for its day; when it elapses the run finishes.
+          sent.length = 0;
+          await step({ nodeId: "edit", outcome: "done" });
+          const wait = sent.find((j) => j.name === "workflow-wait")?.data as {
+            organisationId: string;
+            runId: string;
+            nodeId: string;
+            stepId: string;
+          };
+          expect(wait).toMatchObject({ runId: run?.id, nodeId: "rest" });
+          // A wait from a step the run has moved past changes nothing.
+          await waitElapsed(
+            { db, jobs },
+            { ...wait, stepId: "0199f000-0000-7000-8000-000000000001" },
+          );
+          expect((await runs())[0]?.state).toBe("running");
+          await waitElapsed({ db, jobs }, wait);
+          [run] = await runs();
+          expect(run).toMatchObject({ state: "finished", status: "Approved", waiting: [] });
+          expect(run?.steps.map((st) => [st.nodeId, st.outcome])).toEqual([
+            [null, null],
+            ["fb", "done"],
+            ["edit", "done"],
+            ["rest", "elapsed"],
+          ]);
+          expect(await statusOf()).toBe("Approved");
+
+          // The next version starts it again; it is not started by hand.
+          await newVersion("Mix v3.wav");
+          expect((await runs()).map((r) => r.state)).toEqual(["running", "finished"]);
+          expect(
+            (await send(`/api/tracks/${s.trackId}/workflow-runs`, { workflowId: made.workflow.id }))
+              .status,
+          ).toBe(422);
+
+          // Nobody outside the project sees the runs or moves them.
+          const newcomer = await joinAs(s.owner, "newcomer-runs@example.test");
+          expect((await getAs(`/api/tracks/${s.trackId}/workflow-runs`, newcomer)).status).toBe(
+            404,
+          );
+          expect((await step({ nodeId: "fb", outcome: "done" }, newcomer)).status).toBe(404);
         });
 
         it("reads a version's edit decision list and says which take each edit comes from (#56)", async () => {
