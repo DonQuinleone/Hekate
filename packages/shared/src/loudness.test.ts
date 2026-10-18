@@ -3,6 +3,8 @@ import {
   channelLevels,
   decodeLoudness,
   encodeLoudness,
+  FIELD_BINS,
+  fieldBin,
   frameAt,
   highest,
   type LoudnessSeries,
@@ -10,7 +12,20 @@ import {
   SILENCE,
 } from "./loudness.ts";
 
-const series = (hasPhase: boolean, hasMidSide = hasPhase): LoudnessSeries => ({
+/** Three frames of field: all centre, half left and half right, and silence. */
+const field = () => {
+  const out = new Float32Array(3 * FIELD_BINS);
+  out[7] = 1;
+  out[FIELD_BINS + 3] = 0.5;
+  out[FIELD_BINS + 11] = 0.5;
+  return out;
+};
+
+const series = (
+  hasPhase: boolean,
+  hasMidSide = hasPhase,
+  hasField = hasMidSide,
+): LoudnessSeries => ({
   channels: 2,
   sampleRate: 48_000,
   samplesPerFrame: 4_800,
@@ -24,6 +39,8 @@ const series = (hasPhase: boolean, hasMidSide = hasPhase): LoudnessSeries => ({
   hasMidSide,
   mid: hasMidSide ? Float32Array.from([SILENCE, -26.5, -12.25]) : new Float32Array(0),
   side: hasMidSide ? Float32Array.from([SILENCE, -40, -500]) : new Float32Array(0),
+  hasField,
+  field: hasField ? field() : new Float32Array(0),
 });
 
 describe("loudness series", () => {
@@ -46,8 +63,32 @@ describe("loudness series", () => {
     }
   });
 
+  it("round-trips the stereo field, and reads a file measured before it was kept", () => {
+    const decoded = decodeLoudness(encodeLoudness(series(true)));
+    expect(decoded.hasField).toBe(true);
+    expect(Array.from(decoded.field)).toEqual(Array.from(field()));
+    const older = decodeLoudness(encodeLoudness(series(true, true, false)));
+    expect(older.hasField).toBe(false);
+    expect(older.field.length).toBe(0);
+    expect(Array.from(older.side)).toEqual([SILENCE, -40, SILENCE]);
+  });
+
+  it("places a sample of the pair in the stereo field as a goniometer does", () => {
+    expect(fieldBin(0.5, 0.5)).toBe(7);
+    expect(fieldBin(-0.5, -0.5)).toBe(7);
+    expect(fieldBin(1, 0)).toBe(3);
+    expect(fieldBin(0, 1)).toBe(11);
+    expect(fieldBin(0, -1)).toBe(11);
+    expect(fieldBin(1, -1)).toBe(15);
+    expect(fieldBin(-1, 1)).toBe(15);
+    // Just short of out of phase, either way, is still flat across.
+    expect(fieldBin(1, -0.99)).toBe(15);
+    expect(fieldBin(-0.99, 1)).toBe(15);
+    expect(fieldBin(0.5, 0.4)).toBe(6);
+  });
+
   it("reads a file measured before mid and side were kept", () => {
-    const decoded = decodeLoudness(encodeLoudness(series(true, false)));
+    const decoded = decodeLoudness(encodeLoudness(series(true, false, false)));
     expect(decoded.hasPhase).toBe(true);
     expect(decoded.hasMidSide).toBe(false);
     expect(decoded.mid.length).toBe(0);

@@ -1,4 +1,4 @@
-import { SILENCE } from "@hekate/shared";
+import { FIELD_BINS, SILENCE } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
 import { finishLoudness, LoudnessParser, loudnessFilters, PhaseMeter } from "./loudness.ts";
 
@@ -86,11 +86,28 @@ describe("phase meter", () => {
     expect(side[1]).toBeCloseTo(level, 4);
   });
 
+  it("measures the stereo field per frame: where the pair's energy sits", () => {
+    // One frame of four samples: mono, the left alone, the right alone, out of phase.
+    const meter = new PhaseMeter(2, 4);
+    meter.push(pcm([0.5, 0.5, 0.5, 0, 0, 0.5, 0.5, -0.5]));
+    const { field } = meter.finish(1);
+    expect(field.length).toBe(FIELD_BINS);
+    // The out-of-phase sample and the mono one carry twice the energy of each one-sided one.
+    expect(field[7]).toBeCloseTo(1 / 3, 5);
+    expect(field[3]).toBeCloseTo(1 / 6, 5);
+    expect(field[11]).toBeCloseTo(1 / 6, 5);
+    expect(field[15]).toBeCloseTo(1 / 3, 5);
+    // Silence has no field.
+    const quiet = new PhaseMeter(2, 2);
+    quiet.push(pcm([0, 0, 0, 0]));
+    expect(Array.from(quiet.finish(1).field).every((share) => share === 0)).toBe(true);
+  });
+
   it("has nothing to say about mono", () => {
     const meter = new PhaseMeter(1, 2);
     meter.push(pcm([0.1, 0.2, 0.3]));
-    const { phase, mid, side } = meter.finish(2);
-    expect([phase.length, mid.length, side.length]).toEqual([0, 0, 0]);
+    const { phase, mid, side, field } = meter.finish(2);
+    expect([phase.length, mid.length, side.length, field.length]).toEqual([0, 0, 0, 0]);
   });
 });
 

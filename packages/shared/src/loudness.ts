@@ -7,13 +7,14 @@ import { z } from "zod";
  *
  * The series holds one frame every `samplesPerFrame` samples (100 ms): momentary and
  * short-term loudness, each channel's sample peak and RMS, and the phase correlation and the
- * mid and side levels of the front pair. Binary layout, little-endian: the magic `HKLD`,
- * version (u8), channels (u8), flags (u8, bit 0: phase present, bit 1: mid and side
- * present), a reserved byte, sample rate (u32), samples per frame (u32), frame count (u32),
- * then for every frame signed 16-bit values: momentary and short-term in hundredths of a
- * LUFS, each channel's peak and RMS in hundredths of a dBFS, the phase correlation in
- * ten-thousandths, if present, and the mid and side RMS in hundredths of a dBFS, if present.
- * Files measured before mid and side were added have only the phase.
+ * mid and side levels and stereo field of the front pair. Binary layout, little-endian: the
+ * magic `HKLD`, version (u8), channels (u8), flags (u8, bit 0: phase present, bit 1: mid and
+ * side present, bit 2: stereo field present), a reserved byte, sample rate (u32), samples per
+ * frame (u32), frame count (u32), then for every frame signed 16-bit values: momentary and
+ * short-term in hundredths of a LUFS, each channel's peak and RMS in hundredths of a dBFS, the
+ * phase correlation in ten-thousandths, if present, the mid and side RMS in hundredths of a
+ * dBFS, if present, and each of the `FIELD_BINS` shares of the stereo field in ten-thousandths,
+ * if present. Files measured before mid and side, or the stereo field, were added lack them.
  */
 
 export interface LoudnessSeries {
@@ -34,6 +35,36 @@ export interface LoudnessSeries {
   /** Per frame, the RMS of the front pair's sum and difference, (L+R)/2 and (L−R)/2, in dBFS. */
   mid: Float32Array;
   side: Float32Array;
+  hasField: boolean;
+  /**
+   * `count × FIELD_BINS`: the share of the front pair's energy at each angle of the stereo
+   * field (`fieldBin`), left to right, each frame's summing to 1, or all 0 in silence.
+   */
+  field: Float32Array;
+}
+
+/**
+ * The stereo field in bins of 11.25°, as a goniometer draws it: mono straight up (the
+ * centre bin, 7), the left channel alone 45° to the left (bin 3), the right alone 45° to the
+ * right (bin 11), and out of phase flat (bin 15, either side, as a goniometer's trace is the
+ * same line through the middle).
+ */
+export const FIELD_BINS = 16;
+export const FIELD_CENTRE = 7;
+const BIN_RADIANS = Math.PI / FIELD_BINS;
+
+/** The bin of the stereo field one sample of the pair falls in. */
+export function fieldBin(left: number, right: number): number {
+  // Mid up, side across: L + R and R − L. A trace through the middle reads the same both ways.
+  let up = left + right;
+  let across = right - left;
+  if (up < 0 || (up === 0 && across < 0)) {
+    up = -up;
+    across = -across;
+  }
+  const step = Math.round(Math.atan2(across, up) / BIN_RADIANS);
+  // -8 and +8 are the same line, flat across.
+  return (step === -8 ? 8 : step) + FIELD_CENTRE;
 }
 
 /** Anything at or below this is shown as silence. */
@@ -47,22 +78,26 @@ const MAGIC = [0x48, 0x4b, 0x4c, 0x44];
 const VERSION = 1;
 const HEADER = 20;
 
-const valuesPerFrame = (channels: number, hasPhase: boolean, hasMidSide: boolean) =>
-  2 + channels * 2 + (hasPhase ? 1 : 0) + (hasMidSide ? 2 : 0);
+const valuesPerFrame = (
+  channels: number,
+  hasPhase: boolean,
+  hasMidSide: boolean,
+  hasField: boolean,
+) => 2 + channels * 2 + (hasPhase ? 1 : 0) + (hasMidSide ? 2 : 0) + (hasField ? FIELD_BINS : 0);
 
 /** A level in dB to hundredths, clamped to the range a 16-bit value holds. */
 const centi = (db: number) =>
   Number.isFinite(db) ? Math.round(Math.max(SILENCE, Math.min(300, db)) * 100) : SILENCE * 100;
 
 export function encodeLoudness(series: LoudnessSeries): Uint8Array {
-  const { channels, count, hasPhase, hasMidSide } = series;
-  const stride = valuesPerFrame(channels, hasPhase, hasMidSide);
+  const { channels, count, hasPhase, hasMidSide, hasField } = series;
+  const stride = valuesPerFrame(channels, hasPhase, hasMidSide, hasField);
   const out = new Uint8Array(HEADER + count * stride * 2);
   const view = new DataView(out.buffer);
   out.set(MAGIC, 0);
   view.setUint8(4, VERSION);
   view.setUint8(5, channels);
-  view.setUint8(6, (hasPhase ? 1 : 0) | (hasMidSide ? 2 : 0));
+  view.setUint8(6, (hasPhase ? 1 : 0) | (hasMidSide ? 2 : 0) | (hasField ? 4 : 0));
   view.setUint32(8, series.sampleRate, true);
   view.setUint32(12, series.samplesPerFrame, true);
   view.setUint32(16, count, true);
@@ -83,6 +118,12 @@ export function encodeLoudness(series: LoudnessSeries): Uint8Array {
       put(centi(series.mid[f] ?? SILENCE));
       put(centi(series.side[f] ?? SILENCE));
     }
+    if (hasField) {
+      for (let b = 0; b < FIELD_BINS; b++) {
+        const share = series.field[f * FIELD_BINS + b] ?? 0;
+        put(Math.round(Math.max(0, Math.min(1, share)) * 10_000));
+      }
+    }
   }
   return out;
 }
@@ -97,8 +138,9 @@ export function decodeLoudness(bytes: Uint8Array): LoudnessSeries {
   const flags = view.getUint8(6);
   const hasPhase = (flags & 1) === 1;
   const hasMidSide = (flags & 2) === 2;
+  const hasField = (flags & 4) === 4;
   const count = view.getUint32(16, true);
-  const stride = valuesPerFrame(channels, hasPhase, hasMidSide);
+  const stride = valuesPerFrame(channels, hasPhase, hasMidSide, hasField);
   if (channels === 0 || bytes.length !== HEADER + count * stride * 2) {
     throw new Error("Truncated loudness file");
   }
@@ -116,6 +158,8 @@ export function decodeLoudness(bytes: Uint8Array): LoudnessSeries {
     hasMidSide,
     mid: new Float32Array(hasMidSide ? count : 0),
     side: new Float32Array(hasMidSide ? count : 0),
+    hasField,
+    field: new Float32Array(hasField ? count * FIELD_BINS : 0),
   };
   let at = HEADER;
   const take = () => {
@@ -134,6 +178,9 @@ export function decodeLoudness(bytes: Uint8Array): LoudnessSeries {
     if (hasMidSide) {
       series.mid[f] = take() / 100;
       series.side[f] = take() / 100;
+    }
+    if (hasField) {
+      for (let b = 0; b < FIELD_BINS; b++) series.field[f * FIELD_BINS + b] = take() / 10_000;
     }
   }
   return series;
