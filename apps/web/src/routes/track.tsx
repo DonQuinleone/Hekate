@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, Navigate, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { FollowButton } from "~/components/follow-button";
 import { Icon } from "~/components/icons";
 import { Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
@@ -64,35 +65,39 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
         ]}
         title={`${track.name}: ${takes ? "takes" : "versions"}`}
         actions={
-          live ? (
-            <>
-              {track.versions.length > 1 && tool("compare") && !takes && (
-                <Button variant="ghost" size="sm" asChild>
-                  <Link to="/tracks/$trackId/compare" params={{ trackId: track.id }}>
-                    <Icon name="compare" size={14} />
-                    Compare
-                  </Link>
-                </Button>
-              )}
-              {can("request_reviews") && latest && (
-                <Button variant="secondary" size="sm" asChild>
-                  <Link
-                    to="/projects/$projectId/reviews/new"
-                    params={{ projectId: track.projectId }}
-                    search={{ item: `track:${track.id}` }}
-                  >
-                    Request a review
-                  </Link>
-                </Button>
-              )}
-              {can("upload") && !adding && !takes && (
-                <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
-                  <Icon name="upload" size={14} />
-                  {project.profile === "video" ? "Add cut" : "Add version"}
-                </Button>
-              )}
-            </>
-          ) : undefined
+          <>
+            {/* Following is the member's own choice, so it stays on an archived project too. */}
+            <FollowButton target={{ trackId: track.id }} what="track" />
+            {live && (
+              <>
+                {track.versions.length > 1 && tool("compare") && !takes && (
+                  <Button variant="ghost" size="sm" asChild>
+                    <Link to="/tracks/$trackId/compare" params={{ trackId: track.id }}>
+                      <Icon name="compare" size={14} />
+                      <span className="sr-only @md/app:not-sr-only">Compare</span>
+                    </Link>
+                  </Button>
+                )}
+                {can("request_reviews") && latest && (
+                  <Button variant="secondary" size="sm" asChild>
+                    <Link
+                      to="/projects/$projectId/reviews/new"
+                      params={{ projectId: track.projectId }}
+                      search={{ item: `track:${track.id}` }}
+                    >
+                      Request a review
+                    </Link>
+                  </Button>
+                )}
+                {can("upload") && !adding && !takes && (
+                  <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
+                    <Icon name="upload" size={14} />
+                    {project.profile === "video" ? "Add cut" : "Add version"}
+                  </Button>
+                )}
+              </>
+            )}
+          </>
         }
       />
       <Page width="narrow" className="max-w-[1040px] gap-6">

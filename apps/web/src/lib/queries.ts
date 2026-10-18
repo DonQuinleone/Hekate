@@ -32,6 +32,7 @@ import {
   type FileColumnLayout,
   type FileInspection,
   type FileKind,
+  type FollowInput,
   type GroupInput,
   type GuestInput,
   type ImportMarkersInput,
@@ -1963,6 +1964,8 @@ export interface ReviewDetail {
   remind: boolean;
   status: ReviewSummary["status"];
   outcome: ReviewSummary["outcome"];
+  /** Who asked for it; null once their account is gone. */
+  createdBy: string | null;
   createdByName: string | null;
   createdAt: string;
   completedAt: string | null;
@@ -2699,6 +2702,18 @@ export const followsQuery = queryOptions({
   queryFn: async () =>
     (await json<{ follows: Follow[] }>(await api.notifications.follows.$get())).follows,
 });
+
+/** Following a track or a review by choice (#110), as adding a version or being asked already does. */
+export function useFollow() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: FollowInput) => {
+      const res = await api.notifications.follows.$post({ json: input });
+      if (!res.ok) await json(res);
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: followsQuery.queryKey }),
+  });
+}
 
 export function useUnfollow() {
   const client = useQueryClient();
