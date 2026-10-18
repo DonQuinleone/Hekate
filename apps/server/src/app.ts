@@ -58,6 +58,7 @@ import {
   versionRoutes,
 } from "./routes/tracks.ts";
 import { uploadRoutes } from "./routes/uploads.ts";
+import { trackWorkflowRunRoutes, workflowRunRoutes } from "./routes/workflow-runs.ts";
 import { projectWorkflowRoutes, workflowRoutes } from "./routes/workflows.ts";
 import { securityHeaders } from "./security-headers.ts";
 import type { SetupGate } from "./setup-code.ts";
@@ -250,12 +251,15 @@ export function createApi(deps: AppDeps) {
       .route("/tracks", trackTakeRoutes(deps.db))
       .route("/tracks", editDecisionRoutes(deps.db, deps.storage))
       .route("/tracks", trackCompareRoutes(deps.db, deps.jobs))
+      .route("/tracks", trackWorkflowRunRoutes(deps.db, deps.jobs))
       .use("/takes/*", ...member)
       .route("/takes", takeRoutes(deps.db))
       .use("/sessions/*", ...member)
       .route("/sessions", sessionRoutes(deps.db))
       .use("/workflows/*", ...member)
       .route("/workflows", workflowRoutes(deps.db))
+      .use("/workflow-runs/*", ...member)
+      .route("/workflow-runs", workflowRunRoutes(deps.db, deps.jobs))
       .use("/versions/*", ...member)
       .route("/versions", versionRoutes(deps.db))
       .use("/variations/*", ...member)

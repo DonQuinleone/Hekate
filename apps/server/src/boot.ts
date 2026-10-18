@@ -23,6 +23,7 @@ import { settingsOrExit } from "./startup.ts";
 import { serveWeb } from "./static.ts";
 import { createStorage } from "./storage.ts";
 import { recordedReconciliation } from "./storage-usage.ts";
+import { sweepWaits, waitElapsed } from "./workflow-runner.ts";
 import { rewrapBehind, rewrapOrganisation } from "./workspace-keys.ts";
 import { purgeDueWorkspaces } from "./workspace-purge.ts";
 
@@ -151,6 +152,12 @@ export async function boot(
     });
     await jobs.work("reviews-remind", async () => {
       await remindDue({ db, mailer, audit, publicUrl: config.PUBLIC_URL });
+    });
+    await jobs.work("workflow-wait", async (data) => {
+      await waitElapsed({ db, jobs }, data);
+    });
+    await jobs.work("workflow-waits-sweep", async () => {
+      await sweepWaits({ db, jobs });
     });
   }
 

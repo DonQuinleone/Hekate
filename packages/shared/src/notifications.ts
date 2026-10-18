@@ -26,6 +26,8 @@ export const notificationKinds = [
   "deletion_requested",
   /** Someone sent you the comments assigned to you on a file. */
   "assigned",
+  /** A project's workflow tells your role something, or gives it a stage to do (#25). */
+  "workflow",
 ] as const;
 export type NotificationKind = (typeof notificationKinds)[number];
 
@@ -53,6 +55,7 @@ export const notificationDefaults: Record<NotificationKind, NotificationChannels
   deletion_requested: { app: true, mail: true },
   due_soon: { app: true, mail: true },
   assigned: { app: true, mail: true },
+  workflow: { app: true, mail: true },
 };
 
 /** Reviews asked of you and mentions always reach you in the app, whatever you choose. */

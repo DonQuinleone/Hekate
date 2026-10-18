@@ -13,6 +13,7 @@ export const notificationIcon: Record<AppNotification["kind"], IconName> = {
   deletion_requested: "warning",
   due_soon: "clock",
   assigned: "task",
+  workflow: "flag",
 };
 
 const startOfDay = (t: number) => {
