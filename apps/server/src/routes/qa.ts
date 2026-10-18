@@ -14,7 +14,7 @@ import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { type Actor, canOnFile, fileAccess, mayUseTool, toolRefused } from "../access.ts";
+import { canOnFile, fileAccess, mayUseTool, toolRefused } from "../access.ts";
 import { alignmentsFrom } from "../alignment-graph.ts";
 import { profilesForFiles } from "../delivery-profiles.ts";
 import { NotFound } from "../errors.ts";
@@ -23,19 +23,7 @@ import { qaReport, qaReportFormats } from "../qa-report.ts";
 import { requesterOf } from "../requester.ts";
 import { attachment } from "./comments.ts";
 
-const {
-  files,
-  guests,
-  loudness,
-  organisations,
-  projectMembers,
-  projectRoles,
-  projects,
-  qaFindings,
-  users,
-  variations,
-  versions,
-} = schema;
+const { files, loudness, organisations, projects, qaFindings, variations, versions } = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
