@@ -1048,20 +1048,22 @@ function Workflow({ project }: { project: Project }) {
   const update = useUpdateProject(project.id);
   const edit = can("edit_workflows");
   const { effective } = useProjectProfile(project);
+  // Those who may open the builder (decision on #26): who edits workflows, or runs the roles.
+  const mayBuild = edit || (can("manage_roles") && can("view_workflows"));
   const { data: workflows } = useQuery({
     ...projectWorkflowsQuery(project.id),
-    enabled: can("view_workflows"),
+    enabled: mayBuild,
   });
   return (
     <>
-      {can("view_workflows") && (
+      {mayBuild && (
         <Section
           title="Workflows"
           intro="The stages a track goes through as versions arrive, the statuses they set, and who is asked at each."
           action={
             <Button asChild variant="primary" size="md">
               <Link to="/projects/$projectId/workflow" params={{ projectId: project.id }}>
-                {edit ? "Open the builder" : "See the workflows"}
+                Open the builder
               </Link>
             </Button>
           }

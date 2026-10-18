@@ -40,8 +40,10 @@ const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? on
  */
 export function WorkflowsPage({ projectId }: { projectId: string }) {
   const can = useProjectCan(projectId);
-  const mayView = can("view_workflows");
   const mayEdit = can("edit_workflows");
+  // As in the prototype: the builder is for those who edit workflows, and for those who run
+  // the project's roles, who see what a role takes part in without changing it.
+  const mayView = mayEdit || (can("manage_roles") && can("view_workflows"));
   const { data: workflows, error } = useQuery({
     ...projectWorkflowsQuery(projectId),
     enabled: mayView,
@@ -70,8 +72,8 @@ export function WorkflowsPage({ projectId }: { projectId: string }) {
             <div className={body}>
               {!mayView ? (
                 <Empty
-                  title="Not among what your role shows"
-                  text="Workflows are shown to the roles the project's access gives them."
+                  title="Not among what your role does"
+                  text="Workflows are built by those whose role edits them."
                 />
               ) : error ? (
                 <p className="m-0 text-signal">{error.message}</p>
@@ -333,14 +335,16 @@ function StepField({
   onChange: (value: string) => void;
 }) {
   const { data: roles } = useQuery({ ...projectRolesQuery(projectId), enabled: !!field.people });
-  const { data: groups } = useQuery({ ...projectGroupsQuery(projectId), enabled: !!field.people });
+  // Groups are asked as themselves by a review; a task or a notification reaches roles only.
+  const withGroups = !!field.people && (node.type === "approval" || node.type === "feedback");
+  const { data: groups } = useQuery({ ...projectGroupsQuery(projectId), enabled: withGroups });
   const value = node.config[field.id] ?? "";
   const label = `${node.name}: ${field.label.toLowerCase()}`;
   const options = field.people
     ? [
         ...(field.id === "to" ? ["Everyone in the project"] : []),
         ...(roles ?? []).map((r) => r.name),
-        ...(groups ?? []).map((g) => g.name),
+        ...(withGroups ? (groups ?? []) : []).map((g) => g.name),
       ]
     : field.options;
   return (

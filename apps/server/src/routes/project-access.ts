@@ -30,6 +30,9 @@ function violates(error: unknown, index: string): boolean {
  */
 const choosesPeople = ["view_people", "request_reviews", "triage"] as const;
 
+/** Who may read the project's roles: as above, and those who build its workflows (#26). */
+const choosesRoles = [...choosesPeople, "edit_workflows"] as const;
+
 const nameTaken = () =>
   new HTTPException(409, { message: "This project already has a role with that name" });
 
@@ -42,7 +45,7 @@ export const projectAccessRoutes = (db: Database) =>
   new Hono<{ Variables: TenantVariables }>()
     .get("/:id/roles", idParam, async (c) => {
       const organisationId = c.var.organisationId;
-      const { projectId } = await can(db, actorOf(c.var), choosesPeople, c.req.valid("param").id);
+      const { projectId } = await can(db, actorOf(c.var), choosesRoles, c.req.valid("param").id);
       const roles = await db
         .select({
           id: projectRoles.id,
