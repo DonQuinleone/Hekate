@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE fcpxml>
+<fcpxml version="1.10">
+  <resources>
+    <format id="r1" name="FFVideoFormat1080p25" frameDuration="100/2500s" width="1920" height="1080"/>
+    <asset id="r2" name="Cut 3" start="0s" duration="60s" hasVideo="1" hasAudio="1" format="r1"/>
+  </resources>
+  <library>
+    <event name="Opening titles">
+      <project name="Opening titles cut 3">
+        <sequence format="r1" duration="1250/25s" tcStart="3600s" tcFormat="NDF">
+          <spine>
+            <asset-clip ref="r2" offset="3600s" name="Cut 3" start="10s" duration="50s" format="r1">
+              <marker start="16s" duration="100/2500s" value="Logo too early" note="Hold it two frames &amp; fade"/>
+              <marker start="30s" duration="5s" value="Music swells" completed="0"/>
+              <chapter-marker start="40s" duration="100/2500s" value="Titles" posterOffset="0s"/>
+            </asset-clip>
+          </spine>
+        </sequence>
+      </project>
+    </event>
+  </library>
+</fcpxml>
