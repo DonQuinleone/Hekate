@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   channelLevels,
+  channelPairs,
   decodeLoudness,
   encodeLoudness,
   FIELD_BINS,
@@ -25,6 +26,7 @@ const series = (
   hasPhase: boolean,
   hasMidSide = hasPhase,
   hasField = hasMidSide,
+  hasPairs = hasField,
 ): LoudnessSeries => ({
   channels: 2,
   sampleRate: 48_000,
@@ -41,6 +43,8 @@ const series = (
   side: hasMidSide ? Float32Array.from([SILENCE, -40, -500]) : new Float32Array(0),
   hasField,
   field: hasField ? field() : new Float32Array(0),
+  hasPairs,
+  pairs: hasPairs ? Float32Array.from([1, 0.5, -0.25]) : new Float32Array(0),
 });
 
 describe("loudness series", () => {
@@ -67,10 +71,30 @@ describe("loudness series", () => {
     const decoded = decodeLoudness(encodeLoudness(series(true)));
     expect(decoded.hasField).toBe(true);
     expect(Array.from(decoded.field)).toEqual(Array.from(field()));
-    const older = decodeLoudness(encodeLoudness(series(true, true, false)));
+    const older = decodeLoudness(encodeLoudness(series(true, true, false, false)));
     expect(older.hasField).toBe(false);
     expect(older.field.length).toBe(0);
     expect(Array.from(older.side)).toEqual([SILENCE, -40, SILENCE]);
+  });
+
+  it("round-trips every pair's correlation, and reads a file measured before them", () => {
+    const decoded = decodeLoudness(encodeLoudness(series(true)));
+    expect(decoded.hasPairs).toBe(true);
+    expect(Array.from(decoded.pairs)).toEqual([1, 0.5, -0.25]);
+    const older = decodeLoudness(encodeLoudness(series(true, true, true, false)));
+    expect(older.hasPairs).toBe(false);
+    expect(older.pairs.length).toBe(0);
+    expect(Array.from(older.field)).toEqual(Array.from(field()));
+  });
+
+  it("orders a recording's pairs of channels", () => {
+    expect(channelPairs(1)).toEqual([]);
+    expect(channelPairs(3)).toEqual([
+      [0, 1],
+      [0, 2],
+      [1, 2],
+    ]);
+    expect(channelPairs(8)).toHaveLength(28);
   });
 
   it("places a sample of the pair in the stereo field as a goniometer does", () => {

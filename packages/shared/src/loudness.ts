@@ -9,12 +9,14 @@ import { z } from "zod";
  * short-term loudness, each channel's sample peak and RMS, and the phase correlation and the
  * mid and side levels and stereo field of the front pair. Binary layout, little-endian: the
  * magic `HKLD`, version (u8), channels (u8), flags (u8, bit 0: phase present, bit 1: mid and
- * side present, bit 2: stereo field present), a reserved byte, sample rate (u32), samples per
- * frame (u32), frame count (u32), then for every frame signed 16-bit values: momentary and
- * short-term in hundredths of a LUFS, each channel's peak and RMS in hundredths of a dBFS, the
- * phase correlation in ten-thousandths, if present, the mid and side RMS in hundredths of a
- * dBFS, if present, and each of the `FIELD_BINS` shares of the stereo field in ten-thousandths,
- * if present. Files measured before mid and side, or the stereo field, were added lack them.
+ * side present, bit 2: stereo field present, bit 3: every pair's correlation present), a
+ * reserved byte, sample rate (u32), samples per frame (u32), frame count (u32), then for every
+ * frame signed 16-bit values: momentary and short-term in hundredths of a LUFS, each channel's
+ * peak and RMS in hundredths of a dBFS, the phase correlation in ten-thousandths, if present,
+ * the mid and side RMS in hundredths of a dBFS, if present, each of the `FIELD_BINS` shares of
+ * the stereo field in ten-thousandths, if present, and the correlation of every pair of
+ * channels in ten-thousandths, in `channelPairs` order, if present. Files measured before any
+ * of these were added lack them.
  */
 
 export interface LoudnessSeries {
@@ -37,6 +39,12 @@ export interface LoudnessSeries {
   side: Float32Array;
   hasField: boolean;
   /**
+   * `count × channelPairs(channels).length`: the correlation of every pair of channels (#74),
+   * -1 to 1, for recordings of up to `PAIRS_MAX_CHANNELS` channels; empty otherwise.
+   */
+  hasPairs: boolean;
+  pairs: Float32Array;
+  /**
    * `count × FIELD_BINS`: the share of the front pair's energy at each angle of the stereo
    * field (`fieldBin`), left to right, each frame's summing to 1, or all 0 in silence.
    */
@@ -50,6 +58,16 @@ export interface LoudnessSeries {
  * same line through the middle).
  */
 export const FIELD_BINS = 16;
+
+/** Every pair's correlation is kept for recordings of up to this many channels (7.1). */
+export const PAIRS_MAX_CHANNELS = 8;
+
+/** Each pair of a recording's channels, in the order the series keeps them: 0–1, 0–2, … 1–2. */
+export function channelPairs(channels: number): [number, number][] {
+  const pairs: [number, number][] = [];
+  for (let a = 0; a < channels; a++) for (let b = a + 1; b < channels; b++) pairs.push([a, b]);
+  return pairs;
+}
 export const FIELD_CENTRE = 7;
 const BIN_RADIANS = Math.PI / FIELD_BINS;
 
@@ -83,21 +101,32 @@ const valuesPerFrame = (
   hasPhase: boolean,
   hasMidSide: boolean,
   hasField: boolean,
-) => 2 + channels * 2 + (hasPhase ? 1 : 0) + (hasMidSide ? 2 : 0) + (hasField ? FIELD_BINS : 0);
+  hasPairs: boolean,
+) =>
+  2 +
+  channels * 2 +
+  (hasPhase ? 1 : 0) +
+  (hasMidSide ? 2 : 0) +
+  (hasField ? FIELD_BINS : 0) +
+  (hasPairs ? (channels * (channels - 1)) / 2 : 0);
 
 /** A level in dB to hundredths, clamped to the range a 16-bit value holds. */
 const centi = (db: number) =>
   Number.isFinite(db) ? Math.round(Math.max(SILENCE, Math.min(300, db)) * 100) : SILENCE * 100;
 
 export function encodeLoudness(series: LoudnessSeries): Uint8Array {
-  const { channels, count, hasPhase, hasMidSide, hasField } = series;
-  const stride = valuesPerFrame(channels, hasPhase, hasMidSide, hasField);
+  const { channels, count, hasPhase, hasMidSide, hasField, hasPairs } = series;
+  const stride = valuesPerFrame(channels, hasPhase, hasMidSide, hasField, hasPairs);
+  const pairCount = (channels * (channels - 1)) / 2;
   const out = new Uint8Array(HEADER + count * stride * 2);
   const view = new DataView(out.buffer);
   out.set(MAGIC, 0);
   view.setUint8(4, VERSION);
   view.setUint8(5, channels);
-  view.setUint8(6, (hasPhase ? 1 : 0) | (hasMidSide ? 2 : 0) | (hasField ? 4 : 0));
+  view.setUint8(
+    6,
+    (hasPhase ? 1 : 0) | (hasMidSide ? 2 : 0) | (hasField ? 4 : 0) | (hasPairs ? 8 : 0),
+  );
   view.setUint32(8, series.sampleRate, true);
   view.setUint32(12, series.samplesPerFrame, true);
   view.setUint32(16, count, true);
@@ -124,6 +153,12 @@ export function encodeLoudness(series: LoudnessSeries): Uint8Array {
         put(Math.round(Math.max(0, Math.min(1, share)) * 10_000));
       }
     }
+    if (hasPairs) {
+      for (let p = 0; p < pairCount; p++) {
+        const r = series.pairs[f * pairCount + p] ?? 0;
+        put(Math.round(Math.max(-1, Math.min(1, r)) * 10_000));
+      }
+    }
   }
   return out;
 }
@@ -139,8 +174,10 @@ export function decodeLoudness(bytes: Uint8Array): LoudnessSeries {
   const hasPhase = (flags & 1) === 1;
   const hasMidSide = (flags & 2) === 2;
   const hasField = (flags & 4) === 4;
+  const hasPairs = (flags & 8) === 8;
+  const pairCount = (channels * (channels - 1)) / 2;
   const count = view.getUint32(16, true);
-  const stride = valuesPerFrame(channels, hasPhase, hasMidSide, hasField);
+  const stride = valuesPerFrame(channels, hasPhase, hasMidSide, hasField, hasPairs);
   if (channels === 0 || bytes.length !== HEADER + count * stride * 2) {
     throw new Error("Truncated loudness file");
   }
@@ -160,6 +197,8 @@ export function decodeLoudness(bytes: Uint8Array): LoudnessSeries {
     side: new Float32Array(hasMidSide ? count : 0),
     hasField,
     field: new Float32Array(hasField ? count * FIELD_BINS : 0),
+    hasPairs,
+    pairs: new Float32Array(hasPairs ? count * pairCount : 0),
   };
   let at = HEADER;
   const take = () => {
@@ -181,6 +220,9 @@ export function decodeLoudness(bytes: Uint8Array): LoudnessSeries {
     }
     if (hasField) {
       for (let b = 0; b < FIELD_BINS; b++) series.field[f * FIELD_BINS + b] = take() / 10_000;
+    }
+    if (hasPairs) {
+      for (let p = 0; p < pairCount; p++) series.pairs[f * pairCount + p] = take() / 10_000;
     }
   }
   return series;

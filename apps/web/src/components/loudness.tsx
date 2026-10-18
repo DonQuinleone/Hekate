@@ -8,7 +8,9 @@ import {
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type MouseEvent, useEffect, useRef, useState } from "react";
+import { Select } from "~/components/ui/input";
 import { cn } from "~/lib/cn";
+import { pairNames, phaseAt } from "~/lib/phase";
 import { loudnessQuery, loudnessSeriesQuery } from "~/lib/queries";
 import { describeField, fieldOutline, mostlyBeyond, readField } from "~/lib/stereo-field";
 
@@ -225,16 +227,47 @@ function ChannelMeter({ name, peak, rms }: { name: string; peak: number; rms: nu
 }
 
 /** Phase correlation of the front pair: -1 (out of phase) to +1 (mono). */
-function PhaseMeter({ value }: { value: number }) {
+function PhaseMeter({
+  value,
+  pairs = [],
+  pair = 0,
+  onPair,
+}: {
+  value: number;
+  /** A multichannel recording's pairs (#74), by their speakers' names, to choose between. */
+  pairs?: string[];
+  pair?: number;
+  onPair?: (pair: number) => void;
+}) {
+  const choosing = pairs.length > 1 && onPair;
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="label">Phase</span>
+      {!choosing ? (
+        <span className="label">Phase</span>
+      ) : (
+        <div className="flex min-h-6 items-center justify-between gap-2">
+          <span className="label">Phase</span>
+          <Select
+            size="sm"
+            aria-label="Phase between"
+            value={String(pair)}
+            onChange={(e) => onPair(Number(e.target.value))}
+            className="w-auto"
+          >
+            {pairs.map((label, i) => (
+              <option key={label} value={String(i)}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </div>
+      )}
       <meter
         className="sr-only"
         min={-1}
         max={1}
         value={value}
-        aria-label={`Phase correlation ${value.toFixed(2)}`}
+        aria-label={`Phase correlation${choosing ? ` of ${pairs[pair]}` : ""} ${value.toFixed(2)}`}
       />
       <div className="relative h-2 w-full rounded-[1px] bg-raised" aria-hidden="true">
         <span className="absolute inset-y-0 left-1/2 w-px bg-edge" />
@@ -458,6 +491,8 @@ export function Loudness({
     enabled: Boolean(data?.series),
   });
   const frame = usePlayheadFrame(series, media);
+  /** The pair whose phase is shown (#74): the front pair unless another is chosen. */
+  const [pair, setPair] = useState(0);
   if (!data || data.status === "none" || data.status === "failed") return null;
   if (!data.summary || !data.series) {
     return <p className="m-0 text-[13px] text-ink-3">Measuring loudness.</p>;
@@ -466,6 +501,9 @@ export function Loudness({
   const at = frame ?? 0;
   const live = (values: Float32Array) =>
     series && frame !== null ? (values[at] as number) : SILENCE;
+  const pairs = series?.hasPairs ? pairNames(series.channels, names) : [];
+  // A pair chosen on another file may not be one this file has: the front pair then.
+  const chosen = pair < pairs.length ? pair : 0;
 
   return (
     <section aria-label="Loudness" className="flex flex-col gap-5 border-t border-hairline pt-5">
@@ -500,7 +538,12 @@ export function Loudness({
             </div>
             {series.hasPhase && (
               <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
-                <PhaseMeter value={frame === null ? 0 : live(series.phase)} />
+                <PhaseMeter
+                  value={phaseAt(series, frame, chosen)}
+                  pairs={pairs}
+                  pair={chosen}
+                  onPair={setPair}
+                />
                 {series.hasMidSide && (
                   <MidSideMeter mid={live(series.mid)} side={live(series.side)} />
                 )}
