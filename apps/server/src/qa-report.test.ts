@@ -98,6 +98,24 @@ describe("a QA report to take away (#43)", () => {
     expect(text.indexOf("Findings (2)")).toBeLessThan(text.indexOf("Passed (1)"));
   });
 
+  it("says what the file says about itself, where that was read (#41)", () => {
+    const tagged = {
+      ...input,
+      format: {
+        ...input.format,
+        metadata: { tags: { isrc: "GBEHR2600001" }, bext: { originator: "Endless Hall Records" } },
+      },
+    };
+    const text = qaReportLines(tagged).map((l) => l.text);
+    expect(text.slice(text.indexOf("Embedded metadata"), text.indexOf("Loudness"))).toEqual([
+      "Embedded metadata",
+      "Originator: Endless Hall Records",
+      "ISRC: GBEHR2600001",
+      "Artwork: none",
+    ]);
+    expect(qaReportLines(input).map((l) => l.text)).not.toContain("Embedded metadata");
+  });
+
   it("names each format, and writes a PDF a reader can open", () => {
     expect(qaReport(input, "csv")).toMatchObject({
       filename: "Maple Leaf Rag - Dry v2 QA report.csv",

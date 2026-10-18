@@ -19,6 +19,7 @@ export * from "./install.ts";
 export * from "./instance.ts";
 export * from "./loudness.ts";
 export * from "./media.ts";
+export * from "./metadata.ts";
 export * from "./normalisation.ts";
 export * from "./notifications.ts";
 export * from "./organisation.ts";

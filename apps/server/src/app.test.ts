@@ -5747,6 +5747,22 @@ describe.runIf(url)("api", () => {
         expect(first.comments).toEqual([
           { id: expect.any(String), body: "Pedal", start: 30, mapped: null },
         ]);
+        // The QA view of the later version says the same, against the version before (#43).
+        const changes = async (fileId: string, cookie = s.owner) =>
+          (await (await getAs(`/api/files/${fileId}/qa/changes`, cookie)).json()) as {
+            previous: { number: number; name: string } | null;
+            measured: boolean;
+            fixed: { check: string }[];
+            new: { check: string }[];
+          };
+        expect(await changes(s.artwork)).toMatchObject({
+          previous: { number: 1, name: "Mix" },
+          measured: true,
+          fixed: [{ check: "clipping" }],
+          new: [{ check: "dropouts" }],
+        });
+        // The first version has nothing before it.
+        expect(await changes(s.mix)).toMatchObject({ previous: null, fixed: [], new: [] });
 
         // Once aligned, comments follow the music to where it went.
         const [row] = await db
@@ -5856,6 +5872,28 @@ describe.runIf(url)("api", () => {
         expect(
           (await getAs("/api/tracks/0190a6f0-0000-7000-8000-0000000000ff/compare", s.owner)).status,
         ).toBe(404);
+        // What changed since the previous version: nothing for a member outside the project,
+        // nor for the owner of another workspace.
+        const outsider = await joinAs(s.owner, "outsider-qa-changes@example.test");
+        const changesStatus = async () =>
+          (await getAs(`/api/files/${s.artwork}/qa/changes`, outsider)).status;
+        expect(await changesStatus()).toBe(404);
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Saltmarsh Films", slug: "saltmarsh-qa-changes" })
+          .returning({ id: schema.organisations.id });
+        await db
+          .insert(schema.members)
+          .values({ organisationId: other?.id ?? "", userId: await idOf(outsider), role: "owner" });
+        expect(
+          (
+            await app.request("/api/me/organisation", {
+              ...json({ organisationId: other?.id }, outsider),
+              method: "PUT",
+            })
+          ).status,
+        ).toBe(200);
+        expect(await changesStatus()).toBe(404);
       });
 
       it("runs a review from its page: due date, reminders, notes, opened items and activity", async () => {
@@ -12092,6 +12130,42 @@ describe.runIf(url)("api", () => {
               .from(schema.peakLevels)
               .where(eq(schema.peakLevels.fileId, fileId)),
           ).toEqual(peakRows);
+
+          // One analysed before integrity and bandwidth (#41) gains those alone: integrity
+          // decoded again, how high it reaches read from its stored spectrograms.
+          const checks = async () =>
+            (
+              await db
+                .select({ check: schema.qaFindings.check })
+                .from(schema.qaFindings)
+                .where(eq(schema.qaFindings.fileId, fileId))
+            )
+              .map((f) => f.check)
+              .sort();
+          const whole = await checks();
+          expect(whole).toContain("integrity");
+          await db
+            .delete(schema.qaFindings)
+            .where(
+              and(
+                eq(schema.qaFindings.fileId, fileId),
+                inArray(schema.qaFindings.check, ["integrity", "bandwidth"]),
+              ),
+            );
+          queued.length = 0;
+          expect(
+            await requeueMissingFindings(db, {
+              send: async (_name, data) => {
+                queued.push((data as { fileId: string }).fileId);
+                return null;
+              },
+            }),
+          ).toBe(1);
+          await analysisHandler({ db, storage, keyring, jobs, workDir: join(storageRoot, "work") })(
+            { organisationId, fileId },
+            { id: "job", signal: new AbortController().signal, retryCount: 0 },
+          );
+          expect(await checks()).toEqual(whole);
 
           // A file not yet analysed has no series, and another organisation's is not there.
           expect((await get(`/api/files/${other.fileId}/loudness/series`, owner)).status).toBe(404);

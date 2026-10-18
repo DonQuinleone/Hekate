@@ -66,6 +66,42 @@ describe("probe output", () => {
         frameRate: "24000/1001",
         pixelFormat: "yuv422p10le",
       },
+      // The cover art is not video, but it is the file's artwork.
+      metadata: { tags: {}, artwork: { codec: "mjpeg", width: 600, height: 600 } },
+    });
+  });
+
+  it("reads the common tags by whatever name the container gives them (#41)", () => {
+    const info = parseProbe(
+      {
+        format: {
+          format_name: "wav",
+          tags: {
+            title: " Maple Leaf Rag ",
+            TSRC: "GBEHR2600001",
+            album_artist: "Endless Hall Records",
+            date: "2026-10-14",
+            comment: "Maple Leaf Rag, V2 dry",
+          },
+        },
+        streams: [
+          {
+            codec_type: "audio",
+            codec_name: "pcm_s24le",
+            channels: 2,
+            sample_rate: "96000",
+            duration: "58.500000",
+          },
+        ],
+      },
+      { bext: { originator: "Endless Hall Records", originationDate: "2026-10-14" } },
+    );
+    // The sound's own length, which a video's may not share with its picture.
+    expect(info.audio?.duration).toBe(58.5);
+    expect(info.metadata).toEqual({
+      // A wave file's date is its origination date, shown with the bext.
+      tags: { title: "Maple Leaf Rag", isrc: "GBEHR2600001", albumArtist: "Endless Hall Records" },
+      bext: { originator: "Endless Hall Records", originationDate: "2026-10-14" },
     });
   });
 
@@ -100,6 +136,44 @@ describe.runIf(hasFfmpeg || process.env.CI)("media tools", () => {
         audio: { codec: "pcm_s24le", channels: 2, sampleRate: 96000, bitDepth: 24 },
       });
       expect((await probe(wav)).duration).toBeCloseTo(2, 1);
+
+      // Broadcast Wave: the bext read from the file itself, and the tags beside it (#41).
+      const bwf = join(dir, "take.wav");
+      await generate([
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=duration=1:sample_rate=48000",
+        "-c:a",
+        "pcm_s24le",
+        "-write_bext",
+        "1",
+        "-metadata",
+        "description=Maple Leaf Rag, V2 dry",
+        "-metadata",
+        "originator=Endless Hall Records",
+        "-metadata",
+        "origination_date=2026-10-14",
+        "-metadata",
+        "origination_time=09:58:00",
+        "-metadata",
+        "time_reference=1728000000",
+        "-metadata",
+        "title=Maple Leaf Rag",
+        "-metadata",
+        "ISRC=GBEHR2600001",
+        bwf,
+      ]);
+      expect((await probe(bwf)).metadata).toMatchObject({
+        bext: {
+          description: "Maple Leaf Rag, V2 dry",
+          originator: "Endless Hall Records",
+          originationDate: "2026-10-14",
+          originationTime: "09:58:00",
+          timeReference: 1728000000,
+        },
+        tags: { title: "Maple Leaf Rag", isrc: "GBEHR2600001" },
+      });
 
       const flac = join(dir, "tone.flac");
       await generate([

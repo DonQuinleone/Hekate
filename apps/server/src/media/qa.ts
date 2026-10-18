@@ -113,6 +113,11 @@ export class SignalChecks {
     this.settle = 1 / Math.max(1, 0.01 * sampleRate);
   }
 
+  /** How much has been decoded, in seconds. */
+  get seconds(): number {
+    return this.frame / this.sampleRate;
+  }
+
   push(chunk: Buffer): void {
     const bytes = this.carry.length > 0 ? Buffer.concat([this.carry, chunk]) : chunk;
     const whole = bytes.length - (bytes.length % 4);

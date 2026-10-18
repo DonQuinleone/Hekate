@@ -507,14 +507,14 @@ export function QaView({
           </div>
           <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
             {[
-              ["bext description", "Maple Leaf Rag, V2 dry, Endless Hall"],
+              ["Description", "Maple Leaf Rag, V2 dry, Endless Hall"],
               ["Originator", "Endless Hall Records"],
               ["Origination", "2026-10-14 09:58"],
               ["Time reference", "10:00:00:00"],
               ["Coding history", "A=PCM,F=96000,W=24,M=stereo"],
               ["iXML", "1.2 KB embedded"],
-              ["ID3 title", "Maple Leaf Rag"],
-              ["ID3 artist", "Endless Hall Records"],
+              ["Title", "Maple Leaf Rag"],
+              ["Artist", "Endless Hall Records"],
               ["ISRC", "none"],
               ["Artwork", file.media.channels === 12 ? "none" : "JPEG 1500 × 1500"],
             ].map(([k, v]) => (
