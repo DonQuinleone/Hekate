@@ -1,6 +1,9 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  checksOutcome,
   completeNode,
+  type MeasuredFile,
+  measuredState,
   startRun,
   triggersOf,
   type WorkflowContext,
@@ -14,6 +17,7 @@ import { lockLiveProject } from "./access.ts";
 import { NotFound } from "./errors.ts";
 import type { Jobs } from "./jobs.ts";
 import { projectPeople, recordNotification } from "./notifications.ts";
+import { qaReportOf } from "./routes/qa.ts";
 import type { ReviewDeps } from "./routes/reviews.ts";
 import { askForStageReview, cancelStageReview, stageOutcome } from "./workflow-reviews.ts";
 
@@ -225,8 +229,12 @@ async function apply(
         `${node(effect.nodeId)?.name ?? "A workflow"}: ${track?.name ?? "a track"}`,
         effect.config.message,
       );
-    } else if (effect.kind === "start" && (effect.type === "task" || effect.type === "checks")) {
-      // Until tasks (#140) and the checks are wired in, whoever it names marks it done.
+    } else if (effect.kind === "start" && effect.type === "checks") {
+      // Ended by the quality reports of the version (decision 119), at once where they are in,
+      // else when the last file has been measured.
+      after.push(() => checksDue(deps, organisationId, row.id));
+    } else if (effect.kind === "start" && effect.type === "task") {
+      // Until tasks (#140) are wired in, whoever it names marks it done.
       const who = await peopleNamed(tx, organisationId, projectId, effect.config.who);
       await tell(
         who,
@@ -551,11 +559,113 @@ export async function runsOf(db: Database, organisationId: string, trackId: stri
 }
 
 /**
+ * The files of the version a run is about (else the track's latest), each as a checks stage
+ * sees it.
+ */
+async function checkedFiles(db: Database, organisationId: string, run: RunRow) {
+  const [version] = run.versionId
+    ? [{ id: run.versionId }]
+    : await db
+        .select({ id: versions.id })
+        .from(versions)
+        .where(inOrg(versions, organisationId, eq(versions.trackId, run.trackId)))
+        .orderBy(desc(versions.number))
+        .limit(1);
+  if (!version) return [];
+  const rows = await db
+    .select({
+      id: files.id,
+      kind: files.kind,
+      mediaInfo: files.mediaInfo,
+      streamStatus: files.streamStatus,
+      analysisStatus: files.analysisStatus,
+    })
+    .from(variations)
+    .innerJoin(
+      files,
+      and(eq(files.id, variations.fileId), eq(files.organisationId, organisationId)),
+    )
+    .where(inOrg(variations, organisationId, eq(variations.versionId, version.id)));
+  const seen: MeasuredFile[] = [];
+  for (const file of rows) {
+    const state = measuredState(file);
+    if (state !== "measured") {
+      seen.push({ state });
+      continue;
+    }
+    const report = await qaReportOf(db, organisationId, file.id);
+    seen.push(
+      report
+        ? { state: "checked", severities: report.findings.map((f) => f.severity) }
+        : { state: "unchecked" },
+    );
+  }
+  return seen;
+}
+
+/**
+ * The checks stages a run waits on (decision 119), ended by the quality reports of its version
+ * once every file has been measured: passed, warnings or failed. Returns how many ended.
+ */
+export async function checksDue(deps: RunnerDeps, organisationId: string, runId: string) {
+  const [run] = await deps.db
+    .select()
+    .from(workflowRuns)
+    .where(inOrg(workflowRuns, organisationId, eq(workflowRuns.id, runId)));
+  if (run?.state !== "running") return 0;
+  const waiting = run.engine.active.filter(
+    (id) => run.definition.nodes.find((n) => n.id === id)?.type === "checks",
+  );
+  if (waiting.length === 0) return 0;
+  const outcome = checksOutcome(await checkedFiles(deps.db, organisationId, run));
+  if (!outcome) return 0;
+  let ended = 0;
+  for (const nodeId of waiting) {
+    const moved = await completeStep(
+      deps,
+      { organisationId, runId, nodeId, outcome, userId: null },
+      (now) => now.state === "running" && now.engine.active.includes(nodeId),
+    );
+    if (moved) ended += 1;
+  }
+  return ended;
+}
+
+/**
+ * A file has been measured, or found not to be measurable: the checks stages waiting on a
+ * version it belongs to look again.
+ */
+export async function fileMeasured(
+  deps: RunnerDeps,
+  job: { organisationId: string; fileId: string },
+) {
+  const { organisationId } = job;
+  const runs = await deps.db
+    .selectDistinct({ id: workflowRuns.id })
+    .from(variations)
+    .innerJoin(
+      versions,
+      and(eq(versions.id, variations.versionId), eq(versions.organisationId, organisationId)),
+    )
+    .innerJoin(
+      workflowRuns,
+      and(
+        eq(workflowRuns.trackId, versions.trackId),
+        eq(workflowRuns.organisationId, organisationId),
+        eq(workflowRuns.state, "running"),
+      ),
+    )
+    .where(inOrg(variations, organisationId, eq(variations.fileId, job.fileId)));
+  for (const { id } of runs) await checksDue(deps, organisationId, id);
+}
+
+/**
  * The waits whose days have passed and whose run still waits on them, ended: the queued job
  * normally does it, and this hourly sweep does it when the job was never queued (the queue was
- * down, or the process stopped before it could send it).
+ * down, or the process stopped before it could send it). Checks stages whose files have all
+ * been measured end too, should the job that would have ended them have been lost.
  */
-export async function sweepWaits(deps: RunnerDeps, now = new Date()) {
+export async function sweepRuns(deps: RunnerDeps, now = new Date()) {
   let ended = 0;
   for (const workspace of await deps.db.select({ id: organisations.id }).from(organisations)) {
     const runs = await deps.db
@@ -567,6 +677,14 @@ export async function sweepWaits(deps: RunnerDeps, now = new Date()) {
       .from(workflowRuns)
       .where(inOrg(workflowRuns, workspace.id, eq(workflowRuns.state, "running")));
     for (const run of runs) {
+      const checking = run.engine.active.some(
+        (id) => run.definition.nodes.find((n) => n.id === id)?.type === "checks",
+      );
+      if (checking)
+        ended += await checksDue(deps, workspace.id, run.id).catch((failure: unknown) => {
+          console.warn(`Could not end the checks on run ${run.id}: ${String(failure)}`);
+          return 0;
+        });
       for (const nodeId of run.engine.active) {
         const node = run.definition.nodes.find((n) => n.id === nodeId);
         if (node?.type !== "wait") continue;

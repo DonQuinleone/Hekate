@@ -71,6 +71,18 @@ async function discard(storage: Storage, organisationId: string, blobIds: string
   }
 }
 
+/**
+ * A file has been measured, or cannot be: the workflow checks stages waiting on it look again
+ * (#25). A send that fails is left to the hourly sweep rather than failing the job.
+ */
+async function measured(deps: MediaWorkerDeps, organisationId: string, fileId: string) {
+  await deps.jobs
+    .send("workflow-checks", { organisationId, fileId })
+    .catch((failure: unknown) =>
+      console.warn(`Could not tell workflows file ${fileId} was measured: ${String(failure)}`),
+    );
+}
+
 /** Decrypt a blob into the job's workspace and return the path. */
 async function materialise(
   storage: Storage,
@@ -120,6 +132,7 @@ export function probeHandler(deps: MediaWorkerDeps): JobHandler<"media-probe"> {
           .set({ streamStatus: "failed" })
           .where(inOrg(files, organisationId, eq(files.id, fileId)));
         await tellProcessingFailed(deps.db, organisationId, fileId);
+        await measured(deps, organisationId, fileId);
       }
       throw error;
     }
@@ -139,6 +152,9 @@ export function probeHandler(deps: MediaWorkerDeps): JobHandler<"media-probe"> {
     }
     if (info.audio) {
       await deps.jobs.send("media-analysis", { organisationId, fileId }, { singletonKey: fileId });
+    } else {
+      // Without sound it is not checked, which a checks stage may have been waiting to learn.
+      await measured(deps, organisationId, fileId);
     }
   };
 }
@@ -367,9 +383,11 @@ export function analysisHandler(deps: MediaWorkerDeps): JobHandler<"media-analys
           .set({ analysisStatus: "failed" })
           .where(inOrg(files, organisationId, eq(files.id, fileId)));
         await tellProcessingFailed(deps.db, organisationId, fileId);
+        await measured(deps, organisationId, fileId);
       }
       throw error;
     }
+    await measured(deps, organisationId, fileId);
   };
 }
 

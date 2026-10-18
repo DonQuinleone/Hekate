@@ -23,7 +23,7 @@ import { settingsOrExit } from "./startup.ts";
 import { serveWeb } from "./static.ts";
 import { createStorage } from "./storage.ts";
 import { recordedReconciliation } from "./storage-usage.ts";
-import { sweepWaits, waitElapsed } from "./workflow-runner.ts";
+import { fileMeasured, sweepRuns, waitElapsed } from "./workflow-runner.ts";
 import { rewrapBehind, rewrapOrganisation } from "./workspace-keys.ts";
 import { purgeDueWorkspaces } from "./workspace-purge.ts";
 
@@ -162,8 +162,11 @@ export async function boot(
     await jobs.work("workflow-wait", async (data) => {
       await waitElapsed(runner, data);
     });
+    await jobs.work("workflow-checks", async (data) => {
+      await fileMeasured(runner, data);
+    });
     await jobs.work("workflow-waits-sweep", async () => {
-      await sweepWaits(runner);
+      await sweepRuns(runner);
     });
   }
 

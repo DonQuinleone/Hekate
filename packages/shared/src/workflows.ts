@@ -1,4 +1,6 @@
 import { z } from "zod";
+import type { MediaInfo } from "./media.ts";
+import type { QaSeverity } from "./qa.ts";
 
 /**
  * The workflow model and its engine (#25, decision 040), pure so the server runs exactly what
@@ -617,6 +619,50 @@ export const workflowChangeInput = z.object({
   version: z.number().int().min(1).optional(),
 });
 export type WorkflowChange = z.infer<typeof workflowChangeInput>;
+
+/**
+ * A file of the version a checks stage is about, as the stage sees it: still being measured, not
+ * checked (it has no sound), not measurable (its probe or analysis failed), or checked, with the
+ * severities of what its quality report found.
+ */
+export type MeasuredFile =
+  | { state: "measuring" }
+  | { state: "unchecked" }
+  | { state: "unmeasurable" }
+  | { state: "checked"; severities: QaSeverity[] };
+
+/**
+ * How far a file has been measured, for a checks stage: still being measured, not checked, not
+ * measurable, or measured, when its quality report is to be read. Sound and picture are measured
+ * once probed. A recording whose probe found no sound, or a video in which it found neither sound
+ * nor picture, could not be read; a silent video, like a score, is not checked.
+ */
+export function measuredState(file: {
+  kind: string;
+  mediaInfo: MediaInfo | null;
+  streamStatus: string;
+  analysisStatus: string;
+}): "measuring" | "unchecked" | "unmeasurable" | "measured" {
+  const media = file.kind === "audio" || file.kind === "video";
+  if (!media) return "unchecked";
+  if (!file.mediaInfo) return file.streamStatus === "failed" ? "unmeasurable" : "measuring";
+  if (!file.mediaInfo.audio?.channels)
+    return file.kind === "audio" || !file.mediaInfo.video ? "unmeasurable" : "unchecked";
+  if (file.analysisStatus === "failed") return "unmeasurable";
+  return file.analysisStatus === "ready" ? "measured" : "measuring";
+}
+
+/**
+ * How a checks stage ends (decision 119): null while any file is still being measured; failed
+ * when any check fails or a file cannot be measured; warnings when any warns; passed otherwise,
+ * a version with nothing to check included.
+ */
+export function checksOutcome(files: MeasuredFile[]): "passed" | "warnings" | "failed" | null {
+  if (files.some((f) => f.state === "measuring")) return null;
+  const found = files.flatMap((f) => (f.state === "checked" ? f.severities : []));
+  if (files.some((f) => f.state === "unmeasurable") || found.includes("fail")) return "failed";
+  return found.includes("warn") ? "warnings" : "passed";
+}
 
 /** A workflow as the builder and the project's settings show it, with what it breaks. */
 export interface WorkflowSummary {
