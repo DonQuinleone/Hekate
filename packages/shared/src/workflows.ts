@@ -621,6 +621,25 @@ export const workflowChangeInput = z.object({
 export type WorkflowChange = z.infer<typeof workflowChangeInput>;
 
 /**
+ * The clock a node starts when a run reaches it (decision 120): a wait runs its days and ends
+ * elapsed; a feedback or task stage given days until it is due ends overdue when they pass,
+ * unless it has ended first. Null for a node without one.
+ */
+export function stageClock(node: Pick<WorkflowNode, "type" | "config">): {
+  seconds: number;
+  outcome: "elapsed" | "overdue";
+} | null {
+  const days = (value: string | undefined) => {
+    const n = Number.parseFloat(value ?? "");
+    return Number.isFinite(n) && n > 0 ? Math.round(n * 86_400) : 0;
+  };
+  if (node.type === "wait") return { seconds: days(node.config.days), outcome: "elapsed" };
+  if (node.type !== "feedback" && node.type !== "task") return null;
+  const due = days(node.config.due);
+  return due > 0 ? { seconds: due, outcome: "overdue" } : null;
+}
+
+/**
  * A file of the version a checks stage is about, as the stage sees it: still being measured, not
  * checked (it has no sound), not measurable (its probe or analysis failed), or checked, with the
  * severities of what its quality report found.

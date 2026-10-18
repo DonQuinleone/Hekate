@@ -4,6 +4,7 @@ import {
   completeNode,
   type MeasuredFile,
   measuredState,
+  stageClock,
   startRun,
   triggersOf,
   type WorkflowContext,
@@ -268,14 +269,16 @@ async function apply(
     } else if (effect.kind === "cancel") {
       // A review a stage asked for, the run has moved past: nobody need answer it now.
       await cancelStageReview(tx, organisationId, row.id, effect.nodeId);
-    } else if (effect.kind === "start" && effect.type === "wait") {
-      const days = Number.parseFloat(effect.config.days ?? "");
-      const seconds = Number.isFinite(days) && days > 0 ? Math.round(days * 86_400) : 0;
+    }
+    // A wait, and a feedback or task stage given days until it is due, start a clock: a job
+    // queued for when it runs out (decision 120).
+    const clock = effect.kind === "start" ? stageClock(effect) : null;
+    if (effect.kind === "start" && clock) {
       const job = { organisationId, runId: row.id, nodeId: effect.nodeId, stepId: step?.id ?? "" };
       after.push(() =>
         deps.jobs.send("workflow-wait", job, {
           singletonKey: `${row.id}:${effect.nodeId}:${job.stepId}`,
-          startAfterSeconds: seconds,
+          startAfterSeconds: clock.seconds,
         }),
       );
     }
@@ -461,7 +464,8 @@ export async function completeStep(
     /** Who decided, where it is not the person moving the run on (a guest's review). */
     by?: WorkflowContext["by"];
   },
-  check?: (run: RunRow) => boolean,
+  /** Asked with the run locked: false leaves it as it is. */
+  check?: (run: RunRow, tx: Tx) => boolean | Promise<boolean>,
 ): Promise<RunRow | null> {
   const result = await deps.db.transaction(async (tx) => {
     const [row] = await tx
@@ -470,7 +474,7 @@ export async function completeStep(
       .where(inOrg(workflowRuns, at.organisationId, eq(workflowRuns.id, at.runId)))
       .for("update");
     if (!row) throw new NotFound("Run");
-    if (check && !check(row)) return null;
+    if (check && !(await check(row, tx))) return null;
     // A person moving a run on needs the project live; a wait elapsing does not ask.
     if (at.userId) await lockLiveProject(tx, at.organisationId, row.projectId);
     if (row.state !== "running" || !row.engine.active.includes(at.nodeId))
@@ -505,29 +509,43 @@ export async function completeStep(
   return result.updated;
 }
 
-/** A wait elapsed: its node ends, unless the run has since moved past the step that began it. */
-export async function waitElapsed(
+/**
+ * A node's clock ran out (decision 120): a wait ends elapsed, a feedback or task stage still
+ * waited on ends overdue, unless the run has since moved past the step that began it.
+ */
+export async function clockElapsed(
   deps: RunnerDeps,
   job: { organisationId: string; runId: string; nodeId: string; stepId: string },
 ) {
-  const [latest] = await deps.db
-    .select({ id: workflowSteps.id })
-    .from(workflowSteps)
-    .where(
-      inOrg(
-        workflowSteps,
-        job.organisationId,
-        eq(workflowSteps.runId, job.runId),
-        sql`${workflowSteps.effects} @> ${JSON.stringify([{ kind: "start", nodeId: job.nodeId }])}::jsonb`,
-      ),
-    )
-    .orderBy(desc(workflowSteps.createdAt), desc(workflowSteps.id))
-    .limit(1);
-  if (latest?.id !== job.stepId) return;
+  const [run] = await deps.db
+    .select({ definition: workflowRuns.definition })
+    .from(workflowRuns)
+    .where(inOrg(workflowRuns, job.organisationId, eq(workflowRuns.id, job.runId)));
+  const node = run?.definition.nodes.find((n) => n.id === job.nodeId);
+  const clock = node ? stageClock(node) : null;
+  if (!clock) return;
   await completeStep(
     deps,
-    { ...job, outcome: "elapsed", userId: null },
-    (run) => run.state === "running" && run.engine.active.includes(job.nodeId),
+    { ...job, outcome: clock.outcome, userId: null },
+    // With the run locked, so a step that brings the run back to the node commits either
+    // before this looks (and the clock is stale) or after it has ended the node.
+    async (locked, tx) => {
+      if (locked.state !== "running" || !locked.engine.active.includes(job.nodeId)) return false;
+      const [latest] = await tx
+        .select({ id: workflowSteps.id })
+        .from(workflowSteps)
+        .where(
+          inOrg(
+            workflowSteps,
+            job.organisationId,
+            eq(workflowSteps.runId, job.runId),
+            sql`${workflowSteps.effects} @> ${JSON.stringify([{ kind: "start", nodeId: job.nodeId }])}::jsonb`,
+          ),
+        )
+        .orderBy(desc(workflowSteps.createdAt), desc(workflowSteps.id))
+        .limit(1);
+      return latest?.id === job.stepId;
+    },
   );
 }
 
@@ -660,10 +678,11 @@ export async function fileMeasured(
 }
 
 /**
- * The waits whose days have passed and whose run still waits on them, ended: the queued job
- * normally does it, and this hourly sweep does it when the job was never queued (the queue was
- * down, or the process stopped before it could send it). Checks stages whose files have all
- * been measured end too, should the job that would have ended them have been lost.
+ * The clocks that have run out while their run still waits on them (waits, and feedback and task
+ * stages past their due date), ended: the queued job normally does it, and this hourly sweep does
+ * it when the job was never queued (the queue was down, or the process stopped before it could
+ * send it). Checks stages whose files have all been measured end too, should the job that would
+ * have ended them have been lost.
  */
 export async function sweepRuns(deps: RunnerDeps, now = new Date()) {
   let ended = 0;
@@ -687,7 +706,8 @@ export async function sweepRuns(deps: RunnerDeps, now = new Date()) {
         });
       for (const nodeId of run.engine.active) {
         const node = run.definition.nodes.find((n) => n.id === nodeId);
-        if (node?.type !== "wait") continue;
+        const clock = node ? stageClock(node) : null;
+        if (!clock) continue;
         const [began] = await deps.db
           .select({ id: workflowSteps.id, at: workflowSteps.createdAt })
           .from(workflowSteps)
@@ -702,11 +722,8 @@ export async function sweepRuns(deps: RunnerDeps, now = new Date()) {
           .orderBy(desc(workflowSteps.createdAt), desc(workflowSteps.id))
           .limit(1);
         if (!began) continue;
-        const days = Number.parseFloat(node.config.days ?? "");
-        const due =
-          began.at.getTime() + (Number.isFinite(days) && days > 0 ? days * 86_400_000 : 0);
-        if (due > now.getTime()) continue;
-        await waitElapsed(deps, {
+        if (began.at.getTime() + clock.seconds * 1000 > now.getTime()) continue;
+        await clockElapsed(deps, {
           organisationId: workspace.id,
           runId: run.id,
           nodeId,
@@ -716,7 +733,7 @@ export async function sweepRuns(deps: RunnerDeps, now = new Date()) {
             ended += 1;
           },
           (failure: unknown) =>
-            console.warn(`Could not end the wait on run ${run.id}: ${String(failure)}`),
+            console.warn(`Could not end the clock on run ${run.id}: ${String(failure)}`),
         );
       }
     }
