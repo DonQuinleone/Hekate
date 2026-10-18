@@ -591,3 +591,44 @@ export function simulateWorkflow(
   }
   return { run, steps };
 }
+
+/* ---------- Stored ---------- */
+
+/**
+ * A workflow as made (#25): a project's own, or a track's, which then runs for that track in
+ * place of the project's. It is made inactive; it runs only once it is switched on, and only
+ * while it breaks no rule.
+ */
+export const workflowInput = z.object({
+  name: z.string().trim().min(1).max(120),
+  trackId: z.uuid().nullable().optional(),
+  definition: workflowDefinition,
+});
+export type WorkflowInput = z.infer<typeof workflowInput>;
+
+/**
+ * What changes on a workflow; anything left out stays. `version`, when given, is the version
+ * the change was made from, so a change made over someone else's is refused, not lost.
+ */
+export const workflowChangeInput = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  active: z.boolean().optional(),
+  definition: workflowDefinition.optional(),
+  version: z.number().int().min(1).optional(),
+});
+export type WorkflowChange = z.infer<typeof workflowChangeInput>;
+
+/** A workflow as the builder and the project's settings show it, with what it breaks. */
+export interface WorkflowSummary {
+  id: string;
+  projectId: string;
+  /** The track it runs for in place of the project's workflows; null for the project's own. */
+  trackId: string | null;
+  name: string;
+  active: boolean;
+  /** Raised by every change to it; a run keeps the definition it started with. */
+  version: number;
+  definition: WorkflowDefinition;
+  problems: WorkflowProblem[];
+  updatedAt: string;
+}

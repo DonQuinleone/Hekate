@@ -42,6 +42,7 @@ import {
   type SsoProtocol,
   type TemplateContent,
   type WatermarkSettings,
+  type WorkflowDefinition,
 } from "@hekate/shared";
 import { type SQL, sql } from "drizzle-orm";
 import {
@@ -591,6 +592,33 @@ export const sessionTracks = pgTable(
   (t) => [
     uniqueIndex("session_tracks_pair_idx").on(t.sessionId, t.trackId),
     index("session_tracks_track_idx").on(t.organisationId, t.trackId),
+  ],
+);
+
+/**
+ * A workflow (#25, decision 040): a graph of nodes and connectors (`workflowDefinition` in
+ * `packages/shared`), the project's own or a track's in place of the project's. It runs only
+ * while active, and only while it breaks no rule; every change raises its version, and a run
+ * keeps the definition it started with.
+ */
+export const workflows = pgTable(
+  "workflows",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: projectId(),
+    trackId: uuid("track_id").references((): AnyPgColumn => tracks.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    active: boolean("active").notNull().default(false),
+    definition: jsonb("definition").$type<WorkflowDefinition>().notNull(),
+    version: integer("version").notNull().default(1),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [
+    index("workflows_org_idx").on(t.organisationId),
+    index("workflows_project_idx").on(t.projectId),
+    index("workflows_track_idx").on(t.trackId),
   ],
 );
 
