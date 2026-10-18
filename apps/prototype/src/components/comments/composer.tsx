@@ -27,6 +27,7 @@ export function Composer({
   fps = 25,
   references,
   canCategorise,
+  channels = [],
   page,
   onPost,
   disabledReason,
@@ -37,6 +38,8 @@ export function Composer({
   fps?: number;
   references: References;
   canCategorise: boolean;
+  /** A recording's speakers: a comment can be about one of them (#74). */
+  channels?: readonly string[];
   page?: number;
   onPost: (body: string) => void;
   disabledReason?: string;
@@ -141,6 +144,16 @@ export function Composer({
                 <input aria-label="Beat" placeholder="Beat" className={cn(smallField, "w-14")} />
               )}
             </>
+          )}
+          {channels.length > 0 && (
+            <select aria-label="Channel" defaultValue="" className={cn(smallField, "text-ink-2")}>
+              <option value="">Every channel</option>
+              {channels.map((name, i) => (
+                <option key={`${name}-${String(i)}`} value={String(i)}>
+                  {name}
+                </option>
+              ))}
+            </select>
           )}
           {canCategorise && (
             <select aria-label="Category" defaultValue="" className={cn(smallField, "text-ink-2")}>

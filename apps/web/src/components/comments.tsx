@@ -15,6 +15,8 @@ import {
   mentionRanges,
   parseBars,
   parseBeat,
+  speakerOf,
+  speakersOf,
   type TriageInput,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -26,6 +28,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -633,6 +636,7 @@ function ThreadView({
   marker,
   pages,
   takesOf,
+  channelNames = [],
 }: {
   thread: Thread;
   /** The file being looked at, which a carried thread was brought to. */
@@ -659,6 +663,8 @@ function ThreadView({
   pages?: PageComments;
   /** The track whose takes a thread on a bar can list (#46), for those who may see takes. */
   takesOf?: string;
+  /** The recording's speakers, to name the channel a thread is about (#74). */
+  channelNames?: readonly string[];
 }) {
   const [replying, setReplying] = useState(false);
   const [takesOpen, setTakesOpen] = useState(false);
@@ -867,8 +873,15 @@ function ThreadView({
           </>
         )}
       </div>
-      {(category || comment.deferredTo || comment.assigneeName || comment.todo) && (
+      {(category ||
+        comment.channel !== null ||
+        comment.deferredTo ||
+        comment.assigneeName ||
+        comment.todo) && (
         <p className="m-0 -mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-3">
+          {comment.channel !== null && (
+            <Chip title="The channel it is about">{speakerOf(channelNames, comment.channel)}</Chip>
+          )}
           {category && <Chip>{category.name}</Chip>}
           {comment.todo &&
             (mayFinish ? (
@@ -1103,6 +1116,13 @@ export function Comments({
    */
   const [categoryId, setCategoryId] = useState("");
   const categoryOffered = canTriage && categories.length > 0;
+  /** A recording's speakers (#74): a new thread can be about one of them. */
+  const audio = file?.mediaInfo?.audio;
+  const channelNames = useMemo(
+    () => (audio && audio.channels >= 2 ? speakersOf(audio) : []),
+    [audio],
+  );
+  const [channel, setChannel] = useState("");
   /** With a loop set, new comments point at the looped passage unless told otherwise. */
   const [onPassage, setOnPassage] = useState(true);
   const [showResolved, setShowResolved] = useState(false);
@@ -1207,6 +1227,8 @@ export function Comments({
   useEffect(() => {
     if (!seed) return;
     setAt(seed.at);
+    // A finding on one channel begins a comment about that channel (#74).
+    setChannel(seed.channel == null ? "" : String(seed.channel));
     // A finding about the whole file begins a comment about the whole file.
     setWholeFile(seed.at === null);
     setOnPassage(false);
@@ -1263,6 +1285,7 @@ export function Comments({
           anchor: anchorNow(),
           mentions,
           ...(categoryOffered && categoryId ? { categoryId } : {}),
+          ...(channel !== "" ? { channel: Number(channel) } : {}),
         });
         return made.id;
       }}
@@ -1271,6 +1294,7 @@ export function Comments({
         setAt(null);
         setWholeFile(false);
         setCategoryId("");
+        setChannel("");
         setSheet(false);
         setBars("");
         setScorePage("");
@@ -1432,6 +1456,22 @@ export function Comments({
           </button>
         </span>
       )}
+      {channelNames.length > 0 && (
+        <Select
+          size="sm"
+          aria-label="Channel"
+          value={channel}
+          onChange={(e) => setChannel(e.target.value)}
+          className="w-auto"
+        >
+          <option value="">Every channel</option>
+          {channelNames.map((name, i) => (
+            <option key={`${name}-${String(i)}`} value={String(i)}>
+              {speakerOf(channelNames, i)}
+            </option>
+          ))}
+        </Select>
+      )}
       {categoryOffered && (
         <Select
           size="sm"
@@ -1477,6 +1517,7 @@ export function Comments({
       marker={markers.find((m) => m.id === t.comment.id)}
       pages={pages}
       takesOf={takesOf}
+      channelNames={channelNames}
     />
   );
 
@@ -1628,6 +1669,8 @@ export interface CommentSeed {
   /** Null for a comment about the whole file. */
   at: number | null;
   body: string;
+  /** The channel it is about, as a finding on one channel says (#74). */
+  channel?: number | null;
 }
 
 /** The region markers of a file's open threads. */

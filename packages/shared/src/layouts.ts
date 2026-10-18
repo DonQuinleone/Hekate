@@ -1,3 +1,4 @@
+import { channelNames } from "./format.ts";
 import type { MediaInfo } from "./media.ts";
 
 /**
@@ -113,4 +114,80 @@ export function lfeChannels(info: MediaInfo | null | undefined): number[] {
   const audio = info?.audio;
   const labels = audio ? channelLabels(audio.channelLayout, audio.channels) : null;
   return (labels ?? []).flatMap((label, i) => (isLfe(label) ? [i] : []));
+}
+
+/** A recording's channels as its probe reports them. */
+export interface ChannelSet {
+  channels: number;
+  channelLayout?: string;
+}
+
+/**
+ * The channel a thread about one channel is about on another version it is carried to (#74):
+ * the same speaker where both versions name their channels, the same place where they have as
+ * many, and otherwise every channel (null) rather than the wrong one. A version of fewer than
+ * two channels has none to be about.
+ */
+export function carriedChannel(
+  channel: number | null,
+  from: ChannelSet | null | undefined,
+  to: ChannelSet | null | undefined,
+): number | null {
+  if (channel === null || !from || !to || to.channels < 2) return null;
+  const fromLabels = channelLabels(from.channelLayout, from.channels);
+  const toLabels = channelLabels(to.channelLayout, to.channels);
+  if (fromLabels && toLabels) {
+    const label = fromLabels[channel];
+    const at = label === undefined ? -1 : toLabels.indexOf(label);
+    return at < 0 ? null : at;
+  }
+  return from.channels === to.channels && channel < to.channels ? channel : null;
+}
+
+/**
+ * Speakers as engineers name them, from ffmpeg's channel labels (FL, FR, FC, LFE...). The rear
+ * pair is Ls and Rs on its own, Lrs and Rrs beside a side pair (7.1).
+ */
+export function speakerNames(labels: readonly string[] | null, channels: number): string[] {
+  // A file that does not say how it is laid out: a pair is left and right, as the meters
+  // name it; anything wider is numbered.
+  if (!labels) return channelNames(channels);
+  const sidesAndBacks = labels.includes("SL") && labels.includes("BL");
+  const names: Record<string, string> = {
+    FL: "L",
+    FR: "R",
+    FC: "C",
+    LFE: "LFE",
+    LFE2: "LFE2",
+    FLC: "Lc",
+    FRC: "Rc",
+    BC: "Cs",
+    BL: sidesAndBacks ? "Lrs" : "Ls",
+    BR: sidesAndBacks ? "Rrs" : "Rs",
+    SL: sidesAndBacks ? "Lss" : "Ls",
+    SR: sidesAndBacks ? "Rss" : "Rs",
+    TC: "Ts",
+    TFL: "Ltf",
+    TFC: "Ctf",
+    TFR: "Rtf",
+    TBL: "Ltr",
+    TBC: "Ctr",
+    TBR: "Rtr",
+    TSL: "Lts",
+    TSR: "Rts",
+  };
+  return labels.map((l) => names[l] ?? l);
+}
+
+/** A recording's speakers by name, in its order (#74). */
+export const speakersOf = (audio: ChannelSet): string[] =>
+  speakerNames(channelLabels(audio.channelLayout, audio.channels), audio.channels);
+
+/**
+ * A channel as a thread about it names it (#74): its speaker, or "Channel 3" where the layout
+ * does not name it.
+ */
+export function speakerOf(names: readonly string[], channel: number): string {
+  const name = names[channel];
+  return name === undefined || /^\d+$/.test(name) ? `Channel ${channel + 1}` : name;
 }

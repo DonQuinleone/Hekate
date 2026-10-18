@@ -299,7 +299,13 @@ export function FilePage({
       media.pause();
       if (at !== null) media.currentTime = at;
     }
-    setSeed({ key: Date.now(), at, body: `${checkNames[finding.check]}: ${finding.summary}` });
+    setSeed({
+      key: Date.now(),
+      at,
+      body: `${checkNames[finding.check]}: ${finding.summary}`,
+      // Only a recording of two channels or more has one to be about.
+      channel: (file.mediaInfo?.audio?.channels ?? 0) >= 2 ? finding.channel : null,
+    });
     onView("review");
   };
   const hear = (next: Loop) => {
