@@ -70,6 +70,9 @@ export type CreateVersionInput = z.input<typeof createVersionInput>;
 
 export const addVariationInput = variationInput;
 
+/** A version's edit decision list (#56): an .edl file of the project, or null to take it off. */
+export const versionEdlInput = z.object({ fileId: z.uuid().nullable() });
+
 /** The variations as they will be stored: positions in order, and exactly one primary. */
 export function withPrimary<T extends { primary?: boolean }>(
   variations: T[],
