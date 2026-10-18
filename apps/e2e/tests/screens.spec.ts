@@ -1387,6 +1387,21 @@ test("file-recording-edits", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Following a track by choice (#110): adding its versions already follows it, so the button
+// starts pressed; it stops and starts again, and the account lists it again after.
+test("track-follow", async ({ page }) => {
+  await page.goto(`/tracks/${seeded().trackId}?view=versions`);
+  const button = page.getByRole("button", { name: /^Follow/ });
+  await expect(button).toHaveAttribute("aria-pressed", "true");
+  await expect(button).toHaveText("Following");
+  await button.click();
+  await expect(button).toHaveAttribute("aria-pressed", "false");
+  await expect(button).toHaveText("Follow");
+  await checkScreen(page);
+  await button.click();
+  await expect(button).toHaveAttribute("aria-pressed", "true");
+});
+
 // Project templates (#240): saving one from the project's settings, and starting from one.
 test("project-template-save", async ({ page }) => {
   await page.goto(`/projects/${seeded().musicProjectId}/settings`);

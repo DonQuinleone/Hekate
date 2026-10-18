@@ -11,6 +11,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Avatar } from "~/components/avatar";
+import { FollowButton } from "~/components/follow-button";
 import { GuestFields } from "~/components/guest-fields";
 import { Icon, type IconName } from "~/components/icons";
 import { Card, SectionHead } from "~/components/page";
@@ -30,6 +31,7 @@ import { dueIn } from "~/lib/home";
 import { formatDates } from "~/lib/locale";
 import { permissionSummary, toLocalInput } from "~/lib/permissions";
 import {
+  meQuery,
   projectQuery,
   type ReviewActivity,
   type ReviewDetail,
@@ -798,6 +800,7 @@ export function ReviewBody({
 }) {
   const { data: review, error } = useQuery(reviewQuery(reviewId));
   const { guest } = useViewer();
+  const { data: me } = useQuery({ ...meQuery, enabled: !guest });
   const { data: project } = useQuery({
     ...projectQuery(review?.projectId ?? ""),
     enabled: Boolean(review) && !guest,
@@ -850,7 +853,18 @@ export function ReviewBody({
 
   return (
     <>
-      {embedded ? null : <PageHeader crumbs={crumbs} title={review.title} />}
+      {embedded ? null : (
+        <PageHeader
+          crumbs={crumbs}
+          title={review.title}
+          actions={
+            // Whoever asked for it is told anyway, so following would change nothing for them.
+            guest || !me || review.createdBy === me.user.id ? undefined : (
+              <FollowButton target={{ reviewId: review.id }} what="review" />
+            )
+          }
+        />
+      )}
       <div
         className={cn(
           "grid w-full gap-10",
