@@ -52,6 +52,7 @@ import { purgeDueProjects } from "./project-purge.ts";
 import { admit } from "./rate-limit.ts";
 import { reconcileStorage } from "./reconcile.ts";
 import { remindDue } from "./reminders.ts";
+import { workflowsFor } from "./routes/workflows.ts";
 import { createSetupGate, SETUP_CODE_HEADER } from "./setup-code.ts";
 import { createStorage } from "./storage.ts";
 import { expireUploads } from "./uploads.ts";
@@ -7933,6 +7934,154 @@ describe.runIf(url)("api", () => {
               })
             ).status,
           ).toBe(404);
+        });
+
+        it("keeps a project's workflows, and runs only those that break no rule (#25)", async () => {
+          const s = await studio();
+          type Summary = {
+            id: string;
+            trackId: string | null;
+            active: boolean;
+            version: number;
+            problems: { level: string; text: string }[];
+          };
+          const at = (id: string, type: string, name: string, x: number) => ({
+            id,
+            type,
+            name,
+            x,
+            y: 0,
+          });
+          const review = {
+            nodes: [
+              at("start", "upload", "A version is uploaded", 0),
+              at("fb", "feedback", "Conductor", 320),
+              at("done", "finish", "Done", 640),
+            ],
+            connectors: [
+              { id: "1", from: "start", outcome: "happened", to: "fb" },
+              { id: "2", from: "fb", outcome: "done", to: "done" },
+            ],
+          };
+          // Nothing follows the feedback: an action that leads nowhere is only a warning, but a
+          // connector by an outcome feedback does not have is an error.
+          const broken = {
+            ...review,
+            connectors: [
+              ...review.connectors,
+              { id: "3", from: "fb", outcome: "approved", to: "done" },
+            ],
+          };
+          const send = (method: string, url: string, body: unknown, cookie = s.owner) =>
+            app.request(url, { ...json(body, cookie), method });
+
+          // Made by those who edit workflows; the engineer only sees them.
+          expect(
+            (
+              await send(
+                "POST",
+                `/api/projects/${s.projectId}/workflows`,
+                {
+                  name: "Album review",
+                  definition: review,
+                },
+                s.engineer,
+              )
+            ).status,
+          ).toBe(403);
+          const made = await send("POST", `/api/projects/${s.projectId}/workflows`, {
+            name: "Album review",
+            definition: broken,
+          });
+          expect(made.status).toBe(201);
+          const workflow = ((await made.json()) as { workflow: Summary }).workflow;
+          expect(workflow).toMatchObject({ active: false, version: 1, trackId: null });
+          expect(workflow.problems[0]).toMatchObject({ level: "error" });
+          const listed = (await (
+            await getAs(`/api/projects/${s.projectId}/workflows`, s.engineer)
+          ).json()) as { workflows: Summary[] };
+          expect(listed.workflows.map((w) => w.id)).toEqual([workflow.id]);
+
+          // Not switched on while it breaks a rule; mended and switched on, it is.
+          const change = (body: unknown, cookie = s.owner) =>
+            send("PATCH", `/api/workflows/${workflow.id}`, body, cookie);
+          const refused = await change({ active: true });
+          expect(refused.status).toBe(422);
+          expect(await refused.text()).toContain("by an outcome it does not have");
+          expect((await change({ definition: review, active: true }, s.engineer)).status).toBe(403);
+          const on = await change({ definition: review, active: true, version: 1 });
+          expect(((await on.json()) as { workflow: Summary }).workflow).toMatchObject({
+            active: true,
+            version: 2,
+            problems: [],
+          });
+          // A change made over someone else's is refused, not lost; an active one stays sound.
+          expect((await change({ name: "Late", version: 1 })).status).toBe(409);
+          expect((await change({ definition: broken })).status).toBe(422);
+
+          // A track's own workflow, of a track of this project only.
+          const stray = "0199f000-0000-7000-8000-000000000001";
+          expect(
+            (
+              await send("POST", `/api/projects/${s.projectId}/workflows`, {
+                name: "Stray",
+                trackId: stray,
+                definition: review,
+              })
+            ).status,
+          ).toBe(404);
+          const own = (
+            (await (
+              await send("POST", `/api/projects/${s.projectId}/workflows`, {
+                name: "Maple Leaf Rag's own",
+                trackId: s.trackId,
+                definition: review,
+              })
+            ).json()) as { workflow: Summary }
+          ).workflow;
+          // It replaces the project's for its track once it is switched on.
+          const runsFor = async (trackId: string | null) =>
+            (await workflowsFor(db, s.organisationId, s.projectId, trackId)).map((w) => w.id);
+          expect(await runsFor(s.trackId)).toEqual([workflow.id]);
+          await change({ active: true });
+          await send("PATCH", `/api/workflows/${own.id}`, { active: true });
+          expect(await runsFor(s.trackId)).toEqual([own.id]);
+          expect(await runsFor(null)).toEqual([workflow.id]);
+
+          // Not to be found from outside the project or the workspace.
+          const newcomer = await joinAs(s.owner, "newcomer-wf@example.test");
+          expect((await getAs(`/api/workflows/${workflow.id}`, newcomer)).status).toBe(404);
+          expect((await getAs(`/api/projects/${s.projectId}/workflows`, newcomer)).status).toBe(
+            404,
+          );
+          const [elsewhere] = await db
+            .insert(schema.organisations)
+            .values({ name: "Elsewhere", slug: "elsewhere-workflows" })
+            .returning();
+          const [foreignProject] = await db
+            .insert(schema.projects)
+            .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+            .returning();
+          const [foreign] = await db
+            .insert(schema.workflows)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              projectId: foreignProject?.id ?? "",
+              name: "Theirs",
+              definition: review as never,
+            })
+            .returning();
+          expect((await getAs(`/api/workflows/${foreign?.id}`, s.owner)).status).toBe(404);
+          expect(
+            (await send("PATCH", `/api/workflows/${foreign?.id}`, { name: "Mine" })).status,
+          ).toBe(404);
+
+          const gone = await app.request(`/api/workflows/${own.id}`, {
+            method: "DELETE",
+            headers: { cookie: s.owner, origin: "http://localhost:3000" },
+          });
+          expect(gone.status).toBe(204);
+          expect(await runsFor(s.trackId)).toEqual([workflow.id]);
         });
 
         it("reads a version's edit decision list and says which take each edit comes from (#56)", async () => {
