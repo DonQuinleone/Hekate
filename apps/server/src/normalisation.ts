@@ -35,7 +35,8 @@ export async function normalisationOf(
   const integrated = measured?.summary.integrated;
   if (integrated === null || integrated === undefined) return null;
   const profiles = await profilesForFiles(db, organisationId, [file.id]);
-  const target = profiles.of(file.id, channels).profile.loudness?.target;
+  const target = profiles.of(file.id, channels, Boolean(file.mediaInfo?.metadata?.adm)).profile
+    .loudness?.target;
   if (target === undefined) return null;
   return { mode, target, gain: normalisedGain(integrated, target) };
 }

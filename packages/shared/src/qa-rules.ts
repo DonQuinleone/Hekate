@@ -30,12 +30,15 @@ export const signalChecks = [
   "dc-offset",
   "silence",
   "phase",
+  "lfe",
   "bandwidth",
 ] as const satisfies readonly QaCheck[];
 
 /** Read against the delivery profile: one switch for them all, and each can be turned off. */
 export const deliveryChecks = [
   "format",
+  "layout",
+  "atmos",
   "loudness",
   "true-peak",
   "dead-channel",
@@ -340,9 +343,10 @@ export function ruleFindings(
   });
 }
 
-/** Where each built-in check sits; every check measured today is an audio one. */
+const immersiveChecks: readonly BuiltInCheck[] = ["dead-channel", "layout", "atmos", "lfe"];
+/** Where each built-in check sits: the multichannel ones apart, the rest with audio. */
 export const categoryOf = (check: BuiltInCheck): QaCategory =>
-  check === "dead-channel" ? "immersive" : "audio";
+  immersiveChecks.includes(check) ? "immersive" : "audio";
 
 /** Where a rule of your own sits. */
 export const ruleCategory = (rule: Pick<CustomRule, "appliesTo" | "measure">): QaCategory =>

@@ -73,7 +73,7 @@ export async function failingChecks(
     const channels = f.mediaInfo?.audio?.channels;
     // As on the QA page: only audio with channels is checked.
     if (!channels) continue;
-    const { profile } = profiles.of(f.id, channels);
+    const { profile } = profiles.of(f.id, channels, Boolean(f.mediaInfo?.metadata?.adm));
     const findings = orderFindings([
       ...applyQaSettings(
         [

@@ -3,9 +3,17 @@ import { createWriteStream } from "node:fs";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { type Database, inOrg, schema, uuidv7 } from "@hekate/db";
-import { encodeLoudness, encodePeaks, type MediaInfo, usableAlignment } from "@hekate/shared";
+import {
+  encodeLoudness,
+  encodePeaks,
+  layoutsWithLfe,
+  lfeChannels,
+  type MediaInfo,
+  type QaCheck,
+  usableAlignment,
+} from "@hekate/shared";
 import { wrapKey } from "@hekate/storage";
-import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { remapCarries } from "../carry.ts";
 import { type JobHandler, type Jobs, jobDefinitions } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
@@ -23,6 +31,7 @@ import { together } from "./together.ts";
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 import { bandwidthOf } from "./bandwidth.ts";
+import { lfeOf } from "./lfe.ts";
 import { sweepWorkspaces, withWorkspace } from "./workspace.ts";
 
 const {
@@ -332,9 +341,14 @@ export function analysisHandler(deps: MediaWorkerDeps): JobHandler<"media-analys
           blobId: seriesBlobId,
         });
         await tx.insert(spectrograms).values(spectrumRows);
-        // How high the content reaches comes from the spectrograms (#41).
+        // How high the content reaches (#41) and what the LFE carries (#74) come from the
+        // spectrograms.
         const bandwidth = bandwidthOf(spectra);
-        const findings = bandwidth ? [...analysis.findings, bandwidth] : analysis.findings;
+        const findings = [
+          ...analysis.findings,
+          ...(bandwidth ? [bandwidth] : []),
+          ...lfeOf(spectra, lfeChannels(file.mediaInfo)),
+        ];
         if (findings.length > 0) {
           await tx
             .insert(qaFindings)
@@ -574,8 +588,8 @@ const checksOf = async (db: Database | Tx, organisationId: string, fileId: strin
     ).map((f) => f.check as string),
   );
 
-/** How high a file's content reaches, from the spectrograms stored when it was analysed. */
-async function storedBandwidth(deps: MediaWorkerDeps, organisationId: string, fileId: string) {
+/** The spectrograms stored when a file was analysed, each channel's as encoded. */
+async function storedSpectra(deps: MediaWorkerDeps, organisationId: string, fileId: string) {
   const rows = await deps.db
     .select({ channel: spectrograms.channel, blobId: spectrograms.blobId })
     .from(spectrograms)
@@ -587,13 +601,14 @@ async function storedBandwidth(deps: MediaWorkerDeps, organisationId: string, fi
     for await (const chunk of stream) chunks.push(chunk as Buffer);
     spectra.push({ channel: row.channel, bytes: new Uint8Array(Buffer.concat(chunks)) });
   }
-  return bandwidthOf(spectra);
+  return spectra;
 }
 
 /**
- * The signal checks for a file analysed before they existed (#41); nothing if it has them.
- * Integrity is recorded for every file analysed since, so its absence marks such a file:
- * the file is decoded again for what that needs, and how high it reaches is read from its
+ * The signal checks for a file analysed before they existed (#41, #74); nothing if it has
+ * them. Integrity is recorded for every file analysed since, so its absence marks such a
+ * file, and the LFE check for every file with an LFE channel: the file is decoded again only
+ * for what needs it, and how high it reaches and what its LFE carries are read from its
  * stored spectrograms. Only the checks it lacks are added.
  */
 async function backfillFindings(
@@ -603,12 +618,18 @@ async function backfillFindings(
   audio: NonNullable<MediaInfo["audio"]>,
   signal: AbortSignal,
 ) {
-  if ((await checksOf(deps.db, organisationId, file.id)).has("integrity")) return;
-  const analysis = await withWorkspace(deps.workDir, async (dir) => {
-    const input = await materialise(deps.storage, organisationId, file.blobId, dir, signal);
-    return analyseAudio(input, audio, dir, signal, declaredLength(file));
-  });
-  const bandwidth = await storedBandwidth(deps, organisationId, file.id);
+  const had = await checksOf(deps.db, organisationId, file.id);
+  const lfe = lfeChannels(file.mediaInfo);
+  const decode = !had.has("integrity");
+  if (!decode && (lfe.length === 0 || had.has("lfe"))) return;
+  const analysis = decode
+    ? await withWorkspace(deps.workDir, async (dir) => {
+        const input = await materialise(deps.storage, organisationId, file.blobId, dir, signal);
+        return analyseAudio(input, audio, dir, signal, declaredLength(file));
+      })
+    : null;
+  const spectra = await storedSpectra(deps, organisationId, file.id);
+  const bandwidth = bandwidthOf(spectra);
   await deps.db.transaction(async (tx) => {
     // Locked, so two runs at once write the findings only once.
     await tx
@@ -617,10 +638,11 @@ async function backfillFindings(
       .where(inOrg(files, organisationId, eq(files.id, file.id)))
       .for("update");
     const have = await checksOf(tx, organisationId, file.id);
-    if (have.has("integrity")) return;
-    const missing = [...analysis.findings, ...(bandwidth ? [bandwidth] : [])].filter(
-      (f) => !have.has(f.check),
-    );
+    const missing = [
+      ...(analysis?.findings ?? []),
+      ...(bandwidth ? [bandwidth] : []),
+      ...lfeOf(spectra, lfe),
+    ].filter((f) => !have.has(f.check));
     if (missing.length > 0) {
       await tx
         .insert(qaFindings)
@@ -631,18 +653,32 @@ async function backfillFindings(
 
 /**
  * Queue analysis for files measured before the signal checks existed, or before some of them
- * (#41), so their QA view fills in after an upgrade. Instance-wide, a batch at a time; each
- * job reads only its file. Integrity is always recorded, so its absence is what marks them.
+ * (#41, #74), so their QA view fills in after an upgrade. Instance-wide, a batch at a time;
+ * each job reads only its file. Integrity is always recorded, and the LFE check wherever there
+ * is an LFE channel, so their absence is what marks them.
  */
 export async function requeueMissingFindings(db: Database, jobs: Pick<Jobs, "send">) {
+  const lacks = (check: QaCheck) =>
+    sql`not exists (select 1 from ${qaFindings} where ${qaFindings.fileId} = ${peakLevels.fileId}
+        and ${qaFindings.organisationId} = ${peakLevels.organisationId}
+        and ${qaFindings.check} = ${check})`;
+  // Where the file's layout or its ADM bed has an LFE channel, as `lfeChannels` reads them.
+  const layout = sql`${files.mediaInfo}->'audio'->>'channelLayout'`;
+  const adm = sql`${files.mediaInfo}->'metadata'->'adm'`;
+  const hasLfe = sql`(case when jsonb_typeof(${adm}) = 'object'
+    then jsonb_array_length(${adm}->'lfe') > 0
+    else (${layout} in (${sql.join(
+      layoutsWithLfe.map((name) => sql`${name}`),
+      sql`, `,
+    )}) or ${layout} like '%LFE%') end)`;
   const waiting = await db
     .selectDistinct({ organisationId: peakLevels.organisationId, fileId: peakLevels.fileId })
     .from(peakLevels)
-    .where(
-      sql`not exists (select 1 from ${qaFindings} where ${qaFindings.fileId} = ${peakLevels.fileId}
-        and ${qaFindings.organisationId} = ${peakLevels.organisationId}
-        and ${qaFindings.check} = 'integrity')`,
+    .innerJoin(
+      files,
+      and(eq(files.id, peakLevels.fileId), eq(files.organisationId, peakLevels.organisationId)),
     )
+    .where(or(lacks("integrity"), and(hasLfe, lacks("lfe"))))
     .limit(500);
   for (const { organisationId, fileId } of waiting) {
     await jobs.send("media-analysis", { organisationId, fileId }, { singletonKey: fileId });

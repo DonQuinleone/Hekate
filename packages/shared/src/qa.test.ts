@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { LoudnessSummary } from "./loudness.ts";
+import type { MediaInfo } from "./media.ts";
 import {
   type CustomProfile,
   customProfileInput,
   customRef,
+  type DeliveryProfile,
   deliveryFindings,
   deliveryProfiles,
   effectiveProfile,
@@ -121,23 +123,25 @@ describe("delivery profiles per file, track, project and workspace", () => {
       project: "atmos",
       workspace: customRef(vinyl.id),
     } as const;
-    expect(effectiveProfile(all, 2, customs)).toMatchObject({ ref: "cd", source: "file" });
-    expect(effectiveProfile({ ...all, file: null }, 2, customs).source).toBe("track");
-    expect(effectiveProfile({ ...all, file: null, track: null }, 2, customs).source).toBe(
+    expect(effectiveProfile(all, 2, customs, false)).toMatchObject({ ref: "cd", source: "file" });
+    expect(effectiveProfile({ ...all, file: null }, 2, customs, false).source).toBe("track");
+    expect(effectiveProfile({ ...all, file: null, track: null }, 2, customs, false).source).toBe(
       "project",
     );
-    const workspace = effectiveProfile({ workspace: all.workspace }, 2, customs);
+    const workspace = effectiveProfile({ workspace: all.workspace }, 2, customs, false);
     expect(workspace).toMatchObject({ source: "workspace", profile: { label: "Vinyl cut" } });
   });
 
   it("suggests from the channels when nothing chooses, and passes over a deleted profile", () => {
-    expect(effectiveProfile({}, 6, customs)).toMatchObject({
+    expect(effectiveProfile({}, 6, customs, false)).toMatchObject({
       ref: "surround",
       source: "suggested",
     });
     const gone = customRef("0190a6f0-0000-7000-8000-0000000000bb");
     expect(profileFor(gone, customs)).toBeNull();
-    expect(effectiveProfile({ track: gone, project: "cd" }, 2, customs).source).toBe("project");
+    expect(effectiveProfile({ track: gone, project: "cd" }, 2, customs, false).source).toBe(
+      "project",
+    );
   });
 
   it("names built-in and custom profiles alike, and checks a custom one's numbers", () => {
@@ -163,5 +167,92 @@ describe("delivery profiles per file, track, project and workspace", () => {
     };
     const [format] = deliveryFindings(vinyl, info as never, null);
     expect(format).toMatchObject({ check: "format", severity: "pass" });
+  });
+});
+
+describe("layouts and Atmos (#74)", () => {
+  const layout = (channels: number, channelLayout?: string) => ({
+    audio: { codec: "pcm_s24le", channels, sampleRate: 48_000, bitDepth: 24, channelLayout },
+  });
+  const adm = (over: Partial<NonNullable<NonNullable<MediaInfo["metadata"]>["adm"]>> = {}) => ({
+    ...layout(14, "14 channels"),
+    metadata: {
+      tags: {},
+      adm: { bytes: 900, bed: 12, layout: "7.1.4", objects: 2, lfe: [3], dolby: true, ...over },
+    },
+  });
+
+  it("checks how the channels are laid out, where the count is right", () => {
+    const surround = deliveryProfiles.surround;
+    expect(by(deliveryFindings(surround, layout(6, "5.1(side)"), null), "layout")).toMatchObject({
+      severity: "pass",
+      summary: "5.1, as Surround 5.1 asks",
+    });
+    expect(by(deliveryFindings(surround, layout(6, "hexagonal"), null), "layout")).toMatchObject({
+      severity: "fail",
+      summary: "Laid out as 6.0; Surround 5.1 asks for 5.1",
+    });
+    expect(by(deliveryFindings(surround, layout(6), null), "layout")).toMatchObject({
+      severity: "warn",
+      summary: "The file does not say how its 6 channels are laid out; Surround 5.1 asks for 5.1",
+    });
+    // A count the format check fails is not reported twice.
+    expect(by(deliveryFindings(surround, layout(2, "stereo"), null), "layout")).toBeUndefined();
+    expect(
+      by(deliveryFindings(deliveryProfiles.streaming, layout(2, "stereo"), null), "layout"),
+    ).toBeUndefined();
+  });
+
+  it("asks an Atmos delivery for its ADM, and notes one nobody asked for", () => {
+    const atmos = deliveryProfiles.atmos;
+    expect(by(deliveryFindings(atmos, adm(), null), "atmos")).toMatchObject({
+      severity: "pass",
+      summary: "ADM BWF: 7.1.4 bed + 2 objects, with Dolby metadata",
+    });
+    // As many channels as the bed and objects need: the count is no fault.
+    expect(by(deliveryFindings(atmos, adm(), null), "format")?.severity).toBe("pass");
+    expect(by(deliveryFindings(atmos, adm({ dolby: false }), null), "atmos")?.severity).toBe(
+      "warn",
+    );
+    const plain = { ...layout(12, "7.1.4"), metadata: { tags: {}, adm: null } };
+    expect(by(deliveryFindings(atmos, plain, null), "atmos")).toMatchObject({
+      severity: "fail",
+      summary: expect.stringMatching(/^No ADM metadata: /),
+    });
+    // A file read before ADM was is not judged either way.
+    expect(
+      by(deliveryFindings(atmos, { ...plain, metadata: { tags: {} } }, null), "atmos"),
+    ).toBeUndefined();
+    expect(by(deliveryFindings(deliveryProfiles.streaming, adm(), null), "atmos")).toMatchObject({
+      severity: "info",
+      summary: "An ADM master (7.1.4 bed + 2 objects), which Streaming does not ask for",
+    });
+  });
+
+  it("checks an ADM master's bed against a profile's layout, and suggests Atmos for one", () => {
+    const immersive: DeliveryProfile = {
+      ...deliveryProfiles.atmos,
+      label: "Atmos, 7.1.2 bed",
+      layout: "7.1.2",
+    };
+    expect(by(deliveryFindings(immersive, adm(), null), "layout")).toMatchObject({
+      severity: "fail",
+      summary: "Laid out as 7.1.4; Atmos, 7.1.2 bed asks for 7.1.2",
+    });
+    expect(suggestedProfile(10, true)).toBe("atmos");
+    expect(suggestedProfile(10)).toBe("surround");
+    const { id: _, ...input } = {
+      id: "",
+      label: "Atmos 7.1.2",
+      loudness: null,
+      truePeakMax: -1,
+      sampleRates: { rates: [48_000], atLeast: false },
+      bitDepthMin: 24 as const,
+      channels: null,
+    };
+    expect(customProfileInput.safeParse({ ...input, layout: "7.1.2", atmos: true }).success).toBe(
+      true,
+    );
+    expect(customProfileInput.safeParse({ ...input, layout: "6.0" }).success).toBe(false);
   });
 });

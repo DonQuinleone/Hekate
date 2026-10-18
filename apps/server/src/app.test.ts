@@ -12321,6 +12321,46 @@ describe.runIf(url)("api", () => {
           );
           expect(await checks()).toEqual(whole);
 
+          // One whose second channel is its LFE (#74) is queued for the LFE check alone, read
+          // from the stored spectrograms; once it has it, nothing is queued again.
+          const [stereo] = await db
+            .select({ mediaInfo: schema.files.mediaInfo })
+            .from(schema.files)
+            .where(eq(schema.files.id, fileId));
+          const original = stereo?.mediaInfo ?? null;
+          const audioInfo = original?.audio;
+          if (!original || !audioInfo) throw new Error("The file has no audio");
+          await db
+            .update(schema.files)
+            .set({ mediaInfo: { ...original, audio: { ...audioInfo, channelLayout: "FL+LFE" } } })
+            .where(eq(schema.files.id, fileId));
+          const requeue = () =>
+            requeueMissingFindings(db, {
+              send: async (_name, data) => {
+                queued.push((data as { fileId: string }).fileId);
+                return null;
+              },
+            });
+          queued.length = 0;
+          expect(await requeue()).toBe(1);
+          expect(queued).toEqual([fileId]);
+          await analysisHandler({ db, storage, keyring, jobs, workDir: join(storageRoot, "work") })(
+            { organisationId, fileId },
+            { id: "job", signal: new AbortController().signal, retryCount: 0 },
+          );
+          const lfe = await db
+            .select({ channel: schema.qaFindings.channel, severity: schema.qaFindings.severity })
+            .from(schema.qaFindings)
+            .where(and(eq(schema.qaFindings.fileId, fileId), eq(schema.qaFindings.check, "lfe")));
+          // The test tone is full range: no LFE carries that.
+          expect(lfe).toEqual([{ channel: 1, severity: "fail" }]);
+          expect(await checks()).toEqual([...whole, "lfe"].sort());
+          expect(await requeue()).toBe(0);
+          await db
+            .update(schema.files)
+            .set({ mediaInfo: original })
+            .where(eq(schema.files.id, fileId));
+
           // A file not yet analysed has no series, and another organisation's is not there.
           expect((await get(`/api/files/${other.fileId}/loudness/series`, owner)).status).toBe(404);
           const [elsewhere] = await db

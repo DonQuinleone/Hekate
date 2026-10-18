@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { metadataRows, timecodeOf } from "./metadata.ts";
+import { admHeading, admLine, metadataRows, timecodeOf } from "./metadata.ts";
 
 describe("embedded metadata as people read it (#41)", () => {
   it("writes a time reference as timecode, with frames where the rate is known", () => {
@@ -47,5 +47,22 @@ describe("embedded metadata as people read it (#41)", () => {
       ["ISRC", "GBEHR2600001"],
       ["Artwork", "none"],
     ]);
+  });
+});
+
+describe("an ADM master as people read it (#74)", () => {
+  const adm = { bytes: 900, bed: 12, layout: "7.1.4", objects: 2, lfe: [3], dolby: true };
+  it("says its bed, objects, programme and whether Dolby's metadata is there", () => {
+    expect(admLine({ ...adm, programme: "Maple Leaf Rag" })).toBe(
+      "7.1.4 bed + 2 objects · programme “Maple Leaf Rag” · Dolby metadata present",
+    );
+    expect(admHeading(adm)).toBe("ADM · Dolby Atmos");
+    const plain = { ...adm, layout: undefined, bed: 10, objects: 1, dolby: false };
+    expect(admLine(plain)).toBe("10-channel bed + 1 object · no Dolby metadata");
+    expect(admHeading(plain)).toBe("ADM");
+    expect(admLine({ ...adm, objects: 0 })).toBe("7.1.4 bed · Dolby metadata present");
+    expect(admLine({ ...adm, bed: 0, layout: undefined })).toBe(
+      "2 objects · Dolby metadata present",
+    );
   });
 });

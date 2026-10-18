@@ -44,7 +44,10 @@ const categoryCopy: Record<QaCategory, { label: string; hint: string }> = {
 };
 
 const checkHints: Record<BuiltInCheck, string> = {
-  format: "Sample rate, bit depth and layout against the delivery profile",
+  format: "Sample rate, bit depth and channel count against the delivery profile",
+  layout: "How the channels are laid out (5.1, 7.1.4) against the profile",
+  atmos: "ADM metadata for the bed and objects, where the profile asks for Atmos",
+  lfe: "Content on the LFE channel above its 120 Hz crossover, or channels out of order",
   loudness: "Integrated loudness against the profile's target",
   "true-peak": "The highest true peak against the profile's ceiling",
   "dead-channel": "A channel with nothing on it while the others carry the music",
