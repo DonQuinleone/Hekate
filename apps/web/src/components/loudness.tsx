@@ -1,5 +1,6 @@
 import {
   channelNames,
+  FIELD_BINS,
   frameAt,
   type LoudnessSeries,
   type LoudnessSummary,
@@ -9,6 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type MouseEvent, useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
 import { loudnessQuery, loudnessSeriesQuery } from "~/lib/queries";
+import { describeField, fieldOutline, mostlyBeyond, readField } from "~/lib/stereo-field";
 
 /** Meters and the history read from this level up to 0 dB. */
 export const METER_FLOOR = -60;
@@ -292,6 +294,98 @@ function MidSideMeter({ mid, side }: { mid: number; side: number }) {
   );
 }
 
+/** The half disc's radius and the room below and beside it, in the scope's own units. */
+const SCOPE = { radius: 44, x: 50, y: 48 };
+
+/**
+ * The stereo field of the front pair (#34), as a goniometer draws it: mono straight up, the
+ * left and right speakers 45° either side, out of phase flat across; the shape is where the
+ * energy is at the playhead.
+ */
+function StereoField({ shares }: { shares: Float32Array | null }) {
+  const reading = shares ? readField(shares) : { lean: null, beyond: 0 };
+  const words = describeField(reading);
+  const at = (angle: number, r = 1) => ({
+    x: SCOPE.x + SCOPE.radius * r * Math.sin((angle * Math.PI) / 180),
+    y: SCOPE.y - SCOPE.radius * r * Math.cos((angle * Math.PI) / 180),
+  });
+  const outline = shares ? fieldOutline(shares) : [];
+  const trace =
+    outline.length > 0
+      ? `M${SCOPE.x},${SCOPE.y} ${outline
+          .map(
+            (p) =>
+              `L${(SCOPE.x + p.x * SCOPE.radius).toFixed(2)},${(SCOPE.y - p.y * SCOPE.radius).toFixed(2)}`,
+          )
+          .join(" ")} Z`
+      : null;
+  return (
+    <figure className="m-0 flex w-36 flex-col gap-1.5">
+      <figcaption className="label">Stereo field</figcaption>
+      <svg
+        viewBox="0 0 100 52"
+        className="w-full overflow-visible"
+        role="img"
+        aria-label={`Stereo field: ${words}`}
+      >
+        <path
+          d={`M${SCOPE.x - SCOPE.radius},${SCOPE.y} A${SCOPE.radius},${SCOPE.radius} 0 0 1 ${SCOPE.x + SCOPE.radius},${SCOPE.y} Z`}
+          className="fill-raised stroke-hairline"
+          strokeWidth={0.75}
+        />
+        {[-45, 0, 45].map((angle) => {
+          const end = at(angle);
+          return (
+            <line
+              key={angle}
+              x1={SCOPE.x}
+              y1={SCOPE.y}
+              x2={end.x}
+              y2={end.y}
+              className="stroke-edge"
+              strokeWidth={0.75}
+            />
+          );
+        })}
+        {trace && (
+          <path
+            d={trace}
+            className={cn(
+              "stroke-ink-2",
+              mostlyBeyond(reading) ? "fill-signal/40" : "fill-ink-3/50",
+            )}
+            strokeWidth={0.75}
+            strokeLinejoin="round"
+          />
+        )}
+        {(
+          [
+            ["L", -45],
+            ["R", 45],
+          ] as const
+        ).map(([name, angle]) => {
+          const place = at(angle, 1.12);
+          return (
+            <text
+              key={name}
+              x={place.x}
+              y={place.y}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              className="fill-ink-3 text-[7px]"
+            >
+              {name}
+            </text>
+          );
+        })}
+      </svg>
+      <span className="text-[11px] text-ink-2" aria-hidden="true">
+        {words}
+      </span>
+    </figure>
+  );
+}
+
 /** The whole file in four numbers. */
 function Readings({ summary }: { summary: LoudnessSummary }) {
   return (
@@ -390,6 +484,15 @@ export function Loudness({
               />
             ))}
           </ul>
+          {series.hasField && (
+            <StereoField
+              shares={
+                frame === null
+                  ? null
+                  : series.field.subarray(at * FIELD_BINS, (at + 1) * FIELD_BINS)
+              }
+            />
+          )}
           <div className="flex min-w-48 flex-1 flex-col gap-4">
             <div className="grid grid-cols-2 gap-6">
               <Reading label="Momentary" value={formatLevel(live(series.momentary))} unit="LUFS" />

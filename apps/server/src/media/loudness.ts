@@ -1,5 +1,7 @@
 import {
   channelLevels,
+  FIELD_BINS,
+  fieldBin,
   highest,
   type LoudnessSeries,
   type LoudnessSummary,
@@ -114,7 +116,8 @@ export class LoudnessParser {
  * Phase correlation of the first two channels (left and right, or front left and right
  * of a surround layout) over each frame, from interleaved 32-bit float PCM in chunks of
  * any size: +1 is mono, 0 unrelated, -1 out of phase. Silence on either side reads as 0.
- * The same sums give the RMS of the pair's mid, (L+R)/2, and side, (L−R)/2, in dBFS.
+ * The same sums give the RMS of the pair's mid, (L+R)/2, and side, (L−R)/2, in dBFS, and
+ * each sample's energy, by its angle, the stereo field a goniometer draws (`fieldBin`).
  */
 export class PhaseMeter {
   private carry = Buffer.alloc(0);
@@ -127,6 +130,9 @@ export class PhaseMeter {
   private readonly values = new Column();
   private readonly mid = new Column();
   private readonly side = new Column();
+  /** This frame's energy at each angle of the stereo field, and every frame's shares. */
+  private readonly bins = new Float64Array(FIELD_BINS);
+  private readonly field = new Column();
   /** Sample frames (one sample per channel) seen. */
   total = 0;
   readonly channels: number;
@@ -146,9 +152,15 @@ export class PhaseMeter {
         const sample = bytes.readFloatLE(offset);
         if (c === 0) this.left = sample;
         else {
+          const ll = this.left * this.left;
+          const rr = sample * sample;
           this.lr += this.left * sample;
-          this.ll += this.left * this.left;
-          this.rr += sample * sample;
+          this.ll += ll;
+          this.rr += rr;
+          if (ll + rr > 0) {
+            const bin = fieldBin(this.left, sample);
+            this.bins[bin] = (this.bins[bin] as number) + ll + rr;
+          }
         }
       }
       this.channel += 1;
@@ -170,17 +182,32 @@ export class PhaseMeter {
     const n = Math.max(1, this.frames);
     this.mid.set(at, powerToDb((this.ll + 2 * this.lr + this.rr) / 4 / n));
     this.side.set(at, powerToDb((this.ll - 2 * this.lr + this.rr) / 4 / n));
+    const total = this.ll + this.rr;
+    for (let b = 0; b < FIELD_BINS; b++) {
+      this.field.set(at * FIELD_BINS + b, total > 0 ? (this.bins[b] as number) / total : 0);
+    }
+    this.bins.fill(0);
     this.frames = 0;
     this.lr = 0;
     this.ll = 0;
     this.rr = 0;
   }
 
-  finish(count: number): { phase: Float32Array; mid: Float32Array; side: Float32Array } {
+  finish(count: number): {
+    phase: Float32Array;
+    mid: Float32Array;
+    side: Float32Array;
+    field: Float32Array;
+  } {
     if (this.frames > 0) this.emit();
     const pair = this.channels >= 2;
-    const column = (c: Column) => (pair ? c.toArray(count) : new Float32Array(0));
-    return { phase: column(this.values), mid: column(this.mid), side: column(this.side) };
+    const column = (c: Column, per = 1) => (pair ? c.toArray(count * per) : new Float32Array(0));
+    return {
+      phase: column(this.values),
+      mid: column(this.mid),
+      side: column(this.side),
+      field: column(this.field, FIELD_BINS),
+    };
   }
 }
 
@@ -217,6 +244,7 @@ export function finishLoudness(
     count,
     hasPhase: parsed.channels >= 2,
     hasMidSide: parsed.channels >= 2,
+    hasField: parsed.channels >= 2,
     ...columns,
     ...phase.finish(count),
   };
