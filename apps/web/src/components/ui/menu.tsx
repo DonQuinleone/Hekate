@@ -143,12 +143,15 @@ export function Dropdown({
   size = "md",
   variant = "ghost",
   label,
+  above = false,
   className,
 }: {
   value: ReactNode;
   actions: (MenuAction | "divider")[];
   align?: "left" | "right";
   size?: "sm" | "md";
+  /** Opens upward, where the space below is cut off (inside the player's frame). */
+  above?: boolean;
   variant?: "ghost" | "field";
   /** What the control chooses, for a screen reader, where no label is beside it. */
   label?: string;
@@ -195,7 +198,7 @@ export function Dropdown({
           actions={actions}
           onClose={() => setOpen(false)}
           align={align}
-          className={field ? "min-w-full" : undefined}
+          className={cn(field && "min-w-full", above && "bottom-full mt-0 mb-1")}
         />
       )}
     </div>

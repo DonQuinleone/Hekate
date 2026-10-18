@@ -25,6 +25,7 @@ import {
   playbackQuery,
 } from "~/lib/queries";
 import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
+import { followRate } from "~/lib/speed";
 import { audioBuffer, preferredRendition } from "./player";
 import { Button } from "./ui/button";
 
@@ -141,6 +142,8 @@ export function Follower({
     audio.addEventListener("canplay", ready);
     audio.addEventListener("error", failed);
     mute();
+    // At the player's speed (#15), pitch kept, so the passage compared is heard alike.
+    const unfollow = followRate(master, audio);
     // Loops and seeks move the master; drift is put right a few times a second.
     const timer = window.setInterval(() => {
       if (master.paused) return;
@@ -155,6 +158,7 @@ export function Follower({
       master.removeEventListener("pause", pause);
       master.removeEventListener("seeked", sync);
       master.removeEventListener("volumechange", mute);
+      unfollow();
       audio.removeEventListener("canplay", ready);
       audio.removeEventListener("error", failed);
       window.clearInterval(timer);
