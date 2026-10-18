@@ -8581,6 +8581,162 @@ describe.runIf(url)("api", () => {
           expect(still?.status).toBe("open");
         });
 
+        it("shares a track with the people a stage names, and files it in a folder (#25)", async () => {
+          const s = await studio();
+          const at = (id: string, type: string, name: string, x: number, config = {}) => ({
+            id,
+            type,
+            name,
+            x,
+            y: 0,
+            config,
+          });
+          const switchOn = async (name: string, nodes: unknown[], connectors: unknown[]) => {
+            const made = (await (
+              await app.request(
+                `/api/projects/${s.projectId}/workflows`,
+                json({ name, definition: { nodes, connectors } }, s.owner),
+              )
+            ).json()) as { workflow: { id: string } };
+            await app.request(`/api/workflows/${made.workflow.id}`, {
+              ...json({ active: true }, s.owner),
+              method: "PATCH",
+            });
+          };
+          const folder = async (name: string, parentId?: string) =>
+            (
+              (await (
+                await app.request(
+                  `/api/projects/${s.projectId}/folders`,
+                  json({ name, ...(parentId ? { parentId } : {}) }, s.owner),
+                )
+              ).json()) as { folder: { id: string } }
+            ).folder.id;
+          const masters = await folder("Masters");
+          const final = await folder("Final", masters);
+          // Siblings differing only by case: one written exactly is found, none is guessed.
+          await folder("masters");
+          await folder("FINAL", masters);
+          const [mira] = await db
+            .insert(schema.guests)
+            .values({
+              organisationId: s.organisationId,
+              name: "Mira Solberg",
+              email: "mira@example.test",
+            })
+            .returning();
+          await switchOn(
+            "Deliver",
+            [
+              at("start", "upload", "A version is uploaded", 0),
+              at("send", "share", "Send to the label", 1, {
+                to: "Reviewer, Mira Solberg (guest), Ines Arlow <ines@example.test>",
+                expires: "7",
+              }),
+              at("file", "move", "File it", 2, { folder: "Masters / Final" }),
+              at("done", "finish", "Delivered", 3, { status: "Delivered" }),
+            ],
+            [
+              { id: "1", from: "start", outcome: "happened", to: "send" },
+              { id: "2", from: "send", outcome: "sent", to: "file" },
+              { id: "3", from: "file", outcome: "moved", to: "done" },
+            ],
+          );
+          await switchOn(
+            "Misfile",
+            [
+              at("start", "upload", "A version is uploaded", 0),
+              at("file", "move", "Put it away", 1, { folder: "Nowhere" }),
+              at("guess", "move", "Guess", 2, { folder: "MASTERS/Final" }),
+              at("done", "finish", "Done", 3),
+            ],
+            [
+              { id: "1", from: "start", outcome: "happened", to: "file" },
+              { id: "2", from: "file", outcome: "moved", to: "guess" },
+              { id: "3", from: "guess", outcome: "moved", to: "done" },
+            ],
+          );
+          await app.request(
+            `/api/tracks/${s.trackId}/versions`,
+            json({ variations: [{ fileId: s.artwork, name: "Mix" }] }, s.owner),
+          );
+
+          // A share, of the new version, for the project's reviewers and both guests, for a week.
+          const [share] = await db
+            .select({ id: schema.reviews.id, title: schema.reviews.title })
+            .from(schema.reviews)
+            .where(
+              and(eq(schema.reviews.projectId, s.projectId), eq(schema.reviews.kind, "share")),
+            );
+          expect(share?.title).toBe("Send to the label: Maple Leaf Rag");
+          const people = await db
+            .select({
+              userId: schema.reviewReviewers.userId,
+              email: schema.guests.email,
+              name: schema.guests.name,
+              permissions: schema.reviewReviewers.permissions,
+            })
+            .from(schema.reviewReviewers)
+            .leftJoin(schema.guests, eq(schema.guests.id, schema.reviewReviewers.guestId))
+            .where(eq(schema.reviewReviewers.reviewId, share?.id ?? ""));
+          expect(
+            people
+              .filter((p) => p.userId)
+              .map((p) => p.userId)
+              .sort(),
+          ).toEqual([s.ids.composer, s.ids.accompanist].sort());
+          expect(
+            people
+              .filter((p) => p.email)
+              .map((p) => [p.name, p.email])
+              .sort(),
+          ).toEqual([
+            ["Ines Arlow", "ines@example.test"],
+            ["Mira Solberg", mira?.email],
+          ]);
+          for (const p of people) {
+            const until = Date.parse(p.permissions.expiresAt ?? "");
+            expect(until).toBeGreaterThan(Date.now() + 6 * 86_400_000);
+            expect(until).toBeLessThan(Date.now() + 8 * 86_400_000);
+          }
+
+          // Filed in Masters/Final, each written exactly though its siblings differ by case.
+          const [track] = await db
+            .select({ folderId: schema.tracks.folderId, status: schema.tracks.workflowStatus })
+            .from(schema.tracks)
+            .where(eq(schema.tracks.id, s.trackId));
+          expect(track?.folderId).toBe(final);
+
+          // A folder that is not there, or that only a guess would find, is told to whoever
+          // started the run, which carries on.
+          const told = await db
+            .select({ text: schema.notifications.text, detail: schema.notifications.detail })
+            .from(schema.notifications)
+            .where(
+              and(
+                eq(schema.notifications.userId, s.ids.owner),
+                eq(schema.notifications.kind, "workflow"),
+              ),
+            );
+          expect(told.sort((a, b) => a.text.localeCompare(b.text))).toEqual([
+            {
+              text: "Guess could not move Maple Leaf Rag",
+              detail:
+                "Several folders are called MASTERS; the stage must name one exactly as it is written.",
+            },
+            {
+              text: "Put it away could not move Maple Leaf Rag",
+              detail: "The project has no folder Nowhere.",
+            },
+          ]);
+          const states = (
+            (await (await getAs(`/api/tracks/${s.trackId}/workflow-runs`, s.owner)).json()) as {
+              runs: { state: string }[];
+            }
+          ).runs.map((r) => r.state);
+          expect(states).toEqual(["finished", "finished"]);
+        });
+
         it("tells whoever started the run when a stage's review cannot be asked (#25)", async () => {
           const s = await studio();
           const definition = {
@@ -8628,7 +8784,7 @@ describe.runIf(url)("api", () => {
             {
               text: "Soloists could not ask for its review",
               detail:
-                "No role or group of the project is called Soloists. It waits to be ended by hand.",
+                "No role, group or guest of the project is called Soloists. It waits to be ended by hand.",
             },
           ]);
         });

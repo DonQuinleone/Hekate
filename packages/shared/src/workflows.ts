@@ -620,6 +620,45 @@ export const workflowChangeInput = z.object({
 });
 export type WorkflowChange = z.infer<typeof workflowChangeInput>;
 
+/** Someone a stage's *who* or *to* names, as written there. */
+export type NamedPerson =
+  /** A role or a group of the project, by name ("Producer", "Soloists"). */
+  | { kind: "name"; name: string }
+  /** A guest of the workspace, by the name they are known by ("Mira Solberg (guest)"). */
+  | { kind: "guest"; name: string }
+  /** A guest by email ("mira@example.test", or "Mira Solberg <mira@example.test>"). */
+  | { kind: "email"; email: string; name?: string };
+
+/**
+ * The people a stage's *who* or *to* names (decision 121), separated by commas: roles and groups
+ * of the project by name, guests by the name they are known by followed by "(guest)", and anyone
+ * by email, with their name before it in angle brackets where they are new.
+ */
+export function namedPeople(text: string | undefined): NamedPerson[] {
+  // Read with string operations rather than patterns, which slow down on long crafted input.
+  const isEmail = (s: string) => {
+    const at = s.indexOf("@");
+    return at > 0 && at === s.lastIndexOf("@") && at < s.length - 1 && !/[\s<>]/.test(s);
+  };
+  return (text ?? "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part): NamedPerson => {
+      const open = part.lastIndexOf("<");
+      if (open >= 0 && part.endsWith(">")) {
+        const email = part.slice(open + 1, -1).trim();
+        const name = part.slice(0, open).trim();
+        if (isEmail(email))
+          return { kind: "email", email: email.toLowerCase(), ...(name ? { name } : {}) };
+      }
+      if (isEmail(part)) return { kind: "email", email: part.toLowerCase() };
+      const guest = part.toLowerCase().endsWith("(guest)") ? part.slice(0, -7).trim() : "";
+      if (guest) return { kind: "guest", name: guest };
+      return { kind: "name", name: part };
+    });
+}
+
 /**
  * The clock a node starts when a run reaches it (decision 120): a wait runs its days and ends
  * elapsed; a feedback or task stage given days until it is due ends overdue when they pass,
