@@ -6,7 +6,18 @@
  */
 
 import { open } from "node:fs/promises";
-import { type EmbeddedMetadata, layoutOf } from "@hekate/shared";
+import {
+  type EmbeddedMetadata,
+  layoutOf,
+  MAX_BEXT,
+  MAX_CHUNKS,
+  MAX_IXML,
+  parseBext,
+  parseIxml,
+} from "@hekate/shared";
+
+// Read here as in a browser (#45); kept under these names for the tests.
+export { parseBext, parseIxml };
 
 type Bext = NonNullable<EmbeddedMetadata["bext"]>;
 type Ixml = NonNullable<EmbeddedMetadata["ixml"]>;
@@ -15,43 +26,16 @@ type Tags = EmbeddedMetadata["tags"];
 
 /** Longest value kept of any one field; metadata is shown, not archived. */
 const MAX_VALUE = 500;
-/** Most of a bext chunk read: its fixed part and a generous coding history. */
-const MAX_BEXT = 64 * 1024;
-/** Most of an iXML chunk read for its fields; its size is still reported whole. */
-const MAX_IXML = 1024 * 1024;
 /** Most of an axml chunk read; an hour of moving objects can run to megabytes. */
 const MAX_AXML = 16 * 1024 * 1024;
 /** Most chna entries read: far more tracks than any ADM master carries. */
 const MAX_CHNA_ENTRIES = 4096;
-/** Most chunks walked in a file, so a malformed one cannot keep the reader going. */
-const MAX_CHUNKS = 1000;
 
 const clean = (text: string) => {
   const end = text.indexOf("\0");
   const value = (end >= 0 ? text.slice(0, end) : text).trim().slice(0, MAX_VALUE);
   return value || undefined;
 };
-
-/** A bext chunk's fields (EBU Tech 3285), from its body. Exported for tests. */
-export function parseBext(body: Buffer): Bext | undefined {
-  // The fixed part runs to the coding history at byte 602; anything shorter is not bext.
-  if (body.length < 602) return undefined;
-  const text = (from: number, to: number) => clean(body.subarray(from, to).toString("latin1"));
-  const bext: Bext = {};
-  const set = <K extends keyof Bext>(key: K, value: Bext[K] | undefined) => {
-    if (value !== undefined) bext[key] = value;
-  };
-  set("description", text(0, 256));
-  set("originator", text(256, 288));
-  set("originatorReference", text(288, 320));
-  set("originationDate", text(320, 330));
-  set("originationTime", text(330, 338));
-  const reference = body.readUInt32LE(342) * 2 ** 32 + body.readUInt32LE(338);
-  // Zero is midnight, as good a start as any.
-  if (Number.isSafeInteger(reference)) bext.timeReference = reference;
-  set("codingHistory", text(602, body.length));
-  return bext;
-}
 
 const entities: Record<string, string> = {
   "&amp;": "&",
@@ -73,25 +57,6 @@ function element(xml: string, name: string): string | undefined {
   if (close < 0) return undefined;
   const raw = xml.slice(start, Math.min(close, start + MAX_VALUE * 2));
   return clean(raw.replace(/&(amp|lt|gt|quot|apos);/g, (e) => entities[e] ?? e));
-}
-
-/** An iXML chunk's fields an editor reads first. Exported for tests. */
-export function parseIxml(body: Buffer, bytes: number): Ixml {
-  const xml = body.toString("utf8");
-  const ixml: Ixml = { bytes };
-  const fields = [
-    ["project", "PROJECT"],
-    ["scene", "SCENE"],
-    ["take", "TAKE"],
-    ["tape", "TAPE"],
-    ["note", "NOTE"],
-    ["timecodeRate", "TIMECODE_RATE"],
-  ] as const;
-  for (const [key, name] of fields) {
-    const value = element(xml, name);
-    if (value !== undefined) ixml[key] = value;
-  }
-  return ixml;
 }
 
 /** One track of an ADM master, as its chna chunk lists it. */

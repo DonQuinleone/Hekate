@@ -5,6 +5,7 @@ import { type FormEvent, useState } from "react";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { PageHeader } from "~/components/page-header";
+import { TakeImportDialog } from "~/components/take-import";
 import { Rating } from "~/components/takes";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/choice";
@@ -44,21 +45,32 @@ const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? on
 export function SessionsPage({ projectId }: { projectId: string }) {
   const can = useProjectCan(projectId);
   const [making, setMaking] = useState(false);
+  const [importing, setImporting] = useState(false);
   const { data: sessions, error } = useQuery({
     ...projectSessionsQuery(projectId),
     enabled: can("view_takes"),
   });
   const canEdit = can("edit_takes");
+  // Importing uploads the takes' files, which needs the project's upload permission too.
+  const canImport = canEdit && can("upload");
   return (
     <ProjectFrame
       projectId={projectId}
       title="Sessions"
       actions={
         canEdit && sessions && sessions.length > 0 ? (
-          <Button variant="secondary" size="sm" onClick={() => setMaking(true)}>
-            <Icon name="plus" size={14} />
-            New session
-          </Button>
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setMaking(true)}>
+              <Icon name="plus" size={14} />
+              New session
+            </Button>
+            {canImport && (
+              <Button variant="secondary" size="sm" onClick={() => setImporting(true)}>
+                <Icon name="upload" size={14} />
+                Import takes
+              </Button>
+            )}
+          </>
         ) : undefined
       }
     >
@@ -76,12 +88,22 @@ export function SessionsPage({ projectId }: { projectId: string }) {
           ) : sessions.length === 0 ? (
             <Empty
               title="No sessions yet"
-              text="A session is a day or a sitting: where it was, the tracks it recorded, and the takes made in it."
+              text="A session is a day or a sitting: where it was, the tracks it recorded, and the takes made in it. Import a day's recordings to make them, or make one by hand."
               action={
                 canEdit && !project.archivedAt ? (
-                  <Button variant="primary" onClick={() => setMaking(true)}>
-                    New session
-                  </Button>
+                  <span className="flex flex-wrap justify-center gap-2">
+                    {canImport && (
+                      <Button variant="primary" onClick={() => setImporting(true)}>
+                        Import takes
+                      </Button>
+                    )}
+                    <Button
+                      variant={canImport ? "secondary" : "primary"}
+                      onClick={() => setMaking(true)}
+                    >
+                      New session
+                    </Button>
+                  </span>
                 ) : undefined
               }
             />
@@ -122,6 +144,9 @@ export function SessionsPage({ projectId }: { projectId: string }) {
             </ul>
           )}
           {making && <SessionDialog projectId={project.id} onClose={() => setMaking(false)} />}
+          {importing && (
+            <TakeImportDialog projectId={project.id} onClose={() => setImporting(false)} />
+          )}
         </div>
       )}
     </ProjectFrame>

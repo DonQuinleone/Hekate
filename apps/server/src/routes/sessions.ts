@@ -4,17 +4,19 @@ import {
   type SessionSummary,
   sessionChangeInput,
   sessionInput,
+  takeImportInput,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, max, sql } from "drizzle-orm";
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, can, lockLiveProject } from "../access.ts";
 import { NotFound } from "../errors.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { takeRowsFor } from "./takes.ts";
 
-const { files, sessions, sessionTracks, takes, tracks } = schema;
+const { files, sessions, sessionTracks, takes, tracks, variations } = schema;
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
@@ -157,6 +159,119 @@ export const projectSessionRoutes = (db: Database) =>
         await sessionOf(db, organisationId, id),
       ]);
       return c.json({ session: summary }, 201);
+    })
+    .post("/:id/takes/import", idParam, zValidator("json", takeImportInput), async (c) => {
+      const organisationId = c.var.organisationId;
+      const projectId = c.req.valid("param").id;
+      await can(db, actorOf(c.var), "edit_takes", projectId);
+      const wanted = c.req.valid("json").takes;
+      const fileIds = [...new Set(wanted.map((t) => t.fileId))];
+      if (fileIds.length !== wanted.length)
+        throw new HTTPException(422, { message: "A file is one take" });
+      const trackIds = [...new Set(wanted.map((t) => t.trackId))].sort();
+      const sessionIds = [
+        ...new Set(wanted.map((t) => t.sessionId).filter((s): s is string => s !== null)),
+      ];
+      const result = await db.transaction(async (tx) => {
+        await lockLiveProject(tx, organisationId, projectId);
+        // Under the tracks' locks, taken in one order, so imports at once number in turn.
+        const found = await tx
+          .select({ id: tracks.id })
+          .from(tracks)
+          .where(
+            inOrg(
+              tracks,
+              organisationId,
+              eq(tracks.projectId, projectId),
+              inArray(tracks.id, trackIds),
+            ),
+          )
+          .orderBy(asc(tracks.id))
+          .for("update");
+        if (found.length !== trackIds.length) throw new NotFound("Track");
+        if (sessionIds.length > 0) {
+          const known = await tx
+            .select({ id: sessions.id })
+            .from(sessions)
+            .where(
+              inOrg(
+                sessions,
+                organisationId,
+                eq(sessions.projectId, projectId),
+                inArray(sessions.id, sessionIds),
+              ),
+            );
+          if (known.length !== sessionIds.length) throw new NotFound("Session");
+        }
+        const chosen = await tx
+          .select({ id: files.id, kind: files.kind, takeId: files.takeId })
+          .from(files)
+          .where(
+            inOrg(
+              files,
+              organisationId,
+              eq(files.projectId, projectId),
+              inArray(files.id, fileIds),
+            ),
+          )
+          .for("update");
+        if (chosen.length !== fileIds.length) throw new NotFound("File");
+        if (chosen.some((f) => f.kind !== "audio" && f.kind !== "video"))
+          throw new HTTPException(422, { message: "A take is a recording: audio or video" });
+        const used = await tx
+          .select({ id: variations.fileId })
+          .from(variations)
+          .where(inOrg(variations, organisationId, inArray(variations.fileId, fileIds)));
+        if (used.length > 0)
+          throw new HTTPException(409, { message: "A version's file cannot also be a take" });
+        // A file that is a take already was imported before: carrying on, not doing it twice.
+        const already = new Set(chosen.filter((f) => f.takeId).map((f) => f.id));
+        const numbers = new Map(
+          (
+            await tx
+              .select({ trackId: takes.trackId, n: max(takes.number) })
+              .from(takes)
+              .where(inOrg(takes, organisationId, inArray(takes.trackId, trackIds)))
+              .groupBy(takes.trackId)
+          ).map((r) => [r.trackId, r.n ?? 0]),
+        );
+        let imported = 0;
+        for (const entry of wanted) {
+          if (already.has(entry.fileId)) continue;
+          const number = (numbers.get(entry.trackId) ?? 0) + 1;
+          numbers.set(entry.trackId, number);
+          const [take] = await tx
+            .insert(takes)
+            .values({
+              organisationId,
+              trackId: entry.trackId,
+              sessionId: entry.sessionId,
+              number,
+              label: entry.label || null,
+            })
+            .returning({ id: takes.id });
+          await tx
+            .update(files)
+            .set({ takeId: take?.id ?? null, isTakeMix: true, updatedAt: new Date() })
+            .where(inOrg(files, organisationId, eq(files.id, entry.fileId)));
+          imported += 1;
+        }
+        // Each session recorded the tracks of the takes it brings.
+        const pairs = wanted.filter((t) => t.sessionId !== null && !already.has(t.fileId));
+        if (pairs.length > 0)
+          await tx
+            .insert(sessionTracks)
+            .values(
+              pairs.map((t) => ({
+                organisationId,
+                sessionId: t.sessionId as string,
+                trackId: t.trackId,
+              })),
+            )
+            .onConflictDoNothing();
+        return { imported, skipped: already.size };
+      });
+      return c.json(result, 201);
     });
 
 /** `/api/sessions/:id`: one session with its takes, changing it, or removing it. */

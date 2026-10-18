@@ -7829,6 +7829,112 @@ describe.runIf(url)("api", () => {
           expect(kept).toEqual({ sessionId: null });
         });
 
+        it("imports takes: each file the next take of its track, in its session, once (#45)", async () => {
+          const s = await studio();
+          const file = async (name: string, kind: "audio" | "document" = "audio") => {
+            const blob = await storage.put(s.organisationId, Buffer.from(name));
+            const [row] = await db
+              .insert(schema.files)
+              .values({
+                organisationId: s.organisationId,
+                projectId: s.projectId,
+                name,
+                kind,
+                blobId: blob.id,
+                contentType: kind === "audio" ? "audio/wav" : "text/plain",
+                byteSize: blob.byteSize,
+              })
+              .returning();
+            return row?.id ?? "";
+          };
+          const [t27, t28, notes] = [
+            await file("T27_Mix.wav"),
+            await file("T28_Mix.wav"),
+            await file("Notes.txt", "document"),
+          ];
+          const send = (body: unknown, cookie = s.engineer) =>
+            app.request(`/api/projects/${s.projectId}/takes/import`, json(body, cookie));
+          const made = await app.request(
+            `/api/projects/${s.projectId}/sessions`,
+            json({ name: "Day 3", recordedOn: "2026-10-14" }, s.engineer),
+          );
+          const sessionId = ((await made.json()) as { session: { id: string } }).session.id;
+          const both = {
+            takes: [
+              { fileId: t27, trackId: s.trackId, sessionId, label: "T27" },
+              { fileId: t28, trackId: s.trackId, sessionId, label: "T28" },
+            ],
+          };
+
+          // A reviewer may not; nor may anyone with a stray track, session or file.
+          expect((await send(both, s.composer)).status).toBe(403);
+          const stray = "0199f000-0000-7000-8000-000000000001";
+          for (const take of [
+            { fileId: t27, trackId: stray, sessionId },
+            { fileId: t27, trackId: s.trackId, sessionId: stray },
+            { fileId: stray, trackId: s.trackId, sessionId },
+          ])
+            expect((await send({ takes: [take] })).status).toBe(404);
+          expect(
+            (await send({ takes: [{ fileId: notes, trackId: s.trackId, sessionId: null }] }))
+              .status,
+          ).toBe(422);
+          expect((await send({ takes: [both.takes[0], both.takes[0]] })).status).toBe(422);
+
+          const done = await send(both);
+          expect(done.status).toBe(201);
+          expect(await done.json()).toEqual({ imported: 2, skipped: 0 });
+          const takes = (await (
+            await getAs(`/api/tracks/${s.trackId}/takes`, s.engineer)
+          ).json()) as {
+            takes: { number: number; label: string; sessionId: string; file: { id: string } }[];
+          };
+          expect(takes.takes.map((t) => [t.number, t.label, t.sessionId, t.file.id])).toEqual([
+            [1, "T27", sessionId, t27],
+            [2, "T28", sessionId, t28],
+          ]);
+          // The session recorded the track its takes are of.
+          const session = (await (
+            await getAs(`/api/sessions/${sessionId}`, s.engineer)
+          ).json()) as {
+            session: { tracks: { id: string }[]; takes: number };
+          };
+          expect(session.session).toMatchObject({ tracks: [{ id: s.trackId }], takes: 2 });
+
+          // Sent again, as an import carrying on after a break would: nothing made twice.
+          expect(await (await send(both)).json()).toEqual({ imported: 0, skipped: 2 });
+
+          // Another workspace's file is not found from here.
+          const [elsewhere] = await db
+            .insert(schema.organisations)
+            .values({ name: "Elsewhere", slug: "elsewhere-import" })
+            .returning();
+          const blob = await storage.put(elsewhere?.id ?? "", Buffer.from("theirs"));
+          const [foreignProject] = await db
+            .insert(schema.projects)
+            .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+            .returning();
+          const [foreign] = await db
+            .insert(schema.files)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              projectId: foreignProject?.id ?? "",
+              name: "Theirs.wav",
+              kind: "audio",
+              blobId: blob.id,
+              contentType: "audio/wav",
+              byteSize: blob.byteSize,
+            })
+            .returning();
+          expect(
+            (
+              await send({
+                takes: [{ fileId: foreign?.id ?? "", trackId: s.trackId, sessionId: null }],
+              })
+            ).status,
+          ).toBe(404);
+        });
+
         it("reads a version's edit decision list and says which take each edit comes from (#56)", async () => {
           const s = await studio();
           const upload = async (name: string, body: string, mediaInfo?: unknown) => {

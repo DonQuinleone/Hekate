@@ -27,7 +27,7 @@ export default defineConfig({
           items: ["operate/backup", "operate/upgrades", "operate/keys", "operate/monitoring"],
         },
         { label: "Security", items: ["security/model", "security/reporting"] },
-        { label: "Use", items: ["use/reviews", "use/guests"] },
+        { label: "Use", items: ["use/reviews", "use/takes", "use/guests"] },
       ],
     }),
   ],
