@@ -9,6 +9,7 @@ import {
   carriedChannel,
   carrySettles,
   commentExportQuery,
+  commentSheetQuery,
   commentTodoInput,
   createCommentInput,
   deferralAfter,
@@ -34,11 +35,13 @@ import { z } from "zod";
 import { actorOf, canOnFile } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { hopsOf, lockTrackOfFile, versionNumbersOf } from "../carry.ts";
+import { commentSheet } from "../comment-sheet.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
 import type { Mailer } from "../mail.ts";
 import { type NotificationActor, notifyNow, projectPeople } from "../notifications.ts";
 import { referencesOfFile } from "../references.ts";
+import { requesterOf } from "../requester.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { sharedTakesOf } from "./takes.ts";
 
@@ -48,9 +51,12 @@ const {
   commentCarries,
   commentCategories,
   files,
+  organisations,
   projects,
   users,
   guests,
+  variations,
+  versions,
 } = schema;
 const resolver = alias(users, "resolver");
 const assignee = alias(users, "assignee");
@@ -584,6 +590,85 @@ export const fileCommentRoutes = (
       );
       return c.body(out.bytes as Uint8Array<ArrayBuffer>, 200, {
         "content-type": out.contentType,
+        "content-disposition": attachment(out.filename),
+        "cache-control": "no-store",
+      });
+    })
+    /**
+     * The same threads as a sheet to print (#134): a PDF made here, stamped with the
+     * workspace, the project, who asked and when. Exporting by another name, so it is
+     * triage's, and in the access log as an export.
+     */
+    .get("/:id/comments/sheet", idParam, zValidator("query", commentSheetQuery), async (c) => {
+      const organisationId = c.var.organisationId;
+      const fileId = c.req.valid("param").id;
+      const actor = c.var.actor;
+      const access = await canOnFile(db, actor, "triage", fileId);
+      const [file] = await db
+        .select({
+          name: files.name,
+          kind: files.kind,
+          mediaInfo: files.mediaInfo,
+          projectId: files.projectId,
+          project: projects.name,
+          workspace: organisations.name,
+        })
+        .from(files)
+        .innerJoin(
+          projects,
+          and(eq(projects.id, files.projectId), eq(projects.organisationId, organisationId)),
+        )
+        .innerJoin(organisations, eq(organisations.id, files.organisationId))
+        .where(inOrg(files, organisationId, eq(files.id, fileId)));
+      if (!file) throw new NotFound("File");
+      const [variation] = await db
+        .select({ number: versions.number, name: variations.name })
+        .from(variations)
+        .innerJoin(
+          versions,
+          and(eq(versions.id, variations.versionId), eq(versions.organisationId, organisationId)),
+        )
+        .where(inOrg(variations, organisationId, eq(variations.fileId, fileId)));
+      const options = c.req.valid("query");
+      const threads = threadsForExport(
+        await threadsOn(db, organisationId, actor, access, fileId),
+        (file.mediaInfo?.audio?.channels ?? 0) >= 2 && file.mediaInfo?.audio
+          ? speakersOf(file.mediaInfo.audio)
+          : [],
+      ).map((t) => (options.replies ? t : { ...t, replies: [] }));
+      const out = commentSheet({
+        file: {
+          name: file.name,
+          version: variation ? `V${variation.number} · ${variation.name}` : null,
+        },
+        workspace: file.workspace,
+        project: file.project,
+        requestedBy: await requesterOf(db, actor, file.projectId),
+        generatedAt: new Date(),
+        scope: options.threads,
+        threads,
+        fps: file.kind === "video" ? (file.mediaInfo?.video?.fps ?? null) : null,
+      });
+      await audit.record(
+        organisationId,
+        await audit.actor(
+          actor.kind === "guest"
+            ? { kind: "guest", guestId: actor.guestId }
+            : { userId: actor.userId },
+        ),
+        {
+          action: "comment.export",
+          projectId: file.projectId,
+          fileId,
+          details: {
+            target: "sheet",
+            threads: threads.filter((t) => options.threads === "all" || !t.resolved).length,
+          },
+        },
+        requestInfo(c, trustProxy),
+      );
+      return c.body(new Uint8Array(out.body), 200, {
+        "content-type": "application/pdf",
         "content-disposition": attachment(out.filename),
         "cache-control": "no-store",
       });

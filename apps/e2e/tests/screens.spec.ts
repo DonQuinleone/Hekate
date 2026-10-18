@@ -1471,8 +1471,15 @@ test("file-export-comments", async ({ page }) => {
   await saveScreen(page, "file-export-comments-for");
   await checkScreen(page);
   await dialog.getByRole("menuitemradio", { name: "DaVinci Resolve" }).click();
+  // The same threads on paper (#134), whatever the application.
+  await expect(dialog.getByRole("link", { name: "Printable sheet" })).toHaveAttribute(
+    "href",
+    /\/comments\/sheet\?threads=open&replies=false$/,
+  );
   await dialog.getByLabel("Time base").selectOption("timecode-hour");
   await expect(dialog.getByText("FCM: NON-DROP FRAME")).toBeVisible();
+  // The thread about the left channel names it as the recording does (#74).
+  await expect(dialog.getByText(/\|M:\[L\] /)).toBeVisible();
   await saveScreen(page, "file-export-comments");
   await checkScreen(page);
   const [download] = await Promise.all([

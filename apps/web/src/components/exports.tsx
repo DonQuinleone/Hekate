@@ -9,6 +9,7 @@ import {
   frameRates,
   type MediaInfo,
   nearestFrameRate,
+  speakersOf,
   threadsForExport,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -111,7 +112,11 @@ export function ExportCommentsDialog({
     rate,
     encoding,
   };
-  const threads = comments ? threadsForExport(comments) : [];
+  // Channels by the recording's own speakers, as the server's download names them (#74).
+  const audio = file.mediaInfo?.audio;
+  const threads = comments
+    ? threadsForExport(comments, audio && audio.channels >= 2 ? speakersOf(audio) : [])
+    : [];
   const out = comments ? exportComments(threads, source, options) : null;
   const preview = out?.text?.split(/\r?\n/).filter(Boolean).slice(0, PREVIEW_LINES) ?? [];
 
@@ -124,6 +129,10 @@ export function ExportCommentsDialog({
     ...(choices.encoding ? { encoding } : {}),
   });
   const href = `/api/files/${file.id}/comments/export?${query}`;
+  const sheetHref = `/api/files/${file.id}/comments/sheet?${new URLSearchParams({
+    threads: options.threads,
+    replies: String(options.replies),
+  })}`;
   const roots = threads.length;
   const empty = out !== null && out.written === 0;
 
@@ -136,6 +145,12 @@ export function ExportCommentsDialog({
         <>
           <Button variant="ghost" onClick={onClose}>
             Cancel
+          </Button>
+          {/* The same threads on paper (#134), whatever the application; made by the server. */}
+          <Button variant="secondary" asChild>
+            <a href={sheetHref} download>
+              Printable sheet
+            </a>
           </Button>
           {out && !empty ? (
             <Button variant="primary" asChild>
