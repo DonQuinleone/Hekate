@@ -5,8 +5,10 @@ import {
   createVersionInput,
   deliveryProfileChoice,
   effectiveProfile,
+  type GivenEdl,
   isPdf,
   type ProjectPermission,
+  parseCmx3600,
   replaceVariationInput,
   trackNormalisationInput,
   trackReferencesInput,
@@ -25,11 +27,13 @@ import { actorOf, can } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { carryPreview, carryThreads } from "../carry.ts";
 import { assertProfileRef, customProfilesOf } from "../delivery-profiles.ts";
+import { readEdlFile } from "../edl-file.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import type { Jobs } from "../jobs.ts";
 import type { Mailer } from "../mail.ts";
 import { metrics } from "../metrics/index.ts";
 import { follow, followersOf, notifyNow } from "../notifications.ts";
+import type { Storage } from "../storage.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { trackStandings } from "../track-standing.ts";
 import { folderIn, lockProject } from "./folders.ts";
@@ -248,6 +252,7 @@ export const trackRoutes = (
   mail: { mailer: Mailer; publicUrl: string },
   audit: Audit,
   trustProxy: boolean,
+  storage: Storage,
 ) =>
   new Hono<{ Variables: TenantVariables }>()
     .get("/:id", idParam, async (c) => {
@@ -387,6 +392,20 @@ export const trackRoutes = (
             ),
           ),
         );
+      // Where the project asks for a list, it is read as well (#56): how many edits it holds,
+      // and where the last one ends, to set against the version's length.
+      let given: GivenEdl | null = null;
+      if (input.edlFileId) {
+        const list = project?.requireEdl
+          ? await readEdlFile(db, storage, organisationId, input.edlFileId)
+          : null;
+        const events = list ? parseCmx3600(list.text).events : [];
+        given = {
+          name: list?.name ?? "The edit decision list",
+          edits: events.length,
+          end: Math.max(0, ...events.map((e) => e.recordOut)),
+        };
+      }
       const refusals = versionRefusals(
         { truePeak: Boolean(project?.checkTruePeak), edl: Boolean(project?.requireEdl) },
         // Each file against its own profile, else this track's, the project's or the workspace's.
@@ -424,8 +443,17 @@ export const trackRoutes = (
             : f.analysisStatus === "failed" || f.analysisStatus === "none"
               ? null
               : undefined,
+          // Undefined until the worker has probed it, as for its channels.
+          duration:
+            f.kind !== "audio" && f.kind !== "video"
+              ? null
+              : f.mediaInfo
+                ? (f.mediaInfo.duration ?? null)
+                : f.streamStatus === "failed" || f.analysisStatus === "failed"
+                  ? null
+                  : undefined,
         })),
-        Boolean(input.edlFileId),
+        given,
       );
       const letThrough = refusals.length > 0 && input.letThrough === true;
       if (refusals.length > 0 && !letThrough) {
