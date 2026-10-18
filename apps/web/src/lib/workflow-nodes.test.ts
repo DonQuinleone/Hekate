@@ -12,6 +12,7 @@ import {
   outcomeWords,
   outPort,
   walkLine,
+  walkQuestions,
   withConfig,
   withConnector,
   withCopy,
@@ -202,5 +203,31 @@ describe("walking an item through", () => {
     expect(
       walkLine(flow, { kind: "do", nodeId: "fb", type: "notify", config: { to: "Producer" } }),
     ).toBe("“Conductor”: Producer told.");
+  });
+
+  it("asks for the tags and the decider its conditions test, each once", () => {
+    const flow: WorkflowDefinition = {
+      ...newWorkflowDefinition(),
+      connectors: [
+        { id: "c1", from: "a", outcome: "x", to: "b", condition: { test: "tag", is: "Urgent" } },
+        {
+          id: "c2",
+          from: "a",
+          outcome: "y",
+          to: "c",
+          condition: { test: "tag", is: "urgent", not: true },
+        },
+        { id: "c3", from: "b", outcome: "x", to: "c", condition: { test: "kind", is: "video" } },
+      ],
+    };
+    expect(walkQuestions(flow)).toEqual({ tags: ["Urgent"], asksWho: false });
+    const withWho: WorkflowDefinition = {
+      ...flow,
+      connectors: [
+        ...flow.connectors,
+        { id: "c4", from: "c", outcome: "x", to: "a", condition: { test: "by", is: "guest" } },
+      ],
+    };
+    expect(walkQuestions(withWho).asksWho).toBe(true);
   });
 });

@@ -19,6 +19,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { Icon } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { Button } from "~/components/ui/button";
+import { Choice } from "~/components/ui/choice";
 import { Input, Select } from "~/components/ui/input";
 import { Dropdown } from "~/components/ui/menu";
 import { Committed, StepField } from "~/components/workflow-fields";
@@ -44,6 +45,7 @@ import {
   pickerGroups,
   portTop,
   walkLine,
+  walkQuestions,
   withConfig,
   withCopy,
   withLink,
@@ -141,11 +143,21 @@ interface AddAt {
 type MenuItem = { label: string; danger?: boolean; onSelect: () => void } | "divider";
 
 type ItemKind = WorkflowContext["item"]["kind"];
+type Decider = NonNullable<WorkflowContext["by"]>;
+type WalkItem = Pick<Walk, "kind" | "tags" | "by">;
+const walkContext = (w: WalkItem): WorkflowContext => ({
+  item: { kind: w.kind, tags: w.tags },
+  by: w.by,
+});
 
 /** An item walked through a workflow by the engine itself, as a run would take it. */
 interface Walk {
   flowId: string;
   kind: ItemKind;
+  /** The item's tags, among those the workflow's conditions test. */
+  tags: string[];
+  /** Who makes its decisions, for conditions that ask. */
+  by: Decider;
   run: WorkflowRun | null;
   /** The nodes it has reached. */
   reached: string[];
@@ -409,6 +421,7 @@ export function WorkflowCanvas({
         setLinking(null);
         setPicking(null);
         setSelection(null);
+        setWalk(null);
       },
     },
     {
@@ -521,20 +534,26 @@ export function WorkflowCanvas({
   };
 
   /* The walk-through: the engine's own steps, with the outcome chosen at each. */
-  const startWalk = (flowId: string, kind: ItemKind = walk?.kind ?? "audio") => {
+  const startWalk = (flowId: string, change: Partial<WalkItem> = {}) => {
+    const item: WalkItem = {
+      kind: walk?.kind ?? "audio",
+      tags: walk?.flowId === flowId ? walk.tags : [],
+      by: walk?.by ?? "member",
+      ...change,
+    };
     const flow = flowById(flowId)?.definition;
     const trigger = flow ? triggersOf(flow)[0] : undefined;
     setPicking(null);
     setSelection(null);
     if (!flow || !trigger) {
-      setWalk({ flowId, kind, run: null, reached: [], log: [], refused: "Nothing starts it." });
+      setWalk({ flowId, ...item, run: null, reached: [], log: [], refused: "Nothing starts it." });
       return;
     }
     try {
-      const { run, effects } = startRun(flow, trigger.id, { item: { kind, tags: [] } });
+      const { run, effects } = startRun(flow, trigger.id, walkContext(item));
       setWalk({
         flowId,
-        kind,
+        ...item,
         run,
         reached: [trigger.id, ...effects.flatMap((e) => ("nodeId" in e ? [e.nodeId] : []))],
         log: [`${trigger.name}.`, ...effects.flatMap((e) => walkLine(flow, e) ?? [])],
@@ -542,7 +561,7 @@ export function WorkflowCanvas({
     } catch (failure) {
       setWalk({
         flowId,
-        kind,
+        ...item,
         run: null,
         reached: [],
         log: [],
@@ -555,9 +574,7 @@ export function WorkflowCanvas({
     const node = flow?.nodes.find((n) => n.id === nodeId);
     if (!walk?.run || !flow || !node) return;
     try {
-      const { run, effects } = completeNode(flow, walk.run, nodeId, outcome, {
-        item: { kind: walk.kind, tags: [] },
-      });
+      const { run, effects } = completeNode(flow, walk.run, nodeId, outcome, walkContext(walk));
       setWalk({
         ...walk,
         run,
@@ -956,7 +973,7 @@ export function WorkflowCanvas({
               walk={walk}
               flow={flowById(walk.flowId)}
               onAdvance={advance}
-              onKind={(kind) => startWalk(walk.flowId, kind)}
+              onItem={(change) => startWalk(walk.flowId, change)}
               onRestart={() => startWalk(walk.flowId)}
               onClose={() => setWalk(null)}
             />
@@ -1333,17 +1350,18 @@ function WalkPanel({
   walk,
   flow,
   onAdvance,
-  onKind,
+  onItem,
   onRestart,
   onClose,
 }: {
   walk: Walk;
   flow?: WorkflowSummary;
   onAdvance: (nodeId: string, outcome: string) => void;
-  onKind: (kind: ItemKind) => void;
+  onItem: (change: Partial<WalkItem>) => void;
   onRestart: () => void;
   onClose: () => void;
 }) {
+  const asks = flow ? walkQuestions(flow.definition) : { tags: [], asksWho: false };
   const waiting = (walk.run?.active ?? [])
     .map((id) => flow?.definition.nodes.find((n) => n.id === id))
     .filter((n): n is WorkflowNode => Boolean(n));
@@ -1357,7 +1375,7 @@ function WalkPanel({
             className="w-auto"
             size="sm"
             value={walk.kind}
-            onChange={(e) => onKind(e.target.value as ItemKind)}
+            onChange={(e) => onItem({ kind: e.target.value as ItemKind })}
           >
             <option value="audio">audio</option>
             <option value="video">video</option>
@@ -1365,6 +1383,44 @@ function WalkPanel({
             <option value="image">a picture</option>
           </Select>
         </label>
+        {asks.asksWho && (
+          <label className="flex items-center gap-2 text-[12px] text-ink-3">
+            Decisions are made by
+            <Select
+              className="w-auto"
+              size="sm"
+              value={walk.by}
+              onChange={(e) => onItem({ by: e.target.value as Decider })}
+            >
+              <option value="member">a member</option>
+              <option value="guest">a guest</option>
+            </Select>
+          </label>
+        )}
+        {asks.tags.length > 0 && (
+          <fieldset className="m-0 flex flex-wrap gap-x-4 gap-y-2 border-0 p-0">
+            <legend className="mb-2 p-0 text-[12px] text-ink-3">It is tagged</legend>
+            {asks.tags.map((tag) => {
+              const on = walk.tags.some((t) => t.toLowerCase() === tag.toLowerCase());
+              return (
+                <Choice
+                  key={tag}
+                  className="text-[13px]"
+                  checked={on}
+                  onChange={() =>
+                    onItem({
+                      tags: on
+                        ? walk.tags.filter((t) => t.toLowerCase() !== tag.toLowerCase())
+                        : [...walk.tags, tag],
+                    })
+                  }
+                >
+                  {tag}
+                </Choice>
+              );
+            })}
+          </fieldset>
+        )}
         {walk.refused ? (
           <p className="m-0 rounded-panel border border-signal/40 bg-signal/10 px-3 py-2 text-[12px] text-ink">
             It cannot run: {walk.refused}

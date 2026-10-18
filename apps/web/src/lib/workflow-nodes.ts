@@ -416,6 +416,23 @@ export function outcomeWords(type: NodeType, outcome: string): string {
   return nodeTypes[type].kind === "event" ? "It happens" : "It is done";
 }
 
+/**
+ * What a walk must ask beyond the item's kind: the tags the workflow's conditions test (each
+ * once, as first written), and whether any condition asks who made the decision.
+ */
+export function walkQuestions(flow: WorkflowDefinition): { tags: string[]; asksWho: boolean } {
+  const tags = new Map<string, string>();
+  let asksWho = false;
+  for (const c of flow.connectors) {
+    if (c.condition?.test === "tag") {
+      const key = c.condition.is.toLowerCase();
+      if (!tags.has(key)) tags.set(key, c.condition.is);
+    }
+    if (c.condition?.test === "by") asksWho = true;
+  }
+  return { tags: [...tags.values()], asksWho };
+}
+
 /** One thing a run does, as the walk tells it; null for what needs no telling. */
 export function walkLine(flow: WorkflowDefinition, effect: WorkflowEffect): string | null {
   switch (effect.kind) {
