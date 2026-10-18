@@ -1,11 +1,27 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { createReviewInput, type OrganisationRole } from "@hekate/shared";
+import {
+  createReviewInput,
+  type GuestInput,
+  namedPeople,
+  type OrganisationRole,
+  type ReviewerInput,
+  reviewerKey,
+} from "@hekate/shared";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { recordNotification } from "./notifications.ts";
 import { type ReviewDeps, requestReview } from "./routes/reviews.ts";
 
-const { groups, members, projectMembers, projectRoles, reviews, tracks, versions, workflows } =
-  schema;
+const {
+  groups,
+  guests,
+  members,
+  projectMembers,
+  projectRoles,
+  reviews,
+  tracks,
+  versions,
+  workflows,
+} = schema;
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
@@ -45,12 +61,14 @@ const dueIn = (days: string | undefined) => {
 };
 
 /**
- * Asks for the review an approval or feedback stage stands for (#25, decision 118), as the
- * member the run started with (else whoever made the workflow): of the track's version the run
- * is about, from the people its `who` names (roles, or groups, by name, separated by commas),
- * all at once or in turn, approved when everyone or any one approves, due in its days. When it
- * cannot be asked (nobody named, nobody to ask it as), the stage waits to be ended by hand and
- * the run's starter is told why.
+ * Asks for the review an approval or feedback stage stands for (#25, decision 118), or makes
+ * the share a share stage stands for (decision 121), as the member the run started with (else
+ * whoever made the workflow): of the track's version the run is about, for the people its `who`
+ * (a share's `to`) names: roles and groups of the project by name, and guests by name or email
+ * (`namedPeople`). A review is asked all at once or in turn, approved when everyone or any one
+ * approves, due in its days; a share lasts its days. When it cannot be made (nobody named,
+ * nobody to make it as), the run's starter is told why; a review's stage waits to be ended by
+ * hand, and a share's run has already carried on.
  */
 export async function askForStageReview(
   deps: { db: Database; reviews: ReviewDeps },
@@ -61,7 +79,7 @@ export async function askForStageReview(
     runId: string;
     nodeId: string;
     nodeName: string;
-    kind: "approval" | "feedback";
+    kind: "approval" | "feedback" | "share";
     config: Record<string, string>;
     versionId: string | null;
     startedBy: string | null;
@@ -86,8 +104,11 @@ export async function askForStageReview(
       actor: null,
       projectId,
       trackId: at.trackId,
-      text: `${at.nodeName} could not ask for its review`,
-      detail: `${why} It waits to be ended by hand.`,
+      text:
+        at.kind === "share"
+          ? `${at.nodeName} could not share the track`
+          : `${at.nodeName} could not ask for its review`,
+      detail: at.kind === "share" ? why : `${why} It waits to be ended by hand.`,
       link: `/tracks/${at.trackId}`,
     });
   };
@@ -99,11 +120,8 @@ export async function askForStageReview(
     : [];
   if (!asWho || !member) return tell("Nobody who started the run is still in the workspace.");
 
-  const names = (at.config.who ?? "")
-    .split(",")
-    .map((n) => n.trim())
-    .filter(Boolean);
-  const lower = names.map((n) => n.toLowerCase());
+  const named = namedPeople(at.kind === "share" ? at.config.to : at.config.who);
+  const lower = named.flatMap((n) => (n.kind === "name" ? [n.name.toLowerCase()] : []));
   const byRole = await db
     .select({ userId: projectMembers.userId, role: projectRoles.name })
     .from(projectMembers)
@@ -120,14 +138,41 @@ export async function askForStageReview(
   const people = [
     ...new Set(byRole.filter((r) => lower.includes(r.role.toLowerCase())).map((r) => r.userId)),
   ];
-  const named = await db
+  const projectGroups = await db
     .select({ id: groups.id, name: groups.name })
     .from(groups)
     .where(inOrg(groups, organisationId, eq(groups.projectId, projectId)));
-  const teams = named.filter((g) => lower.includes(g.name.toLowerCase())).map((g) => g.id);
-  if (people.length === 0 && teams.length === 0)
+  const teams = projectGroups.filter((g) => lower.includes(g.name.toLowerCase())).map((g) => g.id);
+  // Guests are the workspace's, found by the name they are known by or by email; someone new
+  // by email becomes one, as when a person asks them.
+  const known = named.some((n) => n.kind !== "name")
+    ? await db
+        .select({ name: guests.name, email: guests.email })
+        .from(guests)
+        .where(inOrg(guests, organisationId))
+    : [];
+  const outside: GuestInput[] = named.flatMap((n): GuestInput[] => {
+    if (n.kind === "guest") {
+      const guest = known.find((g) => g.name.toLowerCase() === n.name.toLowerCase());
+      return guest ? [{ name: guest.name, email: guest.email }] : [];
+    }
+    if (n.kind !== "email") return [];
+    const guest = known.find((g) => g.email === n.email);
+    return [{ name: guest?.name ?? n.name ?? n.email.split("@")[0] ?? n.email, email: n.email }];
+  });
+  const everyone: ReviewerInput[] = [
+    ...people,
+    ...outside,
+    ...teams.map((groupId) => ({ groupId })),
+  ];
+  const reviewers = everyone.filter(
+    (r, i) => everyone.findIndex((o) => reviewerKey(o) === reviewerKey(r)) === i,
+  );
+  if (reviewers.length === 0)
     return tell(
-      `No role or group of the project is called ${names.join(", ") || "anything it names"}.`,
+      `No role, group or guest of the project is called ${
+        named.map((n) => ("email" in n ? n.email : n.name)).join(", ") || "anything it names"
+      }.`,
     );
 
   const [version] = at.versionId
@@ -142,14 +187,16 @@ export async function askForStageReview(
     .select({ name: tracks.name })
     .from(tracks)
     .where(inOrg(tracks, organisationId, eq(tracks.id, at.trackId)));
+  const expires = dueIn(at.config.expires);
   const parsed = createReviewInput.safeParse({
     kind: at.kind,
-    title: `${at.nodeName}: ${track?.name ?? "a track"}`.slice(0, 200),
+    title: `${at.nodeName}: ${track?.name ?? "a track"}`.slice(0, 160),
     order: /turn/i.test(at.config.order ?? "") ? "sequence" : "parallel",
     ...(at.kind === "approval" ? { rule: /any/i.test(at.config.rule ?? "") ? "any" : "all" } : {}),
-    dueAt: dueIn(at.config.due),
+    dueAt: at.kind === "share" ? undefined : dueIn(at.config.due),
     items: [{ trackId: at.trackId, ...(version ? { versionId: version.id } : {}) }],
-    reviewers: [...people, ...teams.map((groupId) => ({ groupId }))],
+    reviewers,
+    ...(at.kind === "share" && expires ? { permissions: { expiresAt: expires } } : {}),
   });
   if (!parsed.success)
     return tell(parsed.error.issues[0]?.message ?? "The review did not fit together.");
@@ -160,7 +207,8 @@ export async function askForStageReview(
       projectId,
       parsed.data,
       {},
-      { runId: at.runId, nodeId: at.nodeId },
+      // A share asks nothing, so nothing waits on it: the run has already carried on.
+      at.kind === "share" ? undefined : { runId: at.runId, nodeId: at.nodeId },
     );
   } catch (failure) {
     await tell(failure instanceof Error ? `${failure.message}.`.replace(/\.\.$/, ".") : "");

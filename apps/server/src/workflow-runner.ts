@@ -26,6 +26,7 @@ const {
   organisations,
   fileTags,
   files,
+  folders,
   projectMembers,
   projectRoles,
   tags,
@@ -241,9 +242,22 @@ async function apply(
         who,
         `${node(effect.nodeId)?.name ?? "A stage"} on ${track?.name ?? "a track"} is yours`,
       );
+    } else if (effect.kind === "do" && effect.type === "move") {
+      try {
+        await moveTrack(tx, { organisationId, projectId, trackId }, effect.config.folder);
+      } catch (failure) {
+        // A folder that is not there is told, and the run carries on; anything else (the
+        // database failing) fails the step, as the transaction can no longer go on.
+        if (!(failure instanceof MoveRefused)) throw failure;
+        await tell(
+          row.startedBy ? [row.startedBy] : [],
+          `${node(effect.nodeId)?.name ?? "A stage"} could not move ${track?.name ?? "the track"}`,
+          failure.message,
+        );
+      }
     } else if (
-      effect.kind === "start" &&
-      (effect.type === "approval" || effect.type === "feedback")
+      (effect.kind === "start" && (effect.type === "approval" || effect.type === "feedback")) ||
+      (effect.kind === "do" && effect.type === "share")
     ) {
       const reviews = deps.reviews;
       const kind = effect.type;
@@ -284,6 +298,48 @@ async function apply(
     }
   }
   return after;
+}
+
+/** Why a move stage could not move its track: told to whoever started the run. */
+class MoveRefused extends Error {}
+
+/**
+ * A move stage (decision 121): the track filed in the folder its `folder` names, by its path from
+ * the top of the project ("Masters", or "Masters/2026"); an empty one is the top itself. The
+ * folder is held while the track moves, so it cannot be deleted under it.
+ */
+async function moveTrack(
+  tx: Tx,
+  at: { organisationId: string; projectId: string; trackId: string },
+  path: string | undefined,
+) {
+  const names = (path ?? "")
+    .split("/")
+    .map((n) => n.trim())
+    .filter(Boolean);
+  let folderId: string | null = null;
+  for (const name of names) {
+    const [folder]: { id: string }[] = await tx
+      .select({ id: folders.id })
+      .from(folders)
+      .where(
+        inOrg(
+          folders,
+          at.organisationId,
+          eq(folders.projectId, at.projectId),
+          folderId === null ? isNull(folders.parentId) : eq(folders.parentId, folderId),
+          sql`lower(${folders.name}) = ${name.toLowerCase()}`,
+        ),
+      )
+      .limit(1)
+      .for("share");
+    if (!folder) throw new MoveRefused(`The project has no folder ${names.join("/")}.`);
+    folderId = folder.id;
+  }
+  await tx
+    .update(tracks)
+    .set({ folderId, updatedAt: new Date() })
+    .where(inOrg(tracks, at.organisationId, eq(tracks.id, at.trackId)));
 }
 
 async function runAfter(after: After[]) {

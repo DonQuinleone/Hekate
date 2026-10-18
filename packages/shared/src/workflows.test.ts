@@ -4,6 +4,7 @@ import {
   completeNode,
   flowShape,
   measuredState,
+  namedPeople,
   simulateWorkflow,
   stageClock,
   startRun,
@@ -383,5 +384,29 @@ describe("stageClock", () => {
     expect(at("approval", { due: "3" })).toBeNull();
     expect(at("checks")).toBeNull();
     expect(at("notify")).toBeNull();
+  });
+});
+
+describe("namedPeople", () => {
+  it("reads roles and groups, guests by name, and anyone by email", () => {
+    expect(
+      namedPeople(
+        "Producer, Soloists ,Mira Solberg (guest), tomas@example.test, Ines Arlow <INES@example.test>",
+      ),
+    ).toEqual([
+      { kind: "name", name: "Producer" },
+      { kind: "name", name: "Soloists" },
+      { kind: "guest", name: "Mira Solberg" },
+      { kind: "email", email: "tomas@example.test" },
+      { kind: "email", email: "ines@example.test", name: "Ines Arlow" },
+    ]);
+  });
+
+  it("names nobody where nothing is written", () => {
+    expect(namedPeople(undefined)).toEqual([]);
+    expect(namedPeople(" , ")).toEqual([]);
+    expect(namedPeople("<alex@example.test>")).toEqual([
+      { kind: "email", email: "alex@example.test" },
+    ]);
   });
 });
