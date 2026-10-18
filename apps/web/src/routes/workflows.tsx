@@ -3,6 +3,7 @@ import {
   outcomesOf,
   type WorkflowDefinition,
   type WorkflowSummary,
+  workflowFromYaml,
   workflowProblems,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -12,9 +13,11 @@ import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { Button } from "~/components/ui/button";
 import { Select } from "~/components/ui/input";
+import { Dropdown } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
 import { Switch } from "~/components/ui/toggle";
 import { WorkflowCanvas } from "~/components/workflow-canvas";
+import { WorkflowCode } from "~/components/workflow-code";
 import { Committed, StepField } from "~/components/workflow-fields";
 import { cn } from "~/lib/cn";
 import {
@@ -24,6 +27,7 @@ import {
   useProjectCan,
   useWorkflowMutations,
 } from "~/lib/queries";
+import { workflowTemplates } from "~/lib/workflow-code";
 import {
   basicSteps,
   familyOf,
@@ -40,7 +44,7 @@ const body =
 
 const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-export type WorkflowView = "basic" | "advanced";
+export type WorkflowView = "basic" | "advanced" | "code";
 
 /** A record without one of its entries. */
 const forget = <T,>(record: Record<string, T>, id: string) => {
@@ -120,7 +124,8 @@ function useDrafts(projectId: string, workflows: WorkflowSummary[] | undefined) 
 /**
  * A project's workflows (#26), as the prototype's builder shows them: drawn on a canvas (the
  * advanced view), or each as a list of steps with who, when and what happens changed in place
- * (the basic view). Built by those who edit workflows; seen by those who run the project's roles.
+ * (the basic view), or each as its file (the code view, #145). Built by those who edit
+ * workflows; seen by those who run the project's roles.
  */
 export function WorkflowsPage({
   projectId,
@@ -147,6 +152,14 @@ export function WorkflowsPage({
       { name: "New workflow", definition: newWorkflowDefinition() },
       { onSuccess: (made) => setFocus(made.id) },
     );
+  const fromTemplate = (text: string) => {
+    const read = workflowFromYaml(text);
+    if (read.ok)
+      create.mutate(
+        { name: read.name, definition: read.definition },
+        { onSuccess: (made) => setFocus(made.id) },
+      );
+  };
   const setView = (next: WorkflowView, flowId?: string) => {
     if (flowId) setFocus(flowId);
     void navigate({
@@ -177,6 +190,7 @@ export function WorkflowsPage({
             options={[
               { value: "basic", label: "Basic" },
               { value: "advanced", label: "Advanced" },
+              { value: "code", label: "Code" },
             ]}
             onChange={(next) => setView(next)}
           />
@@ -186,6 +200,15 @@ export function WorkflowsPage({
       {(project) => {
         const editing = mayEdit && !project.archivedAt;
         const shown = drafts.shown;
+        if (mayView && !error && workflows && workflows.length > 0 && view === "code")
+          return (
+            <WorkflowCode
+              projectId={projectId}
+              workflows={workflows}
+              editing={editing}
+              focus={focus}
+            />
+          );
         if (mayView && !error && shown && shown.length > 0 && view === "advanced")
           return (
             <div className="flex h-full min-h-0 flex-col">
@@ -232,9 +255,18 @@ export function WorkflowsPage({
                   text="A workflow carries a track from one stage to the next as versions arrive: who is asked, what is checked, the status it sets, and where it finishes."
                   action={
                     editing ? (
-                      <Button variant="primary" onClick={newWorkflow} disabled={create.isPending}>
-                        New workflow
-                      </Button>
+                      <div className="flex flex-wrap items-center justify-center gap-2">
+                        <Button variant="primary" onClick={newWorkflow} disabled={create.isPending}>
+                          New workflow
+                        </Button>
+                        <Dropdown
+                          value="From a template"
+                          actions={workflowTemplates.map((t) => ({
+                            label: t.name,
+                            onSelect: () => fromTemplate(t.text),
+                          }))}
+                        />
+                      </div>
                     ) : undefined
                   }
                 />
