@@ -106,6 +106,7 @@ describe("a workflow's rules (#25, decision 040)", () => {
         wire("5", "after", "set", "b"),
         wire("6", "b", "done", "gone"),
         wire("7", "lost", "sent", "idle"),
+        wire("7", "a", "happened", "end"),
       ],
     };
     const texts = workflowProblems(broken).map((p) => `${p.level}: ${p.text}`);
@@ -117,6 +118,7 @@ describe("a workflow's rules (#25, decision 040)", () => {
         "error: A connector leaves “Edit” by an outcome it does not have.",
         "error: A connector joins a node that is gone.",
         "warning: The loop back to “Edit” has no way out: give it a bound.",
+        "error: Two connectors are called 7.",
       ]),
     );
     expect(workflowProblems({ groups: [], nodes: [], connectors: [] })[0]?.text).toBe(
@@ -234,6 +236,44 @@ describe("running a workflow (#25)", () => {
     // The finish waits for nothing once a branch reaches it: it ends the run.
     expect(read(effects)).toEqual(["cancel fb", "finish Closed"]);
     expect(run.state).toBe("finished");
+  });
+
+  it("waits at a join for a sibling branch, whichever connector comes first", () => {
+    const flow: WorkflowDefinition = {
+      groups: [],
+      nodes: [
+        node("s", "manual", "Started by hand", 0),
+        node("mix", "task", "Mix", 2),
+        node("notes", "task", "Sleeve notes", 1),
+        node("tell", "notify", "Tell the label", 1),
+        node("end", "finish", "Done", 3),
+      ],
+      connectors: [
+        // Listed before the branch that also leads to the mix.
+        wire("1", "s", "happened", "mix"),
+        wire("2", "s", "happened", "notes"),
+        wire("3", "s", "happened", "tell"),
+        wire("4", "notes", "done", "mix"),
+        wire("5", "tell", "sent", "mix"),
+        wire("6", "mix", "done", "end"),
+      ],
+    };
+    let { run, effects } = startRun(flow, "s", plain);
+    // The notice is sent at once and the notes are under way: the mix waits for them.
+    expect(read(effects)).toEqual(["start notes", "do tell"]);
+    expect(run).toMatchObject({ active: ["notes"], joining: ["mix"] });
+    ({ run, effects } = completeNode(flow, run, "notes", "done", plain));
+    expect(read(effects)).toEqual(["start mix"]);
+  });
+
+  it("will not start a workflow that breaks a rule", () => {
+    const flow = {
+      ...album,
+      connectors: [...album.connectors, wire("x", "c1", "approved", "edit")],
+    };
+    expect(() => startRun(flow, "start", plain)).toThrow(
+      "A connector leaves “Conductor, round one” by an outcome it does not have.",
+    );
   });
 
   it("refuses what the run is not waiting for", () => {

@@ -277,6 +277,13 @@ export function workflowProblems(flow: WorkflowDefinition): WorkflowProblem[] {
       out.push({ nodeId: n.id, level: "error", text: `Two nodes are called ${n.id}.` });
     ids.add(n.id);
   }
+  // A loop's bound is counted by its connector, so no two may share an id.
+  const wires = new Set<string>();
+  for (const c of flow.connectors) {
+    if (wires.has(c.id))
+      out.push({ connectorId: c.id, level: "error", text: `Two connectors are called ${c.id}.` });
+    wires.add(c.id);
+  }
   const groups = new Set(flow.groups.map((g) => g.id));
   if (triggersOf(flow).length === 0)
     out.push({
@@ -398,6 +405,8 @@ export function startRun(
   triggerId: string,
   ctx: WorkflowContext,
 ): { run: WorkflowRun; effects: WorkflowEffect[] } {
+  const error = workflowProblems(flow).find((p) => p.level === "error");
+  if (error) throw new WorkflowError(error.text);
   if (!triggersOf(flow).some((t) => t.id === triggerId))
     throw new WorkflowError(`${triggerId} does not start this workflow`);
   const run: WorkflowRun = { state: "running", active: [], joining: [], taken: {}, status: null };
@@ -445,8 +454,15 @@ function step(
   let steps = 0;
 
   /** Whether a node the run is on can still lead to `id` (a join waits for it). */
+  /** Nodes reached by the outcome being followed and not yet entered. */
+  let arriving: string[] = [];
+  /**
+   * Whether anything the run is on can still lead to `id`, so a join there waits for it: the
+   * nodes it waits on, the other joins, the siblings arriving with it, and the immediate
+   * actions whose outcomes are still to be followed.
+   */
   const pendingFor = (id: string) =>
-    [...run.active, ...run.joining.filter((j) => j !== id)].some(
+    [...run.active, ...run.joining, ...arriving, ...queue.map((q) => q.from)].some(
       (other) => other !== id && reaches(flow, other, id, loops),
     );
 
@@ -530,15 +546,24 @@ function step(
     }
     steps += 1;
     if (steps > STEP_CAP) throw new WorkflowError("The workflow does not settle: check its loops");
+    // Every connector the outcome takes is decided first, so each node it reaches knows of
+    // its siblings before a join is judged ready.
+    const targets: string[] = [];
     for (const c of flow.connectors) {
       if (c.from !== next.from || c.outcome !== next.outcome) continue;
       if (c.condition && !conditionHolds(c.condition, ctx)) continue;
       const taken = run.taken[c.id] ?? 0;
       if (taken >= Math.min(c.until?.times ?? LOOP_CAP, LOOP_CAP)) continue;
       run.taken[c.id] = taken + 1;
-      arrive(c.to);
+      targets.push(c.to);
+    }
+    arriving = [...targets];
+    for (const id of targets) {
+      arriving = arriving.filter((a) => a !== id);
+      arrive(id);
       if (run.state !== "running") break;
     }
+    arriving = [];
   }
   if (run.state === "running" && run.active.length === 0 && run.joining.length === 0) {
     run.state = "stopped";
