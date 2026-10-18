@@ -2,6 +2,8 @@ import { type Database, inOrg, schema } from "@hekate/db";
 import {
   applyQaSettings,
   deliveryFindings,
+  findingChanges,
+  mapTime,
   orderFindings,
   type QaFinding,
   qaSettingsOf,
@@ -12,7 +14,8 @@ import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { type Actor, canOnFile, mayUseTool, toolRefused } from "../access.ts";
+import { type Actor, canOnFile, fileAccess, mayUseTool, toolRefused } from "../access.ts";
+import { alignmentsFrom } from "../alignment-graph.ts";
 import { profilesForFiles } from "../delivery-profiles.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
@@ -121,6 +124,66 @@ export const fileQaRoutes = (db: Database) =>
       const report = await qaReportOf(db, c.var.organisationId, id);
       if (!report) throw new HTTPException(409, { message: "Only audio is checked" });
       return c.json(report);
+    })
+    // What the checks found fixed and new since the previous version of the same track
+    // (#43), as the compare page says it: the earlier version's times carried to this one's
+    // by the alignment, where there is one. Only for those who may open the earlier version.
+    .get("/:id/qa/changes", idParam, async (c) => {
+      const { id } = c.req.valid("param");
+      const org = c.var.organisationId;
+      const access = await canOnFile(db, c.var.actor, "view", id);
+      if (!mayUseTool(access, "qa")) throw toolRefused(access);
+      const none = { previous: null, measured: false, fixed: [], new: [] };
+      const [mine] = await db
+        .select({ trackId: versions.trackId, number: versions.number, name: variations.name })
+        .from(variations)
+        .innerJoin(
+          versions,
+          and(eq(versions.id, variations.versionId), eq(versions.organisationId, org)),
+        )
+        .where(inOrg(variations, org, eq(variations.fileId, id)));
+      if (!mine) return c.json(none);
+      // The version just before, and in it the variation of the same name, else its primary.
+      const earlier = await db
+        .select({
+          number: versions.number,
+          fileId: variations.fileId,
+          name: variations.name,
+          isPrimary: variations.isPrimary,
+        })
+        .from(versions)
+        .innerJoin(
+          variations,
+          and(eq(variations.versionId, versions.id), eq(variations.organisationId, org)),
+        )
+        .where(inOrg(versions, org, eq(versions.trackId, mine.trackId)));
+      const previousNumber = Math.max(
+        0,
+        ...earlier.filter((v) => v.number < mine.number).map((v) => v.number),
+      );
+      const candidates = earlier.filter((v) => v.number === previousNumber);
+      const previous =
+        candidates.find((v) => v.name === mine.name) ?? candidates.find((v) => v.isPrimary);
+      // Only where the viewer may open the earlier version too: a guest's review may not give it.
+      if (!previous || !(await fileAccess(db, c.var.actor, previous.fileId))) return c.json(none);
+      const [before, now] = await Promise.all([
+        qaReportOf(db, org, previous.fileId),
+        qaReportOf(db, org, id),
+      ]);
+      if (!before || !now) return c.json(none);
+      const reached = (await alignmentsFrom(db, org, previous.fileId)).find((r) => r.fileId === id);
+      const changes = findingChanges(
+        before.findings,
+        now.findings,
+        reached?.points ? (t) => mapTime(reached.points, t) : undefined,
+      );
+      return c.json({
+        previous: { number: previous.number, name: previous.name },
+        /** Both versions measured, so nothing found means nothing there. */
+        measured: before.status === "ready" && now.status === "ready",
+        fixed: changes.fixed,
+        new: changes.new,
+      });
     })
     // The same report to take away (#43): PDF to read, CSV for a spreadsheet, JSON for a
     // program, stamped with the workspace, the project and who asked for it.

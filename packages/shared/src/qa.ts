@@ -18,6 +18,8 @@ export type QaSeverity = (typeof qaSeverities)[number];
 
 export const qaChecks = [
   "format",
+  /** Whether the file decodes cleanly to the length it declares (#41). */
+  "integrity",
   "loudness",
   "true-peak",
   "clipping",
@@ -29,6 +31,8 @@ export const qaChecks = [
   "dead-channel",
   "imbalance",
   "phase",
+  /** How high the content reaches: a wall where lossy encoding cut it, or an upsampled file. */
+  "bandwidth",
   /** One of the project's own rules (#144); its name is in the finding's details. */
   "custom",
 ] as const;
@@ -352,6 +356,7 @@ export const orderFindings = (findings: readonly QaFinding[]) =>
 /** What each check is called in the list, in reports, and in the project's QA rules. */
 export const qaCheckNames: Record<QaCheck, string> = {
   format: "Format",
+  integrity: "Integrity",
   loudness: "Loudness",
   "true-peak": "True peak",
   clipping: "Clipping",
@@ -363,6 +368,7 @@ export const qaCheckNames: Record<QaCheck, string> = {
   "dead-channel": "Dead channel",
   imbalance: "Balance",
   phase: "Phase",
+  bandwidth: "Bandwidth",
   // The project's own rules: the finding's summary starts with the rule's name.
   custom: "Project rule",
 };

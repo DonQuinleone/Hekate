@@ -2,6 +2,7 @@ import {
   formatClock,
   type LoudnessSummary,
   type MediaInfo,
+  metadataRows,
   type QaFinding,
   qaCheckNames,
   qaSeverityNames,
@@ -150,6 +151,15 @@ export function qaReportLines(r: QaReportInput): TextLine[] {
     { text: r.profile.label },
     { text: "Format", bold: true, space: 10 },
     { text: formatLine(r.format) },
+    // What the file says about itself (#41), where it has been read.
+    ...(r.format?.metadata
+      ? [
+          { text: "Embedded metadata", bold: true, space: 10 },
+          ...metadataRows(r.format.metadata, r.format.audio?.sampleRate).map(
+            ([label, value]): TextLine => ({ text: `${label}: ${value}`, size: 9 }),
+          ),
+        ]
+      : []),
     { text: "Loudness", bold: true, space: 10 },
     {
       text: `Integrated ${number(r.loudness?.integrated, "LUFS")} · range ${number(r.loudness?.range, "LU")} · true peak ${number(r.loudness?.truePeak, "dBTP")}`,
