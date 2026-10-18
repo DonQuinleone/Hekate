@@ -126,11 +126,19 @@ export function WorkflowCode({
   const apply = () => {
     if (!read.ok) return;
     const { name, definition } = read;
+    const id = workflow.id;
+    const applied = text;
     change.mutate(
-      { id: workflow.id, change: () => ({ name, definition }) },
+      { id, change: () => ({ name, definition }) },
       {
-        onSuccess: () => {
-          forget();
+        // What was applied is now the workflow. Anything typed while it was saving is kept, as
+        // a change to the version just saved, not to the one it was begun from.
+        onSuccess: (saved) => {
+          setDrafts(({ [id]: current, ...rest }) =>
+            !current || current.text === applied
+              ? rest
+              : { ...rest, [id]: { ...current, version: saved.version } },
+          );
           setSaid({ text: `Applied to ${name}.` });
         },
         onError: (failure) => setSaid({ text: failure.message, failed: true }),
