@@ -899,7 +899,7 @@ export function WorkflowPage({ project }: { project: Project }) {
           onNew={newFlow}
         />
       )}
-      {mode === "code" && <CodeView flows={flows} projectName={project.name} onToast={setToast} />}
+      {mode === "code" && <CodeView flows={flows} onToast={setToast} />}
       {mode === "advanced" && (
         <div className="flex min-h-0 flex-1">
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
@@ -2230,18 +2230,10 @@ function BasicView({
 
 /* ---------- As code ---------- */
 
-function CodeView({
-  flows,
-  projectName,
-  onToast,
-}: {
-  flows: Flow[];
-  projectName: string;
-  onToast: (t: string) => void;
-}) {
+function CodeView({ flows, onToast }: { flows: Flow[]; onToast: (t: string) => void }) {
   const [flowId, setFlowId] = useState(flows[0]?.id ?? "");
   const flow = flows.find((f) => f.id === flowId) ?? flows[0];
-  const yaml = flow ? toYaml(flow, projectName) : "";
+  const yaml = flow ? toYaml(flow) : "";
   const [text, setText] = useState(yaml);
   useEffect(() => setText(yaml), [yaml]);
   const dirty = text !== yaml;
@@ -2299,7 +2291,7 @@ function CodeView({
               size="sm"
               onClick={() =>
                 onToast(
-                  "Paste a workflow file below and apply it; it is checked against the model first.",
+                  "Read a workflow file, or start from a template (Simple approval, Conductor first, Parallel stakeholders): what applying it changes, and its problems with their lines, show before anything is saved.",
                 )
               }
             >
@@ -2320,7 +2312,8 @@ function CodeView({
         </div>
         <p className="text-[13px] text-ink-3">
           The whole workflow as a file: keep it in a repository, share it between projects, or hand
-          it to another instance. Edits here apply to the canvas; the canvas writes back here.
+          it to another instance. Changes made here are checked, then applied when you choose; the
+          canvas and this file always show the same workflow.
         </p>
         <div className="relative rounded-panel-lg border border-line bg-canvas/60 font-mono text-[12.5px] leading-[1.6]">
           <pre

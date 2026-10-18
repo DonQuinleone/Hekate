@@ -234,6 +234,11 @@ const screens: Screen[] = [
     ready: "main h2:has-text('Delivery')",
   },
   {
+    name: "workflows-code",
+    path: (s) => `/projects/${s.musicProjectId}/workflow?view=code`,
+    ready: "main [role=tabpanel] >> text=name: Album review",
+  },
+  {
     name: "project-settings-qa",
     path: (s) => `/projects/${s.musicProjectId}/settings?section=qa`,
     ready: "main >> text=Flattened peaks",
@@ -600,6 +605,36 @@ test("workflows-walk", async ({ page }) => {
     .click();
   await settle(page, "aside[aria-label=Inspector] ol[aria-label='What happened'] li:nth-child(2)");
   await saveScreen(page, "workflows-walk");
+  await checkScreen(page);
+});
+
+// A template read into the code view (#145): what applying it would change, before it is saved.
+test("workflows-code-import", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/workflow?view=code`);
+  await settle(page, "main [role=tabpanel] >> text=name: Album review");
+  await page.getByRole("button", { name: "Import" }).click();
+  await page.getByRole("menuitem", { name: /Simple approval/ }).click();
+  await settle(page, "main section[aria-label='What applying it changes'] li");
+  await saveScreen(page, "workflows-code-import");
+  await checkScreen(page);
+});
+
+// A file that cannot be applied: each mistake with its line, the line marked.
+test("workflows-code-refused", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/workflow?view=code`);
+  await settle(page, "main [role=tabpanel] >> text=name: Album review");
+  const editor = page.getByRole("textbox", { name: "Album review as a file" });
+  const text = await editor.inputValue();
+  await editor.fill(text.replace("action: approval", "action: approve"));
+  await settle(page, "main section[aria-label='This file cannot be applied'] li");
+  // Its line, chosen from the list, is selected in the file.
+  await page
+    .getByRole("button", { name: /^Line \d+$/ })
+    .first()
+    .click();
+  await saveScreen(page, "workflows-code-refused");
   await checkScreen(page);
 });
 

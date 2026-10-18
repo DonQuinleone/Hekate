@@ -671,13 +671,16 @@ export function flowProblems(flow: Flow): Problem[] {
 
 const q = (s: string) => (/^[\w .,'()-]+$/.test(s) && !/^\d/.test(s) ? s : JSON.stringify(s));
 
-/** The workflow as YAML: what is stored, shared and imported. */
-export function toYaml(flow: Flow, projectName: string): string {
+/**
+ * The workflow as YAML: what is stored, shared and imported, in the product's format (#145,
+ * `packages/shared/src/workflow-files.ts`). Neither the project nor whether it is active travels
+ * with it.
+ */
+export function toYaml(flow: Flow): string {
   const lines: string[] = [];
+  lines.push("# A Hekate workflow: https://donquinleone.github.io/Hekate/use/workflow-files/");
   lines.push("hekate: workflow/1");
   lines.push(`name: ${q(flow.name)}`);
-  lines.push(`project: ${q(projectName)}`);
-  lines.push(`active: ${flow.active}`);
   if (flow.groups.length) {
     lines.push("groups:");
     for (const g of flow.groups) lines.push(`  ${g.id}: ${q(g.name)}`);
@@ -697,10 +700,12 @@ export function toYaml(flow: Flow, projectName: string): string {
   }
   lines.push("connectors:");
   for (const c of flow.connectors) {
-    lines.push(`  - from: ${c.from}.${c.outcome}`);
+    lines.push(`  - id: ${c.id}`);
+    lines.push(`    from: ${c.from}.${c.outcome}`);
     lines.push(`    to: ${c.to}`);
     if (c.condition) lines.push(`    when: ${q(c.condition)}`);
-    if (c.until) lines.push(`    until: ${q(c.until)}`);
+    // A loop's bound is how many times it may be taken.
+    if (c.until) lines.push(`    until: ${c.until.match(/\d+/)?.[0] ?? q(c.until)}`);
   }
   return `${lines.join("\n")}\n`;
 }
