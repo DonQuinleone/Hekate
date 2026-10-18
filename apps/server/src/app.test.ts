@@ -8381,6 +8381,7 @@ describe.runIf(url)("api", () => {
                 order: schema.reviews.order,
                 rule: schema.reviews.rule,
                 node: schema.reviews.workflowNodeId,
+                completedAt: schema.reviews.completedAt,
               })
               .from(schema.reviews)
               .where(eq(schema.reviews.projectId, s.projectId))
@@ -8458,10 +8459,35 @@ describe.runIf(url)("api", () => {
               .where(eq(schema.workflowRuns.state, "running"))
           )[0]?.id;
           await send(`/api/workflow-runs/${runId}/steps`, { nodeId: "edit", outcome: "done" });
-          expect((await stageReviews()).map((r) => [r.kind, r.status])).toEqual([
-            ["approval", "completed"],
-            ["feedback", "cancelled"],
+          expect(
+            (await stageReviews()).map((r) => [r.kind, r.status, Boolean(r.completedAt)]),
+          ).toEqual([
+            ["approval", "completed", true],
+            ["feedback", "cancelled", true],
           ]);
+          await send(
+            `/api/workflows/${(await db.select({ id: schema.workflows.id }).from(schema.workflows).where(eq(schema.workflows.name, "Either way")))[0]?.id}`,
+            { active: false },
+            s.owner,
+            "PATCH",
+          );
+
+          // A stage the same step moves past is never asked for at all.
+          await switchOn("Straight through", {
+            nodes: [
+              at("start", "upload", "A version is uploaded", 0),
+              at("ask", "feedback", "Conductor", 1, { who: "Reviewer" }),
+              at("done", "finish", "Done", 1),
+            ],
+            connectors: [
+              { id: "1", from: "start", outcome: "happened", to: "ask" },
+              { id: "2", from: "start", outcome: "happened", to: "done" },
+              { id: "3", from: "ask", outcome: "done", to: "done" },
+            ],
+          });
+          await version("Straight v4.wav");
+          expect(await latestRun()).toMatchObject({ state: "finished" });
+          expect(await stageReviews()).toHaveLength(2);
         });
 
         it("tells whoever started the run when a stage's review cannot be asked (#25)", async () => {

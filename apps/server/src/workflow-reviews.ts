@@ -16,12 +16,14 @@ export async function cancelStageReview(
   runId: string,
   nodeId: string,
 ) {
+  const now = new Date();
   await tx
     .update(reviews)
     .set({
       status: "cancelled",
       cancelReason: "The workflow that asked for it moved on",
-      updatedAt: new Date(),
+      completedAt: now,
+      updatedAt: now,
     })
     .where(
       inOrg(

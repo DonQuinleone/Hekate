@@ -1228,6 +1228,16 @@ export async function requestReview(
   const review = await deps.db.transaction(async (tx) => {
     // Not into a project being archived: archiving closes every open review.
     await lockLiveProject(tx, organisationId, projectId);
+    if (link) {
+      // A stage's review only while its run still waits on the stage: the run may have moved
+      // past it since the stage began (another branch finished it, or someone ended it).
+      const [run] = await tx
+        .select({ state: schema.workflowRuns.state, engine: schema.workflowRuns.engine })
+        .from(schema.workflowRuns)
+        .where(inOrg(schema.workflowRuns, organisationId, eq(schema.workflowRuns.id, link.runId)))
+        .for("update");
+      if (run?.state !== "running" || !run.engine.active.includes(link.nodeId)) return null;
+    }
     const [created] = await tx
       .insert(reviews)
       .values({
@@ -1302,6 +1312,7 @@ export async function requestReview(
     );
     return created;
   });
+  if (!review) return null;
   // Ask whoever can act now: everyone, or the first in a sequence. Those who only follow
   // an approval hold nothing up, so they hear of it now, guests with the link they need.
   const { rows, facts } = await reviewersOf(deps.db, organisationId, review.id);
@@ -1597,6 +1608,8 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
         c.req.valid("json"),
         requestInfo(c, deps.trustProxy),
       );
+      // Only a workflow's stage, which this is not, is ever refused a review here.
+      if (!review) throw new NotFound("Review");
       return c.json({ review: await reviewView(deps.db, actor, review.id) }, 201);
     });
 
