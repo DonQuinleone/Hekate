@@ -586,6 +586,23 @@ test("workflows-inspector", async ({ page }) => {
   await checkScreen(page);
 });
 
+// An item walked through a workflow (#26): the steps it has taken, and the choices where it waits.
+test("workflows-walk", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/workflow`);
+  await settle(page, "main [data-node]:has-text('Label approval')");
+  await page.getByRole("button", { name: /^Walk (through|an item through)$/ }).click();
+  const panel = page.locator("aside[aria-label=Inspector]");
+  await settle(page, "aside[aria-label=Inspector] ol[aria-label='What happened'] li");
+  await panel
+    .getByRole("button", { name: /^(?!Start again$|Close$)/ })
+    .first()
+    .click();
+  await settle(page, "aside[aria-label=Inspector] ol[aria-label='What happened'] li:nth-child(2)");
+  await saveScreen(page, "workflows-walk");
+  await checkScreen(page);
+});
+
 // The bell's panel, open over the list it leads to.
 test("bell", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);

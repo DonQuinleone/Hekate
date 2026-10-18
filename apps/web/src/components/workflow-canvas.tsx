@@ -1,20 +1,25 @@
 import {
+  completeNode,
   flowShape,
   type NodeType,
   nodeTypes,
   outcomesOf,
+  startRun,
   triggersOf,
   type WorkflowCondition,
   type WorkflowConnector,
+  type WorkflowContext,
   type WorkflowDefinition,
   type WorkflowNode,
   type WorkflowProblem,
+  type WorkflowRun,
   type WorkflowSummary,
 } from "@hekate/shared";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { Button } from "~/components/ui/button";
+import { Choice } from "~/components/ui/choice";
 import { Input, Select } from "~/components/ui/input";
 import { Dropdown } from "~/components/ui/menu";
 import { Committed, StepField } from "~/components/workflow-fields";
@@ -34,10 +39,13 @@ import {
   NODE_H,
   NODE_W,
   nodeLooks,
+  outcomeWords,
   outPort,
   type Pt,
   pickerGroups,
   portTop,
+  walkLine,
+  walkQuestions,
   withConfig,
   withCopy,
   withLink,
@@ -134,6 +142,30 @@ interface AddAt {
 
 type MenuItem = { label: string; danger?: boolean; onSelect: () => void } | "divider";
 
+type ItemKind = WorkflowContext["item"]["kind"];
+type Decider = NonNullable<WorkflowContext["by"]>;
+type WalkItem = Pick<Walk, "kind" | "tags" | "by">;
+const walkContext = (w: WalkItem): WorkflowContext => ({
+  item: { kind: w.kind, tags: w.tags },
+  by: w.by,
+});
+
+/** An item walked through a workflow by the engine itself, as a run would take it. */
+interface Walk {
+  flowId: string;
+  kind: ItemKind;
+  /** The item's tags, among those the workflow's conditions test. */
+  tags: string[];
+  /** Who makes its decisions, for conditions that ask. */
+  by: Decider;
+  run: WorkflowRun | null;
+  /** The nodes it has reached. */
+  reached: string[];
+  log: string[];
+  /** Why it cannot walk: the workflow breaks a rule. */
+  refused?: string;
+}
+
 /**
  * The builder's advanced view (#26), as the prototype draws it: every workflow of the project on
  * one canvas, one above the other, that pans and zooms, with a map of it; nodes in families of
@@ -164,6 +196,7 @@ export function WorkflowCanvas({
   const [pan, setPan] = useState<Pt>({ x: 80, y: 80 });
   const [zoom, setZoom] = useState(0.85);
   const [panning, setPanning] = useState(false);
+  const [walk, setWalk] = useState<Walk | null>(null);
   const canvas = useRef<HTMLDivElement>(null);
   const drag = useRef<
     | { kind: "pan"; start: Pt; origin: Pt }
@@ -388,6 +421,7 @@ export function WorkflowCanvas({
         setLinking(null);
         setPicking(null);
         setSelection(null);
+        setWalk(null);
       },
     },
     {
@@ -448,6 +482,8 @@ export function WorkflowCanvas({
           : []),
         { label: "Fit to window", onSelect: fitAll },
         { label: "Zoom to 100%", onSelect: () => setZoom(1) },
+        "divider" as const,
+        { label: "Walk an item through", onSelect: () => startWalk(t.flowId) },
         ...(editing ? ["divider" as const, { label: "New workflow", onSelect: onNew }] : []),
       ];
     }
@@ -497,7 +533,66 @@ export function WorkflowCanvas({
     setMenu({ x: e.clientX - (rect?.left ?? 0), y: e.clientY - (rect?.top ?? 0), target });
   };
 
-  const inspectorOpen = picking !== null || selection !== null;
+  /* The walk-through: the engine's own steps, with the outcome chosen at each. */
+  const startWalk = (flowId: string, change: Partial<WalkItem> = {}) => {
+    const item: WalkItem = {
+      kind: walk?.kind ?? "audio",
+      tags: walk?.flowId === flowId ? walk.tags : [],
+      by: walk?.by ?? "member",
+      ...change,
+    };
+    const flow = flowById(flowId)?.definition;
+    const trigger = flow ? triggersOf(flow)[0] : undefined;
+    setPicking(null);
+    setSelection(null);
+    if (!flow || !trigger) {
+      setWalk({ flowId, ...item, run: null, reached: [], log: [], refused: "Nothing starts it." });
+      return;
+    }
+    try {
+      const { run, effects } = startRun(flow, trigger.id, walkContext(item));
+      setWalk({
+        flowId,
+        ...item,
+        run,
+        reached: [trigger.id, ...effects.flatMap((e) => ("nodeId" in e ? [e.nodeId] : []))],
+        log: [`${trigger.name}.`, ...effects.flatMap((e) => walkLine(flow, e) ?? [])],
+      });
+    } catch (failure) {
+      setWalk({
+        flowId,
+        ...item,
+        run: null,
+        reached: [],
+        log: [],
+        refused: failure instanceof Error ? failure.message : "It cannot run.",
+      });
+    }
+  };
+  const advance = (nodeId: string, outcome: string) => {
+    const flow = walk ? flowById(walk.flowId)?.definition : undefined;
+    const node = flow?.nodes.find((n) => n.id === nodeId);
+    if (!walk?.run || !flow || !node) return;
+    try {
+      const { run, effects } = completeNode(flow, walk.run, nodeId, outcome, walkContext(walk));
+      setWalk({
+        ...walk,
+        run,
+        reached: [...walk.reached, ...effects.flatMap((e) => ("nodeId" in e ? [e.nodeId] : []))],
+        log: [
+          ...walk.log,
+          `${outcomeWords(node.type, outcome)} at “${node.name}”.`,
+          ...effects.flatMap((e) => walkLine(flow, e) ?? []),
+        ],
+      });
+    } catch (failure) {
+      // The workflow changed under the walk: it starts again from the new one.
+      setWalk({ ...walk, run: null, refused: failure instanceof Error ? failure.message : "" });
+    }
+  };
+  const walked = (flowId: string) => (walk?.flowId === flowId ? walk : null);
+
+  const inspectorOpen = picking !== null || selection !== null || walk !== null;
 
   return (
     <div className="relative flex min-h-0 flex-1">
@@ -529,6 +624,18 @@ export function WorkflowCanvas({
               </Button>
             )}
           </div>
+          <Button
+            variant={walk ? "secondary" : "ghost"}
+            size="sm"
+            className="shrink-0"
+            onClick={() =>
+              walk ? setWalk(null) : startWalk(selection?.flowId ?? workflows[0]?.id ?? "")
+            }
+          >
+            <Icon name="play" size={13} />
+            <span className="hidden @3xl/app:inline">Walk through</span>
+            <span className="sr-only @3xl/app:hidden">Walk an item through</span>
+          </Button>
           {editing && (
             <Button variant="primary" size="sm" onClick={openPicker} className="shrink-0">
               <Icon name="plus" size={13} />
@@ -636,6 +743,7 @@ export function WorkflowCanvas({
                     selection?.kind === "connector" &&
                     selection.flowId === b.flow.id &&
                     selection.id === c.id;
+                  const taken = (walked(b.flow.id)?.run?.taken[c.id] ?? 0) > 0;
                   const label = conditionText(c);
                   const lp = labelAt(a, z, loop, floor);
                   return (
@@ -661,10 +769,16 @@ export function WorkflowCanvas({
                       <path
                         d={d}
                         fill="none"
-                        strokeWidth={selected ? 2.5 : 1.5}
+                        strokeWidth={selected || taken ? 2.5 : 1.5}
                         className={cn(
                           "transition-[stroke]",
-                          selected ? "stroke-signal" : loop ? "stroke-ink-3/70" : "stroke-ink-3",
+                          selected
+                            ? "stroke-signal"
+                            : taken
+                              ? "stroke-ink"
+                              : loop
+                                ? "stroke-ink-3/70"
+                                : "stroke-ink-3",
                         )}
                         strokeDasharray={c.condition ? "6 4" : undefined}
                       />
@@ -721,6 +835,8 @@ export function WorkflowCanvas({
                     selection.flowId === b.flow.id &&
                     selection.id === n.id
                   }
+                  walked={Boolean(walked(b.flow.id)?.reached.includes(n.id))}
+                  current={Boolean(walked(b.flow.id)?.run?.active.includes(n.id))}
                   trigger={triggersOf(b.flow.definition).some((t) => t.id === n.id)}
                   problem={b.flow.problems.find((p) => p.nodeId === n.id)}
                   editing={editing}
@@ -852,6 +968,16 @@ export function WorkflowCanvas({
           className="absolute inset-y-0 right-0 z-20 flex w-full flex-col border-l border-line bg-pane shadow-4 @3xl/app:static @3xl/app:w-[340px] @3xl/app:shadow-none"
         >
           {picking && <Picker onPick={addNode} onClose={() => setPicking(null)} />}
+          {!picking && !selection && walk && (
+            <WalkPanel
+              walk={walk}
+              flow={flowById(walk.flowId)}
+              onAdvance={advance}
+              onItem={(change) => startWalk(walk.flowId, change)}
+              onRestart={() => startWalk(walk.flowId)}
+              onClose={() => setWalk(null)}
+            />
+          )}
           {!picking && selection && selectedNode && (
             <NodeInspector
               projectId={projectId}
@@ -935,6 +1061,8 @@ function CanvasNode({
   flowId,
   node,
   selected,
+  walked,
+  current,
   trigger,
   problem,
   editing,
@@ -946,6 +1074,9 @@ function CanvasNode({
   flowId: string;
   node: WorkflowNode;
   selected: boolean;
+  /** Reached by the item being walked through, and waited on by it now. */
+  walked: boolean;
+  current: boolean;
   trigger: boolean;
   problem?: WorkflowProblem;
   editing: boolean;
@@ -979,7 +1110,10 @@ function CanvasNode({
         families[family].shape,
         selected
           ? "border-signal shadow-[0_0_0_3px_var(--hk-signal-line),var(--hk-shadow-3)]"
-          : "border-line hover:border-line-strong",
+          : walked
+            ? "border-ink-3"
+            : "border-line hover:border-line-strong",
+        current && "ring-2 ring-signal/60",
       )}
       style={{ left: node.x, top: node.y, width: NODE_W, height: NODE_H }}
     >
@@ -1207,6 +1341,124 @@ function Picker({ onPick, onClose }: { onPick: (t: NodeType) => void; onClose: (
             </div>
           );
         })}
+      </div>
+    </>
+  );
+}
+
+function WalkPanel({
+  walk,
+  flow,
+  onAdvance,
+  onItem,
+  onRestart,
+  onClose,
+}: {
+  walk: Walk;
+  flow?: WorkflowSummary;
+  onAdvance: (nodeId: string, outcome: string) => void;
+  onItem: (change: Partial<WalkItem>) => void;
+  onRestart: () => void;
+  onClose: () => void;
+}) {
+  const asks = flow ? walkQuestions(flow.definition) : { tags: [], asksWho: false };
+  const waiting = (walk.run?.active ?? [])
+    .map((id) => flow?.definition.nodes.find((n) => n.id === id))
+    .filter((n): n is WorkflowNode => Boolean(n));
+  return (
+    <>
+      <PanelHead title="Walk an item through" hint={flow?.name} onClose={onClose} />
+      <div className="scroll-quiet flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+        <label className="flex items-center gap-2 text-[12px] text-ink-3">
+          The item is
+          <Select
+            className="w-auto"
+            size="sm"
+            value={walk.kind}
+            onChange={(e) => onItem({ kind: e.target.value as ItemKind })}
+          >
+            <option value="audio">audio</option>
+            <option value="video">video</option>
+            <option value="document">a document</option>
+            <option value="image">a picture</option>
+          </Select>
+        </label>
+        {asks.asksWho && (
+          <label className="flex items-center gap-2 text-[12px] text-ink-3">
+            Decisions are made by
+            <Select
+              className="w-auto"
+              size="sm"
+              value={walk.by}
+              onChange={(e) => onItem({ by: e.target.value as Decider })}
+            >
+              <option value="member">a member</option>
+              <option value="guest">a guest</option>
+            </Select>
+          </label>
+        )}
+        {asks.tags.length > 0 && (
+          <fieldset className="m-0 flex flex-wrap gap-x-4 gap-y-2 border-0 p-0">
+            <legend className="mb-2 p-0 text-[12px] text-ink-3">It is tagged</legend>
+            {asks.tags.map((tag) => {
+              const on = walk.tags.some((t) => t.toLowerCase() === tag.toLowerCase());
+              return (
+                <Choice
+                  key={tag}
+                  className="text-[13px]"
+                  checked={on}
+                  onChange={() =>
+                    onItem({
+                      tags: on
+                        ? walk.tags.filter((t) => t.toLowerCase() !== tag.toLowerCase())
+                        : [...walk.tags, tag],
+                    })
+                  }
+                >
+                  {tag}
+                </Choice>
+              );
+            })}
+          </fieldset>
+        )}
+        {walk.refused ? (
+          <p className="m-0 rounded-panel border border-signal/40 bg-signal/10 px-3 py-2 text-[12px] text-ink">
+            It cannot run: {walk.refused}
+          </p>
+        ) : (
+          <ol
+            aria-label="What happened"
+            className="m-0 flex list-none flex-col gap-1.5 p-0 text-[13px] text-ink-2"
+          >
+            {walk.log.map((line, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: the log only grows, in order.
+              <li key={i} className="flex gap-2">
+                <span className="tabular w-4 shrink-0 text-ink-3">{i + 1}</span>
+                <span className={i === walk.log.length - 1 ? "text-ink" : undefined}>{line}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+        {waiting.map((n) => (
+          <div key={n.id} className="flex flex-col gap-1.5">
+            <span className={eyebrow}>What happens at “{n.name}”?</span>
+            {outcomesOf(n.type).map((o) => (
+              <Button key={o.id} variant="secondary" onClick={() => onAdvance(n.id, o.id)}>
+                {outcomeWords(n.type, o.id)}
+              </Button>
+            ))}
+          </div>
+        ))}
+        {walk.run && walk.run.state !== "running" && (
+          <p className="m-0 text-[13px] text-ink-3">
+            {walk.run.state === "finished"
+              ? `The item is finished${walk.run.status ? `, ${walk.run.status}` : ""}.`
+              : "The walk ended."}
+          </p>
+        )}
+        <Button variant="ghost" size="sm" onClick={onRestart} className="self-start">
+          Start again
+        </Button>
       </div>
     </>
   );
