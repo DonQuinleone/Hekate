@@ -994,6 +994,7 @@ export function Player({
               canDownmix={labels !== null}
               onMix={setMix}
               unavailable={channelsUnavailable}
+              levelsOf={!tools || tools.includes("meters") ? { fileId, media: element } : undefined}
             />
           )}
           {settingsOpen && (

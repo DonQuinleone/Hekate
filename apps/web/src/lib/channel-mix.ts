@@ -1,3 +1,4 @@
+import { channelNames } from "@hekate/shared";
 import { useEffect } from "react";
 
 /**
@@ -24,7 +25,9 @@ export const isPlain = (mix: ChannelMix) =>
  * pair is Ls and Rs on its own, Lrs and Rrs beside a side pair (7.1).
  */
 export function speakerNames(labels: readonly string[] | null, channels: number): string[] {
-  if (!labels) return Array.from({ length: channels }, (_, i) => String(i + 1));
+  // A file that does not say how it is laid out: a pair is left and right, as the meters
+  // name it; anything wider is numbered.
+  if (!labels) return channelNames(channels);
   const sidesAndBacks = labels.includes("SL") && labels.includes("BL");
   const names: Record<string, string> = {
     FL: "L",

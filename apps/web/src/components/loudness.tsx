@@ -57,7 +57,10 @@ const token = (name: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 /** The frame under the playhead, updated as the media element plays. */
-function usePlayheadFrame(series: LoudnessSeries | undefined, media: HTMLMediaElement | null) {
+export function usePlayheadFrame(
+  series: LoudnessSeries | undefined,
+  media: HTMLMediaElement | null,
+) {
   const [frame, setFrame] = useState<number | null>(null);
   useEffect(() => {
     if (!series || !media) return;
