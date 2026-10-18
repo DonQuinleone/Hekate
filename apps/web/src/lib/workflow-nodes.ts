@@ -6,6 +6,7 @@ import {
   triggersOf,
   type WorkflowConnector,
   type WorkflowDefinition,
+  type WorkflowEffect,
   type WorkflowNode,
 } from "@hekate/shared";
 import type { IconName } from "~/components/icons";
@@ -401,4 +402,59 @@ export function conditionText(c: WorkflowConnector): string | null {
   }
   if (c.until) parts.push(`at most ${c.until.times}×`);
   return parts.length > 0 ? parts.join(", ") : null;
+}
+
+/* ---------- Walking an item through (#26), by the engine itself ---------- */
+
+const quoted = (flow: WorkflowDefinition, id: string) =>
+  `“${flow.nodes.find((n) => n.id === id)?.name ?? id}”`;
+
+/** What an outcome reads as in the walk: "Approved", "It happens", "It is done". */
+export function outcomeWords(type: NodeType, outcome: string): string {
+  const label = outcomesOf(type).find((o) => o.id === outcome)?.label;
+  if (label) return `${label[0]?.toUpperCase()}${label.slice(1)}`;
+  return nodeTypes[type].kind === "event" ? "It happens" : "It is done";
+}
+
+/**
+ * What a walk must ask beyond the item's kind: the tags the workflow's conditions test (each
+ * once, as first written), and whether any condition asks who made the decision.
+ */
+export function walkQuestions(flow: WorkflowDefinition): { tags: string[]; asksWho: boolean } {
+  const tags = new Map<string, string>();
+  let asksWho = false;
+  for (const c of flow.connectors) {
+    if (c.condition?.test === "tag") {
+      const key = c.condition.is.toLowerCase();
+      if (!tags.has(key)) tags.set(key, c.condition.is);
+    }
+    if (c.condition?.test === "by") asksWho = true;
+  }
+  return { tags: [...tags.values()], asksWho };
+}
+
+/** One thing a run does, as the walk tells it; null for what needs no telling. */
+export function walkLine(flow: WorkflowDefinition, effect: WorkflowEffect): string | null {
+  switch (effect.kind) {
+    case "start":
+      return `${quoted(flow, effect.nodeId)} begins; the item waits on it.`;
+    case "listen":
+      return `It waits for ${quoted(flow, effect.nodeId)}.`;
+    case "do":
+      if (effect.type === "notify")
+        return `${quoted(flow, effect.nodeId)}: ${effect.config.to || "nobody named"} told.`;
+      if (effect.type === "share")
+        return `${quoted(flow, effect.nodeId)}: shared with ${effect.config.to || "nobody named"}.`;
+      if (effect.type === "move")
+        return `${quoted(flow, effect.nodeId)}: filed in ${effect.config.folder || "the top of the project"}.`;
+      return effect.type === "status" ? null : `${quoted(flow, effect.nodeId)} is done.`;
+    case "status":
+      return `Its status is now ${effect.status}.`;
+    case "cancel":
+      return `${quoted(flow, effect.nodeId)} is no longer waited on.`;
+    case "finish":
+      return `It finishes at ${quoted(flow, effect.nodeId)}${effect.status ? `, ${effect.status}` : ""}.`;
+    case "stopped":
+      return "Nothing follows: the item stops here.";
+  }
 }
