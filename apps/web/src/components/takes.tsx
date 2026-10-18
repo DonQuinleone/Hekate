@@ -32,6 +32,7 @@ import {
 import { formatLoop } from "~/lib/loop";
 import {
   editDecisionsQuery,
+  projectSessionsQuery,
   type Track,
   trackTakesQuery,
   useProjectCan,
@@ -402,7 +403,14 @@ export function TakeManager({ track }: { track: Track }) {
           {remove.error.message}
         </p>
       )}
-      {editing && <EditTake take={editing} trackId={track.id} onClose={() => setEditing(null)} />}
+      {editing && (
+        <EditTake
+          take={editing}
+          trackId={track.id}
+          projectId={track.projectId}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </section>
   );
 }
@@ -639,13 +647,18 @@ const wholeOrNull = (value: string) => (value.trim() === "" ? null : Number.pars
 function EditTake({
   take,
   trackId,
+  projectId,
   onClose,
 }: {
   take: TakeRow;
   trackId: string;
+  projectId: string;
   onClose: () => void;
 }) {
   const { change } = useTakeMutations(trackId);
+  // The recording sessions it can be said to come from (#21, #45).
+  const { data: sessions = [] } = useQuery(projectSessionsQuery(projectId));
+  const [session, setSession] = useState(take.sessionId ?? "");
   const [label, setLabel] = useState(take.label ?? "");
   const [notes, setNotes] = useState(take.notes ?? "");
   const [rating, setRating] = useState(String(take.rating));
@@ -667,6 +680,7 @@ function EditTake({
     barTo: wholeOrNull(barTo),
     inPoint: point(inPoint),
     outPoint: point(outPoint),
+    sessionId: session || null,
   };
   const problem = unreadable
     ? "Write a point as seconds or minutes and seconds, such as 1:32.5"
@@ -727,6 +741,18 @@ function EditTake({
             onChange={(e) => setNotes(e.target.value)}
           />
         </Field>
+        {(sessions.length > 0 || session) && (
+          <Field label="Session" hint="The day it was recorded; it stays this track's take">
+            <Select value={session} onChange={(e) => setSession(e.target.value)}>
+              <option value="">None</option>
+              {sessions.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
         <fieldset className="m-0 grid min-w-0 grid-cols-3 gap-4 border-0 p-0">
           <legend className="mb-2 text-[13px] text-ink-2">
             Bars, when they matter

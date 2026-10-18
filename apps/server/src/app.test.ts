@@ -7690,6 +7690,145 @@ describe.runIf(url)("api", () => {
           expect(kept.status).toBe(403);
         });
 
+        it("keeps recording sessions: the tracks each recorded and the takes made in it (#21, #45)", async () => {
+          const s = await studio();
+          const blob = await storage.put(s.organisationId, Buffer.from("Take 1.wav"));
+          const [mix] = await db
+            .insert(schema.files)
+            .values({
+              organisationId: s.organisationId,
+              projectId: s.projectId,
+              name: "Take 1.wav",
+              kind: "audio",
+              blobId: blob.id,
+              contentType: "audio/wav",
+              byteSize: blob.byteSize,
+              mediaInfo: { duration: 61.5 } as never,
+            })
+            .returning();
+          const added = (await (
+            await app.request(
+              `/api/tracks/${s.trackId}/takes`,
+              json({ fileIds: [mix?.id ?? ""] }, s.engineer),
+            )
+          ).json()) as { takes: { id: string }[] };
+          const takeId = added.takes[0]?.id ?? "";
+          const send = (method: string, url: string, body: unknown, cookie = s.engineer) =>
+            app.request(url, { ...json(body, cookie), method });
+          type Summary = {
+            id: string;
+            name: string;
+            recordedOn: string | null;
+            tracks: { id: string; name: string }[];
+            takes: number;
+            starred: number;
+            duration: number;
+          };
+
+          // Made by those who edit takes, with the tracks it recorded; a reviewer only sees them.
+          const day = { name: "Day 2", recordedOn: "2026-10-14", venue: "Endless Hall" };
+          expect(
+            (await send("POST", `/api/projects/${s.projectId}/sessions`, day, s.composer)).status,
+          ).toBe(403);
+          const made = await send("POST", `/api/projects/${s.projectId}/sessions`, {
+            ...day,
+            trackIds: [s.trackId],
+          });
+          expect(made.status).toBe(201);
+          const session = ((await made.json()) as { session: Summary }).session;
+          expect(session).toMatchObject({
+            name: "Day 2",
+            recordedOn: "2026-10-14",
+            tracks: [{ id: s.trackId }],
+            takes: 0,
+          });
+          // Not with a track of another project.
+          expect(
+            (
+              await send("POST", `/api/projects/${s.projectId}/sessions`, {
+                name: "Stray",
+                trackIds: ["0199f000-0000-7000-8000-000000000001"],
+              })
+            ).status,
+          ).toBe(404);
+
+          // A take says which session it was recorded in; the session then counts it.
+          const change = (body: unknown, cookie = s.engineer) =>
+            send("PATCH", `/api/takes/${takeId}`, body, cookie);
+          expect((await change({ sessionId: session.id, starred: true })).status).toBe(200);
+          expect((await change({ sessionId: "0199f000-0000-7000-8000-000000000001" })).status).toBe(
+            404,
+          );
+          const listed = (await (
+            await getAs(`/api/projects/${s.projectId}/sessions`, s.composer)
+          ).json()) as { sessions: Summary[] };
+          expect(listed.sessions).toEqual([
+            expect.objectContaining({ id: session.id, takes: 1, starred: 1, duration: 61.5 }),
+          ]);
+          const detail = (await (
+            await getAs(`/api/sessions/${session.id}`, s.composer)
+          ).json()) as {
+            session: { takeRows: { id: string; sessionId: string; track: { id: string } }[] };
+          };
+          expect(detail.session.takeRows).toEqual([
+            expect.objectContaining({
+              id: takeId,
+              sessionId: session.id,
+              track: expect.objectContaining({ id: s.trackId }),
+            }),
+          ]);
+
+          // Renamed and its tracks replaced; a reviewer may not.
+          expect(
+            (await send("PATCH", `/api/sessions/${session.id}`, { name: "Day 3" }, s.composer))
+              .status,
+          ).toBe(403);
+          const renamed = await send("PATCH", `/api/sessions/${session.id}`, {
+            name: "Day 3",
+            trackIds: [],
+          });
+          expect(((await renamed.json()) as { session: Summary }).session).toMatchObject({
+            name: "Day 3",
+            tracks: [],
+          });
+
+          // A member who cannot see the project finds nothing.
+          const newcomer = await joinAs(s.owner, "newcomer@example.test");
+          expect((await getAs(`/api/sessions/${session.id}`, newcomer)).status).toBe(404);
+          expect((await getAs(`/api/projects/${s.projectId}/sessions`, newcomer)).status).toBe(404);
+          // Another workspace's session does not exist from here, and no take can name it.
+          const [elsewhere] = await db
+            .insert(schema.organisations)
+            .values({ name: "Elsewhere", slug: "elsewhere-sessions" })
+            .returning();
+          const [foreignProject] = await db
+            .insert(schema.projects)
+            .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+            .returning();
+          const [foreign] = await db
+            .insert(schema.sessions)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              projectId: foreignProject?.id ?? "",
+              name: "Theirs",
+            })
+            .returning();
+          expect((await getAs(`/api/sessions/${foreign?.id}`, s.owner)).status).toBe(404);
+          expect((await change({ sessionId: foreign?.id })).status).toBe(404);
+
+          // Removed, its takes stay with their track and no longer name it.
+          const gone = await app.request(`/api/sessions/${session.id}`, {
+            method: "DELETE",
+            headers: { cookie: s.engineer, origin: "http://localhost:3000" },
+          });
+          expect(gone.status).toBe(204);
+          const [kept] = await db
+            .select({ sessionId: schema.takes.sessionId })
+            .from(schema.takes)
+            .where(eq(schema.takes.id, takeId));
+          expect(kept).toEqual({ sessionId: null });
+        });
+
         it("reads a version's edit decision list and says which take each edit comes from (#56)", async () => {
           const s = await studio();
           const upload = async (name: string, body: string, mediaInfo?: unknown) => {

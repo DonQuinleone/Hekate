@@ -551,7 +551,11 @@ export const folders = pgTable(
   ],
 );
 
-/** A recording session: groups takes. */
+/**
+ * A recording session (#21, #45): a day or a sitting, with where it was, the tracks it recorded
+ * (many to many) and the takes recorded in it. Takes belong to their tracks; a session only says
+ * when and where they were made.
+ */
 export const sessions = pgTable(
   "sessions",
   {
@@ -603,6 +607,10 @@ export const takes = pgTable(
     trackId: uuid("track_id")
       .notNull()
       .references((): AnyPgColumn => tracks.id, { onDelete: "cascade" }),
+    /** The session it was recorded in, where that is known; it still belongs to its track. */
+    sessionId: uuid("session_id").references((): AnyPgColumn => sessions.id, {
+      onDelete: "set null",
+    }),
     number: integer("number").notNull(),
     label: text("label"),
     notes: text("notes"),
@@ -621,6 +629,7 @@ export const takes = pgTable(
   },
   (t) => [
     index("takes_org_idx").on(t.organisationId),
+    index("takes_session_idx").on(t.organisationId, t.sessionId),
     uniqueIndex("takes_track_number_idx").on(t.trackId, t.number),
     // "Which takes cover bar 72?" is a range query per track.
     index("takes_coverage_idx").on(t.organisationId, t.trackId, t.barFrom, t.barTo),

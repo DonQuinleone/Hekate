@@ -23,13 +23,19 @@ export function setLocale(locale?: string | null, timeZone?: string | null) {
 /** A key that changes with the member's language and time zone, to redraw what shows dates. */
 export const localeKey = () => `${current.locale ?? ""}|${current.timeZone ?? ""}`;
 
-/** As `new Intl.DateTimeFormat(locale, options)`, in the member's language and time zone. */
+/**
+ * As `new Intl.DateTimeFormat(locale, options)`, in the member's language and time zone; a
+ * `timeZone` in the options wins, for a date that has none (`UTC` keeps a calendar day as it is).
+ */
 export function formatDates(options: Intl.DateTimeFormatOptions) {
   let made: Intl.DateTimeFormat | null = null;
   let madeIn = -1;
   const get = () => {
     if (!made || madeIn !== generation) {
-      made = new Intl.DateTimeFormat(current.locale, { ...options, timeZone: current.timeZone });
+      made = new Intl.DateTimeFormat(current.locale, {
+        ...options,
+        timeZone: options.timeZone ?? current.timeZone,
+      });
       madeIn = generation;
     }
     return made;

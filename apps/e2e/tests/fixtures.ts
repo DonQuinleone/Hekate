@@ -12,6 +12,8 @@ export interface Seeded {
   musicProjectId: string;
   videoProjectId: string;
   trackId: string;
+  /** A recording session (#21, #45) with three of the track's takes. */
+  sessionId: string;
   dryFileId: string;
   scoreFileId: string;
   cutFileId: string;
