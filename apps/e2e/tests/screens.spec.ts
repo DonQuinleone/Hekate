@@ -881,6 +881,30 @@ test("file-channels", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The meters at a moment of the recording (#34): levels, phase, mid and side, and the stereo
+// field a goniometer draws, read from the analysis at the playhead.
+test("file-qa-meters", async ({ page }) => {
+  await page.goto(`/files/${seeded().dryFileId}?view=qa`);
+  await settle(page, "section[aria-label=Checks] h2");
+  await page.waitForFunction(
+    () =>
+      ((document.querySelector("main audio, main video") as HTMLMediaElement | null)?.readyState ??
+        0) >= 1,
+  );
+  await page
+    .locator("main audio, main video")
+    .first()
+    .evaluate((m: HTMLMediaElement) => {
+      m.currentTime = 10;
+    });
+  const field = page.getByRole("img", { name: /^Stereo field: / });
+  await expect(field).toBeVisible();
+  await expect(field).not.toHaveAttribute("aria-label", "Stereo field: Silent");
+  await field.scrollIntoViewIfNeeded();
+  await saveScreen(page, "file-qa-meters");
+  await checkScreen(page);
+});
+
 // The checks narrowed (#43): to what failed, then to one check.
 test("file-qa-filtered", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}?view=qa`);

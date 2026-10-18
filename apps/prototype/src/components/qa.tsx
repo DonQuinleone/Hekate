@@ -180,6 +180,9 @@ function Meters({
           );
         })}
       </div>
+      {channels.length >= 2 && (
+        <StereoField spread={rand()} live={playback.playing || playback.time > 0} />
+      )}
       <div className="grid grid-cols-3 gap-2 text-center">
         {[
           ["M", "−15.1"],
@@ -193,6 +196,75 @@ function Meters({
         ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * The front pair's stereo field, as a goniometer draws it: mono straight up, the speakers 45°
+ * either side, out of phase flat across; the shape is where the energy is at the playhead.
+ */
+function StereoField({ spread, live }: { spread: number; live: boolean }) {
+  const steps = Array.from({ length: 17 }, (_, i) => i - 8);
+  // A centred mix, a little wider or narrower from moment to moment.
+  const width = 2.2 + spread * 1.6;
+  const radius = (step: number) => (live ? Math.exp(-((step / width) ** 2)) : 0);
+  const point = (step: number, r: number) => {
+    const angle = (step * Math.PI) / 16;
+    return `${(50 + 44 * r * Math.sin(angle)).toFixed(2)},${(48 - 44 * r * Math.cos(angle)).toFixed(2)}`;
+  };
+  return (
+    <figure className="m-0 flex flex-col gap-1">
+      <figcaption className="text-[11px] text-ink-3">Stereo field</figcaption>
+      <svg
+        viewBox="0 0 100 52"
+        className="w-32"
+        role="img"
+        aria-label={`Stereo field: ${live ? "Centred" : "Silent"}`}
+      >
+        <path
+          d="M6,48 A44,44 0 0 1 94,48 Z"
+          className="fill-sunken stroke-line"
+          strokeWidth={0.75}
+        />
+        {[-4, 0, 4].map((step) => (
+          <line
+            key={step}
+            x1={50}
+            y1={48}
+            x2={point(step, 1).split(",")[0]}
+            y2={point(step, 1).split(",")[1]}
+            className="stroke-line"
+            strokeWidth={0.75}
+          />
+        ))}
+        {live && (
+          <path
+            d={`M50,48 ${steps.map((step) => `L${point(step, radius(step))}`).join(" ")} Z`}
+            className="fill-ink-3/50 stroke-ink-2"
+            strokeWidth={0.75}
+          />
+        )}
+        <text
+          x={point(-4, 1.12).split(",")[0]}
+          y={point(-4, 1.12).split(",")[1]}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          className="fill-ink-3 text-[7px]"
+        >
+          L
+        </text>
+        <text
+          x={point(4, 1.12).split(",")[0]}
+          y={point(4, 1.12).split(",")[1]}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          className="fill-ink-3 text-[7px]"
+        >
+          R
+        </text>
+      </svg>
+      <span className="text-[11px] text-ink-2">{live ? "Centred" : "Silent"}</span>
+    </figure>
   );
 }
 
