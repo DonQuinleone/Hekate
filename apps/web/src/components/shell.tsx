@@ -164,8 +164,19 @@ const projectSections = [
   { id: "people", label: "People", icon: "users", to: "/projects/$projectId/people" },
   // The production tools (#21, #45, #47), as in the prototype; its sessions for now.
   { id: "sessions", label: "Production", icon: "mic", to: "/projects/$projectId/sessions" },
-  { id: "settings", label: "Settings", icon: "sliders", to: "/projects/$projectId/settings" },
+  {
+    id: "settings",
+    label: "Settings",
+    icon: "sliders",
+    to: "/projects/$projectId/settings",
+    // The workflow builder opens from the settings, and is shown as part of them.
+    also: ["workflow"],
+  },
 ] as const;
+
+/** Whether a project's section holds the page at this part of the address. */
+const sectionHolds = (item: (typeof projectSections)[number], section: string) =>
+  item.id === section || ("also" in item && (item.also as readonly string[]).includes(section));
 
 const reviewState = (r: MyReview): ReviewState => {
   if (r.status === "cancelled") return "cancelled";
@@ -631,7 +642,7 @@ export function Shell({ children }: { children: ReactNode }) {
                     activeOptions={{ exact: item.id === "" }}
                     title={collapsed ? item.label : undefined}
                     aria-current={
-                      (section === item.id && pathname.startsWith("/projects/")) ||
+                      (sectionHolds(item, section) && pathname.startsWith("/projects/")) ||
                       // A session's own page is in Production too.
                       (item.id === "sessions" && pathname.startsWith("/sessions/"))
                         ? "page"
@@ -772,7 +783,9 @@ export function Shell({ children }: { children: ReactNode }) {
                     params={{ projectId: current.id }}
                     activeOptions={{ exact: item.id === "" }}
                     aria-current={
-                      section === item.id && pathname.startsWith("/projects/") ? "page" : undefined
+                      sectionHolds(item, section) && pathname.startsWith("/projects/")
+                        ? "page"
+                        : undefined
                     }
                     className="h-7 shrink-0 rounded-control px-2.5 text-[13px] leading-7 whitespace-nowrap text-ink-3 transition-colors aria-[current=page]:bg-raised aria-[current=page]:text-ink"
                   >

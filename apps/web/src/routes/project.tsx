@@ -28,11 +28,14 @@ export function ProjectFrame({
   projectId,
   title,
   actions,
+  parent,
   children,
 }: {
   projectId: string;
   title: string;
   actions?: ReactNode;
+  /** A crumb between the project and the page, for a page under one of its sections. */
+  parent?: (project: Project) => ReactNode;
   children: (project: Project) => ReactNode;
 }) {
   const { data: project, error } = useQuery(projectQuery(projectId));
@@ -51,6 +54,7 @@ export function ProjectFrame({
               </Link>
             ),
           },
+          ...(parent ? [{ key: "parent", link: parent(project) }] : []),
         ]}
         title={title}
         actions={project.archivedAt ? undefined : actions}

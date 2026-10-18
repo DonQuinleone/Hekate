@@ -19,6 +19,7 @@ import {
   type WatermarkPosition,
   type WatermarkScope,
   type WatermarkSettings,
+  type WorkflowSummary,
   watermarkPositions,
   watermarkPositionWords,
   watermarkScopes,
@@ -56,6 +57,7 @@ import {
   type Project,
   projectStorageQuery,
   projectTracksQuery,
+  projectWorkflowsQuery,
   templatesQuery,
   useArchiveProject,
   useCategoryMutations,
@@ -69,6 +71,7 @@ import {
   useUpdateProject,
   workspaceSettingsQuery,
 } from "~/lib/queries";
+import { basicSteps } from "~/lib/workflow-nodes";
 import { ProjectFrame } from "~/routes/project";
 
 /** The project's settings, grouped as in the prototype; more sections arrive with their issues. */
@@ -1034,35 +1037,79 @@ function useProjectProfile(project: Project) {
   return { customs, own, inherited, effective: own ?? inherited };
 }
 
+/** "4 steps": the stages a workflow takes a track through, as its builder counts them. */
+const stepsOf = (w: WorkflowSummary) => {
+  const n = basicSteps(w.definition).steps.length;
+  return `${n} ${n === 1 ? "step" : "steps"}`;
+};
+
 function Workflow({ project }: { project: Project }) {
   const can = useProjectCan(project.id);
   const update = useUpdateProject(project.id);
   const edit = can("edit_workflows");
   const { effective } = useProjectProfile(project);
+  const { data: workflows } = useQuery({
+    ...projectWorkflowsQuery(project.id),
+    enabled: can("view_workflows"),
+  });
   return (
-    <Section
-      title="Checks on a new version"
-      intro="A version that fails is refused, saying why; whoever edits the workflow can let it through, on the record."
-    >
-      <SwitchRow
-        name="True peak under the delivery profile's ceiling"
-        hint={
-          effective
-            ? `${formatDb(effective.truePeakMax)} dBTP for ${effective.label}, unless a track or file has its own`
-            : "The ceiling of the profile suggested for each file"
-        }
-        checked={project.checkTruePeak ?? false}
-        disabled={!edit}
-        onChange={(checkTruePeak) => update.mutate({ checkTruePeak })}
-      />
-      <SwitchRow
-        name="An edit decision list with every version"
-        hint="The EDL the version was made from, uploaded beside it: it must hold edits, and end within the version."
-        checked={project.requireEdl ?? false}
-        disabled={!edit}
-        onChange={(requireEdl) => update.mutate({ requireEdl })}
-      />
-    </Section>
+    <>
+      {can("view_workflows") && (
+        <Section
+          title="Workflows"
+          intro="The stages a track goes through as versions arrive, the statuses they set, and who is asked at each."
+          action={
+            <Button asChild variant="primary" size="md">
+              <Link to="/projects/$projectId/workflow" params={{ projectId: project.id }}>
+                {edit ? "Open the builder" : "See the workflows"}
+              </Link>
+            </Button>
+          }
+        >
+          {workflows?.length === 0 && (
+            <Row
+              name="No workflow"
+              hint="Tracks have no stages until one is made and switched on."
+            />
+          )}
+          {workflows?.map((w) => (
+            <Row
+              key={w.id}
+              name={w.name}
+              hint={`${stepsOf(w)}${
+                w.problems.length > 0 ? ` · ${w.problems.length} to look at` : ""
+              }${w.trackId ? " · for one track" : ""}`}
+              inline
+            >
+              <span className="text-[13px] text-ink-2">{w.active ? "Active" : "Draft"}</span>
+            </Row>
+          ))}
+        </Section>
+      )}
+      <Section
+        title="Checks on a new version"
+        intro="A version that fails is refused, saying why; whoever edits the workflow can let it through, on the record."
+      >
+        <SwitchRow
+          name="True peak under the delivery profile's ceiling"
+          hint={
+            effective
+              ? `${formatDb(effective.truePeakMax)} dBTP for ${effective.label}, unless a track or file has its own`
+              : "The ceiling of the profile suggested for each file"
+          }
+          checked={project.checkTruePeak ?? false}
+          disabled={!edit}
+          onChange={(checkTruePeak) => update.mutate({ checkTruePeak })}
+        />
+        <SwitchRow
+          name="An edit decision list with every version"
+          hint="The EDL the version was made from, uploaded beside it: it must hold edits, and end within the version."
+          checked={project.requireEdl ?? false}
+          disabled={!edit}
+          onChange={(requireEdl) => update.mutate({ requireEdl })}
+        />
+      </Section>
+    </>
   );
 }
 

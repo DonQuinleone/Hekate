@@ -221,6 +221,12 @@ const screens: Screen[] = [
     path: (s) => `/projects/${s.musicProjectId}/settings?section=workflow`,
     ready: "main >> text=Checks on a new version",
   },
+  // The project's workflows (#26), opened from its settings: each as a list of steps.
+  {
+    name: "workflows",
+    path: (s) => `/projects/${s.musicProjectId}/workflow`,
+    ready: "main h2:has-text('Delivery')",
+  },
   {
     name: "project-settings-qa",
     path: (s) => `/projects/${s.musicProjectId}/settings?section=qa`,

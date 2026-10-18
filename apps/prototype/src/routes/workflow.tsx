@@ -2131,21 +2131,29 @@ function BasicView({
                                   </option>
                                 ))}
                               </Select>
+                              at most
                               <Input
-                                value={c.until ?? ""}
-                                placeholder="at most 3 times"
-                                className="h-7 w-32 text-[12px]"
+                                value={/\d+/.exec(c.until ?? "")?.[0] ?? ""}
+                                placeholder="3"
+                                inputMode="numeric"
+                                className="h-7 w-14 text-[12px]"
                                 onChange={(e) =>
                                   onChange(f.id, (x) => ({
                                     ...x,
                                     connectors: x.connectors.map((cc) =>
                                       cc.id === c.id
-                                        ? { ...cc, until: e.target.value || undefined }
+                                        ? {
+                                            ...cc,
+                                            until: e.target.value
+                                              ? `at most ${e.target.value} times`
+                                              : undefined,
+                                          }
                                         : cc,
                                     ),
                                   }))
                                 }
                               />
+                              times
                             </label>
                           );
                         })}
@@ -2165,6 +2173,22 @@ function BasicView({
                   )}
                 </div>
               </div>
+              {(problems[f.id]?.length ?? 0) > 0 && (
+                <ul className="m-0 flex list-none flex-col gap-1 p-0">
+                  {problems[f.id]?.map((p) => (
+                    <li
+                      key={`${p.nodeId ?? p.connectorId ?? ""}-${p.text}`}
+                      className={cn(
+                        "flex items-start gap-2 text-[13px]",
+                        p.level === "error" ? "text-signal" : "text-ink-3",
+                      )}
+                    >
+                      <Icon name="warning" size={14} className="mt-0.5 shrink-0" />
+                      {p.text}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </section>
           );
         })}
