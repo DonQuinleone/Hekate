@@ -315,6 +315,16 @@ export function FilePage({
   const playback = usePlayback(duration, 14.3);
   const tab = viewParam === "qa" ? "qa" : viewParam === "triage" ? "triage" : "review";
   const stage = useRef<HTMLDivElement>(null);
+  // How far the waveform is zoomed (#34); the playhead is kept in view, a page at a time.
+  const [zoom, setZoom] = useState(1);
+  const zoomBox = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const box = zoomBox.current;
+    if (!box || zoom <= 1) return;
+    const at = (playback.time / duration) * box.scrollWidth;
+    if (at < box.scrollLeft || at >= box.scrollLeft + box.clientWidth)
+      box.scrollLeft = Math.max(0, at - box.clientWidth * 0.1);
+  }, [zoom, playback.time, duration]);
   const [stageHeight, setStageHeight] = useState(360);
   useEffect(() => {
     const el = stage.current;
@@ -844,62 +854,67 @@ export function FilePage({
     </div>
   ) : (
     <div className="flex flex-col px-3 pb-1 @3xl/app:px-4">
-      {view.spectrogram !== "instead" && (
-        <Waveform
-          seed={file.seed}
-          duration={duration}
-          channels={channels}
-          layout={file.media.layout}
-          playback={playback}
-          split={view.split}
-          markers={markers}
-          colour={view.wave.colour}
-          opacity={view.wave.opacity}
-          amplitude={view.wave.height}
-          findings={tools.has("qa") ? findingsFor(file.id) : undefined}
-          onMarker={(id) => setSelected(id)}
-          height={view.spectrogram === "below" ? waveHeight - spectroHeight - 8 : waveHeight}
-          overlay={
-            view.spectrogram === "behind" ? (
+      {/* Zoomed in, it scrolls, a page at a time with the playhead; the ruler widens with it. */}
+      <div ref={zoomBox} className={cn(zoom > 1 && "overflow-x-auto overscroll-x-contain")}>
+        <div className="flex flex-col" style={{ width: `${zoom * 100}%` }}>
+          {view.spectrogram !== "instead" && (
+            <Waveform
+              seed={file.seed}
+              duration={duration}
+              channels={channels}
+              layout={file.media.layout}
+              playback={playback}
+              split={view.split}
+              markers={markers}
+              colour={view.wave.colour}
+              opacity={view.wave.opacity}
+              amplitude={view.wave.height}
+              findings={tools.has("qa") ? findingsFor(file.id) : undefined}
+              onMarker={(id) => setSelected(id)}
+              height={view.spectrogram === "below" ? waveHeight - spectroHeight - 8 : waveHeight}
+              overlay={
+                view.spectrogram === "behind" ? (
+                  <Spectrogram
+                    seed={file.seed}
+                    width={1200}
+                    height={waveHeight}
+                    colourMap={view.colourMap}
+                    scale={view.scale}
+                    className="absolute inset-0 h-full w-full opacity-60"
+                  />
+                ) : undefined
+              }
+            />
+          )}
+          {(view.spectrogram === "below" || view.spectrogram === "instead") && (
+            <div
+              className={cn(
+                "relative overflow-hidden rounded-control",
+                view.spectrogram === "below" && "mt-2",
+              )}
+              style={{ height: view.spectrogram === "instead" ? waveHeight : spectroHeight }}
+            >
               <Spectrogram
                 seed={file.seed}
                 width={1200}
-                height={waveHeight}
+                height={view.spectrogram === "instead" ? waveHeight : spectroHeight}
                 colourMap={view.colourMap}
                 scale={view.scale}
-                className="absolute inset-0 h-full w-full opacity-60"
+                className="absolute inset-0 h-full w-full"
               />
-            ) : undefined
-          }
-        />
-      )}
-      {(view.spectrogram === "below" || view.spectrogram === "instead") && (
-        <div
-          className={cn(
-            "relative overflow-hidden rounded-control",
-            view.spectrogram === "below" && "mt-2",
+              <FrequencyScale
+                height={view.spectrogram === "instead" ? waveHeight : spectroHeight}
+                scale={view.scale}
+              />
+              <div
+                className="pointer-events-none absolute top-0 bottom-0 w-px bg-signal"
+                style={{ left: `${(playback.time / duration) * 100}%` }}
+              />
+            </div>
           )}
-          style={{ height: view.spectrogram === "instead" ? waveHeight : spectroHeight }}
-        >
-          <Spectrogram
-            seed={file.seed}
-            width={1200}
-            height={view.spectrogram === "instead" ? waveHeight : spectroHeight}
-            colourMap={view.colourMap}
-            scale={view.scale}
-            className="absolute inset-0 h-full w-full"
-          />
-          <FrequencyScale
-            height={view.spectrogram === "instead" ? waveHeight : spectroHeight}
-            scale={view.scale}
-          />
-          <div
-            className="pointer-events-none absolute top-0 bottom-0 w-px bg-signal"
-            style={{ left: `${(playback.time / duration) * 100}%` }}
-          />
+          <Ruler duration={duration} className="mt-1" />
         </div>
-      )}
-      <Ruler duration={duration} className="mt-1" />
+      </div>
     </div>
   );
 
@@ -921,6 +936,8 @@ export function FilePage({
             compareOpen={compareOpen}
             onCompare={() => setCompareOpen((o) => !o)}
             hearing={hearing}
+            zoom={isAudio ? zoom : undefined}
+            onZoom={isAudio ? setZoom : undefined}
           />
           <LoopBar playback={playback} />
           {compareOpen && (
