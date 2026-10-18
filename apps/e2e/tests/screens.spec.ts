@@ -1292,6 +1292,18 @@ test("track-takes-edit", async ({ page }) => {
   await checkScreen(page);
 });
 
+// V2's edit decision list read against the takes (#56): where each edit comes from.
+test("track-takes-edits", async ({ page }) => {
+  await page.goto(`/tracks/${seeded().trackId}?view=takes`);
+  await expect(page.getByRole("list", { name: "Takes of this track" })).toContainText("in V2");
+  await page.getByRole("button", { name: "Edit decisions" }).click();
+  const edits = page.getByRole("list", { name: "Edit decisions" });
+  await expect(edits.getByRole("listitem")).toHaveCount(4);
+  await expect(edits).toContainText("Not a take of this track");
+  await saveScreen(page, "track-takes-edits");
+  await checkScreen(page);
+});
+
 // Project templates (#240): saving one from the project's settings, and starting from one.
 test("project-template-save", async ({ page }) => {
   await page.goto(`/projects/${seeded().musicProjectId}/settings`);

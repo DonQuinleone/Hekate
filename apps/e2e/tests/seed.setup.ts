@@ -224,13 +224,18 @@ setup("seed", async ({ page, browser }) => {
     notes: "First edit from the Tuesday sessions.",
     variations: [{ fileId: named("Mix v1"), name: "Mix" }],
   });
-  await api(page, "POST", `/api/tracks/${track.id}/versions`, {
-    notes: "Bars 12 to 16 replaced with take 7.",
-    variations: [
-      { fileId: dry, name: "Dry" },
-      { fileId: named("Wet v2"), name: "Wet" },
-    ],
-  });
+  const { track: withTwo } = await api<{ track: { versions: { id: string }[] } }>(
+    page,
+    "POST",
+    `/api/tracks/${track.id}/versions`,
+    {
+      notes: "Bars 12 to 16 replaced with take 7.",
+      variations: [
+        { fileId: dry, name: "Dry" },
+        { fileId: named("Wet v2"), name: "Wet" },
+      ],
+    },
+  );
   // Four takes of it from the sessions (#21), in a folder of their own: three with bars, rated
   // and noted, leaving bars 17 to 24 uncovered, and one without bars.
   const { folder: sessionFolder } = await api<{ folder: { id: string } }>(
@@ -281,6 +286,30 @@ setup("seed", async ({ page, browser }) => {
     const take = takes[i];
     if (take) await api(page, "PATCH", `/api/takes/${take.id}`, change);
   }
+  // V2's edit decision list, given after it was made (#56): takes 2, 3 and 4, and a
+  // pick-up recorded apart, which is no take of the track.
+  const edlPath = file("Maple Leaf Rag - V2.edl");
+  writeFileSync(
+    edlPath,
+    [
+      "TITLE: MAPLE LEAF RAG V2",
+      "FCM: NON-DROP FRAME",
+      "",
+      "001  MAPLELEA AA     C        00:00:00:00 00:00:06:00 01:00:00:00 01:00:06:00",
+      "* FROM CLIP NAME: Maple Leaf Rag - T2.wav",
+      "002  MAPLELEA AA     C        00:00:01:00 00:00:09:00 01:00:06:00 01:00:14:00",
+      "* FROM CLIP NAME: Maple Leaf Rag - T3.wav",
+      "003  PICKUP   AA     C        00:00:00:00 00:00:03:00 01:00:14:00 01:00:17:00",
+      "* FROM CLIP NAME: Pick-up, bar 17.wav",
+      "004  T4       AA     C        00:00:02:00 00:00:10:00 01:00:17:00 01:00:25:00",
+      "",
+    ].join("\n"),
+  );
+  await upload(page, music.id, [edlPath], sessionFolder.id);
+  const edlFile = (await settled(page, music.id)).find((f) => f.name.endsWith("V2.edl"));
+  const v2 = withTwo.versions.at(-1);
+  if (!edlFile || !v2) throw new Error("The edit decision list did not upload");
+  await api(page, "PUT", `/api/versions/${v2.id}/edl`, { fileId: edlFile.id });
   // From here on a version needs an edit decision list (#131): the next one is refused.
   await api(page, "PATCH", `/api/projects/${music.id}`, { requireEdl: true });
   // Its set-up, saved for the next recording to start from (#240).

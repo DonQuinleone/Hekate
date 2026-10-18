@@ -498,6 +498,99 @@ function EdlChooser({ busy, onFiles }: { busy: boolean; onFiles: (files: FileLis
 }
 
 /**
+ * A version's edit decision list given after it was made (#56), or another in its place:
+ * uploaded, or one already in the project. The takes view then reads which take each edit
+ * comes from.
+ */
+function EdlDialog({
+  track,
+  version,
+  onClose,
+}: {
+  track: Track;
+  version: Version;
+  onClose: () => void;
+}) {
+  const { setEdl } = useTrackMutations(track.projectId);
+  const { data: files = [] } = useQuery(projectFilesQuery(track.projectId));
+  const pick = useFilePicks(track);
+  const chosen = pick.picks.find((p) => p.fileId);
+  const lists = files.filter((f) => /\.edl$/i.test(f.name) && f.id !== version.edlFileId);
+  return (
+    <Dialog
+      title={`Edit decision list for V${version.number}`}
+      description="The list the version was cut from, as the editor's DAW exports it (CMX 3600). Its edits are matched to the track's takes."
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            disabled={!chosen?.fileId || pick.busy || setEdl.isPending}
+            onClick={() =>
+              chosen?.fileId &&
+              setEdl.mutate(
+                { versionId: version.id, fileId: chosen.fileId },
+                { onSuccess: onClose },
+              )
+            }
+          >
+            Use this list
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        {chosen ? (
+          <span className="flex items-center gap-2 text-[14px] text-ink">
+            <Icon name="file" size={14} className="text-ink-3" />
+            {chosen.name}
+            <Button
+              variant="ghost"
+              size="iconSm"
+              aria-label="Choose another list"
+              onClick={pick.clear}
+            >
+              <Icon name="close" size={12} />
+            </Button>
+          </span>
+        ) : (
+          <span className="flex flex-wrap items-center gap-2">
+            <EdlChooser
+              busy={pick.busy}
+              onFiles={(f) => {
+                pick.clear();
+                pick.upload(f);
+              }}
+            />
+            {lists.length > 0 && (
+              <Dropdown
+                size="sm"
+                value="From the project"
+                actions={lists.map((f) => ({
+                  label: f.name,
+                  onSelect: () => {
+                    pick.clear();
+                    pick.add(f);
+                  },
+                }))}
+              />
+            )}
+          </span>
+        )}
+        {setEdl.error && (
+          <p role="alert" className="text-[13px] text-signal">
+            {setEdl.error.message}
+          </p>
+        )}
+      </div>
+    </Dialog>
+  );
+}
+
+/**
  * Another variation of a version, or a corrected file in place of one: dropped, chosen or
  * picked from the project's loose files.
  */
@@ -635,11 +728,11 @@ function VersionRow({
   const can = useProjectCan(track.projectId);
   const tool = useProjectTool(track.projectId);
   const navigate = useNavigate();
-  const { makePrimary } = useTrackMutations(track.projectId);
+  const { makePrimary, setEdl } = useTrackMutations(track.projectId);
   const previous = [...track.versions]
     .filter((v) => v.number < version.number)
     .sort((x, y) => y.number - x.number)[0];
-  const [dialog, setDialog] = useState<"add" | "replace" | null>(null);
+  const [dialog, setDialog] = useState<"add" | "replace" | "edl" | null>(null);
   const pending = version.variations.some((v) => v.streamStatus === "pending");
   const failed = version.variations.some((v) => v.streamStatus === "failed");
   const actions: MenuAction[] = [
@@ -661,6 +754,20 @@ function VersionRow({
     ...(can("organise")
       ? [
           { label: "Replace a file…", onSelect: () => setDialog("replace") },
+          {
+            label: version.edlFileId
+              ? "Replace the edit decision list…"
+              : "Import an edit decision list…",
+            onSelect: () => setDialog("edl"),
+          },
+          ...(version.edlFileId
+            ? [
+                {
+                  label: "Take off the edit decision list",
+                  onSelect: () => setEdl.mutate({ versionId: version.id, fileId: null }),
+                },
+              ]
+            : []),
           ...version.variations
             .filter((v) => !v.isPrimary)
             .map((v) => ({
@@ -772,13 +879,16 @@ function VersionRow({
           );
         })}
       </ul>
-      {dialog && (
+      {(dialog === "add" || dialog === "replace") && (
         <VariationDialog
           track={track}
           version={version}
           mode={dialog}
           onClose={() => setDialog(null)}
         />
+      )}
+      {dialog === "edl" && (
+        <EdlDialog track={track} version={version} onClose={() => setDialog(null)} />
       )}
     </li>
   );
