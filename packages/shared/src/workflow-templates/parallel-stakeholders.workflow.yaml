@@ -1,0 +1,94 @@
+# A Hekate workflow: https://donquinleone.github.io/Hekate/use/workflow-files/
+hekate: workflow/1
+name: Parallel stakeholders
+groups:
+  signoff: Sign-off
+nodes:
+  - id: start
+    event: upload
+    name: A version is uploaded
+    at: [0, 120]
+  - id: label
+    action: approval
+    name: The label
+    group: signoff
+    with:
+      who: Label
+      rule: Any one approves
+      status: With the stakeholders
+    at: [320, 0]
+  - id: artist
+    action: approval
+    name: The artist
+    group: signoff
+    with:
+      who: Artist
+      rule: Any one approves
+    at: [320, 120]
+  - id: producer
+    action: approval
+    name: The producer
+    group: signoff
+    with:
+      who: Producer
+      rule: Any one approves
+    at: [320, 240]
+  - id: agreed
+    action: status
+    name: Everyone agrees
+    with:
+      status: Agreed
+    at: [640, 120]
+  - id: done
+    action: finish
+    name: Approved
+    with:
+      status: Approved
+    at: [960, 120]
+  - id: tell
+    action: notify
+    name: Tell the producer
+    with:
+      to: Producer
+      message: Changes were requested.
+    at: [640, 360]
+  - id: stopped
+    action: finish
+    name: Changes requested
+    with:
+      status: Changes requested
+    at: [960, 360]
+connectors:
+  - id: c1
+    from: start.happened
+    to: label
+  - id: c2
+    from: start.happened
+    to: artist
+  - id: c3
+    from: start.happened
+    to: producer
+  - id: c4
+    from: label.approved
+    to: agreed
+  - id: c5
+    from: artist.approved
+    to: agreed
+  - id: c6
+    from: producer.approved
+    to: agreed
+  - id: c7
+    from: agreed.set
+    to: done
+  - id: c8
+    from: label.changes
+    to: tell
+  - id: c9
+    from: artist.changes
+    to: tell
+  - id: c10
+    from: producer.changes
+    to: tell
+  - id: c11
+    from: tell.sent
+    to: stopped

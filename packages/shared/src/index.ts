@@ -48,4 +48,5 @@ export * from "./templates.ts";
 export * from "./tracks.ts";
 export * from "./watermark.ts";
 export * from "./wave.ts";
+export * from "./workflow-files.ts";
 export * from "./workflows.ts";
