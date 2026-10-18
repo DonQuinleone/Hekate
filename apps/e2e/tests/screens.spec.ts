@@ -824,6 +824,20 @@ test("file-zoom", async ({ page }) => {
   await checkScreen(page);
 });
 
+// A stereo recording's channels, each with its level at the playhead from the stored loudness
+// (#74), the right one muted.
+test("file-channels-levels", async ({ page }) => {
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page.getByRole("button", { name: "Channels", exact: true }).click();
+  const menu = page.getByRole("region", { name: "Channels" });
+  await expect(menu.getByRole("meter", { name: /^L: RMS/ })).toBeAttached();
+  await expect(menu.getByRole("meter", { name: /^R: RMS/ })).toBeAttached();
+  await menu.getByRole("button", { name: "Mute R" }).click();
+  await saveScreen(page, "file-channels-levels");
+  await checkScreen(page);
+});
+
 // A recording's channels heard apart (#74): its answers amended in the page alone to a 5.1
 // file's, the centre soloed and the downmix on.
 test("file-channels", async ({ page }) => {
