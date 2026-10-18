@@ -16,6 +16,7 @@ import type { Jobs } from "./jobs.ts";
 import { projectPeople, recordNotification } from "./notifications.ts";
 
 const {
+  organisations,
   fileTags,
   files,
   projectMembers,
@@ -76,6 +77,7 @@ async function contextOf(
   tx: Tx,
   organisationId: string,
   trackId: string,
+  by?: WorkflowContext["by"],
 ): Promise<WorkflowContext> {
   const [latest] = await tx
     .select({ kind: files.kind, fileId: files.id })
@@ -95,14 +97,14 @@ async function contextOf(
     .where(inOrg(versions, organisationId, eq(versions.trackId, trackId)))
     .orderBy(desc(versions.number))
     .limit(1);
-  if (!latest) return { item: { kind: "other", tags: [] } };
+  if (!latest) return { item: { kind: "other", tags: [] }, ...(by ? { by } : {}) };
   const named = await tx
     .select({ name: tags.name })
     .from(fileTags)
     .innerJoin(tags, and(eq(tags.id, fileTags.tagId), eq(tags.organisationId, organisationId)))
     .where(inOrg(fileTags, organisationId, eq(fileTags.fileId, latest.fileId)));
   const kind = (["audio", "video", "document", "image"] as const).find((k) => k === latest.kind);
-  return { item: { kind: kind ?? "other", tags: named.map((t) => t.name) } };
+  return { item: { kind: kind ?? "other", tags: named.map((t) => t.name) }, ...(by ? { by } : {}) };
 }
 
 /**
@@ -270,7 +272,7 @@ async function begin(
     userId: string | null;
   },
 ) {
-  const ctx = await contextOf(tx, at.organisationId, at.trackId);
+  const ctx = await contextOf(tx, at.organisationId, at.trackId, at.userId ? "member" : undefined);
   const moved = startRun(workflow.definition, at.triggerId, ctx);
   const [row] = await tx
     .insert(workflowRuns)
@@ -314,38 +316,60 @@ export async function versionArrived(
     userId: string;
   },
 ) {
-  const flows = await workflowsFor(deps.db, at.organisationId, at.projectId, at.trackId);
-  for (const flow of flows) {
+  // Runs under way carry on from an upload they wait for, whatever has since become of the
+  // workflow they started from: a run keeps its definition.
+  const running = await deps.db
+    .select({ id: workflowRuns.id, workflowId: workflowRuns.workflowId })
+    .from(workflowRuns)
+    .where(
+      inOrg(
+        workflowRuns,
+        at.organisationId,
+        eq(workflowRuns.trackId, at.trackId),
+        eq(workflowRuns.state, "running"),
+      ),
+    );
+  for (const { id } of running) {
     try {
       const after = await deps.db.transaction(async (tx) => {
-        const running = await runningOf(tx, at.organisationId, flow.id, at.trackId);
-        if (running) {
-          const listening = running.engine.active.find(
-            (id) => running.definition.nodes.find((n) => n.id === id)?.type === "upload",
-          );
-          if (!listening) return [];
-          const ctx = await contextOf(tx, at.organisationId, at.trackId);
-          const moved = completeNode(
-            running.definition,
-            running.engine,
-            listening,
-            "happened",
-            ctx,
-          );
-          return apply(tx, deps, running, moved, {
-            nodeId: listening,
-            outcome: "happened",
-            byUserId: at.userId,
-          });
-        }
+        const [run] = await tx
+          .select()
+          .from(workflowRuns)
+          .where(inOrg(workflowRuns, at.organisationId, eq(workflowRuns.id, id)))
+          .for("update");
+        if (run?.state !== "running") return [];
+        const listening = run.engine.active.find(
+          (node) => run.definition.nodes.find((n) => n.id === node)?.type === "upload",
+        );
+        if (!listening) return [];
+        const ctx = await contextOf(tx, at.organisationId, at.trackId, "member");
+        const moved = completeNode(run.definition, run.engine, listening, "happened", ctx);
+        return apply(tx, deps, run, moved, {
+          nodeId: listening,
+          outcome: "happened",
+          byUserId: at.userId,
+        });
+      });
+      await runAfter(after);
+    } catch (failure) {
+      // One run failing to move on never keeps the version, or the other runs, back.
+      console.warn(`Run ${id} could not move on: ${String(failure)}`);
+    }
+  }
+  // The workflows that run for the track and have no run under way there start afresh.
+  const busy = new Set(running.map((r) => r.workflowId));
+  const flows = await workflowsFor(deps.db, at.organisationId, at.projectId, at.trackId);
+  for (const flow of flows.filter((f) => !busy.has(f.id))) {
+    try {
+      const after = await deps.db.transaction(async (tx) => {
+        if (await runningOf(tx, at.organisationId, flow.id, at.trackId)) return [];
         const trigger = triggersOf(flow.definition).find((t) => t.type === "upload");
         if (!trigger) return [];
         return (await begin(tx, deps, flow, { ...at, triggerId: trigger.id })).after;
       });
       await runAfter(after);
     } catch (failure) {
-      // One workflow failing to start never keeps the version, or the other workflows, back.
-      console.warn(`Workflow ${flow.id} could not move on: ${String(failure)}`);
+      console.warn(`Workflow ${flow.id} could not start: ${String(failure)}`);
     }
   }
 }
@@ -399,7 +423,12 @@ export async function completeStep(
     if (at.userId) await lockLiveProject(tx, at.organisationId, row.projectId);
     if (row.state !== "running" || !row.engine.active.includes(at.nodeId))
       throw new HTTPException(409, { message: "The run is not waiting on that step" });
-    const ctx = await contextOf(tx, at.organisationId, row.trackId);
+    const ctx = await contextOf(
+      tx,
+      at.organisationId,
+      row.trackId,
+      at.userId ? "member" : undefined,
+    );
     let moved: ReturnType<typeof completeNode>;
     try {
       moved = completeNode(row.definition, row.engine, at.nodeId, at.outcome, ctx);
@@ -475,4 +504,60 @@ export async function runsOf(db: Database, organisationId: string, trackId: stri
           )
           .orderBy(workflowSteps.createdAt, workflowSteps.id);
   return runs.map((r) => ({ run: r, steps: steps.filter((s) => s.runId === r.id) }));
+}
+
+/**
+ * The waits whose days have passed and whose run still waits on them, ended: the queued job
+ * normally does it, and this hourly sweep does it when the job was never queued (the queue was
+ * down, or the process stopped before it could send it).
+ */
+export async function sweepWaits(deps: RunnerDeps, now = new Date()) {
+  let ended = 0;
+  for (const workspace of await deps.db.select({ id: organisations.id }).from(organisations)) {
+    const runs = await deps.db
+      .select({
+        id: workflowRuns.id,
+        engine: workflowRuns.engine,
+        definition: workflowRuns.definition,
+      })
+      .from(workflowRuns)
+      .where(inOrg(workflowRuns, workspace.id, eq(workflowRuns.state, "running")));
+    for (const run of runs) {
+      for (const nodeId of run.engine.active) {
+        const node = run.definition.nodes.find((n) => n.id === nodeId);
+        if (node?.type !== "wait") continue;
+        const [began] = await deps.db
+          .select({ id: workflowSteps.id, at: workflowSteps.createdAt })
+          .from(workflowSteps)
+          .where(
+            inOrg(
+              workflowSteps,
+              workspace.id,
+              eq(workflowSteps.runId, run.id),
+              sql`${workflowSteps.effects} @> ${JSON.stringify([{ kind: "start", nodeId }])}::jsonb`,
+            ),
+          )
+          .orderBy(desc(workflowSteps.createdAt), desc(workflowSteps.id))
+          .limit(1);
+        if (!began) continue;
+        const days = Number.parseFloat(node.config.days ?? "");
+        const due =
+          began.at.getTime() + (Number.isFinite(days) && days > 0 ? days * 86_400_000 : 0);
+        if (due > now.getTime()) continue;
+        await waitElapsed(deps, {
+          organisationId: workspace.id,
+          runId: run.id,
+          nodeId,
+          stepId: began.id,
+        }).then(
+          () => {
+            ended += 1;
+          },
+          (failure: unknown) =>
+            console.warn(`Could not end the wait on run ${run.id}: ${String(failure)}`),
+        );
+      }
+    }
+  }
+  return ended;
 }

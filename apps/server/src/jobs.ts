@@ -85,6 +85,12 @@ export const jobDefinitions = {
     }),
     options: { retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 10 * 60 },
   },
+  /** End the workflow waits whose days have passed, where no queued job did (#25). Hourly. */
+  "workflow-waits-sweep": {
+    data: z.object({}),
+    options: { retryLimit: 1, expireInSeconds: 30 * 60 },
+    schedule: "41 * * * *",
+  },
   /** Remind reviewers the day before a review waiting on them is due. Hourly. */
   "reviews-remind": {
     data: z.object({}),

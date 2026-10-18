@@ -55,7 +55,7 @@ import { remindDue } from "./reminders.ts";
 import { createSetupGate, SETUP_CODE_HEADER } from "./setup-code.ts";
 import { createStorage } from "./storage.ts";
 import { expireUploads } from "./uploads.ts";
-import { waitElapsed, workflowsFor } from "./workflow-runner.ts";
+import { sweepWaits, waitElapsed, workflowsFor } from "./workflow-runner.ts";
 import { rewrapBehind, rewrapOrganisation } from "./workspace-keys.ts";
 import { purgeDueWorkspaces } from "./workspace-purge.ts";
 
@@ -8218,6 +8218,10 @@ describe.runIf(url)("api", () => {
             { ...wait, stepId: "0199f000-0000-7000-8000-000000000001" },
           );
           expect((await runs())[0]?.state).toBe("running");
+          // Were the job never queued, the hourly sweep ends the wait once its day has passed.
+          expect(await sweepWaits({ db, jobs })).toBe(0);
+          expect(await sweepWaits({ db, jobs }, new Date(Date.now() + 2 * 86_400_000))).toBe(1);
+          // The job arriving after the sweep changes nothing.
           await waitElapsed({ db, jobs }, wait);
           [run] = await runs();
           expect(run).toMatchObject({ state: "finished", status: "Approved", waiting: [] });
@@ -8243,6 +8247,87 @@ describe.runIf(url)("api", () => {
             404,
           );
           expect((await step({ nodeId: "fb", outcome: "done" }, newcomer)).status).toBe(404);
+        });
+
+        it("carries a run on from a version it waits for, even once its workflow is off (#25)", async () => {
+          const s = await studio();
+          const at = (id: string, type: string, name: string, x: number) => ({
+            id,
+            type,
+            name,
+            x,
+            y: 0,
+            config: {},
+          });
+          const definition = {
+            nodes: [
+              at("start", "upload", "A version is uploaded", 0),
+              at("edit", "task", "Engineer edits", 1),
+              at("again", "upload", "The edit is uploaded", 2),
+              at("done", "finish", "Done", 3),
+            ],
+            connectors: [
+              { id: "1", from: "start", outcome: "happened", to: "edit" },
+              // Taken only when a member, not a job, ended the edit.
+              {
+                id: "2",
+                from: "edit",
+                outcome: "done",
+                to: "again",
+                condition: { test: "by", is: "member" },
+              },
+              { id: "3", from: "again", outcome: "happened", to: "done" },
+            ],
+          };
+          const send = (url: string, body: unknown, method = "POST") =>
+            app.request(url, { ...json(body, s.owner), method });
+          const made = (await (
+            await send(`/api/projects/${s.projectId}/workflows`, { name: "Edit round", definition })
+          ).json()) as { workflow: { id: string } };
+          await send(`/api/workflows/${made.workflow.id}`, { active: true }, "PATCH");
+          const version = async (name: string) => {
+            const blob = await storage.put(s.organisationId, Buffer.from(name));
+            const [file] = await db
+              .insert(schema.files)
+              .values({
+                organisationId: s.organisationId,
+                projectId: s.projectId,
+                name,
+                kind: "audio",
+                blobId: blob.id,
+                contentType: "audio/wav",
+                byteSize: blob.byteSize,
+                mediaInfo: {
+                  duration: 60,
+                  audio: { codec: "pcm_s24le", channels: 2, sampleRate: 48000 },
+                } as never,
+              })
+              .returning();
+            await send(`/api/tracks/${s.trackId}/versions`, {
+              variations: [{ fileId: file?.id ?? "", name: "Mix" }],
+            });
+          };
+          type Run = { id: string; state: string; waiting: { nodeId: string }[] };
+          const runs = async () =>
+            (
+              (await (await getAs(`/api/tracks/${s.trackId}/workflow-runs`, s.owner)).json()) as {
+                runs: Run[];
+              }
+            ).runs;
+          await version("Edit v2.wav");
+          const [run] = await runs();
+          // Ended by a member, the edit takes the connector kept for members.
+          await send(`/api/workflow-runs/${run?.id}/steps`, { nodeId: "edit", outcome: "done" });
+          expect((await runs())[0]).toMatchObject({
+            state: "running",
+            waiting: [{ nodeId: "again" }],
+          });
+          // Switched off, the workflow starts nothing new; the run under way still hears the edit.
+          await send(`/api/workflows/${made.workflow.id}`, { active: false }, "PATCH");
+          await version("Edit v3.wav");
+          expect((await runs()).map((r) => r.state)).toEqual(["finished"]);
+          await version("Edit v4.wav");
+          expect((await runs()).map((r) => r.state)).toEqual(["finished"]);
         });
 
         it("reads a version's edit decision list and says which take each edit comes from (#56)", async () => {
