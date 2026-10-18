@@ -8109,6 +8109,29 @@ describe.runIf(url)("api", () => {
             )
           ).status,
         ).toBe(404);
+
+        // A thread can take its category as it is made (#43), as when a finding becomes a
+        // comment: for those who triage, from this project, and never on a reply.
+        const create = (body: Record<string, unknown>, cookie: string) =>
+          app.request(`/api/files/${s.mix}/comments`, json(body, cookie));
+        const made = await create({ body: "Clipped at 0:12.", categoryId: noise?.id }, s.engineer);
+        expect(made.status).toBe(201);
+        expect(((await made.json()) as { comment: Thread }).comment).toMatchObject({
+          categoryId: noise?.id,
+          deferredTo: "Noise reduction",
+        });
+        expect((await create({ body: "Hiss.", categoryId: noise?.id }, s.composer)).status).toBe(
+          403,
+        );
+        expect(
+          (await create({ body: "Hiss.", categoryId: theirCategory?.id }, s.engineer)).status,
+        ).toBe(422);
+        expect(
+          (await create({ body: "Hiss.", parentId: hiss, categoryId: noise?.id }, s.engineer))
+            .status,
+        ).toBe(400);
+        // Without one, it is as it always was.
+        expect((await create({ body: "Hiss.", categoryId: null }, s.composer)).status).toBe(201);
       });
 
       it("checks a new version before it lands, carries as chosen, and replaces a file keeping its threads", async () => {

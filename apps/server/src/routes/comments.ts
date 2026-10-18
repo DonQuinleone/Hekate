@@ -3,6 +3,7 @@ import {
   type Anchor,
   anchorProblem,
   type CarryStatus,
+  type CategoryHandling,
   type CommentAttachment,
   type CommentMention,
   carrySettles,
@@ -641,6 +642,29 @@ export const fileCommentRoutes = (
         if (problem) throw new HTTPException(422, { message: problem });
       }
       const mentions = await mentionsFor(db, organisationId, file.projectId, actor, input.mentions);
+      // A category from the start is triage (#43): only for those who triage, from this project.
+      let category: { id: string; handling: CategoryHandling; stage: string | null } | null = null;
+      if (input.categoryId) {
+        await canOnFile(db, actor, "triage", file.id);
+        [category = null] = await db
+          .select({
+            id: commentCategories.id,
+            handling: commentCategories.handling,
+            stage: commentCategories.stage,
+          })
+          .from(commentCategories)
+          .where(
+            inOrg(
+              commentCategories,
+              organisationId,
+              eq(commentCategories.id, input.categoryId),
+              eq(commentCategories.projectId, file.projectId),
+            ),
+          );
+        if (!category) {
+          throw new HTTPException(422, { message: "Categories must come from this project" });
+        }
+      }
 
       // Every guest comment is in the access log (docs/security.md), written with it.
       const who = actor.kind === "guest" ? await audit.guest(actor.guestId) : null;
@@ -656,6 +680,10 @@ export const fileCommentRoutes = (
             anchor: input.anchor ?? null,
             body: input.body,
             mentions,
+            ...(category && {
+              categoryId: category.id,
+              deferredTo: deferralAfter(null, { categoryId: category.id }, category),
+            }),
           })
           .returning({ id: comments.id });
         if (who) {

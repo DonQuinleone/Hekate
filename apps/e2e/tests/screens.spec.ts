@@ -793,6 +793,21 @@ test("project-settings-deletion", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The checks narrowed (#43): to what failed, then to one check.
+test("file-qa-filtered", async ({ page }) => {
+  await page.goto(`/files/${seeded().dryFileId}?view=qa`);
+  await settle(page, "section[aria-label=Checks] h2");
+  const checks = page.locator("section[aria-label=Checks]");
+  await checks.getByRole("button", { name: /failed$/ }).click();
+  await checks.getByRole("combobox", { name: "Check" }).selectOption("clipping");
+  await expect(checks.getByRole("button", { name: /failed$/ })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await saveScreen(page, "file-qa-filtered");
+  await checkScreen(page);
+});
+
 // An Atmos master's checks (#74): its ADM read as a bed and objects, the LFE judged against
 // its crossover. The file's answers are amended in this page alone; the seed stays stereo.
 test("file-qa-atmos", async ({ page }) => {
