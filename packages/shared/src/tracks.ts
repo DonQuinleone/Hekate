@@ -114,12 +114,33 @@ export interface CheckedFile {
   channels: number | null | undefined;
   /** Its highest true peak in dBTP; undefined while it is still being measured. */
   truePeak: number | null | undefined;
+  /** How long it runs, in seconds; undefined while it is still being probed, null for a file
+   * with no length (a document) or one that could not be probed. */
+  duration?: number | null;
 }
+
+/** The edit decision list given with a new version, as the checks read it. */
+export interface GivenEdl {
+  name: string;
+  /** How many edits could be read from it. */
+  edits: number;
+  /** Where its last edit ends, in seconds from the start of the version's timeline. */
+  end: number;
+}
+
+/** How far a list may run past the version's end: an export's tail, a frame's rounding. */
+const EDL_END_TOLERANCE = 1;
+
+/** "3:05" for a refusal's message. */
+const minutes = (seconds: number) =>
+  `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 
 export type VersionRefusal =
   | { check: "true_peak"; file: string; truePeak: number; ceiling: number; message: string }
   | { check: "measuring"; file: string; message: string }
-  | { check: "edl"; message: string };
+  | { check: "edl"; message: string }
+  | { check: "edl_unreadable"; file: string; message: string }
+  | { check: "edl_too_long"; file: string; end: number; duration: number; message: string };
 
 const dB = (n: number) => `${n > 0 ? "+" : ""}${n.toFixed(1).replace("-", "\u2212")}`;
 
@@ -133,7 +154,8 @@ export function versionRefusals(
   /** The profile each file is measured against (see `effectiveProfile`). */
   profileOf: (file: CheckedFile & { channels: number }) => DeliveryProfile,
   files: CheckedFile[],
-  hasEdl: boolean,
+  /** The edit decision list given with it, as read; null without one. */
+  edl: GivenEdl | null,
 ): VersionRefusal[] {
   const out: VersionRefusal[] = [];
   if (checks.truePeak) {
@@ -159,12 +181,35 @@ export function versionRefusals(
       }
     }
   }
-  if (checks.edl && !hasEdl) {
+  if (checks.edl && !edl) {
     out.push({
       check: "edl",
       message:
         "This project asks for an edit decision list with every version. Attach the EDL, or ask a producer to let it through.",
     });
+  }
+  // The list is read as well as asked for (#56): one with no edits, or one running past the
+  // end of the version (most often another version's list), is no record of this edit.
+  if (checks.edl && edl) {
+    // The longest variation counts, so the length is judged only once every one is probed.
+    const durations = files.flatMap((f) => (typeof f.duration === "number" ? [f.duration] : []));
+    const probed = files.every((f) => f.duration !== undefined);
+    const duration = probed && durations.length > 0 ? Math.max(...durations) : null;
+    if (edl.edits === 0) {
+      out.push({
+        check: "edl_unreadable",
+        file: edl.name,
+        message: `The upload workflow could not read any edits in ${edl.name}. Export it again as a CMX 3600 edit decision list, or ask a producer to let it through.`,
+      });
+    } else if (duration !== null && edl.end > duration + EDL_END_TOLERANCE) {
+      out.push({
+        check: "edl_too_long",
+        file: edl.name,
+        end: edl.end,
+        duration,
+        message: `The upload workflow refused ${edl.name}: its edits run to ${minutes(edl.end)}, past the end of this version at ${minutes(duration)}, so it may be another version's list. Attach this version's EDL, or ask a producer to let it through.`,
+      });
+    }
   }
   return out;
 }

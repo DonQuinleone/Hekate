@@ -51,14 +51,14 @@ describe("version checks", () => {
   const off = { truePeak: false, edl: false };
   const hot = { name: "V3 dry.wav", channels: 2, truePeak: 0.2 };
   it("let everything in when the project asks nothing", () => {
-    expect(versionRefusals(off, suggested, [hot], false)).toEqual([]);
+    expect(versionRefusals(off, suggested, [hot], null)).toEqual([]);
   });
   it("refuse a true peak over the ceiling, saying by how much and against what", () => {
     const [refusal] = versionRefusals(
       { truePeak: true, edl: false },
       () => deliveryProfiles["apple-digital-masters"],
       [hot, { name: "notes.pdf", channels: null, truePeak: null }],
-      false,
+      null,
     );
     expect(refusal).toMatchObject({ check: "true_peak", truePeak: 0.2, ceiling: -1 });
     expect(refusal?.message).toBe(
@@ -69,7 +69,7 @@ describe("version checks", () => {
         { truePeak: true, edl: false },
         suggested,
         [{ ...hot, truePeak: -1.5 }],
-        false,
+        null,
       ),
     ).toEqual([]);
   });
@@ -79,7 +79,7 @@ describe("version checks", () => {
         { truePeak: true, edl: true },
         suggested,
         [{ ...hot, truePeak: undefined }],
-        false,
+        null,
       ).map((r) => r.check),
     ).toEqual(["measuring", "edl"]);
     // Not yet probed: its channels are unknown, so it is still being measured.
@@ -88,9 +88,68 @@ describe("version checks", () => {
         { truePeak: true, edl: false },
         suggested,
         [{ ...hot, channels: undefined, truePeak: null }],
-        false,
+        null,
       ).map((r) => r.check),
     ).toEqual(["measuring"]);
-    expect(versionRefusals({ truePeak: false, edl: true }, suggested, [hot], true)).toEqual([]);
+    const list = { name: "V3.edl", edits: 12, end: 184.5 };
+    expect(
+      versionRefusals({ truePeak: false, edl: true }, suggested, [{ ...hot, duration: 185 }], list),
+    ).toEqual([]);
+  });
+  it("read the list it asks for: edits it can read, ending within the version", () => {
+    const rule = { truePeak: false, edl: true };
+    const [empty] = versionRefusals(rule, suggested, [hot], { name: "V3.edl", edits: 0, end: 0 });
+    expect(empty).toMatchObject({ check: "edl_unreadable", file: "V3.edl" });
+    expect(empty?.message).toBe(
+      "The upload workflow could not read any edits in V3.edl. Export it again as a CMX 3600 edit decision list, or ask a producer to let it through.",
+    );
+    const long = { name: "V2.edl", edits: 9, end: 212.4 };
+    const [past] = versionRefusals(rule, suggested, [{ ...hot, duration: 185.2 }], long);
+    expect(past).toMatchObject({ check: "edl_too_long", end: 212.4, duration: 185.2 });
+    expect(past?.message).toBe(
+      "The upload workflow refused V2.edl: its edits run to 3:32, past the end of this version at 3:05, so it may be another version's list. Attach this version's EDL, or ask a producer to let it through.",
+    );
+    // A tail under a second is an export's rounding; the longest variation counts; a version
+    // not yet measured is not judged on its length.
+    const near = { name: "V3.edl", edits: 9, end: 185.9 };
+    expect(versionRefusals(rule, suggested, [{ ...hot, duration: 185.2 }], near)).toEqual([]);
+    expect(
+      versionRefusals(
+        rule,
+        suggested,
+        [
+          { ...hot, duration: 120 },
+          { ...hot, name: "V3 wet.wav", duration: 213 },
+        ],
+        long,
+      ),
+    ).toEqual([]);
+    expect(versionRefusals(rule, suggested, [hot], long)).toEqual([]);
+    // Nor while one variation is still being probed: it may be the longer one.
+    expect(
+      versionRefusals(
+        rule,
+        suggested,
+        [
+          { ...hot, duration: 120 },
+          { ...hot, name: "V3 wet.wav", duration: undefined },
+        ],
+        long,
+      ),
+    ).toEqual([]);
+    // A file with no length (notes beside the mixes) does not hold it up.
+    expect(
+      versionRefusals(
+        rule,
+        suggested,
+        [
+          { ...hot, duration: 120 },
+          { name: "notes.pdf", channels: null, truePeak: null, duration: null },
+        ],
+        long,
+      ).map((r) => r.check),
+    ).toEqual(["edl_too_long"]);
+    // Without the rule, nothing about the list is checked.
+    expect(versionRefusals(off, suggested, [{ ...hot, duration: 10 }], long)).toEqual([]);
   });
 });

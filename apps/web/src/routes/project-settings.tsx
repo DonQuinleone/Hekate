@@ -1057,7 +1057,7 @@ function Workflow({ project }: { project: Project }) {
       />
       <SwitchRow
         name="An edit decision list with every version"
-        hint="The EDL the version was made from, uploaded beside it."
+        hint="The EDL the version was made from, uploaded beside it: it must hold edits, and end within the version."
         checked={project.requireEdl ?? false}
         disabled={!edit}
         onChange={(requireEdl) => update.mutate({ requireEdl })}

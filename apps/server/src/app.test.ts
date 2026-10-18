@@ -8397,8 +8397,12 @@ describe.runIf(url)("api", () => {
         const s = await studio();
         const send = (method: string, url: string, body: unknown, cookie: string) =>
           app.request(url, { ...json(body, cookie), method });
-        const audioFile = async (name: string, analysisStatus: "pending" | "ready" = "ready") => {
-          const blob = await storage.put(s.organisationId, Buffer.from(name));
+        const audioFile = async (
+          name: string,
+          analysisStatus: "pending" | "ready" = "ready",
+          content = name,
+        ) => {
+          const blob = await storage.put(s.organisationId, Buffer.from(content));
           const [row] = await db
             .insert(schema.files)
             .values({
@@ -8474,8 +8478,11 @@ describe.runIf(url)("api", () => {
             `/api/tracks/${s.trackId}/versions`,
             json({ variations: [{ fileId: v2, name: "Mix" }], ...body }, cookie),
           );
+        // One edit, from the start of the timeline to a given timecode.
+        const cut = (end: string) =>
+          `TITLE: CUT\n001  T3       AA     C        00:00:00:00 ${end.replace("01:", "00:")} 01:00:00:00 ${end}\n`;
         // Still being measured: try again shortly.
-        const edl = await audioFile("Cut.edl");
+        const edl = await audioFile("Cut.edl", "ready", cut("01:00:50:00"));
         const early = await add({ edlFileId: edl });
         expect(early.status).toBe(409);
         expect(((await early.json()) as { error: { code: string } }).error.code).toBe(
@@ -8491,6 +8498,18 @@ describe.runIf(url)("api", () => {
           "true peak +0.2 dBTP is over the \u22121.0 dBTP ceiling of Apple Digital Masters",
         );
         expect(why.message).toContain("asks for an edit decision list");
+        // The list is read too (#56): one with no edits, or one running past the end of the
+        // version (60 seconds here), is refused, saying which.
+        const reasonFor = async (edlFileId: string) =>
+          ((await (await add({ edlFileId })).json()) as { error: { message: string } }).error
+            .message;
+        expect(await reasonFor(await audioFile("Empty.edl"))).toContain(
+          "could not read any edits in Empty.edl",
+        );
+        expect(await reasonFor(await audioFile("V3.edl", "ready", cut("01:01:30:00")))).toContain(
+          "its edits run to 1:30, past the end of this version at 1:00",
+        );
+        expect(await reasonFor(edl)).not.toContain("edit decision list");
         // An engineer cannot let it through; an EDL must be an .edl file.
         expect((await add({ letThrough: true })).status).toBe(403);
         const notes = await audioFile("Cut.txt");

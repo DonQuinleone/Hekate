@@ -240,6 +240,7 @@ export function createApi(deps: AppDeps) {
           { mailer: deps.mailer, publicUrl: deps.publicUrl },
           deps.audit,
           deps.trustProxy ?? false,
+          deps.storage,
         ),
       )
       .route("/tracks", trackTakeRoutes(deps.db))
