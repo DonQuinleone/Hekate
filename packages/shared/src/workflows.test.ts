@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  checksOutcome,
   completeNode,
   flowShape,
   simulateWorkflow,
@@ -304,5 +305,26 @@ describe("running a workflow (#25)", () => {
     };
     const { effects } = startRun(flow, "s", { item: { kind: "audio", tags: [] }, by: "guest" });
     expect(read(effects)).toEqual(["do guest", "finish null"]);
+  });
+});
+
+describe("checksOutcome", () => {
+  const checked = (...severities: ("pass" | "info" | "warn" | "fail")[]) =>
+    ({ state: "checked", severities }) as const;
+
+  it("waits while any file is still being measured", () => {
+    expect(checksOutcome([checked("fail"), { state: "measuring" }])).toBeNull();
+  });
+
+  it("ends by the worst the reports found", () => {
+    expect(checksOutcome([checked("pass", "info"), { state: "unchecked" }])).toBe("passed");
+    expect(checksOutcome([checked("pass"), checked("warn", "info")])).toBe("warnings");
+    expect(checksOutcome([checked("warn"), checked("fail")])).toBe("failed");
+  });
+
+  it("fails a file that cannot be measured, and passes a version with nothing to check", () => {
+    expect(checksOutcome([checked("pass"), { state: "unmeasurable" }])).toBe("failed");
+    expect(checksOutcome([{ state: "unchecked" }])).toBe("passed");
+    expect(checksOutcome([])).toBe("passed");
   });
 });

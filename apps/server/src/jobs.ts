@@ -85,7 +85,18 @@ export const jobDefinitions = {
     }),
     options: { retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 10 * 60 },
   },
-  /** End the workflow waits whose days have passed, where no queued job did (#25). Hourly. */
+  /**
+   * A file has been measured, or cannot be (#25): the workflow checks stages waiting on a
+   * version it belongs to look again.
+   */
+  "workflow-checks": {
+    data: z.object({ organisationId: z.uuid(), fileId: z.uuid() }),
+    options: { retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 10 * 60 },
+  },
+  /**
+   * End the workflow waits whose days have passed, and the checks stages whose files have all
+   * been measured, where no queued job did (#25). Hourly.
+   */
   "workflow-waits-sweep": {
     data: z.object({}),
     options: { retryLimit: 1, expireInSeconds: 30 * 60 },
