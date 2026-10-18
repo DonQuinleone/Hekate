@@ -63,6 +63,7 @@ import { ProjectsPage } from "~/routes/projects";
 import { RequestReviewPage } from "~/routes/request-review";
 import { ReviewPage } from "~/routes/review";
 import { SearchPage } from "~/routes/search";
+import { SessionPage, SessionsPage } from "~/routes/sessions";
 import { TrackPage } from "~/routes/track";
 import { WorkspaceSettingsPage } from "~/routes/workspace-settings";
 
@@ -453,6 +454,23 @@ const projectPeople = createRoute({
     return <ProjectPeoplePage projectId={projectId} />;
   },
 });
+// The project's recording sessions (#21, #45), in its Production area.
+const projectSessions = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/sessions",
+  component: function ProjectSessionsRoute() {
+    const { projectId } = projectSessions.useParams();
+    return <SessionsPage projectId={projectId} />;
+  },
+});
+const session = createRoute({
+  getParentRoute: () => app,
+  path: "/sessions/$sessionId",
+  component: function SessionRoute() {
+    const { sessionId } = session.useParams();
+    return <SessionPage sessionId={sessionId} />;
+  },
+});
 // The project's settings: the section in the query string, as in the prototype.
 const projectSettings = createRoute({
   getParentRoute: () => app,
@@ -683,6 +701,8 @@ export const router = createRouter({
       projectReviews,
       requestReview,
       projectPeople,
+      projectSessions,
+      session,
       projectSettings,
       track,
       trackCompare,

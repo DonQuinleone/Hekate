@@ -286,6 +286,25 @@ setup("seed", async ({ page, browser }) => {
     const take = takes[i];
     if (take) await api(page, "PATCH", `/api/takes/${take.id}`, change);
   }
+  // The day they were recorded (#21, #45): three of the takes, the fourth from another day.
+  const { session: dayTwo } = await api<{ session: { id: string } }>(
+    page,
+    "POST",
+    `/api/projects/${music.id}/sessions`,
+    {
+      name: "Day 2",
+      recordedOn: "2026-10-13",
+      venue: "Endless Hall, studio 2",
+      trackIds: [track.id],
+    },
+  );
+  await api(page, "POST", `/api/projects/${music.id}/sessions`, {
+    name: "Day 3",
+    recordedOn: "2026-10-14",
+    venue: "Endless Hall, studio 2",
+  });
+  for (const take of takes.slice(0, 3))
+    await api(page, "PATCH", `/api/takes/${take.id}`, { sessionId: dayTwo.id });
   // V2's edit decision list, given after it was made (#56): takes 2, 3 and 4, and a
   // pick-up recorded apart, which is no take of the track.
   const edlPath = file("Maple Leaf Rag - V2.edl");
@@ -664,6 +683,7 @@ setup("seed", async ({ page, browser }) => {
     musicProjectId: music.id,
     videoProjectId: video.id,
     trackId: track.id,
+    sessionId: dayTwo.id,
     dryFileId: dry,
     scoreFileId: score,
     cutFileId: cutFile.id,

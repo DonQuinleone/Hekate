@@ -18,7 +18,8 @@ import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
-const { comments, commentTakes, files, takes, tracks, variations } = schema;
+const { comments, commentTakes, files, sessions, sessionTracks, takes, tracks, variations } =
+  schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
@@ -38,6 +39,15 @@ async function takesOf(db: Database, organisationId: string, trackId: string): P
     .from(takes)
     .where(inOrg(takes, organisationId, eq(takes.trackId, trackId)))
     .orderBy(asc(takes.number));
+  return takeRowsFor(db, organisationId, rows);
+}
+
+/** Takes as their lists show them, each with its scratch mix, in the order given. */
+export async function takeRowsFor(
+  db: Database,
+  organisationId: string,
+  rows: { take: typeof takes.$inferSelect }[],
+): Promise<TakeRow[]> {
   const mixes =
     rows.length === 0
       ? []
@@ -71,6 +81,7 @@ async function takesOf(db: Database, organisationId: string, trackId: string): P
       rating: t.rating,
       starred: t.starred,
       page: t.page,
+      sessionId: t.sessionId,
       barFrom: t.barFrom,
       barTo: t.barTo,
       inPoint: t.inPoint,
@@ -195,6 +206,25 @@ export const takeRoutes = (db: Database) =>
       await db.transaction(async (tx) => {
         // An archived project is read-only, even if it was archived a moment ago.
         await lockLiveProject(tx, organisationId, take.projectId);
+        if (change.sessionId) {
+          // A session of the same project; it recorded the take's track, if it did not say so.
+          const [session] = await tx
+            .select({ id: sessions.id })
+            .from(sessions)
+            .where(
+              inOrg(
+                sessions,
+                organisationId,
+                eq(sessions.id, change.sessionId),
+                eq(sessions.projectId, take.projectId),
+              ),
+            );
+          if (!session) throw new NotFound("Session");
+          await tx
+            .insert(sessionTracks)
+            .values({ organisationId, sessionId: session.id, trackId: take.take.trackId })
+            .onConflictDoNothing();
+        }
         await tx
           .update(takes)
           .set({ ...change, updatedAt: new Date() })

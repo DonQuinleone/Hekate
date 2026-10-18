@@ -78,7 +78,11 @@ import {
   type ReviewKind,
   type SavedSearchInput,
   type SearchRequest,
+  type SessionChange,
+  type SessionDetail,
+  type SessionInput,
   type SessionInspection,
+  type SessionSummary,
   type SharedTake,
   type SsoServiceProvider,
   type SsoSettings,
@@ -1782,6 +1786,73 @@ export const editDecisionsQuery = (trackId: string, rate?: EdlRate, version?: st
   });
 
 /** Making files into a track's takes, changing a take, and no longer counting one. */
+/** A project's recording sessions (#21, #45), newest first. */
+export const projectSessionsQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "sessions"],
+    queryFn: async () =>
+      (
+        await json<{ sessions: SessionSummary[] }>(
+          await api.projects[":id"].sessions.$get({ param: { id: projectId } }),
+        )
+      ).sessions,
+  });
+
+/** One recording session, with the takes recorded in it. */
+export const sessionQuery = (sessionId: string) =>
+  queryOptions({
+    queryKey: ["sessions", sessionId],
+    queryFn: async () =>
+      (
+        await json<{ session: SessionDetail }>(
+          await api.sessions[":id"].$get({ param: { id: sessionId } }),
+        )
+      ).session,
+  });
+
+/** A project's sessions lists, whichever project: they count takes recorded in them. */
+const sessionsKey = (query: { queryKey: readonly unknown[] }) => query.queryKey[2] === "sessions";
+
+/** Making, changing and removing a project's sessions. */
+export function useSessionMutations(projectId: string) {
+  const client = useQueryClient();
+  const refresh = () => {
+    void client.invalidateQueries({ queryKey: projectSessionsQuery(projectId).queryKey });
+    void client.invalidateQueries({ queryKey: ["sessions"] });
+  };
+  return {
+    create: useMutation({
+      mutationFn: async (input: SessionInput) =>
+        (
+          await json<{ session: SessionSummary }>(
+            await api.projects[":id"].sessions.$post({ param: { id: projectId }, json: input }),
+          )
+        ).session,
+      onSuccess: refresh,
+    }),
+    change: useMutation({
+      mutationFn: async ({ id, ...change }: SessionChange & { id: string }) =>
+        (
+          await json<{ session: SessionSummary }>(
+            await api.sessions[":id"].$patch({ param: { id }, json: change }),
+          )
+        ).session,
+      onSuccess: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api.sessions[":id"].$delete({ param: { id } });
+        if (!res.ok) await json(res);
+      },
+      onSuccess: () => {
+        refresh();
+        // Its takes no longer name it.
+        void client.invalidateQueries({ queryKey: ["tracks"] });
+      },
+    }),
+  };
+}
+
 export function useTakeMutations(trackId: string) {
   const client = useQueryClient();
   const key = trackTakesQuery(trackId).queryKey;
@@ -1815,6 +1886,9 @@ export function useTakeMutations(trackId: string) {
         client.setQueryData(key, (list: TakeRow[] | undefined) =>
           list?.map((t) => (t.id === take.id ? take : t)),
         );
+        // A session counts the takes recorded in it.
+        void client.invalidateQueries({ queryKey: ["sessions"] });
+        void client.invalidateQueries({ queryKey: ["projects"], predicate: sessionsKey });
       },
     }),
     remove: useMutation({
