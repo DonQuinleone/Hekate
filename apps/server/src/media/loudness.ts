@@ -1,11 +1,13 @@
 import {
   channelLevels,
+  channelPairs,
   FIELD_BINS,
   fieldBin,
   highest,
   type LoudnessSeries,
   type LoudnessSummary,
   linearToDb,
+  PAIRS_MAX_CHANNELS,
   SILENCE,
 } from "@hekate/shared";
 
@@ -117,7 +119,9 @@ export class LoudnessParser {
  * of a surround layout) over each frame, from interleaved 32-bit float PCM in chunks of
  * any size: +1 is mono, 0 unrelated, -1 out of phase. Silence on either side reads as 0.
  * The same sums give the RMS of the pair's mid, (L+R)/2, and side, (L−R)/2, in dBFS, and
- * each sample's energy, by its angle, the stereo field a goniometer draws (`fieldBin`).
+ * each sample's energy, by its angle, the stereo field a goniometer draws (`fieldBin`). For
+ * recordings of up to `PAIRS_MAX_CHANNELS` channels, every pair's correlation is measured the
+ * same way (#74), so phase can be read between any two of them.
  */
 export class PhaseMeter {
   private carry = Buffer.alloc(0);
@@ -133,6 +137,13 @@ export class PhaseMeter {
   /** This frame's energy at each angle of the stereo field, and every frame's shares. */
   private readonly bins = new Float64Array(FIELD_BINS);
   private readonly field = new Column();
+  /** This sample frame's samples, and this frame's sums for every pair: each channel's own
+   * power and each pair's product. */
+  private readonly sample: Float64Array;
+  private readonly power: Float64Array;
+  private readonly products: Float64Array;
+  private readonly pairs: [number, number][];
+  private readonly correlations = new Column();
   /** Sample frames (one sample per channel) seen. */
   total = 0;
   readonly channels: number;
@@ -141,13 +152,19 @@ export class PhaseMeter {
   constructor(channels: number, samplesPerFrame: number) {
     this.channels = channels;
     this.samplesPerFrame = samplesPerFrame;
+    this.pairs = channels >= 2 && channels <= PAIRS_MAX_CHANNELS ? channelPairs(channels) : [];
+    this.sample = new Float64Array(this.pairs.length > 0 ? channels : 0);
+    this.power = new Float64Array(this.sample.length);
+    this.products = new Float64Array(this.pairs.length);
   }
 
   push(chunk: Buffer): void {
     const bytes = this.carry.length > 0 ? Buffer.concat([this.carry, chunk]) : chunk;
     const whole = bytes.length - (bytes.length % 4);
+    const tracked = this.sample.length;
     for (let offset = 0; offset < whole; offset += 4) {
       const c = this.channel;
+      if (c < tracked) this.sample[c] = bytes.readFloatLE(offset);
       if (c < 2 && this.channels >= 2) {
         const sample = bytes.readFloatLE(offset);
         if (c === 0) this.left = sample;
@@ -165,6 +182,7 @@ export class PhaseMeter {
       }
       this.channel += 1;
       if (this.channel === this.channels) {
+        if (tracked > 0) this.addPairs();
         this.channel = 0;
         this.total += 1;
         this.frames += 1;
@@ -172,6 +190,18 @@ export class PhaseMeter {
       }
     }
     this.carry = Buffer.from(bytes.subarray(whole));
+  }
+
+  /** A whole sample frame into every pair's sums. */
+  private addPairs(): void {
+    for (let c = 0; c < this.sample.length; c++) {
+      const x = this.sample[c] as number;
+      this.power[c] = (this.power[c] as number) + x * x;
+    }
+    this.pairs.forEach(([a, b], p) => {
+      this.products[p] =
+        (this.products[p] as number) + (this.sample[a] as number) * (this.sample[b] as number);
+    });
   }
 
   private emit(): void {
@@ -187,6 +217,15 @@ export class PhaseMeter {
       this.field.set(at * FIELD_BINS + b, total > 0 ? (this.bins[b] as number) / total : 0);
     }
     this.bins.fill(0);
+    this.pairs.forEach(([a, b], p) => {
+      const energy = Math.sqrt((this.power[a] as number) * (this.power[b] as number));
+      this.correlations.set(
+        at * this.pairs.length + p,
+        energy > 0 ? (this.products[p] as number) / energy : 0,
+      );
+    });
+    this.power.fill(0);
+    this.products.fill(0);
     this.frames = 0;
     this.lr = 0;
     this.ll = 0;
@@ -198,6 +237,8 @@ export class PhaseMeter {
     mid: Float32Array;
     side: Float32Array;
     field: Float32Array;
+    hasPairs: boolean;
+    pairs: Float32Array;
   } {
     if (this.frames > 0) this.emit();
     const pair = this.channels >= 2;
@@ -207,6 +248,11 @@ export class PhaseMeter {
       mid: column(this.mid),
       side: column(this.side),
       field: column(this.field, FIELD_BINS),
+      hasPairs: this.pairs.length > 0,
+      pairs:
+        this.pairs.length > 0
+          ? this.correlations.toArray(count * this.pairs.length)
+          : new Float32Array(0),
     };
   }
 }

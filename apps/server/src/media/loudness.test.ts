@@ -103,6 +103,18 @@ describe("phase meter", () => {
     expect(Array.from(quiet.finish(1).field).every((share) => share === 0)).toBe(true);
   });
 
+  it("correlates every pair of a multichannel recording per frame", () => {
+    // Three channels, one frame of two sample frames: the third follows the first, the second
+    // opposes it.
+    const meter = new PhaseMeter(3, 2);
+    meter.push(pcm([0.5, -0.5, 0.5, -0.25, 0.25, -0.25]));
+    const { hasPairs, pairs } = meter.finish(1);
+    expect(hasPairs).toBe(true);
+    expect(Array.from(pairs)).toEqual([-1, 1, -1]);
+    // Past 7.1, no pair is kept.
+    expect(new PhaseMeter(10, 2).finish(1).hasPairs).toBe(false);
+  });
+
   it("has nothing to say about mono", () => {
     const meter = new PhaseMeter(1, 2);
     meter.push(pcm([0.1, 0.2, 0.3]));
