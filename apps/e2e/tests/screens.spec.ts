@@ -989,6 +989,8 @@ test("file-comment-other-takes", async ({ page }) => {
   const panel = page.getByRole("region", { name: "Other takes for bar 9" });
   await expect(panel.getByRole("listitem")).toHaveCount(2);
   await expect(panel).toContainText("Good opening");
+  // V2's edit decision list uses take 2 at bar 9 (#56).
+  await expect(panel.getByRole("listitem").filter({ hasText: "in V2" })).toHaveCount(1);
   // Those who triage choose which to share (#133); the one already shared says so.
   await expect(panel.getByText("shared")).toHaveCount(1);
   await panel.getByRole("checkbox", { name: "Tick take 2" }).check();
@@ -1302,6 +1304,12 @@ test("track-takes-edits", async ({ page }) => {
   await expect(edits).toContainText("Not a take of this track");
   await saveScreen(page, "track-takes-edits");
   await checkScreen(page);
+  // Back on the takes, only those V2's list uses.
+  await page.getByRole("button", { name: "Coverage" }).click();
+  await page.getByRole("button", { name: "In V2" }).click();
+  await expect(
+    page.getByRole("list", { name: "Takes of this track" }).getByRole("listitem"),
+  ).toHaveCount(3);
 });
 
 // Project templates (#240): saving one from the project's settings, and starting from one.
