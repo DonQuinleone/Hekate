@@ -7,7 +7,7 @@ import {
   workflowProblems,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { asc, eq, isNull, sql } from "drizzle-orm";
+import { asc, eq, isNull, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -168,23 +168,22 @@ export async function workflowsFor(
   projectId: string,
   trackId: string | null,
 ) {
-  const active = (forTrack: string | null) =>
-    db
-      .select()
-      .from(workflows)
-      .where(
-        inOrg(
-          workflows,
-          organisationId,
-          eq(workflows.projectId, projectId),
-          eq(workflows.active, true),
-          forTrack === null ? isNull(workflows.trackId) : eq(workflows.trackId, forTrack),
-        ),
-      )
-      .orderBy(asc(workflows.createdAt));
-  if (trackId) {
-    const own = await active(trackId);
-    if (own.length > 0) return own;
-  }
-  return active(null);
+  // One read, so the track's and the project's are seen as they stood at one moment.
+  const rows = await db
+    .select()
+    .from(workflows)
+    .where(
+      inOrg(
+        workflows,
+        organisationId,
+        eq(workflows.projectId, projectId),
+        eq(workflows.active, true),
+        trackId === null
+          ? isNull(workflows.trackId)
+          : or(isNull(workflows.trackId), eq(workflows.trackId, trackId)),
+      ),
+    )
+    .orderBy(asc(workflows.createdAt));
+  const own = rows.filter((w) => trackId !== null && w.trackId === trackId);
+  return own.length > 0 ? own : rows.filter((w) => w.trackId === null);
 }
