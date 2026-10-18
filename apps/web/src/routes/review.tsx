@@ -2,6 +2,7 @@ import {
   gateCounts,
   gateState,
   type ReviewerState,
+  reviewKindNames,
   reviewSteps,
   type StepState,
   withinWindow,
@@ -35,6 +36,7 @@ import {
   reviewQuery,
   useReviewActions,
 } from "~/lib/queries";
+import { shareLine, shareNote } from "~/lib/shares";
 import { useViewer } from "~/lib/viewer";
 
 const shortDate = formatDates({ day: "numeric", month: "short" });
@@ -196,12 +198,19 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
     adding.error ?? sendLink.error ?? revoke.error ?? remind.error ?? removeReviewer.error;
   const steps = reviewSteps(review.order, review.reviewers);
   const responded = review.reviewers.filter((r) => r.state === "submitted").length;
+  // A share asks nothing (#138): its people are those it is shared with, opened or not.
+  const sharing = review.kind === "share";
+  const opened = review.reviewers.filter((r) => r.viewedAt).length;
   const fileBase = guest ? "/g/files/$fileId" : "/files/$fileId";
   return (
     <section className="flex flex-col gap-3">
       <SectionHead
-        title="Reviewers"
-        hint={`${responded} of ${review.reviewers.length} responded`}
+        title={sharing ? "Shared with" : "Reviewers"}
+        hint={
+          sharing
+            ? `${opened} of ${review.reviewers.length} opened`
+            : `${responded} of ${review.reviewers.length} responded`
+        }
         action={
           mayInvite && (
             <Button variant="ghost" size="sm" onClick={() => setInviting(true)}>
@@ -248,23 +257,27 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
                             )}
                           </div>
                           <div className="flex items-center gap-1.5 text-[13px] text-ink-3">
-                            <ReviewerDot state={reviewerDot(r)} />
+                            <ReviewerDot
+                              state={sharing ? (r.viewedAt ? "passed" : "invited") : reviewerDot(r)}
+                            />
                             <span className="truncate">
-                              {r.decision === "approved"
-                                ? "Approved"
-                                : r.decision === "changes_requested"
-                                  ? "Changes requested"
-                                  : review.status !== "open" && r.state === "waiting"
-                                    ? "No response"
-                                    : reviewerCopy[r.state]}
-                              {when && r.state !== "waiting" ? ` ${ago(when)}` : ""}
-                              {r.state === "observing" ? " · comments only" : ""}
+                              {sharing
+                                ? shareLine(r, ago)
+                                : r.decision === "approved"
+                                  ? "Approved"
+                                  : r.decision === "changes_requested"
+                                    ? "Changes requested"
+                                    : review.status !== "open" && r.state === "waiting"
+                                      ? "No response"
+                                      : reviewerCopy[r.state]}
+                              {when && r.state !== "waiting" && !sharing ? ` ${ago(when)}` : ""}
+                              {r.state === "observing" && !sharing ? " · comments only" : ""}
                               {r.group && review.order === "parallel" ? ` · ${r.group.name}` : ""}
                               {manage && notes.length > 0 ? ` · ${notes.join(" · ")}` : ""}
                             </span>
                           </div>
                         </div>
-                        {r.comments && (
+                        {r.comments && !sharing && (
                           <Link
                             to={fileBase}
                             params={{ fileId: r.comments.fileId }}
@@ -401,45 +414,52 @@ function Items({ review }: { review: ReviewDetail }) {
   const passed = review.outcome === "approved" || review.outcome === "submitted";
   const failed = review.outcome === "changes_requested";
   const me = review.you.reviewerId;
+  const sharing = review.kind === "share";
   return (
     <section className="flex flex-col gap-3">
-      <SectionHead title="Under review" hint={plural(review.items.length, "item")} />
+      <SectionHead
+        title={sharing ? "Shared" : "Under review"}
+        hint={plural(review.items.length, "item")}
+      />
       <Card>
-        <div
-          className={cn(
-            "flex flex-wrap items-center gap-3 border-b border-line px-4 py-3",
-            passed ? "bg-raised/20" : failed ? "bg-signal/5" : "",
-          )}
-        >
-          <span
+        {/* A share has no gate to pass: it only shares. */}
+        {!sharing && (
+          <div
             className={cn(
-              "flex size-7 shrink-0 items-center justify-center rounded-full",
-              passed
-                ? "bg-ink text-ground"
-                : failed
-                  ? "bg-signal text-ground"
-                  : "border border-line-strong text-ink-3",
+              "flex flex-wrap items-center gap-3 border-b border-line px-4 py-3",
+              passed ? "bg-raised/20" : failed ? "bg-signal/5" : "",
             )}
           >
-            <Icon name={passed ? "check" : failed ? "close" : "gate"} size={13} />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-[14px] text-ink">
-              {passed
-                ? "Gate passed: the review is complete"
-                : failed
-                  ? "Gate not passed: changes requested"
-                  : review.status === "cancelled"
-                    ? "Gate: closed with the review"
-                    : "Gate: not yet"}
+            <span
+              className={cn(
+                "flex size-7 shrink-0 items-center justify-center rounded-full",
+                passed
+                  ? "bg-ink text-ground"
+                  : failed
+                    ? "bg-signal text-ground"
+                    : "border border-line-strong text-ink-3",
+              )}
+            >
+              <Icon name={passed ? "check" : failed ? "close" : "gate"} size={13} />
             </span>
-            <span className="block text-[13px] text-ink-3">
-              {review.kind === "approval"
-                ? `${ruleCopy(review).replace(/^./, (c) => c.toUpperCase())} · ${counts.approved} approved, ${counts.changes} asked for changes, ${counts.toCome} to come`
-                : `${counts.submitted} of ${counts.total} submitted`}
+            <span className="min-w-0 flex-1">
+              <span className="block text-[14px] text-ink">
+                {passed
+                  ? "Gate passed: the review is complete"
+                  : failed
+                    ? "Gate not passed: changes requested"
+                    : review.status === "cancelled"
+                      ? "Gate: closed with the review"
+                      : "Gate: not yet"}
+              </span>
+              <span className="block text-[13px] text-ink-3">
+                {review.kind === "approval"
+                  ? `${ruleCopy(review).replace(/^./, (c) => c.toUpperCase())} · ${counts.approved} approved, ${counts.changes} asked for changes, ${counts.toCome} to come`
+                  : `${counts.submitted} of ${counts.total} submitted`}
+              </span>
             </span>
-          </span>
-        </div>
+          </div>
+        )}
         <ul className="m-0 flex list-none flex-col p-0">
           {review.items.map((item) => {
             const opened = review.you.opened.includes(item.id);
@@ -475,7 +495,7 @@ function Items({ review }: { review: ReviewDetail }) {
                 ) : (
                   <span className="min-w-0 flex-1">{name}</span>
                 )}
-                {me && (
+                {me && !sharing && (
                   <span className="hidden shrink-0 items-center gap-2 text-[13px] text-ink-3 @3xl/app:flex">
                     <ReviewerDot state={opened ? "passed" : "invited"} />
                     {opened ? "Opened" : "Not opened"}
@@ -503,12 +523,22 @@ function Items({ review }: { review: ReviewDetail }) {
 
 /* ---------- Your turn ---------- */
 
+/** What a share gives the person it is shared with (#138): how long, how often, what to keep. */
+function ShareNote({ me }: { me: Reviewer }) {
+  return (
+    <p className="m-0 max-w-[640px] text-[14px] leading-[22px] text-ink-2">
+      {shareNote(me.permissions ?? null, (at) => longDate.format(new Date(at)))}
+    </p>
+  );
+}
+
 function YourTurn({ review }: { review: ReviewDetail }) {
   const { decide, submit } = useReviewActions(review.id);
   const [note, setNote] = useState("");
   const [again, setAgain] = useState(false);
   const me = review.reviewers.find((r) => r.id === review.you.reviewerId);
-  if (!me || review.status !== "open") return null;
+  // A share asks nothing of its people (#138); ShareNote says what it gives them instead.
+  if (!me || review.status !== "open" || review.kind === "share") return null;
   const unopened = review.items.length - review.you.opened.length;
   const error = decide.error ?? submit.error;
   const quiet = (text: ReactNode) => (
@@ -794,7 +824,10 @@ export function ReviewBody({
   const due = review.dueAt ? dueIn(review.dueAt) : null;
   const overdue = review.status === "open" && due !== null && due.days < 0;
   const manage = review.you.canManage && review.status === "open";
-  const kind = review.kind === "approval" ? "Approval" : "Feedback";
+  const kind = reviewKindNames[review.kind];
+  // A share (#138) asks nothing: no steps, gate, decision, reminders or due date.
+  const sharing = review.kind === "share";
+  const status = sharing && review.status === "open" ? "Shared" : outcomeCopy[state];
 
   const crumbs: Crumb[] = guest
     ? [{ key: "reviews", link: <Link to="/g">Your reviews</Link> }]
@@ -831,10 +864,11 @@ export function ReviewBody({
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-3">
               <span className="flex items-center gap-2 text-ink-2">
                 <StatusDot state={state} />
-                {outcomeCopy[state]}
+                {status}
               </span>
               <span>
-                {kind}, {ruleCopy(review)}
+                {kind}
+                {!sharing && `, ${ruleCopy(review)}`}
                 {review.order === "sequence" && ", in turn"}
               </span>
               {review.dueAt && due && (
@@ -849,7 +883,7 @@ export function ReviewBody({
                     always
                     label="review"
                     actions={[
-                      ...(manage && review.you.canManageReviewers
+                      ...(manage && review.you.canManageReviewers && !sharing
                         ? [
                             {
                               label: "Remind everyone waiting",
@@ -865,7 +899,7 @@ export function ReviewBody({
                             },
                           ]
                         : []),
-                      ...(manage
+                      ...(manage && !sharing
                         ? [{ label: "Change the due date…", onSelect: () => setDating(true) }]
                         : []),
                       ...(embedded
@@ -885,7 +919,7 @@ export function ReviewBody({
                         ? [
                             "divider" as const,
                             {
-                              label: "Cancel the review…",
+                              label: sharing ? "Stop sharing…" : "Cancel the review…",
                               danger: true,
                               onSelect: () => setCancelling(true),
                             },
@@ -914,7 +948,7 @@ export function ReviewBody({
             {review.status === "cancelled" && (
               <p className="m-0 flex items-center gap-2 text-[14px] text-ink-2">
                 <StatusDot state="cancelled" />
-                Cancelled
+                {sharing ? "No longer shared" : "Cancelled"}
                 {review.cancelledByName ? ` by ${review.cancelledByName}` : ""}
                 {review.completedAt ? ` on ${shortDate.format(new Date(review.completedAt))}` : ""}
                 {review.cancelReason ? `: ${review.cancelReason}` : "."}
@@ -928,8 +962,9 @@ export function ReviewBody({
             {cancelling && (
               <div className="rise-in flex flex-col gap-3 rounded-panel border border-signal/40 bg-signal/10 px-4 py-3 text-[14px] text-ink">
                 <span>
-                  Cancel this review? Reviewers lose access to its items. Decisions already recorded
-                  stay in the record.
+                  {sharing
+                    ? "Stop sharing? Those it was shared with lose access to what it shares. What they opened stays in the record."
+                    : "Cancel this review? Reviewers lose access to its items. Decisions already recorded stay in the record."}
                 </span>
                 <Field label="Reason (optional, shown on the review)" error={cancel.error?.message}>
                   <Input value={reason} onChange={(e) => setReason(e.target.value)} />
@@ -949,14 +984,15 @@ export function ReviewBody({
                       )
                     }
                   >
-                    Cancel the review
+                    {sharing ? "Stop sharing" : "Cancel the review"}
                   </Button>
                 </div>
               </div>
             )}
           </div>
           <YourTurn review={review} />
-          {!guest && (
+          {sharing && mine && review.status === "open" && <ShareNote me={mine} />}
+          {!guest && !sharing && (
             <section className="flex flex-col gap-3">
               <SectionHead
                 title="Steps"
@@ -967,7 +1003,7 @@ export function ReviewBody({
           )}
           <Reviewers review={review} onNotice={setNotice} />
           <Items review={review} />
-          {!guest && <Activity review={review} />}
+          {!guest && !sharing && <Activity review={review} />}
         </div>
         <aside className="flex min-w-0 flex-col gap-6">
           <section className="flex flex-col gap-0.5">
@@ -976,7 +1012,7 @@ export function ReviewBody({
               <Property name="Status">
                 <span className="flex items-center gap-2">
                   <StatusDot state={state} />
-                  {outcomeCopy[state]}
+                  {status}
                 </span>
               </Property>
               <Property name="Kind">

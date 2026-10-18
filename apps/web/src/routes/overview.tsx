@@ -1,4 +1,4 @@
-import { type OverviewSection, overviewSections, profiles } from "@hekate/shared";
+import { type OverviewSection, overviewSections, profiles, reviewKindNames } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
@@ -208,7 +208,8 @@ export function ProjectOverview({ project }: { project: Project }) {
     (s) => !(s === "tracks" && project.profile === "general"),
   );
   const attention = overviewAttention(o, mine.data ?? [], project.id);
-  const open = (reviews.data ?? []).filter((r) => r.status === "open");
+  // Shares ask nothing, so they are never in review (#138); the Reviews tab lists them apart.
+  const open = (reviews.data ?? []).filter((r) => r.status === "open" && r.kind !== "share");
   const empty = f.files === 0 && f.tracks === 0;
 
   const render: Record<OverviewSection, ReactNode> = {
@@ -363,8 +364,7 @@ export function ProjectOverview({ project }: { project: Project }) {
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[14px] text-ink">{r.title}</span>
                     <span className="block truncate text-[12px] text-ink-3">
-                      {r.kind === "approval" ? "Approval" : "Feedback"} · {r.submitted} of{" "}
-                      {r.reviewers} responded
+                      {reviewKindNames[r.kind]} · {r.submitted} of {r.reviewers} responded
                     </span>
                   </span>
                   {r.dueAt && (

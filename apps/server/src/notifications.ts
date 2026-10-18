@@ -223,13 +223,18 @@ export function instantMail(n: NotificationRow, publicUrl: string, workspace: Ma
     : line.length > 120
       ? `${line.slice(0, 117)}...`
       : line;
+  // A share asks nothing (#138): its mail neither asks for a review nor says one was asked.
+  const shared = n.mail?.template === "shared";
   return render({
     workspace: workspace.name,
     subject,
     heading: line,
     body: n.detail ? n.detail.split(/\n{2,}/) : [],
-    action: { label: actionLabel[n.kind], url: `${base}${n.link}` },
-    foot: whyFoot[n.kind],
+    action: {
+      label: shared ? "Open what was shared" : actionLabel[n.kind],
+      url: `${base}${n.link}`,
+    },
+    foot: shared ? "You get this because something was shared with you." : whyFoot[n.kind],
     settingsUrl: `${base}${settingsPath}`,
   });
 }

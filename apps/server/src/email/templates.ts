@@ -1,4 +1,5 @@
 import {
+  type DownloadLevel,
   type EmailSubjects,
   type EmailTemplateId,
   emailTemplates,
@@ -36,6 +37,22 @@ export interface TemplateData {
      * the decision rests with others.
      */
     follow?: { comment: boolean };
+  };
+  /** A share (#138): something to listen to or look at, with nothing asked. */
+  shared: {
+    workspace: string;
+    requester: string;
+    review: string;
+    project: string;
+    message?: string | null;
+    /** When it closes to them; null runs until it is stopped. */
+    expiresAt: Date | null;
+    download: DownloadLevel;
+    /** How many times they may play each file; null is as often as they like. */
+    maxPlays: number | null;
+    url: string;
+    guestLinkDays?: number;
+    settingsUrl?: string;
   };
   invitation: { workspace: string; inviter: string; url: string; days: number };
   decision: {
@@ -88,6 +105,15 @@ export function subjectValues<T extends EmailTemplateId>(
         review: d.review,
         // An observer's part is to follow and comment: "your feedback is asked", never approval.
         kind: d.follow ? "feedback" : d.kind,
+        requester: d.requester,
+        project: d.project,
+        workspace: d.workspace,
+      };
+    }
+    case "shared": {
+      const d = data as TemplateData["shared"];
+      return {
+        review: d.review,
         requester: d.requester,
         project: d.project,
         workspace: d.workspace,
@@ -155,6 +181,29 @@ export function workspaceEmail<T extends EmailTemplateId>(
             : d.follow
               ? "You get this because you were asked to follow a review."
               : "You get this because you were asked to review.",
+        ...(d.settingsUrl ? { settingsUrl: d.settingsUrl } : {}),
+      };
+    }
+    case "shared": {
+      const d = data as TemplateData["shared"];
+      return {
+        workspace: d.workspace,
+        subject,
+        heading: `${d.requester} shared ${d.review} with you`,
+        body: [
+          `${d.review}, in ${d.project}, is yours to listen to or look at${d.expiresAt ? ` until ${longDate(d.expiresAt)}` : ""}${d.maxPlays ? `, up to ${d.maxPlays} ${d.maxPlays === 1 ? "play" : "plays"} of each file` : ""}. Nothing is asked of you, and what you open is logged.`,
+          ...(d.download !== "none"
+            ? [
+                `You may download the ${d.download === "original" ? "original" : "proxy"}; each copy is marked for you.`,
+              ]
+            : []),
+          ...(d.message?.trim() ? [quoted(d.message)] : []),
+        ],
+        action: { label: "Open what was shared", url: d.url },
+        foot:
+          d.guestLinkDays !== undefined
+            ? guestFoot(d.guestLinkDays)
+            : "You get this because something was shared with you.",
         ...(d.settingsUrl ? { settingsUrl: d.settingsUrl } : {}),
       };
     }
@@ -241,6 +290,18 @@ export function sampleData(
       project: s.review_requested.sample.project ?? "",
       message: "Three tracks are ready. The Maple Leaf Rag trio is the one to listen to closely.",
       dueAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      url: `${base}/reviews`,
+      settingsUrl,
+    },
+    shared: {
+      workspace,
+      requester: s.shared.sample.requester ?? "",
+      review: s.shared.sample.review ?? "",
+      project: s.shared.sample.project ?? "",
+      message: "The rehearsal from Tuesday, for listening on the train.",
+      expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+      download: "proxy",
+      maxPlays: null,
       url: `${base}/reviews`,
       settingsUrl,
     },

@@ -21,6 +21,8 @@ export interface Seeded {
     "decided" | "changes" | "approved" | "cancelled" | "waiting" | "overdue",
     string
   >;
+  /** A share (#138): a track shared with a guest, nothing asked. */
+  shareId: string;
   /** An invitation's page, waiting to be accepted. */
   invitationPath: string;
   /** A guest link already used, which no longer signs anyone in. */

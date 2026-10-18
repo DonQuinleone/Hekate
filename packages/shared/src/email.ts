@@ -7,6 +7,7 @@ import { z } from "zod";
  */
 export const emailTemplateIds = [
   "review_requested",
+  "shared",
   "invitation",
   "decision",
   "due_soon",
@@ -30,6 +31,16 @@ export const emailTemplates: Record<EmailTemplateId, EmailTemplateSpec> = {
     sample: {
       review: "Album masters",
       kind: "approval",
+      requester: "Alex Rivera",
+      project: "Joplin Rags",
+      workspace: "Endless Hall Records",
+    },
+  },
+  shared: {
+    name: "Shared with you",
+    subject: "{requester} shared {review} with you",
+    sample: {
+      review: "Rehearsal takes",
       requester: "Alex Rivera",
       project: "Joplin Rags",
       workspace: "Endless Hall Records",
