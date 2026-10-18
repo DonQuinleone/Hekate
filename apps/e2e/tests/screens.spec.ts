@@ -441,6 +441,22 @@ test.describe("guest", () => {
     await saveScreen(page, "guest-review-invite");
     await checkScreen(page);
   });
+
+  // A guest has no takes of their own, but hears the ones a thread carries (#133, #46):
+  // auditioned at the bar against the recording, as a member does.
+  test("guest-file-audition-take", async ({ page }) => {
+    await page.goto(`/g/files/${seeded().dryFileId}`);
+    await settle(page, "section[aria-label=Comments] li");
+    await page.getByRole("button", { name: "1 take attached" }).click();
+    const dialog = page.getByRole("dialog", { name: "Takes for bar 9" });
+    await dialog.getByRole("button", { name: /^Audition take \d+ at bar 9$/ }).click();
+    await expect(dialog).toBeHidden();
+    // Pinned among the sources and the one heard, the bar looped from the thread's moment.
+    const compare = page.getByRole("region", { name: "Compare" });
+    await expect(compare.getByRole("button", { name: "T1", pressed: true })).toHaveCount(2);
+    await expect(page).toHaveURL(/loop=14\.2-/);
+    await checkScreen(page);
+  });
 });
 
 for (const screen of screens.filter((s) => !s.as || s.as === "owner")) capture(screen);
@@ -1096,7 +1112,9 @@ test("file-comment-shared-takes", async ({ page }) => {
   // Auditioned from here as from Other takes (#46): the dialog closes on the comparison.
   await dialog.getByRole("button", { name: /^Audition take/ }).click();
   await expect(dialog).toBeHidden();
-  await expect(page.getByRole("region", { name: "Compare" })).toContainText("T1");
+  const compare = page.getByRole("region", { name: "Compare" });
+  await expect(compare.getByRole("button", { name: "T1", pressed: true })).toHaveCount(2);
+  await expect(page).toHaveURL(/loop=14\.2-/);
 });
 
 // Attaching files to a comment (#133): chosen, shown before sending, and on the thread.
