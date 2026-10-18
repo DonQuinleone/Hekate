@@ -26,6 +26,7 @@ import {
 } from "react";
 import {
   type ChannelMix,
+  canBinaural,
   mixUnavailable,
   plainMix,
   speakerNames,
@@ -271,8 +272,13 @@ export function Player({
   const names = useMemo(() => speakerNames(labels, channels), [labels, channels]);
   const heardRendition = choices.find((c) => c.level === level)?.rendition.name ?? null;
   const channelsUnavailable = mixUnavailable(channels, heardRendition);
-  // Folding down needs each channel's speaker; a file that does not say offers no downmix.
-  const heardMix = channelsUnavailable ? plainMix : labels ? mix : { ...mix, downmix: false };
+  // Folding down or placing the speakers needs each channel's speaker; a file that does not
+  // say offers neither.
+  const heardMix = channelsUnavailable
+    ? plainMix
+    : labels
+      ? { ...mix, binaural: mix.binaural && canBinaural(labels) }
+      : { ...mix, downmix: false, binaural: false };
   useChannelMix(element, channels, labels, heardMix);
   const view: WaveformView = split && channels > 1 ? "channels" : "combined";
   const display: Display =
@@ -992,6 +998,7 @@ export function Player({
               names={names}
               mix={heardMix}
               canDownmix={labels !== null}
+              canBinaural={canBinaural(labels)}
               onMix={setMix}
               unavailable={channelsUnavailable}
               levelsOf={!tools || tools.includes("meters") ? { fileId, media: element } : undefined}

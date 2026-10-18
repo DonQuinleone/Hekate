@@ -275,10 +275,11 @@ export function AudioLayoutMenu({ layout }: { layout: string }) {
   const [muted, setMuted] = useState<Set<string>>(new Set());
   const [solo, setSolo] = useState<string | null>(null);
   const [downmix, setDownmix] = useState(false);
+  const [binaural, setBinaural] = useState(false);
   const heard = [
     solo ? `Solo ${solo}` : null,
     !solo && muted.size > 0 ? `${[...muted].join(", ")} muted` : null,
-    downmix ? "stereo downmix" : null,
+    binaural ? "binaural" : downmix ? "stereo downmix" : null,
   ]
     .filter(Boolean)
     .join(", ");
@@ -346,7 +347,27 @@ export function AudioLayoutMenu({ layout }: { layout: string }) {
           {channels.length > 2 && (
             <div className="flex items-center justify-between text-[13px] text-ink">
               Hear the stereo downmix
-              <Switch label="Hear the stereo downmix" checked={downmix} onChange={setDownmix} />
+              <Switch
+                label="Hear the stereo downmix"
+                checked={downmix}
+                onChange={(on) => {
+                  setDownmix(on);
+                  if (on) setBinaural(false);
+                }}
+              />
+            </div>
+          )}
+          {channels.length > 2 && (
+            <div className="flex items-center justify-between text-[13px] text-ink">
+              Hear it binaurally, on headphones
+              <Switch
+                label="Hear it binaurally, on headphones"
+                checked={binaural}
+                onChange={(on) => {
+                  setBinaural(on);
+                  if (on) setDownmix(false);
+                }}
+              />
             </div>
           )}
           {heard && (
@@ -356,6 +377,7 @@ export function AudioLayoutMenu({ layout }: { layout: string }) {
                 setSolo(null);
                 setMuted(new Set());
                 setDownmix(false);
+                setBinaural(false);
               }}
               className="w-fit text-[13px] text-ink-3 hover:text-ink"
             >

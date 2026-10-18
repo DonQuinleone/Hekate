@@ -80,6 +80,7 @@ export function ChannelsPanel({
   mix,
   onMix,
   canDownmix,
+  canBinaural = false,
   unavailable,
   levelsOf,
 }: {
@@ -89,6 +90,8 @@ export function ChannelsPanel({
   onMix: (mix: ChannelMix) => void;
   /** Whether a stereo downmix can be made: only where the layout names every channel. */
   canDownmix: boolean;
+  /** Whether it can be heard binaurally: only where every channel has a known place. */
+  canBinaural?: boolean;
   /** Why the channels cannot be heard apart in what is playing, if they cannot. */
   unavailable?: string;
   /** Where to read each channel's level at the playhead; none for those without the meters. */
@@ -178,7 +181,18 @@ export function ChannelsPanel({
               <Switch
                 label="Hear the stereo downmix"
                 checked={mix.downmix}
-                onChange={(downmix) => onMix({ ...mix, downmix })}
+                onChange={(downmix) => onMix({ ...mix, downmix, binaural: false })}
+              />
+            </div>
+          )}
+          {names.length > 2 && canBinaural && (
+            // Each speaker placed around the listener, for headphones (#74).
+            <div className="flex items-center justify-between gap-3 text-[13px] text-ink">
+              Hear it binaurally, on headphones
+              <Switch
+                label="Hear it binaurally, on headphones"
+                checked={mix.binaural}
+                onChange={(binaural) => onMix({ ...mix, binaural, downmix: false })}
               />
             </div>
           )}
