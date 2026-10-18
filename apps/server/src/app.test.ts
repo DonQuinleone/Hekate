@@ -11744,6 +11744,36 @@ describe.runIf(url)("api", () => {
           { target: "csv", threads: 3 },
           { target: "pro-tools", threads: 1 },
         ]);
+
+        // The same threads as a sheet to print (#134): triage's, a PDF, logged as an export.
+        expect(
+          (await app.request(`${path}/sheet?threads=all`, { headers: { cookie: reviewer } }))
+            .status,
+        ).toBe(403);
+        const sheet = await app.request(`${path}/sheet?threads=all`, {
+          headers: { cookie: owner },
+        });
+        expect(sheet.status).toBe(200);
+        expect(sheet.headers.get("content-type")).toBe("application/pdf");
+        expect(sheet.headers.get("content-disposition")).toMatch(/ comments\.pdf/);
+        expect(
+          Buffer.from(await sheet.arrayBuffer())
+            .subarray(0, 5)
+            .toString(),
+        ).toBe("%PDF-");
+        expect(
+          (await app.request(`${path}/sheet?threads=some`, { headers: { cookie: owner } })).status,
+        ).toBe(400);
+        const sheets = await db
+          .select({ details: schema.accessEvents.details })
+          .from(schema.accessEvents)
+          .where(
+            and(
+              eq(schema.accessEvents.organisationId, organisationId),
+              eq(schema.accessEvents.action, "comment.export"),
+            ),
+          );
+        expect(sheets.map((e) => e.details)).toContainEqual({ target: "sheet", threads: 3 });
       });
       it("shows a document only as pages, each one logged, through links bound to the viewer", async () => {
         const owner = cookieOf(await setup());
