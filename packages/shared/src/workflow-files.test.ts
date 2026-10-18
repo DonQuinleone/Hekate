@@ -232,6 +232,69 @@ describe("a file that cannot be read", () => {
     expect(errors[5]?.message).toBe("There is no node with the id nowhere.");
   });
 
+  it("names a node's mistake once, not again at each connector naming it", () => {
+    const errors = refused(
+      file(
+        ...head,
+        "nodes:",
+        "  - id: start",
+        "    event: upload",
+        "    name: Start",
+        "  - id: ask",
+        "    action: approve",
+        "    name: Ask",
+        "connectors:",
+        "  - from: start.happened",
+        "    to: ask",
+        "  - from: ask.approved",
+        "    to: start",
+      ),
+    );
+    expect(errors).toEqual([
+      { line: 8, message: expect.stringMatching(/no action called “approve”/) },
+    ]);
+  });
+
+  it("refuses an id given twice at its second use, coordinates left blank, and deep nesting", () => {
+    const twice = refused(
+      file(
+        ...head,
+        "nodes:",
+        "  - id: start",
+        "    event: upload",
+        "    name: Start",
+        "  - id: start",
+        "    action: finish",
+        "    name: Done",
+        "connectors:",
+        "  - id: c1",
+        "    from: start.happened",
+        "    to: start",
+        "  - id: c1",
+        "    from: start.happened",
+        "    to: start",
+      ),
+    );
+    expect(twice).toEqual([
+      { line: 7, message: "Two nodes are called start." },
+      { line: 14, message: "Two connectors are called c1." },
+    ]);
+    const blank = refused(
+      file(
+        ...head,
+        "nodes:",
+        "  - id: start",
+        "    event: upload",
+        "    name: Start",
+        '    at: ["", " "]',
+      ),
+    );
+    expect(blank).toEqual([{ line: 7, message: expect.stringMatching(/^at: is where/) }]);
+    expect(refused(`${"- ".repeat(8000)}x\n`)).toEqual([
+      { line: 1, message: "This is nested too deeply." },
+    ]);
+  });
+
   it("is refused by the model's own limits, at the line", () => {
     const errors = refused(
       file(...head, "nodes:", "  - id: not an id", "    event: upload", "    name: Start"),

@@ -240,6 +240,9 @@ function keyed(s: string, line: number): { key: string; rest: string } | null {
 
 const isItem = (s: string) => s === "-" || s.startsWith("- ");
 
+/** How deep a file's mappings and lists may nest. */
+const MAX_DEPTH = 16;
+
 /** The YAML a workflow file is written in, as values with the line each starts on. */
 function parseYaml(source: string): Value {
   const lines: Line[] = [];
@@ -260,8 +263,18 @@ function parseYaml(source: string): Value {
       throw new FileError(current().no, "This line is indented further than the ones before it.");
   };
 
-  const block = (indent: number): Value =>
-    isItem(current().text) ? sequence(indent) : mapping(indent);
+  // A workflow file nests four deep; a file nested far deeper is refused before it can exhaust
+  // the stack.
+  let depth = 0;
+  const block = (indent: number): Value => {
+    if (depth >= MAX_DEPTH) throw new FileError(current().no, "This is nested too deeply.");
+    depth += 1;
+    try {
+      return isItem(current().text) ? sequence(indent) : mapping(indent);
+    } finally {
+      depth -= 1;
+    }
+  };
 
   /** What follows a key or a dash with nothing after it: a nested block, or nothing. */
   const nested = (indent: number, line: number, sameIndentList: boolean): Value => {
@@ -400,6 +413,9 @@ export function workflowFromYaml(source: string): WorkflowFileRead {
 
   const nodes: WorkflowNode[] = [];
   const nodeLine = new Map<string, number>();
+  // Every id a node is given, read or not, so a node refused for one mistake is not reported
+  // again by each connector that names it.
+  const named = new Set<string>();
   const nodesField = head.get("nodes");
   if (!nodesField) fail(null, "The workflow has no nodes: add nodes: and list them.");
   for (const item of nodesField ? (asList(nodesField.value, "nodes") ?? []) : []) {
@@ -409,9 +425,9 @@ export function workflowFromYaml(source: string): WorkflowFileRead {
     const at = `nodes.${nodes.length}`;
     lineOf.set(at, map.line);
     const id = f.get("id");
-    const named = f.get("name");
+    const called = f.get("name");
     if (!id) fail(map.line, "This node has no id.");
-    if (!named) fail(map.line, "This node has no name.");
+    if (!called) fail(map.line, "This node has no name.");
     const event = f.get("event");
     const action = f.get("action");
     if (event && action) fail(action.line, "A node is an event or an action, not both.");
@@ -434,7 +450,9 @@ export function workflowFromYaml(source: string): WorkflowFileRead {
     const place = f.get("at");
     if (place) {
       const where = place.value.t === "seq" ? place.value.items : [];
-      const [px, py] = where.map((w) => (w.t === "text" ? Number(w.value) : Number.NaN));
+      const [px, py] = where.map((w) =>
+        w.t === "text" && w.value.trim() !== "" ? Number(w.value) : Number.NaN,
+      );
       if (where.length !== 2 || !Number.isFinite(px) || !Number.isFinite(py))
         fail(place.line, "at: is where the node sits on the canvas, as [x, y] in pixels.");
       else {
@@ -443,9 +461,13 @@ export function workflowFromYaml(source: string): WorkflowFileRead {
       }
     }
     const nodeId = id ? asText(id.value, "The id") : null;
-    const nodeName = named ? asText(named.value, "The name") : null;
+    const nodeName = called ? asText(called.value, "The name") : null;
+    if (id && nodeId !== null) {
+      if (named.has(nodeId)) fail(id.line, `Two nodes are called ${nodeId}.`);
+      named.add(nodeId);
+    }
     if (id) lineOf.set(`${at}.id`, id.line);
-    if (named) lineOf.set(`${at}.name`, named.line);
+    if (called) lineOf.set(`${at}.name`, called.line);
     const group = f.get("group");
     const groupId = group ? asText(group.value, "The group") : null;
     if (group) lineOf.set(`${at}.groupId`, group.line);
@@ -465,6 +487,7 @@ export function workflowFromYaml(source: string): WorkflowFileRead {
 
   const connectors: (Omit<WorkflowConnector, "id"> & { id?: string })[] = [];
   const connectorLine: number[] = [];
+  const wireIds = new Set<string>();
   const connectorsField = head.get("connectors");
   for (const item of connectorsField ? (asList(connectorsField.value, "connectors") ?? []) : []) {
     const map = asMap(item, "A connector");
@@ -486,7 +509,7 @@ export function workflowFromYaml(source: string): WorkflowFileRead {
       const source = nodes.find((n) => n.id === fromId);
       const outs = source ? outcomesOf(source.type).map((o) => o.id) : [];
       if (!source) {
-        fail(fromField.line, `There is no node with the id ${fromId}.`);
+        if (!named.has(fromId)) fail(fromField.line, `There is no node with the id ${fromId}.`);
         ok = false;
       } else if (outs.length === 0) {
         fail(fromField.line, `Nothing follows ${fromId}: a ${source.type} has no outcomes.`);
@@ -497,7 +520,7 @@ export function workflowFromYaml(source: string): WorkflowFileRead {
       }
     }
     if (toField && to !== null && !nodes.some((n) => n.id === to)) {
-      fail(toField.line, `There is no node with the id ${to}.`);
+      if (!named.has(to)) fail(toField.line, `There is no node with the id ${to}.`);
       ok = false;
     }
     const when = f.get("when");
@@ -535,6 +558,10 @@ export function workflowFromYaml(source: string): WorkflowFileRead {
     }
     const id = f.get("id");
     const connectorId = id ? asText(id.value, "The id") : undefined;
+    if (id && connectorId) {
+      if (wireIds.has(connectorId)) fail(id.line, `Two connectors are called ${connectorId}.`);
+      wireIds.add(connectorId);
+    }
     if (id) lineOf.set(`${at}.id`, id.line);
     if (!ok || from === null || to === null || !fromId || !outcome) continue;
     lineOf.set(at, map.line);
