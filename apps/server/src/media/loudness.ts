@@ -27,6 +27,10 @@ class Column {
   }
 }
 
+/** A mean square as dBFS; nothing, or rounding below zero, is silence. */
+const powerToDb = (power: number) =>
+  power > 0 ? Math.max(SILENCE, 10 * Math.log10(power)) : SILENCE;
+
 /** ffmpeg prints silence as `-inf`, or as its own floor of about -120.7 LUFS. */
 const level = (text: string) => {
   const value = Number.parseFloat(text);
@@ -110,6 +114,7 @@ export class LoudnessParser {
  * Phase correlation of the first two channels (left and right, or front left and right
  * of a surround layout) over each frame, from interleaved 32-bit float PCM in chunks of
  * any size: +1 is mono, 0 unrelated, -1 out of phase. Silence on either side reads as 0.
+ * The same sums give the RMS of the pair's mid, (L+R)/2, and side, (L−R)/2, in dBFS.
  */
 export class PhaseMeter {
   private carry = Buffer.alloc(0);
@@ -120,6 +125,8 @@ export class PhaseMeter {
   private rr = 0;
   private left = 0;
   private readonly values = new Column();
+  private readonly mid = new Column();
+  private readonly side = new Column();
   /** Sample frames (one sample per channel) seen. */
   total = 0;
   readonly channels: number;
@@ -157,16 +164,23 @@ export class PhaseMeter {
 
   private emit(): void {
     const energy = Math.sqrt(this.ll * this.rr);
-    this.values.set(this.values.length, energy > 0 ? this.lr / energy : 0);
+    const at = this.values.length;
+    this.values.set(at, energy > 0 ? this.lr / energy : 0);
+    // Mean of ((L ± R) / 2)², from the sums already kept.
+    const n = Math.max(1, this.frames);
+    this.mid.set(at, powerToDb((this.ll + 2 * this.lr + this.rr) / 4 / n));
+    this.side.set(at, powerToDb((this.ll - 2 * this.lr + this.rr) / 4 / n));
     this.frames = 0;
     this.lr = 0;
     this.ll = 0;
     this.rr = 0;
   }
 
-  finish(count: number): Float32Array {
+  finish(count: number): { phase: Float32Array; mid: Float32Array; side: Float32Array } {
     if (this.frames > 0) this.emit();
-    return this.channels >= 2 ? this.values.toArray(count) : new Float32Array(0);
+    const pair = this.channels >= 2;
+    const column = (c: Column) => (pair ? c.toArray(count) : new Float32Array(0));
+    return { phase: column(this.values), mid: column(this.mid), side: column(this.side) };
   }
 }
 
@@ -202,8 +216,9 @@ export function finishLoudness(
     samplesPerFrame: phase.samplesPerFrame,
     count,
     hasPhase: parsed.channels >= 2,
+    hasMidSide: parsed.channels >= 2,
     ...columns,
-    phase: phase.finish(count),
+    ...phase.finish(count),
   };
   const levels = channelLevels(series, phase.total);
   const truePeaks = parsed.truePeaks.map(linearToDb);
