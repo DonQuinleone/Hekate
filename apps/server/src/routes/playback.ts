@@ -613,7 +613,8 @@ export const fileRoutes = (deps: PlaybackDeps) =>
           throw new CodedException(
             403,
             "plays_used",
-            `You have played this file the ${limit === 1 ? "one time" : `${limit} times`} the review allows.`,
+            // Said of a review and a share alike (#138): whoever sent it can allow more.
+            `You have played this file ${limit === 1 ? "the one time" : `all ${limit} times`} you were given. Whoever sent it can give you more.`,
           );
       } else await deps.audit.record(organisationId, who, event, request);
       return c.json(

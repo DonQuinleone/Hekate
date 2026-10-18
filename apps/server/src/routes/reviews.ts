@@ -24,13 +24,14 @@ import {
   reviewerState,
   reviewOutcome,
   reviewTitleFor,
+  shareGrant,
   submitFeedbackInput,
   updateReviewInput,
   withinWindow,
   workspaceSettingsOf,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, asc, count, desc, eq, gte, inArray, isNull, max, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNull, lte, max, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -191,8 +192,9 @@ export async function reviewersOf(db: Database | Tx, organisationId: string, rev
     decision: latest.get(r.id) ?? null,
     viewed: r.viewedAt !== null,
     started: r.startedAt !== null,
-    // An approval that asks them for no decision goes on without them.
-    observer: r.kind === "approval" && !r.permissions.decide,
+    // An approval that asks them for no decision goes on without them; a share (#138) asks
+    // nothing of anyone, so nothing waits on its people.
+    observer: (r.kind === "approval" && !r.permissions.decide) || r.kind === "share",
   }));
   return { rows, decisions, facts };
 }
@@ -514,6 +516,12 @@ async function reviewView(db: Database, actor: Actor, reviewId: string) {
           )
           .groupBy(comments.fileId)
       : [];
+  // A share's people, as those who run it see them (#138): how often each played and took
+  // away what was shared.
+  const usage =
+    r.kind === "share" && member && access.permissions.has("manage_reviewers")
+      ? await shareUsage(db, org, r, rows, covered)
+      : null;
   return {
     ...r,
     createdByName: review.createdByName,
@@ -555,6 +563,8 @@ async function reviewView(db: Database, actor: Actor, reviewId: string) {
           ? { count: theirs.count, fileId: theirs.fileId, commentId: theirs.commentId }
           : null;
       })(),
+      /** A share's plays and downloads by this person, for those who run it; else null. */
+      usage: usage ? (usage.get(row.id) ?? { plays: 0, downloads: 0 }) : null,
       // Each reviewer's permissions are for those who manage reviewers, and for themselves.
       permissions:
         (member && access.permissions.has("manage_reviewers")) || row.id === me?.id
@@ -600,6 +610,69 @@ async function reviewView(db: Database, actor: Actor, reviewId: string) {
   };
 }
 
+/**
+ * How often each of a share's people played and downloaded what it shares (#138), from the
+ * access log. A guest's plays and downloads carry the share; a member's carry only the file,
+ * so theirs are the shared files' since it was shared, until it ended.
+ */
+async function shareUsage(
+  db: Database,
+  organisationId: string,
+  review: { id: string; createdAt: Date; completedAt: Date | null },
+  rows: ReviewerRow[],
+  fileIds: string[],
+) {
+  const counted = ["stream.session", "download"] as const;
+  const guests = rows.flatMap((r) => (r.guestId ? [r.guestId] : []));
+  const members = rows.flatMap((r) => (r.userId ? [r.userId] : []));
+  const ended = review.completedAt;
+  const [byGuest, byMember] = await Promise.all([
+    guests.length > 0
+      ? db
+          .select({ who: accessEvents.guestId, action: accessEvents.action, n: count() })
+          .from(accessEvents)
+          .where(
+            inOrg(
+              accessEvents,
+              organisationId,
+              eq(accessEvents.reviewId, review.id),
+              inArray(accessEvents.guestId, guests),
+              inArray(accessEvents.action, [...counted]),
+            ),
+          )
+          .groupBy(accessEvents.guestId, accessEvents.action)
+      : [],
+    members.length > 0 && fileIds.length > 0
+      ? db
+          .select({ who: accessEvents.userId, action: accessEvents.action, n: count() })
+          .from(accessEvents)
+          .where(
+            inOrg(
+              accessEvents,
+              organisationId,
+              inArray(accessEvents.userId, members),
+              inArray(accessEvents.fileId, fileIds),
+              inArray(accessEvents.action, [...counted]),
+              gte(accessEvents.occurredAt, review.createdAt),
+              ...(ended ? [lte(accessEvents.occurredAt, ended)] : []),
+            ),
+          )
+          .groupBy(accessEvents.userId, accessEvents.action)
+      : [],
+  ]);
+  const out = new Map<string, { plays: number; downloads: number }>();
+  for (const row of rows) {
+    const theirs = row.guestId
+      ? byGuest.filter((e) => e.who === row.guestId)
+      : byMember.filter((e) => e.who === row.userId);
+    out.set(row.id, {
+      plays: theirs.find((e) => e.action === "stream.session")?.n ?? 0,
+      downloads: theirs.find((e) => e.action === "download")?.n ?? 0,
+    });
+  }
+  return out;
+}
+
 /** A member's name, for the opening of a review request. */
 async function nameOf(db: Database, userId: string) {
   const [user] = await db.select({ name: users.name }).from(users).where(eq(users.id, userId));
@@ -616,7 +689,7 @@ const ask = (review: { kind: string; title: string }, follow = false) =>
  */
 const follows = (
   review: { kind: string },
-  person: { permissions?: Pick<ReviewerPermissions, "decide"> | null },
+  person: { permissions?: Partial<Pick<ReviewerPermissions, "decide">> | null },
 ) => review.kind === "approval" && person.permissions?.decide === false;
 
 type ReviewForMail = {
@@ -637,10 +710,7 @@ type ReviewForMail = {
  */
 async function notify(
   deps: ReviewDeps,
-  people: (Pick<ReviewerRow, "email" | "guestId" | "userId"> & {
-    /** What they may do, so that an approval's observer is asked to follow it. */
-    permissions?: Pick<ReviewerPermissions, "decide" | "comment"> | null;
-  })[],
+  people: SharePerson[],
   review: ReviewForMail,
   /** In a sequence, whether those before them have responded. */
   turn: boolean,
@@ -652,16 +722,9 @@ async function notify(
   /** A reminder of a review they were already asked about, rather than the first ask. */
   reminder = false,
 ) {
+  if (review.kind === "share") return notifyShare(deps, people, review, asking);
   const base = deps.publicUrl.replace(/\/$/, "");
-  const [context] = await deps.db
-    .select({
-      workspace: schema.organisations.name,
-      settings: schema.organisations.settings,
-      project: schema.projects.name,
-    })
-    .from(schema.projects)
-    .innerJoin(schema.organisations, eq(schema.organisations.id, schema.projects.organisationId))
-    .where(inOrg(schema.projects, review.organisationId, eq(schema.projects.id, review.projectId)));
+  const context = await mailContext(deps.db, review);
   const requester =
     asking?.name ?? (review.createdBy ? await nameOf(deps.db, review.createdBy) : "A colleague");
   const from = asking ? asking.userId : review.createdBy;
@@ -738,6 +801,93 @@ async function notify(
     );
     await sendEmail(deps.mailer, person.email, email).catch((error: unknown) =>
       console.warn(`Could not send the review request to a reviewer: ${String(error)}`),
+    );
+  }
+}
+
+/** Someone told of a review: who they are, and what they may do in it. */
+type SharePerson = Pick<ReviewerRow, "email" | "guestId" | "userId"> & {
+  /** What they may do: an approval's observer is asked to follow it; a share says how long. */
+  permissions?: Partial<
+    Pick<ReviewerPermissions, "decide" | "comment" | "expiresAt" | "download" | "maxPlays">
+  > | null;
+};
+
+/** The workspace and project a review's mail speaks for. */
+async function mailContext(db: Database, review: ReviewForMail) {
+  const [context] = await db
+    .select({
+      workspace: schema.organisations.name,
+      settings: schema.organisations.settings,
+      project: schema.projects.name,
+    })
+    .from(schema.projects)
+    .innerJoin(schema.organisations, eq(schema.organisations.id, schema.projects.organisationId))
+    .where(inOrg(schema.projects, review.organisationId, eq(schema.projects.id, review.projectId)));
+  return context;
+}
+
+/**
+ * Tell people something has been shared with them (#138): members in the app and by mail as
+ * they prefer, guests with a fresh link, logged. Nothing is asked of them, so the words say
+ * how long it is theirs, how often they may play it and what they may take away.
+ */
+async function notifyShare(
+  deps: ReviewDeps,
+  people: SharePerson[],
+  review: ReviewForMail,
+  asking?: { userId: string | null; name: string },
+) {
+  const base = deps.publicUrl.replace(/\/$/, "");
+  const context = await mailContext(deps.db, review);
+  const requester =
+    asking?.name ?? (review.createdBy ? await nameOf(deps.db, review.createdBy) : "A colleague");
+  const from = asking ? asking.userId : review.createdBy;
+  const subjects = workspaceSettingsOf(context?.settings).emailSubjects;
+  const dataFor = (person: SharePerson) => ({
+    workspace: context?.workspace ?? "Hekate",
+    requester,
+    review: review.title,
+    project: context?.project ?? "",
+    message: review.message,
+    expiresAt: person.permissions?.expiresAt ? new Date(person.permissions.expiresAt) : null,
+    download: person.permissions?.download ?? "none",
+    maxPlays: person.permissions?.maxPlays ?? null,
+  });
+  for (const person of people) {
+    if (!person.userId) continue;
+    const data = dataFor(person);
+    await notifyNow(deps, {
+      organisationId: review.organisationId,
+      kind: "review_requested",
+      recipients: [person.userId],
+      actor: from ? { userId: from } : null,
+      projectId: review.projectId,
+      reviewId: review.id,
+      text: `shared "${review.title}" with you`,
+      // The share's own words, as a guest's mail has them: until when, how often, what to keep.
+      detail: workspaceEmail("shared", { ...data, url: "" }, subjects).body.join("\n\n"),
+      link: `/reviews/${review.id}`,
+      mail: { template: "shared", values: subjectValues("shared", { ...data, url: "" }) },
+    }).catch((error: unknown) =>
+      console.warn(`Could not tell someone about a share: ${String(error)}`),
+    );
+  }
+  for (const person of people) {
+    if (!person.guestId) continue;
+    const issued = await issueGuestLink(deps.db, review.organisationId, person.guestId);
+    await deps.audit.record(review.organisationId, await deps.audit.guest(person.guestId), {
+      action: "guest.link",
+      projectId: review.projectId,
+      reviewId: review.id,
+    });
+    const email = workspaceEmail(
+      "shared",
+      { ...dataFor(person), url: `${base}/guest/${issued.token}`, guestLinkDays: issued.days },
+      subjects,
+    );
+    await sendEmail(deps.mailer, person.email, email).catch((error: unknown) =>
+      console.warn(`Could not send a share to someone: ${String(error)}`),
     );
   }
 }
@@ -999,6 +1149,8 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
               reviewId: reviewReviewers.reviewId,
               userId: reviewReviewers.userId,
               submittedAt: reviewReviewers.submittedAt,
+              viewedAt: reviewReviewers.viewedAt,
+              expiresAt: sql<string | null>`${reviewReviewers.permissions}->>'expiresAt'`,
             })
             .from(reviewReviewers)
             .where(
@@ -1012,13 +1164,38 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
               ),
             )
         : [];
+      // A share's list line says how much it shares, how many opened it, and until when.
+      const itemCounts = rows.some((r) => r.kind === "share")
+        ? await deps.db
+            .select({ reviewId: reviewItems.reviewId, n: count() })
+            .from(reviewItems)
+            .where(
+              inOrg(
+                reviewItems,
+                organisationId,
+                inArray(
+                  reviewItems.reviewId,
+                  rows.filter((r) => r.kind === "share").map((r) => r.id),
+                ),
+              ),
+            )
+            .groupBy(reviewItems.reviewId)
+        : [];
       return c.json({
         reviews: rows.map((r) => {
           const mine = counts.filter((x) => x.reviewId === r.id);
+          const ends = mine.map((x) => x.expiresAt);
           return {
             ...r,
             reviewers: mine.length,
             submitted: mine.filter((x) => x.submittedAt).length,
+            opened: mine.filter((x) => x.viewedAt).length,
+            items: itemCounts.find((x) => x.reviewId === r.id)?.n ?? null,
+            /** When the last of its people loses access; null while anyone's has no end. */
+            until:
+              ends.length > 0 && ends.every((e) => e)
+                ? ((ends as string[]).sort().at(-1) ?? null)
+                : null,
             youReview: mine.some((x) => x.userId === c.var.userId),
           };
         }),
@@ -1291,6 +1468,8 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
           message: granted.error.issues[0]?.message ?? "Those permissions do not fit together",
         });
       }
+      // A share asks nothing (#138): its people listen and look, whatever the defaults say.
+      if (input.kind === "share") granted.data = shareGrant(granted.data);
       // An approval nobody may decide would wait for ever: everyone would only follow it.
       if (input.kind === "approval" && !granted.data.decide) {
         throw new HTTPException(422, {
@@ -1337,13 +1516,9 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
           input.reviewers,
           0,
         );
-        const permissions = await overridden(
-          tx,
-          organisationId,
-          people,
-          granted.data,
-          input.overrides ?? {},
-        );
+        const permissions = (
+          await overridden(tx, organisationId, people, granted.data, input.overrides ?? {})
+        ).map((p) => (input.kind === "share" && p ? shareGrant(p) : p));
         // Overrides may take the decision from everyone; such an approval would never end.
         if (
           input.kind === "approval" &&
@@ -1619,6 +1794,12 @@ export const reviewRoutes = (deps: ReviewDeps) =>
         if (review.status !== "open") {
           throw new HTTPException(409, { message: `This review is ${review.status}` });
         }
+        // A share asks nothing, so nothing is due: it lasts as long as each person's access.
+        if (review.kind === "share" && dueAt) {
+          throw new HTTPException(422, {
+            message: "A share is not due; say until when each person may open it",
+          });
+        }
         const due = dueAt ? new Date(dueAt) : null;
         await tx
           .update(reviews)
@@ -1657,6 +1838,11 @@ export const reviewRoutes = (deps: ReviewDeps) =>
         await can(tx, actor, "manage_reviewers", review.projectId);
         if (review.status !== "open") {
           throw new HTTPException(409, { message: `This review is ${review.status}` });
+        }
+        if (review.kind === "share") {
+          throw new HTTPException(409, {
+            message: "A share asks nothing, so there is nothing to remind of",
+          });
         }
         const { rows, facts } = await reviewersOf(tx, actor.organisationId, review.id);
         const active = activeReviewers(review.order, facts);
@@ -1739,6 +1925,7 @@ export const reviewRoutes = (deps: ReviewDeps) =>
             .where(eq(schema.organisations.id, actor.organisationId));
           grant = reviewerDefaults(workspaceSettingsOf(workspace?.settings), new Date());
         }
+        if (review.kind === "share") grant = shareGrant(grant);
         const inserted = await tx
           .insert(reviewReviewers)
           .values(
@@ -1897,6 +2084,8 @@ export const reviewRoutes = (deps: ReviewDeps) =>
               message: next.error.issues[0]?.message ?? "Those permissions do not fit together",
             });
           }
+          // A share's people only listen and look (#138), whatever a change asks for.
+          if (review.kind === "share") next.data = shareGrant(next.data);
           // The items a reviewer is shown are this review's own (#55).
           if (next.data.items !== null) {
             const own = new Set(
@@ -2120,7 +2309,8 @@ export async function memberReviews(db: Database, actor: MemberActor) {
     }
     if (!visible.get(row.projectId)) continue;
     let yourTurn = false;
-    if (row.status === "open" && !row.submittedAt) {
+    // A share asks nothing of anyone, so it is never anyone's turn (#138).
+    if (row.status === "open" && !row.submittedAt && row.kind !== "share") {
       const { facts } = await reviewersOf(db, actor.organisationId, row.id);
       yourTurn = activeReviewers(row.order, facts).has(row.reviewerId);
     }

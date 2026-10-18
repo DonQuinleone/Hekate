@@ -214,7 +214,7 @@ A reviewer in an approval who may not record a decision is an **observer**: they
 A review is created by someone whose role allows it. It names:
 
 - **Items:** one or more tracks (a specific version, or the latest), and/or files.
-- **Kind:** approval or feedback.
+- **Kind:** approval, feedback or share.
 - **Reviewers:** members, guests and groups.
 - **Order:** all at once, or in sequence: a series of steps, each holding one or more reviewers or groups asked together, each starting when the one before finishes.
 - **Rule** (approvals only): everyone must approve, any one approval is enough, or a share of them (a percentage, rounded up to whole people; changes are requested as soon as it can no longer be reached). Any *Changes requested* decision is logged regardless.
@@ -223,6 +223,8 @@ A review is created by someone whose role allows it. It names:
 - **Due date** and a message.
 
 Each reviewer's participation has its own state (invited, viewed, in progress, submitted) and, for approvals, a decision with a timestamp. Decisions are append-only: a later decision supersedes an earlier one but never erases it.
+
+A **share** is sharing, not reviewing: it gives members, guests and groups a way to listen or look, with the same protections (guest links, watermarks, the access log), and asks nothing of them. It has items and people like a review, and each person's permissions (download, expiry, how many plays), but no decision, no feedback to submit, no comments, no order, no due date and no reminders; it never settles, and runs until it is stopped. Those who run it see, for each person, whether and when they opened it, and how often they played and downloaded what it shares. A share never puts a track in review.
 
 ## Workflows
 

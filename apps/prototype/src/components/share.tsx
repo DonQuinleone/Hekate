@@ -6,8 +6,17 @@ import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Textarea } from "~/components/ui/input";
 import { Switch } from "~/components/ui/toggle";
-import { groups, latestVersion, type Project, personById, tracks } from "~/data";
+import {
+  files,
+  groups,
+  latestVersion,
+  type Project,
+  personById,
+  tracks,
+  variationOf,
+} from "~/data";
 import { cn } from "~/lib/cn";
+import { kindIcon } from "~/lib/files";
 
 /**
  * Sharing is not reviewing: a share gives someone a way to listen or look, with the same
@@ -27,7 +36,20 @@ export function ShareDialog({
   const [download, setDownload] = useState<"none" | "proxy" | "original">("none");
   const [expires, setExpires] = useState(true);
   const [created, setCreated] = useState(false);
-  const candidates = tracks.filter((t) => t.projectId === project.id && latestVersion(t));
+  // Tracks at their latest version, and files that are no track's (a general project's).
+  const candidates = [
+    ...tracks
+      .filter((t) => t.projectId === project.id && latestVersion(t))
+      .map((t) => ({
+        id: t.id,
+        name: t.name,
+        icon: "track" as const,
+        note: `V${latestVersion(t)?.number}`,
+      })),
+    ...files
+      .filter((f) => f.projectId === project.id && !variationOf(f.id))
+      .map((f) => ({ id: f.id, name: f.name, icon: kindIcon[f.kind], note: "" })),
+  ];
   const toggle = (id: string) => {
     const next = new Set(items);
     if (next.has(id)) next.delete(id);
@@ -54,16 +76,14 @@ export function ShareDialog({
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-2">
           <Label>What</Label>
-          <ul className="flex flex-col divide-y divide-line rounded-panel border border-line">
+          <ul className="scroll-quiet flex max-h-[280px] flex-col divide-y divide-line overflow-auto rounded-panel border border-line">
             {candidates.map((t) => (
               <li key={t.id}>
                 <label className="flex cursor-pointer items-center gap-3 px-3 py-2 text-[14px] text-ink">
                   <input type="checkbox" checked={items.has(t.id)} onChange={() => toggle(t.id)} />
-                  <Icon name="track" size={15} className="text-ink-3" />
+                  <Icon name={t.icon} size={15} className="text-ink-3" />
                   <span className="min-w-0 flex-1 truncate">{t.name}</span>
-                  <span className="tabular text-[12px] text-ink-3">
-                    V{latestVersion(t)?.number}
-                  </span>
+                  <span className="tabular text-[12px] text-ink-3">{t.note}</span>
                 </label>
               </li>
             ))}

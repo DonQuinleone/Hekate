@@ -13,6 +13,7 @@ import {
   reviewOutcome,
   reviewSteps,
   reviewTitleFor,
+  shareGrant,
 } from "./reviews.ts";
 
 // Each reviewer its own step, in the order made, unless a test puts several on one.
@@ -155,6 +156,10 @@ describe("outcomes", () => {
       "submitted",
     );
   });
+
+  it("never settles a share: it runs until it is stopped (#138)", () => {
+    expect(reviewOutcome("share", null, [reviewer("a", { viewed: true })])).toBeNull();
+  });
 });
 
 describe("review input", () => {
@@ -208,6 +213,25 @@ describe("review input", () => {
       createReviewInput.parse({ ...base, kind: "approval", rule: "share", share: 66 }).share,
     ).toBe(66);
     expect(createReviewInput.parse({ ...base, kind: "approval", share: 66 }).share).toBeNull();
+  });
+  it("gives a share no rule, order, due date or reminder (#138)", () => {
+    const parsed = createReviewInput.parse({
+      ...base,
+      kind: "share",
+      rule: "any",
+      order: "sequence",
+      dueAt: "2026-10-31T17:00:00Z",
+    });
+    expect(parsed).toMatchObject({
+      rule: null,
+      share: null,
+      order: "parallel",
+      dueAt: null,
+      remind: false,
+    });
+    expect(
+      shareGrant({ comment: true, decide: true, invite: true, download: "proxy" as const }),
+    ).toEqual({ comment: false, decide: false, invite: false, download: "proxy" });
   });
   it("leaves the title to what is reviewed, and reminds by default", () => {
     const { title: _, ...untitled } = base;
