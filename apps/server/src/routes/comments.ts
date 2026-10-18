@@ -6,6 +6,7 @@ import {
   type CategoryHandling,
   type CommentAttachment,
   type CommentMention,
+  carriedChannel,
   carrySettles,
   commentExportQuery,
   commentTodoInput,
@@ -17,6 +18,7 @@ import {
   mentionRanges,
   resolveCommentInput,
   sendListInput,
+  speakersOf,
   threadsForExport,
   triageInput,
   updateCarryInput,
@@ -93,6 +95,8 @@ const commentColumns = {
   todo: comments.todo,
   todoDoneAt: comments.todoDoneAt,
   todoDoneByName: doneBy.name,
+  /** The channel it is about (#74); null is all of them. */
+  channel: comments.channel,
 };
 
 function selectComments(db: Database, organisationId: string, where: SQL | undefined) {
@@ -169,7 +173,7 @@ export async function threadsOn(
   fileId: string,
 ) {
   const [file] = await db
-    .select({ id: files.id })
+    .select({ id: files.id, mediaInfo: files.mediaInfo })
     .from(files)
     .where(inOrg(files, organisationId, eq(files.id, fileId)));
   if (!file) throw new NotFound("File");
@@ -225,6 +229,20 @@ export async function threadsOn(
     ...new Set(roots.map((r) => r.fileId)),
   ]);
   const here = new Map(carriedHere.map((k) => [k.commentId, k]));
+  // A carried thread about one channel is about the same speaker here, where there is one (#74).
+  const channelFiles = [
+    ...new Set(roots.filter((r) => here.has(r.id) && r.channel !== null).map((r) => r.fileId)),
+  ];
+  const channelsOf = new Map(
+    channelFiles.length === 0
+      ? []
+      : (
+          await db
+            .select({ id: files.id, mediaInfo: files.mediaInfo })
+            .from(files)
+            .where(inOrg(files, organisationId, inArray(files.id, channelFiles)))
+        ).map((f) => [f.id, f.mediaInfo?.audio]),
+  );
   // What each comment carries (#133): names and sizes; the bytes only by a download.
   const attached =
     rows.length === 0
@@ -300,6 +318,7 @@ export async function threadsOn(
       attachments,
       takes,
       anchor: carry.anchor,
+      channel: carriedChannel(row.channel, channelsOf.get(row.fileId), file.mediaInfo?.audio),
       carry: {
         id: carry.id,
         status: carry.status,
@@ -526,7 +545,12 @@ export const fileCommentRoutes = (
       if (!file) throw new NotFound("File");
       const options = c.req.valid("query");
       const out = exportComments(
-        threadsForExport(await threadsOn(db, organisationId, actor, access, fileId)),
+        threadsForExport(
+          await threadsOn(db, organisationId, actor, access, fileId),
+          (file.mediaInfo?.audio?.channels ?? 0) >= 2 && file.mediaInfo?.audio
+            ? speakersOf(file.mediaInfo.audio)
+            : [],
+        ),
         {
           name: file.name,
           duration: file.mediaInfo?.duration ?? null,
@@ -641,6 +665,11 @@ export const fileCommentRoutes = (
         });
         if (problem) throw new HTTPException(422, { message: problem });
       }
+      // A channel only of a recording of two or more that has it (#74).
+      const channels = file.mediaInfo?.audio?.channels ?? 0;
+      if (input.channel != null && (channels < 2 || input.channel >= channels)) {
+        throw new HTTPException(422, { message: "That file has no such channel" });
+      }
       const mentions = await mentionsFor(db, organisationId, file.projectId, actor, input.mentions);
       // A category from the start is triage (#43): only for those who triage, from this project.
       let category: { id: string; handling: CategoryHandling; stage: string | null } | null = null;
@@ -680,6 +709,7 @@ export const fileCommentRoutes = (
             anchor: input.anchor ?? null,
             body: input.body,
             mentions,
+            channel: input.channel ?? null,
             ...(category && {
               categoryId: category.id,
               deferredTo: deferralAfter(null, { categoryId: category.id }, category),

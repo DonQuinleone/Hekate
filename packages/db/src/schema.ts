@@ -886,6 +886,8 @@ export const comments = pgTable(
     todo: boolean("todo").notNull().default(false),
     todoDoneAt: timestamp("todo_done_at", { withTimezone: true }),
     todoDoneById: text("todo_done_by_id").references(() => users.id, { onDelete: "set null" }),
+    /** The channel it is about (#74), by its place in the file's order; null is all of them. */
+    channel: integer("channel"),
     ...timestamps,
   },
   (t) => [

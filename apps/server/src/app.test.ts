@@ -8246,6 +8246,58 @@ describe.runIf(url)("api", () => {
         ).toBe(400);
         // Without one, it is as it always was.
         expect((await create({ body: "Hiss.", categoryId: null }, s.composer)).status).toBe(201);
+
+        // A thread can be about one channel (#74): one the recording has, never on a reply.
+        await db
+          .update(schema.files)
+          .set({
+            mediaInfo: { duration: 40, audio: { channels: 2, channelLayout: "stereo" } } as never,
+          })
+          .where(eq(schema.files.id, s.mix));
+        const left = await create({ body: "Pedal noise on the left.", channel: 0 }, s.composer);
+        expect(left.status).toBe(201);
+        expect(
+          ((await left.json()) as { comment: { channel: number | null } }).comment.channel,
+        ).toBe(0);
+        expect((await create({ body: "On the third?", channel: 2 }, s.composer)).status).toBe(422);
+        expect(
+          (await create({ body: "And here.", parentId: hiss, channel: 1 }, s.composer)).status,
+        ).toBe(400);
+        const listed = (await (await getAs(`/api/files/${s.mix}/comments`, s.composer)).json()) as {
+          comments: { id: string; body: string; channel: number | null }[];
+        };
+        expect(listed.comments.find((t) => t.body === "Pedal noise on the left.")?.channel).toBe(0);
+        // An export names it.
+        const sheet = await (
+          await getAs(`/api/files/${s.mix}/comments/export?target=csv&threads=all`, s.owner)
+        ).text();
+        expect(sheet).toMatch(/\[L\] [^,]+: Pedal noise on the left\.,.*,Whole file,Open,L\r\n/);
+        // Carried to a version laid out the other way round, it is about the same speaker; to a
+        // mono one, about every channel.
+        const leftId = listed.comments.find((t) => t.body === "Pedal noise on the left.")?.id ?? "";
+        await db.insert(schema.commentCarries).values({
+          organisationId: s.organisationId,
+          commentId: leftId,
+          fileId: s.artwork,
+        });
+        const carriedChannel = async (audio: Record<string, unknown>) => {
+          await db
+            .update(schema.files)
+            .set({ mediaInfo: { duration: 40, audio } as never })
+            .where(eq(schema.files.id, s.artwork));
+          const there = (await (
+            await getAs(`/api/files/${s.artwork}/comments`, s.composer)
+          ).json()) as { comments: { id: string; channel: number | null }[] };
+          return there.comments.find((t) => t.id === leftId)?.channel;
+        };
+        expect(await carriedChannel({ channels: 2, channelLayout: "FR+FL" })).toBe(1);
+        expect(await carriedChannel({ channels: 1, channelLayout: "mono" })).toBeNull();
+        // A mono recording has no channel to be about.
+        await db
+          .update(schema.files)
+          .set({ mediaInfo: { duration: 40, audio: { channels: 1 } } as never })
+          .where(eq(schema.files.id, s.mix));
+        expect((await create({ body: "On the left?", channel: 0 }, s.composer)).status).toBe(422);
       });
 
       it("checks a new version before it lands, carries as chosen, and replaces a file keeping its threads", async () => {

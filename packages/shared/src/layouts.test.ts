@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  carriedChannel,
   channelLabels,
   fileLayout,
   layoutChannels,
@@ -64,5 +65,26 @@ describe("channel layouts (#74)", () => {
     expect(lfeChannels(adm)).toEqual([3]);
     expect(layoutsWithLfe).toContain("5.1(side)");
     expect(layoutsWithLfe).not.toContain("stereo");
+  });
+});
+
+describe("carriedChannel", () => {
+  const stereo = { channels: 2, channelLayout: "stereo" };
+  const side = { channels: 6, channelLayout: "5.1(side)" };
+  it("keeps the speaker where both versions name their channels", () => {
+    expect(carriedChannel(1, stereo, side)).toBe(1);
+    expect(carriedChannel(2, side, { channels: 6, channelLayout: "FC+FL+FR+LFE+SL+SR" })).toBe(0);
+  });
+  it("is about every channel where the speaker is gone", () => {
+    expect(carriedChannel(3, side, stereo)).toBeNull();
+  });
+  it("keeps the place where neither says more and they have as many", () => {
+    expect(carriedChannel(1, { channels: 2 }, stereo)).toBe(1);
+    expect(carriedChannel(3, { channels: 4 }, { channels: 6 })).toBeNull();
+  });
+  it("is about every channel on a mono version, or without one", () => {
+    expect(carriedChannel(0, stereo, { channels: 1, channelLayout: "mono" })).toBeNull();
+    expect(carriedChannel(0, stereo, null)).toBeNull();
+    expect(carriedChannel(null, stereo, stereo)).toBeNull();
   });
 });

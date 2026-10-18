@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Anchor } from "./anchor.ts";
 import { formatAnchor } from "./format.ts";
+import { speakerOf } from "./layouts.ts";
 
 /**
  * A file's comment threads as a marker list another application reads (#99): a DAW's
@@ -150,6 +151,8 @@ export interface ExportReply {
 
 export interface ExportThread {
   anchor: Anchor | null;
+  /** The channel it is about, by name (#74); null is every channel. */
+  channel: string | null;
   author: string;
   body: string;
   resolved: boolean;
@@ -188,6 +191,8 @@ export interface ListedComment {
   body: string;
   resolvedAt: string | Date | null;
   carry: { visible: boolean } | null;
+  /** The channel it is about (#74), by its place in the file's order. */
+  channel?: number | null;
 }
 
 /**
@@ -195,7 +200,11 @@ export interface ListedComment {
  * carries left out (they are triage's to decide, not yet anyone's feedback), and replies
  * gathered under their thread in the order they were written.
  */
-export function threadsForExport(rows: ListedComment[]): ExportThread[] {
+export function threadsForExport(
+  rows: ListedComment[],
+  /** The file's speakers, to name the channel a thread is about. */
+  speakers: readonly string[] = [],
+): ExportThread[] {
   const author = (name: string | null) => name ?? "A former member";
   const replies = new Map<string, ExportReply[]>();
   for (const row of rows) {
@@ -209,6 +218,7 @@ export function threadsForExport(rows: ListedComment[]): ExportThread[] {
     .filter((row) => !row.parentId && row.carry?.visible !== false)
     .map((row) => ({
       anchor: (row.anchor as Anchor | null) ?? null,
+      channel: row.channel == null ? null : speakerOf(speakers, row.channel),
       author: author(row.authorName),
       body: row.body,
       resolved: row.resolvedAt !== null,
@@ -342,10 +352,14 @@ function headline(body: string, max = 72): string {
   return first.length > max ? `${first.slice(0, max - 1).trimEnd()}…` : first;
 }
 
-/** What a marker is called: where a bar was named, the bar, then who said what. */
+/**
+ * What a marker is called: where a bar was named, the bar; the channel it is about, if one;
+ * then who said what.
+ */
 function markerName(t: ExportThread): string {
   const bar = t.anchor?.kind === "bar" ? `${formatAnchor(t.anchor)} ` : "";
-  return `${bar}${t.author}: ${headline(t.body)}`;
+  const channel = t.channel ? `[${t.channel}] ` : "";
+  return `${bar}${channel}${t.author}: ${headline(t.body)}`;
 }
 
 /** The whole thread as text: the comment, then each reply on a line of its own. */
@@ -422,6 +436,7 @@ function writeCsv(threads: ExportThread[], ctx: Context): string {
     "Author",
     "Anchor",
     "Status",
+    "Channel",
   ];
   const rows = threads.map((t) => {
     const at = threadTime(t.anchor);
@@ -433,6 +448,7 @@ function writeCsv(threads: ExportThread[], ctx: Context): string {
       spreadsheetText(t.author),
       t.anchor ? formatAnchor(t.anchor) : "Whole file",
       t.resolved ? "Resolved" : "Open",
+      t.channel ?? "Every channel",
     ];
   });
   return `${[header, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n")}\r\n`;
@@ -596,7 +612,10 @@ function writeText(threads: ExportThread[], ctx: Context): string {
     const at = threadTime(t.anchor);
     const when = at ? written(at.start, ctx) : "";
     const where = t.anchor && t.anchor.kind !== "time" ? formatAnchor(t.anchor) : "";
-    const place = [when, where].filter(Boolean).join("  ") || "Whole file";
+    const channel = t.channel ? `[${t.channel}]` : "";
+    const place = [when || where ? "" : "Whole file", when, where, channel]
+      .filter(Boolean)
+      .join("  ");
     lines.push(
       `${String(i + 1).padStart(3, "0")}  ${place}  ${t.author}${t.resolved ? " (resolved)" : ""}`,
     );

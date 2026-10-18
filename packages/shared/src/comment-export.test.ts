@@ -25,6 +25,7 @@ const recording: ExportSource = {
 const threads: ExportThread[] = [
   {
     anchor: { kind: "time", start: 72.32, end: 72.32 },
+    channel: null,
     author: "Mira Solberg",
     body: "The pedal blurs the left hand here.\nTry the dry take.",
     resolved: false,
@@ -32,6 +33,7 @@ const threads: ExportThread[] = [
   },
   {
     anchor: { kind: "time", start: 10, end: 14.5 },
+    channel: null,
     author: "Ines Arlow",
     body: "Balance, right hand too loud",
     resolved: true,
@@ -39,6 +41,7 @@ const threads: ExportThread[] = [
   },
   {
     anchor: { kind: "bar", from: { bar: 25, beat: 1 }, at: 40 },
+    channel: null,
     author: "Alex Rivera",
     body: "=SUM(A1) is a joke, but the rubato is not",
     resolved: false,
@@ -46,6 +49,7 @@ const threads: ExportThread[] = [
   },
   {
     anchor: null,
+    channel: null,
     author: "Mira Solberg",
     body: "Overall: lovely.",
     resolved: false,
@@ -143,15 +147,17 @@ describe("exportComments", () => {
   it("writes a spreadsheet with every thread and no formulas", () => {
     const out = run({ target: "csv", threads: "all", time: "seconds" });
     const lines = out.text?.split("\r\n") ?? [];
-    expect(lines[0]).toBe("Start (seconds),End (seconds),Name,Comment,Author,Anchor,Status");
+    expect(lines[0]).toBe(
+      "Start (seconds),End (seconds),Name,Comment,Author,Anchor,Status,Channel",
+    );
     expect(lines[1]).toBe(
-      '10.000,14.500,"Ines Arlow: Balance, right hand too loud","Balance, right hand too loud",Ines Arlow,00:10.000 – 00:14.500,Resolved',
+      '10.000,14.500,"Ines Arlow: Balance, right hand too loud","Balance, right hand too loud",Ines Arlow,00:10.000 – 00:14.500,Resolved,Every channel',
     );
     expect(out.text).toContain(
       `,"'=SUM(A1) is a joke, but the rubato is not",Alex Rivera,BAR 25,Open`,
     );
     expect(out.text).toContain(
-      ",,Mira Solberg: Overall: lovely.,Overall: lovely.,Mira Solberg,Whole file,Open",
+      ",,Mira Solberg: Overall: lovely.,Overall: lovely.,Mira Solberg,Whole file,Open,Every channel",
     );
     expect(out.written).toBe(4);
     expect(out.untimed).toBe(0);
@@ -165,7 +171,7 @@ describe("exportComments", () => {
   it("writes Nuendo's CSV in timecode", () => {
     const out = run({ target: "nuendo", time: "seconds" });
     expect(out.text?.split("\r\n")[0]).toBe(
-      "Timecode In,Timecode Out,Name,Comment,Author,Anchor,Status",
+      "Timecode In,Timecode Out,Name,Comment,Author,Anchor,Status,Channel",
     );
     expect(out.text).toContain('\r\n00:00:40:00,00:00:40:00,"BAR 25 Alex Rivera:');
     expect(out.untimed).toBe(1);
@@ -222,6 +228,7 @@ describe("exportComments", () => {
   it("escapes XML", () => {
     const nasty: ExportThread = {
       anchor: { kind: "time", start: 1, end: 1 },
+      channel: null,
       author: "Tomas <Varga>",
       body: 'Say "loud" & mean it\u0007',
       resolved: false,
@@ -277,6 +284,7 @@ describe("exportComments", () => {
   it("never lets a name start a formula in a spreadsheet cell", () => {
     const named: ExportThread = {
       anchor: { kind: "time", start: 5, end: 5 },
+      channel: null,
       author: "=HYPERLINK(1)",
       body: "Listen",
       resolved: false,
@@ -284,7 +292,7 @@ describe("exportComments", () => {
     };
     const out = exportComments([named], recording, options({ target: "csv", time: "seconds" }));
     expect(out.text?.split("\r\n")[1]).toBe(
-      "5.000,5.000,'=HYPERLINK(1): Listen,Listen,'=HYPERLINK(1),00:05.000,Open",
+      "5.000,5.000,'=HYPERLINK(1): Listen,Listen,'=HYPERLINK(1),00:05.000,Open,Every channel",
     );
   });
 
@@ -318,6 +326,7 @@ describe("threadsForExport", () => {
       id,
       parentId: null,
       anchor: null,
+      channel: null,
       authorName: "Mira Solberg",
       body: id,
       resolvedAt: null,
@@ -335,6 +344,7 @@ describe("threadsForExport", () => {
     ).toEqual([
       {
         anchor: at,
+        channel: null,
         author: "Mira Solberg",
         body: "a",
         resolved: false,
@@ -343,7 +353,53 @@ describe("threadsForExport", () => {
           { author: "Tomas Varga", body: "a2" },
         ],
       },
-      { anchor: null, author: "Mira Solberg", body: "c", resolved: true, replies: [] },
+      {
+        anchor: null,
+        channel: null,
+        author: "Mira Solberg",
+        body: "c",
+        resolved: true,
+        replies: [],
+      },
     ]);
+  });
+
+  it("names the channel a thread is about from the file's speakers", () => {
+    const row = (id: string, channel: number | null) => ({
+      id,
+      parentId: null,
+      anchor: null,
+      channel,
+      authorName: "Mira Solberg",
+      body: id,
+      resolvedAt: null,
+      carry: null,
+    });
+    const named = threadsForExport(
+      [row("a", 0), row("b", 3), row("c", null)],
+      ["L", "R", "C", "4"],
+    );
+    expect(named.map((t) => t.channel)).toEqual(["L", "Channel 4", null]);
+  });
+});
+
+describe("a thread about one channel", () => {
+  const left: ExportThread = {
+    anchor: { kind: "time", start: 6.2, end: 6.2 },
+    channel: "L",
+    author: "Alex Rivera",
+    body: "Pedal noise on the left.",
+    resolved: false,
+    replies: [],
+  };
+  it("says so in the marker's name, the sheet and the text", () => {
+    const sheet = exportComments([left], recording, options({ target: "csv", time: "seconds" }));
+    expect(sheet.text).toContain(
+      "6.200,6.200,[L] Alex Rivera: Pedal noise on the left.,Pedal noise on the left.,Alex Rivera,00:06.200,Open,L",
+    );
+    const text = exportComments([left], recording, options({ target: "text", time: "seconds" }));
+    expect(text.text).toContain("001  6.200  [L]  Alex Rivera");
+    const reaper = exportComments([left], recording, options({ target: "reaper" }));
+    expect(reaper.text).toContain("M1,[L] Alex Rivera: Pedal noise on the left.,");
   });
 });

@@ -825,10 +825,23 @@ test("file-zoom", async ({ page }) => {
 });
 
 // A stereo recording's channels, each with its level at the playhead from the stored loudness
-// (#74), the right one muted.
-test("file-channels-levels", async ({ page }) => {
+// (#74), the right one muted, and a thread about the left channel.
+test("file-channels-levels", async ({ page }, info) => {
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "section[aria-label=Comments] li");
+  // A thread about the left channel (deferred in triage) says so, and a new one can be about
+  // one channel.
+  const comments = page.getByRole("region", { name: "Comments" });
+  await comments.getByRole("button", { name: /^Show \d+ deferred$/ }).click();
+  await expect(
+    comments
+      .getByRole("listitem")
+      .filter({ hasText: "Pedal noise" })
+      .getByTitle("The channel it is about"),
+  ).toHaveText("L");
+  // A phone's composer opens in a sheet, from a button.
+  if (info.project.name !== "phone")
+    await expect(comments.getByRole("combobox", { name: "Channel" })).toBeAttached();
   await page.getByRole("button", { name: "Channels", exact: true }).click();
   const menu = page.getByRole("region", { name: "Channels" });
   await expect(menu.getByRole("meter", { name: /^L: RMS/ })).toBeAttached();
