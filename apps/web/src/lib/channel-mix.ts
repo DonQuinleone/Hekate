@@ -1,4 +1,3 @@
-import { channelNames } from "@hekate/shared";
 import { useEffect } from "react";
 
 /**
@@ -24,40 +23,7 @@ export const plainMix: ChannelMix = { solo: null, muted: [], downmix: false, bin
 export const isPlain = (mix: ChannelMix) =>
   mix.solo === null && mix.muted.length === 0 && !mix.downmix && !mix.binaural;
 
-/**
- * Speakers as engineers name them, from ffmpeg's channel labels (FL, FR, FC, LFE...). The rear
- * pair is Ls and Rs on its own, Lrs and Rrs beside a side pair (7.1).
- */
-export function speakerNames(labels: readonly string[] | null, channels: number): string[] {
-  // A file that does not say how it is laid out: a pair is left and right, as the meters
-  // name it; anything wider is numbered.
-  if (!labels) return channelNames(channels);
-  const sidesAndBacks = labels.includes("SL") && labels.includes("BL");
-  const names: Record<string, string> = {
-    FL: "L",
-    FR: "R",
-    FC: "C",
-    LFE: "LFE",
-    LFE2: "LFE2",
-    FLC: "Lc",
-    FRC: "Rc",
-    BC: "Cs",
-    BL: sidesAndBacks ? "Lrs" : "Ls",
-    BR: sidesAndBacks ? "Rrs" : "Rs",
-    SL: sidesAndBacks ? "Lss" : "Ls",
-    SR: sidesAndBacks ? "Rss" : "Rs",
-    TC: "Ts",
-    TFL: "Ltf",
-    TFC: "Ctf",
-    TFR: "Rtf",
-    TBL: "Ltr",
-    TBC: "Ctr",
-    TBR: "Rtr",
-    TSL: "Lts",
-    TSR: "Rts",
-  };
-  return labels.map((l) => names[l] ?? l);
-}
+export { speakerNames } from "@hekate/shared";
 
 const lefts = new Set(["FL", "FLC", "BL", "SL", "TFL", "TBL", "TSL"]);
 const rights = new Set(["FR", "FRC", "BR", "SR", "TFR", "TBR", "TSR"]);

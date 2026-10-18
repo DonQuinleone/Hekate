@@ -1168,6 +1168,8 @@ export interface Comment {
   todo: boolean;
   todoDoneAt: string | null;
   todoDoneByName: string | null;
+  /** The channel it is about (#74), by its place in the file's order; null is all of them. */
+  channel: number | null;
 }
 
 export interface CommentCarry {

@@ -29,6 +29,7 @@ const comment = (id: string, extra: Partial<Comment> = {}): Comment => ({
   todo: false,
   todoDoneAt: null,
   todoDoneByName: null,
+  channel: null,
   ...extra,
 });
 

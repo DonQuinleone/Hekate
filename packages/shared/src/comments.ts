@@ -32,6 +32,8 @@ export const createCommentInput = z
      * triage, as when a finding becomes a comment.
      */
     categoryId: z.uuid().nullish(),
+    /** The channel it is about (#74), by its place in the file's order: "the left", "the LFE". */
+    channel: z.number().int().min(0).max(63).nullish(),
   })
   .refine((c) => !(c.parentId && c.anchor), {
     message: "A reply takes its thread's anchor",
@@ -40,6 +42,10 @@ export const createCommentInput = z
   .refine((c) => !(c.parentId && c.categoryId), {
     message: "A reply takes its thread's category",
     path: ["categoryId"],
+  })
+  .refine((c) => !(c.parentId && c.channel != null), {
+    message: "A reply takes its thread's channel",
+    path: ["channel"],
   });
 
 export const editCommentInput = z.object({

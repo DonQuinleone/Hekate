@@ -26,7 +26,8 @@ export const waveColours = {
 
 export type WaveColourName = keyof typeof waveColours;
 
-const channelNames = (channels: number): string[] => {
+/** A recording's speakers by their usual names, by how many channels it has. */
+export const channelNames = (channels: number): string[] => {
   if (channels === 1) return ["M"];
   if (channels === 2) return ["L", "R"];
   if (channels === 6) return ["L", "R", "C", "LFE", "Ls", "Rs"];

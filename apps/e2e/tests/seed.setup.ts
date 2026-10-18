@@ -340,10 +340,11 @@ setup("seed", async ({ page, browser }) => {
   type Created = { comment: { id: string } };
   const comment = (fileId: string, body: string, anchor?: unknown, parentId?: string) =>
     api<Created>(page, "POST", `/api/files/${fileId}/comments`, { body, anchor, parentId });
-  const pedal = await comment(dry, "Pedal noise on the left, just before the downbeat.", {
-    kind: "time",
-    start: 6.2,
-    end: 6.2,
+  // About the left channel alone (#74).
+  const pedal = await api<Created>(page, "POST", `/api/files/${dry}/comments`, {
+    body: "Pedal noise on the left, just before the downbeat.",
+    anchor: { kind: "time", start: 6.2, end: 6.2 },
+    channel: 0,
   });
   const drop = await comment(dry, "The bass drops out here for half a bar. Intentional?", {
     kind: "time",

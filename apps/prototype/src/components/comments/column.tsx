@@ -5,6 +5,7 @@ import { type Comment, categories, type File, type Project } from "~/data";
 import { cn } from "~/lib/cn";
 import { type FileAccess, visibleComments } from "~/viewer/context";
 import type { Playback } from "../player/playback.ts";
+import { channelNames } from "../player/waveform.tsx";
 import { Composer } from "./composer.tsx";
 import { Thread } from "./thread.tsx";
 
@@ -238,6 +239,11 @@ export function CommentsColumn({
             : { page: kind === "document", bar: false, beat: false }
         }
         canCategorise={access.triage}
+        channels={
+          kind === "media" && file.kind === "audio" && (file.media.channels ?? 0) >= 2
+            ? channelNames(file.media.channels ?? 0)
+            : []
+        }
         disabledReason={composerNote}
         onPost={onPost}
       />
