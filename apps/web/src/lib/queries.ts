@@ -1886,6 +1886,12 @@ export interface ReviewSummary {
   createdAt: string;
   reviewers: number;
   submitted: number;
+  /** How many have opened it; a share's list line says so (#138). */
+  opened: number;
+  /** A share's: how many items it shares; null for a review. */
+  items: number | null;
+  /** A share's: when the last of its people loses access; null while anyone's has no end. */
+  until: string | null;
   youReview: boolean;
 }
 
@@ -1949,6 +1955,8 @@ export interface ReviewDetail {
     comments: { count: number; fileId: string; commentId: string } | null;
     /** For those who manage reviewers, and for the reviewer themselves; otherwise null. */
     permissions: ReviewerPermissions | null;
+    /** In a share, for those who run it: how often they played and downloads they took (#138). */
+    usage: { plays: number; downloads: number } | null;
   }[];
   decisions: {
     id: string;

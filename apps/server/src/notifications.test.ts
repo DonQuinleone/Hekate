@@ -95,6 +95,27 @@ describe("notification mail", () => {
       "Ines Arlow asks about Album masters",
     );
   });
+
+  it("asks nothing of someone something is shared with (#138)", () => {
+    const mail = instantMail(
+      row({
+        kind: "review_requested",
+        actorName: "Alex Rivera",
+        text: 'shared "Rehearsal takes" with you',
+        mail: {
+          template: "shared",
+          values: { review: "Rehearsal takes", requester: "Alex Rivera" },
+        },
+      }),
+      "https://hekate.example",
+      { name: "Endless Hall Records", subjects: {} },
+    );
+    expect(mail.subject).toBe("Alex Rivera shared Rehearsal takes with you");
+    expect(mail.text).toContain("Open what was shared:\nhttps://hekate.example/reviews/r");
+    expect(mail.text).toContain("You get this because something was shared with you.");
+    expect(mail.text).not.toContain("Open the review");
+    expect(mail.text).not.toContain("asked to review");
+  });
 });
 
 describe("digestDue", () => {

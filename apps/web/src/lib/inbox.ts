@@ -23,17 +23,22 @@ const outcome: Record<string, string> = {
 function reviewItem(r: MyReview, now: number): InboxItem {
   const due = r.status === "open" && r.dueAt ? dueIn(r.dueAt, now) : null;
   const ask =
-    r.status === "cancelled"
-      ? "Cancelled"
-      : r.status !== "open"
-        ? (outcome[r.outcome ?? ""] ?? "Finished")
-        : r.yourTurn
-          ? r.kind === "approval"
-            ? "Your decision"
-            : "Your feedback"
-          : r.submittedAt
-            ? "You have responded"
-            : "Waiting on others";
+    // A share asks nothing (#138): it is shared with you, or no longer is.
+    r.kind === "share"
+      ? r.status === "open"
+        ? "Shared with you"
+        : "No longer shared"
+      : r.status === "cancelled"
+        ? "Cancelled"
+        : r.status !== "open"
+          ? (outcome[r.outcome ?? ""] ?? "Finished")
+          : r.yourTurn
+            ? r.kind === "approval"
+              ? "Your decision"
+              : "Your feedback"
+            : r.submittedAt
+              ? "You have responded"
+              : "Waiting on others";
   return {
     id: r.id,
     kind: "review",
@@ -47,7 +52,8 @@ function reviewItem(r: MyReview, now: number): InboxItem {
 
 /**
  * The inbox's three lists. Needs you: reviews where it is your turn, soonest due first, then
- * files that failed to process. Following: open reviews waiting on someone else. Done:
+ * files that failed to process. Following: open reviews waiting on someone else, and what is
+ * shared with you. Done:
  * finished and cancelled reviews, newest first.
  */
 export function inboxLists(

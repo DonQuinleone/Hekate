@@ -51,4 +51,18 @@ describe("inboxLists", () => {
       ["old", "Approved · Joplin Rags"],
     ]);
   });
+
+  it("follows a share without asking anything of you (#138)", () => {
+    const lists = inboxLists(
+      [
+        review({ id: "shared", kind: "share" }),
+        review({ id: "stopped", kind: "share", status: "cancelled" }),
+      ],
+      [],
+      now,
+    );
+    expect(lists.needs).toEqual([]);
+    expect(lists.following.map((i) => i.detail)).toEqual(["Shared with you · Joplin Rags"]);
+    expect(lists.done.map((i) => i.detail)).toEqual(["No longer shared · Joplin Rags"]);
+  });
 });

@@ -34,7 +34,7 @@ export type TrackState = (typeof trackStates)[number];
 /** A review's hold on a track: a specific version, or (null) whichever is latest. */
 export interface TrackReviewItem {
   versionId: string | null;
-  kind: "approval" | "feedback";
+  kind: "approval" | "feedback" | "share";
   status: "open" | "completed" | "cancelled";
   outcome: "approved" | "changes_requested" | "submitted" | null;
   completedAt: string | null;
@@ -55,7 +55,8 @@ export function trackState(
     i.versionId === latest.id ||
     (i.versionId === null &&
       (i.status === "open" || (i.completedAt !== null && i.completedAt >= latest.createdAt)));
-  const mine = items.filter(covers);
+  // A share asks nothing of a track, so it never puts one in review (#138).
+  const mine = items.filter((i) => i.kind !== "share" && covers(i));
   if (mine.some((i) => i.status === "open")) return "in_review";
   const settled = mine
     .filter((i) => i.kind === "approval" && i.status === "completed" && i.completedAt)

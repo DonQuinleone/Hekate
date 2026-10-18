@@ -1,4 +1,4 @@
-import type { ReviewerPermissions, ReviewerTool } from "@hekate/shared";
+import type { ReviewerPermissions, ReviewerTool, ReviewKind } from "@hekate/shared";
 import { formatDates } from "./locale";
 
 const moment = formatDates({
@@ -25,13 +25,14 @@ const toolNames: Record<ReviewerTool, string> = {
  */
 export function permissionSummary(
   p: ReviewerPermissions,
-  kind: "approval" | "feedback",
+  kind: ReviewKind,
   guest = true,
 ): string[] {
   const notes: string[] = [];
   if (guest && p.comments === "own_and_replies") notes.push("Sees own comments and replies");
   if (guest && p.comments === "own") notes.push("Sees only own comments");
-  if (guest && !p.comment) notes.push("Cannot comment");
+  // A share never takes comments, so saying so of each person says nothing.
+  if (guest && !p.comment && kind !== "share") notes.push("Cannot comment");
   if (kind === "approval" && !p.decide) notes.push("No decision");
   if (p.invite) notes.push("May invite others");
   const missing = (Object.keys(toolNames) as ReviewerTool[]).filter((t) => !p.tools.includes(t));

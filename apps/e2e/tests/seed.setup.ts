@@ -499,6 +499,13 @@ setup("seed", async ({ page, browser }) => {
     items: [{ fileId: score }],
     dueAt: "2026-10-10T17:00:00Z",
   });
+  // A share (#138): the track for a guest to listen to, with nothing asked of her.
+  const shared = await ask("Rehearsal takes", {
+    kind: "share",
+    reviewers: [{ name: "Mira Solberg", email: "mira@example.test", label: "Violin" }],
+    message: "The rehearsal from Tuesday, for listening on the train.",
+    permissions: { download: "proxy", expiresAt: "2026-10-31T23:59:59Z" },
+  });
 
   // Other workspaces on the instance (#174), one of them suspended: its owner is told why.
   for (const [name, slug] of [
@@ -632,6 +639,7 @@ setup("seed", async ({ page, browser }) => {
     cutFileId: cutFile.id,
     reviewId: review.id,
     reviewStates: { decided, changes, approved, cancelled, waiting, overdue },
+    shareId: shared,
     invitationPath: new URL(invitation).pathname,
     usedGuestPath: guestLink,
   };
