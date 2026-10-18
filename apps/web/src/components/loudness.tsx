@@ -247,6 +247,48 @@ function PhaseMeter({ value }: { value: number }) {
   );
 }
 
+/**
+ * The front pair's mid (what the two sides share) and side (where they differ), as RMS: a
+ * side close to the mid is wide or out of phase, a side far below it narrow.
+ */
+function MidSideMeter({ mid, side }: { mid: number; side: number }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="label">Mid and side</span>
+      <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+        {(
+          [
+            ["M", "Mid", mid],
+            ["S", "Side", side],
+          ] as const
+        ).map(([short, name, level]) => (
+          <li key={short} className="flex items-center gap-2">
+            <meter
+              className="sr-only"
+              min={METER_FLOOR}
+              max={0}
+              value={Math.max(METER_FLOOR, level)}
+              aria-label={`${name}: RMS ${formatLevel(level)} dBFS`}
+            />
+            <span className="label w-3 text-[10px]" aria-hidden="true">
+              {short}
+            </span>
+            <span className="relative h-2 flex-1 rounded-[1px] bg-raised" aria-hidden="true">
+              <span
+                className="absolute inset-y-0 left-0 bg-ink-3"
+                style={{ width: `${meterFraction(level) * 100}%` }}
+              />
+            </span>
+            <span className="tabular w-10 text-right text-[11px] text-ink-2" aria-hidden="true">
+              {formatLevel(level)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /** The whole file in four numbers. */
 function Readings({ summary }: { summary: LoudnessSummary }) {
   return (
@@ -350,7 +392,14 @@ export function Loudness({
               <Reading label="Momentary" value={formatLevel(live(series.momentary))} unit="LUFS" />
               <Reading label="Short-term" value={formatLevel(live(series.shortTerm))} unit="LUFS" />
             </div>
-            {series.hasPhase && <PhaseMeter value={frame === null ? 0 : live(series.phase)} />}
+            {series.hasPhase && (
+              <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+                <PhaseMeter value={frame === null ? 0 : live(series.phase)} />
+                {series.hasMidSide && (
+                  <MidSideMeter mid={live(series.mid)} side={live(series.side)} />
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

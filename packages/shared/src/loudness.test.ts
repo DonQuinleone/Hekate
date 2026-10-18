@@ -10,7 +10,7 @@ import {
   SILENCE,
 } from "./loudness.ts";
 
-const series = (hasPhase: boolean): LoudnessSeries => ({
+const series = (hasPhase: boolean, hasMidSide = hasPhase): LoudnessSeries => ({
   channels: 2,
   sampleRate: 48_000,
   samplesPerFrame: 4_800,
@@ -21,6 +21,9 @@ const series = (hasPhase: boolean): LoudnessSeries => ({
   peak: Float32Array.from([-60, -61, -6.02, -12, -0.5, Number.NEGATIVE_INFINITY]),
   rms: Float32Array.from([-70, -71, -20, -26, -9, -500]),
   phase: hasPhase ? Float32Array.from([1, 0.5, -0.25]) : new Float32Array(0),
+  hasMidSide,
+  mid: hasMidSide ? Float32Array.from([SILENCE, -26.5, -12.25]) : new Float32Array(0),
+  side: hasMidSide ? Float32Array.from([SILENCE, -40, -500]) : new Float32Array(0),
 });
 
 describe("loudness series", () => {
@@ -35,7 +38,20 @@ describe("loudness series", () => {
       );
       expect(decoded.rms[5]).toBe(SILENCE);
       expect(Array.from(decoded.phase)).toEqual(hasPhase ? [1, 0.5, -0.25] : []);
+      expect(decoded.hasMidSide).toBe(hasPhase);
+      expect(Array.from(decoded.mid)).toEqual(
+        hasPhase ? [SILENCE, -26.5, -12.25].map(Math.fround) : [],
+      );
+      expect(Array.from(decoded.side)).toEqual(hasPhase ? [SILENCE, -40, SILENCE] : []);
     }
+  });
+
+  it("reads a file measured before mid and side were kept", () => {
+    const decoded = decodeLoudness(encodeLoudness(series(true, false)));
+    expect(decoded.hasPhase).toBe(true);
+    expect(decoded.hasMidSide).toBe(false);
+    expect(decoded.mid.length).toBe(0);
+    expect(Array.from(decoded.phase)).toEqual([1, 0.5, -0.25]);
   });
 
   it("rejects what is not a whole loudness file", () => {

@@ -75,14 +75,22 @@ describe("phase meter", () => {
     ] as const) {
       meter.push(bytes.subarray(start, end));
     }
-    expect(Array.from(meter.finish(2))).toEqual([1, -1]);
+    const { phase, mid, side } = meter.finish(2);
+    expect(Array.from(phase)).toEqual([1, -1]);
     expect(meter.total).toBe(4);
+    // In phase, everything is mid and nothing side; out of phase, the reverse.
+    const level = 10 * Math.log10((0.5 ** 2 + 0.25 ** 2) / 2);
+    expect(mid[0]).toBeCloseTo(level, 4);
+    expect(side[0]).toBe(SILENCE);
+    expect(mid[1]).toBe(SILENCE);
+    expect(side[1]).toBeCloseTo(level, 4);
   });
 
   it("has nothing to say about mono", () => {
     const meter = new PhaseMeter(1, 2);
     meter.push(pcm([0.1, 0.2, 0.3]));
-    expect(meter.finish(2)).toHaveLength(0);
+    const { phase, mid, side } = meter.finish(2);
+    expect([phase.length, mid.length, side.length]).toEqual([0, 0, 0]);
   });
 });
 
