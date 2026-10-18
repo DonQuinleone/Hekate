@@ -148,6 +148,9 @@ function Meters({
   seed: number;
 }) {
   const rand = seeded(Math.floor(playback.time * 10) + seed);
+  // Phase between any two channels of a multichannel recording (#74), the front pair first.
+  const pairs = channels.flatMap((a, i) => channels.slice(i + 1).map((b) => `${a}–${b}`));
+  const [pair, setPair] = useState(0);
   const level = (i: number) =>
     playback.playing || playback.time > 0
       ? -8 - rand() * 10 - (channels[i] === "LFE" ? 12 : 0)
@@ -183,11 +186,27 @@ function Meters({
       {channels.length >= 2 && (
         <StereoField spread={rand()} live={playback.playing || playback.time > 0} />
       )}
+      {pairs.length > 1 && (
+        <label className="flex items-center justify-between gap-2 text-[12px] text-ink-3">
+          Phase between
+          <select
+            value={pair}
+            onChange={(e) => setPair(Number(e.target.value))}
+            className="h-7 rounded-chip border border-line bg-ground/60 px-2 text-[12px] text-ink"
+          >
+            {pairs.map((p, i) => (
+              <option key={p} value={i}>
+                {p}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <div className="grid grid-cols-3 gap-2 text-center">
         {[
           ["M", "−15.1"],
           ["S", "−16.0"],
-          ["CORR", "+0.82"],
+          [pairs.length > 1 ? `CORR ${pairs[pair]}` : "CORR", pair === 0 ? "+0.82" : "+0.41"],
         ].map(([k, v]) => (
           <div key={k} className="rounded-control bg-sunken py-1.5">
             <div className="tabular text-[11px] text-ink-3">{k}</div>
