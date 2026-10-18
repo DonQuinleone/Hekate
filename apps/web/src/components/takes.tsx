@@ -20,7 +20,14 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type DragEvent, type FormEvent, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
-import { barsUsedOf, decisionsSummary, editLine, rateName } from "~/lib/edit-decisions";
+import {
+  barsUsedOf,
+  decisionsSummary,
+  editLine,
+  rateName,
+  takesUsed,
+  usedAtBar,
+} from "~/lib/edit-decisions";
 import {
   editDecisionsQuery,
   type Track,
@@ -85,7 +92,7 @@ export function TakeManager({ track }: { track: Track }) {
   const canAdd = canEdit && can("upload");
   const { data: takes, error } = useQuery(trackTakesQuery(track.id));
   const { add, change, remove } = useTakeMutations(track.id);
-  const [filter, setFilter] = useState<"all" | "best">("all");
+  const [filter, setFilter] = useState<"all" | "best" | "used">("all");
   const [bar, setBar] = useState("");
   // The latest version's edit decision list, matched to these takes (#56).
   const [rate, setRate] = useState<EdlRate | undefined>(undefined);
@@ -158,7 +165,15 @@ export function TakeManager({ track }: { track: Track }) {
           (a.barFrom ?? Number.POSITIVE_INFINITY) - (b.barFrom ?? Number.POSITIVE_INFINITY) ||
           a.number - b.number,
       );
-  const shown = filter === "best" ? ordered.filter((t) => t.starred || t.rating >= 4) : ordered;
+  const used = takesUsed(decisions);
+  // "Used" lapses with the list it reads.
+  const which = filter === "used" && !decisions ? "all" : filter;
+  const shown =
+    which === "best"
+      ? ordered.filter((t) => t.starred || t.rating >= 4)
+      : which === "used"
+        ? ordered.filter((t) => used.has(t.id))
+        : ordered;
   const withBars = takes.some((t) => t.barFrom !== null);
   const end = rulerEnd(takes);
   const gaps = coverageGaps(takes);
@@ -243,11 +258,15 @@ export function TakeManager({ track }: { track: Track }) {
               {showing === "takes" && (
                 <Segmented
                   label="Which takes"
-                  value={filter}
+                  value={which}
                   onChange={setFilter}
                   options={[
                     { value: "all", label: "All" },
                     { value: "best", label: "Best" },
+                    // The takes the latest version's edit decision list uses (#56).
+                    ...(decisions
+                      ? [{ value: "used" as const, label: `In V${decisions.version.number}` }]
+                      : []),
                   ]}
                 />
               )}
@@ -326,8 +345,16 @@ export function TakeManager({ track }: { track: Track }) {
                 {shown.length === 0 && (
                   <li className="col-span-full px-4 py-6 text-[13px] text-ink-3">
                     {asked
-                      ? `No take covers bar ${wanted}${filter === "best" ? " among the best" : ""}.`
-                      : "No take is starred or rated four or more yet."}
+                      ? `No take covers bar ${wanted}${
+                          which === "best"
+                            ? " among the best"
+                            : which === "used"
+                              ? ` that V${decisions?.version.number} uses`
+                              : ""
+                        }.`
+                      : which === "used"
+                        ? `V${decisions?.version.number}'s list uses none of these takes.`
+                        : "No take is starred or rated four or more yet."}
                   </li>
                 )}
               </ul>
@@ -750,6 +777,8 @@ export function OtherTakes({
   share?: { shared: string[]; onShare: (takeIds: string[]) => Promise<unknown> };
 }) {
   const { data: takes, error } = useQuery(trackTakesQuery(trackId));
+  // Which of them the latest version's edit decision list uses here (#56).
+  const { data: decisions } = useQuery(editDecisionsQuery(trackId));
   const list = takes ? takesCovering(takes, bar) : [];
   const [mode, setMode] = useState<"ticked" | "all" | "except">("ticked");
   const [ticked, setTicked] = useState<Set<string>>(new Set());
@@ -827,11 +856,19 @@ export function OtherTakes({
                   params={{ fileId: t.file.id }}
                   className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-1.5 no-underline hover:bg-raised/40"
                 >
-                  <OtherTake take={t} shared={share?.shared.includes(t.id)} />
+                  <OtherTake
+                    take={t}
+                    shared={share?.shared.includes(t.id)}
+                    usedIn={usedAtBar(decisions, t.id, bar)}
+                  />
                 </Link>
               ) : (
                 <span className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-1.5">
-                  <OtherTake take={t} shared={share?.shared.includes(t.id)} />
+                  <OtherTake
+                    take={t}
+                    shared={share?.shared.includes(t.id)}
+                    usedIn={usedAtBar(decisions, t.id, bar)}
+                  />
                 </span>
               )}
             </li>
@@ -881,7 +918,16 @@ export function OtherTakes({
   );
 }
 
-function OtherTake({ take, shared = false }: { take: SharedTake; shared?: boolean }) {
+function OtherTake({
+  take,
+  shared = false,
+  usedIn = null,
+}: {
+  take: SharedTake;
+  shared?: boolean;
+  /** The version whose edit decision list uses it at this bar ("V2"), or null (#56). */
+  usedIn?: string | null;
+}) {
   return (
     <>
       <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-raised text-ink">
@@ -900,6 +946,7 @@ function OtherTake({ take, shared = false }: { take: SharedTake; shared?: boolea
             />
           )}
           <Rating value={take.rating} />
+          {usedIn && <span className="text-[12px] text-signal">in {usedIn}</span>}
           {shared && <Chip>shared</Chip>}
         </span>
         <span className="block truncate text-[12px] text-ink-3">
