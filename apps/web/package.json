@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@better-auth/passkey": "1.7.7",
+    "@dagrejs/dagre": "^3.1.1",
     "@fontsource-variable/schibsted-grotesk": "^5.3.0",
     "@hekate/shared": "workspace:*",
     "@radix-ui/react-slot": "^1.5.0",

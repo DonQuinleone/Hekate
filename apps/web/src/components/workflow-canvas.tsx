@@ -26,6 +26,17 @@ import { Committed, StepField } from "~/components/workflow-fields";
 import { cn } from "~/lib/cn";
 import { useShortcuts } from "~/lib/shortcuts";
 import {
+  CHIP_GAP,
+  CHIP_H,
+  chipShown,
+  connectorChip,
+  depthBelow,
+  LANE_FIRST,
+  LANE_STEP,
+  routing,
+  tidied,
+} from "~/lib/workflow-layout";
+import {
   BAND_GAP,
   type Bounds,
   boundsOf,
@@ -35,7 +46,6 @@ import {
   familyOf,
   familyTiles,
   inPort,
-  labelAt,
   NODE_H,
   NODE_W,
   nodeLooks,
@@ -205,16 +215,23 @@ export function WorkflowCanvas({
   >(null);
 
   /* Bands: every workflow on one canvas, one above the other. */
+  // How each workflow's connectors are drawn clear of one another.
+  const routes = useMemo(
+    () => new Map(workflows.map((w) => [w.id, routing(w.definition)])),
+    [workflows],
+  );
   const bands = useMemo(() => {
     let y = 0;
     return workflows.map((w) => {
       const b = boundsOf(w.definition.nodes);
       const height = b.maxY - b.minY;
       const band = { flow: w, offsetY: y - b.minY, bounds: b, top: y, height };
-      y += height + BAND_GAP;
+      // The next workflow starts below this one's lanes, however many it has.
+      const route = routes.get(w.id);
+      y += height + (route ? depthBelow(route) : 0) + BAND_GAP;
       return band;
     });
-  }, [workflows]);
+  }, [workflows, routes]);
   const bandOf = (flowId: string) => bands.find((b) => b.flow.id === flowId);
   const placed = (flowId: string, n: WorkflowNode): WorkflowNode => ({
     ...n,
@@ -434,6 +451,11 @@ export function WorkflowCanvas({
       },
     },
     { keys: ["f"], label: "Fit the canvas to the window", run: fitAll },
+    {
+      keys: ["Shift+T"],
+      label: "Tidy up every workflow",
+      run: () => tidyUp(workflows.map((w) => w.id)),
+    },
     { keys: ["+", "="], label: "Zoom in", run: () => zoomBy(1.15) },
     { keys: ["-"], label: "Zoom out", run: () => zoomBy(1 / 1.15) },
   ]);
@@ -482,6 +504,14 @@ export function WorkflowCanvas({
           : []),
         { label: "Fit to window", onSelect: fitAll },
         { label: "Zoom to 100%", onSelect: () => setZoom(1) },
+        ...(editing
+          ? [
+              {
+                label: `Tidy up ${flowById(t.flowId)?.name ?? "this workflow"}`,
+                onSelect: () => tidyUp([t.flowId]),
+              },
+            ]
+          : []),
         "divider" as const,
         { label: "Walk an item through", onSelect: () => startWalk(t.flowId) },
         ...(editing ? ["divider" as const, { label: "New workflow", onSelect: onNew }] : []),
@@ -531,6 +561,37 @@ export function WorkflowCanvas({
     e.stopPropagation();
     const rect = canvas.current?.getBoundingClientRect();
     setMenu({ x: e.clientX - (rect?.left ?? 0), y: e.clientY - (rect?.top ?? 0), target });
+  };
+
+  /* Tidy up, as n8n's: each workflow laid out again so nothing overlaps; Undo puts it back. */
+  const [untidy, setUntidy] = useState<{
+    names: string[];
+    flows: Record<string, WorkflowDefinition>;
+  } | null>(null);
+  const tidyUp = (ids: string[]) => {
+    if (!editing) return;
+    const before: Record<string, WorkflowDefinition> = {};
+    for (const id of ids) {
+      const flow = flowById(id)?.definition;
+      if (!flow || flow.nodes.length === 0) continue;
+      before[id] = flow;
+      edit(id, tidied);
+    }
+    const names = Object.keys(before).map((id) => flowById(id)?.name ?? "");
+    setUntidy(names.length > 0 ? { names, flows: before } : null);
+  };
+  const undoTidy = () => {
+    if (!untidy) return;
+    // Positions only: anything else changed since stays.
+    for (const [id, was] of Object.entries(untidy.flows))
+      edit(id, (f) => ({
+        ...f,
+        nodes: f.nodes.map((n) => {
+          const old = was.nodes.find((m) => m.id === n.id);
+          return old ? { ...n, x: old.x, y: old.y } : n;
+        }),
+      }));
+    setUntidy(null);
   };
 
   /* The walk-through: the engine's own steps, with the outcome chosen at each. */
@@ -727,25 +788,33 @@ export function WorkflowCanvas({
               height={1}
             >
               {bands.map((b) => {
-                const floorBase = b.bounds.maxY + b.offsetY + 36;
-                const { loops } = flowShape(b.flow.definition);
-                let lane = 0;
-                return b.flow.definition.connectors.map((c) => {
-                  const from = b.flow.definition.nodes.find((n) => n.id === c.from);
-                  const to = b.flow.definition.nodes.find((n) => n.id === c.to);
+                const flow = b.flow.definition;
+                const floorBase = b.bounds.maxY + b.offsetY + LANE_FIRST;
+                const { loops } = flowShape(flow);
+                const at = new Map(flow.nodes.map((n) => [n.id, n]));
+                const { below, lanes, fit } = routes.get(b.flow.id) ?? routing(flow);
+                return flow.connectors.map((c) => {
+                  const from = at.get(c.from);
+                  const to = at.get(c.to);
                   if (!from || !to) return null;
                   const loop = loops.has(c.id);
                   const a = outPort(placed(b.flow.id, from), c.outcome);
                   const z = inPort(placed(b.flow.id, to));
-                  const floor = floorBase + (loop ? lane++ * 18 : 0);
-                  const d = connectorPath(a, z, loop, floor);
+                  const d = connectorPath(a, z, {
+                    loop: below.has(c.id),
+                    floor: floorBase + (lanes.lane.get(c.id) ?? 0) * LANE_STEP,
+                    lead: fit.get(c.from)?.lead,
+                    out: lanes.out.get(c.id),
+                    into: lanes.into.get(c.id),
+                  });
                   const selected =
                     selection?.kind === "connector" &&
                     selection.flowId === b.flow.id &&
                     selection.id === c.id;
                   const taken = (walked(b.flow.id)?.run?.taken[c.id] ?? 0) > 0;
-                  const label = conditionText(c);
-                  const lp = labelAt(a, z, loop, floor);
+                  const chip = connectorChip(flow, c);
+                  // Where steps sit too close for a chip to say anything, its port says it.
+                  const chipRoom = chipShown(flow, { below, lanes, fit }, c);
                   return (
                     <g key={c.id}>
                       {/* The wide, unseen line under each connector is what a pointer picks it by; its
@@ -788,11 +857,23 @@ export function WorkflowCanvas({
                         r={3}
                         className={selected ? "fill-signal" : "fill-ink-3"}
                       />
-                      {label && (
-                        <foreignObject x={lp.x - 90} y={lp.y - 11} width={180} height={22}>
-                          <div className="flex justify-center">
-                            <span className="max-w-full truncate rounded-chip border border-line bg-overlay px-1.5 text-[11px] leading-5 text-ink-2">
-                              {label}
+                      {/* What it is, at its start: beside its port, where chips never meet. */}
+                      {chip && chipRoom >= 32 && (
+                        <foreignObject
+                          x={a.x + CHIP_GAP}
+                          y={a.y - CHIP_H / 2}
+                          width={chipRoom}
+                          height={CHIP_H}
+                        >
+                          <div className="flex h-full items-center">
+                            <span
+                              title={chip}
+                              className={cn(
+                                "max-w-full truncate rounded-chip border bg-overlay px-1.5 text-[11px] leading-[14px]",
+                                selected ? "border-signal/60 text-ink" : "border-line text-ink-2",
+                              )}
+                            >
+                              {chip}
                             </span>
                           </div>
                         </foreignObject>
@@ -808,12 +889,10 @@ export function WorkflowCanvas({
                   if (!w || !from) return null;
                   return (
                     <path
-                      d={connectorPath(
-                        outPort(placed(w.id, from), linking.outcome),
-                        linking.at,
-                        false,
-                        0,
-                      )}
+                      d={connectorPath(outPort(placed(w.id, from), linking.outcome), linking.at, {
+                        loop: false,
+                        floor: 0,
+                      })}
                       fill="none"
                       strokeWidth={1.5}
                       strokeDasharray="4 4"
@@ -838,6 +917,12 @@ export function WorkflowCanvas({
                   walked={Boolean(walked(b.flow.id)?.reached.includes(n.id))}
                   current={Boolean(walked(b.flow.id)?.run?.active.includes(n.id))}
                   trigger={triggersOf(b.flow.definition).some((t) => t.id === n.id)}
+                  wired={b.flow.definition.connectors.flatMap((c) => {
+                    const route = routes.get(b.flow.id);
+                    return c.from === n.id && route && chipShown(b.flow.definition, route, c) > 0
+                      ? [c.outcome]
+                      : [];
+                  })}
                   problem={b.flow.problems.find((p) => p.nodeId === n.id)}
                   editing={editing}
                   onPointerDown={(e) => onNodePointerDown(b.flow.id, n.id, e)}
@@ -897,11 +982,55 @@ export function WorkflowCanvas({
             >
               Fit
             </Button>
+            {editing && (
+              <>
+                <span className="mx-0.5 h-4 w-px bg-line" />
+                <Button
+                  variant="quiet"
+                  size="sm"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => tidyUp(workflows.map((w) => w.id))}
+                  title="Tidy up (Shift T)"
+                >
+                  <Icon name="tidy" size={13} />
+                  Tidy up
+                </Button>
+              </>
+            )}
           </div>
+          {untidy && (
+            <div
+              role="status"
+              className="absolute top-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-control border border-line bg-overlay py-1 pr-1 pl-3 text-[13px] text-ink-2 shadow-2"
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <span className="whitespace-nowrap">
+                Tidied{" "}
+                {untidy.names.length === 1 ? untidy.names[0] : `${untidy.names.length} workflows`}
+              </span>
+              <Button variant="ghost" size="sm" onClick={undoTidy}>
+                Undo
+              </Button>
+              <Button
+                variant="quiet"
+                size="iconSm"
+                aria-label="Dismiss"
+                onClick={() => setUntidy(null)}
+              >
+                <Icon name="close" size={13} />
+              </Button>
+            </div>
+          )}
           <div className="pointer-events-none absolute top-3 left-3 hidden rounded-control border border-line bg-overlay/90 px-2.5 py-1.5 @3xl/app:block">
             <Legend compact />
           </div>
-          <div className="pointer-events-none absolute bottom-3 left-1/2 hidden -translate-x-1/2 items-center gap-3 text-[11px] text-ink-3 @5xl/app:flex">
+          {/* The hints, while the canvas is wide enough for them beside its controls. */}
+          <div
+            className={cn(
+              "pointer-events-none absolute bottom-3 left-1/2 hidden -translate-x-1/2 items-center gap-3 text-[11px] text-ink-3",
+              !inspectorOpen && "@5xl/app:flex",
+            )}
+          >
             <span>Drag to pan</span>
             <span className="flex items-center gap-1">
               <Kbd>ctrl</Kbd> scroll to zoom
@@ -1064,6 +1193,7 @@ function CanvasNode({
   walked,
   current,
   trigger,
+  wired,
   problem,
   editing,
   onPointerDown,
@@ -1078,6 +1208,8 @@ function CanvasNode({
   walked: boolean;
   current: boolean;
   trigger: boolean;
+  /** The outcomes a connector leaves by already: their chips name them, so the port needn't. */
+  wired: string[];
   problem?: WorkflowProblem;
   editing: boolean;
   onPointerDown: (e: React.PointerEvent) => void;
@@ -1172,8 +1304,8 @@ function CanvasNode({
               editing && "cursor-crosshair hover:border-signal hover:bg-signal",
             )}
           />
-          {o.label && (
-            <span className="pointer-events-none ml-2 -translate-y-[10px] text-[11px] whitespace-nowrap text-ink-3">
+          {o.label && !wired.includes(o.id) && (
+            <span className="pointer-events-none ml-2 text-[11px] whitespace-nowrap text-ink-3">
               {o.label}
             </span>
           )}
