@@ -1,4 +1,4 @@
-import type { WorkflowDefinition } from "@hekate/shared";
+import { completeNode, startRun, type WorkflowDefinition } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
 import {
   basicSteps,
@@ -9,7 +9,9 @@ import {
   NODE_H,
   NODE_W,
   newWorkflowDefinition,
+  outcomeWords,
   outPort,
+  walkLine,
   withConfig,
   withConnector,
   withCopy,
@@ -168,5 +170,37 @@ describe("the canvas", () => {
         until: { times: 3 },
       }),
     ).toBe("unless tagged Live, at most 3×");
+  });
+});
+
+describe("walking an item through", () => {
+  it("names each outcome as the walk offers it", () => {
+    expect(outcomeWords("approval", "changes")).toBe("Changes requested");
+    expect(outcomeWords("upload", "happened")).toBe("It happens");
+    expect(outcomeWords("notify", "sent")).toBe("It is done");
+  });
+
+  it("tells what the engine does at each step, in words", () => {
+    const flow: WorkflowDefinition = {
+      ...album,
+      nodes: album.nodes.map((n) =>
+        n.id === "end" ? { ...n, config: { status: "Approved" } } : n,
+      ),
+    };
+    const ctx = { item: { kind: "audio" as const, tags: [] } };
+    const begun = startRun(flow, "start", ctx);
+    expect(begun.effects.flatMap((e) => walkLine(flow, e) ?? [])).toEqual([
+      "“Conductor” begins; the item waits on it.",
+    ]);
+    let run = completeNode(flow, begun.run, "fb", "done", ctx).run;
+    run = completeNode(flow, run, "edit", "done", ctx).run;
+    const ended = completeNode(flow, run, "ok", "approved", ctx);
+    expect(ended.effects.flatMap((e) => walkLine(flow, e) ?? [])).toEqual([
+      "It finishes at “Approved”, Approved.",
+    ]);
+    expect(walkLine(flow, { kind: "stopped" })).toBe("Nothing follows: the item stops here.");
+    expect(
+      walkLine(flow, { kind: "do", nodeId: "fb", type: "notify", config: { to: "Producer" } }),
+    ).toBe("“Conductor”: Producer told.");
   });
 });
