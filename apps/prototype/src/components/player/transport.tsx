@@ -18,7 +18,6 @@ export interface View {
   spectrogram: "off" | "below" | "behind" | "instead";
   colourMap: ColourMap;
   scale: "linear" | "log" | "mel";
-  downmix: boolean;
   normalised: boolean;
   /** The line of loudness and issues under the player. */
   loudness: boolean;
@@ -30,7 +29,6 @@ export const defaultView: View = {
   spectrogram: "off",
   colourMap: "cyan-orange",
   scale: "log",
-  downmix: false,
   normalised: false,
   loudness: true,
 };
@@ -79,13 +77,11 @@ export function Seg<T extends string>({
 export function ViewMenu({
   view,
   onView,
-  channels,
   spectrogramAllowed,
   normaliseAllowed,
 }: {
   view: View;
   onView: (v: View) => void;
-  channels: number;
   spectrogramAllowed: boolean;
   normaliseAllowed: boolean;
 }) {
@@ -190,16 +186,6 @@ export function ViewMenu({
               onChange={(v) => onView({ ...view, split: v })}
             />
           </div>
-          {channels > 2 && (
-            <div className={row}>
-              Hear the stereo downmix
-              <Switch
-                label="Hear the stereo downmix"
-                checked={view.downmix}
-                onChange={(v) => onView({ ...view, downmix: v })}
-              />
-            </div>
-          )}
           {spectrogramAllowed ? (
             <>
               <div className={row}>
