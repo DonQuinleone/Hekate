@@ -1,0 +1,9 @@
+TITLE: Opening titles
+FCM: NON-DROP FRAME
+
+001  001      V     C        01:00:06:05 01:00:06:06 01:00:06:05 01:00:06:06  
+ |C:ResolveColorRed |M:Pedal noise |D:1
+
+002  001      V     C        01:00:17:15 01:00:19:15 01:00:17:15 01:00:19:15  
+ |C:ResolveColorSky |M:Keep the rubato |D:50
+
