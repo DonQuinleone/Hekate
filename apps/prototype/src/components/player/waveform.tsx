@@ -376,7 +376,7 @@ export function EditLane({
   const share = (t: number) => Math.min(100, (t / duration) * 100);
   const playing = edits.find((e) => e.start <= playback.time && playback.time < e.end);
   return (
-    <div className={cn("relative h-5 overflow-hidden rounded-[3px]", className)}>
+    <div className={cn("relative h-6 overflow-hidden rounded-[3px]", className)}>
       {edits.map((e) => (
         <button
           key={e.start}

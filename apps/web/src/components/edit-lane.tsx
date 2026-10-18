@@ -38,7 +38,7 @@ export function EditLane({
         onSeek={(at) => onSeek(segmentAt(edits, at)?.start ?? at)}
         label={`Edits: ${edits.length}, click one to hear it from its start`}
         valueText={playing ? `Playing ${describe(playing)}` : "Between edits"}
-        className="h-5"
+        className="h-6"
       >
         <div aria-hidden="true" className="absolute inset-0 overflow-hidden rounded-[3px]">
           {edits.map((edit) => (
