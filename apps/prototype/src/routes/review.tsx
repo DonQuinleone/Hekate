@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import { Avatar } from "~/components/avatar";
+import { FollowButton } from "~/components/follow-button";
 import { Icon, type IconName } from "~/components/icons";
 import { Label } from "~/components/label";
 import { Card, Page, SectionHead } from "~/components/page";
@@ -1010,6 +1011,11 @@ export function ReviewPage({ reviewId }: { reviewId: string }) {
         : [{ label: "Inbox", to: "/inbox" }],
     title: review && allowed ? review.title : "Not found",
     heading: "page",
+    // Whoever asked for it is told anyway, so it offers them nothing to follow.
+    actions:
+      review && allowed && !viewer.isGuest && review.requestedBy !== viewer.personId ? (
+        <FollowButton what="review" />
+      ) : undefined,
   });
   if (!review || !allowed) return <Refused />;
   return (

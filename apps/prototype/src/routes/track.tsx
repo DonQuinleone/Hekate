@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Avatar } from "~/components/avatar";
+import { FollowButton } from "~/components/follow-button";
 import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
 import { Page } from "~/components/page";
@@ -352,6 +353,7 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: string })
     heading: "page",
     actions: visible ? (
       <>
+        <FollowButton what="track" />
         {viewer.can(project.id, "request_reviews") && latest && (
           <Button
             variant="secondary"
@@ -367,7 +369,7 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: string })
           <Button variant="ghost" size="sm" asChild>
             <Link to="/tracks/$trackId/compare" params={{ trackId: track.id }}>
               <Icon name="compare" size={14} />
-              Compare
+              <span className="sr-only @md/app:not-sr-only">Compare</span>
             </Link>
           </Button>
         )}
