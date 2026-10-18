@@ -298,6 +298,22 @@ export function QaView({
   const passed = findings.filter((f) => f.severity === "pass");
   const [showPassed, setShowPassed] = useState(false);
   const [report, setReport] = useState(false);
+  // Narrowing the list (#43): to one severity, as its count is pressed, and to one check.
+  const [only, setOnly] = useState<"fail" | "warn" | "info" | null>(null);
+  const [check, setCheck] = useState("");
+  const problems = [...issues, ...advisories];
+  const checks = [...new Set(problems.map((f) => f.check))];
+  // Checks, not findings: clipping in twenty places is one check failed.
+  const count = (s: "fail" | "warn" | "info") =>
+    new Set(problems.filter((f) => f.severity === s).map((f) => f.check)).size;
+  const tallyWords = {
+    fail: (n: number) => `${n} failed`,
+    warn: (n: number) => `${n} to look at`,
+    info: (n: number) => `${n} ${n === 1 ? "note" : "notes"}`,
+  };
+  const listed = problems.filter(
+    (f) => (!only || f.severity === only) && (!check || f.check === check),
+  );
   const l = loudnessOf[file.id];
   const profile = deliveryProfiles.find(
     (p) => p.id === (file.projectId === "proj-titles" ? "broadcast" : "apple-digital-masters"),
@@ -332,10 +348,42 @@ export function QaView({
             ) : (
               <span className="text-[13px] text-ink-2">{profile?.name}</span>
             )}
-            <span className="eyebrow ml-auto">
-              {issues.length} {issues.length === 1 ? "issue" : "issues"} · {advisories.length}{" "}
-              advisory · {passed.length} passed
+            <span className="eyebrow ml-auto flex items-center gap-1.5">
+              {(["fail", "warn", "info"] as const)
+                .filter((sev) => count(sev) > 0)
+                .map((sev) => (
+                  <span key={sev} className="contents">
+                    <button
+                      type="button"
+                      aria-pressed={only === sev}
+                      onClick={() => setOnly(only === sev ? null : sev)}
+                      className={cn(
+                        "hover:text-ink",
+                        only === sev && "text-ink underline underline-offset-4",
+                      )}
+                    >
+                      {tallyWords[sev](count(sev))}
+                    </button>
+                    ·
+                  </span>
+                ))}{" "}
+              {new Set(passed.map((f) => f.check)).size} passed
             </span>
+            {checks.length > 1 && (
+              <select
+                aria-label="Check"
+                value={check}
+                onChange={(e) => setCheck(e.target.value)}
+                className="h-7 rounded-control border border-edge bg-ground px-2 text-[13px] text-ink"
+              >
+                <option value="">Every check</option>
+                {checks.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            )}
             <ActionMenu
               label="report"
               actions={[
@@ -363,7 +411,22 @@ export function QaView({
             </p>
           ) : (
             <ul className="list-none p-0">
-              {[...issues, ...advisories].map((f) => (
+              {listed.length === 0 && (
+                <li className="px-4 py-4 text-[13px] text-ink-3">
+                  Nothing found of that kind.{" "}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOnly(null);
+                      setCheck("");
+                    }}
+                    className="text-ink-2 underline underline-offset-4 hover:text-ink"
+                  >
+                    Show every finding
+                  </button>
+                </li>
+              )}
+              {listed.map((f) => (
                 <Finding
                   key={f.id}
                   f={f}
