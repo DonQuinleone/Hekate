@@ -428,6 +428,19 @@ export function FilePage({
               ]}
             />
           )}
+          {/* With the comments put away, the way back to them, and how many are open. */}
+          {layout.comments === "hidden" && (
+            <Button
+              variant="ghost"
+              size="md"
+              aria-label="Show comments"
+              title="Show comments"
+              onClick={() => setLayout({ comments: "right" })}
+            >
+              <Icon name="comment" size={14} />
+              {openThreads.length}
+            </Button>
+          )}
           {access.download !== "none" && (
             <Button
               variant="ghost"
@@ -719,16 +732,6 @@ export function FilePage({
             spectrogramAllowed={tools.has("spectrogram")}
             normaliseAllowed={tools.has("normalise") && project.normalisation === "optional"}
           />
-        )}
-        {layout.comments === "hidden" && (
-          <button
-            type="button"
-            onClick={() => setLayout({ comments: "right" })}
-            className="flex h-8 items-center gap-1.5 rounded-control px-2.5 text-[13px] text-ink-2 transition-colors hover:bg-raised hover:text-ink"
-          >
-            <Icon name="comment" size={14} />
-            {openThreads.length}
-          </button>
         )}
       </div>
     </div>

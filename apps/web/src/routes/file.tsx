@@ -28,6 +28,7 @@ import { mediaSummary } from "~/components/files";
 import { Icon } from "~/components/icons";
 import { Loudness } from "~/components/loudness";
 import { type Crumb, PageHeader } from "~/components/page-header";
+import { CommentsSplitter, PanelPlacement } from "~/components/panel-placement";
 import { Player } from "~/components/player";
 import { checkNames, findingMarks, QaSummary, QualityChecks } from "~/components/qa";
 import { ScorePane } from "~/components/score";
@@ -36,12 +37,15 @@ import { TriageView } from "~/components/triage";
 import { Button } from "~/components/ui/button";
 import { ActionMenu } from "~/components/ui/menu";
 import { cn } from "~/lib/cn";
+import { threadsOf } from "~/lib/comments";
 import { useFileMedia } from "~/lib/file-media";
 import { formatDates } from "~/lib/locale";
 import type { Loop } from "~/lib/loop";
 import { initialFocus, type PageFocus } from "~/lib/pages";
+import { usePanelLayout } from "~/lib/panel-layout";
 import { usePlayerView } from "~/lib/player-view";
 import {
+  commentsQuery,
   downloadsQuery,
   type FileDetail,
   fileQuery,
@@ -239,6 +243,13 @@ export function FilePage({
   const [chosenNormal, setChosenNormal] = useNormalisedChoice();
   // Arriving from another version or variation: start where that one was (#15).
   const { media, onMedia } = useFileMedia(fileId, startAt, onStarted);
+  // Where the comments sit on a wide screen, this viewer's choice (#15).
+  const [layout, setLayout] = usePanelLayout();
+  // Counted only while they are put away, for the button that brings them back.
+  const { data: commentList } = useQuery({
+    ...commentsQuery(fileId),
+    enabled: layout.comments === "hidden",
+  });
   // Another file starts on its first page, with nothing drawn.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset whenever the file changes.
   useEffect(() => setPageFocus(initialFocus), [fileId]);
@@ -412,6 +423,23 @@ export function FilePage({
         Download
       </Button>
     ) : undefined;
+  /** With the comments put away, the way back to them, and how many are open. */
+  const commentsButton =
+    shown === "review" && layout.comments === "hidden" && !file.grant?.listenOnly ? (
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-label="Show comments"
+        title="Show comments"
+        // Only a wide screen puts the comments away; a phone always shows them.
+        className="hidden lg:inline-flex"
+        onClick={() => setLayout({ comments: "right" })}
+      >
+        <Icon name="comment" size={14} />
+        {commentList ? threadsOf(commentList).open.length : null}
+      </Button>
+    ) : undefined;
+  const beside = shown === "review" && layout.comments === "right";
   return (
     <>
       {!guest && <MarkViewed projectId={file.projectId} fileId={file.id} />}
@@ -425,9 +453,13 @@ export function FilePage({
         meta={summary ? undefined : file.contentType}
         actions={
           guest ? (
-            downloadButton
+            <>
+              {commentsButton}
+              {downloadButton}
+            </>
           ) : (
             <>
+              {commentsButton}
               {downloadButton}
               <Button
                 variant="ghost"
@@ -493,9 +525,10 @@ export function FilePage({
             : {})}
           className={cn(
             "grid grid-cols-1 items-start gap-x-8",
-            shown === "review" &&
-              "lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[auto_auto_auto_1fr]",
+            beside &&
+              "lg:grid-cols-[minmax(0,1fr)_var(--comments-width)] lg:grid-rows-[auto_auto_auto_1fr]",
           )}
+          style={beside ? { ["--comments-width" as string]: `${layout.width}px` } : undefined}
         >
           <div className="flex min-w-0 flex-col gap-6">
             {/* Comparison sets the volume while it is shown; otherwise, this does. */}
@@ -509,7 +542,23 @@ export function FilePage({
             <>
               {/* A take shared with a guest is theirs to hear, with no comments (#133). */}
               {!file.grant?.listenOnly && (
-                <div className="min-w-0 pt-8 lg:col-start-2 lg:row-span-4 lg:row-start-1 lg:pt-0">
+                <div
+                  className={cn(
+                    "relative min-w-0 pt-8",
+                    beside
+                      ? "lg:col-start-2 lg:row-span-4 lg:row-start-1 lg:self-stretch lg:pt-0"
+                      : "lg:order-last",
+                    // Put away on a wide screen only: a phone always shows them (#15).
+                    layout.comments === "hidden" && "lg:hidden",
+                  )}
+                >
+                  {beside && (
+                    <CommentsSplitter
+                      width={layout.width}
+                      onWidth={(width) => setLayout({ width })}
+                      className="absolute inset-y-0 -left-[19px] hidden lg:block"
+                    />
+                  )}
                   {reviewId && (
                     <div className="mb-4">
                       <DecisionStrip reviewId={reviewId} />
@@ -524,6 +573,7 @@ export function FilePage({
                     onBeforeAfter={comparable ? beforeAfter : undefined}
                     seed={seed}
                     onLoop={allows("loops") ? hear : undefined}
+                    tools={<PanelPlacement layout={layout} onChange={setLayout} />}
                   />
                 </div>
               )}
