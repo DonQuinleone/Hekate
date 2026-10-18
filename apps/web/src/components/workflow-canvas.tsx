@@ -106,18 +106,20 @@ export function Legend({ compact = false }: { compact?: boolean }) {
 
 const eyebrow = "text-[11px] font-medium tracking-wide text-ink-3 uppercase";
 
-type Selection = { kind: "node"; id: string } | { kind: "connector"; id: string } | null;
+/** What is chosen: a node or a connector, of a workflow (ids are only unique within one). */
+type Selection = { kind: "node" | "connector"; id: string; flowId: string } | null;
 
 interface Menu {
   x: number;
   y: number;
   target:
     | { kind: "canvas"; world: Pt; flowId: string }
-    | { kind: "node"; id: string }
-    | { kind: "connector"; id: string };
+    | { kind: "node"; id: string; flowId: string }
+    | { kind: "connector"; id: string; flowId: string };
 }
 
 interface Linking {
+  flowId: string;
   from: string;
   outcome: string;
   at: Pt;
@@ -198,45 +200,41 @@ export function WorkflowCanvas({
   );
   const worldBounds = useMemo(() => boundsOf(everything), [everything]);
   const allProblems = workflows.flatMap((w) => w.problems.map((p) => ({ ...p, flowId: w.id })));
-  const flowOfNode = (id: string) =>
-    workflows.find((w) => w.definition.nodes.some((n) => n.id === id));
-  const flowOfConnector = (id: string) =>
-    workflows.find((w) => w.definition.connectors.some((c) => c.id === id));
+  const flowById = (flowId: string) => workflows.find((w) => w.id === flowId);
+  const selectedFlow = selection ? flowById(selection.flowId) : undefined;
   const selectedNode =
     selection?.kind === "node"
-      ? workflows.flatMap((w) => w.definition.nodes).find((n) => n.id === selection.id)
+      ? selectedFlow?.definition.nodes.find((n) => n.id === selection.id)
       : undefined;
   const selectedConnector =
     selection?.kind === "connector"
-      ? workflows.flatMap((w) => w.definition.connectors).find((c) => c.id === selection.id)
+      ? selectedFlow?.definition.connectors.find((c) => c.id === selection.id)
       : undefined;
 
-  /* Editing: each change to the workflow that holds what it touches. */
-  const editNode = (id: string, change: (flow: WorkflowDefinition) => WorkflowDefinition) => {
-    const w = flowOfNode(id);
-    if (w && editing) onEdit(w.id, change);
+  /* Editing: each change to the workflow it was made in. */
+  const edit = (flowId: string, change: (flow: WorkflowDefinition) => WorkflowDefinition) => {
+    if (editing && flowById(flowId)) onEdit(flowId, change);
   };
   const addNode = (type: NodeType) => {
     const target = picking ?? { flowId: workflows[0]?.id ?? "", at: { x: 0, y: 0 } };
     if (!editing || !target.flowId) return;
     const id = `n-${Math.random().toString(36).slice(2, 8)}`;
-    onEdit(target.flowId, (f) => withNode(f, type, target.at, target.from, id));
-    setSelection({ kind: "node", id });
+    edit(target.flowId, (f) => withNode(f, type, target.at, target.from, id));
+    setSelection({ kind: "node", id, flowId: target.flowId });
     setPicking(null);
   };
-  const removeNode = (id: string) => {
-    editNode(id, (f) => withoutNode(f, id));
+  const removeNode = (flowId: string, id: string) => {
+    edit(flowId, (f) => withoutNode(f, id));
     setSelection(null);
   };
-  const removeConnector = (id: string) => {
-    const w = flowOfConnector(id);
-    if (w && editing) onEdit(w.id, (f) => withoutConnector(f, id));
+  const removeConnector = (flowId: string, id: string) => {
+    edit(flowId, (f) => withoutConnector(f, id));
     setSelection(null);
   };
-  const duplicateNode = (id: string) => {
+  const duplicateNode = (flowId: string, id: string) => {
     const copy = `n-${Math.random().toString(36).slice(2, 8)}`;
-    editNode(id, (f) => withCopy(f, id, copy));
-    setSelection({ kind: "node", id: copy });
+    edit(flowId, (f) => withCopy(f, id, copy));
+    setSelection({ kind: "node", id: copy, flowId });
   };
 
   /* The view */
@@ -355,15 +353,16 @@ export function WorkflowCanvas({
   const onPointerUp = (e: React.PointerEvent) => {
     setPanning(false);
     if (linking) {
-      const el = (e.target as HTMLElement).closest?.("[data-node]") as HTMLElement | null;
-      const to = el?.dataset.node;
-      const w = flowOfNode(linking.from);
-      if (w && to && w.definition.nodes.some((n) => n.id === to))
-        onEdit(w.id, (f) => withLink(f, linking.from, linking.outcome, to));
-      else if (w)
+      // The canvas holds the pointer while a connector is drawn, so the event is the canvas's:
+      // what lies under the pointer is found by where it is.
+      const under = document.elementFromPoint(e.clientX, e.clientY);
+      const el = under?.closest("[data-node]") as HTMLElement | null;
+      const to = el?.dataset.flow === linking.flowId ? el.dataset.node : undefined;
+      if (to) edit(linking.flowId, (f) => withLink(f, linking.from, linking.outcome, to));
+      else
         setPicking({
-          flowId: w.id,
-          at: { x: linking.at.x, y: linking.at.y - (bandOf(w.id)?.offsetY ?? 0) },
+          flowId: linking.flowId,
+          at: { x: linking.at.x, y: linking.at.y - (bandOf(linking.flowId)?.offsetY ?? 0) },
           from: linking.from,
         });
       setLinking(null);
@@ -372,7 +371,7 @@ export function WorkflowCanvas({
     const d = drag.current;
     drag.current = null;
     if (d?.kind === "node" && !d.moved) {
-      setSelection({ kind: "node", id: d.id });
+      setSelection({ kind: "node", id: d.id, flowId: d.flowId });
       setPicking(null);
     } else if (d?.kind === "pan") {
       const moved = Math.abs(e.clientX - d.start.x) + Math.abs(e.clientY - d.start.y) > 3;
@@ -396,8 +395,8 @@ export function WorkflowCanvas({
       label: "Delete what is selected",
       run: () => {
         if (!selection || !editing) return;
-        if (selection.kind === "node") removeNode(selection.id);
-        else removeConnector(selection.id);
+        if (selection.kind === "node") removeNode(selection.flowId, selection.id);
+        else removeConnector(selection.flowId, selection.id);
       },
     },
     { keys: ["f"], label: "Fit the canvas to the window", run: fitAll },
@@ -412,7 +411,7 @@ export function WorkflowCanvas({
     return { x: n.x + NODE_W + 92, y: n.y + (outcome ? (i - 1) * 100 : 0) };
   };
   const openPicker = () => {
-    const w = selectedNode ? flowOfNode(selectedNode.id) : workflows[0];
+    const w = selectedNode ? selectedFlow : workflows[0];
     if (!w) return;
     if (selectedNode)
       setPicking({ flowId: w.id, at: besides(selectedNode), from: selectedNode.id });
@@ -453,41 +452,40 @@ export function WorkflowCanvas({
       ];
     }
     if (m.target.kind === "node") {
-      const id = m.target.id;
-      const w = flowOfNode(id);
-      const n = w?.definition.nodes.find((x) => x.id === id);
+      const { id, flowId } = m.target;
+      const n = flowById(flowId)?.definition.nodes.find((x) => x.id === id);
       return [
         {
           label: editing ? "Edit" : "Look closer",
-          onSelect: () => setSelection({ kind: "node", id }),
+          onSelect: () => setSelection({ kind: "node", id, flowId }),
         },
-        ...(editing && w && n
+        ...(editing && n
           ? [
               {
                 label: "Add what follows",
-                onSelect: () => setPicking({ flowId: w.id, at: besides(n), from: id }),
+                onSelect: () => setPicking({ flowId, at: besides(n), from: id }),
               },
-              { label: "Duplicate", onSelect: () => duplicateNode(id) },
+              { label: "Duplicate", onSelect: () => duplicateNode(flowId, id) },
               "divider" as const,
-              { label: "Delete", danger: true, onSelect: () => removeNode(id) },
+              { label: "Delete", danger: true, onSelect: () => removeNode(flowId, id) },
             ]
           : []),
       ];
     }
-    const id = m.target.id;
+    const { id, flowId } = m.target;
     return [
       {
         label: editing ? "Edit the connector" : "Look closer",
-        onSelect: () => setSelection({ kind: "connector", id }),
+        onSelect: () => setSelection({ kind: "connector", id, flowId }),
       },
       ...(editing
         ? [
             {
               label: "Add a condition",
-              onSelect: () => setSelection({ kind: "connector", id }),
+              onSelect: () => setSelection({ kind: "connector", id, flowId }),
             },
             "divider" as const,
-            { label: "Remove", danger: true, onSelect: () => removeConnector(id) },
+            { label: "Remove", danger: true, onSelect: () => removeConnector(flowId, id) },
           ]
         : []),
     ];
@@ -634,7 +632,10 @@ export function WorkflowCanvas({
                   const z = inPort(placed(b.flow.id, to));
                   const floor = floorBase + (loop ? lane++ * 18 : 0);
                   const d = connectorPath(a, z, loop, floor);
-                  const selected = selection?.kind === "connector" && selection.id === c.id;
+                  const selected =
+                    selection?.kind === "connector" &&
+                    selection.flowId === b.flow.id &&
+                    selection.id === c.id;
                   const label = conditionText(c);
                   const lp = labelAt(a, z, loop, floor);
                   return (
@@ -650,10 +651,12 @@ export function WorkflowCanvas({
                         className="pointer-events-auto cursor-pointer"
                         onPointerDown={(e) => {
                           e.stopPropagation();
-                          setSelection({ kind: "connector", id: c.id });
+                          setSelection({ kind: "connector", id: c.id, flowId: b.flow.id });
                           setPicking(null);
                         }}
-                        onContextMenu={(e) => openMenu(e, { kind: "connector", id: c.id })}
+                        onContextMenu={(e) =>
+                          openMenu(e, { kind: "connector", id: c.id, flowId: b.flow.id })
+                        }
                       />
                       <path
                         d={d}
@@ -686,7 +689,7 @@ export function WorkflowCanvas({
               })}
               {linking &&
                 (() => {
-                  const w = flowOfNode(linking.from);
+                  const w = flowById(linking.flowId);
                   const from = w?.definition.nodes.find((n) => n.id === linking.from);
                   if (!w || !from) return null;
                   return (
@@ -711,8 +714,13 @@ export function WorkflowCanvas({
               b.flow.definition.nodes.map((n) => (
                 <CanvasNode
                   key={n.id}
+                  flowId={b.flow.id}
                   node={placed(b.flow.id, n)}
-                  selected={selection?.kind === "node" && selection.id === n.id}
+                  selected={
+                    selection?.kind === "node" &&
+                    selection.flowId === b.flow.id &&
+                    selection.id === n.id
+                  }
                   trigger={triggersOf(b.flow.definition).some((t) => t.id === n.id)}
                   problem={b.flow.problems.find((p) => p.nodeId === n.id)}
                   editing={editing}
@@ -720,14 +728,15 @@ export function WorkflowCanvas({
                   onPortDown={(outcome, e) => {
                     if (!editing) return;
                     setLinking({
+                      flowId: b.flow.id,
                       from: n.id,
                       outcome,
                       at: toWorld({ x: e.clientX, y: e.clientY }),
                     });
                     canvas.current?.setPointerCapture?.(e.pointerId);
                   }}
-                  onSelect={() => setSelection({ kind: "node", id: n.id })}
-                  onContextMenu={(e) => openMenu(e, { kind: "node", id: n.id })}
+                  onSelect={() => setSelection({ kind: "node", id: n.id, flowId: b.flow.id })}
+                  onContextMenu={(e) => openMenu(e, { kind: "node", id: n.id, flowId: b.flow.id })}
                 />
               )),
             )}
@@ -843,55 +852,53 @@ export function WorkflowCanvas({
           className="absolute inset-y-0 right-0 z-20 flex w-full flex-col border-l border-line bg-pane shadow-4 @3xl/app:static @3xl/app:w-[340px] @3xl/app:shadow-none"
         >
           {picking && <Picker onPick={addNode} onClose={() => setPicking(null)} />}
-          {!picking && selectedNode && (
+          {!picking && selection && selectedNode && (
             <NodeInspector
               projectId={projectId}
               node={selectedNode}
-              flow={flowOfNode(selectedNode.id)}
+              flow={selectedFlow}
               editing={editing}
               onChange={(change) =>
-                editNode(selectedNode.id, (f) => withNodeChange(f, selectedNode.id, change))
+                edit(selection.flowId, (f) => withNodeChange(f, selectedNode.id, change))
               }
               onConfig={(config) =>
-                editNode(selectedNode.id, (f) => withConfig(f, selectedNode.id, config))
+                edit(selection.flowId, (f) => withConfig(f, selectedNode.id, config))
               }
-              onAddAfter={(outcome) => {
-                const w = flowOfNode(selectedNode.id);
-                if (w)
-                  setPicking({
-                    flowId: w.id,
-                    at: besides(selectedNode, outcome),
-                    from: selectedNode.id,
-                  });
-              }}
+              onAddAfter={(outcome) =>
+                setPicking({
+                  flowId: selection.flowId,
+                  at: besides(selectedNode, outcome),
+                  from: selectedNode.id,
+                })
+              }
               onConnect={(outcome, to) =>
-                editNode(selectedNode.id, (f) => withLink(f, selectedNode.id, outcome, to))
+                edit(selection.flowId, (f) => withLink(f, selectedNode.id, outcome, to))
               }
-              onSelectConnector={(id) => setSelection({ kind: "connector", id })}
-              onDelete={() => removeNode(selectedNode.id)}
+              onSelectConnector={(id) =>
+                setSelection({ kind: "connector", id, flowId: selection.flowId })
+              }
+              onDelete={() => removeNode(selection.flowId, selectedNode.id)}
               onClose={() => setSelection(null)}
             />
           )}
-          {!picking && selectedConnector && (
+          {!picking && selection && selectedConnector && (
             <ConnectorInspector
               connector={selectedConnector}
-              flow={flowOfConnector(selectedConnector.id)?.definition}
+              flow={selectedFlow?.definition}
               editing={editing}
-              onChange={(change) => {
-                const w = flowOfConnector(selectedConnector.id);
-                if (w && editing)
-                  onEdit(w.id, (f) => ({
-                    ...f,
-                    connectors: f.connectors.map((c) => {
-                      if (c.id !== selectedConnector.id) return c;
-                      const next = { ...c, ...change };
-                      if ("condition" in change && !change.condition) delete next.condition;
-                      if ("until" in change && !change.until) delete next.until;
-                      return next;
-                    }),
-                  }));
-              }}
-              onDelete={() => removeConnector(selectedConnector.id)}
+              onChange={(change) =>
+                edit(selection.flowId, (f) => ({
+                  ...f,
+                  connectors: f.connectors.map((c) => {
+                    if (c.id !== selectedConnector.id) return c;
+                    const next = { ...c, ...change };
+                    if ("condition" in change && !change.condition) delete next.condition;
+                    if ("until" in change && !change.until) delete next.until;
+                    return next;
+                  }),
+                }))
+              }
+              onDelete={() => removeConnector(selection.flowId, selectedConnector.id)}
               onClose={() => setSelection(null)}
             />
           )}
@@ -903,8 +910,9 @@ export function WorkflowCanvas({
           type="button"
           onClick={() => {
             const p = allProblems[0];
-            if (p?.nodeId) setSelection({ kind: "node", id: p.nodeId });
-            else if (p?.connectorId) setSelection({ kind: "connector", id: p.connectorId });
+            if (p?.nodeId) setSelection({ kind: "node", id: p.nodeId, flowId: p.flowId });
+            else if (p?.connectorId)
+              setSelection({ kind: "connector", id: p.connectorId, flowId: p.flowId });
             if (p) jumpTo(p.flowId);
           }}
           className="absolute top-14 right-3 z-10 flex items-center gap-2 rounded-panel border border-line bg-overlay px-3 py-1.5 text-[12px] text-ink-2 shadow-3 transition-colors hover:text-ink"
@@ -924,6 +932,7 @@ export function WorkflowCanvas({
 
 /** One node on the canvas: its family's shape, what it is, its ports, and what it breaks. */
 function CanvasNode({
+  flowId,
   node,
   selected,
   trigger,
@@ -934,6 +943,7 @@ function CanvasNode({
   onSelect,
   onContextMenu,
 }: {
+  flowId: string;
   node: WorkflowNode;
   selected: boolean;
   trigger: boolean;
@@ -959,6 +969,7 @@ function CanvasNode({
     // biome-ignore lint/a11y/noStaticElementInteractions: dragged by pointer; its own button below is what the keyboard reaches.
     <div
       data-node={node.id}
+      data-flow={flowId}
       data-e2e-overlap
       onPointerDown={onPointerDown}
       onContextMenu={onContextMenu}

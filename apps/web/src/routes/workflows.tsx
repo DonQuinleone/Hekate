@@ -18,6 +18,7 @@ import { WorkflowCanvas } from "~/components/workflow-canvas";
 import { Committed, StepField } from "~/components/workflow-fields";
 import { cn } from "~/lib/cn";
 import {
+  ApiError,
   projectTracksQuery,
   projectWorkflowsQuery,
   useProjectCan,
@@ -75,8 +76,11 @@ function useDrafts(projectId: string, workflows: WorkflowSummary[] | undefined) 
       .mutateAsync({ id, change: () => ({ definition }) })
       .then(() => setDrafts((d) => (d[id] === definition ? forget(d, id) : d)))
       .catch((failure: unknown) => {
-        // Refused: what is kept on the server is shown again, and why.
-        setDrafts((d) => forget(d, id));
+        // Refused: what is kept on the server is shown again, and why. A change made since the
+        // refused one began is kept, to be saved in its turn, unless someone else's change came
+        // first: then it was made over a workflow that is no more, and goes too.
+        const overtaken = failure instanceof ApiError && failure.code === "conflict";
+        setDrafts((d) => (overtaken || d[id] === definition ? forget(d, id) : d));
         setRefused(failure instanceof Error ? failure.message : "That change was refused");
       });
   }, []);
