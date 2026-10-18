@@ -279,7 +279,7 @@ export const actionTypes: Record<ActionType, TypeMeta> = {
       { id: "warnings", label: "warnings" },
       { id: "failed", label: "failed" },
     ],
-    fields: [{ id: "which", label: "Which rules", options: ["All", "Errors only", "On upload"] }],
+    fields: [],
   },
   notify: {
     kind: "action",
@@ -289,7 +289,6 @@ export const actionTypes: Record<ActionType, TypeMeta> = {
     outcomes: [{ id: "sent", label: "" }],
     fields: [
       { id: "to", label: "To", options: ["Producer", "Engineer", "Everyone in the project"] },
-      { id: "channel", label: "By", options: ["In the app", "In the app and by mail", "Slack"] },
       { id: "message", label: "Message" },
     ],
   },
@@ -459,7 +458,7 @@ export const flows: Flow[] = [
         "Ask the producer",
         6,
         2,
-        { to: "Producer", channel: "In the app and by mail", message: "Some approved: decide." },
+        { to: "Producer", message: "Some approved: decide." },
         "g-sign",
       ),
       node(
@@ -477,7 +476,7 @@ export const flows: Flow[] = [
         "Tell the engineer",
         6,
         3,
-        { to: "Engineer", channel: "In the app and by mail", message: "Changes requested." },
+        { to: "Engineer", message: "Changes requested." },
         "g-sign",
       ),
     ],
@@ -506,7 +505,7 @@ export const flows: Flow[] = [
     groups: [],
     nodes: [
       node("a-start", "folder", "Artwork arrives", 0, 0, { folder: "Artwork and notes" }),
-      node("a-checks", "checks", "Check the file", 1, 0, { which: "All" }),
+      node("a-checks", "checks", "Check the file", 1, 0),
       node("a-approve", "approval", "Producer signs off", 2, 0, {
         who: "Producer",
         rule: "Any one approves",
@@ -516,7 +515,6 @@ export const flows: Flow[] = [
       node("a-done", "finish", "Approved", 3, 0, { status: "Approved" }),
       node("a-tell", "notify", "Ask for a new export", 3, 1, {
         to: "Editor",
-        channel: "In the app",
         message: "The artwork failed its checks.",
       }),
     ],
