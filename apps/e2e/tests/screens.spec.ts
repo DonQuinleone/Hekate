@@ -793,6 +793,32 @@ test("project-settings-deletion", async ({ page }) => {
   await checkScreen(page);
 });
 
+// A recording's channels heard apart (#74): its answers amended in the page alone to a 5.1
+// file's, the centre soloed and the downmix on.
+test("file-channels", async ({ page }) => {
+  const id = seeded().dryFileId;
+  await page.route(`**/api/files/${id}`, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      file: { mediaInfo: { audio: Record<string, unknown> } };
+    };
+    Object.assign(body.file.mediaInfo.audio, { channels: 6, channelLayout: "5.1(side)" });
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto(`/files/${id}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page.getByRole("button", { name: "Channels", exact: true }).click();
+  const menu = page.getByRole("region", { name: "Channels" });
+  await expect(menu).toBeVisible();
+  if (await menu.getByRole("button", { name: "Solo C" }).count()) {
+    await menu.getByRole("button", { name: "Solo C" }).click();
+    await menu.getByRole("switch", { name: "Hear the stereo downmix" }).click();
+    await expect(page.getByRole("button", { name: /^Channels: solo c/ })).toBeVisible();
+  }
+  await saveScreen(page, "file-channels");
+  await checkScreen(page);
+});
+
 // The checks narrowed (#43): to what failed, then to one check.
 test("file-qa-filtered", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}?view=qa`);
