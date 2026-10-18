@@ -2,6 +2,7 @@ import {
   flowShape,
   type NodeType,
   nodeTypes,
+  outcomesOf,
   triggersOf,
   type WorkflowConnector,
   type WorkflowDefinition,
@@ -207,3 +208,197 @@ export const withConnector = (
     return next;
   }),
 });
+
+/* ---------- The canvas (#26): its geometry and its edits, as the prototype draws them ---------- */
+
+export const NODE_W = 208;
+export const NODE_H = 60;
+/** The space between one workflow and the next on the canvas. */
+export const BAND_GAP = 180;
+const PORT_STEP = 18;
+
+export interface Pt {
+  x: number;
+  y: number;
+}
+
+export interface Bounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+type Placed = Pick<WorkflowNode, "type" | "x" | "y">;
+
+const portY = (n: Placed, i: number, k: number) => n.y + NODE_H / 2 + (i - (k - 1) / 2) * PORT_STEP;
+
+/** Where a node's outcome leaves it: one port each, down its right edge. */
+export function outPort(n: Placed, outcome: string): Pt {
+  const outs = outcomesOf(n.type);
+  const i = Math.max(
+    0,
+    outs.findIndex((o) => o.id === outcome),
+  );
+  return { x: n.x + NODE_W, y: portY(n, i, outs.length) };
+}
+
+/** A port's offset from its node's top, for drawing it on the node. */
+export const portTop = (type: NodeType, i: number) =>
+  NODE_H / 2 + (i - (outcomesOf(type).length - 1) / 2) * PORT_STEP;
+
+export const inPort = (n: Placed): Pt => ({ x: n.x, y: n.y + NODE_H / 2 });
+
+/**
+ * A connector's line: a forward one curves; a loop goes right, drops below the workflow, and
+ * comes back in from the left.
+ */
+export function connectorPath(a: Pt, b: Pt, loop: boolean, floor: number): string {
+  if (!loop && b.x >= a.x + 48) {
+    const dx = Math.max(60, (b.x - a.x) / 2);
+    return `M${a.x},${a.y} C${a.x + dx},${a.y} ${b.x - dx},${b.y} ${b.x},${b.y}`;
+  }
+  const r = 12;
+  const x1 = a.x + 28;
+  const x2 = b.x - 28;
+  return [
+    `M${a.x},${a.y}`,
+    `H${x1 - r} Q${x1},${a.y} ${x1},${a.y + r}`,
+    `V${floor - r} Q${x1},${floor} ${x1 - r},${floor}`,
+    `H${x2 + r} Q${x2},${floor} ${x2},${floor - r}`,
+    `V${b.y + r} Q${x2},${b.y} ${x2 + r},${b.y}`,
+    `H${b.x}`,
+  ].join(" ");
+}
+
+/** Where a connector's label sits: the middle of a curve, the bottom run of a loop. */
+export function labelAt(a: Pt, b: Pt, loop: boolean, floor: number): Pt {
+  if (!loop && b.x >= a.x + 48) return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  return { x: (a.x + 28 + b.x - 28) / 2, y: floor };
+}
+
+export function boundsOf(nodes: { x: number; y: number }[]): Bounds {
+  if (nodes.length === 0) return { minX: 0, minY: 0, maxX: NODE_W, maxY: NODE_H };
+  return {
+    minX: Math.min(...nodes.map((n) => n.x)),
+    minY: Math.min(...nodes.map((n) => n.y)),
+    maxX: Math.max(...nodes.map((n) => n.x)) + NODE_W,
+    maxY: Math.max(...nodes.map((n) => n.y)) + NODE_H,
+  };
+}
+
+/** What the picker offers, grouped as the prototype groups it. */
+export const pickerGroups: { group: string; types: NodeType[] }[] = [
+  { group: "Review", types: ["approval", "feedback"] },
+  { group: "Work", types: ["task", "checks", "notify", "share", "move"] },
+  { group: "Flow", types: ["wait", "status", "finish"] },
+  {
+    group: "Events: start on, or wait for",
+    types: (Object.keys(nodeTypes) as NodeType[]).filter((t) => nodeTypes[t].kind === "event"),
+  },
+];
+
+/** A fresh id for a node or a connector, as the model's identifiers allow. */
+export const freshId = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
+
+const snap = (v: number) => Math.round(v / 10) * 10;
+
+/**
+ * A node added at a place on the canvas, named after its kind; from a node, wired from its
+ * first outcome not yet wired (else its first).
+ */
+export function withNode(
+  flow: WorkflowDefinition,
+  type: NodeType,
+  at: Pt,
+  from?: string,
+  id = freshId("n"),
+): WorkflowDefinition {
+  const node: WorkflowNode = {
+    id,
+    type,
+    name: nodeTypes[type].label,
+    x: snap(at.x),
+    y: snap(at.y),
+    config: {},
+  };
+  const connectors = [...flow.connectors];
+  const source = from ? flow.nodes.find((n) => n.id === from) : undefined;
+  if (source) {
+    const outs = outcomesOf(source.type);
+    const free = outs.find(
+      (o) => !connectors.some((c) => c.from === source.id && c.outcome === o.id),
+    );
+    const outcome = free ?? outs[0];
+    if (outcome)
+      connectors.push({ id: freshId("c"), from: source.id, outcome: outcome.id, to: id });
+  }
+  return { ...flow, nodes: [...flow.nodes, node], connectors };
+}
+
+/** A connector from a node's outcome to another node; once only, and never to itself. */
+export function withLink(
+  flow: WorkflowDefinition,
+  from: string,
+  outcome: string,
+  to: string,
+): WorkflowDefinition {
+  if (from === to) return flow;
+  if (flow.connectors.some((c) => c.from === from && c.outcome === outcome && c.to === to))
+    return flow;
+  return { ...flow, connectors: [...flow.connectors, { id: freshId("c"), from, outcome, to }] };
+}
+
+/** A node taken away, with every connector to or from it. */
+export const withoutNode = (flow: WorkflowDefinition, id: string): WorkflowDefinition => ({
+  ...flow,
+  nodes: flow.nodes.filter((n) => n.id !== id),
+  connectors: flow.connectors.filter((c) => c.from !== id && c.to !== id),
+});
+
+export const withoutConnector = (flow: WorkflowDefinition, id: string): WorkflowDefinition => ({
+  ...flow,
+  connectors: flow.connectors.filter((c) => c.id !== id),
+});
+
+/** A copy of a node beside it, unwired. */
+export function withCopy(flow: WorkflowDefinition, id: string, copyId = freshId("n")) {
+  const n = flow.nodes.find((x) => x.id === id);
+  if (!n) return flow;
+  return {
+    ...flow,
+    nodes: [
+      ...flow.nodes,
+      { ...n, id: copyId, name: `${n.name} (copy)`, x: n.x + 40, y: n.y + 80 },
+    ],
+  };
+}
+
+/** A node changed in place: its name, settings, place or stage. */
+export const withNodeChange = (
+  flow: WorkflowDefinition,
+  id: string,
+  change: Partial<Omit<WorkflowNode, "id" | "type">>,
+): WorkflowDefinition => ({
+  ...flow,
+  nodes: flow.nodes.map((n) => (n.id === id ? { ...n, ...change } : n)),
+});
+
+/** A connector's own condition, as it reads on the canvas: "if video", "unless tagged Live". */
+export function conditionText(c: WorkflowConnector): string | null {
+  const k = c.condition;
+  const parts: string[] = [];
+  if (k) {
+    const what =
+      k.test === "kind"
+        ? `${k.is}`
+        : k.test === "tag"
+          ? `tagged ${k.is}`
+          : k.is === "guest"
+            ? "a guest decided"
+            : "a member decided";
+    parts.push(`${k.not ? "unless" : "if"} ${what}`);
+  }
+  if (c.until) parts.push(`at most ${c.until.times}×`);
+  return parts.length > 0 ? parts.join(", ") : null;
+}
