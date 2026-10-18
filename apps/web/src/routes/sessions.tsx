@@ -26,9 +26,9 @@ import { ProjectFrame } from "~/routes/project";
 const body =
   "fade-in mx-auto flex w-full max-w-[1360px] flex-col gap-6 px-5 py-6 @3xl/app:px-10 @3xl/app:py-8";
 
-const dayFormat = formatDates({ day: "numeric", month: "long", year: "numeric" });
+const dayFormat = formatDates({ day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 
-/** "14 October 2026", from the day a session was recorded; a date has no time zone. */
+/** "14 October 2026", from the day a session was recorded: a date has no time zone, so UTC. */
 const dayOf = (iso: string) => dayFormat.format(new Date(`${iso}T12:00:00Z`));
 
 /** "14 October 2026 · Endless Hall", as far as the session says. */
