@@ -830,7 +830,7 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
             />
             <SwitchRow
               name="An edit decision list with every version"
-              hint="The EDL the version was made from, uploaded beside it."
+              hint="The EDL the version was made from, uploaded beside it: it must hold edits, and end within the version."
               checked={false}
             />
           </Section>

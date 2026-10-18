@@ -10,24 +10,20 @@ import {
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { Hono } from "hono";
-import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, can } from "../access.ts";
+import { readEdlFile } from "../edl-file.ts";
 import { NotFound } from "../errors.ts";
 import type { Storage } from "../storage.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
 const { files, takes, tracks, versions } = schema;
 
-/** A list longer than this is no edit decision list. */
-const MAX_LIST_BYTES = 1024 * 1024;
-
 /**
  * A track's edit decisions (#56), under `/api/tracks/:id/edit-decisions`: the edit decision
  * list attached to a version (the latest that has one, or the one asked for) read and matched
  * to the track's takes, so the takes view can say which take each stretch of the version
- * comes from. Seeing it needs `view_takes`, as the takes do. The list is text about an edit,
- * not media, so it is read on the server and never sent as a file.
+ * comes from. Seeing it needs `view_takes`, as the takes do.
  */
 export const editDecisionRoutes = (db: Database, storage: Storage) =>
   new Hono<{ Variables: TenantVariables }>().get(
@@ -62,16 +58,9 @@ export const editDecisionRoutes = (db: Database, storage: Storage) =>
         .limit(1);
       if (!version?.edlFileId) return c.json({ decisions: null });
 
-      const [list] = await db
-        .select({ name: files.name, blobId: files.blobId, byteSize: files.byteSize })
-        .from(files)
-        .where(inOrg(files, organisationId, eq(files.id, version.edlFileId)));
-      if (!list?.blobId) return c.json({ decisions: null });
-      if (list.byteSize > MAX_LIST_BYTES)
-        throw new HTTPException(422, { message: "This edit decision list is too long to read" });
-      const { stream } = await storage.open(organisationId, list.blobId);
-      const text = Buffer.concat(await stream.toArray()).toString("utf8");
-      const edl = parseCmx3600(text, query.rate);
+      const list = await readEdlFile(db, storage, organisationId, version.edlFileId);
+      if (!list) return c.json({ decisions: null });
+      const edl = parseCmx3600(list.text, query.rate);
 
       const rows = await db
         .select({
