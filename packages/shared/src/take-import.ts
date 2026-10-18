@@ -355,18 +355,20 @@ export function proposeTakeImport(
 
     const first = group.facts[0];
     const day = group.facts.find((f) => f.day)?.day ?? null;
-    const existing =
-      day === null ? [] : (options.sessions ?? []).filter((s) => s.recordedOn === day);
     const leaf = first?.source.folder.split("/").filter(Boolean).pop() ?? null;
-    const name =
-      existing.length === 1
-        ? (existing[0]?.name ?? "")
-        : (first?.sessionName ??
-          (key.startsWith("folder:") ? leaf : null) ??
-          (day ? (options.dayName?.(day) ?? day) : null) ??
-          first?.tape ??
-          leaf ??
-          "Imported takes");
+    const named =
+      first?.sessionName ??
+      (key.startsWith("folder:") ? leaf : null) ??
+      (day ? (options.dayName?.(day) ?? day) : null) ??
+      first?.tape ??
+      leaf ??
+      "Imported takes";
+    // The project's session it adds to: the one recorded that day, or, for files that give no
+    // day, the one of the same name (as an earlier import of them named it).
+    const existing = (options.sessions ?? []).filter((s) =>
+      day === null ? plain(s.name) === plain(named) : s.recordedOn === day,
+    );
+    const name = existing.length === 1 ? (existing[0]?.name ?? named) : named;
 
     const takes: ProposedTake[] = [...group.takes.entries()].map(([takeKey, list]) => {
       const head = list.find((f) => f.start !== null) ?? list[0];

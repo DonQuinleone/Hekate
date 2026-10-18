@@ -176,17 +176,38 @@ export function TakeImportDialog({
   const [history, setHistory] = useState<ImportProposal[]>([]);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [progress, setProgress] = useState<Progress | null>(null);
+  /** Null when nothing is being checked; empty while checking; else why it could not be. */
+  const [checking, setChecking] = useState<string | null>(null);
   const [made, setMade] = useState<Set<string>>(new Set());
   const stopper = useRef(new AbortController());
 
-  useEffect(() => () => stopper.current.abort(), []);
+  useEffect(
+    () => () => {
+      stopper.current.abort();
+      choice.current?.abort();
+    },
+    [],
+  );
 
+  /** The latest choice of files: reading one that was replaced comes to nothing. */
+  const choice = useRef<AbortController | null>(null);
   const choose = async (list: Picked[]) => {
     if (list.length === 0) return;
+    choice.current?.abort();
+    const mine = new AbortController();
+    choice.current = mine;
     setPicked(list);
     setRead(null);
+    setChecking(null);
     setReading(0);
-    const found = await readSources(list, setReading, stopper.current.signal);
+    const found = await readSources(
+      list,
+      (done) => {
+        if (!mine.signal.aborted) setReading(done);
+      },
+      mine.signal,
+    );
+    if (mine.signal.aborted) return;
     setRead(found);
     setReading(null);
   };
@@ -204,12 +225,24 @@ export function TakeImportDialog({
       dayName: dayOf,
     });
     // What a session already holds is not made again: an import carried on after a break.
+    // Until that is known, nothing is proposed, so nothing can be made twice.
     const made = new Set<string>();
-    for (const id of new Set(proposed.sessions.map((s) => s.sessionId))) {
-      if (!id) continue;
-      const session = await client.fetchQuery(sessionQuery(id)).catch(() => null);
-      for (const row of session?.takeRows ?? []) if (row.file) made.add(`${id}/${row.file.name}`);
+    setChecking("");
+    try {
+      for (const id of new Set(proposed.sessions.map((s) => s.sessionId))) {
+        if (!id) continue;
+        const session = await client.fetchQuery(sessionQuery(id));
+        for (const row of session.takeRows) if (row.file) made.add(`${id}/${row.file.name}`);
+      }
+    } catch (failure) {
+      setChecking(
+        `The takes already in this project's sessions could not be checked: ${
+          failure instanceof Error ? failure.message : "try again"
+        }`,
+      );
+      return;
     }
+    setChecking(null);
     setProposal(markImported(proposed, made));
     setHistory([]);
     setSelected(new Set());
@@ -283,6 +316,8 @@ export function TakeImportDialog({
       .filter((q) => !made.has(q.take.key) && q.sessionId !== undefined);
     const ready: { take: ProposedTake; fileId: string; sessionId: string }[] = [];
     const flush = async () => {
+      // Stopped: what is uploaded and not yet a take stays a file in its track's folder.
+      if (signal.aborted) return;
       const batch = ready.splice(0, ready.length);
       if (batch.length === 0) return;
       try {
@@ -384,7 +419,7 @@ export function TakeImportDialog({
             <Button
               variant="primary"
               onClick={() => void propose()}
-              disabled={!read || reading !== null}
+              disabled={!read || reading !== null || checking === ""}
             >
               Propose the takes
             </Button>
@@ -450,6 +485,11 @@ export function TakeImportDialog({
               Choose a folder
             </Button>
           </div>
+          {checking && (
+            <p role="alert" className="m-0 text-[13px] text-signal">
+              {checking}
+            </p>
+          )}
           <Field
             label="File-name pattern"
             hint={`Read where the files carry no iXML: ${NAME_TOKENS.map((t) => `{${t}}`).join(", ")}, and * for anything.`}

@@ -171,6 +171,19 @@ describe("proposing the organisation of a day's files (#45)", () => {
     ]);
   });
 
+  it("adds files that give no day to the session of their name, as an earlier import made it", async () => {
+    const files = [await source("Solace T7 Mix.wav", {}, "Day 4/Solace")];
+    const proposal = proposeTakeImport(files, {
+      tracks,
+      pattern: "{track} T{take} {mic}",
+      sessions: [
+        { id: "solace", name: "solace", recordedOn: null },
+        { id: "day-2", name: "Day 2", recordedOn: "2026-10-13" },
+      ],
+    });
+    expect(proposal.sessions[0]).toMatchObject({ sessionId: "solace", name: "solace" });
+  });
+
   it("proposes the only track there is, less surely", async () => {
     const files = await take("1", 10, "Something else");
     const proposal = proposeTakeImport(files, { tracks: [{ id: "only", name: "Solace" }] });
