@@ -42,6 +42,7 @@ import { fileQaRoutes } from "./routes/qa.ts";
 import { fileRetryRoutes } from "./routes/retry.ts";
 import { projectReviewRoutes, reviewRoutes } from "./routes/reviews.ts";
 import { searchRoutes } from "./routes/search.ts";
+import { projectSessionRoutes, sessionRoutes } from "./routes/sessions.ts";
 import { setupRoutes } from "./routes/setup.ts";
 import { signInMethodRoutes } from "./routes/sign-in-methods.ts";
 import { ssoRoutes } from "./routes/sso.ts";
@@ -225,6 +226,7 @@ export function createApi(deps: AppDeps) {
       .route("/projects", projectOverviewRoutes(deps.db))
       .route("/projects", projectMarkRoutes(deps.db))
       .route("/projects", projectCategoryRoutes(deps.db))
+      .route("/projects", projectSessionRoutes(deps.db))
       .route("/projects", projectTemplateRoutes(deps.db))
       .use("/tags/*", ...member)
       .use("/tags", ...member)
@@ -248,6 +250,8 @@ export function createApi(deps: AppDeps) {
       .route("/tracks", trackCompareRoutes(deps.db, deps.jobs))
       .use("/takes/*", ...member)
       .route("/takes", takeRoutes(deps.db))
+      .use("/sessions/*", ...member)
+      .route("/sessions", sessionRoutes(deps.db))
       .use("/versions/*", ...member)
       .route("/versions", versionRoutes(deps.db))
       .use("/variations/*", ...member)

@@ -31,8 +31,44 @@ export const takeChangeInput = z.object({
   barTo: bar.nullable().optional(),
   inPoint: seconds.nullable().optional(),
   outPoint: seconds.nullable().optional(),
+  /** The session it was recorded in, of the same project; null for none. */
+  sessionId: z.uuid().nullable().optional(),
 });
 export type TakeChange = z.infer<typeof takeChangeInput>;
+
+/**
+ * A recording session (#21, #45): a day or a sitting, where it was, and the tracks it
+ * recorded. The tracks are given in full, replacing those it had.
+ */
+export const sessionInput = z.object({
+  name: z.string().trim().min(1).max(120),
+  /** The day it was recorded: 2026-10-14. */
+  recordedOn: z.iso.date().nullable().optional(),
+  venue: z.string().trim().max(200).nullable().optional(),
+  trackIds: z.array(z.uuid()).max(200).optional(),
+});
+export type SessionInput = z.infer<typeof sessionInput>;
+export const sessionChangeInput = sessionInput.partial();
+export type SessionChange = z.infer<typeof sessionChangeInput>;
+
+/** A session as the project's list shows it. */
+export interface SessionSummary {
+  id: string;
+  projectId: string;
+  name: string;
+  recordedOn: string | null;
+  venue: string | null;
+  tracks: { id: string; name: string }[];
+  /** The takes recorded in it, how many are starred, and how long they run together. */
+  takes: number;
+  starred: number;
+  duration: number;
+}
+
+/** A session in full: its takes, each with the track it belongs to. */
+export interface SessionDetail extends SessionSummary {
+  takeRows: (TakeRow & { track: { id: string; name: string } })[];
+}
 
 /** A take's place, as it would be once a change is made. */
 export interface TakePlace {
@@ -61,6 +97,8 @@ export interface TakeRow extends TakePlace {
   rating: number;
   starred: boolean;
   page: number | null;
+  /** The session it was recorded in, if any. */
+  sessionId: string | null;
   /** Its scratch mix; null once the file is gone. */
   file: { id: string; name: string; duration: number | null; streamStatus: string } | null;
   createdAt: string;

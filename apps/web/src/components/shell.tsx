@@ -31,6 +31,7 @@ import {
   type Project,
   projectsQuery,
   reviewQuery,
+  sessionQuery,
   trackQuery,
   useProjectCan,
   useSwitchOrganisation,
@@ -146,7 +147,9 @@ function useCurrentProjectId(): string | undefined {
   const track = useQuery({ ...trackQuery(id), enabled: head === "tracks" && Boolean(id) });
   const file = useQuery({ ...fileQuery(id), enabled: head === "files" && Boolean(id) });
   const review = useQuery({ ...reviewQuery(id), enabled: head === "reviews" && Boolean(id) });
+  const session = useQuery({ ...sessionQuery(id), enabled: head === "sessions" && Boolean(id) });
   if (head === "projects" && id) return id;
+  if (head === "sessions") return session.data?.projectId;
   if (head === "tracks") return track.data?.projectId;
   if (head === "files") return file.data?.projectId;
   if (head === "reviews" && id) return review.data?.projectId;
@@ -159,6 +162,8 @@ const projectSections = [
   { id: "files", label: "Files", icon: "folder", to: "/projects/$projectId/files" },
   { id: "reviews", label: "Reviews", icon: "review", to: "/projects/$projectId/reviews" },
   { id: "people", label: "People", icon: "users", to: "/projects/$projectId/people" },
+  // The production tools (#21, #45, #47), as in the prototype; its sessions for now.
+  { id: "sessions", label: "Production", icon: "mic", to: "/projects/$projectId/sessions" },
   { id: "settings", label: "Settings", icon: "sliders", to: "/projects/$projectId/settings" },
 ] as const;
 
@@ -533,8 +538,11 @@ export function Shell({ children }: { children: ReactNode }) {
       : [];
   const can = useProjectCan(current?.id);
   // Settings appear to whoever may change something there.
-  const sectionsHere = projectSections.filter(
-    (item) => item.id !== "settings" || mayOpenSettings(can),
+  const sectionsHere = projectSections.filter((item) =>
+    item.id === "settings"
+      ? mayOpenSettings(can)
+      : // Production is a music project's, for the roles that see its sessions and takes.
+        item.id !== "sessions" || (current?.profile === "music" && can("view_takes")),
   );
   const waitingAll = reviews?.filter((r) => r.yourTurn) ?? [];
   const waitingHere = current ? waitingAll.filter((r) => r.projectId === current.id) : waitingAll;
@@ -623,7 +631,11 @@ export function Shell({ children }: { children: ReactNode }) {
                     activeOptions={{ exact: item.id === "" }}
                     title={collapsed ? item.label : undefined}
                     aria-current={
-                      section === item.id && pathname.startsWith("/projects/") ? "page" : undefined
+                      (section === item.id && pathname.startsWith("/projects/")) ||
+                      // A session's own page is in Production too.
+                      (item.id === "sessions" && pathname.startsWith("/sessions/"))
+                        ? "page"
+                        : undefined
                     }
                     className={cn(
                       navClass,

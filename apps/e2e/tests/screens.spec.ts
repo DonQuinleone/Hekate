@@ -246,6 +246,13 @@ const screens: Screen[] = [
     path: (s) => `/tracks/${s.trackId}/compare`,
     ready: "main >> text=Alignment path",
   },
+  // A project's recording sessions (#21, #45), in its Production area, and one of them.
+  {
+    name: "project-sessions",
+    path: (s) => `/projects/${s.musicProjectId}/sessions`,
+    ready: "main >> text=Day 2",
+  },
+  { name: "session", path: (s) => `/sessions/${s.sessionId}`, ready: "main table >> text=T3" },
   {
     name: "track-takes",
     path: (s) => `/tracks/${s.trackId}?view=takes`,
@@ -1449,6 +1456,20 @@ test("track-follow", async ({ page }) => {
   await checkScreen(page);
   await button.click();
   await expect(button).toHaveAttribute("aria-pressed", "true");
+});
+
+// Making a recording session (#21, #45): its name, day, place and the tracks it recorded. Not
+// made, so no other capture sees it.
+test("project-session-new", async ({ page }) => {
+  await page.goto(`/projects/${seeded().musicProjectId}/sessions`);
+  await settle(page, "main >> text=Day 2");
+  await page.getByRole("button", { name: "New session" }).click();
+  const dialog = page.getByRole("dialog", { name: "New session" });
+  await dialog.getByLabel("Name").fill("Day 4");
+  await dialog.getByRole("checkbox").first().check();
+  await expect(dialog.getByRole("button", { name: "Make the session" })).toBeEnabled();
+  await saveScreen(page, "project-session-new");
+  await checkScreen(page);
 });
 
 // Project templates (#240): saving one from the project's settings, and starting from one.
