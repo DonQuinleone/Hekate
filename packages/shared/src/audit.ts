@@ -60,6 +60,8 @@ export const auditActions = [
   "comment.takes_unshare",
   /** Someone exported a file's comments as a marker list. */
   "comment.export",
+  /** Someone imported a marker list as comments on a file (#134). */
+  "comment.import",
   /** Too many failed sign-ins locked a member's account for a while. */
   "account.lockout",
   /** A member set a new password with a code sent to their address. */

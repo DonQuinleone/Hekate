@@ -888,6 +888,9 @@ export const comments = pgTable(
     todoDoneById: text("todo_done_by_id").references(() => users.id, { onDelete: "set null" }),
     /** The channel it is about (#74), by its place in the file's order; null is all of them. */
     channel: integer("channel"),
+    /** The marker list it was imported from (#134), by the list's name, and who imported it. */
+    importedFrom: text("imported_from"),
+    importedById: text("imported_by_id").references(() => users.id, { onDelete: "set null" }),
     ...timestamps,
   },
   (t) => [

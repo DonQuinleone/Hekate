@@ -48,6 +48,36 @@ export const createCommentInput = z
     path: ["channel"],
   });
 
+/**
+ * Markers from another application's list, imported as comments (#134): what the browser read
+ * from the list and chose to bring in, each already in seconds from the file's start.
+ */
+export const importMarkersInput = z.object({
+  /** The list's file name, kept with each comment it brings. */
+  listName: z.string().trim().min(1).max(255),
+  /** Who made the markers, a member of the project; whoever imports them when not given. */
+  authorId: z.string().min(1).max(64).optional(),
+  markers: z
+    .array(
+      z
+        .object({
+          /** Null for a comment about the whole file. */
+          start: z.number().min(0).nullable(),
+          end: z.number().min(0).nullable(),
+          body: commentBody,
+          categoryId: z.uuid().nullish(),
+        })
+        .refine((m) => m.end === null || (m.start !== null && m.end > m.start), {
+          message: "A range ends after it starts",
+          path: ["end"],
+        }),
+    )
+    .min(1, "Choose at least one marker to import")
+    .max(2_000, "A list can bring at most 2,000 markers"),
+});
+
+export type ImportMarkersInput = z.infer<typeof importMarkersInput>;
+
 export const editCommentInput = z.object({
   body: commentBody,
   mentions: commentMentions.optional(),

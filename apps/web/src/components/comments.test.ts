@@ -31,6 +31,8 @@ const comment = (id: string, anchor: Anchor | null, extra: Partial<Comment> = {}
   todoDoneAt: null,
   todoDoneByName: null,
   channel: null,
+  importedFrom: null,
+  importedByName: null,
   ...extra,
 });
 
