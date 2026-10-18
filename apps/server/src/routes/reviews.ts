@@ -44,7 +44,7 @@ import {
   projectAccess,
   reviewAccess,
 } from "../access.ts";
-import { type Audit, requestInfo } from "../audit.ts";
+import { type Audit, type RequestInfo, requestInfo } from "../audit.ts";
 import { decisionWords, longDate, subjectValues, workspaceEmail } from "../email/templates.ts";
 import { NotFound } from "../errors.ts";
 import { issueGuestLink, revokeGuest, type ViewerVariables } from "../guests.ts";
@@ -130,7 +130,18 @@ export interface ReviewDeps {
   mailer: Mailer;
   publicUrl: string;
   trustProxy: boolean;
+  /** Told when a review completes, so a workflow stage that asked for it moves on (#25). */
+  onSettled?: (
+    review: typeof reviews.$inferSelect,
+    by: { userId: string | null; kind: "member" | "guest" },
+  ) => Promise<void>;
 }
+
+/** Whoever completed a review, as its workflow's conditions see them. */
+const settledBy = (actor: Actor) =>
+  actor.kind === "guest"
+    ? { userId: null, kind: "guest" as const }
+    : { userId: actor.userId, kind: "member" as const };
 
 /** The reviewers of a review, in order, members and guests alike, with what the rules need. */
 export async function reviewersOf(db: Database | Tx, organisationId: string, reviewId: string) {
@@ -1124,6 +1135,189 @@ async function overridden(
   });
 }
 
+/**
+ * Asks for a review (#20): the items, checked to be in the project, the reviewers expanded from
+ * people, guests and groups, each one's permissions, the audit entry, and the first reviewers
+ * told. The route asks it for a member who may request reviews; a workflow's stage (#25) asks
+ * it for the member its run started with, and the review is linked to that stage.
+ */
+export async function requestReview(
+  deps: ReviewDeps,
+  actor: MemberActor,
+  projectId: string,
+  input: z.infer<typeof createReviewInput>,
+  request: RequestInfo,
+  link?: { runId: string; nodeId: string },
+) {
+  const organisationId = actor.organisationId;
+
+  // Every item must be in this project. Their names title a request that has none.
+  const names: string[] = [];
+  for (const item of input.items) {
+    if ("fileId" in item) {
+      const [file] = await deps.db
+        .select({ id: files.id, name: files.name })
+        .from(files)
+        .where(
+          inOrg(files, organisationId, eq(files.id, item.fileId), eq(files.projectId, projectId)),
+        );
+      if (!file) throw new HTTPException(422, { message: "Items must come from this project" });
+      names.push(file.name);
+    } else {
+      const [track] = await deps.db
+        .select({ id: tracks.id, name: tracks.name })
+        .from(tracks)
+        .where(
+          inOrg(
+            tracks,
+            organisationId,
+            eq(tracks.id, item.trackId),
+            eq(tracks.projectId, projectId),
+          ),
+        );
+      const version = item.versionId
+        ? (
+            await deps.db
+              .select({ id: versions.id })
+              .from(versions)
+              .where(
+                inOrg(
+                  versions,
+                  organisationId,
+                  eq(versions.id, item.versionId),
+                  eq(versions.trackId, item.trackId),
+                ),
+              )
+          )[0]
+        : true;
+      if (!track || !version) {
+        throw new HTTPException(422, { message: "Items must come from this project" });
+      }
+      names.push(track.name);
+    }
+  }
+
+  // The workspace's defaults, with whatever the request says on top.
+  const [workspace] = await deps.db
+    .select({ settings: schema.organisations.settings })
+    .from(schema.organisations)
+    .where(eq(schema.organisations.id, organisationId));
+  const granted = applyPermissions(
+    // A default window runs from when access opens.
+    reviewerDefaults(
+      workspaceSettingsOf(workspace?.settings),
+      input.permissions?.startsAt ? new Date(input.permissions.startsAt) : new Date(),
+    ),
+    input.permissions ?? {},
+  );
+  if (!granted.success) {
+    throw new HTTPException(422, {
+      message: granted.error.issues[0]?.message ?? "Those permissions do not fit together",
+    });
+  }
+  // A share asks nothing (#138): its people listen and look, whatever the defaults say.
+  if (input.kind === "share") granted.data = shareGrant(granted.data);
+  // An approval nobody may decide would wait for ever: everyone would only follow it.
+  if (input.kind === "approval" && !granted.data.decide) {
+    throw new HTTPException(422, {
+      message:
+        "An approval needs reviewers who may decide. The workspace's defaults leave nobody able to: say that they may, or ask for feedback.",
+    });
+  }
+  const who = await deps.audit.member(actor.userId);
+  const review = await deps.db.transaction(async (tx) => {
+    // Not into a project being archived: archiving closes every open review.
+    await lockLiveProject(tx, organisationId, projectId);
+    const [created] = await tx
+      .insert(reviews)
+      .values({
+        organisationId,
+        projectId,
+        kind: input.kind,
+        title: input.title ?? reviewTitleFor(names),
+        message: input.message || null,
+        dueAt: input.dueAt ? new Date(input.dueAt) : null,
+        remind: input.remind,
+        order: input.order,
+        rule: input.rule,
+        share: input.share,
+        grant: granted.data,
+        createdBy: actor.userId,
+        workflowRunId: link?.runId ?? null,
+        workflowNodeId: link?.nodeId ?? null,
+      })
+      .returning();
+    if (!created) throw new Error("Review insert returned no row");
+    await tx.insert(reviewItems).values(
+      input.items.map((item, position) => ({
+        organisationId,
+        reviewId: created.id,
+        position,
+        ...("fileId" in item
+          ? { fileId: item.fileId }
+          : { trackId: item.trackId, versionId: item.versionId ?? null }),
+      })),
+    );
+    const people = await expandReviewers(
+      tx,
+      actor,
+      { projectId, kind: input.kind },
+      input.reviewers,
+      0,
+    );
+    const permissions = (
+      await overridden(tx, organisationId, people, granted.data, input.overrides ?? {})
+    ).map((p) => (input.kind === "share" && p ? shareGrant(p) : p));
+    // Overrides may take the decision from everyone; such an approval would never end.
+    if (
+      input.kind === "approval" &&
+      !people.some((_, i) => (permissions[i] ?? granted.data).decide)
+    ) {
+      throw new HTTPException(422, {
+        message: "An approval needs at least one reviewer who may decide.",
+      });
+    }
+    await tx.insert(reviewReviewers).values(
+      people.map((person, i) => ({
+        organisationId,
+        reviewId: created.id,
+        userId: person.userId ?? null,
+        guestId: person.guestId ?? null,
+        groupId: person.groupId,
+        position: person.position,
+        permissions: permissions[i] ?? granted.data,
+      })),
+    );
+    await deps.audit.record(
+      organisationId,
+      who,
+      {
+        action: "review.create",
+        projectId,
+        reviewId: created.id,
+        details: { kind: created.kind, reviewers: people.length },
+      },
+      request,
+      tx,
+    );
+    return created;
+  });
+  // Ask whoever can act now: everyone, or the first in a sequence. Those who only follow
+  // an approval hold nothing up, so they hear of it now, guests with the link they need.
+  const { rows, facts } = await reviewersOf(deps.db, organisationId, review.id);
+  const now = activeReviewers(review.order, facts);
+  const following = new Set(facts.filter((f) => f.observer).map((f) => f.id));
+  const requester = { userId: actor.userId, name: await nameOf(deps.db, actor.userId) };
+  await notify(
+    deps,
+    rows.filter((r) => now.has(r.id) || following.has(r.id)),
+    review,
+    false,
+    requester,
+  );
+  return review;
+}
+
 /** `/api/projects/:id/reviews`: a project's reviews, and requesting one. Members only. */
 export const projectReviewRoutes = (deps: ReviewDeps) =>
   new Hono<{ Variables: TenantVariables }>()
@@ -1394,177 +1588,14 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
       return c.body(null, 204);
     })
     .post("/:id/reviews", idParam, zValidator("json", createReviewInput), async (c) => {
-      const organisationId = c.var.organisationId;
       const actor = actorOf(c.var);
       const { projectId } = await can(deps.db, actor, "request_reviews", c.req.valid("param").id);
-      const input = c.req.valid("json");
-
-      // Every item must be in this project. Their names title a request that has none.
-      const names: string[] = [];
-      for (const item of input.items) {
-        if ("fileId" in item) {
-          const [file] = await deps.db
-            .select({ id: files.id, name: files.name })
-            .from(files)
-            .where(
-              inOrg(
-                files,
-                organisationId,
-                eq(files.id, item.fileId),
-                eq(files.projectId, projectId),
-              ),
-            );
-          if (!file) throw new HTTPException(422, { message: "Items must come from this project" });
-          names.push(file.name);
-        } else {
-          const [track] = await deps.db
-            .select({ id: tracks.id, name: tracks.name })
-            .from(tracks)
-            .where(
-              inOrg(
-                tracks,
-                organisationId,
-                eq(tracks.id, item.trackId),
-                eq(tracks.projectId, projectId),
-              ),
-            );
-          const version = item.versionId
-            ? (
-                await deps.db
-                  .select({ id: versions.id })
-                  .from(versions)
-                  .where(
-                    inOrg(
-                      versions,
-                      organisationId,
-                      eq(versions.id, item.versionId),
-                      eq(versions.trackId, item.trackId),
-                    ),
-                  )
-              )[0]
-            : true;
-          if (!track || !version) {
-            throw new HTTPException(422, { message: "Items must come from this project" });
-          }
-          names.push(track.name);
-        }
-      }
-
-      // The workspace's defaults, with whatever the request says on top.
-      const [workspace] = await deps.db
-        .select({ settings: schema.organisations.settings })
-        .from(schema.organisations)
-        .where(eq(schema.organisations.id, organisationId));
-      const granted = applyPermissions(
-        // A default window runs from when access opens.
-        reviewerDefaults(
-          workspaceSettingsOf(workspace?.settings),
-          input.permissions?.startsAt ? new Date(input.permissions.startsAt) : new Date(),
-        ),
-        input.permissions ?? {},
-      );
-      if (!granted.success) {
-        throw new HTTPException(422, {
-          message: granted.error.issues[0]?.message ?? "Those permissions do not fit together",
-        });
-      }
-      // A share asks nothing (#138): its people listen and look, whatever the defaults say.
-      if (input.kind === "share") granted.data = shareGrant(granted.data);
-      // An approval nobody may decide would wait for ever: everyone would only follow it.
-      if (input.kind === "approval" && !granted.data.decide) {
-        throw new HTTPException(422, {
-          message:
-            "An approval needs reviewers who may decide. The workspace's defaults leave nobody able to: say that they may, or ask for feedback.",
-        });
-      }
-      const who = await deps.audit.member(c.var.userId);
-      const review = await deps.db.transaction(async (tx) => {
-        // Not into a project being archived: archiving closes every open review.
-        await lockLiveProject(tx, organisationId, projectId);
-        const [created] = await tx
-          .insert(reviews)
-          .values({
-            organisationId,
-            projectId,
-            kind: input.kind,
-            title: input.title ?? reviewTitleFor(names),
-            message: input.message || null,
-            dueAt: input.dueAt ? new Date(input.dueAt) : null,
-            remind: input.remind,
-            order: input.order,
-            rule: input.rule,
-            share: input.share,
-            grant: granted.data,
-            createdBy: c.var.userId,
-          })
-          .returning();
-        if (!created) throw new Error("Review insert returned no row");
-        await tx.insert(reviewItems).values(
-          input.items.map((item, position) => ({
-            organisationId,
-            reviewId: created.id,
-            position,
-            ...("fileId" in item
-              ? { fileId: item.fileId }
-              : { trackId: item.trackId, versionId: item.versionId ?? null }),
-          })),
-        );
-        const people = await expandReviewers(
-          tx,
-          actor,
-          { projectId, kind: input.kind },
-          input.reviewers,
-          0,
-        );
-        const permissions = (
-          await overridden(tx, organisationId, people, granted.data, input.overrides ?? {})
-        ).map((p) => (input.kind === "share" && p ? shareGrant(p) : p));
-        // Overrides may take the decision from everyone; such an approval would never end.
-        if (
-          input.kind === "approval" &&
-          !people.some((_, i) => (permissions[i] ?? granted.data).decide)
-        ) {
-          throw new HTTPException(422, {
-            message: "An approval needs at least one reviewer who may decide.",
-          });
-        }
-        await tx.insert(reviewReviewers).values(
-          people.map((person, i) => ({
-            organisationId,
-            reviewId: created.id,
-            userId: person.userId ?? null,
-            guestId: person.guestId ?? null,
-            groupId: person.groupId,
-            position: person.position,
-            permissions: permissions[i] ?? granted.data,
-          })),
-        );
-        await deps.audit.record(
-          organisationId,
-          who,
-          {
-            action: "review.create",
-            projectId,
-            reviewId: created.id,
-            details: { kind: created.kind, reviewers: people.length },
-          },
-          requestInfo(c, deps.trustProxy),
-          tx,
-        );
-        return created;
-      });
-      // Ask whoever can act now: everyone, or the first in a sequence. Those who only follow
-      // an approval hold nothing up, so they hear of it now, guests with the link they need.
-      const { rows, facts } = await reviewersOf(deps.db, organisationId, review.id);
-      const now = activeReviewers(review.order, facts);
-      const following = new Set(facts.filter((f) => f.observer).map((f) => f.id));
-      const requester = { userId: c.var.userId, name: await nameOf(deps.db, c.var.userId) };
-      await notify(
+      const review = await requestReview(
         deps,
-        rows.filter((r) => now.has(r.id) || following.has(r.id)),
-        review,
-        false,
-        requester,
+        actor,
+        projectId,
+        c.req.valid("json"),
+        requestInfo(c, deps.trustProxy),
       );
       return c.json({ review: await reviewView(deps.db, actor, review.id) }, 201);
     });
@@ -1692,6 +1723,7 @@ export const reviewRoutes = (deps: ReviewDeps) =>
       });
       if (next.length > 0) await notify(deps, next, review, true);
       await tellRequester(deps, review, actor, input.decision, input.note);
+      if (review.status === "completed") await deps.onSettled?.(review, settledBy(actor));
       return c.json({ review: await reviewView(deps.db, actor, review.id) });
     })
     .post("/:id/submit", idParam, zValidator("json", submitFeedbackInput), async (c) => {
@@ -1750,6 +1782,7 @@ export const reviewRoutes = (deps: ReviewDeps) =>
       });
       if (next.length > 0) await notify(deps, next, review, true);
       await tellRequester(deps, review, actor, "feedback");
+      if (review.status === "completed") await deps.onSettled?.(review, settledBy(actor));
       return c.json({ review: await reviewView(deps.db, actor, review.id) });
     })
     .post("/:id/cancel", idParam, zValidator("json", cancelReviewInput), async (c) => {

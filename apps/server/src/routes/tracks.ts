@@ -36,7 +36,7 @@ import { follow, followersOf, notifyNow } from "../notifications.ts";
 import type { Storage } from "../storage.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { trackStandings } from "../track-standing.ts";
-import { versionArrived } from "../workflow-runner.ts";
+import { type RunnerDeps, versionArrived } from "../workflow-runner.ts";
 import { folderIn, lockProject } from "./folders.ts";
 
 const {
@@ -254,6 +254,8 @@ export const trackRoutes = (
   audit: Audit,
   trustProxy: boolean,
   storage: Storage,
+  /** The workflows a new version moves on; without one, they run without asking for reviews. */
+  runner: RunnerDeps = { db, jobs },
 ) =>
   new Hono<{ Variables: TenantVariables }>()
     .get("/:id", idParam, async (c) => {
@@ -576,16 +578,13 @@ export const trackRoutes = (
         console.warn(`Could not tell followers about a new version: ${String(error)}`),
       );
       // The project's workflows hear of it (#25): each starts, or carries on, for this track.
-      await versionArrived(
-        { db, jobs },
-        {
-          organisationId,
-          projectId: track.projectId,
-          trackId: id,
-          versionId: madeId,
-          userId: c.var.userId,
-        },
-      );
+      await versionArrived(runner, {
+        organisationId,
+        projectId: track.projectId,
+        trackId: id,
+        versionId: madeId,
+        userId: c.var.userId,
+      });
       return c.json({ track: await oneTrack(db, organisationId, id) }, 201);
     });
 

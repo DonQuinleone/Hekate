@@ -8330,6 +8330,192 @@ describe.runIf(url)("api", () => {
           expect((await runs()).map((r) => r.state)).toEqual(["finished"]);
         });
 
+        it("asks for a stage's review, and its outcome moves the run on (#25)", async () => {
+          const s = await studio();
+          const at = (id: string, type: string, name: string, x: number, config = {}) => ({
+            id,
+            type,
+            name,
+            x,
+            y: 0,
+            config,
+          });
+          const send = (url: string, body: unknown, cookie = s.owner, method = "POST") =>
+            app.request(url, { ...json(body, cookie), method });
+          const switchOn = async (name: string, definition: unknown) => {
+            const made = (await (
+              await send(`/api/projects/${s.projectId}/workflows`, { name, definition })
+            ).json()) as { workflow: { id: string } };
+            await send(`/api/workflows/${made.workflow.id}`, { active: true }, s.owner, "PATCH");
+            return made.workflow.id;
+          };
+          const version = async (name: string) => {
+            const blob = await storage.put(s.organisationId, Buffer.from(name));
+            const [file] = await db
+              .insert(schema.files)
+              .values({
+                organisationId: s.organisationId,
+                projectId: s.projectId,
+                name,
+                kind: "audio",
+                blobId: blob.id,
+                contentType: "audio/wav",
+                byteSize: blob.byteSize,
+                mediaInfo: {
+                  duration: 60,
+                  audio: { codec: "pcm_s24le", channels: 2, sampleRate: 48000 },
+                } as never,
+              })
+              .returning();
+            await send(`/api/tracks/${s.trackId}/versions`, {
+              variations: [{ fileId: file?.id ?? "", name: "Mix" }],
+            });
+          };
+          const stageReviews = () =>
+            db
+              .select({
+                id: schema.reviews.id,
+                title: schema.reviews.title,
+                kind: schema.reviews.kind,
+                status: schema.reviews.status,
+                order: schema.reviews.order,
+                rule: schema.reviews.rule,
+                node: schema.reviews.workflowNodeId,
+              })
+              .from(schema.reviews)
+              .where(eq(schema.reviews.projectId, s.projectId))
+              .orderBy(schema.reviews.createdAt);
+          type Run = { state: string; status: string | null; waiting: { nodeId: string }[] };
+          const latestRun = async () =>
+            (
+              (await (await getAs(`/api/tracks/${s.trackId}/workflow-runs`, s.owner)).json()) as {
+                runs: Run[];
+              }
+            ).runs[0];
+
+          // The label's approval: the project's reviewers, in turn, everyone to approve.
+          const label = await switchOn("Label approval", {
+            nodes: [
+              at("start", "upload", "A version is uploaded", 0),
+              at("approve", "approval", "Label approval", 1, {
+                who: "Reviewer",
+                order: "In turn",
+                rule: "Everyone approves",
+                status: "With the label",
+              }),
+              at("done", "finish", "Approved", 2, { status: "Approved" }),
+              at("again", "status", "Back to editing", 2, { status: "Editing" }),
+            ],
+            connectors: [
+              { id: "1", from: "start", outcome: "happened", to: "approve" },
+              { id: "2", from: "approve", outcome: "approved", to: "done" },
+              { id: "3", from: "approve", outcome: "changes", to: "again" },
+            ],
+          });
+          await version("Label v2.wav");
+          const [review] = await stageReviews();
+          expect(review).toMatchObject({
+            title: "Label approval: Maple Leaf Rag",
+            kind: "approval",
+            status: "open",
+            order: "sequence",
+            rule: "all",
+            node: "approve",
+          });
+          expect(await latestRun()).toMatchObject({
+            status: "With the label",
+            waiting: [{ nodeId: "approve" }],
+          });
+          // One approval of two leaves it waiting; the second finishes the review and the run.
+          const decide = (cookie: string) =>
+            send(`/api/reviews/${review?.id}/decisions`, { decision: "approved" }, cookie);
+          expect((await decide(s.composer)).status).toBe(200);
+          expect((await latestRun())?.state).toBe("running");
+          expect((await decide(s.accompanist)).status).toBe(200);
+          expect(await latestRun()).toMatchObject({ state: "finished", status: "Approved" });
+          await send(`/api/workflows/${label}`, { active: false }, s.owner, "PATCH");
+
+          // A stage whose run moves past it has its review cancelled.
+          await switchOn("Either way", {
+            nodes: [
+              at("start", "upload", "A version is uploaded", 0),
+              at("ask", "feedback", "Conductor", 1, { who: "Reviewer" }),
+              at("edit", "task", "Engineer edits", 1),
+              at("done", "finish", "Done", 2),
+            ],
+            connectors: [
+              { id: "1", from: "start", outcome: "happened", to: "ask" },
+              { id: "2", from: "start", outcome: "happened", to: "edit" },
+              { id: "3", from: "ask", outcome: "done", to: "done" },
+              { id: "4", from: "edit", outcome: "done", to: "done" },
+            ],
+          });
+          await version("Either v3.wav");
+          const runId = (
+            await db
+              .select({ id: schema.workflowRuns.id })
+              .from(schema.workflowRuns)
+              .where(eq(schema.workflowRuns.state, "running"))
+          )[0]?.id;
+          await send(`/api/workflow-runs/${runId}/steps`, { nodeId: "edit", outcome: "done" });
+          expect((await stageReviews()).map((r) => [r.kind, r.status])).toEqual([
+            ["approval", "completed"],
+            ["feedback", "cancelled"],
+          ]);
+        });
+
+        it("tells whoever started the run when a stage's review cannot be asked (#25)", async () => {
+          const s = await studio();
+          const definition = {
+            nodes: [
+              { id: "start", type: "upload", name: "A version is uploaded", x: 0, y: 0 },
+              {
+                id: "ask",
+                type: "feedback",
+                name: "Soloists",
+                x: 1,
+                y: 0,
+                config: { who: "Soloists" },
+              },
+              { id: "done", type: "finish", name: "Done", x: 2, y: 0 },
+            ],
+            connectors: [
+              { id: "1", from: "start", outcome: "happened", to: "ask" },
+              { id: "2", from: "ask", outcome: "done", to: "done" },
+            ],
+          };
+          const made = (await (
+            await app.request(
+              `/api/projects/${s.projectId}/workflows`,
+              json({ name: "Soloists", definition }, s.owner),
+            )
+          ).json()) as { workflow: { id: string } };
+          await app.request(`/api/workflows/${made.workflow.id}`, {
+            ...json({ active: true }, s.owner),
+            method: "PATCH",
+          });
+          await app.request(
+            `/api/tracks/${s.trackId}/versions`,
+            json({ variations: [{ fileId: s.artwork, name: "Mix" }] }, s.owner),
+          );
+          const told = await db
+            .select({ text: schema.notifications.text, detail: schema.notifications.detail })
+            .from(schema.notifications)
+            .where(
+              and(
+                eq(schema.notifications.userId, s.ids.owner),
+                eq(schema.notifications.kind, "workflow"),
+              ),
+            );
+          expect(told).toEqual([
+            {
+              text: "Soloists could not ask for its review",
+              detail:
+                "No role or group of the project is called Soloists. It waits to be ended by hand.",
+            },
+          ]);
+        });
+
         it("reads a version's edit decision list and says which take each edit comes from (#56)", async () => {
           const s = await studio();
           const upload = async (name: string, body: string, mediaInfo?: unknown) => {

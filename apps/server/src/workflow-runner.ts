@@ -14,6 +14,8 @@ import { lockLiveProject } from "./access.ts";
 import { NotFound } from "./errors.ts";
 import type { Jobs } from "./jobs.ts";
 import { projectPeople, recordNotification } from "./notifications.ts";
+import type { ReviewDeps } from "./routes/reviews.ts";
+import { askForStageReview, cancelStageReview, stageOutcome } from "./workflow-reviews.ts";
 
 const {
   organisations,
@@ -40,6 +42,8 @@ type RunRow = typeof workflowRuns.$inferSelect;
 export interface RunnerDeps {
   db: Database;
   jobs: Pick<Jobs, "send">;
+  /** Where present, approval and feedback stages ask for their reviews (decision 118). */
+  reviews?: ReviewDeps;
 }
 
 /**
@@ -151,7 +155,17 @@ type After = () => Promise<unknown>;
 async function apply(
   tx: Tx,
   deps: RunnerDeps,
-  row: Pick<RunRow, "id" | "organisationId" | "projectId" | "trackId" | "definition">,
+  row: Pick<
+    RunRow,
+    | "id"
+    | "organisationId"
+    | "projectId"
+    | "trackId"
+    | "definition"
+    | "versionId"
+    | "startedBy"
+    | "workflowId"
+  >,
   moved: { run: WorkflowRun; effects: WorkflowEffect[] },
   from: { nodeId: string | null; outcome: string | null; byUserId: string | null },
 ): Promise<After[]> {
@@ -218,6 +232,34 @@ async function apply(
         who,
         `${node(effect.nodeId)?.name ?? "A stage"} on ${track?.name ?? "a track"} is yours`,
       );
+    } else if (
+      effect.kind === "start" &&
+      (effect.type === "approval" || effect.type === "feedback")
+    ) {
+      const reviews = deps.reviews;
+      const kind = effect.type;
+      if (reviews)
+        after.push(() =>
+          askForStageReview(
+            { db: deps.db, reviews },
+            {
+              organisationId,
+              projectId,
+              trackId,
+              runId: row.id,
+              nodeId: effect.nodeId,
+              nodeName: node(effect.nodeId)?.name ?? "A stage",
+              kind,
+              config: effect.config,
+              versionId: row.versionId,
+              startedBy: row.startedBy,
+              workflowId: row.workflowId,
+            },
+          ),
+        );
+    } else if (effect.kind === "cancel") {
+      // A review a stage asked for, the run has moved past: nobody need answer it now.
+      await cancelStageReview(tx, organisationId, row.id, effect.nodeId);
     } else if (effect.kind === "start" && effect.type === "wait") {
       const days = Number.parseFloat(effect.config.days ?? "");
       const seconds = Number.isFinite(days) && days > 0 ? Math.round(days * 86_400) : 0;
@@ -408,6 +450,8 @@ export async function completeStep(
     nodeId: string;
     outcome: string;
     userId: string | null;
+    /** Who decided, where it is not the person moving the run on (a guest's review). */
+    by?: WorkflowContext["by"];
   },
   check?: (run: RunRow) => boolean,
 ): Promise<RunRow | null> {
@@ -427,7 +471,7 @@ export async function completeStep(
       tx,
       at.organisationId,
       row.trackId,
-      at.userId ? "member" : undefined,
+      at.by ?? (at.userId ? "member" : undefined),
     );
     let moved: ReturnType<typeof completeNode>;
     try {
@@ -560,4 +604,38 @@ export async function sweepWaits(deps: RunnerDeps, now = new Date()) {
     }
   }
   return ended;
+}
+
+/**
+ * A review a stage asked for has an outcome (decision 118): the stage ends by it (approved,
+ * changes requested, or submitted feedback), with who made the last decision, a member or a
+ * guest. A run that has since moved past the stage is left as it is.
+ */
+export async function reviewSettled(
+  deps: RunnerDeps,
+  review: {
+    organisationId: string;
+    outcome: string | null;
+    workflowRunId: string | null;
+    workflowNodeId: string | null;
+  },
+  by: { userId: string | null; kind: "member" | "guest" },
+) {
+  const outcome = stageOutcome(review.outcome);
+  if (!review.workflowRunId || !review.workflowNodeId || !outcome) return;
+  const nodeId = review.workflowNodeId;
+  await completeStep(
+    deps,
+    {
+      organisationId: review.organisationId,
+      runId: review.workflowRunId,
+      nodeId,
+      outcome,
+      userId: by.kind === "member" ? by.userId : null,
+      by: by.kind,
+    },
+    (run) => run.state === "running" && run.engine.active.includes(nodeId),
+  ).catch((failure: unknown) =>
+    console.warn(`A review's outcome could not move its run on: ${String(failure)}`),
+  );
 }

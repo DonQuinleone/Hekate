@@ -1572,9 +1572,15 @@ export const reviews = pgTable(
     /** Who cancelled it, and the reason its reviewers were given. */
     cancelledBy: text("cancelled_by").references(() => users.id, { onDelete: "set null" }),
     cancelReason: text("cancel_reason"),
+    /** The workflow run and stage that asked for it (#25), whose run its outcome moves on. */
+    workflowRunId: uuid("workflow_run_id").references((): AnyPgColumn => workflowRuns.id, {
+      onDelete: "set null",
+    }),
+    workflowNodeId: text("workflow_node_id"),
     ...timestamps,
   },
   (t) => [
+    index("reviews_workflow_idx").on(t.workflowRunId),
     index("reviews_project_idx").on(t.organisationId, t.projectId, t.createdAt),
     check("reviews_share_range", sql`${t.share} is null or ${t.share} between 1 and 100`),
     index("reviews_search_idx").using(
