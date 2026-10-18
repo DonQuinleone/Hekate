@@ -1,5 +1,9 @@
+import { SILENCE } from "@hekate/shared";
+import { useQuery } from "@tanstack/react-query";
 import { type ChannelMix, isPlain, mixLabel, plainMix } from "~/lib/channel-mix";
 import { cn } from "~/lib/cn";
+import { loudnessQuery, loudnessSeriesQuery } from "~/lib/queries";
+import { formatLevel, METER_FLOOR, meterFraction, usePlayheadFrame } from "./loudness";
 import { Button } from "./ui/button";
 import { Switch } from "./ui/toggle";
 
@@ -43,12 +47,41 @@ export function ChannelsButton({
  * offers: solo or mute each, and a stereo downmix of anything wider. It opens in the player,
  * under its controls, as the View settings do.
  */
+/**
+ * Each channel's level at the playhead, as the prototype's channel rows show it: the RMS the
+ * worker measured, read from the stored loudness series, so no audio is analysed here. None
+ * where the series is missing, still being measured, or has another channel count.
+ */
+function useChannelLevels(
+  source: { fileId: string; media: HTMLMediaElement | null } | undefined,
+  channels: number,
+): { levels: number[] | null; loading: boolean } {
+  const { data: info, isError } = useQuery({
+    ...loudnessQuery(source?.fileId ?? ""),
+    enabled: Boolean(source),
+  });
+  const { data: series } = useQuery({
+    ...loudnessSeriesQuery(source?.fileId ?? ""),
+    enabled: Boolean(source && info?.series),
+  });
+  const frame = usePlayheadFrame(series, source?.media ?? null);
+  // Still on its way: the rows keep the meters' room, so nothing moves when they arrive.
+  const loading =
+    Boolean(source) && !isError && (info === undefined || (Boolean(info.series) && !series));
+  if (!series || series.channels !== channels) return { levels: null, loading };
+  const levels = Array.from({ length: channels }, (_, c) =>
+    frame === null ? SILENCE : (series.rms[frame * channels + c] ?? SILENCE),
+  );
+  return { levels, loading: false };
+}
+
 export function ChannelsPanel({
   names,
   mix,
   onMix,
   canDownmix,
   unavailable,
+  levelsOf,
 }: {
   /** Each channel's speaker: "L", "C", "LFE". */
   names: readonly string[];
@@ -58,7 +91,10 @@ export function ChannelsPanel({
   canDownmix: boolean;
   /** Why the channels cannot be heard apart in what is playing, if they cannot. */
   unavailable?: string;
+  /** Where to read each channel's level at the playhead; none for those without the meters. */
+  levelsOf?: { fileId: string; media: HTMLMediaElement | null };
 }) {
+  const { levels, loading } = useChannelLevels(levelsOf, names.length);
   return (
     <section
       id="player-channels"
@@ -108,6 +144,31 @@ export function ChannelsPanel({
                 >
                   M
                 </button>
+                {levels && (
+                  <meter
+                    className="sr-only"
+                    min={METER_FLOOR}
+                    max={0}
+                    value={Math.max(METER_FLOOR, levels[i] ?? SILENCE)}
+                    aria-label={`${name}: RMS ${formatLevel(levels[i] ?? SILENCE)} dBFS`}
+                  />
+                )}
+                {(levels || loading) && (
+                  <span
+                    aria-hidden="true"
+                    className="h-1 w-12 overflow-hidden rounded-full bg-raised"
+                  >
+                    <span
+                      className={cn(
+                        "block h-full transition-[width] duration-100",
+                        mix.muted.includes(i) || (mix.solo !== null && mix.solo !== i)
+                          ? "bg-ink-3/50"
+                          : "bg-ink-2",
+                      )}
+                      style={{ width: `${meterFraction(levels?.[i] ?? SILENCE) * 100}%` }}
+                    />
+                  </span>
+                )}
               </li>
             ))}
           </ul>

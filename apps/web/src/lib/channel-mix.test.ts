@@ -24,7 +24,8 @@ describe("hearing a recording's channels (#74)", () => {
       "Rs",
     ]);
     expect(speakerNames(sevenOne, 8)).toEqual(["L", "R", "C", "LFE", "Lrs", "Rrs", "Lss", "Rss"]);
-    // A file that does not say how it is laid out has numbered channels.
+    // A file that does not say how it is laid out: a pair is left and right, wider is numbered.
+    expect(speakerNames(null, 2)).toEqual(["L", "R"]);
     expect(speakerNames(null, 3)).toEqual(["1", "2", "3"]);
   });
 
