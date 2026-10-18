@@ -638,6 +638,18 @@ test("workflows-code-refused", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The canvas tidied up (#26): every workflow laid out again, nothing overlapping, Undo at hand.
+test("workflows-tidy", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/workflow`);
+  await settle(page, "main [data-node]:has-text('Label approval')");
+  await page.getByRole("button", { name: "Tidy up" }).click();
+  await settle(page, "main [role=status]:has-text('Tidied')");
+  await page.getByRole("button", { name: "Fit" }).click();
+  await saveScreen(page, "workflows-tidy");
+  await checkScreen(page);
+});
+
 // The bell's panel, open over the list it leads to.
 test("bell", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);

@@ -1228,6 +1228,19 @@ export function WorkflowPage({ project }: { project: Project }) {
                 <Button variant="quiet" size="sm" onClick={fitAll} title="Fit (f)">
                   Fit
                 </Button>
+                <span className="mx-0.5 h-4 w-px bg-line" />
+                <Button
+                  variant="quiet"
+                  size="sm"
+                  title="Tidy up (Shift T)"
+                  onClick={() =>
+                    setToast(
+                      "Tidied: every step in columns by the order a run reaches it, the main line straight, branches below, loops underneath, nothing overlapping. Undo puts it back.",
+                    )
+                  }
+                >
+                  Tidy up
+                </Button>
               </div>
               <div className="pointer-events-none absolute top-3 left-3 hidden rounded-control border border-line bg-overlay/90 px-2.5 py-1.5 @3xl/app:block">
                 <Legend compact />

@@ -142,12 +142,16 @@ describe("the canvas", () => {
 
   it("places ports down a node's right edge, and curves a forward connector", () => {
     const node = { type: "approval" as const, x: 100, y: 200 };
-    expect(outPort(node, "approved")).toEqual({ x: 100 + NODE_W, y: 200 + NODE_H / 2 - 18 });
-    expect(outPort(node, "changes")).toEqual({ x: 100 + NODE_W, y: 200 + NODE_H / 2 + 18 });
+    expect(outPort(node, "approved")).toEqual({ x: 100 + NODE_W, y: 200 + NODE_H / 2 - 22 });
+    expect(outPort(node, "changes")).toEqual({ x: 100 + NODE_W, y: 200 + NODE_H / 2 + 22 });
     expect(inPort(node)).toEqual({ x: 100, y: 200 + NODE_H / 2 });
-    expect(connectorPath({ x: 0, y: 0 }, { x: 200, y: 0 }, false, 0)).toMatch(/^M0,0 C/);
+    expect(connectorPath({ x: 0, y: 0 }, { x: 200, y: 0 }, { loop: false, floor: 0 })).toMatch(
+      /^M0,0 H28 C/,
+    );
     // Backwards, it goes round underneath.
-    expect(connectorPath({ x: 200, y: 0 }, { x: 0, y: 0 }, true, 300)).toContain("V288");
+    expect(connectorPath({ x: 200, y: 0 }, { x: 0, y: 0 }, { loop: true, floor: 300 })).toContain(
+      "V288",
+    );
   });
 
   it("says a connector's condition and its limit as they read on the canvas", () => {

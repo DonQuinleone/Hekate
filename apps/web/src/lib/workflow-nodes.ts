@@ -216,7 +216,8 @@ export const NODE_W = 208;
 export const NODE_H = 60;
 /** The space between one workflow and the next on the canvas. */
 export const BAND_GAP = 180;
-const PORT_STEP = 18;
+/** Between one outcome's port and the next: room for the chips beside them. */
+const PORT_STEP = 22;
 
 export interface Pt {
   x: number;
@@ -250,18 +251,33 @@ export const portTop = (type: NodeType, i: number) =>
 
 export const inPort = (n: Placed): Pt => ({ x: n.x, y: n.y + NODE_H / 2 });
 
+/** How a connector's line is drawn: where a loop's bottom run lies, and how it clears others. */
+export interface Route {
+  loop: boolean;
+  /** The height of a loop's bottom run, below the workflow. */
+  floor: number;
+  /** How far it runs straight out of its port before turning: past the chips beside it. */
+  lead?: number;
+  /** Extra room before a loop drops, and before it rises into its node, so loops leaving or
+   * entering the same node run side by side rather than on top of each other. */
+  out?: number;
+  into?: number;
+}
+
 /**
- * A connector's line: a forward one curves; a loop goes right, drops below the workflow, and
- * comes back in from the left.
+ * A connector's line: straight out of its port past its chip, then a forward one curves into its
+ * node; a loop drops below the workflow and comes back in from the left.
  */
-export function connectorPath(a: Pt, b: Pt, loop: boolean, floor: number): string {
-  if (!loop && b.x >= a.x + 48) {
-    const dx = Math.max(60, (b.x - a.x) / 2);
-    return `M${a.x},${a.y} C${a.x + dx},${a.y} ${b.x - dx},${b.y} ${b.x},${b.y}`;
+export function connectorPath(a: Pt, b: Pt, route: Route): string {
+  const { loop, floor, lead = 28, out = 0, into = 0 } = route;
+  const start = a.x + lead;
+  if (!loop && b.x >= start + 48) {
+    const dx = Math.max(40, (b.x - start) / 2);
+    return `M${a.x},${a.y} H${start} C${start + dx},${a.y} ${b.x - dx},${b.y} ${b.x},${b.y}`;
   }
   const r = 12;
-  const x1 = a.x + 28;
-  const x2 = b.x - 28;
+  const x1 = start + out;
+  const x2 = b.x - 28 - into;
   return [
     `M${a.x},${a.y}`,
     `H${x1 - r} Q${x1},${a.y} ${x1},${a.y + r}`,
@@ -270,12 +286,6 @@ export function connectorPath(a: Pt, b: Pt, loop: boolean, floor: number): strin
     `V${b.y + r} Q${x2},${b.y} ${x2 + r},${b.y}`,
     `H${b.x}`,
   ].join(" ");
-}
-
-/** Where a connector's label sits: the middle of a curve, the bottom run of a loop. */
-export function labelAt(a: Pt, b: Pt, loop: boolean, floor: number): Pt {
-  if (!loop && b.x >= a.x + 48) return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-  return { x: (a.x + 28 + b.x - 28) / 2, y: floor };
 }
 
 export function boundsOf(nodes: { x: number; y: number }[]): Bounds {
