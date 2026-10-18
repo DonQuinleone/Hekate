@@ -279,6 +279,8 @@ export async function sharedTakesOf(
       starred: t.starred,
       barFrom: t.barFrom,
       barTo: t.barTo,
+      inPoint: t.inPoint,
+      outPoint: t.outPoint,
       file: file
         ? {
             id: file.id,

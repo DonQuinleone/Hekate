@@ -1,4 +1,5 @@
 import {
+  barSpan,
   barsLabel,
   barsOf,
   clockOf,
@@ -28,6 +29,7 @@ import {
   takesUsed,
   usedAtBar,
 } from "~/lib/edit-decisions";
+import { formatLoop } from "~/lib/loop";
 import {
   editDecisionsQuery,
   type Track,
@@ -769,10 +771,16 @@ export function OtherTakes({
   bar,
   onClose,
   share,
+  onAudition,
 }: {
   trackId: string;
   bar: number;
   onClose: () => void;
+  /**
+   * Hear a take at this bar against the recording (#46), where the thread says when the bar
+   * was heard: its file, its number and where the bar lies in it.
+   */
+  onAudition?: (take: { fileId: string; number: number; span: [number, number] }) => void;
   /** For those who triage (#133): the takes the thread already has, and how to share more. */
   share?: { shared: string[]; onShare: (takeIds: string[]) => Promise<unknown> };
 }) {
@@ -781,6 +789,8 @@ export function OtherTakes({
   const { data: decisions } = useQuery(editDecisionsQuery(trackId));
   const list = takes ? takesCovering(takes, bar) : [];
   const [mode, setMode] = useState<"ticked" | "all" | "except">("ticked");
+  /** The take being auditioned, to say so and to press its button. */
+  const [auditioning, setAuditioning] = useState<string | null>(null);
   const [ticked, setTicked] = useState<Set<string>>(new Set());
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -838,42 +848,70 @@ export function OtherTakes({
         </p>
       ) : (
         <ul className="m-0 list-none p-0">
-          {list.map((t) => (
-            <li key={t.id} className="flex items-center border-b border-line last:border-b-0">
-              {share && mode !== "all" && (
-                // A cell of its own, so the box keeps its distance from the take's link.
-                <span className="flex w-10 shrink-0 items-center justify-center self-stretch">
-                  <Checkbox
-                    checked={ticked.has(t.id)}
-                    onChange={() => tick(t.id)}
-                    aria-label={`Tick take ${t.number}`}
-                  />
-                </span>
-              )}
-              {t.file ? (
-                <Link
-                  to="/files/$fileId"
-                  params={{ fileId: t.file.id }}
-                  className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-1.5 no-underline hover:bg-raised/40"
-                >
-                  <OtherTake
-                    take={t}
-                    shared={share?.shared.includes(t.id)}
-                    usedIn={usedAtBar(decisions, t.id, bar)}
-                  />
-                </Link>
-              ) : (
-                <span className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-1.5">
-                  <OtherTake
-                    take={t}
-                    shared={share?.shared.includes(t.id)}
-                    usedIn={usedAtBar(decisions, t.id, bar)}
-                  />
-                </span>
-              )}
-            </li>
-          ))}
+          {list.map((t) => {
+            // Heard at the bar, looped, where the take's bars place it (#46).
+            const span = t.file ? barSpan({ ...t, duration: t.file.duration }, bar) : null;
+            return (
+              <li key={t.id} className="flex items-center border-b border-line last:border-b-0">
+                {share && mode !== "all" && (
+                  // A cell of its own, so the box keeps its distance from the take's link.
+                  <span className="flex w-10 shrink-0 items-center justify-center self-stretch">
+                    <Checkbox
+                      checked={ticked.has(t.id)}
+                      onChange={() => tick(t.id)}
+                      aria-label={`Tick take ${t.number}`}
+                    />
+                  </span>
+                )}
+                {t.file ? (
+                  <Link
+                    to="/files/$fileId"
+                    params={{ fileId: t.file.id }}
+                    search={span ? { loop: barLoop(span), t: barLoopStart(span) } : {}}
+                    title={span ? `Hear bar ${bar} of take ${t.number}, looped` : undefined}
+                    className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-1.5 no-underline hover:bg-raised/40"
+                  >
+                    <OtherTake
+                      take={t}
+                      shared={share?.shared.includes(t.id)}
+                      usedIn={usedAtBar(decisions, t.id, bar)}
+                    />
+                  </Link>
+                ) : (
+                  <span className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-1.5">
+                    <OtherTake
+                      take={t}
+                      shared={share?.shared.includes(t.id)}
+                      usedIn={usedAtBar(decisions, t.id, bar)}
+                    />
+                  </span>
+                )}
+                {onAudition && span && t.file?.streamStatus === "ready" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Audition take ${t.number} at bar ${bar}`}
+                    aria-pressed={auditioning === t.id}
+                    className="mr-1.5 shrink-0 aria-pressed:bg-raised aria-pressed:text-ink"
+                    title="Heard against this recording at the bar, looped and level-matched; the number keys flip between them"
+                    onClick={() => {
+                      setAuditioning(t.id);
+                      onAudition({ fileId: t.file?.id ?? "", number: t.number, span });
+                    }}
+                  >
+                    Audition
+                  </Button>
+                )}
+              </li>
+            );
+          })}
         </ul>
+      )}
+      {auditioning && (
+        <p role="status" className="m-0 border-t border-line px-3 py-1.5 text-[12px] text-ink-3">
+          Auditioning at bar {bar}, looped and level-matched against this recording. Press 1 and 2
+          to flip between them.
+        </p>
       )}
       {share && list.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 border-t border-line px-3 py-2">
@@ -917,6 +955,11 @@ export function OtherTakes({
     </section>
   );
 }
+
+/** A bar's place in a take as a loop in the address, to the hundredth, never narrower. */
+const barLoopStart = (span: [number, number]) => Math.floor(span[0] * 100) / 100;
+const barLoop = (span: [number, number]) =>
+  formatLoop({ start: barLoopStart(span), end: Math.ceil(span[1] * 100) / 100 });
 
 function OtherTake({
   take,
@@ -990,7 +1033,11 @@ export function SharedTakes({
       {open && (
         <Dialog
           title={bar === undefined ? "Attached takes" : `Takes for bar ${bar}`}
-          description="Shared on this thread. Each opens in the player."
+          description={
+            bar === undefined
+              ? "Shared on this thread. Each opens in the player."
+              : `Shared on this thread. Each opens in the player, looped on bar ${bar} where the take's bars place it.`
+          }
           onClose={() => setOpen(false)}
           footer={
             <Button variant="ghost" onClick={() => setOpen(false)}>
@@ -999,35 +1046,44 @@ export function SharedTakes({
           }
         >
           <ul className="m-0 flex list-none flex-col rounded-panel border border-line p-0">
-            {takes.map((t) => (
-              <li key={t.id} className="flex items-center border-b border-line last:border-b-0">
-                {t.file ? (
-                  <Link
-                    to={guest ? "/g/files/$fileId" : "/files/$fileId"}
-                    params={{ fileId: t.file.id }}
-                    className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 no-underline hover:bg-raised/40"
-                  >
-                    <OtherTake take={t} />
-                  </Link>
-                ) : (
-                  <span className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2">
-                    <OtherTake take={t} />
-                  </span>
-                )}
-                {onUnshare && (
-                  <Button
-                    variant="ghost"
-                    size="iconSm"
-                    aria-label={`Unshare take ${t.number}`}
-                    title="Unshare"
-                    onClick={() => onUnshare(t.id)}
-                    className="mr-2"
-                  >
-                    <Icon name="close" size={13} />
-                  </Button>
-                )}
-              </li>
-            ))}
+            {takes.map((t) => {
+              // On a thread about a bar, each is heard at that bar, looped (#46).
+              const span =
+                t.file && bar !== undefined
+                  ? barSpan({ ...t, duration: t.file.duration }, bar)
+                  : null;
+              return (
+                <li key={t.id} className="flex items-center border-b border-line last:border-b-0">
+                  {t.file ? (
+                    <Link
+                      to={guest ? "/g/files/$fileId" : "/files/$fileId"}
+                      params={{ fileId: t.file.id }}
+                      search={span ? { loop: barLoop(span), t: barLoopStart(span) } : {}}
+                      title={span ? `Hear bar ${bar} of take ${t.number}, looped` : undefined}
+                      className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 no-underline hover:bg-raised/40"
+                    >
+                      <OtherTake take={t} />
+                    </Link>
+                  ) : (
+                    <span className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2">
+                      <OtherTake take={t} />
+                    </span>
+                  )}
+                  {onUnshare && (
+                    <Button
+                      variant="ghost"
+                      size="iconSm"
+                      aria-label={`Unshare take ${t.number}`}
+                      title="Unshare"
+                      onClick={() => onUnshare(t.id)}
+                      className="mr-2"
+                    >
+                      <Icon name="close" size={13} />
+                    </Button>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </Dialog>
       )}

@@ -275,6 +275,11 @@ export interface CompareFocus {
   shift: number;
   /** Changes each time it is asked for, so asking again brings it back. */
   nonce: number;
+  /**
+   * A source from outside the track's versions, such as a take ("T3", #46): what to call it,
+   * and the track it belongs with, so it never follows the listener to another track.
+   */
+  outside?: { label: string; trackId: string };
 }
 
 export function Compare({
@@ -301,10 +306,13 @@ export function Compare({
     // A focused source joins the offer even when it is not one of the usual ones.
     const extra =
       focus && !offered.some((c) => c.fileId === focus.fileId)
-        ? sourceFor(track, focus.fileId)
+        ? (sourceFor(track, focus.fileId) ??
+          (focus.outside && focus.outside.trackId === variation?.trackId
+            ? { fileId: focus.fileId, label: focus.outside.label, versionNumber: 0 }
+            : undefined))
         : undefined;
     return extra ? [extra, ...offered] : offered;
-  }, [track, file.id, focus]);
+  }, [track, file.id, focus, variation?.trackId]);
   const [pinned, setPinned] = useState<string[]>([]);
   /** The source being heard, by file, so pinning or unpinning others never changes it. */
   const [heard, setHeard] = useState<string | null>(null);

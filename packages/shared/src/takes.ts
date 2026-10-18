@@ -69,12 +69,40 @@ export interface TakeRow extends TakePlace {
 /** A take shared on a thread: what a reviewer is shown of it, and the file to hear. */
 export type SharedTake = Pick<
   TakeRow,
-  "id" | "number" | "label" | "notes" | "rating" | "starred" | "barFrom" | "barTo" | "file"
+  | "id"
+  | "number"
+  | "label"
+  | "notes"
+  | "rating"
+  | "starred"
+  | "barFrom"
+  | "barTo"
+  | "inPoint"
+  | "outPoint"
+  | "file"
 >;
 
 /** The bars a take covers: its range, or the one bar when only the first is given. */
 export const barsOf = (t: Pick<TakePlace, "barFrom" | "barTo">): [number, number] | null =>
   t.barFrom === null ? null : [t.barFrom, t.barTo ?? t.barFrom];
+
+/**
+ * Where a bar lies in a take, in seconds (#46): its bars spread evenly over the part that
+ * counts (its in to out points, or the whole file), as an edit decision list's bars are read
+ * (`barsUsed`). Null where the take does not cover the bar or its length is unknown.
+ */
+export function barSpan(
+  take: TakePlace & { duration: number | null },
+  bar: number,
+): [number, number] | null {
+  const range = barsOf(take);
+  if (!range || bar < range[0] || bar > range[1]) return null;
+  const start = take.inPoint ?? 0;
+  const end = take.outPoint ?? take.duration;
+  if (end === null || end <= start) return null;
+  const each = (end - start) / (range[1] - range[0] + 1);
+  return [start + (bar - range[0]) * each, start + (bar - range[0] + 1) * each];
+}
 
 /** Whether a take covers a bar. */
 export function covers(t: Pick<TakePlace, "barFrom" | "barTo">, bar: number): boolean {

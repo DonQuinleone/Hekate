@@ -117,6 +117,8 @@ export interface BeforeAfter {
   shift: number;
   /** The passage here, with a little run-up and run-out. */
   loop: Loop;
+  /** What to call it where it is no version of this track: a take ("T3", #46). */
+  label?: string;
 }
 
 /** One chosen file, told apart from another. */
@@ -987,6 +989,21 @@ function ThreadView({
           trackId={takesOf}
           bar={anchor.from.bar}
           onClose={() => setTakesOpen(false)}
+          // Heard against this recording from the moment the thread was written (#46): the
+          // take's bar lined up with it, looped, level-matched, one key flipping between them.
+          onAudition={
+            onBeforeAfter && anchor.at !== undefined
+              ? (take) => {
+                  const at = anchor.at ?? 0;
+                  onBeforeAfter({
+                    fileId: take.fileId,
+                    label: `T${take.number}`,
+                    shift: take.span[0] - at,
+                    loop: { start: at, end: at + (take.span[1] - take.span[0]) },
+                  });
+                }
+              : undefined
+          }
           share={
             canTriage
               ? {
