@@ -5,6 +5,7 @@ import {
   flowShape,
   measuredState,
   simulateWorkflow,
+  stageClock,
   startRun,
   type WorkflowConnector,
   type WorkflowContext,
@@ -358,5 +359,29 @@ describe("measuredState", () => {
     expect(file("video", picture)).toBe("unchecked");
     expect(file("document", null, "pending")).toBe("unchecked");
     expect(file("image", null, "none")).toBe("unchecked");
+  });
+});
+
+describe("stageClock", () => {
+  const at = (type: WorkflowNode["type"], config: Record<string, string> = {}) =>
+    stageClock({ type, config });
+
+  it("runs a wait for its days, at once without any", () => {
+    expect(at("wait", { days: "2" })).toEqual({ seconds: 172_800, outcome: "elapsed" });
+    expect(at("wait", { days: "0.5" })).toEqual({ seconds: 43_200, outcome: "elapsed" });
+    expect(at("wait")).toEqual({ seconds: 0, outcome: "elapsed" });
+  });
+
+  it("makes feedback and tasks overdue only when they are given days", () => {
+    expect(at("feedback", { due: "3" })).toEqual({ seconds: 259_200, outcome: "overdue" });
+    expect(at("task", { due: "1" })).toEqual({ seconds: 86_400, outcome: "overdue" });
+    expect(at("feedback")).toBeNull();
+    expect(at("task", { due: "soon" })).toBeNull();
+  });
+
+  it("starts none for anything else", () => {
+    expect(at("approval", { due: "3" })).toBeNull();
+    expect(at("checks")).toBeNull();
+    expect(at("notify")).toBeNull();
   });
 });

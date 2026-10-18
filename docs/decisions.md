@@ -524,3 +524,11 @@ A *Run the checks* stage (#25) is ended by Hekate, not by a person: it reads the
 - **Its outcome.** *Failed* when any check fails, or when a recording or video could not be read or measured (its probe found nothing it could read, or its analysis failed); *warnings* when any check warns; *passed* otherwise. A version with nothing to check (a score, a picture, a video without sound) passes.
 - **When.** At once where every file has been measured; otherwise when the last one has, as the media worker says so (a `workflow-checks` job). The hourly sweep that ends waits (decision 117) ends these too, should that job have been lost. A run that has moved past the stage is left as it is.
 - **By hand.** Those who edit workflows may still end it by hand, by one of its outcomes, as any stage; a file whose measuring never finishes would otherwise hold the run.
+
+## 120. A stage given days until it is due ends overdue when they pass
+
+A feedback or task stage given days until it is due (#25) starts a clock when a run reaches it, as a wait does (decision 117): a job queued for when its days run out, which the hourly sweep stands in for should it be lost.
+
+- **Its outcome.** If the run still waits on the stage when the clock runs out, the stage ends by *overdue*, done by Hekate rather than a person; a stage ended first (feedback submitted, a task done) is left as it is, and so is a stage the run has reached again since, which has a clock of its own.
+- **The review.** A feedback stage's review, due at the same moment, stays open: late notes are still welcome, though they no longer move the run.
+- **Not approvals.** An approval has no *overdue* outcome; its due date only reminds its reviewers, as any review's does.

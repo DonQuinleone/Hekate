@@ -23,7 +23,7 @@ import { settingsOrExit } from "./startup.ts";
 import { serveWeb } from "./static.ts";
 import { createStorage } from "./storage.ts";
 import { recordedReconciliation } from "./storage-usage.ts";
-import { fileMeasured, sweepRuns, waitElapsed } from "./workflow-runner.ts";
+import { clockElapsed, fileMeasured, sweepRuns } from "./workflow-runner.ts";
 import { rewrapBehind, rewrapOrganisation } from "./workspace-keys.ts";
 import { purgeDueWorkspaces } from "./workspace-purge.ts";
 
@@ -160,7 +160,7 @@ export async function boot(
       reviews: { db, audit, mailer, publicUrl: config.PUBLIC_URL, trustProxy: false },
     };
     await jobs.work("workflow-wait", async (data) => {
-      await waitElapsed(runner, data);
+      await clockElapsed(runner, data);
     });
     await jobs.work("workflow-checks", async (data) => {
       await fileMeasured(runner, data);
