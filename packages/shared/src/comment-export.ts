@@ -125,6 +125,12 @@ export const commentExportQuery = z.object({
 });
 
 export type CommentExportQuery = z.input<typeof commentExportQuery>;
+
+/** The printable sheet's choices (#134): which threads, and whether their replies follow. */
+export const commentSheetQuery = z.object({
+  threads: z.enum(["open", "all"]).default("open"),
+  replies: z.stringbool().default(true),
+});
 export type CommentExportOptions = z.output<typeof commentExportQuery>;
 
 /** Which choices mean something for a target: the dialog offers only those. */
