@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  checksOutcome,
   completeNode,
   flowShape,
+  measuredState,
   simulateWorkflow,
   startRun,
   type WorkflowConnector,
@@ -304,5 +306,57 @@ describe("running a workflow (#25)", () => {
     };
     const { effects } = startRun(flow, "s", { item: { kind: "audio", tags: [] }, by: "guest" });
     expect(read(effects)).toEqual(["do guest", "finish null"]);
+  });
+});
+
+describe("checksOutcome", () => {
+  const checked = (...severities: ("pass" | "info" | "warn" | "fail")[]) =>
+    ({ state: "checked", severities }) as const;
+
+  it("waits while any file is still being measured", () => {
+    expect(checksOutcome([checked("fail"), { state: "measuring" }])).toBeNull();
+  });
+
+  it("ends by the worst the reports found", () => {
+    expect(checksOutcome([checked("pass", "info"), { state: "unchecked" }])).toBe("passed");
+    expect(checksOutcome([checked("pass"), checked("warn", "info")])).toBe("warnings");
+    expect(checksOutcome([checked("warn"), checked("fail")])).toBe("failed");
+  });
+
+  it("fails a file that cannot be measured, and passes a version with nothing to check", () => {
+    expect(checksOutcome([checked("pass"), { state: "unmeasurable" }])).toBe("failed");
+    expect(checksOutcome([{ state: "unchecked" }])).toBe("passed");
+    expect(checksOutcome([])).toBe("passed");
+  });
+});
+
+describe("measuredState", () => {
+  const sound = { duration: 60, audio: { codec: "pcm_s24le", channels: 2, sampleRate: 48_000 } };
+  const picture = { duration: 60, video: { codec: "h264", width: 1920, height: 1080 } };
+  const file = (
+    kind: string,
+    mediaInfo: unknown,
+    streamStatus = "ready",
+    analysisStatus = "none",
+  ) => measuredState({ kind, mediaInfo: mediaInfo as never, streamStatus, analysisStatus });
+
+  it("waits for a recording to be probed and analysed", () => {
+    expect(file("audio", null, "pending")).toBe("measuring");
+    expect(file("audio", sound, "pending", "pending")).toBe("measuring");
+    expect(file("audio", sound, "ready", "ready")).toBe("measured");
+  });
+
+  it("finds a recording that could not be read unmeasurable", () => {
+    expect(file("audio", null, "failed")).toBe("unmeasurable");
+    // A probe that rejects the file records it as examined and found to hold nothing.
+    expect(file("audio", {}, "failed")).toBe("unmeasurable");
+    expect(file("video", {}, "failed")).toBe("unmeasurable");
+    expect(file("audio", sound, "ready", "failed")).toBe("unmeasurable");
+  });
+
+  it("does not check what has no sound to check", () => {
+    expect(file("video", picture)).toBe("unchecked");
+    expect(file("document", null, "pending")).toBe("unchecked");
+    expect(file("image", null, "none")).toBe("unchecked");
   });
 });

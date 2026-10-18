@@ -55,7 +55,7 @@ import { remindDue } from "./reminders.ts";
 import { createSetupGate, SETUP_CODE_HEADER } from "./setup-code.ts";
 import { createStorage } from "./storage.ts";
 import { expireUploads } from "./uploads.ts";
-import { sweepWaits, waitElapsed, workflowsFor } from "./workflow-runner.ts";
+import { fileMeasured, sweepRuns, waitElapsed, workflowsFor } from "./workflow-runner.ts";
 import { rewrapBehind, rewrapOrganisation } from "./workspace-keys.ts";
 import { purgeDueWorkspaces } from "./workspace-purge.ts";
 
@@ -8219,8 +8219,8 @@ describe.runIf(url)("api", () => {
           );
           expect((await runs())[0]?.state).toBe("running");
           // Were the job never queued, the hourly sweep ends the wait once its day has passed.
-          expect(await sweepWaits({ db, jobs })).toBe(0);
-          expect(await sweepWaits({ db, jobs }, new Date(Date.now() + 2 * 86_400_000))).toBe(1);
+          expect(await sweepRuns({ db, jobs })).toBe(0);
+          expect(await sweepRuns({ db, jobs }, new Date(Date.now() + 2 * 86_400_000))).toBe(1);
           // The job arriving after the sweep changes nothing.
           await waitElapsed({ db, jobs }, wait);
           [run] = await runs();
@@ -8540,6 +8540,148 @@ describe.runIf(url)("api", () => {
                 "No role or group of the project is called Soloists. It waits to be ended by hand.",
             },
           ]);
+        });
+
+        it("ends a checks stage by the quality reports of its version (#25)", async () => {
+          const s = await studio();
+          const at = (id: string, type: string, name: string, x: number, config = {}) => ({
+            id,
+            type,
+            name,
+            x,
+            y: 0,
+            config,
+          });
+          const definition = {
+            nodes: [
+              at("start", "upload", "A version is uploaded", 0),
+              at("qa", "checks", "Delivery checks", 1),
+              at("ok", "finish", "Clean", 2, { status: "Clean" }),
+              at("warn", "finish", "Warned", 2, { status: "Warned" }),
+              at("bad", "finish", "Rejected", 2, { status: "Rejected" }),
+            ],
+            connectors: [
+              { id: "1", from: "start", outcome: "happened", to: "qa" },
+              { id: "2", from: "qa", outcome: "passed", to: "ok" },
+              { id: "3", from: "qa", outcome: "warnings", to: "warn" },
+              { id: "4", from: "qa", outcome: "failed", to: "bad" },
+            ],
+          };
+          const made = (await (
+            await app.request(
+              `/api/projects/${s.projectId}/workflows`,
+              json({ name: "Delivery", definition }, s.owner),
+            )
+          ).json()) as { workflow: { id: string } };
+          await app.request(`/api/workflows/${made.workflow.id}`, {
+            ...json({ active: true }, s.owner),
+            method: "PATCH",
+          });
+          const recording = async (name: string) => {
+            const blob = await storage.put(s.organisationId, Buffer.from(name));
+            const [file] = await db
+              .insert(schema.files)
+              .values({
+                organisationId: s.organisationId,
+                projectId: s.projectId,
+                name,
+                kind: "audio",
+                blobId: blob.id,
+                contentType: "audio/wav",
+                byteSize: blob.byteSize,
+                streamStatus: "pending",
+                analysisStatus: "pending",
+                mediaInfo: {
+                  duration: 60,
+                  audio: { codec: "pcm_s24le", channels: 2, sampleRate: 48000, bitDepth: 24 },
+                } as never,
+              })
+              .returning();
+            return file?.id ?? "";
+          };
+          const newVersion = (fileId: string) =>
+            app.request(
+              `/api/tracks/${s.trackId}/versions`,
+              json({ variations: [{ fileId, name: "Mix" }] }, s.owner),
+            );
+          const latest = async () => {
+            const [run] = (
+              (await (await getAs(`/api/tracks/${s.trackId}/workflow-runs`, s.owner)).json()) as {
+                runs: {
+                  state: string;
+                  status: string | null;
+                  waiting: { nodeId: string }[];
+                  steps: {
+                    nodeId: string | null;
+                    outcome: string | null;
+                    byUserId: string | null;
+                  }[];
+                }[];
+              }
+            ).runs;
+            return run;
+          };
+          const runner = { db, jobs };
+
+          // Still being measured: the stage waits, and hearing of another file changes nothing.
+          const warned = await recording("Mix v2.wav");
+          await newVersion(warned);
+          expect(await latest()).toMatchObject({ state: "running", waiting: [{ nodeId: "qa" }] });
+          await fileMeasured(runner, { organisationId: s.organisationId, fileId: s.artwork });
+          expect((await latest())?.state).toBe("running");
+
+          // Measured, with a warning: the stage ends by it, done by Hekate rather than a person.
+          await db.insert(schema.qaFindings).values({
+            organisationId: s.organisationId,
+            fileId: warned,
+            check: "loudness",
+            severity: "warn",
+            summary: "Louder than the profile allows",
+            details: {},
+          });
+          await db
+            .update(schema.files)
+            .set({ analysisStatus: "ready" })
+            .where(eq(schema.files.id, warned));
+          await fileMeasured(runner, { organisationId: s.organisationId, fileId: warned });
+          let run = await latest();
+          expect(run).toMatchObject({ state: "finished", status: "Warned" });
+          expect(run?.steps.at(-1)).toMatchObject({
+            nodeId: "qa",
+            outcome: "warnings",
+            byUserId: null,
+          });
+
+          // A version with nothing to check (a score) passes at once.
+          const blob = await storage.put(s.organisationId, Buffer.from("score"));
+          const [score] = await db
+            .insert(schema.files)
+            .values({
+              organisationId: s.organisationId,
+              projectId: s.projectId,
+              name: "Score.pdf",
+              kind: "document",
+              blobId: blob.id,
+              contentType: "application/pdf",
+              byteSize: blob.byteSize,
+            })
+            .returning();
+          await newVersion(score?.id ?? "");
+          expect(await latest()).toMatchObject({ state: "finished", status: "Clean" });
+
+          // One that cannot be measured fails; the hourly sweep ends it where no job did.
+          const broken = await recording("Mix v4.wav");
+          await newVersion(broken);
+          expect((await latest())?.state).toBe("running");
+          expect(await sweepRuns(runner)).toBe(0);
+          await db
+            .update(schema.files)
+            .set({ analysisStatus: "failed" })
+            .where(eq(schema.files.id, broken));
+          expect(await sweepRuns(runner)).toBe(1);
+          run = await latest();
+          expect(run).toMatchObject({ state: "finished", status: "Rejected" });
+          expect(run?.steps.at(-1)).toMatchObject({ nodeId: "qa", outcome: "failed" });
         });
 
         it("reads a version's edit decision list and says which take each edit comes from (#56)", async () => {
