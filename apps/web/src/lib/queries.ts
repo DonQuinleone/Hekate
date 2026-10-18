@@ -89,6 +89,7 @@ import {
   type SsoSettingsInput,
   searchResponse,
   type TakeChange,
+  type TakeImport,
   type TakeRow,
   type TrackState,
   type TriageInput,
@@ -1847,6 +1848,17 @@ export function useSessionMutations(projectId: string) {
       onSuccess: () => {
         refresh();
         // Its takes no longer name it.
+        void client.invalidateQueries({ queryKey: ["tracks"] });
+      },
+    }),
+    /** Files already uploaded made the takes an import proposed (#45). */
+    importTakes: useMutation({
+      mutationFn: async (input: TakeImport) =>
+        json<{ imported: number; skipped: number }>(
+          await api.projects[":id"].takes.import.$post({ param: { id: projectId }, json: input }),
+        ),
+      onSuccess: () => {
+        refresh();
         void client.invalidateQueries({ queryKey: ["tracks"] });
       },
     }),

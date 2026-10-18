@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import postgres from "postgres";
+import { waveBytes } from "../../../packages/shared/src/fixtures/wave.ts";
 import { checkScreen } from "./checks.ts";
 import { FIXED_TIME, type Seeded, saveScreen, seeded, state } from "./fixtures.ts";
 
@@ -1470,6 +1471,120 @@ test("project-session-new", async ({ page }) => {
   await expect(dialog.getByRole("button", { name: "Make the session" })).toBeEnabled();
   await saveScreen(page, "project-session-new");
   await checkScreen(page);
+});
+
+// Take import (#45): a day's files read in the browser, the takes proposed, then made.
+const sessionFiles = (
+  takes: { take: string; scene: string; day: string; start: number; mics?: string[] }[],
+) => [
+  ...takes.flatMap(({ take, scene, day, start, mics = ["Mix", "Spot"] }) =>
+    mics.map((mic) => ({
+      name: `T${take}_${mic}.wav`,
+      mimeType: "audio/wav",
+      buffer: Buffer.from(
+        waveBytes({
+          channels: mic === "Mix" ? 2 : 1,
+          seconds: mic === "Mix" ? 4 : 2,
+          day,
+          start,
+          ixml: { scene, take, tape: "Recorder A", tracks: mic === "Mix" ? ["L", "R"] : [mic] },
+        }),
+      ),
+    })),
+  ),
+  { name: "Room tone.wav", mimeType: "audio/wav", buffer: Buffer.from(waveBytes({ channels: 2 })) },
+];
+
+const dayThreeFiles = () =>
+  sessionFiles([
+    {
+      take: "27",
+      scene: "Maple Leaf Rag",
+      day: "2026-10-14",
+      start: 36_842,
+      mics: ["Mix", "Spot", "Tree"],
+    },
+    {
+      take: "28",
+      scene: "Maple Leaf Rag",
+      day: "2026-10-14",
+      start: 37_180,
+      mics: ["Mix", "Spot", "Tree"],
+    },
+    { take: "29", scene: "Pine Apple Rag", day: "2026-10-14", start: 37_571 },
+    { take: "30", scene: "The Entertainer", day: "2026-10-16", start: 50_520 },
+  ]);
+
+async function openTakeImport(page: Page) {
+  await page.goto(`/projects/${seeded().musicProjectId}/sessions`);
+  await settle(page, "main >> text=Day 2");
+  await page.getByRole("button", { name: "Import takes" }).click();
+  return page.getByRole("dialog", { name: "Import takes" });
+}
+
+test("project-sessions-import", async ({ page }) => {
+  const dialog = await openTakeImport(page);
+  await dialog.getByLabel("Session files").setInputFiles(dayThreeFiles());
+  await expect(dialog.getByText(/^11 files, /)).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Propose the takes" })).toBeEnabled();
+  await saveScreen(page, "project-sessions-import");
+  await checkScreen(page);
+});
+
+test("project-sessions-import-proposed", async ({ page }) => {
+  const dialog = await openTakeImport(page);
+  await dialog.getByLabel("Session files").setInputFiles(dayThreeFiles());
+  await dialog.getByRole("button", { name: "Propose the takes" }).click();
+  // Day 3's takes join Day 3; T29 names no track there is; the room tone has no take.
+  await expect(dialog.getByRole("region", { name: "Day 3" })).toContainText("adds to this session");
+  await expect(dialog.getByLabel("Track of Pine Apple Rag T29")).toHaveValue("");
+  await expect(dialog.getByText(/“Room tone.wav” has no take number or timecode/)).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Import 3 takes" })).toBeEnabled();
+  await saveScreen(page, "project-sessions-import-proposed");
+  await checkScreen(page);
+});
+
+test("project-sessions-import-made", async ({ page }) => {
+  const sql = postgres(process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL ?? "", { max: 1 });
+  const names = ["T41_Mix.wav", "T42_Mix.wav"];
+  const cleanUp = async () => {
+    await sql`delete from takes where id in (select take_id from files where name in ${sql(names)})`;
+    await sql`delete from files where name in ${sql(names)}`;
+    await sql`delete from sessions where name = '16 October 2026'`;
+  };
+  try {
+    const files = sessionFiles([
+      { take: "41", scene: "The Entertainer", day: "2026-10-16", start: 40_000 },
+      { take: "42", scene: "The Entertainer", day: "2026-10-16", start: 40_600 },
+    ]);
+    const dialog = await openTakeImport(page);
+    await dialog.getByLabel("Session files").setInputFiles(files);
+    await dialog.getByRole("button", { name: "Propose the takes" }).click();
+    // Corrected, then the correction undone.
+    await dialog.getByLabel("Track of T41").selectOption({ label: "Maple Leaf Rag" });
+    await dialog.getByRole("button", { name: "Undo" }).click();
+    await expect(dialog.getByLabel("Track of T41")).toHaveValue(/.+/);
+    await expect(dialog.getByText("The Entertainer, 100% sure")).toHaveCount(2);
+    await dialog.getByRole("button", { name: "Import 2 takes" }).click();
+    // The new session opens with the takes made in it, each its track's next take.
+    await expect(page.getByRole("heading", { name: "16 October 2026" })).toBeVisible({
+      timeout: 30_000,
+    });
+    const table = page.locator("main table");
+    await expect(table).toContainText("T41");
+    await expect(table).toContainText("T42");
+    await expect(table).toContainText("The Entertainer");
+
+    // The same files again add to that session, and nothing is made twice.
+    const again = await openTakeImport(page);
+    await again.getByLabel("Session files").setInputFiles(files);
+    await again.getByRole("button", { name: "Propose the takes" }).click();
+    await expect(again.getByText("Already imported")).toHaveCount(2);
+    await expect(again.getByRole("button", { name: "Import", exact: true })).toBeDisabled();
+  } finally {
+    await cleanUp();
+    await sql.end();
+  }
 });
 
 // Project templates (#240): saving one from the project's settings, and starting from one.
