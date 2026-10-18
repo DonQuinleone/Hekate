@@ -295,6 +295,11 @@ export function ViewMenu({
   );
 }
 
+/** The furthest the waveform zooms in: down to the finest peaks the worker keeps. */
+const MAX_ZOOM = 16;
+const nextZoom = (zoom: number, direction: 1 | -1) =>
+  Math.max(1, Math.min(MAX_ZOOM, direction === 1 ? zoom * 2 : zoom / 2));
+
 const iconButton =
   "flex size-9 items-center justify-center rounded-full text-ink-2 transition-colors hover:bg-raised hover:text-ink";
 
@@ -310,6 +315,8 @@ export function Transport({
   compareOpen,
   onCompare,
   hearing,
+  zoom,
+  onZoom,
 }: {
   playback: Playback;
   duration: number;
@@ -321,8 +328,12 @@ export function Transport({
   compareOpen: boolean;
   onCompare: () => void;
   hearing?: string;
+  /** How far the waveform is zoomed in (1 is the whole file), where it can be. */
+  zoom?: number;
+  onZoom?: (zoom: number) => void;
 }) {
   const [muted, setMuted] = useState(false);
+  const zoomBy = (direction: 1 | -1) => onZoom?.(nextZoom(zoom ?? 1, direction));
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (inField(e)) return;
@@ -365,6 +376,15 @@ export function Transport({
               end: playback.time,
             });
           break;
+        case "=":
+          onZoom?.(nextZoom(zoom ?? 1, 1));
+          break;
+        case "-":
+          onZoom?.(nextZoom(zoom ?? 1, -1));
+          break;
+        case "0":
+          onZoom?.(1);
+          break;
         case "Home":
           playback.seek(0);
           break;
@@ -375,7 +395,7 @@ export function Transport({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [playback, duration, video, fps, loopsAllowed]);
+  }, [playback, duration, video, fps, loopsAllowed, zoom, onZoom]);
   const fmt = (t: number) => (video ? formatTimecode(t, fps) : formatClock(t));
   return (
     <div className="flex min-h-16 flex-wrap items-center gap-1 px-3 py-2 @3xl/app:px-4">
@@ -452,6 +472,38 @@ export function Transport({
               </span>
             )}
           </button>
+        )}
+        {onZoom && (
+          <span className="flex items-center">
+            <button
+              type="button"
+              aria-label="Zoom out"
+              title="Zoom out (−)"
+              disabled={(zoom ?? 1) <= 1}
+              onClick={() => zoomBy(-1)}
+              className={cn(iconButton, "disabled:opacity-40 disabled:hover:bg-transparent")}
+            >
+              <Icon name="zoomOut" size={16} />
+            </button>
+            <button
+              type="button"
+              title="Fit the whole file (0)"
+              onClick={() => onZoom(1)}
+              className="tabular h-9 min-w-10 rounded-full px-1.5 text-[13px] text-ink-2 hover:bg-raised hover:text-ink"
+            >
+              {(zoom ?? 1) <= 1 ? "Fit" : `${zoom}×`}
+            </button>
+            <button
+              type="button"
+              aria-label="Zoom in"
+              title="Zoom in (=)"
+              disabled={(zoom ?? 1) >= MAX_ZOOM}
+              onClick={() => zoomBy(1)}
+              className={cn(iconButton, "disabled:opacity-40 disabled:hover:bg-transparent")}
+            >
+              <Icon name="zoomIn" size={16} />
+            </button>
+          </span>
         )}
         <Dropdown
           value={

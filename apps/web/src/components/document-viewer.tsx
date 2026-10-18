@@ -12,6 +12,7 @@ import {
 } from "~/lib/pages";
 import { viewQuery } from "~/lib/queries";
 import { useShortcuts } from "~/lib/shortcuts";
+import { Icon } from "./icons";
 import { Button } from "./ui/button";
 
 /** An open thread pinned to a region of a page, numbered as in the comments. */
@@ -192,7 +193,7 @@ export function DocumentViewer({
             disabled={zoom <= 1}
             onClick={() => setZoom((z) => zoomStep(z, -1))}
           >
-            −
+            <Icon name="zoomOut" size={14} />
           </Button>
           <button
             type="button"
@@ -209,7 +210,7 @@ export function DocumentViewer({
             disabled={zoom >= 4}
             onClick={() => setZoom((z) => zoomStep(z, 1))}
           >
-            +
+            <Icon name="zoomIn" size={14} />
           </Button>
         </span>
       </div>
