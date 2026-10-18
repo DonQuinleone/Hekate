@@ -83,6 +83,7 @@ describe("tenancy", () => {
       "uploads",
       "variations",
       "versions",
+      "workflows",
     ]);
     for (const table of tenantTables) {
       expect(getTableColumns(table).organisationId?.notNull).toBe(true);
