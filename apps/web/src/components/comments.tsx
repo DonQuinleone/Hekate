@@ -22,6 +22,7 @@ import {
   createContext,
   type FormEvent,
   type KeyboardEvent,
+  type ReactNode,
   useContext,
   useEffect,
   useId,
@@ -1045,9 +1046,12 @@ export function Comments({
   onBeforeAfter,
   pages,
   seed,
+  tools,
 }: {
   /** A comment begun elsewhere (from a finding, #43): at its moment, starting with its words. */
   seed?: CommentSeed;
+  /** Controls for the panel itself, in its header: where it sits (#15). */
+  tools?: ReactNode;
   fileId: string;
   /** The file's project, whose role decides who may comment and resolve. */
   projectId: string;
@@ -1455,13 +1459,16 @@ export function Comments({
   return (
     <Mentionable value={mentionable}>
       <section aria-label="Comments" className="flex flex-col gap-4">
-        <div className="flex items-baseline justify-between">
+        <div className="flex items-center justify-between gap-2">
           <h2 className="m-0 text-[15px] font-medium">Comments</h2>
-          <span className="tabular text-xs text-ink-3">
-            {threads.open.length} open
-            {threads.deferred.length > 0 && ` · ${threads.deferred.length} deferred`}
-            {threads.resolved.length > 0 && ` · ${threads.resolved.length} resolved`}
-          </span>
+          <div className="flex items-center gap-1">
+            <span className="tabular text-xs text-ink-3">
+              {threads.open.length} open
+              {threads.deferred.length > 0 && ` · ${threads.deferred.length} deferred`}
+              {threads.resolved.length > 0 && ` · ${threads.resolved.length} resolved`}
+            </span>
+            {tools}
+          </div>
         </div>
         {canComment && (
           <>
