@@ -47,3 +47,22 @@ export const barsUsedOf = (d: EditDecisions | null | undefined, takeId: string) 
   (d?.uses ?? [])
     .filter((u) => u.takeId === takeId && u.bars)
     .map((u) => u.bars as [number, number]);
+
+/**
+ * The version whose list uses a take at a bar ("V2"), or null: "which take is used at bar
+ * 72", answered beside the takes covering it.
+ */
+export function usedAtBar(
+  d: EditDecisions | null | undefined,
+  takeId: string,
+  bar: number,
+): string | null {
+  const used = (d?.uses ?? []).some(
+    (u) => u.takeId === takeId && u.bars !== null && u.bars[0] <= bar && u.bars[1] >= bar,
+  );
+  return used && d ? `V${d.version.number}` : null;
+}
+
+/** The takes a version's list uses at all. */
+export const takesUsed = (d: EditDecisions | null | undefined) =>
+  new Set((d?.uses ?? []).flatMap((u) => (u.takeId ? [u.takeId] : [])));

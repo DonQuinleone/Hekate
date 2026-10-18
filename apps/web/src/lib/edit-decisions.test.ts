@@ -1,6 +1,13 @@
 import type { EditDecisions, EdlUse } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
-import { barsUsedOf, decisionsSummary, editLine, rateName } from "./edit-decisions";
+import {
+  barsUsedOf,
+  decisionsSummary,
+  editLine,
+  rateName,
+  takesUsed,
+  usedAtBar,
+} from "./edit-decisions";
 
 const use = (over: Partial<EdlUse>, clipName: string | null = "Take 12.wav"): EdlUse => ({
   event: {
@@ -72,5 +79,16 @@ describe("edit decisions (#56)", () => {
       [20, 22],
     ]);
     expect(barsUsedOf(null, "a")).toEqual([]);
+  });
+
+  it("says which take the version uses at a bar, and which it uses at all", () => {
+    const d = decisions([use({}), use({ takeId: "b", bars: null }), use({ takeId: null })]);
+    expect(usedAtBar(d, "a", 6)).toBe("V3");
+    expect(usedAtBar(d, "a", 12)).toBe("V3");
+    expect(usedAtBar(d, "a", 13)).toBeNull();
+    // Used, but where in its bars is not known: not said of any bar.
+    expect(usedAtBar(d, "b", 6)).toBeNull();
+    expect(usedAtBar(null, "a", 6)).toBeNull();
+    expect([...takesUsed(d)]).toEqual(["a", "b"]);
   });
 });
