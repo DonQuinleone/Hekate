@@ -203,11 +203,18 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
       .map((el) => {
         // A checkbox or radio inside its label takes the label's size.
         const label = el.closest("label");
-        const box = (
-          label && (el as HTMLInputElement).type?.match(/checkbox|radio/) ? label : el
-        ).getBoundingClientRect();
+        const sized = label && (el as HTMLInputElement).type?.match(/checkbox|radio/) ? label : el;
+        const box = sized.getBoundingClientRect();
         const small = box.width < minTarget - 0.5 || box.height < minTarget - 0.5;
-        return { el, box, small, x: box.left + box.width / 2, y: box.top + box.height / 2 };
+        // How big a target is goes by its whole box; what a neighbour can reach, by what shows.
+        return {
+          el,
+          box,
+          hit: clipped(sized, box),
+          small,
+          x: box.left + box.width / 2,
+          y: box.top + box.height / 2,
+        };
       })
       // One target inside another (a button in a link) counts as the outer one.
       .filter((t, _, all) => !all.some((o) => o.el !== t.el && o.el.contains(t.el)));
@@ -223,7 +230,7 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
         (o) =>
           o !== t &&
           layerOf(o.el) === layerOf(t.el) &&
-          (circleTouchesBox(t.x, t.y, o.box) ||
+          (circleTouchesBox(t.x, t.y, o.hit) ||
             (o.small && Math.hypot(o.x - t.x, o.y - t.y) < 2 * radius - 0.5)),
       );
       if (crowded) {

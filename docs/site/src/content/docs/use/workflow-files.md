@@ -7,6 +7,17 @@ Every workflow can be written out as a file and read back in, much as a dashboar
 
 Files are YAML, saved as `name.workflow.yaml`. Hekate ships three to start from: **Simple approval**, **Conductor first** and **Parallel stakeholders**.
 
+## In the builder
+
+Open a project's workflows (Settings, Workflows) and choose **Code**. Each workflow is shown as its file, with:
+
+- **Copy** and **Download**, to keep or share it.
+- **Import**, to read a file in, or one of the templates, over the workflow shown. Nothing is saved yet: Hekate lists what applying it would change (steps added, changed and removed, connectors rewired) and any problems, each with its line; choose **Line** to go to it.
+- **Apply**, to save it. A workflow that is switched on keeps running only if the file has no problems that would stop it.
+- **Discard**, to go back to the workflow as it is saved.
+
+You can also edit the file in place and apply it. When a project has no workflow yet, **From a template** starts one from a template directly.
+
 ## An example
 
 ```yaml
