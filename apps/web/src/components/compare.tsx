@@ -312,7 +312,7 @@ export function Compare({
             : undefined))
         : undefined;
     return extra ? [extra, ...offered] : offered;
-  }, [track, file.id, focus, variation?.trackId]);
+  }, [track, file.id, focus, variation?.trackId, file.profile]);
   const [pinned, setPinned] = useState<string[]>([]);
   /** The source being heard, by file, so pinning or unpinning others never changes it. */
   const [heard, setHeard] = useState<string | null>(null);
