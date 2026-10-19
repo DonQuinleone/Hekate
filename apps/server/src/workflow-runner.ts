@@ -7,6 +7,8 @@ import {
   sameStatus,
   stageClock,
   startRun,
+  startRunAt,
+  stopRun,
   triggersOf,
   type WorkflowContext,
   type WorkflowDefinition,
@@ -511,12 +513,15 @@ async function begin(
     projectId: string;
     trackId: string;
     versionId: string | null;
-    triggerId: string;
     userId: string | null;
-  },
+  } & ({ triggerId: string } | { stageId: string }),
 ) {
   const ctx = await contextOf(tx, at.organisationId, at.trackId, at.userId ? "member" : undefined);
-  const moved = startRun(workflow.definition, at.triggerId, ctx);
+  // From a trigger, or (a new version restarting it, #25) at one of its stages.
+  const moved =
+    "stageId" in at
+      ? startRunAt(workflow.definition, at.stageId, ctx)
+      : startRun(workflow.definition, at.triggerId, ctx);
   const [row] = await tx
     .insert(workflowRuns)
     .values({
@@ -547,7 +552,8 @@ async function begin(
 /**
  * A new version arrived on a track: each workflow that runs for it starts from its upload
  * trigger, or, where a run is under way, carries on from an upload it waits for. A run under
- * way that waits for none goes on as it was.
+ * way that waits for none goes on as it was. Where the version restarts one of them at a stage
+ * (#25), that workflow's run under way is stopped and a new one starts there instead.
  */
 export async function versionArrived(
   deps: RunnerDeps,
@@ -557,8 +563,10 @@ export async function versionArrived(
     trackId: string;
     versionId: string;
     userId: string;
+    restartFrom?: { workflowId: string; nodeId: string } | null;
   },
 ) {
+  const restart = at.restartFrom ?? null;
   // Runs under way carry on from an upload they wait for, whatever has since become of the
   // workflow they started from: a run keeps its definition.
   const running = await deps.db
@@ -572,7 +580,7 @@ export async function versionArrived(
         eq(workflowRuns.state, "running"),
       ),
     );
-  for (const { id } of running) {
+  for (const { id, workflowId } of running) {
     try {
       const after = await deps.db.transaction(async (tx) => {
         const [run] = await tx
@@ -581,6 +589,13 @@ export async function versionArrived(
           .where(inOrg(workflowRuns, at.organisationId, eq(workflowRuns.id, id)))
           .for("update");
         if (run?.state !== "running") return [];
+        // Restarted elsewhere: it stops here, what it waited on cancelled.
+        if (restart && workflowId === restart.workflowId)
+          return apply(tx, deps, run, stopRun(run.engine), {
+            nodeId: null,
+            outcome: null,
+            byUserId: at.userId,
+          });
         const listening = run.engine.active.find(
           (node) => run.definition.nodes.find((n) => n.id === node)?.type === "upload",
         );
@@ -599,13 +614,18 @@ export async function versionArrived(
       console.warn(`Run ${id} could not move on: ${String(failure)}`);
     }
   }
-  // The workflows that run for the track and have no run under way there start afresh.
-  const busy = new Set(running.map((r) => r.workflowId));
+  // The workflows that run for the track and have no run under way there start afresh: from
+  // their upload trigger, or the one restarted from the stage chosen.
+  const busy = new Set(
+    running.filter((r) => r.workflowId !== restart?.workflowId).map((r) => r.workflowId),
+  );
   const flows = await workflowsFor(deps.db, at.organisationId, at.projectId, at.trackId);
   for (const flow of flows.filter((f) => !busy.has(f.id))) {
     try {
       const after = await deps.db.transaction(async (tx) => {
         if (await runningOf(tx, at.organisationId, flow.id, at.trackId)) return [];
+        if (restart && flow.id === restart.workflowId)
+          return (await begin(tx, deps, flow, { ...at, stageId: restart.nodeId })).after;
         const trigger = triggersOf(flow.definition).find((t) => t.type === "upload");
         if (!trigger) return [];
         return (await begin(tx, deps, flow, { ...at, triggerId: trigger.id })).after;

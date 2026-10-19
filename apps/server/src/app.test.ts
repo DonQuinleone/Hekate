@@ -8504,7 +8504,12 @@ describe.runIf(url)("api", () => {
                 .from(schema.tracks)
                 .where(eq(schema.tracks.id, s.trackId))
             )[0]?.status;
-          const newVersion = async (name: string) => {
+          const newVersion = async (
+            name: string,
+            extra: Record<string, unknown> = {},
+            cookie = s.owner,
+            expected = 201,
+          ) => {
             const blob = await storage.put(s.organisationId, Buffer.from(name));
             const [file] = await db
               .insert(schema.files)
@@ -8522,10 +8527,12 @@ describe.runIf(url)("api", () => {
                 } as never,
               })
               .returning();
-            const added = await send(`/api/tracks/${s.trackId}/versions`, {
-              variations: [{ fileId: file?.id ?? "", name: "Mix" }],
-            });
-            expect(added.status).toBe(201);
+            const added = await send(
+              `/api/tracks/${s.trackId}/versions`,
+              { variations: [{ fileId: file?.id ?? "", name: "Mix" }], ...extra },
+              cookie,
+            );
+            expect(added.status).toBe(expected);
           };
 
           // Whoever follows the track hears of a new status (#110).
@@ -8779,6 +8786,26 @@ describe.runIf(url)("api", () => {
             (await send(`/api/tracks/${s.trackId}/workflow-runs`, { workflowId: made.workflow.id }))
               .status,
           ).toBe(422);
+
+          // A new version may start it again from a stage (#25): the run under way stops, what
+          // it waited on cancelled, and a new one waits at that stage. Only those who edit
+          // workflows choose so, and only a stage the track's workflow has.
+          const restartFrom = (nodeId: string) => ({
+            restartFrom: { workflowId: made.workflow.id, nodeId },
+          });
+          await newVersion("Mix v4.wav", restartFrom("edit"), s.engineer, 403);
+          await newVersion("Mix v4.wav", restartFrom("tell"), s.owner, 422);
+          await newVersion("Mix v4.wav", restartFrom("gone"), s.owner, 422);
+          const before = await runs();
+          await newVersion("Mix v4.wav", restartFrom("fb"));
+          const after = await runs();
+          expect(after).toHaveLength(before.length + 1);
+          expect(after[0]).toMatchObject({
+            state: "running",
+            status: "With conductor",
+            waiting: [{ nodeId: "fb" }],
+          });
+          expect(after.find((r) => r.id === before[0]?.id)?.state).toBe("stopped");
 
           // Nobody outside the project sees the runs or moves them.
           const newcomer = await joinAs(s.owner, "newcomer-runs@example.test");

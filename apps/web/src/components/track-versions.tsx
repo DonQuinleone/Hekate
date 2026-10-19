@@ -3,6 +3,7 @@ import {
   formatAnchor,
   isPdf,
   profileFor,
+  restartPoints,
   variationNameFrom,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -18,6 +19,7 @@ import {
   type ProjectFile,
   projectFilesQuery,
   projectTracksQuery,
+  projectWorkflowsQuery,
   type Track,
   trackStandingQuery,
   useProjectCan,
@@ -242,6 +244,22 @@ function NewVersion({
   const [primary, setPrimary] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [choices, setChoices] = useState<Record<string, CarryChoice>>({});
+  // Where its workflow starts again from (#25), for those who edit workflows: by default it
+  // carries on where it is. The track's own workflows where it has any, else the project's.
+  const mayRestart = can("edit_workflows");
+  const { data: flows = [] } = useQuery({
+    ...projectWorkflowsQuery(track.projectId),
+    enabled: mayRestart,
+  });
+  const own = flows.filter((w) => w.active && w.trackId === track.id);
+  const running = own.length > 0 ? own : flows.filter((w) => w.active && !w.trackId);
+  const stages = running.flatMap((w) =>
+    restartPoints(w.definition).map((n) => ({
+      value: `${w.id}:${n.id}`,
+      label: running.length > 1 ? `${w.name}: ${n.name}` : n.name,
+    })),
+  );
+  const [restart, setRestart] = useState("");
   const next = (track.versions.at(-1)?.number ?? 0) + 1;
   const ready = media.picks.filter((p) => p.fileId);
   const edlFile = edl.picks.find((p) => p.fileId);
@@ -264,6 +282,12 @@ function NewVersion({
         carry: Object.keys(choices).length ? choices : undefined,
         edlFileId: edlFile?.fileId ?? undefined,
         letThrough: letThrough || undefined,
+        restartFrom: restart
+          ? {
+              workflowId: restart.slice(0, restart.indexOf(":")),
+              nodeId: restart.slice(restart.indexOf(":") + 1),
+            }
+          : undefined,
       },
       { onSuccess: onClose },
     );
@@ -464,6 +488,22 @@ function NewVersion({
           </span>
         )}
       </div>
+      {mayRestart && stages.length > 0 && (
+        <Field label="Restart the workflow from">
+          <Select
+            className="@3xl/app:w-80"
+            value={restart}
+            onChange={(e) => setRestart(e.target.value)}
+          >
+            <option value="">Keep the current stage</option>
+            {stages.map((st) => (
+              <option key={st.value} value={st.value}>
+                {st.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose}>
           Cancel

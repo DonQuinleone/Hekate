@@ -1522,6 +1522,20 @@ test("track-new-version", async ({ page }) => {
   await checkScreen(page);
 });
 
+// A new version may start the track's workflow again from a stage (#25), for those who edit
+// workflows; by default it carries on where it is. Not sent, so no other capture sees a run.
+test("track-new-version-restart", async ({ page }) => {
+  await page.goto(`/tracks/${seeded().trackId}?view=versions`);
+  await page.getByRole("button", { name: "Add version" }).click();
+  const form = page.getByRole("form", { name: "Version 3" });
+  const restart = form.getByLabel("Restart the workflow from");
+  await expect(restart).toHaveValue("");
+  await restart.selectOption({ label: "Engineer edits" });
+  await restart.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await saveScreen(page, "track-new-version-restart");
+  await checkScreen(page);
+});
+
 // A track's takes (#21, #46): those covering a bar, then one take's details being edited.
 test("track-takes-edit", async ({ page }) => {
   await page.goto(`/tracks/${seeded().trackId}?view=takes`);

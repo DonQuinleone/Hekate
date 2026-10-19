@@ -10,6 +10,7 @@ import {
   type ProjectPermission,
   parseCmx3600,
   replaceVariationInput,
+  restartPoints,
   trackNormalisationInput,
   trackReferencesInput,
   updateTrackInput,
@@ -36,7 +37,7 @@ import { follow, followersOf, notifyNow } from "../notifications.ts";
 import type { Storage } from "../storage.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { trackStandings } from "../track-standing.ts";
-import { type RunnerDeps, versionArrived } from "../workflow-runner.ts";
+import { type RunnerDeps, versionArrived, workflowsFor } from "../workflow-runner.ts";
 import { folderIn, lockProject } from "./folders.ts";
 
 const {
@@ -475,6 +476,19 @@ export const trackRoutes = (
         );
       }
       if (letThrough) await canSeeTrack(db, c.var, track.projectId, "edit_workflows");
+      // Restarting a workflow from a stage (#25) is for those who edit workflows, and only from
+      // a stage of a workflow that runs for this track.
+      const restartFrom = input.restartFrom ?? null;
+      if (restartFrom) {
+        await canSeeTrack(db, c.var, track.projectId, "edit_workflows");
+        const flow = (await workflowsFor(db, organisationId, track.projectId, id)).find(
+          (w) => w.id === restartFrom.workflowId,
+        );
+        if (!flow || !restartPoints(flow.definition).some((n) => n.id === restartFrom.nodeId))
+          throw new HTTPException(422, {
+            message: "That is not a stage this track's workflows can start again from",
+          });
+      }
       const who = letThrough ? await audit.member(c.var.userId) : null;
       let aligning: string[] = [];
       let made = 0;
@@ -584,6 +598,7 @@ export const trackRoutes = (
         trackId: id,
         versionId: madeId,
         userId: c.var.userId,
+        restartFrom,
       });
       return c.json({ track: await oneTrack(db, organisationId, id) }, 201);
     });

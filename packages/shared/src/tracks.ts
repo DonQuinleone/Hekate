@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { DeliveryProfile } from "./qa.ts";
+import { workflowRestartInput } from "./workflows.ts";
 
 const label = (what: string, max: number) =>
   z
@@ -56,6 +57,8 @@ export const createVersionInput = z
     edlFileId: z.uuid().nullish(),
     /** Let it in past the project's version checks: for those who may edit workflows. */
     letThrough: z.boolean().optional(),
+    /** Start one of the track's workflows again from a stage (#25): for those who edit them. */
+    restartFrom: workflowRestartInput.nullish(),
   })
   .refine((v) => v.variations.filter((x) => x.primary).length <= 1, {
     message: "Only one variation can be primary",

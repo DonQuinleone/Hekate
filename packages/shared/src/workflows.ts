@@ -437,6 +437,57 @@ export function startRun(
 }
 
 /**
+ * The stages a new version may start a workflow again from (#25), in the order a run reaches
+ * them: the steps a run waits at (an approval, feedback, a task, the checks, a wait).
+ */
+export function restartPoints(flow: WorkflowDefinition): WorkflowNode[] {
+  const byId = new Map(flow.nodes.map((n) => [n.id, n]));
+  return flowShape(flow).order.flatMap((id) => {
+    const node = byId.get(id);
+    if (!node) return [];
+    const info = nodeTypes[node.type];
+    return info.kind === "action" && !info.immediate && node.type !== "finish" ? [node] : [];
+  });
+}
+
+/**
+ * Starts a run at one of its stages, as if the workflow had just reached it (a new version
+ * restarting it there, #25); the result is the run and what to do. Refused for a step that is
+ * not one of its `restartPoints`.
+ */
+export function startRunAt(
+  flow: WorkflowDefinition,
+  nodeId: string,
+  ctx: WorkflowContext,
+): { run: WorkflowRun; effects: WorkflowEffect[] } {
+  const error = workflowProblems(flow).find((p) => p.level === "error");
+  if (error) throw new WorkflowError(error.text);
+  if (!restartPoints(flow).some((n) => n.id === nodeId))
+    throw new WorkflowError(`${nodeId} is not a stage this workflow can start again from`);
+  const run: WorkflowRun = { state: "running", active: [], joining: [], taken: {}, status: null };
+  return step(flow, run, nodeId, null, ctx);
+}
+
+/**
+ * A run given up for another (a new version restarting its workflow, #25): what it waits on is
+ * cancelled, and it stops where it was.
+ */
+export function stopRun(run: WorkflowRun): { run: WorkflowRun; effects: WorkflowEffect[] } {
+  if (run.state !== "running") throw new WorkflowError("The run has ended");
+  return {
+    run: { ...run, state: "stopped", active: [], joining: [] },
+    effects: [
+      ...run.active.map((nodeId): WorkflowEffect => ({ kind: "cancel", nodeId })),
+      { kind: "stopped" },
+    ],
+  };
+}
+
+/** A new version's choice to start one of the track's workflows again from a stage (#25). */
+export const workflowRestartInput = z.object({ workflowId: z.uuid(), nodeId: ident });
+export type WorkflowRestartInput = z.infer<typeof workflowRestartInput>;
+
+/**
  * A node the run waits on has ended by one of its outcomes (an approval was given, a task done,
  * the event listened for happened); the run moves on. Refused when the run is not waiting on it.
  */
@@ -466,14 +517,15 @@ function step(
   flow: WorkflowDefinition,
   run: WorkflowRun,
   fromId: string,
-  outcome: string,
+  outcome: string | null,
   ctx: WorkflowContext,
 ): { run: WorkflowRun; effects: WorkflowEffect[] } {
   const effects: WorkflowEffect[] = [];
   const nodes = new Map(flow.nodes.map((n) => [n.id, n]));
   const { loops } = flowShape(flow);
-  /** Outcomes still to follow, in order. */
-  const queue: { from: string; outcome: string }[] = [{ from: fromId, outcome }];
+  /** Outcomes still to follow, in order; none where the run starts by entering `fromId`. */
+  const queue: { from: string; outcome: string }[] =
+    outcome === null ? [] : [{ from: fromId, outcome }];
   let steps = 0;
 
   /** Whether a node the run is on can still lead to `id` (a join waits for it). */
@@ -560,6 +612,7 @@ function step(
     }
   };
 
+  if (outcome === null) enter(fromId);
   while (run.state === "running") {
     const next = queue.shift();
     if (!next) {
