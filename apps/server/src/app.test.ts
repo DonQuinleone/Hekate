@@ -7475,6 +7475,20 @@ describe.runIf(url)("api", () => {
           expect(await transferOf(approved)).toMatchObject({ status: "pending" });
           // The losing side cannot accept for the gaining one.
           expect((await accept(s.owner)).status).toBe(404);
+          // A member sees the transfers of projects they can see; one who cannot, none.
+          const listedBy = async (cookie: string) =>
+            ((await (await getAs("/api/transfers", cookie)).json()) as { transfers: Seen[] })
+              .transfers;
+          expect((await listedBy(s.accompanist)).map((t) => t.id)).toEqual([transfer.id]);
+          await db
+            .delete(schema.projectMembers)
+            .where(
+              and(
+                eq(schema.projectMembers.projectId, s.projectId),
+                eq(schema.projectMembers.userId, s.ids.accompanist),
+              ),
+            );
+          expect(await listedBy(s.accompanist)).toEqual([]);
 
           // The gaining workspace's owner sees it waiting on them, and accepts.
           expect(

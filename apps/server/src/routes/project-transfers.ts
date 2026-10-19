@@ -478,7 +478,21 @@ export const projectTransferRoutes = (deps: TransferDeps) => {
           )
           .orderBy(desc(projectTransfers.requestedAt))
           .limit(50);
-        const live = await Promise.all(rows.map(expire));
+        // Owners and admins see every transfer naming the workspace; anyone else, only those
+        // moving out a project they can see, so no project's name reaches someone who cannot.
+        const shown = mayTakeProjects(c.var.organisationRole)
+          ? rows
+          : (
+              await Promise.all(
+                rows.map(async (r) =>
+                  r.fromOrganisationId === organisationId &&
+                  (await projectAccess(db, actorOf(c.var), r.projectId))
+                    ? r
+                    : null,
+                ),
+              )
+            ).filter((r): r is Transfer => r !== null);
+        const live = await Promise.all(shown.map(expire));
         const views = await Promise.all(live.map((r) => view(r, c.var)));
         return c.json({
           transfers: [
