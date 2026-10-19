@@ -712,16 +712,31 @@ export const variationRoutes = (
       const organisationId = c.var.organisationId;
       const { id } = c.req.valid("param");
       const [variation] = await db
-        .select({ trackId: versions.trackId, projectId: tracks.projectId })
+        .select({
+          trackId: versions.trackId,
+          projectId: tracks.projectId,
+          profile: projects.profile,
+        })
         .from(variations)
         .innerJoin(versions, eq(versions.id, variations.versionId))
         .innerJoin(tracks, eq(tracks.id, versions.trackId))
+        .innerJoin(projects, eq(projects.id, tracks.projectId))
         .where(inOrg(variations, organisationId, eq(variations.id, id)));
       if (!variation) throw new NotFound("Variation");
       await canSeeTrack(db, c.var, variation.projectId, "organise");
+      const input = c.req.valid("json");
+      // A treatment is a rendition's (decision 138): a music variation has only a name.
+      if (
+        variation.profile !== "video" &&
+        (input.subtitled !== undefined || input.graded !== undefined)
+      ) {
+        throw new HTTPException(422, {
+          message: "Only a video project's renditions are subtitled or graded",
+        });
+      }
       await db
         .update(variations)
-        .set({ ...c.req.valid("json"), updatedAt: new Date() })
+        .set({ ...input, updatedAt: new Date() })
         .where(inOrg(variations, organisationId, eq(variations.id, id)));
       return c.json({ track: await oneTrack(db, organisationId, variation.trackId) });
     })

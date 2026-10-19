@@ -4093,14 +4093,15 @@ describe.runIf(url)("api", () => {
         );
         expect(restored.versions[1]?.variations.map((v) => v.isPrimary)).toEqual([true, false]);
 
-        // A variation is renamed, and a rendition's treatment said (#16); unsaid stays null.
+        // A variation is renamed; in a music project it has no treatment to say (#16).
+        const variationPath = `/api/variations/${variations2[1]?.id}`;
+        expect((await send("PATCH", variationPath, { subtitled: true }, owner)).status).toBe(422);
+        // In a video project it is a rendition, and says it; unsaid stays null.
+        const asVideo = (profile: "music" | "video") =>
+          db.update(schema.projects).set({ profile }).where(eq(schema.projects.id, projectId));
+        await asVideo("video");
         const treated = await trackFrom(
-          await send(
-            "PATCH",
-            `/api/variations/${variations2[1]?.id}`,
-            { name: "Wet, subtitled", subtitled: true },
-            owner,
-          ),
+          await send("PATCH", variationPath, { name: "Wet, subtitled", subtitled: true }, owner),
         );
         expect(treated.versions[1]?.variations[1]).toMatchObject({
           name: "Wet, subtitled",
@@ -4123,6 +4124,7 @@ describe.runIf(url)("api", () => {
           (await send("PATCH", `/api/variations/${variations2[1]?.id}`, { graded: true }, reviewer))
             .status,
         ).toBe(403);
+        await asVideo("music");
 
         const renamed = await trackFrom(
           await send(
