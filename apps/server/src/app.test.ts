@@ -7211,7 +7211,7 @@ describe.runIf(url)("api", () => {
             tokenHash: "f".repeat(64),
           });
 
-          const deps = { db, keyring, backends };
+          const deps = { db, keyring, backends, jobs };
           const move = { projectId: s.projectId, from: s.organisationId, to };
           await expect(moveProject(deps, { ...move, to: s.organisationId })).rejects.toThrow(
             /already in that workspace/,
@@ -7219,7 +7219,52 @@ describe.runIf(url)("api", () => {
           await expect(
             moveProject(deps, { ...move, from: to, to: s.organisationId }),
           ).rejects.toThrow(/Project/);
+          // Not into a workspace being closed, nor a project being deleted.
+          await db
+            .update(schema.organisations)
+            .set({ suspendedAt: new Date() })
+            .where(eq(schema.organisations.id, to));
+          await expect(moveProject(deps, move)).rejects.toThrow(/cannot take projects/);
+          await db
+            .update(schema.organisations)
+            .set({ suspendedAt: null })
+            .where(eq(schema.organisations.id, to));
+          await db
+            .update(schema.projects)
+            .set({ deleteAfter: new Date(Date.now() + 86400e3) })
+            .where(eq(schema.projects.id, s.projectId));
+          await expect(moveProject(deps, move)).rejects.toThrow(/being deleted/);
+          await db
+            .update(schema.projects)
+            .set({ deleteAfter: null })
+            .where(eq(schema.projects.id, s.projectId));
+          // A copy that fails part way leaves nothing behind under the gaining workspace.
+          const lost = await storage.put(s.organisationId, Buffer.from("lost"));
+          await db.insert(schema.files).values({
+            organisationId: s.organisationId,
+            projectId: s.projectId,
+            name: "Lost.wav",
+            kind: "audio",
+            blobId: lost.id,
+            contentType: "audio/wav",
+            byteSize: lost.byteSize,
+          });
+          await backends.get(lost.backend).delete(lost.key);
+          await expect(moveProject(deps, move)).rejects.toThrow();
+          expect(await backends.get(oldBlob.backend).head(`org/${to}/${oldBlob.id}`)).toBeNull();
+          expect(await backends.get(oldBlob.backend).head(oldBlob.key)).not.toBeNull();
+          await db.delete(schema.files).where(eq(schema.files.blobId, lost.id));
+          await db.delete(schema.blobs).where(eq(schema.blobs.id, lost.id));
+          // A checksum still to compute is asked for again, in the gaining workspace.
+          await db
+            .update(schema.blobs)
+            .set({ sha256: null })
+            .where(eq(schema.blobs.id, oldBlob.id));
+          sent.length = 0;
           const moved = await moveProject(deps, move);
+          expect(sent).toEqual([
+            { name: "blob-checksum", data: { organisationId: to, blobId: oldBlob.id } },
+          ]);
           expect(moved.objects).toBeGreaterThanOrEqual(2);
           expect(moved.leftBehind.map((p) => p.userId).sort()).toEqual(
             [s.ids.composer, s.ids.accompanist].sort(),
