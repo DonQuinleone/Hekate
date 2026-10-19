@@ -652,6 +652,13 @@
       "when": 1792437264398,
       "tag": "0092_file_filmstrips",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1792447580572,
+      "tag": "0093_take_log",
+      "breakpoints": true
     }
   ]
 }

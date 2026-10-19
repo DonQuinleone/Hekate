@@ -9084,6 +9084,141 @@ describe.runIf(url)("api", () => {
           expect(kept).toEqual({ sessionId: null });
         });
 
+        it("logs takes live: numbered as the session says, rolled, stopped and timed (#51)", async () => {
+          const s = await studio();
+          const send = (method: string, url: string, body: unknown, cookie = s.engineer) =>
+            app.request(url, { ...json(body, cookie), method });
+          const [second] = await db
+            .insert(schema.tracks)
+            .values({ organisationId: s.organisationId, projectId: s.projectId, name: "Trio" })
+            .returning();
+          const trio = second?.id ?? "";
+          type Take = {
+            id: string;
+            number: number;
+            lifecycle: string;
+            wallIn: string | null;
+            wallOut: string | null;
+            timecodeIn: string | null;
+            falseStarts: number;
+          };
+          const made = await send("POST", `/api/projects/${s.projectId}/sessions`, {
+            name: "Day 1",
+            numbering: "continuous",
+            slotStart: "2026-10-14T14:00:00Z",
+            slotEnd: "2026-10-14T16:00:00Z",
+          });
+          expect(made.status).toBe(201);
+          const session = ((await made.json()) as { session: { id: string; numbering: string } })
+            .session;
+          expect(session).toMatchObject({
+            numbering: "continuous",
+            slotStart: "2026-10-14T14:00:00.000Z",
+            slotEnd: "2026-10-14T16:00:00.000Z",
+          });
+          // A slot that ends before it starts is refused.
+          expect(
+            (
+              await send("PATCH", `/api/sessions/${session.id}`, {
+                slotEnd: "2026-10-14T13:00:00Z",
+              })
+            ).status,
+          ).toBe(422);
+
+          const start = (body: Record<string, unknown>, cookie = s.engineer) =>
+            send("POST", `/api/sessions/${session.id}/takes`, body, cookie);
+          // A reviewer may not log takes.
+          expect((await start({ trackId: s.trackId }, s.composer)).status).toBe(403);
+          const first = await start({ trackId: s.trackId, timecodeIn: "10:00:00:00" });
+          expect(first.status).toBe(201);
+          const one = ((await first.json()) as { take: Take }).take;
+          expect(one).toMatchObject({
+            number: 1,
+            lifecycle: "recording",
+            timecodeIn: "10:00:00:00",
+          });
+          expect(one.wallIn).not.toBeNull();
+
+          // Continuous numbering runs on across the project's tracks; the session gains the track.
+          const two = (
+            (await (await start({ trackId: trio, lifecycle: "armed" })).json()) as {
+              take: Take;
+            }
+          ).take;
+          expect(two).toMatchObject({ number: 2, lifecycle: "armed", wallIn: null });
+          const detail = (await (
+            await getAs(`/api/sessions/${session.id}`, s.composer)
+          ).json()) as {
+            session: { tracks: { id: string }[]; takeRows: Take[] };
+          };
+          expect(detail.session.tracks.map((t) => t.id).sort()).toEqual([s.trackId, trio].sort());
+          expect(detail.session.takeRows.map((t) => t.number).sort()).toEqual([1, 2]);
+
+          // Stopped, it is timed out; a false start counted; a recorded take cannot roll again.
+          const change = (id: string, body: unknown) => send("PATCH", `/api/takes/${id}`, body);
+          const stopped = await change(one.id, { lifecycle: "recorded", falseStarts: 1 });
+          expect(stopped.status).toBe(200);
+          const after = ((await stopped.json()) as { take: Take }).take;
+          expect(after).toMatchObject({ lifecycle: "recorded", falseStarts: 1 });
+          expect(after.wallOut).not.toBeNull();
+          expect((await change(one.id, { lifecycle: "recording" })).status).toBe(409);
+          // Nor is it aborted after the event.
+          expect((await change(one.id, { lifecycle: "aborted" })).status).toBe(409);
+          // Its pages run forwards, the first given.
+          expect((await change(one.id, { pageTo: 3 })).status).toBe(422);
+          expect((await change(one.id, { page: 4, pageTo: 3 })).status).toBe(422);
+          expect((await change(one.id, { page: 3, pageTo: 4 })).status).toBe(200);
+          // Armed, then rolling, then aborted; an aborted take may be counted after all.
+          expect((await change(two.id, { lifecycle: "recording" })).status).toBe(200);
+          expect((await change(two.id, { lifecycle: "aborted" })).status).toBe(200);
+          expect((await change(two.id, { lifecycle: "recorded" })).status).toBe(200);
+          // Timecodes are timecodes.
+          expect((await change(two.id, { timecodeOut: "ten past" })).status).toBe(400);
+
+          // Numbered per track, a session starts each track from its own last take.
+          const perTrack = (
+            (await (
+              await send("POST", `/api/projects/${s.projectId}/sessions`, {
+                name: "Day 2",
+                numbering: "per-track",
+              })
+            ).json()) as { session: { id: string } }
+          ).session;
+          const next = await send("POST", `/api/sessions/${perTrack.id}/takes`, { trackId: trio });
+          expect(((await next.json()) as { take: Take }).take.number).toBe(3);
+          // By the recorder, its number is taken as given, and refused when already logged.
+          await send("PATCH", `/api/sessions/${perTrack.id}`, { numbering: "recorder" });
+          const recorder = (n: number) =>
+            send("POST", `/api/sessions/${perTrack.id}/takes`, { trackId: s.trackId, number: n });
+          expect(((await (await recorder(41)).json()) as { take: Take }).take.number).toBe(41);
+          expect((await recorder(41)).status).toBe(409);
+
+          // Not with another project's track, nor in another workspace's session.
+          expect((await start({ trackId: "0199f000-0000-7000-8000-000000000001" })).status).toBe(
+            404,
+          );
+          const [elsewhere] = await db
+            .insert(schema.organisations)
+            .values({ name: "Elsewhere", slug: "elsewhere-take-log" })
+            .returning();
+          const [theirProject] = await db
+            .insert(schema.projects)
+            .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+            .returning();
+          const [theirs] = await db
+            .insert(schema.sessions)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              projectId: theirProject?.id ?? "",
+              name: "Theirs",
+            })
+            .returning();
+          expect(
+            (await send("POST", `/api/sessions/${theirs?.id}/takes`, { trackId: s.trackId }))
+              .status,
+          ).toBe(404);
+        });
+
         it("imports takes: each file the next take of its track, in its session, once (#45)", async () => {
           const s = await studio();
           const file = async (name: string, kind: "audio" | "document" = "audio") => {

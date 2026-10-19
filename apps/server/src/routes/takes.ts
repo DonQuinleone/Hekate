@@ -1,10 +1,13 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
   addTakesInput,
+  canMoveTake,
   type SharedTake,
   shareTakesInput,
+  type TakeLifecycle,
   type TakeRow,
   takeChangeInput,
+  takeLifecycleNames,
   takeProblem,
   takesCovering,
 } from "@hekate/shared";
@@ -13,7 +16,7 @@ import { and, asc, eq, inArray, max } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { actorOf, can, canOnFile, lockLiveProject } from "../access.ts";
+import { actorOf, can, canOnFile, lockLiveProject, lockTakeNumbers } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { TenantVariables } from "../tenancy.ts";
@@ -82,6 +85,13 @@ export async function takeRowsFor(
       starred: t.starred,
       page: t.page,
       sessionId: t.sessionId,
+      lifecycle: t.lifecycle as TakeLifecycle,
+      falseStarts: t.falseStarts,
+      timecodeIn: t.timecodeIn,
+      timecodeOut: t.timecodeOut,
+      wallIn: t.wallIn?.toISOString() ?? null,
+      wallOut: t.wallOut?.toISOString() ?? null,
+      pageTo: t.pageTo,
       barFrom: t.barFrom,
       barTo: t.barTo,
       inPoint: t.inPoint,
@@ -129,6 +139,7 @@ export const trackTakeRoutes = (db: Database) =>
       const fileIds = [...new Set(c.req.valid("json").fileIds)];
       await db.transaction(async (tx) => {
         await lockLiveProject(tx, organisationId, track.projectId);
+        await lockTakeNumbers(tx, track.projectId);
         // Under the track's lock, so two at once number their takes one after the other.
         await tx
           .select({ id: tracks.id })
@@ -195,8 +206,33 @@ export const takeRoutes = (db: Database) =>
         .where(inOrg(takes, organisationId, eq(takes.id, id)));
       if (!take) throw new NotFound("Take");
       await can(db, actorOf(c.var), "edit_takes", take.projectId);
-      const next = { ...take.take, ...change };
+      const from = take.take.lifecycle as TakeLifecycle;
+      if (change.lifecycle && !canMoveTake(from, change.lifecycle))
+        throw new HTTPException(409, {
+          message: `A take ${takeLifecycleNames[from].toLowerCase()} cannot be ${takeLifecycleNames[change.lifecycle].toLowerCase()}`,
+        });
+      const { wallIn, wallOut, ...rest } = change;
+      // Rolling and stopping are timed by the server's clock unless the log says otherwise.
+      const now = new Date();
+      const moved = change.lifecycle !== undefined && change.lifecycle !== from;
+      const times = {
+        ...(wallIn !== undefined
+          ? { wallIn: wallIn === null ? null : new Date(wallIn) }
+          : moved && change.lifecycle === "recording" && !take.take.wallIn
+            ? { wallIn: now }
+            : {}),
+        ...(wallOut !== undefined
+          ? { wallOut: wallOut === null ? null : new Date(wallOut) }
+          : moved &&
+              (change.lifecycle === "recorded" || change.lifecycle === "aborted") &&
+              !take.take.wallOut
+            ? { wallOut: now }
+            : {}),
+      };
+      const next = { ...take.take, ...rest };
       const problem = takeProblem({
+        page: next.page ?? null,
+        pageTo: next.pageTo ?? null,
         barFrom: next.barFrom ?? null,
         barTo: next.barTo ?? null,
         inPoint: next.inPoint ?? null,
@@ -225,10 +261,22 @@ export const takeRoutes = (db: Database) =>
             .values({ organisationId, sessionId: session.id, trackId: take.take.trackId })
             .onConflictDoNothing();
         }
-        await tx
+        // The move is checked against the state it was read in: someone else's stop between the
+        // two is not overwritten.
+        const [changed] = await tx
           .update(takes)
-          .set({ ...change, updatedAt: new Date() })
-          .where(inOrg(takes, organisationId, eq(takes.id, id)));
+          .set({ ...rest, ...times, updatedAt: now })
+          .where(
+            inOrg(
+              takes,
+              organisationId,
+              eq(takes.id, id),
+              ...(moved ? [eq(takes.lifecycle, from)] : []),
+            ),
+          )
+          .returning({ id: takes.id });
+        if (!changed)
+          throw new HTTPException(409, { message: "The take changed meanwhile; look again" });
       });
       const [row] = (await takesOf(db, organisationId, take.take.trackId)).filter(
         (t) => t.id === id,

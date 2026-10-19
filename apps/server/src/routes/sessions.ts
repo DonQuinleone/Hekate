@@ -1,9 +1,13 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  nextTakeNumber,
   type SessionDetail,
   type SessionSummary,
   sessionChangeInput,
   sessionInput,
+  slotProblem,
+  startTakeInput,
+  type TakeNumbering,
   takeImportInput,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
@@ -11,7 +15,7 @@ import { and, asc, desc, eq, inArray, max, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { actorOf, can, lockLiveProject } from "../access.ts";
+import { actorOf, can, lockLiveProject, lockTakeNumbers } from "../access.ts";
 import { NotFound } from "../errors.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { takeRowsFor } from "./takes.ts";
@@ -68,6 +72,9 @@ async function summariesOf(
       name: r.name,
       recordedOn: r.recordedOn,
       venue: r.venue,
+      numbering: r.numbering as TakeNumbering,
+      slotStart: r.slotStart?.toISOString() ?? null,
+      slotEnd: r.slotEnd?.toISOString() ?? null,
       tracks: linked.filter((l) => l.sessionId === r.id).map(({ id, name }) => ({ id, name })),
       takes: its.length,
       starred: its.filter((t) => t.starred).length,
@@ -77,6 +84,16 @@ async function summariesOf(
       ),
     };
   });
+}
+
+/** A moment as typed into a session, as the database keeps it; undefined leaves it be. */
+const momentOf = (value: string | null | undefined) =>
+  value === undefined ? undefined : value === null ? null : new Date(value);
+
+/** A session's slot, refused where it ends before it starts. */
+function checkSlot(start: string | null, end: string | null) {
+  const problem = slotProblem(start, end);
+  if (problem) throw new HTTPException(422, { message: problem });
 }
 
 /** A session of this workspace, with its project; not found otherwise. */
@@ -139,6 +156,7 @@ export const projectSessionRoutes = (db: Database) =>
       const projectId = c.req.valid("param").id;
       await can(db, actorOf(c.var), "edit_takes", projectId);
       const input = c.req.valid("json");
+      checkSlot(input.slotStart ?? null, input.slotEnd ?? null);
       const id = await db.transaction(async (tx) => {
         await lockLiveProject(tx, organisationId, projectId);
         const [made] = await tx
@@ -149,6 +167,9 @@ export const projectSessionRoutes = (db: Database) =>
             name: input.name,
             recordedOn: input.recordedOn ?? null,
             venue: input.venue || null,
+            ...(input.numbering ? { numbering: input.numbering } : {}),
+            slotStart: momentOf(input.slotStart) ?? null,
+            slotEnd: momentOf(input.slotEnd) ?? null,
           })
           .returning();
         if (!made) throw new NotFound("Session");
@@ -174,6 +195,7 @@ export const projectSessionRoutes = (db: Database) =>
       ];
       const result = await db.transaction(async (tx) => {
         await lockLiveProject(tx, organisationId, projectId);
+        await lockTakeNumbers(tx, projectId);
         // Under the tracks' locks, taken in one order, so imports at once number in turn.
         const found = await tx
           .select({ id: tracks.id })
@@ -302,7 +324,11 @@ export const sessionRoutes = (db: Database) =>
       const organisationId = c.var.organisationId;
       const row = await sessionOf(db, organisationId, c.req.valid("param").id);
       await can(db, actorOf(c.var), "edit_takes", row.projectId);
-      const { trackIds, ...change } = c.req.valid("json");
+      const { trackIds, slotStart, slotEnd, ...change } = c.req.valid("json");
+      checkSlot(
+        slotStart === undefined ? (row.slotStart?.toISOString() ?? null) : slotStart,
+        slotEnd === undefined ? (row.slotEnd?.toISOString() ?? null) : slotEnd,
+      );
       await db.transaction(async (tx) => {
         await lockLiveProject(tx, organisationId, row.projectId);
         await tx
@@ -310,6 +336,8 @@ export const sessionRoutes = (db: Database) =>
           .set({
             ...change,
             ...(change.venue !== undefined ? { venue: change.venue || null } : {}),
+            ...(slotStart !== undefined ? { slotStart: momentOf(slotStart) } : {}),
+            ...(slotEnd !== undefined ? { slotEnd: momentOf(slotEnd) } : {}),
             updatedAt: new Date(),
           })
           .where(inOrg(sessions, organisationId, eq(sessions.id, row.id)));
@@ -319,6 +347,80 @@ export const sessionRoutes = (db: Database) =>
         await sessionOf(db, organisationId, row.id),
       ]);
       return c.json({ session: summary });
+    })
+    // The take log (#51): the next take, numbered as the session numbers them, rolling or armed.
+    .post("/:id/takes", idParam, zValidator("json", startTakeInput), async (c) => {
+      const organisationId = c.var.organisationId;
+      const row = await sessionOf(db, organisationId, c.req.valid("param").id);
+      await can(db, actorOf(c.var), "edit_takes", row.projectId);
+      const input = c.req.valid("json");
+      const numbering = row.numbering as TakeNumbering;
+      const id = await db.transaction(async (tx) => {
+        await lockLiveProject(tx, organisationId, row.projectId);
+        // A track of the session's project, locked so two takes started at once number in turn.
+        const [track] = await tx
+          .select({ id: tracks.id })
+          .from(tracks)
+          .where(
+            inOrg(
+              tracks,
+              organisationId,
+              eq(tracks.id, input.trackId),
+              eq(tracks.projectId, row.projectId),
+            ),
+          )
+          .for("update");
+        if (!track) throw new NotFound("Track");
+        await lockTakeNumbers(tx, row.projectId);
+        const [ofTrack] = await tx
+          .select({ n: max(takes.number) })
+          .from(takes)
+          .where(inOrg(takes, organisationId, eq(takes.trackId, track.id)));
+        const [ofProject] =
+          numbering === "continuous"
+            ? await tx
+                .select({ n: max(takes.number) })
+                .from(takes)
+                .innerJoin(
+                  tracks,
+                  and(eq(tracks.id, takes.trackId), eq(tracks.organisationId, organisationId)),
+                )
+                .where(inOrg(takes, organisationId, eq(tracks.projectId, row.projectId)))
+            : [{ n: 0 }];
+        const number = nextTakeNumber(
+          numbering,
+          { project: ofProject?.n ?? 0, track: ofTrack?.n ?? 0 },
+          input.number,
+        );
+        const rolling = input.lifecycle === "recording";
+        const [made] = await tx
+          .insert(takes)
+          .values({
+            organisationId,
+            trackId: track.id,
+            sessionId: row.id,
+            number,
+            lifecycle: input.lifecycle,
+            timecodeIn: input.timecodeIn ?? null,
+            wallIn: rolling ? new Date() : null,
+          })
+          .onConflictDoNothing()
+          .returning({ id: takes.id });
+        // Only a recorder's own number can already be taken.
+        if (!made) throw new HTTPException(409, { message: `Take ${number} is already logged` });
+        // The session recorded the track, if it did not say so.
+        await tx
+          .insert(sessionTracks)
+          .values({ organisationId, sessionId: row.id, trackId: track.id })
+          .onConflictDoNothing();
+        return made.id;
+      });
+      const [take] = await db
+        .select({ take: takes })
+        .from(takes)
+        .where(inOrg(takes, organisationId, eq(takes.id, id)));
+      const [made] = await takeRowsFor(db, organisationId, take ? [take] : []);
+      return c.json({ take: made }, 201);
     })
     .delete("/:id", idParam, async (c) => {
       const organisationId = c.var.organisationId;
