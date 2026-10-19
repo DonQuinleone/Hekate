@@ -7680,8 +7680,39 @@ describe.runIf(url)("api", () => {
             .delete(schema.projectMembers)
             .where(eq(schema.projectMembers.userId, s.ids.composer));
           expect((await read(second)).status).toBe(404);
-          // Stopped, it is gone.
+          // Nor for someone who has left the workspace.
+          const engineers = await feedOf(s.engineer);
+          expect((await read(engineers)).status).toBe(200);
+          await db
+            .delete(schema.members)
+            .where(
+              and(
+                eq(schema.members.organisationId, s.organisationId),
+                eq(schema.members.userId, s.ids.engineer),
+              ),
+            );
+          expect((await read(engineers)).status).toBe(404);
+          // A member who cannot see the project neither reads its calendar nor gets a feed of it.
+          const outsider = await joinAs(s.owner, "outsider-calendar@example.test");
+          expect(
+            (await getAs(`/api/projects/${s.projectId}/calendar?month=2026-10`, outsider)).status,
+          ).toBe(404);
+          expect(
+            (await app.request(`/api/projects/${s.projectId}/calendar/feed`, json({}, outsider)))
+              .status,
+          ).toBe(404);
+          // A suspended workspace's feeds open nothing until it is back.
           const owners = await feedOf(s.owner);
+          expect((await read(owners)).status).toBe(200);
+          const suspend = (at: Date | null) =>
+            db
+              .update(schema.organisations)
+              .set({ suspendedAt: at })
+              .where(eq(schema.organisations.id, s.organisationId));
+          await suspend(new Date());
+          expect((await read(owners)).status).toBe(404);
+          await suspend(null);
+          // Stopped, it is gone.
           expect((await read(owners)).status).toBe(200);
           await app.request(`/api/projects/${s.projectId}/calendar/feed`, {
             ...json({}, s.owner),
