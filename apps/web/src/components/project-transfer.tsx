@@ -1,5 +1,6 @@
 import { nameMatches, type ProjectTransfer } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { formatDates } from "~/lib/locale";
 import {
@@ -7,6 +8,7 @@ import {
   projectTransferQuery,
   transferDestinationsQuery,
   transfersQuery,
+  useSwitchOrganisation,
   useTransferMutations,
 } from "~/lib/queries";
 import { useIdentityCheck } from "./identity-check";
@@ -104,19 +106,28 @@ function AskToMove({
   onClose: () => void;
 }) {
   const { data: destinations } = useQuery(transferDestinationsQuery(project.id));
+  const { data: me } = useQuery(meQuery);
   const { ask } = useTransferMutations();
+  const switchTo = useSwitchOrganisation();
+  const navigate = useNavigate();
   const [choice, setChoice] = useState<string>("");
   const [address, setAddress] = useState("");
+  // Nothing is chosen for the person while their workspaces load, so the choice never changes under them.
+  const loading = destinations === undefined;
   const options = destinations ?? [];
   const chosen = choice || options[0]?.id || "address";
-  const destination = options.find((d) => d.id === chosen) ?? null;
+  // An address that is one of their own workspaces is that workspace, as the server takes it.
+  const typed = address.trim().toLowerCase();
+  const ownAddress = me?.organisations.find((o) => o.address === typed)?.id;
+  const destination =
+    options.find((d) => d.id === (chosen === "address" ? ownAddress : chosen)) ?? null;
   return (
     <ConfirmStep
       title={`Move ${project.name} to another workspace?`}
       description="Its files, comments, reviews and their sign-offs, roles and workflows go with it, its files re-encrypted under that workspace's key. People who are not members there lose their place in it; guests, tags and delivery profiles are matched there or copied."
       projectName={project.name}
       action={destination?.atOnce ? "Move now" : "Ask to move"}
-      pending={ask.isPending}
+      pending={ask.isPending || loading || switchTo.isPending}
       error={ask.error}
       onClose={onClose}
       onConfirm={(input) =>
@@ -126,21 +137,35 @@ function AskToMove({
             to: destination ? { id: destination.id } : { address },
             ...input,
           },
-          { onSuccess: onClose },
+          {
+            onSuccess: (transfer) => {
+              if (transfer?.status !== "moved") return onClose();
+              // It is no longer in this workspace: follow it to its new one.
+              switchTo.mutate(transfer.to.id, {
+                onSuccess: () =>
+                  void navigate({ to: "/projects/$projectId", params: { projectId: project.id } }),
+              });
+            },
+          },
         )
       }
     >
       <Field label="Workspace">
-        <Select value={chosen} onChange={(e) => setChoice(e.target.value)}>
+        <Select
+          value={loading ? "" : chosen}
+          disabled={loading}
+          onChange={(e) => setChoice(e.target.value)}
+        >
+          {loading && <option value="">Loading your workspaces…</option>}
           {options.map((d) => (
             <option key={d.id} value={d.id}>
               {d.name}
             </option>
           ))}
-          <option value="address">Another workspace, by its address</option>
+          {!loading && <option value="address">Another workspace, by its address</option>}
         </Select>
       </Field>
-      {!destination && (
+      {!loading && chosen === "address" && (
         <Field
           label="Its address"
           hint="Its owners and admins find it in their workspace settings, under Transfers."

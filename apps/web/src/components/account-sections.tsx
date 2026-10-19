@@ -8,7 +8,6 @@ import { ago } from "~/lib/comments";
 import { applyDensity } from "~/lib/density";
 import { languageNames } from "~/lib/locale";
 import {
-  deletionQuery,
   meQuery,
   sessionsQuery,
   useDeleteAccount,
