@@ -99,6 +99,17 @@ export const auditActions = [
   "project.deletion_confirm",
   "project.deletion_cancel",
   "project.delete",
+  /**
+   * A move to another workspace (#240): asked for, approved by a second member of the losing
+   * workspace, accepted by the gaining one, refused by either, withdrawn by whoever asked, and
+   * the move itself, written to both workspaces' logs.
+   */
+  "project.transfer_request",
+  "project.transfer_approve",
+  "project.transfer_accept",
+  "project.transfer_refuse",
+  "project.transfer_cancel",
+  "project.transfer",
 ] as const;
 export const auditAction = z.enum(auditActions);
 export type AuditAction = z.infer<typeof auditAction>;

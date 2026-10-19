@@ -45,6 +45,7 @@ import {
   type TemplateContent,
   taskPriorities,
   taskStatuses,
+  transferStatuses,
   type WatermarkSettings,
   type WorkflowDefinition,
   type WorkflowEffect,
@@ -2130,5 +2131,50 @@ export const taskEvents = pgTable(
   (t) => [
     index("task_events_org_idx").on(t.organisationId),
     index("task_events_task_idx").on(t.taskId, t.createdAt),
+  ],
+);
+
+export const transferStatusEnum = pgEnum("transfer_status", transferStatuses);
+
+/**
+ * A project moving between workspaces (#240, decision 136). It belongs to two workspaces at
+ * once, so it has no single `organisation_id`: every query names one of them, as the losing
+ * (`from_organisation_id`) or the gaining (`to_organisation_id`) side, and each side sees only
+ * the transfers that name it. It goes with either workspace, and with the project.
+ */
+export const projectTransfers = pgTable(
+  "project_transfers",
+  {
+    id: id(),
+    fromOrganisationId: uuid("from_organisation_id")
+      .notNull()
+      .references(() => organisations.id, { onDelete: "cascade" }),
+    toOrganisationId: uuid("to_organisation_id")
+      .notNull()
+      .references(() => organisations.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    /** The project's name when asked, for the gaining workspace, which cannot see the project. */
+    projectName: text("project_name").notNull(),
+    status: transferStatusEnum("status").notNull().default("pending"),
+    requestedBy: text("requested_by").references(() => users.id, { onDelete: "set null" }),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    approvedBy: text("approved_by").references(() => users.id, { onDelete: "set null" }),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    acceptedBy: text("accepted_by").references(() => users.id, { onDelete: "set null" }),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    /** Who refused or withdrew it, and when it stopped waiting, however it did. */
+    resolvedBy: text("resolved_by").references(() => users.id, { onDelete: "set null" }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    // One transfer waits on a project at a time.
+    uniqueIndex("project_transfers_waiting_idx")
+      .on(t.projectId)
+      .where(sql`${t.status} in ('pending', 'moving')`),
+    index("project_transfers_from_idx").on(t.fromOrganisationId, t.status),
+    index("project_transfers_to_idx").on(t.toOrganisationId, t.status),
   ],
 );

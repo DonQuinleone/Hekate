@@ -184,6 +184,7 @@ const actionLabel: Record<NotificationKind, string> = {
   assigned: "Open your comments",
   workflow: "Open the track",
   task: "Open the task",
+  transfer: "Open the transfer",
 };
 
 /** Why each kind of mail came. */
@@ -202,6 +203,8 @@ const whyFoot: Record<NotificationKind, string> = {
   workflow:
     "You get this because a project's workflow names you or your role, or you follow the track it moved.",
   task: "You get this because the task is yours, or you run it.",
+  transfer:
+    "You get this because moving a project between workspaces needs, or has had, your workspace's sign-off.",
 };
 
 /** The workspace a mail comes from: its name, and its own subject lines. */

@@ -209,6 +209,7 @@ export const instanceActions: Record<string, string> = {
   "workspace.deletion_cancelled": "kept, its deletion cancelled",
   "workspace.purged": "deleted, with everything in it",
   "workspace.key_rotated": "given a new key",
+  "workspace.project_moved": "moved to another workspace by an operator",
   "member.sessions_revoked": "signed out everywhere by an operator",
   "member.password_reset": "sent a password reset by an operator",
   "member.second_factor_reset": "had their second factor reset by an operator",

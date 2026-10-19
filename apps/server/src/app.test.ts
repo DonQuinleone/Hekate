@@ -1720,6 +1720,122 @@ describe.runIf(url)("api", () => {
           ).toBe(403);
         });
 
+        it("lets an operator move a project between workspaces, confirmed with its name and their password (#240)", async () => {
+          const operator = cookieOf(await setup());
+          const from = await studioId();
+          const to = await another("Lantern Pictures", "elsewhere-move");
+          const [project] = await db
+            .insert(schema.projects)
+            .values({ organisationId: from, name: "Opening titles", profile: "video" })
+            .returning();
+          const path = `/api/instance/workspaces/${from}/projects/${project?.id}/move`;
+          const password = "correct horse battery";
+          expect(
+            (await send("POST", path, { to, name: "Openings", password }, operator)).status,
+          ).toBe(422);
+          expect(
+            (await send("POST", path, { to, name: "Opening titles", password: "wrong" }, operator))
+              .status,
+          ).toBe(403);
+          // A workspace's owner is no operator.
+          const owner = await join(operator, "label@example.test", "owner");
+          expect(
+            (await send("POST", path, { to, name: "Opening titles", password }, owner)).status,
+          ).toBe(403);
+          // A move refused leaves a transfer waiting on the project as it was.
+          const [waiting] = await db
+            .insert(schema.projectTransfers)
+            .values({
+              fromOrganisationId: from,
+              toOrganisationId: to,
+              projectId: project?.id ?? "",
+              projectName: "Opening titles",
+              expiresAt: new Date(Date.now() + 86400e3),
+            })
+            .returning();
+          const stored = await storage.put(from, Buffer.from("cut"));
+          await db.insert(schema.files).values({
+            organisationId: from,
+            projectId: project?.id ?? "",
+            name: "Cut 3.mp4",
+            kind: "video",
+            blobId: stored.id,
+            contentType: "video/mp4",
+            byteSize: stored.byteSize,
+            streamStatus: "pending",
+          });
+          expect(
+            (await send("POST", path, { to, name: "Opening titles", password }, operator)).status,
+          ).toBe(409);
+          const waitingStatus = async () =>
+            (
+              await db
+                .select({ status: schema.projectTransfers.status })
+                .from(schema.projectTransfers)
+                .where(eq(schema.projectTransfers.id, waiting?.id ?? ""))
+            )[0]?.status;
+          expect(await waitingStatus()).toBe("pending");
+          await db
+            .update(schema.files)
+            .set({ streamStatus: "ready" })
+            .where(eq(schema.files.blobId, stored.id));
+          const moved = await send(
+            "POST",
+            path,
+            { to, name: "opening titles", password },
+            operator,
+          );
+          expect(moved.status).toBe(200);
+          const [after] = await db
+            .select({ organisationId: schema.projects.organisationId })
+            .from(schema.projects)
+            .where(eq(schema.projects.id, project?.id ?? ""));
+          expect(after?.organisationId).toBe(to);
+          // Kept as a transfer already done, the one waiting withdrawn, in both logs and the
+          // instance's events.
+          expect(await waitingStatus()).toBe("cancelled");
+          expect(
+            (
+              await db
+                .select({ status: schema.projectTransfers.status })
+                .from(schema.projectTransfers)
+                .where(eq(schema.projectTransfers.projectId, project?.id ?? ""))
+            )
+              .map((t) => t.status)
+              .sort(),
+          ).toEqual(["cancelled", "moved"]);
+          for (const organisationId of [from, to])
+            expect(
+              await db
+                .select({ details: schema.accessEvents.details })
+                .from(schema.accessEvents)
+                .where(
+                  and(
+                    eq(schema.accessEvents.organisationId, organisationId),
+                    eq(schema.accessEvents.action, "project.transfer"),
+                  ),
+                ),
+            ).toEqual([
+              {
+                details: {
+                  name: "Opening titles",
+                  from: "Studio",
+                  to: "Lantern Pictures",
+                  byOperator: true,
+                },
+              },
+            ]);
+          const events = await db
+            .select({ action: schema.instanceEvents.action, target: schema.instanceEvents.target })
+            .from(schema.instanceEvents)
+            .where(eq(schema.instanceEvents.action, "workspace.project_moved"));
+          expect(events).toEqual([{ action: "workspace.project_moved", target: "Opening titles" }]);
+          // Not again from where it no longer is.
+          expect(
+            (await send("POST", path, { to, name: "Opening titles", password }, operator)).status,
+          ).toBe(404);
+        });
+
         it("deletes a suspended workspace once its grace period is over, with everything in it", async () => {
           const operator = cookieOf(await setup());
           // A second workspace, whose content is a studio's: a track with a version, its file,
@@ -7316,6 +7432,286 @@ describe.runIf(url)("api", () => {
             .from(schema.comments)
             .where(eq(schema.comments.fileId, s.mix));
           expect(thread).toEqual({ body: "Pedal noise", organisationId: to });
+        });
+
+        it("moves a project once a second member approves and the gaining workspace accepts (#240)", async () => {
+          const s = await studio();
+          const password = "correct horse battery";
+          const [east] = await db
+            .insert(schema.organisations)
+            .values({ name: "Endless Hall Records East", slug: "endless-hall-east-transfer" })
+            .returning();
+          const to = east?.id ?? "";
+          // The owner is a plain member there; the composer runs it.
+          await db.insert(schema.members).values([
+            { organisationId: to, userId: s.ids.owner, role: "member" },
+            { organisationId: to, userId: s.ids.composer, role: "owner" },
+          ]);
+          const ask = (cookie: string, body: unknown) =>
+            app.request(`/api/projects/${s.projectId}/transfer`, json(body, cookie));
+          type Seen = {
+            id: string;
+            status: string;
+            approvedAt: string | null;
+            acceptedAt: string | null;
+            you: {
+              mayApprove: boolean;
+              mayAccept: boolean;
+              mayRefuse: boolean;
+              mayCancel: boolean;
+            };
+          };
+          const transferOf = async (res: Response) =>
+            ((await res.json()) as { transfer: Seen }).transfer;
+
+          // Only a role that may delete the project may ask, and only as it is confirmed.
+          expect((await ask(s.engineer, { to: { id: to }, name: "Rags", password })).status).toBe(
+            403,
+          );
+          expect(
+            await (
+              await getAs(`/api/projects/${s.projectId}/transfer/destinations`, s.owner)
+            ).json(),
+          ).toEqual({
+            destinations: [{ id: to, name: "Endless Hall Records East", atOnce: false }],
+          });
+          const misnamed = await ask(s.owner, { to: { id: to }, name: "Rag", password });
+          expect(misnamed.status).toBe(422);
+          expect(
+            (await ask(s.owner, { to: { id: to }, name: "Rags", password: "wrong" })).status,
+          ).toBe(403);
+          expect(
+            (await ask(s.owner, { to: { address: "nowhere" }, name: "Rags", password })).status,
+          ).toBe(404);
+          const asked = await ask(s.owner, { to: { id: to }, name: " rags ", password });
+          expect(asked.status).toBe(201);
+          const transfer = await transferOf(asked);
+          expect(transfer).toMatchObject({
+            status: "pending",
+            approvedAt: null,
+            acceptedAt: null,
+            you: { mayApprove: false, mayCancel: true },
+          });
+          expect((await ask(s.owner, { to: { id: to }, name: "Rags", password })).status).toBe(409);
+
+          // Whoever asked may not approve it; a second member who may delete the project does.
+          const approve = (cookie: string) =>
+            app.request(
+              `/api/transfers/${transfer.id}/approve`,
+              json({ name: "Rags", password }, cookie),
+            );
+          const accept = (cookie: string, name = "Rags", id = transfer.id) =>
+            app.request(`/api/transfers/${id}/accept`, json({ name, password }, cookie));
+          expect((await approve(s.owner)).status).toBe(403);
+          expect((await approve(s.engineer)).status).toBe(403);
+          await db
+            .update(schema.members)
+            .set({ role: "admin" })
+            .where(
+              and(
+                eq(schema.members.organisationId, s.organisationId),
+                eq(schema.members.userId, s.ids.engineer),
+              ),
+            );
+          // Its deletion cannot be asked for while it waits to move.
+          expect(
+            (await app.request(`/api/projects/${s.projectId}/deletion`, json({}, s.owner))).status,
+          ).toBe(409);
+          // Two approvals at the same moment: one is taken, the other refused.
+          const both = await Promise.all([approve(s.engineer), approve(s.engineer)]);
+          expect(both.map((r) => r.status).sort()).toEqual([200, 409]);
+          const approved = both.find((r) => r.status === 200) as Response;
+          expect(await transferOf(approved)).toMatchObject({ status: "pending" });
+          // The losing side cannot accept for the gaining one.
+          expect((await accept(s.owner)).status).toBe(404);
+          // A member sees the transfers of projects they can see; one who cannot, none.
+          const listedBy = async (cookie: string) =>
+            ((await (await getAs("/api/transfers", cookie)).json()) as { transfers: Seen[] })
+              .transfers;
+          expect((await listedBy(s.accompanist)).map((t) => t.id)).toEqual([transfer.id]);
+          await db
+            .delete(schema.projectMembers)
+            .where(
+              and(
+                eq(schema.projectMembers.projectId, s.projectId),
+                eq(schema.projectMembers.userId, s.ids.accompanist),
+              ),
+            );
+          expect(await listedBy(s.accompanist)).toEqual([]);
+
+          // The gaining workspace's owner sees it waiting on them, and accepts.
+          expect(
+            (
+              await app.request("/api/me/organisation", {
+                ...json({ organisationId: to }, s.composer),
+                method: "PUT",
+              })
+            ).status,
+          ).toBe(200);
+          const listed = (await (await getAs("/api/transfers", s.composer)).json()) as {
+            transfers: Seen[];
+          };
+          expect(listed.transfers).toEqual([
+            expect.objectContaining({
+              id: transfer.id,
+              you: expect.objectContaining({ mayAccept: true }),
+            }),
+          ]);
+          expect((await accept(s.composer, "Ragtime")).status).toBe(422);
+          // A move that cannot happen yet takes the acceptance back, to be given again.
+          await db
+            .update(schema.files)
+            .set({ streamStatus: "pending" })
+            .where(eq(schema.files.id, s.mix));
+          const early = await accept(s.composer);
+          expect(early.status).toBe(409);
+          expect(await early.text()).toMatch(/still being prepared/);
+          const [held] = await db
+            .select({
+              status: schema.projectTransfers.status,
+              acceptedAt: schema.projectTransfers.acceptedAt,
+              approvedAt: schema.projectTransfers.approvedAt,
+            })
+            .from(schema.projectTransfers)
+            .where(eq(schema.projectTransfers.id, transfer.id));
+          expect(held).toMatchObject({ status: "pending", acceptedAt: null });
+          expect(held?.approvedAt).not.toBeNull();
+          await db
+            .update(schema.files)
+            .set({ streamStatus: "ready" })
+            .where(eq(schema.files.id, s.mix));
+          const accepted = await accept(s.composer);
+          expect(accepted.status).toBe(200);
+          expect(await transferOf(accepted)).toMatchObject({ status: "moved" });
+          const [moved] = await db
+            .select({ organisationId: schema.projects.organisationId })
+            .from(schema.projects)
+            .where(eq(schema.projects.id, s.projectId));
+          expect(moved?.organisationId).toBe(to);
+          // Every step is in both workspaces' logs.
+          for (const organisationId of [s.organisationId, to]) {
+            const steps = await db
+              .select({ action: schema.accessEvents.action })
+              .from(schema.accessEvents)
+              .where(
+                and(
+                  eq(schema.accessEvents.organisationId, organisationId),
+                  sql`${schema.accessEvents.action}::text like 'project.transfer%'`,
+                ),
+              );
+            expect(steps.map((e) => e.action).sort()).toEqual(
+              [
+                "project.transfer",
+                "project.transfer_accept",
+                "project.transfer_approve",
+                "project.transfer_request",
+              ].sort(),
+            );
+          }
+          // The one who asked heard it approved, and of the move.
+          expect(
+            (await inbox(s.owner)).notifications
+              .filter((n) => n.kind === "transfer")
+              .map((n) => n.text),
+          ).toEqual(expect.arrayContaining(["approved moving Rags"]));
+
+          // Someone who may do both moves it at once: the composer, an admin of the studio too.
+          await db
+            .update(schema.members)
+            .set({ role: "admin" })
+            .where(
+              and(
+                eq(schema.members.organisationId, s.organisationId),
+                eq(schema.members.userId, s.ids.composer),
+              ),
+            );
+          const back = await ask(s.composer, {
+            to: { id: s.organisationId },
+            name: "Rags",
+            password,
+          });
+          expect(back.status).toBe(201);
+          expect(await transferOf(back)).toMatchObject({ status: "moved" });
+
+          // Refused by the gaining side, withdrawn by whoever asked, lapsed after a week.
+          const refused = await transferOf(
+            await ask(s.owner, { to: { id: to }, name: "Rags", password }),
+          );
+          const refuse = await app.request(
+            `/api/transfers/${refused.id}/refuse`,
+            json({}, s.composer),
+          );
+          expect(await transferOf(refuse)).toMatchObject({ status: "refused" });
+          expect(
+            (
+              await app.request(`/api/transfers/${refused.id}`, {
+                ...json({}, s.owner),
+                method: "DELETE",
+              })
+            ).status,
+          ).toBe(409);
+          const withdrawn = await transferOf(
+            await ask(s.owner, { to: { id: to }, name: "Rags", password }),
+          );
+          expect(
+            (
+              await app.request(`/api/transfers/${withdrawn.id}`, {
+                ...json({}, s.composer),
+                method: "DELETE",
+              })
+            ).status,
+          ).toBe(403);
+          expect(
+            (
+              await app.request(`/api/transfers/${withdrawn.id}`, {
+                ...json({}, s.owner),
+                method: "DELETE",
+              })
+            ).status,
+          ).toBe(204);
+          const lapsing = await transferOf(
+            await ask(s.owner, { to: { id: to }, name: "Rags", password }),
+          );
+          await db
+            .update(schema.projectTransfers)
+            .set({ expiresAt: new Date(Date.now() - 1000) })
+            .where(eq(schema.projectTransfers.id, lapsing.id));
+          expect(
+            (await (
+              await getAs(`/api/projects/${s.projectId}/transfer`, s.owner)
+            ).json()) as unknown,
+          ).toEqual({ transfer: null });
+          expect((await accept(s.composer, "Rags", lapsing.id)).status).toBe(409);
+          // One that lapsed unread does not stand in the way of asking again.
+          const unread = await transferOf(
+            await ask(s.owner, { to: { id: to }, name: "Rags", password }),
+          );
+          await db
+            .update(schema.projectTransfers)
+            .set({ expiresAt: new Date(Date.now() - 1000) })
+            .where(eq(schema.projectTransfers.id, unread.id));
+          expect((await ask(s.owner, { to: { id: to }, name: "Rags", password })).status).toBe(201);
+          // A workspace the transfer does not name can neither see nor act on it.
+          const [elsewhere] = await db
+            .insert(schema.organisations)
+            .values({ name: "Elsewhere", slug: "elsewhere-transfer" })
+            .returning();
+          await db.insert(schema.members).values({
+            organisationId: elsewhere?.id ?? "",
+            userId: s.ids.accompanist,
+            role: "owner",
+          });
+          await app.request("/api/me/organisation", {
+            ...json({ organisationId: elsewhere?.id }, s.accompanist),
+            method: "PUT",
+          });
+          expect((await (await getAs("/api/transfers", s.accompanist)).json()) as unknown).toEqual({
+            transfers: [],
+          });
+          expect(
+            (await app.request(`/api/transfers/${lapsing.id}/refuse`, json({}, s.accompanist)))
+              .status,
+          ).toBe(404);
         });
 
         it("tells reviewers and requesters, in the app and by mail, and no one else", async () => {

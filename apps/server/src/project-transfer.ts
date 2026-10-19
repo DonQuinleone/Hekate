@@ -197,14 +197,18 @@ async function assertEligible(
   input: { projectId: string; from: string; to: string },
   lock: boolean,
 ) {
-  const [project] = await rows<{ deleteAfter: string | null }>(
+  const [project] = await rows<{ deleteAfter: string | null; deletionAsked: boolean }>(
     tx,
-    sql`select delete_after as "deleteAfter" from projects
+    sql`select delete_after as "deleteAfter",
+        deletion_requested_at is not null as "deletionAsked" from projects
       where id = ${input.projectId} and organisation_id = ${input.from}
       ${lock ? sql`for update` : sql``}`,
   );
   if (!project) throw new NotFound("Project");
   if (project.deleteAfter) throw new TransferRefused("The project is being deleted");
+  // A deletion asked for under the losing workspace's roles must not travel with it.
+  if (project.deletionAsked)
+    throw new TransferRefused("The project's deletion is asked for; withdraw it first");
   const [gaining] = await rows<{ closed: boolean }>(
     tx,
     sql`select suspended_at is not null or delete_after is not null as closed
