@@ -25,7 +25,12 @@ import { alignInThread } from "./align.ts";
 import { analyseAudio, declaredLength } from "./analysis.ts";
 import { InvalidMediaError, probe } from "./ffmpeg.ts";
 import { pageSourceOf, renderPages } from "./pages.ts";
-import { type PackagedRendition, packageRendition, planRenditions } from "./proxy.ts";
+import {
+  type PackagedRendition,
+  packageRendition,
+  planRenditions,
+  type VideoLadder,
+} from "./proxy.ts";
 import { spectrogramsInThread } from "./spectrogram.ts";
 import { together } from "./together.ts";
 
@@ -58,6 +63,8 @@ export interface MediaWorkerDeps {
   workDir?: string;
   /** Where the EBU ADM Renderer is installed (ADM_RENDERER_PATH); without it, objects go unheard. */
   admRenderer?: string;
+  /** What video is encoded into (#148); the defaults where the instance says nothing. */
+  videoLadder?: VideoLadder;
 }
 
 /**
@@ -189,7 +196,7 @@ export function proxyHandler(deps: MediaWorkerDeps): JobHandler<"media-proxy"> {
       .limit(1);
     if (existing.length > 0) return;
 
-    const plans = planRenditions(file.kind, file.mediaInfo);
+    const plans = planRenditions(file.kind, file.mediaInfo, deps.videoLadder);
     if (plans.length === 0) {
       await markFailed(organisationId, fileId);
       return;
@@ -255,7 +262,7 @@ export function proxyHandler(deps: MediaWorkerDeps): JobHandler<"media-proxy"> {
             fileId,
             name: rendition.plan.name,
             codecs: rendition.plan.codecs,
-            bandwidth: rendition.plan.bandwidth,
+            bandwidth: rendition.bandwidth,
             width: rendition.plan.width ?? null,
             height: rendition.plan.height ?? null,
             targetDuration: rendition.targetDuration,

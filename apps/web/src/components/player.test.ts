@@ -37,6 +37,9 @@ describe("player", () => {
       }),
     ).toBe("Dolby Digital Plus · 7.1");
     expect(renditionLabel(rendition("720p", { height: 720 }), null)).toBe("720p");
+    // A royalty-free encoding beside H.264 (#148) says which.
+    expect(renditionLabel(rendition("720p-av1", { height: 720 }), null)).toBe("720p · AV1");
+    expect(renditionLabel(rendition("1080p-vp9", { height: 1080 }), null)).toBe("1080p · VP9");
     // An ADM master's lossless stream is its render onto a layout (#74), and says so.
     const master = {
       audio: { codec: "pcm_s24le", channels: 30, sampleRate: 48000, bitDepth: 24 },

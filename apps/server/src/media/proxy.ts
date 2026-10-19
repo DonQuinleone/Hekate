@@ -20,7 +20,35 @@ export interface RenditionPlan {
   segmentSeconds: number;
   /** ffmpeg arguments between the input and the HLS output options. */
   args: string[];
+  /** Arguments to encode it with instead, should these fail: software for a hardware encode. */
+  fallback?: string[];
 }
+
+/**
+ * What an instance encodes video into (#148, decision 142): its ladder, how many rungs one
+ * file gets, a royalty-free encoding beside H.264, and a GPU to encode H.264 on.
+ */
+export interface VideoLadder {
+  /** Each rung's height and bitrate in bit/s, highest first. */
+  rungs: readonly { height: number; rate: number }[];
+  /** The most rungs one file is given: the highest at or below its own height. */
+  most: number;
+  /** AV1 or VP9 at each rung, with Opus, for browsers that play it; or none. */
+  royaltyFree: "av1" | "vp9" | null;
+  /** A VAAPI render node (/dev/dri/renderD128) to encode H.264 on; software if it fails. */
+  hardware: string | null;
+}
+
+export const defaultVideoLadder: VideoLadder = {
+  rungs: [
+    { height: 1080, rate: 6_000_000 },
+    { height: 720, rate: 3_000_000 },
+    { height: 480, rate: 1_200_000 },
+  ],
+  most: 2,
+  royaltyFree: "av1",
+  hardware: null,
+};
 
 const AUDIO_CODEC = "mp4a.40.2";
 
@@ -54,6 +82,65 @@ export function h264Level(width: number, height: number, fps: number): number {
   return found ? found[0] : 52;
 }
 
+/**
+ * AV1 levels as [seq_level_idx, max picture size, max display rate in samples a second]
+ * (AV1 specification, Annex A).
+ */
+const AV1_LEVELS = [
+  [0, 147_456, 4_423_680],
+  [1, 278_784, 8_363_520],
+  [4, 665_856, 19_975_680],
+  [5, 1_065_024, 31_950_720],
+  [8, 2_359_296, 70_778_880],
+  [9, 2_359_296, 141_557_760],
+  [12, 8_912_896, 267_386_880],
+  [13, 8_912_896, 534_773_760],
+  [14, 8_912_896, 1_069_547_520],
+  [16, 35_651_584, 1_069_547_520],
+] as const;
+
+/** VP9 levels as [level × 10, max picture size, max sample rate] (the VP9 bitstream levels). */
+const VP9_LEVELS = [
+  [10, 36_864, 829_440],
+  [11, 73_728, 2_764_800],
+  [20, 122_880, 4_608_000],
+  [21, 245_760, 9_216_000],
+  [30, 552_960, 20_736_000],
+  [31, 983_040, 36_864_000],
+  [40, 2_228_224, 83_558_400],
+  [41, 2_228_224, 160_432_128],
+  [50, 8_912_896, 311_951_360],
+  [51, 8_912_896, 588_251_136],
+  [52, 8_912_896, 1_176_502_272],
+  [60, 35_651_584, 1_176_502_272],
+] as const;
+
+const lowest = (
+  levels: readonly (readonly [number, number, number])[],
+  width: number,
+  height: number,
+  fps: number,
+) => {
+  const samples = width * height;
+  const found = levels.find(([, size, rate]) => samples <= size && samples * fps <= rate);
+  return found ? found[0] : (levels.at(-1)?.[0] ?? 0);
+};
+
+/**
+ * The CODECS of a royalty-free rendition: Main profile, 8-bit, at the lowest level that holds
+ * its frame size and rate, so the playlist describes what the encoder produces.
+ */
+export function royaltyFreeCodecs(
+  codec: "av1" | "vp9",
+  width: number,
+  height: number,
+  fps: number,
+): string {
+  if (codec === "av1")
+    return `av01.0.${String(lowest(AV1_LEVELS, width, height, fps)).padStart(2, "0")}M.08`;
+  return `vp09.00.${lowest(VP9_LEVELS, width, height, fps)}.08`;
+}
+
 /** Even dimensions for a target height, keeping the aspect ratio. */
 function scaled(info: NonNullable<MediaInfo["video"]>, height: number) {
   const width = Math.round((info.width * height) / info.height / 2) * 2;
@@ -69,7 +156,11 @@ export function partFilter(part: StreamPart): string {
   return `pan=${FLAC_LAYOUTS[part.count - 1]}|${routes.join("|")}`;
 }
 
-export function planRenditions(kind: "audio" | "video", info: MediaInfo): RenditionPlan[] {
+export function planRenditions(
+  kind: "audio" | "video",
+  info: MediaInfo,
+  ladder: VideoLadder = defaultVideoLadder,
+): RenditionPlan[] {
   const audio = info.audio;
   // AAC at the source rate when it is a common one, otherwise 48 kHz; stereo at most.
   const audioArgs = (bitrate: string) =>
@@ -136,61 +227,150 @@ export function planRenditions(kind: "audio" | "video", info: MediaInfo): Rendit
   }
 
   const video = info.video;
-  const ladder = [
-    { height: 1080, rate: 6_000_000 },
-    { height: 720, rate: 3_000_000 },
-    { height: 480, rate: 1_200_000 },
-  ];
   const fps = video.fps ?? 30;
-  // Every rung at or below the source, and always at least the smallest.
-  const rungs = ladder.filter((r) => r.height <= video.height);
-  if (rungs.length === 0)
-    rungs.push({
-      ...(ladder.at(-1) as (typeof ladder)[number]),
-      height: video.height - (video.height % 2),
-    });
-  return rungs.slice(0, 2).map((rung) => {
+  // The highest rungs at or below the source, and always at least the smallest.
+  const rungs = ladder.rungs.filter((r) => r.height <= video.height).slice(0, ladder.most);
+  if (rungs.length === 0) {
+    const smallest = ladder.rungs.at(-1) ?? { height: 480, rate: 1_200_000 };
+    rungs.push({ ...smallest, height: video.height - (video.height % 2) });
+  }
+  // A keyframe every two seconds, so every four-second segment starts on one.
+  const keyframes = 2;
+  const gop = String(Math.max(1, Math.round(fps * keyframes)));
+  const opusArgs = audio
+    ? [
+        "-c:a",
+        "libopus",
+        "-b:a",
+        "160k",
+        "-ac",
+        String(Math.min(audio.channels, 2)),
+        "-ar",
+        "48000",
+      ]
+    : [];
+  const streams = ["-map", "0:v:0", ...(audio ? ["-map", "0:a:0"] : [])];
+  return rungs.flatMap((rung): RenditionPlan[] => {
     const size = scaled(video, rung.height);
-    const keyframes = 2;
     const level = h264Level(size.width, size.height, fps);
     // High profile (0x64), no constraint flags, then the level.
     const profile = `avc1.6400${level.toString(16).padStart(2, "0")}`;
-    return {
+    const software = [
+      ...streams,
+      "-c:v",
+      "libx264",
+      "-profile:v",
+      "high",
+      "-level:v",
+      (level / 10).toFixed(1),
+      "-preset",
+      "veryfast",
+      "-crf",
+      "20",
+      "-maxrate",
+      String(rung.rate),
+      "-bufsize",
+      String(rung.rate * 2),
+      "-pix_fmt",
+      "yuv420p",
+      "-vf",
+      `scale=${size.width}:${size.height}`,
+      "-force_key_frames",
+      `expr:gte(t,n_forced*${keyframes})`,
+      "-sc_threshold",
+      "0",
+      ...audioArgs("192k"),
+    ];
+    // On the GPU, where the instance has one: the same picture, scaled and encoded there.
+    const hardware = ladder.hardware && [
+      "-init_hw_device",
+      `vaapi=gpu:${ladder.hardware}`,
+      "-filter_hw_device",
+      "gpu",
+      ...streams,
+      "-vf",
+      `format=nv12,hwupload,scale_vaapi=w=${size.width}:h=${size.height}`,
+      "-c:v",
+      "h264_vaapi",
+      "-profile:v",
+      "high",
+      "-level:v",
+      (level / 10).toFixed(1),
+      "-rc_mode",
+      "VBR",
+      "-b:v",
+      String(Math.round(rung.rate * 0.8)),
+      "-maxrate",
+      String(rung.rate),
+      "-g",
+      gop,
+      ...audioArgs("192k"),
+    ];
+    const h264: RenditionPlan = {
       name: `${rung.height}p`,
       codecs: audio ? `${profile},${AUDIO_CODEC}` : profile,
       bandwidth: rung.rate + (audio ? 200_000 : 0),
       width: size.width,
       height: size.height,
       segmentSeconds: 4,
-      args: [
-        "-map",
-        "0:v:0",
-        ...(audio ? ["-map", "0:a:0"] : []),
-        "-c:v",
-        "libx264",
-        "-profile:v",
-        "high",
-        "-level:v",
-        (level / 10).toFixed(1),
-        "-preset",
-        "veryfast",
-        "-crf",
-        "20",
-        "-maxrate",
-        String(rung.rate),
-        "-bufsize",
-        String(rung.rate * 2),
-        "-pix_fmt",
-        "yuv420p",
-        "-vf",
-        `scale=${size.width}:${size.height}`,
-        "-force_key_frames",
-        `expr:gte(t,n_forced*${keyframes})`,
-        "-sc_threshold",
-        "0",
-        ...audioArgs("192k"),
-      ],
+      args: hardware || software,
+      ...(hardware ? { fallback: software } : {}),
     };
+    const free = ladder.royaltyFree;
+    if (!free) return [h264];
+    // Smaller for the same picture: two thirds of H.264's rate is enough for AV1 and VP9 alike.
+    const rate = Math.round((rung.rate * 2) / 3);
+    const codecs = royaltyFreeCodecs(free, size.width, size.height, fps);
+    const encoder =
+      free === "av1"
+        ? [
+            "-c:v",
+            "libsvtav1",
+            "-preset",
+            "12",
+            "-crf",
+            "34",
+            "-svtav1-params",
+            `mbr=${Math.round(rate / 1000)}`,
+          ]
+        : [
+            "-c:v",
+            "libvpx-vp9",
+            "-deadline",
+            "realtime",
+            "-cpu-used",
+            "8",
+            "-row-mt",
+            "1",
+            "-b:v",
+            String(rate),
+            "-maxrate",
+            String(rung.rate),
+            "-bufsize",
+            String(rung.rate * 2),
+          ];
+    return [
+      h264,
+      {
+        name: `${rung.height}p-${free}`,
+        codecs: audio ? `${codecs},opus` : codecs,
+        bandwidth: rate + (audio ? 170_000 : 0),
+        width: size.width,
+        height: size.height,
+        segmentSeconds: 4,
+        args: [
+          ...streams,
+          ...encoder,
+          "-g",
+          gop,
+          "-pix_fmt",
+          "yuv420p",
+          "-vf",
+          `scale=${size.width}:${size.height}`,
+          ...opusArgs,
+        ],
+      },
+    ];
   });
 }
 
@@ -207,6 +387,38 @@ export interface PackagedRendition {
   initIv: string;
   segments: StoredSegment[];
   targetDuration: number;
+  /**
+   * What the master playlist advertises (bits per second): for a video, its measured peak
+   * where the encoder overshot the plan, so a player never picks a picture its connection
+   * cannot keep up with; otherwise the planned rate.
+   */
+  bandwidth: number;
+}
+
+/**
+ * A playlist's peak segment bit rate, as RFC 8216 (4.3.4.2) defines it: the highest rate of
+ * any run of consecutive segments lasting between half and one and a half target durations.
+ * A playlist too short for any such run gives its average.
+ */
+export function peakBitrate(
+  segments: readonly { duration: number; bytes: number }[],
+  targetDuration: number,
+): number {
+  let peak = 0;
+  for (let first = 0; first < segments.length; first++) {
+    let bytes = 0;
+    let seconds = 0;
+    for (const segment of segments.slice(first)) {
+      bytes += segment.bytes;
+      seconds += segment.duration;
+      if (seconds > 1.5 * targetDuration) break;
+      if (seconds >= 0.5 * targetDuration) peak = Math.max(peak, (bytes * 8) / seconds);
+    }
+  }
+  if (peak > 0) return Math.ceil(peak);
+  const bytes = segments.reduce((sum, s) => sum + s.bytes, 0);
+  const seconds = segments.reduce((sum, s) => sum + s.duration, 0);
+  return seconds > 0 ? Math.ceil((bytes * 8) / seconds) : 0;
 }
 
 /** Stores encrypted bytes and returns the blob id. */
@@ -275,31 +487,42 @@ export async function packageRendition(
 ): Promise<PackagedRendition> {
   const out = join(dir, plan.name);
   await mkdir(out, { recursive: true, mode: 0o700 });
-  await run(
-    "ffmpeg",
-    [
-      ...safeInputArgs("ffmpeg"),
-      "-v",
-      "error",
-      "-i",
-      `file:${input}`,
-      ...plan.args,
-      "-f",
-      "hls",
-      "-hls_time",
-      String(plan.segmentSeconds),
-      "-hls_playlist_type",
-      "vod",
-      "-hls_segment_type",
-      "fmp4",
-      "-hls_fmp4_init_filename",
-      "init.mp4",
-      "-hls_segment_filename",
-      join(out, "seg%05d.m4s"),
-      join(out, "index.m3u8"),
-    ],
-    { signal, timeoutMs: 60 * 60_000 },
-  );
+  const encode = (args: string[]) =>
+    run(
+      "ffmpeg",
+      [
+        ...safeInputArgs("ffmpeg"),
+        "-v",
+        "error",
+        "-i",
+        `file:${input}`,
+        ...args,
+        "-f",
+        "hls",
+        "-hls_time",
+        String(plan.segmentSeconds),
+        "-hls_playlist_type",
+        "vod",
+        "-hls_segment_type",
+        "fmp4",
+        "-hls_fmp4_init_filename",
+        "init.mp4",
+        "-hls_segment_filename",
+        join(out, "seg%05d.m4s"),
+        join(out, "index.m3u8"),
+      ],
+      { signal, timeoutMs: 60 * 60_000 },
+    );
+  try {
+    await encode(plan.args);
+  } catch (error) {
+    // A GPU that is missing, busy or refuses this picture: the same rendition in software.
+    if (!plan.fallback || signal.aborted) throw error;
+    console.warn(`Hardware encoding of ${plan.name} failed; encoding in software:`, error);
+    await rm(out, { recursive: true, force: true });
+    await mkdir(out, { recursive: true, mode: 0o700 });
+    await encode(plan.fallback);
+  }
   const listed = parsePlaylist(await readFile(join(out, "index.m3u8"), "utf8"));
   if (listed.length === 0) throw new Error(`ffmpeg produced no segments for ${plan.name}`);
   const contentType = plan.height ? "video/mp4" : "audio/mp4";
@@ -314,14 +537,21 @@ export async function packageRendition(
 
   const init = await seal("init.mp4", await readFile(join(out, "init.mp4")));
   const segments: StoredSegment[] = [];
+  const sizes: { duration: number; bytes: number }[] = [];
   for (const segment of listed) {
     if (signal.aborted) throw new Error("Packaging cancelled");
     const plain = await readFile(join(out, segment.file));
     if (!hasMedia(plain)) continue;
+    sizes.push({ duration: segment.duration, bytes: plain.length });
     segments.push({ duration: segment.duration, ...(await seal(segment.file, plain)) });
   }
   if (segments.length === 0)
     throw new Error(`ffmpeg produced only empty segments for ${plan.name}`);
   const targetDuration = Math.ceil(Math.max(...segments.map((s) => s.duration)));
-  return { plan, initBlobId: init.blobId, initIv: init.iv, segments, targetDuration };
+  // Audio holds to its nominal rate (CBR AAC, lossless at most the PCM rate); a picture can run
+  // over its rate in a busy scene.
+  const bandwidth = plan.height
+    ? Math.max(plan.bandwidth, peakBitrate(sizes, targetDuration))
+    : plan.bandwidth;
+  return { plan, initBlobId: init.blobId, initIv: init.iv, segments, targetDuration, bandwidth };
 }

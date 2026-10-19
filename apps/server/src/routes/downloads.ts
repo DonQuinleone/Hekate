@@ -157,7 +157,10 @@ async function audioRendition(db: Database, organisationId: string, fileId: stri
   return row ?? null;
 }
 
-/** The picture rendition a video's proxy is made from: the largest the stream offers. */
+/**
+ * The picture rendition a video's proxy is made from: the largest the stream offers, its H.264
+ * encoding where it has a royalty-free one beside it (#148), being quicker to decode.
+ */
 async function videoRendition(db: Database, organisationId: string, fileId: string) {
   const [row] = await db
     .select()
@@ -170,7 +173,8 @@ async function videoRendition(db: Database, organisationId: string, fileId: stri
         isNotNull(renditions.height),
       ),
     )
-    .orderBy(desc(renditions.height))
+    // "1080p" sorts before "1080p-av1".
+    .orderBy(desc(renditions.height), asc(renditions.name))
     .limit(1);
   return row ?? null;
 }

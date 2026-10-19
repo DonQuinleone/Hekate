@@ -15213,7 +15213,7 @@ describe.runIf(url)("api", () => {
           });
         }, 240_000);
 
-        it("plays video as an encrypted ladder that decrypts to H.264 and AAC", async () => {
+        it("plays video as an encrypted ladder that decrypts to H.264 and AAC, and AV1 and Opus (#148)", async () => {
           const owner = cookieOf(await setup());
           const { fileId } = await playableFile(owner, "video");
           const { url } = await start(owner, fileId);
@@ -15221,33 +15221,43 @@ describe.runIf(url)("api", () => {
           expect(master).toContain("RESOLUTION=1920x1080");
           expect(master).toContain("RESOLUTION=1280x720");
           const lines = master.split("\n");
-          const variant =
-            lines[lines.findIndex((l) => l.includes("RESOLUTION=1280x720")) + 1] ?? "";
-          const dir = url.replace(/master\.m3u8$/, "") + variant.replace(/index\.m3u8$/, "");
-          const media = await (await get(`${dir}index.m3u8`, owner)).text();
-          const key = Buffer.from(await (await get(`${dir}key`, owner)).arrayBuffer());
-          let iv = "";
-          const parts: Buffer[] = [];
-          for (const line of media.split("\n")) {
-            const match = line.match(/IV=0x([0-9a-f]{32})/);
-            if (match?.[1]) iv = match[1];
-            const uri = line.startsWith("#EXT-X-MAP")
-              ? "init.mp4"
-              : line.startsWith("seg/")
-                ? line
-                : null;
-            if (!uri) continue;
-            const body = Buffer.from(await (await get(dir + uri, owner)).arrayBuffer());
-            const decipher = createDecipheriv("aes-128-cbc", key, Buffer.from(iv, "hex"));
-            parts.push(Buffer.concat([decipher.update(body), decipher.final()]));
-          }
-          const assembled = join(storageRoot, "assembled-video.mp4");
-          writeFileSync(assembled, Buffer.concat(parts));
-          const info = await probe(assembled);
-          expect(info.video).toMatchObject({ codec: "h264", width: 1280, height: 720 });
-          expect(info.audio).toMatchObject({ codec: "aac" });
-          expect(info.duration).toBeCloseTo(5, 0);
-        }, 180_000);
+          // Each rung twice: H.264 with AAC, and AV1 with Opus, each named by its codecs.
+          const variantOf = (codec: string) =>
+            lines[
+              lines.findIndex((l) => l.includes("RESOLUTION=1280x720") && l.includes(codec)) + 1
+            ] ?? "";
+          const assembled = async (variant: string, name: string) => {
+            const dir = url.replace(/master\.m3u8$/, "") + variant.replace(/index\.m3u8$/, "");
+            const media = await (await get(`${dir}index.m3u8`, owner)).text();
+            const key = Buffer.from(await (await get(`${dir}key`, owner)).arrayBuffer());
+            let iv = "";
+            const parts: Buffer[] = [];
+            for (const line of media.split("\n")) {
+              const match = line.match(/IV=0x([0-9a-f]{32})/);
+              if (match?.[1]) iv = match[1];
+              const uri = line.startsWith("#EXT-X-MAP")
+                ? "init.mp4"
+                : line.startsWith("seg/")
+                  ? line
+                  : null;
+              if (!uri) continue;
+              const body = Buffer.from(await (await get(dir + uri, owner)).arrayBuffer());
+              const decipher = createDecipheriv("aes-128-cbc", key, Buffer.from(iv, "hex"));
+              parts.push(Buffer.concat([decipher.update(body), decipher.final()]));
+            }
+            const path = join(storageRoot, name);
+            writeFileSync(path, Buffer.concat(parts));
+            return probe(path);
+          };
+          const h264 = await assembled(variantOf("avc1."), "assembled-video.mp4");
+          expect(h264.video).toMatchObject({ codec: "h264", width: 1280, height: 720 });
+          expect(h264.audio).toMatchObject({ codec: "aac" });
+          expect(h264.duration).toBeCloseTo(5, 0);
+          const av1 = await assembled(variantOf("av01."), "assembled-av1.mp4");
+          expect(av1.video).toMatchObject({ codec: "av1", width: 1280, height: 720 });
+          expect(av1.audio).toMatchObject({ codec: "opus" });
+          expect(av1.duration).toBeCloseTo(5, 0);
+        }, 240_000);
 
         it("refuses copied, forged, expired and stale links", async () => {
           const owner = cookieOf(await setup());
