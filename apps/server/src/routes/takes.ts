@@ -16,7 +16,7 @@ import { and, asc, eq, inArray, max } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { actorOf, can, canOnFile, lockLiveProject } from "../access.ts";
+import { actorOf, can, canOnFile, lockLiveProject, lockTakeNumbers } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { TenantVariables } from "../tenancy.ts";
@@ -139,6 +139,7 @@ export const trackTakeRoutes = (db: Database) =>
       const fileIds = [...new Set(c.req.valid("json").fileIds)];
       await db.transaction(async (tx) => {
         await lockLiveProject(tx, organisationId, track.projectId);
+        await lockTakeNumbers(tx, track.projectId);
         // Under the track's lock, so two at once number their takes one after the other.
         await tx
           .select({ id: tracks.id })
@@ -230,6 +231,8 @@ export const takeRoutes = (db: Database) =>
       };
       const next = { ...take.take, ...rest };
       const problem = takeProblem({
+        page: next.page ?? null,
+        pageTo: next.pageTo ?? null,
         barFrom: next.barFrom ?? null,
         barTo: next.barTo ?? null,
         inPoint: next.inPoint ?? null,

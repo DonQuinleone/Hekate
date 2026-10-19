@@ -47,12 +47,15 @@ export const shareTakesInput = z.object({ takeIds: z.array(z.uuid()).min(1).max(
 export const takeLifecycles = ["idle", "armed", "recording", "recorded", "aborted"] as const;
 export type TakeLifecycle = (typeof takeLifecycles)[number];
 
-/** Where a take may go from each state; an aborted take can be counted after all. */
+/**
+ * Where a take may go from each state: aborted only before it is recorded, and an aborted take
+ * can be counted after all; a recorded take stays recorded.
+ */
 const lifecycleMoves: Record<TakeLifecycle, readonly TakeLifecycle[]> = {
   idle: ["armed", "recording", "aborted"],
   armed: ["idle", "recording", "aborted"],
   recording: ["recorded", "aborted"],
-  recorded: ["aborted"],
+  recorded: [],
   aborted: ["recorded"],
 };
 
@@ -163,6 +166,9 @@ export interface SessionDetail extends SessionSummary {
 
 /** A take's place, as it would be once a change is made. */
 export interface TakePlace {
+  /** The pages it starts and ends on, where those are given. */
+  page?: number | null;
+  pageTo?: number | null;
   barFrom: number | null;
   barTo: number | null;
   inPoint: number | null;
@@ -180,6 +186,9 @@ export function takeProblem(t: TakePlace): string | null {
   if (t.barFrom !== null && t.barTo !== null && t.barFrom > t.barTo)
     return "The last bar comes before the first";
   if (t.barFrom === null && t.barTo !== null) return "Give the first bar too";
+  if ((t.page ?? null) === null && (t.pageTo ?? null) !== null) return "Give the first page too";
+  if (t.page != null && t.pageTo != null && t.pageTo < t.page)
+    return "The last page comes before the first";
   if (t.inPoint !== null && t.outPoint !== null && t.inPoint >= t.outPoint)
     return "The out point comes before the in point";
   return null;

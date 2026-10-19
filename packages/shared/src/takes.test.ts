@@ -121,6 +121,8 @@ describe("the take log (#51)", () => {
     expect(canMoveTake("aborted", "recorded")).toBe(true);
     expect(canMoveTake("recorded", "recorded")).toBe(true);
     expect(canMoveTake("recorded", "recording")).toBe(false);
+    // A recorded take stays recorded; it is not aborted after the event.
+    expect(canMoveTake("recorded", "aborted")).toBe(false);
     expect(canMoveTake("aborted", "recording")).toBe(false);
     expect(canMoveTake("idle", "recorded")).toBe(false);
   });
@@ -202,5 +204,15 @@ describe("the take log (#51)", () => {
       "13,Maple Leaf Rag,Aborted,,,,11:02:14:00,11:04:01:12,2026-10-14T14:02:14.000Z,2026-10-14T14:04:01.000Z,,,",
       "",
     ]);
+  });
+
+  it("keeps a take's pages in order, the first given before the last", () => {
+    const place = { barFrom: null, barTo: null, inPoint: null, outPoint: null };
+    expect(takeProblem({ ...place, page: 3, pageTo: 5 })).toBeNull();
+    expect(takeProblem({ ...place, page: 3, pageTo: 3 })).toBeNull();
+    expect(takeProblem({ ...place, page: 5, pageTo: 3 })).toBe(
+      "The last page comes before the first",
+    );
+    expect(takeProblem({ ...place, page: null, pageTo: 3 })).toBe("Give the first page too");
   });
 });

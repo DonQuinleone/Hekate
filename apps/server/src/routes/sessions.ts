@@ -15,7 +15,7 @@ import { and, asc, desc, eq, inArray, max, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { actorOf, can, lockLiveProject } from "../access.ts";
+import { actorOf, can, lockLiveProject, lockTakeNumbers } from "../access.ts";
 import { NotFound } from "../errors.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { takeRowsFor } from "./takes.ts";
@@ -195,6 +195,7 @@ export const projectSessionRoutes = (db: Database) =>
       ];
       const result = await db.transaction(async (tx) => {
         await lockLiveProject(tx, organisationId, projectId);
+        await lockTakeNumbers(tx, projectId);
         // Under the tracks' locks, taken in one order, so imports at once number in turn.
         const found = await tx
           .select({ id: tracks.id })
@@ -370,11 +371,7 @@ export const sessionRoutes = (db: Database) =>
           )
           .for("update");
         if (!track) throw new NotFound("Track");
-        // Numbered across the project, takes on any of its tracks wait their turn.
-        if (numbering === "continuous")
-          await tx.execute(
-            sql`select pg_advisory_xact_lock(hashtext(${`take-numbers:${row.projectId}`}))`,
-          );
+        await lockTakeNumbers(tx, row.projectId);
         const [ofTrack] = await tx
           .select({ n: max(takes.number) })
           .from(takes)

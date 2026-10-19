@@ -484,6 +484,16 @@ export function visibleProjects(actor: MemberActor, permission: ProjectPermissio
  * Inside a transaction that adds to a project: holds the project against being archived
  * meanwhile (archiving takes the row for update), and refuses one already archived.
  */
+/**
+ * Takes are numbered one at a time across a project (#51): whichever way a take gets its
+ * number (logged live, made from a file, imported), the transaction waits here first, so a
+ * take numbered on from the project's last never shares a number with one numbered at once on
+ * another track.
+ */
+export async function lockTakeNumbers(tx: Pick<Database, "execute">, projectId: string) {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`take-numbers:${projectId}`}))`);
+}
+
 export async function lockLiveProject(
   tx: Pick<Database, "select">,
   organisationId: string,

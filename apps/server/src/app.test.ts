@@ -9162,6 +9162,12 @@ describe.runIf(url)("api", () => {
           expect(after).toMatchObject({ lifecycle: "recorded", falseStarts: 1 });
           expect(after.wallOut).not.toBeNull();
           expect((await change(one.id, { lifecycle: "recording" })).status).toBe(409);
+          // Nor is it aborted after the event.
+          expect((await change(one.id, { lifecycle: "aborted" })).status).toBe(409);
+          // Its pages run forwards, the first given.
+          expect((await change(one.id, { pageTo: 3 })).status).toBe(422);
+          expect((await change(one.id, { page: 4, pageTo: 3 })).status).toBe(422);
+          expect((await change(one.id, { page: 3, pageTo: 4 })).status).toBe(200);
           // Armed, then rolling, then aborted; an aborted take may be counted after all.
           expect((await change(two.id, { lifecycle: "recording" })).status).toBe(200);
           expect((await change(two.id, { lifecycle: "aborted" })).status).toBe(200);
