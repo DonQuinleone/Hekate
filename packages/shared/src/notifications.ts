@@ -30,6 +30,8 @@ export const notificationKinds = [
   "workflow",
   /** A task was given to you or is due, or one you run waits for your approval (#140). */
   "task",
+  /** A project is moving between workspaces: asked for, waiting on you, or moved (#240). */
+  "transfer",
 ] as const;
 export type NotificationKind = (typeof notificationKinds)[number];
 
@@ -59,6 +61,7 @@ export const notificationDefaults: Record<NotificationKind, NotificationChannels
   assigned: { app: true, mail: true },
   workflow: { app: true, mail: true },
   task: { app: true, mail: true },
+  transfer: { app: true, mail: true },
 };
 
 /** Reviews asked of you and mentions always reach you in the app, whatever you choose. */

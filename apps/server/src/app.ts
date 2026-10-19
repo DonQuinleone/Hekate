@@ -39,6 +39,7 @@ import { fileRoutes, playRoutes } from "./routes/playback.ts";
 import { projectAccessRoutes } from "./routes/project-access.ts";
 import { projectDeletionRoutes } from "./routes/project-deletion.ts";
 import { projectStorageRoutes } from "./routes/project-storage.ts";
+import { projectTransferRoutes } from "./routes/project-transfers.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { fileQaRoutes } from "./routes/qa.ts";
 import { fileRetryRoutes } from "./routes/retry.ts";
@@ -164,6 +165,7 @@ export function createApi(deps: AppDeps) {
           keyring: deps.keyring,
           jobs: deps.jobs,
           backends: deps.storage.backends,
+          audit: deps.audit,
         }),
       )
       .route("/sign-in-methods", signInMethodRoutes(deps.db))
@@ -270,6 +272,23 @@ export function createApi(deps: AppDeps) {
       .route("/sessions", sessionRoutes(deps.db))
       .use("/tasks/*", ...member)
       .route("/tasks", taskRoutes({ ...taskMail, runner }))
+      // Moving a project between workspaces (#240): from the project, and as either side sees it.
+      .use("/transfers/*", ...member)
+      .use("/transfers", ...member)
+      .route(
+        "/",
+        projectTransferRoutes({
+          db: deps.db,
+          auth: deps.auth,
+          keyring: deps.keyring,
+          backends: deps.storage.backends,
+          jobs: deps.jobs,
+          audit: deps.audit,
+          mailer: deps.mailer,
+          publicUrl: deps.publicUrl,
+          trustProxy: deps.trustProxy ?? false,
+        }),
+      )
       .use("/workflows/*", ...member)
       .route("/workflows", workflowRoutes(deps.db))
       .use("/workflow-runs/*", ...member)

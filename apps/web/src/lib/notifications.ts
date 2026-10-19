@@ -15,6 +15,7 @@ export const notificationIcon: Record<AppNotification["kind"], IconName> = {
   assigned: "task",
   workflow: "flag",
   task: "task",
+  transfer: "arrowRight",
 };
 
 const startOfDay = (t: number) => {

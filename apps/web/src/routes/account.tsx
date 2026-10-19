@@ -64,6 +64,7 @@ const kindCopy: Record<NotificationKind, string> = {
   assigned: "Someone sends you the comments assigned to you",
   workflow: "A workflow tells your role something, or gives it a stage to do",
   task: "A task is given to you or is due, or one you run waits for your approval",
+  transfer: "A project is asked to move between workspaces, or has moved",
 };
 
 function Channel({

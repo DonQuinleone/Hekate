@@ -33,6 +33,7 @@ export * from "./peaks.ts";
 export * from "./player-view.ts";
 export * from "./profile.ts";
 export * from "./project-deletion.ts";
+export * from "./project-transfer.ts";
 export * from "./qa.ts";
 export * from "./qa-changes.ts";
 export * from "./qa-rules.ts";

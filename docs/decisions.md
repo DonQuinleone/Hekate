@@ -648,3 +648,19 @@ A project can move between workspaces (#240). This decision covers the move itse
 - **Refused** while any of the project's files are still being prepared, while the project is being deleted, or when the gaining workspace is suspended or being deleted. These are checked again inside the transaction, with the project locked for update and the gaining workspace locked for share. A deletion or suspension confirmed while the objects were copying is therefore seen, and one confirmed during the move waits for it.
 - **Every query names the losing workspace.** Each read, update and delete of the project's rows carries its `organisation_id`, as every tenant query must. The rows move children first, so each one is still found through parents that haven't moved yet.
 - **A checksum still to compute** (a file uploaded in parts whose `blob-checksum` job names the losing workspace) is asked for again under the gaining workspace once the move commits. The old job can then only fail, harmlessly, and no file is left without a checksum.
+
+## 136. Asking for, signing off and making a project's move
+
+Who may move a project between workspaces, and how it is confirmed (#240), on top of the move itself (decision 135). This follows the owner's spec on the issue.
+
+- **Asking.** Someone whose role in the project may delete it (`delete_project`) asks, from the project. They choose one of their own other workspaces, or type another workspace's address. A project whose deletion is asked for cannot be asked to move.
+- **At once, or with two sign-offs.** Where the person asking is an owner or admin of the gaining workspace, the project moves as soon as they confirm. Otherwise the transfer waits for two things before anything moves:
+  - **approval** by a second member of the losing workspace whose role may delete the project, never the person who asked;
+  - **acceptance** by an owner or admin of the gaining workspace.
+
+  Either may come first. A transfer can be refused by either side, withdrawn by whoever asked, and lapses after a week if no one acts on it.
+- **Confirmed every time.** Asking, approving and accepting each need the project's name typed in (ignoring letter case and surrounding spaces), and the person themself at the keyboard. That means their password, or their directory password, or, for an account with neither (single sign-on or passkey only), a sign-in in the last ten minutes. This is the same check as deleting an account, now shared as `confirmIdentity`.
+- **Moved once.** When the last sign-off lands, the transfer is claimed (`pending` to `moving`) before the move, so two people finishing it at once move it once. A move that fails puts it back to wait.
+- **Heard and written down.** Every step is written to both workspaces' audit logs. The gaining workspace's entries name the project only by name until it arrives. The people who can act on the next step hear of it in their own workspace (a new `transfer` notification kind), the person who asked hears of approvals and refusals, and both workspaces' owners and admins hear of the move.
+- **Operators.** An operator can move a project from the instance side without approval or acceptance, confirmed by typing its name and their password. A transfer waiting on the project is withdrawn. The move is kept as a transfer already done, written to both workspaces' logs and the instance's events, and both workspaces' owners and admins are told.
+- **Stored across two workspaces.** `project_transfers` belongs to both workspaces, so it has no single `organisation_id`. Instead it has `from_organisation_id` and `to_organisation_id`, and every query names the asking workspace as one of them, so each side sees only the transfers that name it. One transfer waits on a project at a time (a unique partial index).

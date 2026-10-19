@@ -115,6 +115,25 @@ async function passwordIsTheirs(
 }
 
 /**
+ * Confirm it is the account's owner at the keyboard, before something as grave as deleting the
+ * account or moving a project (#240): their password, their directory password, or, for an
+ * account with neither, a sign-in in the last ten minutes, as `deletionConfirmation` says.
+ */
+export async function confirmIdentity(
+  db: Database,
+  auth: Auth,
+  keyring: Keyring | undefined,
+  session: { userId: string; sessionId: string },
+  password: string | undefined,
+): Promise<"confirmed" | "refused" | "sign_in_again"> {
+  const confirm = await deletionConfirmation(db, session.userId, session.sessionId);
+  if (confirm.with === "sign_in") return confirm.fresh ? "confirmed" : "sign_in_again";
+  if (!password || !(await passwordIsTheirs(db, auth, keyring, session.userId, password)))
+    return "refused";
+  return "confirmed";
+}
+
+/**
  * Delete an account (decision 047). What the member did stays, as a former member's: their
  * comments, decisions and access log entries keep their place, under "A former member". What
  * was theirs alone goes: sign-in, sessions, the second factor, memberships, preferences,
@@ -139,14 +158,8 @@ export async function deleteAccount(
   const [user] = await db.select({ email: users.email }).from(users).where(eq(users.id, userId));
   if (!user || user.email.toLowerCase() !== input.email.trim().toLowerCase())
     return { status: "refused" };
-  const confirm = await deletionConfirmation(db, userId, session.sessionId);
-  if (confirm.with === "sign_in") {
-    if (!confirm.fresh) return { status: "sign_in_again" };
-  } else if (
-    !input.password ||
-    !(await passwordIsTheirs(db, auth, keyring, userId, input.password))
-  )
-    return { status: "refused" };
+  const confirmed = await confirmIdentity(db, auth, keyring, session, input.password);
+  if (confirmed !== "confirmed") return { status: confirmed };
 
   return db.transaction(async (tx) => {
     // The account's row, locked first: a request still writing to the access log for it waits

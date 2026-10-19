@@ -23,9 +23,11 @@ import {
   inspectSessionParam,
   instanceFlags,
   instanceWorkspacesQuery,
+  nameMatches,
   newWorkspaceInput,
   type OperatorRow,
   operatorInput,
+  operatorMoveInput,
   operatorParam as operatorParamSchema,
   suspendWorkspaceInput,
   WORKSPACE_DELETE_GRACE_DAYS,
@@ -55,7 +57,8 @@ import { type Context, Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { requestInfo } from "../audit.ts";
+import { confirmIdentity } from "../account-deletion.ts";
+import { type Audit, requestInfo } from "../audit.ts";
 import type { Auth } from "../auth.ts";
 import { workspaceEmail } from "../email/templates.ts";
 import { CodedException, NotFound } from "../errors.ts";
@@ -67,6 +70,7 @@ import type { Keyring } from "../keyring.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { factorStanding, type SecondFactorRule } from "../tenancy.ts";
 import { pendingRewrap } from "../workspace-keys.ts";
+import { operatorMove } from "./project-transfers.ts";
 import { retryFile } from "./retry.ts";
 
 /**
@@ -85,7 +89,8 @@ export interface InstanceOptions {
   publicUrl: string;
   keyring: Keyring;
   jobs: Pick<Jobs, "send">;
-  backends: Pick<Backends, "defaultBackend">;
+  backends: Backends;
+  audit: Audit;
 }
 
 interface InstanceVariables {
@@ -766,6 +771,54 @@ export function instanceRoutes(options: InstanceOptions) {
         return c.json(keys);
       })
       .use("/workspaces/:id/*", operatorsOnly)
+      // An operator moves a project to another workspace (#240), without approval or acceptance,
+      // confirming it with the project's name and their own password.
+      .post(
+        "/workspaces/:id/projects/:projectId/move",
+        zValidator("param", z.object({ id: z.uuid(), projectId: z.uuid() })),
+        zValidator("json", operatorMoveInput),
+        async (c) => {
+          const { id, projectId } = c.req.valid("param");
+          const input = c.req.valid("json");
+          const [project] = await db
+            .select({ name: schema.projects.name })
+            .from(schema.projects)
+            .where(inOrg(schema.projects, id, eq(schema.projects.id, projectId)));
+          if (!project) throw new NotFound("Project");
+          if (!nameMatches(input.name, project.name))
+            throw new CodedException(422, "name_mismatch", "Type the project's name to confirm");
+          const confirmed = await confirmIdentity(
+            db,
+            options.auth,
+            options.keyring,
+            { userId: c.var.userId, sessionId: c.var.sessionId },
+            input.password,
+          );
+          if (confirmed === "sign_in_again")
+            throw new CodedException(
+              403,
+              "sign_in_again",
+              "Sign in again, then confirm within ten minutes",
+            );
+          if (confirmed === "refused")
+            throw new CodedException(403, "password_refused", "That password is not right");
+          await workspaceName(db, input.to);
+          const request = requestInfo(c, options.trustProxy);
+          const moved = await operatorMove(
+            options,
+            { operatorId: c.var.userId, projectId, from: id, to: input.to },
+            request,
+          );
+          await recordInstanceEvent(db, {
+            actorId: c.var.userId,
+            action: "workspace.project_moved",
+            target: moved.name,
+            details: { from: id, to: input.to, projectId },
+            ipAddress: request.ipAddress ?? null,
+          });
+          return c.json({ moved: { projectId, to: input.to } });
+        },
+      )
       // A new version of its key; everything it holds is rewrapped in the background.
       .post("/workspaces/:id/keys/rotate", idParam, async (c) => {
         const { id } = c.req.valid("param");
