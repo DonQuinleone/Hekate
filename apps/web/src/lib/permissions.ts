@@ -1,4 +1,11 @@
-import type { ReviewerPermissions, ReviewerTool, ReviewKind } from "@hekate/shared";
+import {
+  type ReviewerPermissions,
+  type ReviewerPermissionsChange,
+  type ReviewerTool,
+  type ReviewKind,
+  reviewerTools,
+  type StandingGrant,
+} from "@hekate/shared";
 import { formatDates } from "./locale";
 
 const moment = formatDates({
@@ -71,4 +78,35 @@ export function fromLocalInput(value: string): string | null {
   if (!value) return null;
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+/**
+ * What a project's People page keeps for someone (#55): only where the permissions chosen depart
+ * from the workspace's defaults, so a later change to a default still reaches them. Nothing
+ * departs, nothing is kept (null).
+ */
+export function standingChange(
+  defaults: ReviewerPermissions,
+  chosen: ReviewerPermissionsChange,
+): StandingGrant | null {
+  const change: StandingGrant = {};
+  const sameTools = (a: readonly ReviewerTool[], b: readonly ReviewerTool[]) =>
+    reviewerTools.every((t) => a.includes(t) === b.includes(t));
+  if (chosen.comment !== undefined && chosen.comment !== defaults.comment)
+    change.comment = chosen.comment;
+  if (chosen.decide !== undefined && chosen.decide !== defaults.decide)
+    change.decide = chosen.decide;
+  if (chosen.invite !== undefined && chosen.invite !== defaults.invite)
+    change.invite = chosen.invite;
+  if (chosen.comments !== undefined && chosen.comments !== defaults.comments)
+    change.comments = chosen.comments;
+  if (chosen.tools !== undefined && !sameTools(chosen.tools, defaults.tools))
+    change.tools = reviewerTools.filter((t) => chosen.tools?.includes(t));
+  if (chosen.download !== undefined && chosen.download !== defaults.download)
+    change.download = chosen.download;
+  if (chosen.history !== undefined && chosen.history !== defaults.history)
+    change.history = chosen.history;
+  if (chosen.maxPlays !== undefined && chosen.maxPlays !== defaults.maxPlays)
+    change.maxPlays = chosen.maxPlays;
+  return Object.keys(change).length > 0 ? change : null;
 }

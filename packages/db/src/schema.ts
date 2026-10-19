@@ -40,6 +40,7 @@ import {
   type SearchRequest,
   type SessionFactor,
   type SsoProtocol,
+  type StandingGrant,
   type TaskEventDetail,
   type TaskEventKind,
   type TemplateContent,
@@ -1664,6 +1665,34 @@ export const reviewReviewers = pgTable(
     uniqueIndex("review_reviewers_guest_idx").on(t.organisationId, t.reviewId, t.guestId),
     index("review_reviewers_guest_lookup_idx").on(t.guestId),
     check("review_reviewers_one_person", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
+  ],
+);
+
+/**
+ * What one person may do in every review of a project they are asked into (#55), set on the
+ * project's People page: a change over the workspace's defaults, under each review's own.
+ */
+export const projectReviewerGrants = pgTable(
+  "project_reviewer_grants",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    /** A member, or a guest: exactly one. */
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    guestId: uuid("guest_id").references(() => guests.id, { onDelete: "cascade" }),
+    grant: jsonb("grant").$type<StandingGrant>().notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("project_reviewer_grants_user_idx").on(t.organisationId, t.projectId, t.userId),
+    uniqueIndex("project_reviewer_grants_guest_idx").on(t.organisationId, t.projectId, t.guestId),
+    check(
+      "project_reviewer_grants_one_person",
+      sql`(${t.userId} is null) <> (${t.guestId} is null)`,
+    ),
   ],
 );
 

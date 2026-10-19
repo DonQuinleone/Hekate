@@ -50,6 +50,7 @@ export function ReviewerPermissionsEditor({
   guest,
   initial,
   items,
+  standing = false,
   pending,
   error,
   onSave,
@@ -62,6 +63,8 @@ export function ReviewerPermissionsEditor({
   initial: ReviewerPermissions;
   /** The review's items, to choose which a guest sees; left out before the review exists. */
   items?: { id: string; name: string }[];
+  /** What holds in every review of a project (#55): no dates, which belong to one review. */
+  standing?: boolean;
   pending: boolean;
   error: string | null;
   onSave: (change: ReviewerPermissionsChange) => void;
@@ -103,8 +106,7 @@ export function ReviewerPermissionsEditor({
             maxPlays: plays.trim() ? Math.max(1, Math.round(Number(plays))) : null,
           }
         : {}),
-      startsAt: fromLocalInput(from),
-      expiresAt: fromLocalInput(until),
+      ...(standing ? {} : { startsAt: fromLocalInput(from), expiresAt: fromLocalInput(until) }),
     });
   };
   return (
@@ -218,50 +220,58 @@ export function ReviewerPermissionsEditor({
           ))}
         </fieldset>
       )}
-      <fieldset className="m-0 grid min-w-0 grid-cols-1 gap-3 border-0 p-0 sm:grid-cols-2">
-        <legend className="label mb-2">Access</legend>
-        <span className="flex flex-col gap-1">
-          <label htmlFor={`${id}-from`} className="text-xs text-ink-3">
-            From
-          </label>
-          <Input
-            id={`${id}-from`}
-            type="datetime-local"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-          />
-        </span>
-        <span className="flex flex-col gap-1">
-          <label htmlFor={`${id}-until`} className="text-xs text-ink-3">
-            Until
-          </label>
-          <Input
-            id={`${id}-until`}
-            type="datetime-local"
-            value={until}
-            onChange={(e) => setUntil(e.target.value)}
-          />
-        </span>
-        {guest && (
-          <span className="flex flex-col gap-1">
-            <label htmlFor={`${id}-plays`} className="text-xs text-ink-3">
-              Plays of each file, at most
-            </label>
-            <Input
-              id={`${id}-plays`}
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={1000}
-              placeholder="No limit"
-              value={plays}
-              onChange={(e) => setPlays(e.target.value)}
-            />
-          </span>
-        )}
-      </fieldset>
+      {(!standing || guest) && (
+        <fieldset className="m-0 grid min-w-0 grid-cols-1 gap-3 border-0 p-0 sm:grid-cols-2">
+          <legend className="label mb-2">Access</legend>
+          {!standing && (
+            <>
+              <span className="flex flex-col gap-1">
+                <label htmlFor={`${id}-from`} className="text-xs text-ink-3">
+                  From
+                </label>
+                <Input
+                  id={`${id}-from`}
+                  type="datetime-local"
+                  value={from}
+                  onChange={(e) => setFrom(e.target.value)}
+                />
+              </span>
+              <span className="flex flex-col gap-1">
+                <label htmlFor={`${id}-until`} className="text-xs text-ink-3">
+                  Until
+                </label>
+                <Input
+                  id={`${id}-until`}
+                  type="datetime-local"
+                  value={until}
+                  onChange={(e) => setUntil(e.target.value)}
+                />
+              </span>
+            </>
+          )}
+          {guest && (
+            <span className="flex flex-col gap-1">
+              <label htmlFor={`${id}-plays`} className="text-xs text-ink-3">
+                Plays of each file, at most
+              </label>
+              <Input
+                id={`${id}-plays`}
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={1000}
+                placeholder="No limit"
+                value={plays}
+                onChange={(e) => setPlays(e.target.value)}
+              />
+            </span>
+          )}
+        </fieldset>
+      )}
       <p className="m-0 text-xs text-ink-3">
-        Left empty, access runs from now until the review ends.
+        {standing
+          ? "For every review of this project that asks them; a review can still change it for itself."
+          : "Left empty, access runs from now until the review ends."}
         {guest ? "" : " Their comments and tools follow their role in the project."}
       </p>
       {error && <p className="m-0 text-xs text-signal">{error}</p>}

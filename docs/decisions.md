@@ -715,3 +715,12 @@ An ADM master (BS.2076, as Atmos and other object-based mixes are delivered) hol
 - **What the streams carry.** The render replaces the master as the source of its streams, and the file records the layout rendered (`metadata.adm.rendered`); the player hears that layout and names it ("7.1.4 render"). Measurements, the waveform, peaks and the quality checks still come from the master itself. Downloads are the master, untouched.
 - **A render that fails** is logged and the streams are made from the master's bed as before, so a file the renderer cannot read still plays. A retry records again what its streams carry.
 - **Objects told by their pack.** Reading the master's `chna` chunk, an object is now known by its pack's type (`AP_0003…`), not its track format's, which names the sample format; earlier, every channel of an ADM master was counted in its bed.
+
+## 141. Reviewer permissions per person in a project, and the default roles' tools per workspace
+
+The rest of #55: what the prototype's People page and workspace Defaults show.
+
+- **Per person in a project.** A project's People page sets, for one member or guest, what they may do in every review of the project that asks them: comments they see, commenting, deciding, inviting, tools, download, earlier versions and a play limit. It holds no dates and no items, which belong to one review. It is kept as a change over the workspace's defaults (only what departs from them), so a later change to a default still reaches them. Only those who manage reviewers set it; each change is in the access log; it moves with the project to another workspace, matched to the gaining workspace's guests, and goes with a member who does not.
+- **Order.** The more particular wins: the workspace's defaults, then what a request sets for everyone (a workflow stage may), then the person's People page grant, then the request's own override for them. A reviewer added to an open review later gets the review's grant with their People page grant on top. A member's grant still cannot reach past their project role (decision 030).
+- **Tool access per workspace.** Workspace settings, Defaults, chooses the player tools each of the five default roles starts with in a new project. Projects made from a template keep the template's roles; existing projects keep their own.
+
