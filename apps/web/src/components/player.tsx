@@ -308,6 +308,7 @@ export function Player({
   const native = useRef(false);
   /** The media element once mounted, for the waveform to follow. */
   const [element, setElement] = useState<HTMLMediaElement | null>(null);
+  const fps = info?.video?.fps;
   const { view: playerView, setView: setPlayerView, split, setSplit } = usePlayerView();
   const savePreferences = useSavePreferences();
   // A video counts in frames on its own timecode (#146); null where its rate is unknown.
@@ -475,7 +476,8 @@ export function Player({
     setReady(false);
     native.current = false;
     // A video plays one of its two encodings (#148), chosen before the stream starts.
-    const family = kind === "video" ? videoFamilyFor(playback.renditions) : Promise.resolve(null);
+    const family =
+      kind === "video" ? videoFamilyFor(playback.renditions, fps) : Promise.resolve(null);
     Promise.all([import("hls.js"), family])
       .then(([{ default: Hls }, chosen]) => {
         if (cancelled) return;
@@ -551,7 +553,7 @@ export function Player({
       // Reset the element, so nothing of this source (its metadata, its position) outlives it.
       element.load();
     };
-  }, [kind, playback]);
+  }, [kind, playback, fps]);
 
   const choose = (index: number) => {
     if (!hls.current) return;

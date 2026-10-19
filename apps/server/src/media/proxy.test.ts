@@ -10,6 +10,7 @@ import {
   packageRendition,
   parsePlaylist,
   partFilter,
+  peakBitrate,
   planRenditions,
   type RenditionPlan,
   royaltyFreeCodecs,
@@ -146,6 +147,8 @@ describe("proxies", () => {
     expect(top?.fallback).toEqual(expect.arrayContaining(["libx264"]));
     // The royalty-free one carries Opus, and is never sent to the GPU.
     expect(plans[1]?.args).toEqual(expect.arrayContaining(["libvpx-vp9", "libopus"]));
+    // A rate-control buffer, without which libvpx ignores the ceiling.
+    expect(plans[1]?.args).toEqual(expect.arrayContaining(["-bufsize", "32000000"]));
     expect(plans[1]?.fallback).toBeUndefined();
     // Fewer rungs, no royalty-free and no GPU: H.264 in software, as before.
     const plain = planRenditions("video", source, {
@@ -157,6 +160,23 @@ describe("proxies", () => {
     expect(plain.map((r) => r.name)).toEqual(["2160p"]);
     expect(plain[0]?.args).toContain("libx264");
     expect(plain[0]?.fallback).toBeUndefined();
+  });
+
+  it("advertises the peak segment bit rate as RFC 8216 defines it (#148)", () => {
+    const second = (bytes: number) => ({ duration: 1, bytes });
+    // Target 4 s: runs of 2 to 6 s. The busy pair at 3 and 4 alone lasts too short to count.
+    const segments = [1, 1, 1, 10, 10, 1, 1, 1].map((kb) => second(kb * 1000));
+    expect(peakBitrate(segments, 4)).toBe(((10 + 10) * 1000 * 8) / 2);
+    // Busy throughout: the rate itself.
+    expect(
+      peakBitrate(
+        [4, 4, 4, 4].map((kb) => second(kb * 1000)),
+        1,
+      ),
+    ).toBe(32_000);
+    // Too short for any run: the average.
+    expect(peakBitrate([{ duration: 0.5, bytes: 1000 }], 4)).toBe(16_000);
+    expect(peakBitrate([], 4)).toBe(0);
   });
 
   it("declares the AV1 and VP9 level the frame size and rate need", () => {

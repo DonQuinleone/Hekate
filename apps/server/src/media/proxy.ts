@@ -346,6 +346,8 @@ export function planRenditions(
             String(rate),
             "-maxrate",
             String(rung.rate),
+            "-bufsize",
+            String(rung.rate * 2),
           ];
     return [
       h264,
@@ -385,6 +387,38 @@ export interface PackagedRendition {
   initIv: string;
   segments: StoredSegment[];
   targetDuration: number;
+  /**
+   * What the master playlist advertises (bits per second): for a video, its measured peak
+   * where the encoder overshot the plan, so a player never picks a picture its connection
+   * cannot keep up with; otherwise the planned rate.
+   */
+  bandwidth: number;
+}
+
+/**
+ * A playlist's peak segment bit rate, as RFC 8216 (4.3.4.2) defines it: the highest rate of
+ * any run of consecutive segments lasting between half and one and a half target durations.
+ * A playlist too short for any such run gives its average.
+ */
+export function peakBitrate(
+  segments: readonly { duration: number; bytes: number }[],
+  targetDuration: number,
+): number {
+  let peak = 0;
+  for (let first = 0; first < segments.length; first++) {
+    let bytes = 0;
+    let seconds = 0;
+    for (const segment of segments.slice(first)) {
+      bytes += segment.bytes;
+      seconds += segment.duration;
+      if (seconds > 1.5 * targetDuration) break;
+      if (seconds >= 0.5 * targetDuration) peak = Math.max(peak, (bytes * 8) / seconds);
+    }
+  }
+  if (peak > 0) return Math.ceil(peak);
+  const bytes = segments.reduce((sum, s) => sum + s.bytes, 0);
+  const seconds = segments.reduce((sum, s) => sum + s.duration, 0);
+  return seconds > 0 ? Math.ceil((bytes * 8) / seconds) : 0;
 }
 
 /** Stores encrypted bytes and returns the blob id. */
@@ -503,14 +537,21 @@ export async function packageRendition(
 
   const init = await seal("init.mp4", await readFile(join(out, "init.mp4")));
   const segments: StoredSegment[] = [];
+  const sizes: { duration: number; bytes: number }[] = [];
   for (const segment of listed) {
     if (signal.aborted) throw new Error("Packaging cancelled");
     const plain = await readFile(join(out, segment.file));
     if (!hasMedia(plain)) continue;
+    sizes.push({ duration: segment.duration, bytes: plain.length });
     segments.push({ duration: segment.duration, ...(await seal(segment.file, plain)) });
   }
   if (segments.length === 0)
     throw new Error(`ffmpeg produced only empty segments for ${plan.name}`);
   const targetDuration = Math.ceil(Math.max(...segments.map((s) => s.duration)));
-  return { plan, initBlobId: init.blobId, initIv: init.iv, segments, targetDuration };
+  // Audio holds to its nominal rate (CBR AAC, lossless at most the PCM rate); a picture can run
+  // over its rate in a busy scene.
+  const bandwidth = plan.height
+    ? Math.max(plan.bandwidth, peakBitrate(sizes, targetDuration))
+    : plan.bandwidth;
+  return { plan, initBlobId: init.blobId, initIv: init.iv, segments, targetDuration, bandwidth };
 }

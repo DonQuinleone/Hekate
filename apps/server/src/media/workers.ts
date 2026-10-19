@@ -262,7 +262,7 @@ export function proxyHandler(deps: MediaWorkerDeps): JobHandler<"media-proxy"> {
             fileId,
             name: rendition.plan.name,
             codecs: rendition.plan.codecs,
-            bandwidth: rendition.plan.bandwidth,
+            bandwidth: rendition.bandwidth,
             width: rendition.plan.width ?? null,
             height: rendition.plan.height ?? null,
             targetDuration: rendition.targetDuration,

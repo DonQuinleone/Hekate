@@ -30,8 +30,15 @@ export function chooseFamily(o: {
 
 const mime = (codecs: string) => `video/mp4; codecs="${codecs}"`;
 
-/** The browser's answer for a video's renditions: which family it plays. */
-export async function videoFamilyFor(renditions: Rendition[]): Promise<VideoFamily> {
+/**
+ * The browser's answer for a video's renditions: which family it plays. Asked at the video's
+ * own frame rate (every rendition keeps it), as a decoder smooth at 30 frames a second may not
+ * be at 60.
+ */
+export async function videoFamilyFor(
+  renditions: Rendition[],
+  fps?: number | null,
+): Promise<VideoFamily> {
   const video = renditions.filter((r) => r.height);
   const free = video.filter((r) => familyOf(r) === "free");
   const h264 = video.filter((r) => familyOf(r) === "h264");
@@ -52,7 +59,7 @@ export async function videoFamilyFor(renditions: Rendition[]): Promise<VideoFami
           width: top.width ?? 1920,
           height: top.height ?? 1080,
           bitrate: top.bandwidth,
-          framerate: 30,
+          framerate: fps || 30,
         },
       });
       freeEfficient = info.supported && info.smooth && info.powerEfficient;
