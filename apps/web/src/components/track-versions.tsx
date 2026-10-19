@@ -19,6 +19,7 @@ import {
   projectFilesQuery,
   projectTracksQuery,
   type Track,
+  trackStandingQuery,
   useProjectCan,
   useProjectTool,
   useTrackMutations,
@@ -38,6 +39,7 @@ import { Dialog } from "./ui/dialog";
 import { Field } from "./ui/field";
 import { FileInput, Input, Select, Textarea } from "./ui/input";
 import { ActionMenu, Dropdown, type MenuAction } from "./ui/menu";
+import { ReviewerDot } from "./ui/status";
 
 const whenFormat = formatDates({
   day: "numeric",
@@ -1003,6 +1005,8 @@ export function TrackVersions({
   // The track's own profile, else the project's or the workspace's (#144).
   const { data: customs = [] } = useQuery(customProfilesQuery);
   const { data: workspace } = useQuery(workspaceSettingsQuery);
+  const { data: standing } = useQuery(trackStandingQuery(track.id));
+  const status = standing?.status ?? standing?.stage;
   const profile = profileFor(
     track.deliveryProfile ?? project.deliveryProfile ?? workspace?.deliveryProfile,
     customs,
@@ -1028,6 +1032,25 @@ export function TrackVersions({
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px] text-ink-3">
+            {/* Where its workflow has it, as the prototype says it. */}
+            {status && (
+              <span className="flex items-center gap-2 text-ink">
+                <ReviewerDot
+                  state={
+                    standing?.category === "done"
+                      ? "approved"
+                      : standing?.category === "todo"
+                        ? "invited"
+                        : "in_review"
+                  }
+                />
+                {status}
+                {standing?.status && standing.stage && (
+                  <span className="text-ink-3">· {standing.stage}</span>
+                )}
+              </span>
+            )}
+            {standing?.next && <span>Next: {standing.next}</span>}
             <ScoreChoice track={track} canEdit={can("organise")} />
             <span>
               {open} open {open === 1 ? "comment" : "comments"}

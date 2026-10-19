@@ -242,6 +242,27 @@ export function flowShape(flow: WorkflowDefinition): { order: string[]; loops: S
   return { order, loops };
 }
 
+/**
+ * The step an item usually reaches after the one it waits at (#26): by the step's first outcome
+ * (the way most items go), past anything done at once (a notification, a status), to the next
+ * step that waits, or the finish. Null where nothing follows.
+ */
+export function nextStep(flow: WorkflowDefinition, nodeId: string): WorkflowNode | null {
+  const byId = new Map(flow.nodes.map((n) => [n.id, n]));
+  let at = byId.get(nodeId);
+  for (let hops = 0; at && hops < flow.nodes.length; hops += 1) {
+    const way: string | undefined = outcomesOf(at.type)[0]?.id;
+    const from: string = at.id;
+    const leaving = flow.connectors.filter((c) => c.from === from);
+    const go = leaving.find((c) => c.outcome === way) ?? leaving[0];
+    const next = go ? byId.get(go.to) : undefined;
+    if (!next || next.id === nodeId) return null;
+    if (!nodeTypes[next.type].immediate) return next;
+    at = next;
+  }
+  return null;
+}
+
 /** Whether `from` leads on to `to` by connectors that are not loops. */
 function reaches(
   flow: WorkflowDefinition,
@@ -742,6 +763,16 @@ export const workflowRunStartInput = z.object({ workflowId: z.uuid() });
 
 /** A step a run waits on, ended by hand, by one of its outcomes. */
 export const workflowStepInput = z.object({ nodeId: ident, outcome: ident });
+
+/** Where a track stands in its workflow (#26), as its page says it. */
+export interface WorkflowStanding {
+  /** The status its workflow last gave it, and how the project's status set reads it. */
+  status: string | null;
+  category: "todo" | "in_progress" | "done" | null;
+  /** The step its running workflow waits at, and the step it usually reaches next. */
+  stage: string | null;
+  next: string | null;
+}
 
 /** A run as a track shows it: where it stands, and every move it made. */
 export interface WorkflowRunSummary {

@@ -106,6 +106,7 @@ import {
   type WatermarkSettings,
   type WorkflowChange,
   type WorkflowInput,
+  type WorkflowStanding,
   type WorkflowStatus,
   type WorkflowSummary,
   type WorkspaceSettings,
@@ -1765,6 +1766,16 @@ export const trackQuery = (trackId: string) =>
     queryFn: async () =>
       (await json<{ track: Track }>(await api.tracks[":id"].$get({ param: { id: trackId } })))
         .track,
+  });
+
+/** Where a track stands in its workflow (#26): its status, the step it waits at, and the next. */
+export const trackStandingQuery = (trackId: string) =>
+  queryOptions({
+    queryKey: ["tracks", trackId, "workflow-standing"],
+    queryFn: async () =>
+      json<WorkflowStanding>(
+        await api.tracks[":id"]["workflow-standing"].$get({ param: { id: trackId } }),
+      ),
   });
 
 /** A track's takes (#21, #46), in order. */

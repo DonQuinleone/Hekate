@@ -591,6 +591,26 @@ test("workflows-inspector", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Where a track's workflow has it (#26): its status, the step it waits at, and the next. No run
+// is started in the seed (one would ask for a review), so the answer is amended in this page.
+test("track-standing", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.route(`**/api/tracks/${seeded().trackId}/workflow-standing`, (route) =>
+    route.fulfill({
+      json: {
+        status: "With the soloists",
+        category: "in_progress",
+        stage: "Soloists' notes",
+        next: "Engineer edits",
+      },
+    }),
+  );
+  await page.goto(`/tracks/${seeded().trackId}?view=versions`);
+  await settle(page, "main >> text=Next: Engineer edits");
+  await saveScreen(page, "track-standing");
+  await checkScreen(page);
+});
+
 // A workflow copied from another project (#26): chosen from those the member may see there.
 test("workflows-copy", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);

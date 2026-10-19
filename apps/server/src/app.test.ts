@@ -8572,6 +8572,15 @@ describe.runIf(url)("api", () => {
             { name: "Maple Leaf Rag", status: "With conductor", stage: "Conductor" },
           ]);
           const outsiderBoard = await joinAs(s.owner, "outsider-board@example.test");
+          // The track's page says the same (#26), and what comes next, to whoever sees the track.
+          const standingPath = `/api/tracks/${s.trackId}/workflow-standing`;
+          expect(await (await getAs(standingPath, s.composer)).json()).toEqual({
+            status: "With conductor",
+            category: "in_progress",
+            stage: "Conductor",
+            next: "Engineer edits",
+          });
+          expect((await getAs(standingPath, outsiderBoard)).status).toBe(404);
           expect((await getAs(`/api/projects/${s.projectId}/board`, outsiderBoard)).status).toBe(
             404,
           );

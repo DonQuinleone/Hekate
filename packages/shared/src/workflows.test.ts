@@ -5,6 +5,7 @@ import {
   flowShape,
   measuredState,
   namedPeople,
+  nextStep,
   simulateWorkflow,
   stageClock,
   startRun,
@@ -420,5 +421,34 @@ describe("namedPeople", () => {
     const started = performance.now();
     expect(namedPeople(long)).toHaveLength(2);
     expect(performance.now() - started).toBeLessThan(500);
+  });
+});
+
+describe("the step after the one an item waits at", () => {
+  const flow: WorkflowDefinition = workflowDefinition.parse({
+    nodes: [
+      node("start", "upload", "A version is uploaded", 0),
+      node("notes", "feedback", "Conductor's notes", 1),
+      node("tell", "notify", "Tell the engineer", 2),
+      node("state", "status", "Editing", 3, { status: "Editing" }),
+      node("edit", "task", "Engineer edits", 4),
+      node("done", "finish", "Approved", 5),
+    ],
+    connectors: [
+      wire("1", "start", "happened", "notes"),
+      wire("2", "notes", "overdue", "done"),
+      wire("3", "notes", "done", "tell"),
+      wire("4", "tell", "sent", "state"),
+      wire("5", "state", "set", "edit"),
+      wire("6", "edit", "done", "done"),
+    ],
+  });
+  it("goes the way most items go, past what is done at once", () => {
+    expect(nextStep(flow, "notes")?.name).toBe("Engineer edits");
+    expect(nextStep(flow, "edit")?.name).toBe("Approved");
+  });
+  it("is nothing after the finish, or for a step it does not have", () => {
+    expect(nextStep(flow, "done")).toBeNull();
+    expect(nextStep(flow, "gone")).toBeNull();
   });
 });

@@ -605,3 +605,7 @@ Each project has a status set (#26), as the prototype's Statuses panel on the wo
 ## 129. A workflow is copied from another project by reading it there and making it here
 
 Copying a workflow from another project of the workspace (#26) needs nothing new on the server: the builder reads the other project's workflows as any member does (so only where their role there shows workflows) and makes the chosen one here through the same validated create as a template, switched off and as this project's own, a track's own becoming the project's. Who its steps name (roles, groups) is kept as named; a name this project lacks shows as such in the step, to choose again. It is offered beside the templates in the basic view.
+
+## 130. A track's page says where its workflow has it
+
+A track's versions page carries the prototype's line (#26): the status its workflow gave it, read by the project's status set (decision 128), the step its run waits at, and *Next:* the step it usually reaches after, by the waiting step's first outcome and past anything done at once (`nextStep` in `packages/shared`). It is read from `/api/tracks/:id/workflow-standing` by whoever sees the track, as the board's cards are; the run's log and ending a step by hand stay with those who edit workflows.
