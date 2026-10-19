@@ -65,6 +65,7 @@ import { RequestReviewPage } from "~/routes/request-review";
 import { ReviewPage } from "~/routes/review";
 import { SearchPage } from "~/routes/search";
 import { SessionPage, SessionsPage } from "~/routes/sessions";
+import { TakeLogPage } from "~/routes/take-log";
 import { TasksPage } from "~/routes/tasks";
 import { TrackPage } from "~/routes/track";
 import { WorkflowsPage } from "~/routes/workflows";
@@ -526,6 +527,15 @@ const session = createRoute({
     return <SessionPage sessionId={sessionId} />;
   },
 });
+// A session's live take log (#51).
+const takeLog = createRoute({
+  getParentRoute: () => app,
+  path: "/sessions/$sessionId/log",
+  component: function TakeLogRoute() {
+    const { sessionId } = takeLog.useParams();
+    return <TakeLogPage sessionId={sessionId} />;
+  },
+});
 // The project's settings: the section in the query string, as in the prototype.
 const projectSettings = createRoute({
   getParentRoute: () => app,
@@ -775,6 +785,7 @@ export const router = createRouter({
       projectTasks,
       projectSessions,
       session,
+      takeLog,
       projectSettings,
       projectWorkflows,
       track,

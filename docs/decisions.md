@@ -797,3 +797,13 @@ The rest of #55: what the prototype's People page and workspace Defaults show.
 - **Export.** The log as CSV is built in the browser from the session the page already holds, like the task list's; notes and names are never read as formulas.
 
 Several people at once with their own views, local-first writes, the session clock and the tone and metronome follow in the next parts.
+
+## 150. The take log is a session's page, kept by keys, read from the clock
+
+#51, second part. Each session has a take log at `/sessions/:id/log`, opened from the session's page: the prototype's take log is the log of one session too.
+
+- **Keys.** Space starts the next take, or stops the one rolling (an armed take rolls); A arms the next; X aborts the take rolling or armed; F counts a false start, 1 to 5 rate, S stars and N writes a note, each on the take rolling or, between takes, the last one logged. The keys are registered with the page, so "?" lists them with the rest.
+- **The next number.** The session says what the next take of each of its tracks would be numbered, so the button reads "Start take 5" before anything is logged; the server still numbers the take when it starts.
+- **Clocks.** The take's time, the slot's countdown and the wall clock are worked out from the clock whenever they are shown, never counted up, so a laptop that sleeps through a take shows its true length when it wakes. Under ten minutes left, the countdown turns to the signal colour.
+- **A view per person.** Engineer, producer and logger see the same log: the engineer each take's timecode in and out and its length, the producer its pages and bars, the logger a table of everything. The log is read again every two seconds, so a take one person starts the others see; the producer's score and notes, the engineer's patch, and pushing changes to everyone at once follow in the next part.
+- **Responsive.** A rating, a star or a false start shows at once and is put right by the server's answer. While the server cannot be reached the log says so plainly; writing offline and syncing later is the part after.

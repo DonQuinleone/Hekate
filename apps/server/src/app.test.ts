@@ -9152,6 +9152,14 @@ describe.runIf(url)("api", () => {
             session: { tracks: { id: string }[]; takeRows: Take[] };
           };
           expect(detail.session.tracks.map((t) => t.id).sort()).toEqual([s.trackId, trio].sort());
+          // It says what each track's next take would be numbered, for the log to show.
+          expect(
+            (
+              (await (await getAs(`/api/sessions/${session.id}`, s.composer)).json()) as {
+                session: { nextNumbers: Record<string, number> };
+              }
+            ).session.nextNumbers,
+          ).toEqual({ [s.trackId]: 3, [trio]: 3 });
           expect(detail.session.takeRows.map((t) => t.number).sort()).toEqual([1, 2]);
 
           // Stopped, it is timed out; a false start counted; a recorded take cannot roll again.

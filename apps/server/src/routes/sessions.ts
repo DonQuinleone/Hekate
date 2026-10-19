@@ -96,6 +96,42 @@ function checkSlot(start: string | null, end: string | null) {
   if (problem) throw new HTTPException(422, { message: problem });
 }
 
+/** The number the next take of each track would get, as a session numbering so would give it. */
+async function nextNumbersOf(
+  db: Database,
+  organisationId: string,
+  projectId: string,
+  numbering: TakeNumbering,
+  trackIds: string[],
+): Promise<Record<string, number>> {
+  if (trackIds.length === 0) return {};
+  const perTrack = await db
+    .select({ trackId: takes.trackId, n: max(takes.number) })
+    .from(takes)
+    .where(inOrg(takes, organisationId, inArray(takes.trackId, trackIds)))
+    .groupBy(takes.trackId);
+  const [ofProject] =
+    numbering === "continuous"
+      ? await db
+          .select({ n: max(takes.number) })
+          .from(takes)
+          .innerJoin(
+            tracks,
+            and(eq(tracks.id, takes.trackId), eq(tracks.organisationId, organisationId)),
+          )
+          .where(inOrg(takes, organisationId, eq(tracks.projectId, projectId)))
+      : [{ n: 0 }];
+  return Object.fromEntries(
+    trackIds.map((id) => [
+      id,
+      nextTakeNumber(numbering, {
+        project: ofProject?.n ?? 0,
+        track: perTrack.find((p) => p.trackId === id)?.n ?? 0,
+      }),
+    ]),
+  );
+}
+
 /** A session of this workspace, with its project; not found otherwise. */
 async function sessionOf(db: Database, organisationId: string, id: string) {
   const [row] = await db
@@ -314,9 +350,17 @@ export const sessionRoutes = (db: Database) =>
         .where(inOrg(takes, organisationId, eq(takes.sessionId, row.id)))
         .orderBy(asc(tracks.position), asc(tracks.name), asc(takes.number));
       const rows = await takeRowsFor(db, organisationId, recorded);
+      const base = summary as SessionSummary;
       const session: SessionDetail = {
-        ...(summary as SessionSummary),
+        ...base,
         takeRows: rows.map((t, i) => ({ ...t, track: recorded[i]?.track ?? { id: "", name: "" } })),
+        nextNumbers: await nextNumbersOf(
+          db,
+          organisationId,
+          row.projectId,
+          base.numbering,
+          base.tracks.map((t) => t.id),
+        ),
       };
       return c.json({ session });
     })
