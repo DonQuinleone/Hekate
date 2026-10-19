@@ -474,7 +474,7 @@ export const fileCommentRoutes = (
           throw new HTTPException(422, { message: "Assign it to someone in this project" });
         }
       }
-      await db.transaction(async (tx) => {
+      const given = await db.transaction(async (tx) => {
         // Not while a new version is deciding which threads to carry. Each thread's deferral is
         // read again under the locks, so a triage that waited here keeps what the first one set.
         await lockTrackOfFile(tx, organisationId, fileId);
@@ -502,24 +502,32 @@ export const fileCommentRoutes = (
             .where(inOrg(comments, organisationId, eq(comments.id, id)));
         }
         // A thread's task (#140) is for whoever the thread is for.
-        if (input.assigneeId !== undefined) {
-          const given = await tx
-            .update(tasks)
-            .set({ assigneeId: input.assigneeId, updatedAt: now })
-            .where(
-              inOrg(
-                tasks,
-                organisationId,
-                inArray(tasks.commentId, ids),
-                sql`${tasks.assigneeId} is distinct from ${input.assigneeId}`,
-              ),
-            )
-            .returning({ id: tasks.id });
-          const name = await nameOf(tx, input.assigneeId);
-          for (const t of given)
-            await recordTaskEvent(tx, organisationId, t.id, by, "assigned", { assignee: name });
-        }
+        if (input.assigneeId === undefined) return [];
+        const given = await tx
+          .update(tasks)
+          .set({ assigneeId: input.assigneeId, updatedAt: now })
+          .where(
+            inOrg(
+              tasks,
+              organisationId,
+              inArray(tasks.commentId, ids),
+              sql`${tasks.assigneeId} is distinct from ${input.assigneeId}`,
+            ),
+          )
+          .returning({
+            id: tasks.id,
+            organisationId: tasks.organisationId,
+            projectId: tasks.projectId,
+            title: tasks.title,
+          });
+        const name = await nameOf(tx, input.assigneeId);
+        for (const t of given)
+          await recordTaskEvent(tx, organisationId, t.id, by, "assigned", { assignee: name });
+        return given;
       });
+      // Whoever the tasks are given to is told, as when a task is given to them directly.
+      if (input.assigneeId && by && input.assigneeId !== by)
+        for (const t of given) await tellAssigned({ db, ...mail }, t, input.assigneeId, by);
       return c.json({
         comments: await threadsOn(db, organisationId, c.var.actor, access, fileId),
       });
@@ -1161,12 +1169,14 @@ export const commentRoutes = (db: Database, mail: { mailer: Mailer; publicUrl: s
         throw new HTTPException(403, { message: "Your role in this project does not allow that" });
       const made = await db.transaction(async (tx) => {
         await lockLiveProject(tx, organisationId, access.projectId);
-        // Taken for update, so two people making the same thread a task make one.
-        await tx
-          .select({ id: comments.id })
+        // Taken for update, so two people making the same thread a task make one, and read
+        // as it is now: given to someone else meanwhile, the task is theirs.
+        const [locked] = await tx
+          .select({ body: comments.body, assigneeId: comments.assigneeId, fileId: comments.fileId })
           .from(comments)
           .where(inOrg(comments, organisationId, eq(comments.id, id)))
           .for("update");
+        if (!locked) throw new NotFound("Thread");
         const task = await taskOfComment(tx, organisationId, id);
         if (!task) {
           if (!todo) return null;
@@ -1175,16 +1185,16 @@ export const commentRoutes = (db: Database, mail: { mailer: Mailer; publicUrl: s
           const [file] = await tx
             .select({ name: files.name })
             .from(files)
-            .where(inOrg(files, organisationId, eq(files.id, thread.fileId)));
+            .where(inOrg(files, organisationId, eq(files.id, locked.fileId)));
           const [row] = await tx
             .insert(tasks)
             .values({
               organisationId,
               projectId: access.projectId,
               number: await nextTaskNumber(tx, organisationId, access.projectId),
-              title: taskTitleFromComment(thread.body, `Comment on ${file?.name ?? "a file"}`),
-              assigneeId: thread.assigneeId,
-              fileId: thread.fileId,
+              title: taskTitleFromComment(locked.body, `Comment on ${file?.name ?? "a file"}`),
+              assigneeId: locked.assigneeId,
+              fileId: locked.fileId,
               commentId: id,
               createdById: userId,
               ...(done && { status: "done" as const, doneAt: new Date(), doneById: userId }),

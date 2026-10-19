@@ -10,7 +10,7 @@ import {
   taskKey,
   taskRights,
 } from "@hekate/shared";
-import { and, asc, eq, inArray, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, type SQL, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Mailer } from "./mail.ts";
 import { notifyNow } from "./notifications.ts";
@@ -193,22 +193,14 @@ export async function taskDetail(
   };
 }
 
-/** The task a thread became, if any: one to a thread. */
-export async function taskOfComment(db: Db, organisationId: string, commentId: string) {
-  const [row] = await db
+/** The task a thread became, if any (one to a thread), held until the transaction ends. */
+export async function taskOfComment(tx: Tx, organisationId: string, commentId: string) {
+  const [row] = await tx
     .select()
     .from(tasks)
-    .where(inOrg(tasks, organisationId, eq(tasks.commentId, commentId)));
+    .where(inOrg(tasks, organisationId, eq(tasks.commentId, commentId)))
+    .for("update");
   return row ?? null;
-}
-
-/** The tasks the threads became, by thread. */
-export async function tasksOfComments(db: Db, organisationId: string, commentIds: string[]) {
-  if (commentIds.length === 0) return [];
-  return db
-    .select({ id: tasks.id, commentId: tasks.commentId, assigneeId: tasks.assigneeId })
-    .from(tasks)
-    .where(inOrg(tasks, organisationId, inArray(tasks.commentId, commentIds)));
 }
 
 export interface TaskMail {

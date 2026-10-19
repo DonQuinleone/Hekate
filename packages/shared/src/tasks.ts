@@ -72,7 +72,8 @@ export interface TaskRights {
  * Who may do what with a task. Writing in the project (`comment`) is the floor; on top of
  * it, its creator and those who triage run it, and whoever it is for may move it along, as
  * they could a thread's to-do (decision 067), except that a task waiting for approval is
- * approved (made done) by its creator or triage, never by its own owner.
+ * approved (made done) by its creator or triage, never by its own owner, even one who also
+ * runs it.
  */
 export function taskRights(
   task: { createdById: string | null; assigneeId: string | null; status: TaskStatus },
@@ -80,11 +81,11 @@ export function taskRights(
 ): TaskRights {
   const runs = viewer.comment && (viewer.triage || task.createdById === viewer.userId);
   const owns = viewer.comment && task.assigneeId === viewer.userId;
-  const statusTo = runs
-    ? taskStatuses.filter((s) => s !== task.status)
-    : owns
+  // Whoever it is for never approves their own, even where they also run it.
+  const statusTo =
+    runs || owns
       ? taskStatuses.filter(
-          (s) => s !== task.status && !(task.status === "needs_approval" && s === "done"),
+          (s) => s !== task.status && !(owns && task.status === "needs_approval" && s === "done"),
         )
       : [];
   return {

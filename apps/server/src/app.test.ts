@@ -7484,6 +7484,17 @@ describe.runIf(url)("api", () => {
           expect(threads.comments.find((c) => c.id === comment.id)?.assigneeId).toBe(
             s.ids.composer,
           );
+          // And giving the thread to someone gives them the task, and tells them so.
+          await app.request(
+            `/api/files/${s.mix}/comments/triage`,
+            json({ commentIds: [comment.id], assigneeId: s.ids.accompanist }, s.owner),
+          );
+          expect((await inbox(s.accompanist)).notifications.map((n) => n.kind)).toContain("task");
+          expect(
+            (await read(await getAs(`/api/tasks/${thread.taskId}`, s.owner))).assignee,
+          ).toMatchObject({
+            id: s.ids.accompanist,
+          });
 
           // Whoever it is for moves it along, but neither edits it nor approves their own.
           const mine = (await list(s.composer)).find((t) => t.id === first.id);

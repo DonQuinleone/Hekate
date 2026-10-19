@@ -41,6 +41,10 @@ describe("who may do what with a task", () => {
       viewer({ userId: "u-tomas" }),
     );
     expect(approver.statusTo).toContain("done");
+    // Running it too changes nothing: nobody approves their own.
+    const both = taskRights({ ...task, status: "needs_approval" }, viewer({ triage: true }));
+    expect(both.statusTo).toEqual(["pending", "in_progress"]);
+    expect(both.edit).toBe(true);
   });
 
   it("leaves anyone else, and anyone who cannot write, only to read", () => {
