@@ -86,6 +86,9 @@ function cut(path: string) {
     "yuv420p",
     "-c:a",
     "aac",
+    // Starting at ten o'clock, as a programme's timecode does (#146).
+    "-timecode",
+    "10:00:00:00",
     "-shortest",
     path,
   ]);

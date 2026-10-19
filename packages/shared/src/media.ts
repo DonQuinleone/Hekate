@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { timecodePattern } from "./video-time.ts";
 
 /** Technical facts about an audio or video file, measured by the media worker. */
 /**
@@ -113,6 +114,8 @@ export const mediaInfo = z.object({
       /** Exact frame rate as a ratio, for example "24000/1001". */
       frameRate: z.string().optional(),
       pixelFormat: z.string().optional(),
+      /** The timecode of its first frame, as written: "10:00:00:00", or "01:00:00;00" dropping frames (#146). */
+      timecode: z.string().regex(timecodePattern).optional(),
     })
     .optional(),
   metadata: embeddedMetadata.optional(),

@@ -71,6 +71,20 @@ describe("probe output", () => {
     });
   });
 
+  it("reads where a video's timecode starts, from its stream, a timecode track or the container (#146)", () => {
+    const video = { codec_type: "video", codec_name: "h264", width: 1920, height: 1080 };
+    const tc = (streams: object[], format?: Record<string, string>) =>
+      parseProbe({ format: { tags: format }, streams }).video?.timecode;
+    expect(tc([{ ...video, tags: { timecode: "10:00:00:00" } }])).toBe("10:00:00:00");
+    expect(
+      tc([video, { codec_type: "data", codec_name: "tmcd", tags: { timecode: "01:00:00;00" } }]),
+    ).toBe("01:00:00;00");
+    expect(tc([video], { timecode: "00:59:58:00" })).toBe("00:59:58:00");
+    // One that cannot be read is left out rather than guessed at.
+    expect(tc([{ ...video, tags: { timecode: "ten o'clock" } }])).toBeUndefined();
+    expect(tc([video])).toBeUndefined();
+  });
+
   it("reads the common tags by whatever name the container gives them (#41)", () => {
     const info = parseProbe(
       {

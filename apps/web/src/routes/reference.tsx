@@ -1,3 +1,4 @@
+import { frameRates } from "@hekate/shared";
 import { type ReactNode, useState } from "react";
 import { Avatar, AvatarRow } from "~/components/avatar";
 import { Lockup, Mark, Wordmark } from "~/components/brand";
@@ -24,6 +25,7 @@ import {
 } from "~/components/ui/status";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Switch } from "~/components/ui/toggle";
+import { FrameGuides, GoToTimecode } from "~/components/video-frame";
 import { cn } from "~/lib/cn";
 
 /*
@@ -630,6 +632,32 @@ function Components() {
             <span className="eyebrow">Waiting on you</span>
             <span className="tabular text-[12px] text-ink-3">2</span>
           </span>
+        </Spec>
+      </Section>
+      <Section
+        title="Video frame"
+        intro="Guides over the picture never take a click; the picture beneath still plays."
+      >
+        <Spec
+          name="Mattes and safe areas"
+          rule="Fitted to the picture, not the player: action within 93%, titles within 90%."
+        >
+          {(["2.39", "4:3"] as const).map((matte) => (
+            <div key={matte} className="relative aspect-video w-56 bg-ink-3">
+              <FrameGuides aspect={16 / 9} matte={matte} safe={matte === "2.39"} />
+            </div>
+          ))}
+        </Spec>
+        <Spec
+          name="Go to"
+          rule="Opens on the current timecode, selected; fewer fields count from the start."
+        >
+          <GoToTimecode
+            clock={{ rate: frameRates["25"], start: 10 * 3600 * 25 }}
+            time={72.32}
+            duration={600}
+            onGo={() => {}}
+          />
         </Spec>
       </Section>
       <Section title="Feedback" intro="Menus and dialogs rise in over 160 ms; nothing bounces.">
