@@ -4,9 +4,12 @@ import {
   completeNode,
   type MeasuredFile,
   measuredState,
+  restartPoints,
   sameStatus,
   stageClock,
   startRun,
+  startRunAt,
+  stopRun,
   triggersOf,
   type WorkflowContext,
   type WorkflowDefinition,
@@ -476,7 +479,7 @@ async function moveTrack(
     .where(inOrg(tracks, at.organisationId, eq(tracks.id, at.trackId)));
 }
 
-async function runAfter(after: After[]) {
+export async function runAfter(after: After[]) {
   for (const send of after)
     await send().catch((failure: unknown) =>
       console.warn(`Could not queue a workflow's job: ${String(failure)}`),
@@ -484,6 +487,89 @@ async function runAfter(after: After[]) {
 }
 
 /** The run of a workflow under way for a track, locked; none when there is none. */
+/**
+ * A workflow locked for the rest of the transaction, as it now stands: runs of it start one at
+ * a time. Taken before any lock on a run of it, which is taken before its track's.
+ */
+async function lockWorkflow(tx: Tx, organisationId: string, workflowId: string) {
+  const [row] = await tx
+    .select()
+    .from(workflows)
+    .where(inOrg(workflows, organisationId, eq(workflows.id, workflowId)))
+    .for("update");
+  return row ?? null;
+}
+
+/**
+ * A new version starts one of its track's workflows again at a stage (#25), in the version's
+ * own transaction, so the version, the stop and the start land together or not at all: the
+ * workflow is locked and checked again (switched on, the track's, the stage one of its
+ * `restartPoints`), its run under way there is stopped, and a new run starts at the stage on
+ * the definition as locked. Returns what to do once it commits.
+ */
+export async function restartAt(
+  tx: Tx,
+  deps: RunnerDeps,
+  at: {
+    organisationId: string;
+    projectId: string;
+    trackId: string;
+    versionId: string;
+    userId: string;
+    workflowId: string;
+    nodeId: string;
+  },
+): Promise<After[]> {
+  const refuse = () =>
+    new HTTPException(422, {
+      message: "That is not a stage this track's workflows can start again from",
+    });
+  const flow = await lockWorkflow(tx, at.organisationId, at.workflowId);
+  if (!flow?.active || flow.projectId !== at.projectId) throw refuse();
+  // The track's own workflows where it has any, else the project's (as `workflowsFor`).
+  if (flow.trackId !== at.trackId) {
+    if (flow.trackId !== null) throw refuse();
+    const [own] = await tx
+      .select({ id: workflows.id })
+      .from(workflows)
+      .where(
+        inOrg(
+          workflows,
+          at.organisationId,
+          eq(workflows.trackId, at.trackId),
+          eq(workflows.active, true),
+        ),
+      )
+      .limit(1);
+    if (own) throw refuse();
+  }
+  if (!restartPoints(flow.definition).some((n) => n.id === at.nodeId)) throw refuse();
+  const after: After[] = [];
+  const [run] = await tx
+    .select()
+    .from(workflowRuns)
+    .where(
+      inOrg(
+        workflowRuns,
+        at.organisationId,
+        eq(workflowRuns.workflowId, flow.id),
+        eq(workflowRuns.trackId, at.trackId),
+        eq(workflowRuns.state, "running"),
+      ),
+    )
+    .for("update");
+  if (run)
+    after.push(
+      ...(await apply(tx, deps, run, stopRun(run.engine), {
+        nodeId: null,
+        outcome: null,
+        byUserId: at.userId,
+      })),
+    );
+  const begun = await begin(tx, deps, flow, { ...at, stageId: at.nodeId });
+  return [...after, ...begun.after];
+}
+
 async function runningOf(tx: Tx, organisationId: string, workflowId: string, trackId: string) {
   const [row] = await tx
     .select()
@@ -511,12 +597,15 @@ async function begin(
     projectId: string;
     trackId: string;
     versionId: string | null;
-    triggerId: string;
     userId: string | null;
-  },
+  } & ({ triggerId: string } | { stageId: string }),
 ) {
   const ctx = await contextOf(tx, at.organisationId, at.trackId, at.userId ? "member" : undefined);
-  const moved = startRun(workflow.definition, at.triggerId, ctx);
+  // From a trigger, or (a new version restarting it, #25) at one of its stages.
+  const moved =
+    "stageId" in at
+      ? startRunAt(workflow.definition, at.stageId, ctx)
+      : startRun(workflow.definition, at.triggerId, ctx);
   const [row] = await tx
     .insert(workflowRuns)
     .values({
@@ -547,7 +636,8 @@ async function begin(
 /**
  * A new version arrived on a track: each workflow that runs for it starts from its upload
  * trigger, or, where a run is under way, carries on from an upload it waits for. A run under
- * way that waits for none goes on as it was.
+ * way that waits for none goes on as it was, as does one the version started again at a stage
+ * (`restartAt`, in the version's own transaction).
  */
 export async function versionArrived(
   deps: RunnerDeps,
@@ -605,6 +695,8 @@ export async function versionArrived(
   for (const flow of flows.filter((f) => !busy.has(f.id))) {
     try {
       const after = await deps.db.transaction(async (tx) => {
+        // Locked, so two versions (or a restart) arriving at once start it once.
+        await lockWorkflow(tx, at.organisationId, flow.id);
         if (await runningOf(tx, at.organisationId, flow.id, at.trackId)) return [];
         const trigger = triggersOf(flow.definition).find((t) => t.type === "upload");
         if (!trigger) return [];
@@ -631,6 +723,7 @@ export async function startByHand(
   const { row, after } = await deps.db.transaction(async (tx) => {
     // An archived project is read-only, even if it was archived a moment ago.
     await lockLiveProject(tx, at.organisationId, at.projectId);
+    await lockWorkflow(tx, at.organisationId, workflow.id);
     if (await runningOf(tx, at.organisationId, workflow.id, at.trackId))
       throw new HTTPException(409, { message: "This workflow is already under way on the track" });
     return begin(tx, deps, workflow, { ...at, versionId: null, triggerId: trigger.id });

@@ -6,9 +6,12 @@ import {
   measuredState,
   namedPeople,
   nextStep,
+  restartPoints,
   simulateWorkflow,
   stageClock,
   startRun,
+  startRunAt,
+  stopRun,
   type WorkflowConnector,
   type WorkflowContext,
   type WorkflowDefinition,
@@ -450,5 +453,52 @@ describe("the step after the one an item waits at", () => {
   it("is nothing after the finish, or for a step it does not have", () => {
     expect(nextStep(flow, "done")).toBeNull();
     expect(nextStep(flow, "gone")).toBeNull();
+  });
+});
+
+describe("starting a workflow again from a stage (#25)", () => {
+  const flow: WorkflowDefinition = workflowDefinition.parse({
+    nodes: [
+      node("start", "upload", "A version is uploaded", 0),
+      node("notes", "feedback", "Conductor's notes", 1, { status: "With conductor" }),
+      node("tell", "notify", "Tell the engineer", 2),
+      node("edit", "task", "Engineer edits", 3, { status: "Editing" }),
+      node("label", "approval", "Label approval", 4),
+      node("done", "finish", "Approved", 5, { status: "Approved" }),
+    ],
+    connectors: [
+      wire("1", "start", "happened", "notes"),
+      wire("2", "notes", "done", "tell"),
+      wire("3", "tell", "sent", "edit"),
+      wire("4", "edit", "done", "label"),
+      wire("5", "label", "approved", "done"),
+    ],
+  });
+  const ctx = plain;
+
+  it("can start from any stage a run waits at, in the order it reaches them", () => {
+    expect(restartPoints(flow).map((n) => n.id)).toEqual(["notes", "edit", "label"]);
+  });
+
+  it("starts there as though the workflow had reached it, and goes on from it", () => {
+    const at = startRunAt(flow, "edit", ctx);
+    expect(at.run).toMatchObject({ state: "running", active: ["edit"], status: "Editing" });
+    expect(at.effects).toEqual([
+      { kind: "status", nodeId: "edit", status: "Editing" },
+      { kind: "start", nodeId: "edit", type: "task", config: { status: "Editing" } },
+    ]);
+    expect(completeNode(flow, at.run, "edit", "done", ctx).run.active).toEqual(["label"]);
+    // Not from a trigger, a step done at once, a finish, or a step it does not have.
+    for (const id of ["start", "tell", "done", "gone"])
+      expect(() => startRunAt(flow, id, ctx)).toThrow(WorkflowError);
+  });
+
+  it("stops the run it replaces, cancelling what it waited on", () => {
+    const at = startRunAt(flow, "notes", ctx);
+    expect(stopRun(at.run)).toEqual({
+      run: { ...at.run, state: "stopped", active: [], joining: [] },
+      effects: [{ kind: "cancel", nodeId: "notes" }, { kind: "stopped" }],
+    });
+    expect(() => stopRun({ ...at.run, state: "finished" })).toThrow(WorkflowError);
   });
 });

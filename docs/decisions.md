@@ -617,3 +617,12 @@ When a workflow sets a track's status (a step's status, or a finish's) to one it
 ## 132. Files recorded together make one take though they start or stop apart
 
 Decision 115 grouped files without take numbers by starting within a second of one another. A recorder's microphones do not always: one is armed a few seconds late, another stopped early. Such files now also make one take where both lengths are known and they record together for at least half of the shorter one (`sameSpan` in `packages/shared`). Takes recorded one after another share at most a moment, so stay apart, as does a file with no length that starts more than a second away.
+
+## 133. A new version may start its track's workflow again from a stage
+
+A new version carries its track's workflows on as before (decision 117): a run waiting for an upload takes it, and a workflow with no run under way starts from its upload trigger. Those who edit workflows may instead choose, on the new version, a stage to start one of the track's workflows again from (#25), as the prototype's *Restart the workflow from* has it; *Keep the current stage* is the default.
+
+- **The stages offered** are those a run waits at (an approval, feedback, a task, the checks, a wait), in the order a run reaches them (`restartPoints` in `packages/shared`), of the workflows that run for the track: its own where it has any, else the project's.
+- **The run under way stops** (`stopRun`): the reviews it waited on are cancelled, as when a run moves past a stage, and its log ends there. A task it made stays open, as a stage that ends overdue leaves its task (decision 124).
+- **A new run starts at the stage** (`startRunAt`) on the workflow as it now stands, as though the workflow had just reached it: its status is set, its review asked for or its task made, and it goes on from there.
+- **All or nothing.** The restart is made in the version's own transaction (`restartAt`): the workflow is locked and checked again (switched on, the track's, the stage one of its own), its run under way stopped and the new one started on the definition as locked. Someone who may not edit workflows is refused, and so is a stage the track's workflows do not have; refused, the version is not made either. Starting a workflow afresh takes the same lock, so two versions arriving at once never start it twice.
