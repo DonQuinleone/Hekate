@@ -525,8 +525,11 @@ function layoutFindings(profile: DeliveryProfile, info: MediaInfo | null): QaFin
 /** A frame rate as people say it: 25, 29.97, 23.976. */
 export const frameRateName = (fps: number) => String(Math.round(fps * 1000) / 1000);
 
-/** A rate and a profile's agree within a thousandth: 23.976 is 24000/1001. */
-const sameRate = (fps: number, asked: number) => Math.abs(fps - asked) <= 0.0015 * asked;
+/**
+ * A rate and a profile's agree within five thousandths of a frame a second: 23.976 is
+ * 24000/1001, while 23.976 and 24, 29.97 and 30, 59.94 and 60 stay apart.
+ */
+const sameRate = (fps: number, asked: number) => Math.abs(fps - asked) <= 0.005;
 
 /**
  * The picture against what the profile asks of it (#42): one finding, whatever fails named in

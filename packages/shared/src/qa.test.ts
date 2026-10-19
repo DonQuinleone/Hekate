@@ -316,6 +316,30 @@ describe("a video's picture against the profile (#42)", () => {
     );
   });
 
+  it("tells the NTSC rates from the whole ones", () => {
+    const at = (fps: number, asked: number) =>
+      picture(
+        {
+          ...deliveryProfiles.broadcast,
+          video: {
+            codec: null,
+            resolution: null,
+            frameRate: asked,
+            scan: null,
+            range: null,
+            primaries: null,
+          },
+        },
+        { ...hd, fps },
+      )[0]?.severity;
+    expect(at(24000 / 1001, 23.976)).toBe("pass");
+    expect(at(23.976, 24)).toBe("fail");
+    expect(at(24, 23.976)).toBe("fail");
+    expect(at(29.97, 30)).toBe("fail");
+    expect(at(60000 / 1001, 59.94)).toBe("pass");
+    expect(at(59.94, 60)).toBe("fail");
+  });
+
   it("holds nothing the file does not say against it, and asks nothing of audio profiles", () => {
     const [found] = picture(deliveryProfiles.broadcast, {
       codec: "h264",
