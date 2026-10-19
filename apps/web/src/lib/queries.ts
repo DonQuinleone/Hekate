@@ -5,6 +5,7 @@ import {
   type ApprovalRule,
   type Board,
   type CalendarEvent,
+  type CaptionTrack,
   type CarryStatus,
   type CategoryHandling,
   type CategoryInput,
@@ -3271,6 +3272,50 @@ export const fileDetailsQuery = (fileId: string) =>
     queryFn: async () =>
       json<FileDetails>(await api.files[":id"].details.$get({ param: { id: fileId } })),
   });
+
+/** A video's captions from sidecar files (#146), cues and all. */
+export const captionsQuery = (fileId: string) =>
+  queryOptions({
+    queryKey: ["files", fileId, "captions"],
+    queryFn: async () =>
+      (
+        await json<{ captions: CaptionTrack[] }>(
+          await api.files[":id"].captions.$get({ param: { id: fileId } }),
+        )
+      ).captions,
+  });
+
+/** Adding a caption file to a video, under a name for the player's menu, or removing one. */
+export function useCaptionMutations(fileId: string) {
+  const client = useQueryClient();
+  const refresh = () => client.invalidateQueries({ queryKey: ["files", fileId, "captions"] });
+  return {
+    add: useMutation({
+      mutationFn: async ({ file, label }: { file: File; label: string }) =>
+        json<{ caption: CaptionTrack }>(
+          await fetch(`/api/files/${fileId}/captions?label=${encodeURIComponent(label)}`, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+              "content-type": "application/octet-stream",
+              "x-file-name": encodeURIComponent(file.name),
+            },
+            body: file,
+          }),
+        ),
+      onSuccess: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: async (captionId: string) => {
+        const res = await api.files[":id"].captions[":captionId"].$delete({
+          param: { id: fileId, captionId },
+        });
+        if (!res.ok) await json(res);
+      },
+      onSuccess: refresh,
+    }),
+  };
+}
 
 /** Change one's own name, language or time zone. */
 export function useUpdateProfile() {

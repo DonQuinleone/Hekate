@@ -4,6 +4,8 @@ import {
   approvalRules,
   auditActions,
   auditActorTypes,
+  type CaptionCue,
+  type CaptionFormat,
   type CommentMention,
   type CommentReferences,
   type CustomProfileInput,
@@ -1014,6 +1016,35 @@ export const comments = pgTable(
     index("comments_file_idx").on(t.fileId),
     index("comments_search_idx").using("gin", searchVector(sql`coalesce(${t.body}, '')`)),
   ],
+);
+
+/**
+ * A video's captions, from a sidecar file (#146): its bytes an encrypted blob like any other,
+ * kept as it came, and its cues read once when it was added, which the player shows over the
+ * picture. It goes with its video.
+ */
+export const captionTracks = pgTable(
+  "caption_tracks",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => files.id, { onDelete: "cascade" }),
+    blobId: uuid("blob_id")
+      .notNull()
+      .references(() => blobs.id, { onDelete: "no action" }),
+    /** How the player's menu names it: "English", "SDH". */
+    label: text("label").notNull(),
+    /** The sidecar's own file name. */
+    name: text("name").notNull(),
+    format: text("format").$type<CaptionFormat>().notNull(),
+    byteSize: bigint("byte_size", { mode: "number" }).notNull(),
+    cues: jsonb("cues").$type<CaptionCue[]>().notNull(),
+    createdById: text("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("caption_tracks_file_idx").on(t.organisationId, t.fileId)],
 );
 
 /**

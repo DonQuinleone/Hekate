@@ -1,15 +1,17 @@
-import { formatBytes } from "@hekate/shared";
+import { captionFormatNames, formatBytes } from "@hekate/shared";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { actionCopy } from "~/lib/access-log";
 import { formatDates } from "~/lib/locale";
 import {
   accessLogQuery,
+  captionsQuery,
   type FileDetails,
   fileDetailsQuery,
   projectFoldersQuery,
   projectTracksQuery,
+  useCaptionMutations,
   useOrganise,
   useTrackMutations,
 } from "~/lib/queries";
@@ -19,7 +21,7 @@ import { mediaSummary } from "./files";
 import { Icon } from "./icons";
 import { Property } from "./property";
 import { Button } from "./ui/button";
-import { Select } from "./ui/input";
+import { FileInput, Input, Select } from "./ui/input";
 import { StatusDot } from "./ui/status";
 
 const dateTime = formatDates({
@@ -98,6 +100,129 @@ function Renditions({ details }: { details: FileDetails }) {
       <span className="text-[12px] text-ink-3">
         The original never leaves storage except through a permitted, watermarked download.
       </span>
+    </section>
+  );
+}
+
+/** "Titles - English.srt" → "Titles - English": a first name for the player's menu. */
+const captionNameOf = (fileName: string) => fileName.replace(/\.[^.]+$/, "").slice(0, 60);
+
+/**
+ * A video's captions from sidecar files (#146): which there are, and for whoever may upload,
+ * adding one (named for the player's Frame menu) or removing one.
+ */
+function Captions({ fileId, canUpload }: { fileId: string; canUpload: boolean }) {
+  const { data: captions = [] } = useQuery(captionsQuery(fileId));
+  const { add, remove } = useCaptionMutations(fileId);
+  const chooser = useRef<HTMLInputElement>(null);
+  const [chosen, setChosen] = useState<File | null>(null);
+  const [label, setLabel] = useState("");
+  const failure = add.error ?? remove.error;
+  return (
+    <section className="flex flex-col gap-1.5">
+      <Heading>Captions</Heading>
+      {captions.length === 0 && (
+        <span className="text-[13px] text-ink-2">
+          {canUpload
+            ? "None. Add a SubRip, WebVTT or TTML file; the Frame menu shows it over the picture."
+            : "None"}
+        </span>
+      )}
+      <ul aria-label="Captions" className="m-0 flex list-none flex-col p-0">
+        {captions.map((c) => (
+          <li key={c.id} className="group flex min-h-7 items-center gap-2 text-[13px]">
+            <span className="text-ink">{c.label}</span>
+            <span className="min-w-0 flex-1 truncate text-ink-3" title={c.name}>
+              {captionFormatNames[c.format]} · {c.cues.length} caption
+              {c.cues.length === 1 ? "" : "s"}
+            </span>
+            {canUpload && (
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label={`Remove the ${c.label} captions`}
+                title="Remove"
+                disabled={remove.isPending}
+                onClick={() => remove.mutate(c.id)}
+                className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+              >
+                <Icon name="close" size={13} />
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {canUpload &&
+        (chosen ? (
+          <form
+            aria-label="Add captions"
+            className="flex flex-col gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              add.mutate(
+                { file: chosen, label },
+                {
+                  onSuccess: () => {
+                    setChosen(null);
+                    setLabel("");
+                  },
+                },
+              );
+            }}
+          >
+            <span className="truncate text-[12px] text-ink-3" title={chosen.name}>
+              {chosen.name}
+            </span>
+            <div className="flex items-center gap-2">
+              <Input
+                size="sm"
+                aria-label="Name in the Frame menu"
+                placeholder="English"
+                value={label}
+                maxLength={60}
+                onChange={(event) => setLabel(event.target.value)}
+                className="min-w-0 flex-1"
+              />
+              <Button type="submit" size="sm" disabled={!label.trim() || add.isPending}>
+                Add
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setChosen(null);
+                  add.reset();
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <div>
+            <Button variant="secondary" size="sm" onClick={() => chooser.current?.click()}>
+              Add captions…
+            </Button>
+            <FileInput
+              ref={chooser}
+              accept=".srt,.vtt,.ttml,.dfxp,.xml"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (!file) return;
+                add.reset();
+                setChosen(file);
+                setLabel(captionNameOf(file.name));
+              }}
+            />
+          </div>
+        ))}
+      {failure && (
+        <p role="alert" className="m-0 text-[13px] text-signal">
+          {failure.message}
+        </p>
+      )}
     </section>
   );
 }
@@ -338,6 +463,9 @@ export function FileDetailsSheet({ fileId, onClose }: { fileId: string; onClose:
               )}
             </dl>
             <Renditions details={details} />
+            {details.file.kind === "video" && (
+              <Captions fileId={fileId} canUpload={details.can.upload} />
+            )}
             <UsedIn details={details} />
             {(details.can.organise || details.can.upload) && (
               <section className="flex flex-col gap-2">

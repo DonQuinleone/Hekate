@@ -1,4 +1,5 @@
 import {
+  type CaptionTrack,
   channelLabels,
   type DrawingColour,
   type DrawingTool,
@@ -80,7 +81,7 @@ import { Dropdown } from "./ui/menu";
 import { Segmented } from "./ui/segmented";
 import { Slider } from "./ui/slider";
 import { Toggle } from "./ui/toggle";
-import { FrameGuides, GoToTimecode } from "./video-frame";
+import { CaptionText, FrameGuides, GoToTimecode } from "./video-frame";
 import {
   WAVEFORM_HEIGHT,
   Waveform,
@@ -247,6 +248,7 @@ export function Player({
   draft = null,
   onDraft,
   cuts = null,
+  captions = [],
 }: {
   fileId: string;
   kind: "audio" | "video";
@@ -277,6 +279,8 @@ export function Player({
     /** The two cuts' versions on the comparison page, for whoever may open it. */
     compare?: { trackId: string; a: number; b: number } | null;
   } | null;
+  /** A video's captions from sidecar files (#146), offered in the Frame menu. */
+  captions?: readonly CaptionTrack[];
   /** Normalised playback (#240): offered as a switch where it is each person's choice. */
   normalisation?: Normalisation | null;
   /** Whether it is heard normalised now, and the switch's choice. */
@@ -327,8 +331,16 @@ export function Player({
   const clock = useMemo(() => (info?.video ? videoClock(info.video) : null), [info?.video]);
   /** How long a frame shows: a drawing on one shows for that long (#146). */
   const frameSeconds = clock ? frameTime(1, clock.rate) : 1 / 25;
-  // Followed frame by frame while it plays, but only when there is a drawing to show (#146).
-  const frameNow = useFrameClock(media, kind === "video" && playing && drawings.length > 0, time);
+  /** The captions shown over the picture, by id; none until chosen. */
+  const [captionId, setCaptionId] = useState<string | null>(null);
+  const caption = captions.find((c) => c.id === captionId) ?? null;
+  // Followed frame by frame while it plays, but only when there is a drawing or a caption to
+  // show (#146).
+  const frameNow = useFrameClock(
+    media,
+    kind === "video" && playing && (drawings.length > 0 || Boolean(caption)),
+    time,
+  );
   /** The drafts each new drawing replaced, newest last, for Undo; gone once the draft is. */
   const undo = useRef<(FrameDraft | null)[]>([]);
   useEffect(() => {
@@ -832,6 +844,13 @@ export function Player({
                   safe={safe}
                 />
               )}
+              {info?.video && caption && (
+                <CaptionText
+                  aspect={info.video.width / info.video.height}
+                  cues={caption.cues}
+                  time={frameNow}
+                />
+              )}
               {info?.video && (
                 <DrawingMarks
                   aspect={info.video.width / info.video.height}
@@ -1223,6 +1242,12 @@ export function Player({
                     label: `Matte ${mattes[m].label}`,
                     checked: matte === m,
                     onSelect: () => setMatte((on) => (on === m ? null : m)),
+                  })),
+                  // One caption file is "Captions"; several are named, one shown at a time.
+                  ...captions.map((c) => ({
+                    label: captions.length === 1 ? "Captions" : `Captions: ${c.label}`,
+                    checked: captionId === c.id,
+                    onSelect: () => setCaptionId((on) => (on === c.id ? null : c.id)),
                   })),
                   ...(canCompareCuts && cuts
                     ? [

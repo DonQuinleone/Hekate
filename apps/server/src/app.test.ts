@@ -8572,6 +8572,94 @@ describe.runIf(url)("api", () => {
           expect((await ticket(s.owner)).status).toBe(404);
         });
 
+        it("lays a video's captions from sidecar files, for whoever may see it (#146)", async () => {
+          const s = await studio();
+          const add = (body: string, name: string, label: string, cookie = s.owner) =>
+            app.request(`/api/files/${s.mix}/captions?label=${encodeURIComponent(label)}`, {
+              method: "POST",
+              headers: {
+                cookie,
+                origin: "http://localhost:3000",
+                "content-type": "application/octet-stream",
+                "x-file-name": encodeURIComponent(name),
+              },
+              body: new TextEncoder().encode(body),
+            });
+          const srt = "1\n00:00:06,000 --> 00:00:09,500\n<i>ENDLESS HALL RECORDS</i>\nPRESENTS\n";
+          // A recording carries none.
+          expect((await add(srt, "Titles.srt", "English")).status).toBe(409);
+          await db.update(schema.files).set({ kind: "video" }).where(eq(schema.files.id, s.mix));
+          const added = await add(srt, "Titles.srt", "English", s.engineer);
+          expect(added.status).toBe(201);
+          const { caption } = (await added.json()) as { caption: { id: string } };
+          type Listed = {
+            captions: { id: string; label: string; format: string; cues: object[] }[];
+          };
+          const listed = async (cookie: string) => {
+            const res = await getAs(`/api/files/${s.mix}/captions`, cookie);
+            return res.status === 200 ? ((await res.json()) as Listed).captions : res.status;
+          };
+          // Whoever may view the video reads its cues; nobody else learns it has any.
+          expect(await listed(s.composer)).toEqual([
+            {
+              id: caption.id,
+              label: "English",
+              name: "Titles.srt",
+              format: "srt",
+              cues: [{ start: 6, end: 9.5, text: "ENDLESS HALL RECORDS\nPRESENTS" }],
+              createdAt: expect.any(String),
+            },
+          ]);
+          const outsider = await joinAs(s.owner, "outsider-captions@example.test");
+          expect(await listed(outsider)).toBe(404);
+          // Stored like any other bytes: encrypted.
+          const [row] = await db
+            .select({ blobId: schema.captionTracks.blobId })
+            .from(schema.captionTracks)
+            .where(eq(schema.captionTracks.id, caption.id));
+          const [blob] = await db
+            .select()
+            .from(schema.blobs)
+            .where(eq(schema.blobs.id, row?.blobId ?? ""));
+          expect(blob?.wrappedKey).toBeTruthy();
+
+          // Only those who may upload add or remove captions, and only files that read as some.
+          const stored = async () =>
+            (
+              await db
+                .select({ n: count() })
+                .from(schema.blobs)
+                .where(eq(schema.blobs.organisationId, s.organisationId))
+            )[0]?.n;
+          const before = await stored();
+          expect((await add(srt, "Mine.srt", "Mine", s.composer)).status).toBe(403);
+          expect((await add("Just some words", "Notes.txt", "Notes")).status).toBe(422);
+          const broken = await add("WEBVTT\n\n00:01 --> 00:02\nHi\n", "Broken.vtt", "Broken");
+          expect(broken.status).toBe(422);
+          expect(((await broken.json()) as { error: { message: string } }).error.message).toContain(
+            "This timing cannot be read",
+          );
+          expect((await add(srt, "Titles.srt", "")).status).toBe(400);
+          expect(await stored()).toBe(before);
+          const vtt = "WEBVTT\n\n00:06.000 --> 00:09.500\nENDLESS HALL RECORDS PRÉSENTE\n";
+          expect((await add(vtt, "Titres.vtt", "Français")).status).toBe(201);
+          const removing = (id: string, cookie = s.owner) =>
+            app.request(`/api/files/${s.mix}/captions/${id}`, {
+              ...json({}, cookie),
+              method: "DELETE",
+            });
+          expect((await removing(caption.id, s.composer)).status).toBe(403);
+          expect((await removing(caption.id)).status).toBe(204);
+          expect((await removing(caption.id)).status).toBe(404);
+          const left = await listed(s.owner);
+          expect(Array.isArray(left) && left.map((c) => c.label)).toEqual(["Français"]);
+          const actions = await db
+            .select({ action: schema.accessEvents.action })
+            .from(schema.accessEvents)
+            .where(eq(schema.accessEvents.organisationId, s.organisationId));
+          expect(actions.filter((a) => a.action.startsWith("file.captions_")).length).toBe(3);
+        });
+
         it("gives each role its player tools, and refuses a tool a role has off (#240)", async () => {
           const s = await studio();
           type Roles = {

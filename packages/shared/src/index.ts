@@ -5,6 +5,7 @@ export * from "./anchor.ts";
 export * from "./audit.ts";
 export * from "./board.ts";
 export * from "./calendar.ts";
+export * from "./captions.ts";
 export * from "./categories.ts";
 export * from "./comment-export.ts";
 export * from "./comment-import.ts";

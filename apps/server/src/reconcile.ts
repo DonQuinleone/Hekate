@@ -4,6 +4,7 @@ import { type Audit, systemActor } from "./audit.ts";
 import type { Storage } from "./storage.ts";
 
 const {
+  captionTracks,
   commentAttachments,
   blobs,
   files,
@@ -264,6 +265,13 @@ export async function reconcileStorage(
                 .select({ x: sql`1` })
                 .from(commentAttachments)
                 .where(inOrg(commentAttachments, owner, eq(commentAttachments.blobId, blobs.id))),
+            ),
+            // Nor a video's caption file (#146).
+            notExists(
+              db
+                .select({ x: sql`1` })
+                .from(captionTracks)
+                .where(inOrg(captionTracks, owner, eq(captionTracks.blobId, blobs.id))),
             ),
             // Nor an upload that may still finish and make a file of it.
             notExists(

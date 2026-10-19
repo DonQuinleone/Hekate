@@ -60,6 +60,9 @@ export const auditActions = [
   /** Someone shared takes on a thread (#133), which its guests may then hear, or unshared one. */
   "comment.takes_share",
   "comment.takes_unshare",
+  /** Someone added a caption file to a video (#146), or removed one. */
+  "file.captions_add",
+  "file.captions_remove",
   /** Someone exported a file's comments as a marker list. */
   "comment.export",
   /** Someone imported a marker list as comments on a file (#134). */
