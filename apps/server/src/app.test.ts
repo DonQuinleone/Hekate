@@ -9139,6 +9139,14 @@ describe.runIf(url)("api", () => {
           });
           expect(one.wallIn).not.toBeNull();
 
+          // One take is live at a time: a second start while the first rolls is refused.
+          const meanwhile = await start({ trackId: trio });
+          expect(meanwhile.status).toBe(409);
+          expect(((await meanwhile.json()) as { error: { message: string } }).error.message).toBe(
+            "Take 1 is still recording; stop it before starting the next",
+          );
+          await send("PATCH", `/api/takes/${one.id}`, { lifecycle: "recorded" });
+
           // Continuous numbering runs on across the project's tracks; the session gains the track.
           const two = (
             (await (await start({ trackId: trio, lifecycle: "armed" })).json()) as {
@@ -9162,9 +9170,9 @@ describe.runIf(url)("api", () => {
           ).toEqual({ [s.trackId]: 3, [trio]: 3 });
           expect(detail.session.takeRows.map((t) => t.number).sort()).toEqual([1, 2]);
 
-          // Stopped, it is timed out; a false start counted; a recorded take cannot roll again.
+          // Stopped, it was timed out; a false start counted; a recorded take cannot roll again.
           const change = (id: string, body: unknown) => send("PATCH", `/api/takes/${id}`, body);
-          const stopped = await change(one.id, { lifecycle: "recorded", falseStarts: 1 });
+          const stopped = await change(one.id, { falseStarts: 1 });
           expect(stopped.status).toBe(200);
           const after = ((await stopped.json()) as { take: Take }).take;
           expect(after).toMatchObject({ lifecycle: "recorded", falseStarts: 1 });
@@ -9193,12 +9201,16 @@ describe.runIf(url)("api", () => {
             ).json()) as { session: { id: string } }
           ).session;
           const next = await send("POST", `/api/sessions/${perTrack.id}/takes`, { trackId: trio });
-          expect(((await next.json()) as { take: Take }).take.number).toBe(3);
+          const third = ((await next.json()) as { take: Take }).take;
+          expect(third.number).toBe(3);
+          await send("PATCH", `/api/takes/${third.id}`, { lifecycle: "recorded" });
           // By the recorder, its number is taken as given, and refused when already logged.
           await send("PATCH", `/api/sessions/${perTrack.id}`, { numbering: "recorder" });
           const recorder = (n: number) =>
             send("POST", `/api/sessions/${perTrack.id}/takes`, { trackId: s.trackId, number: n });
-          expect(((await (await recorder(41)).json()) as { take: Take }).take.number).toBe(41);
+          const forty = ((await (await recorder(41)).json()) as { take: Take }).take;
+          expect(forty.number).toBe(41);
+          await send("PATCH", `/api/takes/${forty.id}`, { lifecycle: "recorded" });
           expect((await recorder(41)).status).toBe(409);
 
           // Not with another project's track, nor in another workspace's session.

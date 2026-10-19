@@ -91,19 +91,36 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
   const [view, setView] = useState<View>("producer");
   const [chosen, setChosen] = useState<string | null>(null);
   const [note, setNote] = useState("");
+  /** Whether the note has been typed in since it was last saved or read. */
+  const [noteDirty, setNoteDirty] = useState(false);
+  /** The recorder's number for the next take, in a session the recorder numbers. */
+  const [recorderNumber, setRecorderNumber] = useState("");
   const noteField = useRef<HTMLInputElement>(null);
 
   const rows = session ? logOrder(session.takeRows) : [];
   const current = liveTake(rows);
   const target = keyTake(rows);
-  const canLog = Boolean(session && project && can("edit_takes") && !project.archivedAt);
+  // Nothing is logged while the server cannot be reached; writing offline comes later (#51).
+  const canLog = Boolean(
+    session && project && can("edit_takes") && !project.archivedAt && !isError,
+  );
   const trackId = session ? nextTrack(chosen, rows, session.tracks) : null;
   const next = trackId ? session?.nextNumbers[trackId] : undefined;
 
-  // The note field follows the take the keys act on.
+  // The note field follows the take the keys act on, and takes up someone else's change to
+  // its note unless it is being typed in, so it never writes an old note back over theirs.
   const noteFor = target?.id;
+  const remoteNote = target?.notes ?? "";
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset only when the take changes.
-  useEffect(() => setNote(target?.notes ?? ""), [noteFor]);
+  useEffect(() => {
+    setNoteDirty(false);
+    setNote(remoteNote);
+  }, [noteFor]);
+  useEffect(() => {
+    if (!noteDirty) setNote(remoteNote);
+  }, [remoteNote, noteDirty]);
+  const recorded = session?.numbering === "recorder";
+  const recorderValue = Number.parseInt(recorderNumber || String(next ?? ""), 10);
 
   const move = (lifecycle: LoggedTake["lifecycle"]) =>
     current && change.mutate({ id: current.id, lifecycle });
@@ -111,14 +128,24 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
     if (!canLog || start.isPending) return;
     if (current?.lifecycle === "recording") return move("recorded");
     if (current?.lifecycle === "armed") return move("recording");
-    if (trackId) start.mutate({ trackId, lifecycle: "recording" });
+    begin("recording");
   };
   const arm = () => {
-    if (!canLog || current || !trackId) return;
-    start.mutate({ trackId, lifecycle: "armed" });
+    if (!canLog || current) return;
+    begin("armed");
+  };
+  /** The next take, with the recorder's number where the recorder numbers them. */
+  const begin = (lifecycle: "armed" | "recording") => {
+    if (!trackId) return;
+    if (recorded && !(recorderValue >= 1)) return;
+    start.mutate(
+      { trackId, lifecycle, ...(recorded ? { number: recorderValue } : {}) },
+      { onSuccess: () => setRecorderNumber("") },
+    );
   };
   const onTarget = (patch: TakeChange) => target && change.mutate({ id: target.id, ...patch });
   const saveNote = () => {
+    setNoteDirty(false);
     if (!target || note.trim() === (target.notes ?? "")) return;
     change.mutate({ id: target.id, notes: note.trim() || null });
   };
@@ -280,8 +307,8 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
                   ? `Stop take ${current?.number}`
                   : armed
                     ? `Roll take ${current?.number}`
-                    : next
-                      ? `Start take ${next}`
+                    : (recorded ? recorderValue : next)
+                      ? `Start take ${recorded ? recorderValue : next}`
                       : "Start the next take"}
                 <Kbd>Space</Kbd>
               </button>
@@ -310,6 +337,21 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
                   ))}
                 </Select>
               </label>
+              {recorded && !current && (
+                <label className="flex flex-col gap-1 text-[12px] text-ink-3">
+                  Recorder's take
+                  <Input
+                    size="sm"
+                    type="number"
+                    min={1}
+                    inputMode="numeric"
+                    value={recorderNumber}
+                    placeholder={next ? String(next) : ""}
+                    onChange={(e) => setRecorderNumber(e.target.value)}
+                    className="w-24"
+                  />
+                </label>
+              )}
               <div className="ml-auto flex flex-col items-end">
                 {left !== null && (
                   <span
@@ -329,6 +371,11 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
                 </span>
               </div>
             </section>
+            {(start.error ?? change.error) && (
+              <p role="alert" className="m-0 text-[13px] text-signal">
+                {(start.error ?? change.error)?.message}
+              </p>
+            )}
 
             {target && canLog && (
               <div className="flex flex-wrap items-center gap-3">
@@ -339,7 +386,10 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
                   id="take-note"
                   ref={noteField}
                   value={note}
-                  onChange={(e) => setNote(e.target.value)}
+                  onChange={(e) => {
+                    setNote(e.target.value);
+                    setNoteDirty(true);
+                  }}
                   onBlur={saveNote}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
@@ -347,6 +397,7 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
                       e.currentTarget.blur();
                     }
                     if (e.key === "Escape") {
+                      setNoteDirty(false);
                       setNote(target.notes ?? "");
                       e.currentTarget.blur();
                     }

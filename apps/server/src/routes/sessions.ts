@@ -416,6 +416,24 @@ export const sessionRoutes = (db: Database) =>
           .for("update");
         if (!track) throw new NotFound("Track");
         await lockTakeNumbers(tx, row.projectId);
+        // One take is live in a session at a time: two people starting at once, the second is
+        // told which take is rolling. Checked under the lock every start takes.
+        const [live] = await tx
+          .select({ number: takes.number, lifecycle: takes.lifecycle })
+          .from(takes)
+          .where(
+            inOrg(
+              takes,
+              organisationId,
+              eq(takes.sessionId, row.id),
+              inArray(takes.lifecycle, ["armed", "recording"]),
+            ),
+          )
+          .limit(1);
+        if (live)
+          throw new HTTPException(409, {
+            message: `Take ${live.number} is ${live.lifecycle === "armed" ? "armed" : "still recording"}; stop it before starting the next`,
+          });
         const [ofTrack] = await tx
           .select({ n: max(takes.number) })
           .from(takes)
