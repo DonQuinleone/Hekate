@@ -25,6 +25,74 @@ export function coverFrame(
 }
 
 /**
+ * A filmstrip's picture, fetched once through the playback link and kept as a local address
+ * while it is shown; null until it arrives, or where it cannot be had (the video plays all
+ * the same).
+ */
+export function useFilmstripPicture(url: string | null): string | null {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    if (!url) return;
+    let made: string | null = null;
+    let cancelled = false;
+    fetch(url, { credentials: "same-origin" })
+      .then((res) => (res.ok ? res.blob() : null))
+      .then((blob) => {
+        if (!blob || cancelled) return;
+        made = URL.createObjectURL(blob);
+        setSrc(made);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      if (made) URL.revokeObjectURL(made);
+      setSrc(null);
+    };
+  }, [url]);
+  return src;
+}
+
+/** The filmstrip frame nearest a time: frame i spans the i-th equal part of the video. */
+export const filmstripFrame = (time: number, duration: number, frames: number) =>
+  duration > 0 ? Math.min(frames - 1, Math.max(0, Math.floor((time / duration) * frames))) : 0;
+
+/**
+ * One frame of a filmstrip, in a box shaped like the frame: the picture laid as a background
+ * as wide as all its frames, moved so the one asked for shows.
+ */
+export function FilmstripFrame({
+  src,
+  frames,
+  index,
+  aspect,
+  className,
+}: {
+  src: string | null;
+  frames: number;
+  index: number;
+  /** The video's width over its height. */
+  aspect: number;
+  className?: string;
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn("block bg-ground bg-no-repeat", className)}
+      style={{
+        aspectRatio: aspect,
+        ...(src
+          ? {
+              backgroundImage: `url("${src}")`,
+              backgroundSize: `${frames * 100}% 100%`,
+              backgroundPosition: `${frames > 1 ? (index / (frames - 1)) * 100 : 0}% 0`,
+            }
+          : {}),
+      }}
+    />
+  );
+}
+
+/**
  * A video's frames along it (#16), under the picture: one picture of every frame side by side,
  * fetched once through the playback link and shown a frame to a cell, cropped to fill it. It
  * only shows; the lane it sits in seeks and loops.
@@ -40,28 +108,13 @@ export function Filmstrip({
   at: number;
 }) {
   const strip = useRef<HTMLDivElement>(null);
-  const [src, setSrc] = useState<string | null>(null);
+  const src = useFilmstripPicture(url);
   const [picture, setPicture] = useState<{ width: number; height: number } | null>(null);
   const [box, setBox] = useState<{ width: number; height: number } | null>(null);
+  // A new picture is measured afresh when it loads.
   useEffect(() => {
-    let made: string | null = null;
-    let cancelled = false;
-    fetch(url, { credentials: "same-origin" })
-      .then((res) => (res.ok ? res.blob() : null))
-      .then((blob) => {
-        if (!blob || cancelled) return;
-        made = URL.createObjectURL(blob);
-        setSrc(made);
-      })
-      // Without it the lane is plain, and the video plays all the same.
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-      if (made) URL.revokeObjectURL(made);
-      setSrc(null);
-      setPicture(null);
-    };
-  }, [url]);
+    if (!src) setPicture(null);
+  }, [src]);
   useEffect(() => {
     const element = strip.current;
     if (!element) return;
