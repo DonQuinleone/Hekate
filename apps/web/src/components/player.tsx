@@ -2,13 +2,20 @@ import {
   channelLabels,
   formatChannels,
   formatDuration,
+  frameShowing,
+  frameTime,
+  type Matte,
   type MediaInfo,
+  mattes,
   type Normalisation,
   normalisationLabel,
   type SpectrogramPlace,
   savePreset,
   spectrogramPlaces,
+  timecodeFor,
   VIEW_PRESETS_MAX,
+  videoClock,
+  videoTimecode,
   WAVE_LOOK_MIN,
   type WatermarkPosition,
   type WaveLook,
@@ -54,6 +61,7 @@ import { Dropdown } from "./ui/menu";
 import { Segmented } from "./ui/segmented";
 import { Slider } from "./ui/slider";
 import { Toggle } from "./ui/toggle";
+import { FrameGuides, GoToTimecode } from "./video-frame";
 import {
   WAVEFORM_HEIGHT,
   Waveform,
@@ -266,6 +274,10 @@ export function Player({
   const [element, setElement] = useState<HTMLMediaElement | null>(null);
   const { view: playerView, setView: setPlayerView, split, setSplit } = usePlayerView();
   const savePreferences = useSavePreferences();
+  // A video counts in frames on its own timecode (#146); null where its rate is unknown.
+  const clock = useMemo(() => (info?.video ? videoClock(info.video) : null), [info?.video]);
+  const [matte, setMatte] = useState<Matte | null>(null);
+  const [safe, setSafe] = useState(false);
   const channels = info?.audio?.channels ?? 0;
   // Each channel to hear apart (#74), over the lossless stream that carries them all.
   const [mix, setMix] = useState<ChannelMix>(plainMix);
@@ -533,13 +545,21 @@ export function Player({
   };
 
   const say = useAnnounce();
+  const goToFrame = (frame: number) => {
+    const element = media.current;
+    if (!element || !clock) return;
+    const last = Math.max(0, Math.ceil((duration * clock.rate.num) / clock.rate.den) - 1);
+    element.currentTime = frameTime(Math.max(0, Math.min(last, frame)), clock.rate);
+  };
   /** One frame of video, or a hundredth of a second of audio. */
   const step = info?.video?.fps ? 1 / info.video.fps : 0.01;
   const stepBy = (direction: -1 | 1) => {
     const element = media.current;
     if (!element) return;
     element.pause();
-    seekBy(direction * step);
+    // A video lands on a frame's own time, so each step shows the next frame exactly.
+    if (clock) goToFrame(frameShowing(element.currentTime, clock.rate) + direction);
+    else seekBy(direction * step);
   };
   /** Loop in or out at the playhead; the other edge stays, or the loop runs to the end. */
   const edge = (which: "in" | "out") => {
@@ -672,6 +692,9 @@ export function Player({
             className="aspect-video w-full cursor-pointer bg-ground"
             {...events}
           />
+          {info?.video && (
+            <FrameGuides aspect={info.video.width / info.video.height} matte={matte} safe={safe} />
+          )}
           {mark && <VideoMark mark={mark} />}
         </div>
       ) : (
@@ -882,10 +905,20 @@ export function Player({
             >
               <Icon name={playing ? "pause" : "play"} size={14} />
             </Button>
-            <span className="tabular text-xs text-ink-2">
-              {formatDuration(time)}{" "}
-              <span className="text-ink-3">/ {formatDuration(duration)}</span>
-            </span>
+            {kind === "video" && clock ? (
+              <span className="tabular text-xs text-ink-2">
+                {videoTimecode(time, clock)}{" "}
+                <span className="text-ink-3">/ {timecodeFor(duration, clock)}</span>
+                <span className="ml-2 hidden text-ink-3 sm:inline">
+                  frame {frameShowing(time, clock.rate)}
+                </span>
+              </span>
+            ) : (
+              <span className="tabular text-xs text-ink-2">
+                {formatDuration(time)}{" "}
+                <span className="text-ink-3">/ {formatDuration(duration)}</span>
+              </span>
+            )}
             <Button
               variant="ghost"
               size="icon"
@@ -907,6 +940,29 @@ export function Player({
                 onSelect: () => setRate(r),
               }))}
             />
+            {kind === "video" && info?.video && (
+              <Dropdown
+                size="sm"
+                above
+                value={
+                  <>
+                    <Icon name="grid" size={14} />
+                    Frame
+                  </>
+                }
+                actions={[
+                  { label: "Safe areas", checked: safe, onSelect: () => setSafe((on) => !on) },
+                  ...(Object.keys(mattes) as Matte[]).map((m) => ({
+                    label: `Matte ${mattes[m].label}`,
+                    checked: matte === m,
+                    onSelect: () => setMatte((on) => (on === m ? null : m)),
+                  })),
+                ]}
+              />
+            )}
+            {kind === "video" && clock && (
+              <GoToTimecode clock={clock} time={time} duration={duration} onGo={goToFrame} />
+            )}
             {(kind === "audio" || offersNormalise) && (
               <Button
                 variant="ghost"

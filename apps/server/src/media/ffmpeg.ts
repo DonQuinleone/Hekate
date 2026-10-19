@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { type EmbeddedMetadata, type MediaInfo, mediaInfo } from "@hekate/shared";
+import { type EmbeddedMetadata, type MediaInfo, mediaInfo, timecodePattern } from "@hekate/shared";
 import { readWaveChunks, tagsOf } from "./metadata.ts";
 
 /**
@@ -200,6 +200,17 @@ function bitDepth(stream: ProbeStream): number | undefined {
 }
 
 /**
+ * Where a video's timecode starts (#146): its own stream's, a timecode track's (QuickTime's
+ * tmcd, a data stream), or the container's, whichever says first and can be read.
+ */
+function startTimecode(output: ProbeOutput, video: ProbeStream): string | undefined {
+  const tracks = (output.streams ?? []).filter((s) => s.codec_type === "data");
+  return [video.tags, ...tracks.map((t) => t.tags), output.format?.tags]
+    .map((tags) => tags?.timecode?.trim())
+    .find((written) => written !== undefined && timecodePattern.test(written));
+}
+
+/**
  * Turn ffprobe's JSON into Hekate's media info, with the bext and iXML chunks a wave file
  * holds where they were read. Exported for tests.
  */
@@ -238,6 +249,8 @@ export function parseProbe(
     if (fps) info.video.fps = fps;
     if (rate && fps) info.video.frameRate = rate;
     if (video.pix_fmt) info.video.pixelFormat = video.pix_fmt;
+    const start = startTimecode(output, video);
+    if (start) info.video.timecode = start;
   }
   if (info.audio || info.video) {
     const tags = tagsOf(output.format?.tags, audio?.tags, video?.tags);

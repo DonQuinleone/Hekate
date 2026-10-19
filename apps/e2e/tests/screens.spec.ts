@@ -1042,6 +1042,30 @@ test("file-channels", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Over a cut's frame (#146): a 2.39 matte with the safe areas, a 4:3 one, and Go to open on
+// the current timecode, refusing one the file does not reach. The suite's browser cannot
+// decode the cut itself, so the reference shows them.
+test("video-frame-tools", async ({ page }) => {
+  await page.goto("/reference");
+  await settle(page, "main h1");
+  await page.getByRole("button", { name: "Go to" }).click();
+  const field = page.getByRole("textbox", { name: "Timecode" });
+  await expect(field).toHaveValue("10:01:12:08");
+  await field.fill("10:20:00:00");
+  await field.press("Enter");
+  await expect(page.getByText("That timecode is not in this file.")).toBeVisible();
+  await field.fill("10:00:05:12");
+  await field.press("Enter");
+  await expect(field).toBeHidden();
+  await page.getByRole("button", { name: "Go to" }).click();
+  await field.fill("09:59:59:00");
+  await field.press("Enter");
+  await expect(page.getByText("That timecode is not in this file.")).toBeVisible();
+  await page.getByText("Mattes and safe areas").scrollIntoViewIfNeeded();
+  await saveScreen(page, "video-frame-tools");
+  await checkScreen(page);
+});
+
 // The meters at a moment of the recording (#34): levels, phase, mid and side, and the stereo
 // field a goniometer draws, read from the analysis at the playhead.
 test("file-qa-meters", async ({ page }) => {
