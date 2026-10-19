@@ -63,8 +63,13 @@ function element(xml: string, name: string): string | undefined {
 export interface ChnaTrack {
   /** 1-based, as chna counts. */
   index: number;
-  /** The audioTrackFormat it plays, "AT_00010001_01": its type and channel format follow. */
+  /** The audioTrackFormat it plays, "AT_00010001_01": its channel format follows. */
   trackRef: string;
+  /**
+   * The audioPackFormat it belongs to, "AP_00031001", whose type says what the track is
+   * (ITU-R BS.2076): 0001 a speaker of a bed, 0003 an object. Absent where the entry has none.
+   */
+  packRef?: string;
 }
 
 /** A chna chunk's tracks (EBU Tech 3285 supplement 7). Exported for tests. */
@@ -77,7 +82,12 @@ export function parseChna(body: Buffer): ChnaTrack[] {
     const index = body.readUInt16LE(at);
     // An index of 0 marks an unused entry.
     if (index === 0) continue;
-    tracks.push({ index, trackRef: body.subarray(at + 14, at + 28).toString("latin1") });
+    const packRef = body.subarray(at + 28, at + 39).toString("latin1");
+    tracks.push({
+      index,
+      trackRef: body.subarray(at + 14, at + 28).toString("latin1"),
+      ...(packRef.startsWith("AP_") ? { packRef } : {}),
+    });
   }
   return tracks;
 }
@@ -153,8 +163,10 @@ export function parseAdm(
   for (const track of tracks) {
     if (seen.has(track.index)) continue;
     seen.add(track.index);
-    // "AT_yyyyxxxx_zz": yyyy is the type, 0001 DirectSpeakers and 0003 Objects.
-    const type = track.trackRef.slice(3, 7);
+    // The pack's type says what a track is: "AP_yyyyxxxx", 0001 DirectSpeakers, 0003 Objects.
+    // A track format's own yyyy is its format (0001 PCM), which only agrees for a bed; it is
+    // read so only where an entry names no pack.
+    const type = (track.packRef ?? track.trackRef).slice(3, 7);
     const id = track.trackRef.slice(7, 11).toLowerCase();
     if (type === "0003") {
       objects += 1;

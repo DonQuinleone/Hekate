@@ -110,7 +110,14 @@ export async function boot(
   if (config.WORKER) {
     await startWorkers(
       jobs,
-      { db, storage, keyring, jobs, ...(config.WORK_DIR ? { workDir: config.WORK_DIR } : {}) },
+      {
+        db,
+        storage,
+        keyring,
+        jobs,
+        ...(config.WORK_DIR ? { workDir: config.WORK_DIR } : {}),
+        ...(config.ADM_RENDERER_PATH ? { admRenderer: config.ADM_RENDERER_PATH } : {}),
+      },
       config.WORKER_CONCURRENCY,
     );
     await jobs.work("storage-reconcile", async () => {

@@ -74,6 +74,8 @@ export interface RunOptions {
    * apply). The process waits while the handler runs; a handler that throws stops the run.
    */
   onStdout?: (chunk: Buffer) => void;
+  /** Variables added to the process's environment for this tool alone. */
+  env?: Record<string, string>;
 }
 
 export interface RunResult {
@@ -83,13 +85,16 @@ export interface RunResult {
 
 /** Run a media tool without a shell. Arguments are passed as a list, never interpolated. */
 export function run(command: string, args: string[], options: RunOptions = {}): Promise<RunResult> {
-  const { timeoutMs = 10 * 60_000, signal, maxOutput = 4 * 1024 * 1024 } = options;
+  const { timeoutMs = 10 * 60_000, signal, maxOutput = 4 * 1024 * 1024, env } = options;
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(new MediaToolError(`${command} was cancelled before it started`));
       return;
     }
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      ...(env ? { env: { ...process.env, ...env } } : {}),
+    });
     const stdout: Buffer[] = [];
     let stdoutSize = 0;
     let stderr = "";

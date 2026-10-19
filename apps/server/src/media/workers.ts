@@ -20,6 +20,7 @@ import type { Keyring } from "../keyring.ts";
 import { tellProcessingFailed } from "../notifications.ts";
 import type { Storage } from "../storage.ts";
 import { expireUploads } from "../uploads.ts";
+import { hasObjects, renderAdm, renderedInfo } from "./adm-render.ts";
 import { alignInThread } from "./align.ts";
 import { analyseAudio, declaredLength } from "./analysis.ts";
 import { InvalidMediaError, probe } from "./ffmpeg.ts";
@@ -55,6 +56,8 @@ export interface MediaWorkerDeps {
   jobs: Pick<Jobs, "send">;
   /** Scratch space for decrypted media while a job runs; a tmpfs is ideal. */
   workDir?: string;
+  /** Where the EBU ADM Renderer is installed (ADM_RENDERER_PATH); without it, objects go unheard. */
+  admRenderer?: string;
 }
 
 /**
@@ -204,10 +207,26 @@ export function proxyHandler(deps: MediaWorkerDeps): JobHandler<"media-proxy"> {
     };
     try {
       const organisationKey = await deps.keyring.current(organisationId);
+      const mediaInfo = file.mediaInfo;
+      let rendered: string | undefined;
       const packaged = await withWorkspace(deps.workDir, async (dir) => {
-        const input = await materialise(deps.storage, organisationId, file.blobId, dir, job.signal);
+        let input = await materialise(deps.storage, organisationId, file.blobId, dir, job.signal);
+        let planned = plans;
+        // An ADM master's objects are heard through a render of it onto its bed's layout, which
+        // its streams carry (decision 140). Should the render fail, its bed is heard as before.
+        if (file.kind === "audio" && deps.admRenderer && hasObjects(mediaInfo)) {
+          try {
+            const render = await renderAdm(input, dir, mediaInfo, deps.admRenderer, job.signal);
+            input = render.path;
+            planned = planRenditions("audio", renderedInfo(mediaInfo, render.target));
+            rendered = render.target.layout;
+          } catch (error) {
+            if (job.signal?.aborted) throw error;
+            console.warn(`Could not render the objects of file ${fileId}:`, error);
+          }
+        }
         const results: { id: string; wrappedKey: string; rendition: PackagedRendition }[] = [];
-        for (const plan of plans) {
+        for (const plan of planned) {
           const id = uuidv7();
           const contentKey = randomBytes(16);
           try {
@@ -256,9 +275,20 @@ export function proxyHandler(deps: MediaWorkerDeps): JobHandler<"media-proxy"> {
             })),
           );
         }
+        const metadata = mediaInfo.metadata;
+        const adm = metadata?.adm;
         await tx
           .update(files)
-          .set({ streamStatus: "ready" })
+          .set({
+            streamStatus: "ready",
+            // What the streams carry, for the player to hear them as (decision 140); a retry
+            // whose render failed carries the bed again, and says so.
+            ...(metadata && adm
+              ? {
+                  mediaInfo: { ...mediaInfo, metadata: { ...metadata, adm: { ...adm, rendered } } },
+                }
+              : {}),
+          })
           .where(inOrg(files, organisationId, eq(files.id, fileId)));
       });
     } catch (error) {

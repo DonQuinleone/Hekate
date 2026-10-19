@@ -7,6 +7,7 @@ import {
   frameShowing,
   frameTime,
   isFollowingPart,
+  layoutChannels,
   losslessPartIndex,
   type Matte,
   type MediaInfo,
@@ -139,7 +140,13 @@ const markerStyles: Record<TimelineMarker["state"], string> = {
 /** What a reviewer chooses between, in plain words. */
 export function renditionLabel(rendition: Rendition, info: MediaInfo | null): string {
   const audio = info?.audio;
-  const layout = audio ? formatChannels(audio.channels, audio.channelLayout) : "";
+  // An ADM master's lossless stream carries its render onto a layout (decision 140).
+  const rendered = info?.metadata?.adm?.rendered;
+  const layout = rendered
+    ? `${rendered} render`
+    : audio
+      ? formatChannels(audio.channels, audio.channelLayout)
+      : "";
   switch (rendition.name) {
     case "aac-256":
       return "AAC · stereo";
@@ -321,9 +328,18 @@ export function Player({
   const [channelsOpen, setChannelsOpen] = useState(false);
   // biome-ignore lint/correctness/useExhaustiveDependencies: each file starts as recorded.
   useEffect(() => setMix(plainMix), [fileId]);
-  const channelLayout = info?.audio?.channelLayout;
-  const labels = useMemo(() => channelLabels(channelLayout, channels), [channelLayout, channels]);
-  const names = useMemo(() => speakerNames(labels, channels), [labels, channels]);
+  // What is heard: a recording's own channels, or an ADM master's render of its bed and objects
+  // onto a layout (decision 140), which is what its streams carry. Drawings and analysis stay
+  // the master's own.
+  const rendered = info?.metadata?.adm?.rendered;
+  const heard = rendered ? layoutChannels(rendered) : channels;
+  const channelLayout = rendered
+    ? rendered === "2.0"
+      ? "stereo"
+      : rendered
+    : info?.audio?.channelLayout;
+  const labels = useMemo(() => channelLabels(channelLayout, heard), [channelLayout, heard]);
+  const names = useMemo(() => speakerNames(labels, heard), [labels, heard]);
   const heardRendition = choices.find((c) => c.level === level)?.rendition.name ?? null;
   // A layout wider than eight channels (#74) also plays its later channels from parts of their
   // own, in step with the lossless stream and heard through the same mix.
@@ -334,7 +350,7 @@ export function Player({
         .sort((a, b) => (losslessPartIndex(a.name) ?? 0) - (losslessPartIndex(b.name) ?? 0)),
     [playback.renditions],
   );
-  const carried = Math.min(channels, STREAM_CHANNELS * (partRenditions.length + 1));
+  const carried = Math.min(heard, STREAM_CHANNELS * (partRenditions.length + 1));
   const [partElements, setPartElements] = useState<(HTMLAudioElement | null)[]>([]);
   const playsParts = kind === "audio" && heardRendition === "flac" && partRenditions.length > 0;
   const parts = useMemo(() => {
@@ -343,7 +359,7 @@ export function Player({
       ? (ready as HTMLAudioElement[])
       : [];
   }, [playsParts, partElements, partRenditions.length]);
-  const channelsUnavailable = mixUnavailable(channels, heardRendition, carried);
+  const channelsUnavailable = mixUnavailable(heard, heardRendition, carried);
   // Folding down or placing the speakers needs each channel's speaker; a file that does not
   // say offers neither.
   const heardMix = channelsUnavailable
@@ -351,7 +367,7 @@ export function Player({
     : labels
       ? { ...mix, binaural: mix.binaural && canBinaural(labels) }
       : { ...mix, downmix: false, binaural: false };
-  useChannelMix(element, channels, labels, heardMix, parts);
+  useChannelMix(element, heard, labels, heardMix, parts);
   const view: WaveformView = split && channels > 1 ? "channels" : "combined";
   const display: Display =
     !canSpectrogram || playerView.spectrogram === "off"
@@ -1107,7 +1123,7 @@ export function Player({
                 View
               </Button>
             )}
-            {kind === "audio" && channels >= 2 && (
+            {kind === "audio" && heard >= 2 && (
               <ChannelsButton
                 names={names}
                 mix={heardMix}
@@ -1193,7 +1209,7 @@ export function Player({
               onRolls={setRolls}
             />
           )}
-          {channelsOpen && kind === "audio" && channels >= 2 && (
+          {channelsOpen && kind === "audio" && heard >= 2 && (
             <ChannelsPanel
               names={names}
               mix={heardMix}

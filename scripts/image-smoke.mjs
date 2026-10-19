@@ -1,5 +1,6 @@
 // Run inside the app image (CI's image job): it starts as built, read-only and with every
-// capability dropped, its media tools work, and nothing in it can raise its privileges.
+// capability dropped, its media tools work (the ADM renderer too), and nothing in it can raise
+// its privileges.
 import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -25,6 +26,16 @@ for (const [tool, args] of [
     else if (!/version/i.test(said)) fail(`${tool} does not run: ${error.message}`);
   }
 }
+// The ADM renderer (decision 140) loads and runs with Debian's Python alone.
+try {
+  execFileSync("python3", ["-W", "ignore", "-m", "ear.cmdline.render_file", "--help"], {
+    encoding: "utf8",
+    stdio: "pipe",
+    env: { ...process.env, PYTHONPATH: process.env.ADM_RENDERER_PATH, PYTHONNOUSERSITE: "1" },
+  });
+} catch (error) {
+  fail(`the ADM renderer does not run: ${error.stderr || error.message}`);
+}
 for (const gone of [
   "/bin/sh",
   "/usr/bin/bash",
@@ -32,6 +43,8 @@ for (const gone of [
   "/usr/bin/apt-get",
   "/usr/bin/dpkg",
   "/usr/local/bin/npm",
+  "/usr/bin/pip3",
+  "/usr/local/bin/pip3",
 ])
   if (existsSync(gone)) fail(`${gone} is still there`);
 

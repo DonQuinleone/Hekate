@@ -37,6 +37,21 @@ describe("player", () => {
       }),
     ).toBe("Dolby Digital Plus · 7.1");
     expect(renditionLabel(rendition("720p", { height: 720 }), null)).toBe("720p");
+    // An ADM master's lossless stream is its render onto a layout (#74), and says so.
+    const master = {
+      audio: { codec: "pcm_s24le", channels: 30, sampleRate: 48000, bitDepth: 24 },
+      metadata: {
+        tags: {},
+        adm: { bytes: 1, bed: 10, layout: "5.1.4", objects: 20, lfe: [3], dolby: true },
+      },
+    };
+    master.metadata.adm = {
+      ...master.metadata.adm,
+      rendered: "5.1.4",
+    } as typeof master.metadata.adm;
+    expect(renditionLabel(rendition("flac"), master)).toBe(
+      "Lossless · 48 kHz · 24-bit · 5.1.4 render",
+    );
   });
 
   it("starts audio on the original Dolby stream, then lossless", () => {
