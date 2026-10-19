@@ -108,13 +108,26 @@ describe("parseTimecode", () => {
     expect(parseTimecode("1:00:00", clock)).toBe(1500);
   });
 
+  it("reads fewer than eight digits as a time from the start", () => {
+    expect(parseTimecode("1001208", clock)).toBe((60 * 60 + 12) * 25 + 8);
+  });
+
+  it("reads a label earlier than the file as the next day's, as timecode wraps at midnight", () => {
+    const late = {
+      rate: frameRates["25"],
+      start: labelFrames(label(23, 59, 59, 0), frameRates["25"]) ?? 0,
+    };
+    expect(parseTimecode("00:00:01:00", late)).toBe(50);
+    // Before the file's first frame is a day later: past the end of any file.
+    expect(parseTimecode("09:59:59:24", clock)).toBe(24 * 3600 * 25 - 1);
+  });
+
   it("refuses what is not a timecode here", () => {
     expect(parseTimecode("", clock)).toBeNull();
     expect(parseTimecode("twelve", clock)).toBeNull();
     expect(parseTimecode("12::00", clock)).toBeNull();
     expect(parseTimecode("00:00:00:25", clock)).toBeNull();
-    // Before the file's first frame.
-    expect(parseTimecode("09:59:59:24", clock)).toBeNull();
+    expect(parseTimecode("24:00:00:00", clock)).toBeNull();
     expect(parseTimecode("1:00:00:00:00", clock)).toBeNull();
     const ntsc = { rate: frameRates["29.97df"], start: 0 };
     expect(parseTimecode("00:01:00;00", ntsc)).toBeNull();

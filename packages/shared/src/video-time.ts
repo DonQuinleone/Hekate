@@ -90,21 +90,27 @@ export const timecodeFor = (seconds: number, clock: VideoClock) =>
  * The frame a typed timecode means, from the file's first frame (#146). Four fields (or eight
  * digits) are a timecode on the file's own clock; fewer count from the start, right-aligned
  * as editors type them: "12:00" and "1200" are twelve seconds in, "5" is the fifth frame.
- * Null for anything that is not a timecode at the rate or falls before the file.
+ * Timecode wraps at midnight, so a label earlier than the file's first is read as the next
+ * day's: a file starting at 23:59:59:00 reaches 00:00:01:00 two seconds in. Null for anything
+ * that is not a timecode at the rate. Whether the frame is within the file is the caller's.
  */
 export function parseTimecode(text: string, clock: VideoClock): number | null {
   const typed = text.trim();
   if (!/^[\d:;.,]+$/.test(typed)) return null;
-  const parts = /[:;.,]/.test(typed)
+  const separated = /[:;.,]/.test(typed);
+  const parts = separated
     ? typed.split(/[:;.,]/)
     : (typed.padStart(typed.length + (typed.length % 2), "0").match(/\d\d/g) ?? []);
   if (parts.length === 0 || parts.length > 4 || parts.some((p) => !/^\d{1,2}$/.test(p)))
     return null;
   const [frames = 0, seconds = 0, minutes = 0, hours = 0] = parts.map(Number).reverse();
+  if (hours > 23) return null;
   const count = labelFrames({ hours, minutes, seconds, frames }, clock.rate);
   if (count === null) return null;
-  if (parts.length < 4) return count;
-  return count >= clock.start ? count - clock.start : null;
+  // Only a whole timecode is on the file's clock: four fields, or all eight digits.
+  if (separated ? parts.length < 4 : typed.length < 8) return count;
+  const day = labelFrames({ hours: 24, minutes: 0, seconds: 0, frames: 0 }, clock.rate) ?? 0;
+  return count >= clock.start ? count - clock.start : count + day - clock.start;
 }
 
 /** Mattes a frame can be seen through (#146): the widths cinema and television frame for. */
