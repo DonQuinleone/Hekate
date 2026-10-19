@@ -316,6 +316,18 @@ const schema = z.object({
         example: "/tmp/hekate-work",
       }),
     ),
+  ADM_RENDERER_PATH: z
+    .string()
+    .regex(/^\/[A-Za-z0-9/_.-]*$/, "must be an absolute path of letters, digits, / _ . and -")
+    .optional()
+    .meta(
+      info({
+        group: "Media",
+        description:
+          "Where the EBU ADM Renderer (ear) and its Python packages are installed, to render an ADM master's objects for listening. The image sets it; without it, only an ADM master's bed is heard.",
+        example: "/opt/ear",
+      }),
+    ),
   STORAGE_RECONCILE: z
     .enum(["remove", "report"], { error: "use remove or report" })
     .default("remove")

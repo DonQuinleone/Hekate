@@ -48,6 +48,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Install ffmpeg and Poppler
         run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg poppler-utils fonts-dejavu-core
+      # The ADM renderer (decision 140), pinned by hash as in the image, for its tests.
+      - name: Install the ADM renderer
+        run: |
+          tools/ear/install.sh "$RUNNER_TEMP/ear"
+          echo "ADM_RENDERER_PATH=$RUNNER_TEMP/ear" >> "$GITHUB_ENV"
       # The LDAP tests run against OpenLDAP from Ubuntu's own packages, with the fixtures in
       # apps/server/test/ldap. Its own service is not started; the script runs one of its own.
       - name: Start an LDAP directory

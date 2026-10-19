@@ -14922,6 +14922,85 @@ describe.runIf(url)("api", () => {
           expect(await own.text()).toContain("#EXT-X-ENDLIST");
         }, 120_000);
 
+        it("plays an ADM master's objects through its render, or its bed where none can be made", async () => {
+          const owner = cookieOf(await setup());
+          const { organisationId, fileId } = await playableFile(owner);
+          const [row] = await db.select().from(schema.files).where(eq(schema.files.id, fileId));
+          const workers = { db, storage, keyring, jobs, workDir: join(storageRoot, "work") };
+          // Made again from the start, as a file whose streams are gone is.
+          const proxy = async (admRenderer: string) => {
+            await db.delete(schema.renditions).where(eq(schema.renditions.fileId, fileId));
+            await proxyHandler({ ...workers, admRenderer })(
+              { organisationId, fileId },
+              { id: "job", signal: new AbortController().signal, retryCount: 1 },
+            );
+          };
+          const streams = async () => {
+            const [file] = await db.select().from(schema.files).where(eq(schema.files.id, fileId));
+            const renditions = await db
+              .select({ name: schema.renditions.name })
+              .from(schema.renditions)
+              .where(eq(schema.renditions.fileId, fileId));
+            return {
+              rendered: file?.mediaInfo?.metadata?.adm?.rendered,
+              names: renditions.map((r) => r.name).sort(),
+            };
+          };
+          // Said to hold an object, with no renderer to be found: its bed plays, as before.
+          const info = row?.mediaInfo ?? {};
+          const adm = { bytes: 10, bed: 2, layout: "2.0", objects: 1, lfe: [], dolby: false };
+          await db
+            .update(schema.files)
+            .set({ mediaInfo: { ...info, metadata: { tags: {}, ...info.metadata, adm } } })
+            .where(eq(schema.files.id, fileId));
+          const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+          await proxy(join(storageRoot, "no-renderer"));
+          expect(warn).toHaveBeenCalled();
+          warn.mockRestore();
+          expect(await streams()).toEqual({ rendered: undefined, names: ["aac-256", "flac"] });
+
+          // A real master, where the renderer is installed: its object heard in 7.1.4.
+          const renderer = process.env.ADM_RENDERER_PATH;
+          if (!renderer) return;
+          const meta = join(storageRoot, "object.yaml");
+          writeFileSync(
+            meta,
+            'name: side\nitems:\n  - type: "Objects"\n    channels: [1]\n    blocks:\n      - rtime: 0.0\n        duration: 2.0\n        position: {azimuth: 90.0, elevation: 0.0, distance: 1.0}\n',
+          );
+          const mono = join(storageRoot, "mono.wav");
+          await run("ffmpeg", [
+            ...["-hide_banner", "-nostdin", "-v", "error", "-f", "lavfi"],
+            ...["-i", "sine=frequency=440:duration=2:sample_rate=48000", "-c:a", "pcm_s24le", mono],
+          ]);
+          const bwf = join(storageRoot, "master.wav");
+          await run(
+            "python3",
+            [
+              "-W",
+              "ignore",
+              "-m",
+              "ear.cmdline.utils",
+              "make_test_bwf",
+              "-i",
+              mono,
+              "-m",
+              meta,
+              bwf,
+            ],
+            { env: { PYTHONPATH: renderer, PYTHONNOUSERSITE: "1" } },
+          );
+          const blob = await storage.put(organisationId, readFileSync(bwf));
+          await db
+            .update(schema.files)
+            .set({ blobId: blob.id, mediaInfo: await probe(bwf) })
+            .where(eq(schema.files.id, fileId));
+          await proxy(renderer);
+          expect(await streams()).toEqual({
+            rendered: "7.1.4",
+            names: ["aac-256", "flac", "flac-2"],
+          });
+        }, 240_000);
+
         it("plays video as an encrypted ladder that decrypts to H.264 and AAC", async () => {
           const owner = cookieOf(await setup());
           const { fileId } = await playableFile(owner, "video");

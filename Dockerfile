@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1.7
-# One image: the Hono server, the built web app, ffmpeg, Poppler (PDF pages) and a font for watermarks.
+# One image: the Hono server, the built web app, ffmpeg, Poppler (PDF pages), a font for
+# watermarks, and the EBU ADM Renderer for an ADM master's objects (decision 140).
 
 # Pinned by digest; Dependabot moves the pin when the image is rebuilt.
 FROM node:26-trixie-slim@sha256:0d1e33586362bb9e608c4e751e7a9e7edb55c9ac11461ed5666af696cc461dd4 AS base
@@ -28,17 +29,26 @@ COPY packages packages
 COPY apps/web/package.json apps/web/
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --frozen-lockfile --filter @hekate/server...
 
-# Runtime: Node, ffmpeg and Poppler's tools; no package managers, no shell, no setuid binaries.
+# The EBU ADM Renderer and its hash-pinned wheels, installed with pip here so that neither pip
+# nor any build tool reaches the runtime, which needs only Debian's Python of the same version.
+FROM python:3.13-slim-trixie@sha256:70729b46c69b4f1e97c4822c1af3df53a1476cf5ddc6c087c0c10bc3a5678c2f AS ear
+COPY tools/ear /tools/ear
+RUN /tools/ear/install.sh /opt/ear
+
+# Runtime: Node, ffmpeg, Poppler's tools and Python; no package managers, no shell, no setuid binaries.
 FROM node:26-trixie-slim@sha256:0d1e33586362bb9e608c4e751e7a9e7edb55c9ac11461ed5666af696cc461dd4 AS runtime
 RUN apt-get update \
   && apt-get upgrade -y --no-install-recommends \
   && apt-get install -y --no-install-recommends ffmpeg poppler-utils fonts-dejavu-core ca-certificates \
+    python3 \
   && rm -rf /var/lib/apt/lists/* \
   && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
     /usr/local/lib/node_modules/corepack /usr/local/bin/corepack
 WORKDIR /app
 ENV NODE_ENV=production PORT=3000 WEB_DIST=/app/apps/web/dist MIGRATE_ON_START=true \
-  STORAGE_LOCAL_PATH=/data/storage HEKATE_SETTINGS_FILE=/config/hekate.env
+  STORAGE_LOCAL_PATH=/data/storage HEKATE_SETTINGS_FILE=/config/hekate.env \
+  ADM_RENDERER_PATH=/opt/ear
+COPY --from=ear /opt/ear /opt/ear
 COPY --from=deps /app /app
 COPY --from=build /app/apps/web/dist apps/web/dist
 # Local storage and the installer's settings. A named volume mounted here inherits this ownership.

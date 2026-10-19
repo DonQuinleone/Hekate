@@ -48,16 +48,18 @@ const bextBody = (fields: { description?: string; originator?: string; history?:
 const fmt = chunk("fmt ", Buffer.alloc(16));
 
 /** A chna body listing these tracks (index, track format), as an ADM master lays it out. */
-const chnaBody = (tracks: [number, string][]) => {
+/** chna entries: each track, its track format and its pack (a bed's or an object's by default). */
+const chnaBody = (tracks: ([number, string] | [number, string, string])[]) => {
   const body = Buffer.alloc(4 + 40 * tracks.length);
   body.writeUInt16LE(tracks.length, 0);
   body.writeUInt16LE(tracks.length, 2);
-  tracks.forEach(([index, trackRef], i) => {
+  tracks.forEach(([index, trackRef, packRef], i) => {
     const at = 4 + 40 * i;
     body.writeUInt16LE(index, at);
     body.write(`ATU_${String(i + 1).padStart(8, "0")}`, at + 2, "latin1");
     body.write(trackRef, at + 14, "latin1");
-    body.write("AP_00010017", at + 28, "latin1");
+    const pack = packRef ?? (trackRef.startsWith("AT_0003") ? "AP_00031001" : "AP_00010017");
+    body.write(pack, at + 28, "latin1");
   });
   return body;
 };
@@ -236,12 +238,19 @@ describe("what a recording says about itself (#41)", () => {
           [1, "AT_00010001_01"],
         ]),
       ),
-    ).toEqual([{ index: 1, trackRef: "AT_00010001_01" }]);
+    ).toEqual([{ index: 1, trackRef: "AT_00010001_01", packRef: "AP_00010017" }]);
     const twice: [number, string][] = [
       [1, "AT_00031001_01"],
       [1, "AT_00031001_01"],
     ];
     expect(parseAdm(tracks(twice), undefined, 0, false)).toMatchObject({ bed: 0, objects: 1 });
+  });
+
+  it("tells an object by its pack, as the EBU ADM Renderer's masters have them (#74)", () => {
+    // A track format's type digits are its format (0001, PCM): only the pack says "object".
+    const object = parseChna(chnaBody([[1, "AT_00011001_01", "AP_00031001"]]));
+    expect(object).toEqual([{ index: 1, trackRef: "AT_00011001_01", packRef: "AP_00031001" }]);
+    expect(parseAdm(object, undefined, 0, false)).toMatchObject({ bed: 0, objects: 1 });
   });
 
   it("tells LFE and height speakers from the rest, by ITU's labels and Dolby's", () => {

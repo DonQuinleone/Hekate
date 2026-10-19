@@ -67,6 +67,11 @@ export const embeddedMetadata = z.object({
       lfe: z.array(z.number().int().nonnegative()),
       /** Whether Dolby's own metadata (the dbmd chunk its renderer writes) is in the file. */
       dolby: z.boolean(),
+      /**
+       * The layout its bed and objects were rendered onto for listening (decision 140), such
+       * as "7.1.4": what its lossless stream carries. Absent until rendered, or without objects.
+       */
+      rendered: z.string().optional(),
     })
     // Null once the file has been read and has none; absent on files read before ADM was.
     .nullable()

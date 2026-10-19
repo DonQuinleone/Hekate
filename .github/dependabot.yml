@@ -30,6 +30,21 @@ updates:
       actions:
         patterns: ["*"]
 
+  # The ADM renderer's pinned wheels (tools/ear, decision 140).
+  - package-ecosystem: pip
+    directory: /tools/ear
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 1
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      adm-renderer:
+        patterns: ["*"]
+
   - package-ecosystem: docker
     directory: /
     schedule:

@@ -1,0 +1,3 @@
+# The EBU ADM Renderer itself (BSD-3-Clause), published as source only; pinned by hash.
+ear==2.1.0 \
+    --hash=sha256:3a03653c7f37acd35fb6d0470e26963eaaf21cb78de6de4b37bc7c05c355b77b
