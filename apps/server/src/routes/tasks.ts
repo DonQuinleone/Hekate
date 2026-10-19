@@ -248,7 +248,13 @@ export const taskRoutes = (deps: TaskMail & { runner?: RunnerDeps }) => {
             ...(input.title !== undefined && { title: input.title }),
             ...(input.notes !== undefined && { notes: input.notes || null }),
             ...(input.priority !== undefined && { priority: input.priority }),
-            ...(input.dueOn !== undefined && { dueOn: input.dueOn }),
+            // A new date starts its reminders afresh, even one set back to a date reminded before.
+            ...(input.dueOn !== undefined &&
+              input.dueOn !== task.dueOn && {
+                dueOn: input.dueOn,
+                dueRemindedOn: null,
+                lateRemindedOn: null,
+              }),
             ...(input.trackId !== undefined && { trackId: input.trackId }),
             ...(input.fileId !== undefined && { fileId: input.fileId }),
             ...(reassigned && { assigneeId: input.assigneeId ?? null }),

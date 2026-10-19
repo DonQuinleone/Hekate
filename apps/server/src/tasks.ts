@@ -8,14 +8,16 @@ import {
   type TaskSummary,
   taskEventText,
   taskKey,
+  taskReminder,
   taskRights,
 } from "@hekate/shared";
-import { and, asc, eq, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, lte, ne, type SQL, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Mailer } from "./mail.ts";
-import { notifyNow } from "./notifications.ts";
+import { notifyNow, recordNotification } from "./notifications.ts";
 
-const { comments, files, guests, projects, taskEvents, tasks, tracks, users } = schema;
+const { comments, files, guests, organisations, projects, taskEvents, tasks, tracks, users } =
+  schema;
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 type Db = Database | Tx;
@@ -255,4 +257,108 @@ export async function tellAwaitingApproval(
   }).catch((error: unknown) =>
     console.warn(`Could not tell someone about a task: ${String(error)}`),
   );
+}
+
+/** The day and hour where someone is, in their time zone; UTC where they chose none. */
+function localNow(now: Date, timeZone: string | null): { today: string; hour: number } {
+  const parts = (zone: string) =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: zone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(now);
+  let read: Intl.DateTimeFormatPart[];
+  try {
+    read = parts(timeZone ?? "UTC");
+  } catch {
+    read = parts("UTC");
+  }
+  const part = (type: string) => read.find((p) => p.type === type)?.value ?? "";
+  return { today: `${part("year")}-${part("month")}-${part("day")}`, hour: Number(part("hour")) };
+}
+
+/**
+ * Remind whoever each open task is for of its date (#140, #110): on the day it is due, and once
+ * it is late, each once, from eight in the morning where they are (`taskReminder`). Each
+ * reminder is claimed on the task as it is recorded, in one transaction, so two runs never send
+ * it twice. Hourly, with the review reminders.
+ */
+export async function remindTasksDue(db: Database, now = new Date()) {
+  let reminded = 0;
+  // A day ahead of UTC covers every time zone's today.
+  const horizon = new Date(now.getTime() + 86_400_000).toISOString().slice(0, 10);
+  for (const workspace of await db.select({ id: organisations.id }).from(organisations)) {
+    const due = await db
+      .select({
+        id: tasks.id,
+        projectId: tasks.projectId,
+        projectName: projects.name,
+        number: tasks.number,
+        title: tasks.title,
+        status: tasks.status,
+        dueOn: tasks.dueOn,
+        dueRemindedOn: tasks.dueRemindedOn,
+        lateRemindedOn: tasks.lateRemindedOn,
+        assigneeId: tasks.assigneeId,
+        timeZone: users.timeZone,
+      })
+      .from(tasks)
+      .innerJoin(
+        projects,
+        and(eq(projects.id, tasks.projectId), eq(projects.organisationId, workspace.id)),
+      )
+      .innerJoin(users, eq(users.id, tasks.assigneeId))
+      .where(
+        inOrg(
+          tasks,
+          workspace.id,
+          ne(tasks.status, "done"),
+          isNotNull(tasks.dueOn),
+          lte(tasks.dueOn, horizon),
+        ),
+      );
+    for (const task of due) {
+      const { today, hour } = localNow(now, task.timeZone);
+      const which = taskReminder(task, today, hour);
+      if (!which || !task.dueOn || !task.assigneeId) continue;
+      const dueOn = task.dueOn;
+      const assigneeId = task.assigneeId;
+      const told = await db.transaction(async (tx) => {
+        // Claimed as it was read: done, given away or moved meanwhile, it is not sent.
+        const column = which === "due" ? tasks.dueRemindedOn : tasks.lateRemindedOn;
+        const [claimed] = await tx
+          .update(tasks)
+          .set(which === "due" ? { dueRemindedOn: dueOn } : { lateRemindedOn: dueOn })
+          .where(
+            inOrg(
+              tasks,
+              workspace.id,
+              eq(tasks.id, task.id),
+              ne(tasks.status, "done"),
+              eq(tasks.dueOn, dueOn),
+              eq(tasks.assigneeId, assigneeId),
+              sql`${column} is distinct from ${dueOn}`,
+            ),
+          )
+          .returning({ id: tasks.id });
+        if (!claimed) return false;
+        await recordNotification(tx, {
+          organisationId: workspace.id,
+          kind: "task",
+          recipients: [assigneeId],
+          actor: null,
+          projectId: task.projectId,
+          text: `your task ${taskKey(task.projectName, task.number)} is ${which === "due" ? "due today" : "overdue"}`,
+          detail: task.title,
+          link: `/projects/${task.projectId}/tasks?task=${task.id}`,
+        });
+        return true;
+      });
+      if (told) reminded++;
+    }
+  }
+  return reminded;
 }

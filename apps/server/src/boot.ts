@@ -23,6 +23,7 @@ import { settingsOrExit } from "./startup.ts";
 import { serveWeb } from "./static.ts";
 import { createStorage } from "./storage.ts";
 import { recordedReconciliation } from "./storage-usage.ts";
+import { remindTasksDue } from "./tasks.ts";
 import { clockElapsed, fileMeasured, sweepRuns } from "./workflow-runner.ts";
 import { rewrapBehind, rewrapOrganisation } from "./workspace-keys.ts";
 import { purgeDueWorkspaces } from "./workspace-purge.ts";
@@ -152,6 +153,8 @@ export async function boot(
     });
     await jobs.work("reviews-remind", async () => {
       await remindDue({ db, mailer, audit, publicUrl: config.PUBLIC_URL });
+      // Tasks due today or late (#140), on the same hour.
+      await remindTasksDue(db);
     });
     // A wait that ends may lead to a stage that asks for a review (#25).
     const runner = {

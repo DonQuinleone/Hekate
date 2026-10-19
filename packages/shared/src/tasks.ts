@@ -134,6 +134,28 @@ export function taskDueWords(dueOn: string, today: string): string {
   return `in ${days} day${days === 1 ? "" : "s"}`;
 }
 
+/**
+ * Whether to remind whoever a task is for (#140, #110): on the day it is due ("due"), and once it
+ * is late ("late"), each once for its date, from eight in the morning where they are. `today`
+ * and `hour` are theirs; the dates it was last reminded about stop a second reminder, and a new
+ * due date starts afresh.
+ */
+export function taskReminder(
+  task: {
+    status: TaskStatus;
+    dueOn: string | null;
+    dueRemindedOn: string | null;
+    lateRemindedOn: string | null;
+  },
+  today: string,
+  hour: number,
+): "due" | "late" | null {
+  if (!task.dueOn || task.status === "done" || hour < 8) return null;
+  if (task.dueOn < today) return task.lateRemindedOn === task.dueOn ? null : "late";
+  if (task.dueOn === today) return task.dueRemindedOn === task.dueOn ? null : "due";
+  return null;
+}
+
 /** The filters the list offers. */
 export const taskFilters = ["open", "mine", "unassigned", "overdue", "all"] as const;
 export type TaskFilter = (typeof taskFilters)[number];

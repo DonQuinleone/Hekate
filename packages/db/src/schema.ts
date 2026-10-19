@@ -2063,6 +2063,9 @@ export const tasks = pgTable(
     createdById: text("created_by_id").references(() => users.id, { onDelete: "set null" }),
     doneAt: timestamp("done_at", { withTimezone: true }),
     doneById: text("done_by_id").references(() => users.id, { onDelete: "set null" }),
+    /** The due dates its owner was last reminded of, on the day and once late (#110). */
+    dueRemindedOn: date("due_reminded_on"),
+    lateRemindedOn: date("late_reminded_on"),
     ...timestamps,
   },
   (t) => [
