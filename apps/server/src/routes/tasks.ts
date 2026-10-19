@@ -28,7 +28,7 @@ import {
   tellAwaitingApproval,
 } from "../tasks.ts";
 import type { TenantVariables } from "../tenancy.ts";
-import { type RunnerDeps, stageTaskDone } from "../workflow-runner.ts";
+import { lockRun, type RunnerDeps, stageTaskDone } from "../workflow-runner.ts";
 import { attachment } from "./comments.ts";
 
 const { comments, files, projects, tasks, tracks } = schema;
@@ -208,6 +208,8 @@ export const taskRoutes = (deps: TaskMail & { runner?: RunnerDeps }) => {
       await checkAssignee(db, organisationId, seen.projectId, input.assigneeId);
       const outcome = await db.transaction(async (tx) => {
         await lockLiveProject(tx, organisationId, seen.projectId);
+        // A workflow's task: its run first, as a step ending by hand takes them (run, then task).
+        if (seen.runId && deps.runner) await lockRun(tx, organisationId, seen.runId);
         const [task] = await tx
           .select()
           .from(tasks)
@@ -271,7 +273,18 @@ export const taskRoutes = (deps: TaskMail & { runner?: RunnerDeps }) => {
           const detail: TaskEventDetail = { from: task.status, to: status };
           await recordTaskEvent(tx, organisationId, id, userId, "status", detail);
         }
-        return { task, reassigned, moved, status };
+        // A task a workflow's task stage made, done: the stage ends done with it (#140, #25), in
+        // this transaction, so the task is never done while its stage still waits.
+        const afterCommit =
+          moved && status === "done" && task.runId && task.nodeId && deps.runner
+            ? await stageTaskDone(
+                tx,
+                deps.runner,
+                { id, organisationId, runId: task.runId, nodeId: task.nodeId },
+                userId,
+              )
+            : null;
+        return { task, reassigned, moved, status, afterCommit };
       });
       const { task } = outcome;
       if (outcome.reassigned && input.assigneeId && input.assigneeId !== userId)
@@ -283,15 +296,7 @@ export const taskRoutes = (deps: TaskMail & { runner?: RunnerDeps }) => {
         );
       if (outcome.moved && outcome.status === "needs_approval" && task.createdById !== userId)
         await tellAwaitingApproval(deps, { ...task, title: input.title ?? task.title }, userId);
-      // A task a workflow's task stage made, done: the stage ends done (#140, #25).
-      if (outcome.moved && outcome.status === "done" && task.runId && task.nodeId && deps.runner)
-        await stageTaskDone(
-          deps.runner,
-          { id, organisationId, runId: task.runId, nodeId: task.nodeId },
-          userId,
-        ).catch((error: unknown) =>
-          console.warn(`Could not move a workflow on from a task: ${String(error)}`),
-        );
+      await outcome.afterCommit?.();
       return c.json({ task: await taskDetail(db, organisationId, id, viewer) });
     })
     .post("/:id/notes", idParam, zValidator("json", taskNoteInput), async (c) => {

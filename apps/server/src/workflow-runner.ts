@@ -330,7 +330,7 @@ async function apply(
   return after;
 }
 
-/** The open tasks a task stage made in a run, marked done, each in its activity. */
+/** The task a task stage made last in a run, marked done if it is open, in its activity. */
 async function closeStageTasks(
   tx: Tx,
   organisationId: string,
@@ -338,19 +338,16 @@ async function closeStageTasks(
   nodeId: string,
   byUserId: string | null,
 ) {
-  const open = await tx
+  // The visit being ended made the stage's latest task; one left open by an earlier visit
+  // (ended overdue, or moved past) stays as it is.
+  const [latest] = await tx
     .select({ id: tasks.id, status: tasks.status })
     .from(tasks)
-    .where(
-      inOrg(
-        tasks,
-        organisationId,
-        eq(tasks.runId, runId),
-        eq(tasks.nodeId, nodeId),
-        sql`${tasks.status} <> 'done'`,
-      ),
-    )
+    .where(inOrg(tasks, organisationId, eq(tasks.runId, runId), eq(tasks.nodeId, nodeId)))
+    .orderBy(desc(tasks.number))
+    .limit(1)
     .for("update");
+  const open = latest && latest.status !== "done" ? [latest] : [];
   for (const t of open) {
     await tx
       .update(tasks)
@@ -363,16 +360,28 @@ async function closeStageTasks(
   }
 }
 
+/** A run of this workspace, locked until the transaction ends. */
+export async function lockRun(tx: Tx, organisationId: string, runId: string) {
+  await tx
+    .select({ id: workflowRuns.id })
+    .from(workflowRuns)
+    .where(inOrg(workflowRuns, organisationId, eq(workflowRuns.id, runId)))
+    .for("update");
+}
+
 /**
- * A task a task stage made is done (#140): the stage ends done, if the run still waits on it and
- * this is the task it made last (a loop back makes a new one). Anything else is left as it is.
+ * A task a task stage made is done (#140), in the transaction that marks it so: the stage ends
+ * done with it, if the run still waits on it and this is the task it made last (a loop back
+ * makes a new one). Anything else is left as it is. Returns what to send once it commits.
  */
 export async function stageTaskDone(
+  tx: Tx,
   deps: RunnerDeps,
   task: { id: string; organisationId: string; runId: string; nodeId: string },
   userId: string,
-) {
-  await completeStep(
+): Promise<() => Promise<void>> {
+  const result = await stepIn(
+    tx,
     deps,
     {
       organisationId: task.organisationId,
@@ -381,9 +390,9 @@ export async function stageTaskDone(
       outcome: "done",
       userId,
     },
-    async (locked, tx) => {
+    async (locked, inner) => {
       if (locked.state !== "running" || !locked.engine.active.includes(task.nodeId)) return false;
-      const [latest] = await tx
+      const [latest] = await inner
         .select({ id: tasks.id })
         .from(tasks)
         .where(
@@ -399,6 +408,7 @@ export async function stageTaskDone(
       return latest?.id === task.id;
     },
   );
+  return () => runAfter(result?.after ?? []);
 }
 
 /** Why a move stage could not move its track: told to whoever started the run. */
@@ -633,46 +643,57 @@ export async function completeStep(
   /** Asked with the run locked: false leaves it as it is. */
   check?: (run: RunRow, tx: Tx) => boolean | Promise<boolean>,
 ): Promise<RunRow | null> {
-  const result = await deps.db.transaction(async (tx) => {
-    const [row] = await tx
-      .select()
-      .from(workflowRuns)
-      .where(inOrg(workflowRuns, at.organisationId, eq(workflowRuns.id, at.runId)))
-      .for("update");
-    if (!row) throw new NotFound("Run");
-    if (check && !(await check(row, tx))) return null;
-    // A person moving a run on needs the project live; a wait elapsing does not ask.
-    if (at.userId) await lockLiveProject(tx, at.organisationId, row.projectId);
-    if (row.state !== "running" || !row.engine.active.includes(at.nodeId))
-      throw new HTTPException(409, { message: "The run is not waiting on that step" });
-    const ctx = await contextOf(
-      tx,
-      at.organisationId,
-      row.trackId,
-      at.by ?? (at.userId ? "member" : undefined),
-    );
-    let moved: ReturnType<typeof completeNode>;
-    try {
-      moved = completeNode(row.definition, row.engine, at.nodeId, at.outcome, ctx);
-    } catch (failure) {
-      throw new HTTPException(422, {
-        message: failure instanceof Error ? failure.message : "That step cannot end so",
-      });
-    }
-    const after = await apply(tx, deps, row, moved, {
-      nodeId: at.nodeId,
-      outcome: at.outcome,
-      byUserId: at.userId,
-    });
-    const [updated] = await tx
-      .select()
-      .from(workflowRuns)
-      .where(inOrg(workflowRuns, at.organisationId, eq(workflowRuns.id, at.runId)));
-    return { updated: updated ?? row, after };
-  });
+  const result = await deps.db.transaction((tx) => stepIn(tx, deps, at, check));
   if (!result) return null;
   await runAfter(result.after);
   return result.updated;
+}
+
+/**
+ * As `completeStep`, inside a transaction the caller holds, so the step and the change that
+ * ends it commit together; what it queues is returned, to send once that commits.
+ */
+async function stepIn(
+  tx: Tx,
+  deps: RunnerDeps,
+  at: Parameters<typeof completeStep>[1],
+  check?: Parameters<typeof completeStep>[2],
+): Promise<{ updated: RunRow; after: After[] } | null> {
+  const [row] = await tx
+    .select()
+    .from(workflowRuns)
+    .where(inOrg(workflowRuns, at.organisationId, eq(workflowRuns.id, at.runId)))
+    .for("update");
+  if (!row) throw new NotFound("Run");
+  if (check && !(await check(row, tx))) return null;
+  // A person moving a run on needs the project live; a wait elapsing does not ask.
+  if (at.userId) await lockLiveProject(tx, at.organisationId, row.projectId);
+  if (row.state !== "running" || !row.engine.active.includes(at.nodeId))
+    throw new HTTPException(409, { message: "The run is not waiting on that step" });
+  const ctx = await contextOf(
+    tx,
+    at.organisationId,
+    row.trackId,
+    at.by ?? (at.userId ? "member" : undefined),
+  );
+  let moved: ReturnType<typeof completeNode>;
+  try {
+    moved = completeNode(row.definition, row.engine, at.nodeId, at.outcome, ctx);
+  } catch (failure) {
+    throw new HTTPException(422, {
+      message: failure instanceof Error ? failure.message : "That step cannot end so",
+    });
+  }
+  const after = await apply(tx, deps, row, moved, {
+    nodeId: at.nodeId,
+    outcome: at.outcome,
+    byUserId: at.userId,
+  });
+  const [updated] = await tx
+    .select()
+    .from(workflowRuns)
+    .where(inOrg(workflowRuns, at.organisationId, eq(workflowRuns.id, at.runId)));
+  return { updated: updated ?? row, after };
 }
 
 /**

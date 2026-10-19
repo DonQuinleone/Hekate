@@ -8468,8 +8468,19 @@ describe.runIf(url)("api", () => {
             ["R-2", "pending"],
             ["R-1", "done"],
           ]);
+          // One an earlier visit to the stage left open (it ended overdue) stays open: only
+          // the task of the visit being ended is closed with it.
+          await db.insert(schema.tasks).values({
+            organisationId: s.organisationId,
+            projectId: s.projectId,
+            number: 0,
+            title: "Engineer edits",
+            runId: again?.id,
+            nodeId: "edit",
+          });
           await stepAgain({ nodeId: "edit", outcome: "done" });
           expect((await stageTasks()).map((t) => [t.key, t.status])).toEqual([
+            ["R-0", "pending"],
             ["R-1", "done"],
             ["R-2", "done"],
           ]);
