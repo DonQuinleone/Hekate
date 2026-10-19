@@ -1,5 +1,5 @@
 # The EBU ADM Renderer's dependencies (#74, decision 140), as wheels pinned by hash.
-# Two hashes per compiled package: CPython 3.13 on x86-64 and on ARM64 (the image), and
+# Three hashes per compiled package: CPython 3.13 on x86-64 and on ARM64 (the image), and
 # CPython 3.12 on x86-64 (CI's Ubuntu). Installed by install.sh; Dependabot moves the pins.
 attrs==26.1.0 \
     --hash=sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309
@@ -19,8 +19,5 @@ scipy==1.18.1 \
     --hash=sha256:d416b16cccfd70fbf62400e84d0bb2f4e6af519a45557f1692c749b37f14b315 \
     --hash=sha256:fdaf5ea890a6183d0565f51a61799d67081bd5b1cf03c5f4b3fd3732108625c9 \
     --hash=sha256:f55fa87b6c612ecd6b058f167c53231b1d14e412efe361d3d6e38b3631c73218
-# ear imports pkg_resources, which setuptools 81 and later no longer ship.
-setuptools==80.10.2 \
-    --hash=sha256:95b30ddfb717250edb492926c92b5221f7ef3fbcc2b07579bcd4a27da21d0173
 six==1.17.0 \
     --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274
