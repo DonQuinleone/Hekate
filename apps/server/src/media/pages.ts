@@ -91,6 +91,21 @@ async function webp(png: string, size: number, signal: AbortSignal): Promise<Buf
   return readFile(out);
 }
 
+/** A WebP's width and height, from its first chunk (lossy, lossless or extended). */
+export function webpSize(image: Buffer): { width: number; height: number } | null {
+  if (image.length < 30 || image.toString("latin1", 8, 12) !== "WEBP") return null;
+  const chunk = image.toString("latin1", 12, 16);
+  if (chunk === "VP8 ")
+    return { width: image.readUInt16LE(26) & 0x3fff, height: image.readUInt16LE(28) & 0x3fff };
+  if (chunk === "VP8L") {
+    const bits = image.readUInt32LE(21);
+    return { width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 };
+  }
+  if (chunk === "VP8X")
+    return { width: image.readUIntLE(24, 3) + 1, height: image.readUIntLE(27, 3) + 1 };
+  return null;
+}
+
 /** Whether a WebP says how long it is, as browsers need; ffmpeg leaves 0 on a pipe. */
 export const webpComplete = (image: Buffer) =>
   image.length >= 12 &&

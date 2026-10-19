@@ -37,6 +37,7 @@ import { together } from "./together.ts";
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 import { bandwidthOf } from "./bandwidth.ts";
+import { FILMSTRIP_FRAMES, makeFilmstrip } from "./filmstrip.ts";
 import { lfeOf } from "./lfe.ts";
 import { sweepWorkspaces, withWorkspace } from "./workspace.ts";
 
@@ -251,11 +252,22 @@ export function proxyHandler(deps: MediaWorkerDeps): JobHandler<"media-proxy"> {
             contentKey.fill(0);
           }
         }
-        return results;
+        // A video's filmstrip (#16), from the same copy. Without one the video still plays.
+        let filmstrip: string | null = null;
+        if (file.kind === "video" && mediaInfo.video && (mediaInfo.duration ?? 0) > 0) {
+          try {
+            const picture = await makeFilmstrip(input, dir, mediaInfo.duration ?? 0, job.signal);
+            filmstrip = await store(picture, "image/webp");
+          } catch (error) {
+            if (job.signal?.aborted) throw error;
+            console.warn(`Could not make the filmstrip of file ${fileId}:`, error);
+          }
+        }
+        return { results, filmstrip };
       });
 
       await deps.db.transaction(async (tx) => {
-        for (const { id, wrappedKey, rendition } of packaged) {
+        for (const { id, wrappedKey, rendition } of packaged.results) {
           await tx.insert(renditions).values({
             id,
             organisationId,
@@ -288,6 +300,9 @@ export function proxyHandler(deps: MediaWorkerDeps): JobHandler<"media-proxy"> {
           .update(files)
           .set({
             streamStatus: "ready",
+            ...(packaged.filmstrip
+              ? { filmstripBlobId: packaged.filmstrip, filmstripFrames: FILMSTRIP_FRAMES }
+              : {}),
             // What the streams carry, for the player to hear them as (decision 140); a retry
             // whose render failed carries the bed again, and says so.
             ...(metadata && adm

@@ -215,7 +215,13 @@ export async function reconcileStorage(
               db
                 .select({ x: sql`1` })
                 .from(files)
-                .where(inOrg(files, owner, eq(files.blobId, blobs.id))),
+                .where(
+                  inOrg(
+                    files,
+                    owner,
+                    or(eq(files.blobId, blobs.id), eq(files.filmstripBlobId, blobs.id)),
+                  ),
+                ),
             ),
             notExists(
               db

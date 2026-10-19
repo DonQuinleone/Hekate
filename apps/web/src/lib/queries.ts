@@ -1103,6 +1103,8 @@ export interface Playback {
   url: string;
   expiresAt: string;
   renditions: Rendition[];
+  /** A video's frames along it (#16), through the same link; null where there is none. */
+  filmstrip: { url: string; frames: number } | null;
 }
 
 /**
@@ -3249,6 +3251,8 @@ export interface FileDetails {
     segments: number;
   }[];
   pages: { total: number; drawn: number } | null;
+  /** How many frames the video's filmstrip holds (#16); null where it has none. */
+  filmstrip: number | null;
   analysis: { status: StreamStatus; peaks: boolean; loudness: boolean; spectrogram: boolean };
   usedIn: {
     versions: {

@@ -70,6 +70,7 @@ import {
   useFrameClock,
 } from "./drawings";
 import { EditLane } from "./edit-lane";
+import { Filmstrip } from "./filmstrip";
 import { Icon } from "./icons";
 import { LoopControls, LoopSurface } from "./loop";
 import { Spectrogram, type SpectrogramChannelChoice } from "./spectrogram";
@@ -1098,21 +1099,35 @@ export function Player({
           {kind === "video" && edits.length > 0 && duration > 0 && (
             <EditLane edits={edits} duration={duration} time={time} onSeek={seek} />
           )}
-          {/* Video has no waveform to drag on: the loop lane stands in for it. */}
-          {kind === "video" && canLoop && (
+          {/* Video has no waveform to drag on: its filmstrip, or a plain loop lane, stands in. */}
+          {kind === "video" && (canLoop || playback.filmstrip) && (
             <LoopSurface
               duration={duration}
               loop={loop}
               active={active}
               onSeek={seek}
-              onLoop={setLoop}
-              label="Loop lane: drag to loop a passage"
-              className="h-7"
+              onLoop={canLoop ? setLoop : undefined}
+              label={
+                playback.filmstrip
+                  ? canLoop
+                    ? "Filmstrip: click to move the playhead, drag to loop a passage"
+                    : "Filmstrip: click to move the playhead"
+                  : "Loop lane: drag to loop a passage"
+              }
+              className={playback.filmstrip ? "h-12" : "h-7"}
             >
-              <div
-                aria-hidden="true"
-                className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-hairline/60"
-              />
+              {playback.filmstrip ? (
+                <Filmstrip
+                  url={playback.filmstrip.url}
+                  frames={playback.filmstrip.frames}
+                  at={duration > 0 ? time / duration : 0}
+                />
+              ) : (
+                <div
+                  aria-hidden="true"
+                  className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-hairline/60"
+                />
+              )}
             </LoopSurface>
           )}
           <div className="relative h-4">

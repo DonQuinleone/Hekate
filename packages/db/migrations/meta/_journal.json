@@ -645,6 +645,13 @@
       "when": 1792433169499,
       "tag": "0091_caption_tracks",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1792437264398,
+      "tag": "0092_file_filmstrips",
+      "breakpoints": true
     }
   ]
 }

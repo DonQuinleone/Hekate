@@ -145,6 +145,7 @@ function objectsOf(projectId: string, from: string) {
       b.sha256 is null as "unhashed"
     from blobs b where b.organisation_id = ${from} and b.id in (
       ${blobsOf("files", "blob_id", sql`project_id = ${projectId}`)}
+      union ${blobsOf("files", "filmstrip_blob_id", sql`project_id = ${projectId}`)}
       union ${blobsOf("comment_attachments", "blob_id", sql`comment_id in ${comments}`)}
       union ${blobsOf("renditions", "init_blob_id", sql`file_id in ${files}`)}
       union ${blobsOf("rendition_segments", "blob_id", sql`rendition_id in ${renditions}`)}

@@ -20,12 +20,19 @@ const FONTS = [
 const font = FONTS.find((f) => existsSync(f));
 
 /**
+ * How large a picture the mark is drawn on: a page as reviewed, its thumbnail, or one frame
+ * of a video's filmstrip (#16).
+ */
+export type MarkSize = "view" | "thumb" | "frame";
+
+/**
  * Where the mark is drawn, in shares of the page: staggered rows down the whole page when
  * tiled, so no crop leaves it out; once in the bottom right corner or across the middle.
- * A thumbnail carries one line across its middle, whatever the project chose.
+ * A thumbnail or a filmstrip's frame carries one line across its middle, whatever the project
+ * chose.
  */
-function places(size: "view" | "thumb", position: WatermarkPosition): { x: string; y: string }[] {
-  if (size === "thumb" || position === "centre") return [{ x: "(w-text_w)/2", y: "(h-text_h)/2" }];
+function places(size: MarkSize, position: WatermarkPosition): { x: string; y: string }[] {
+  if (size !== "view" || position === "centre") return [{ x: "(w-text_w)/2", y: "(h-text_h)/2" }];
   if (position === "corner") return [{ x: "w-text_w-w*0.03", y: "h-text_h-h*0.03" }];
   const rows = [0.06, 0.22, 0.38, 0.54, 0.7, 0.86];
   return rows.map((y, i) => ({ x: `w*${i % 2 === 0 ? 0.04 : 0.3}`, y: `h*${y}` }));
@@ -37,10 +44,11 @@ function places(size: "view" | "thumb", position: WatermarkPosition): { x: strin
  */
 export function markFilter(
   textPath: string,
-  size: "view" | "thumb",
+  size: MarkSize,
   style: Pick<WatermarkSettings, "position" | "opacity">,
 ): string {
-  const scale = size === "thumb" ? 30 : 60;
+  // A frame is a small picture of its own: its line is large enough to read on it.
+  const scale = size === "frame" ? 9 : size === "thumb" ? 30 : 60;
   const face = font ? `fontfile='${font}'` : "font=Sans";
   const alpha = (style.opacity / 100).toFixed(2);
   return places(size, style.position)
@@ -81,7 +89,9 @@ export async function markPicture(
     text: string;
     demuxers: string;
     format: MarkedFormat;
-    size?: "view" | "thumb";
+    size?: MarkSize;
+    /** Pictures side by side in one (a filmstrip, #16): each is marked, not the whole. */
+    tiles?: number;
     signal?: AbortSignal;
     style?: Pick<WatermarkSettings, "position" | "opacity">;
   },
@@ -103,7 +113,9 @@ export async function markPicture(
       "-i",
       `file:${input}`,
       "-vf",
-      markFilter(mark, size, style),
+      options.tiles
+        ? `untile=${options.tiles}x1,${markFilter(mark, size, style)},tile=${options.tiles}x1`
+        : markFilter(mark, size, style),
       "-frames:v",
       "1",
       ...encoders[options.format],
@@ -118,12 +130,14 @@ export async function markPicture(
 export async function watermark(
   page: Buffer,
   text: string,
-  size: "view" | "thumb",
+  size: MarkSize,
   signal?: AbortSignal,
   style: Pick<WatermarkSettings, "position" | "opacity"> = defaultWatermark,
   format: "webp" | "jpeg" = "webp",
   /** Where decrypted pages may be written (WORK_DIR); the system's temporary directory if unset. */
   workDir?: string,
+  /** How many pictures stand side by side in it, each to be marked (a filmstrip, #16). */
+  tiles?: number,
 ): Promise<Buffer> {
   return withWorkspace(workDir, async (dir) => {
     const input = join(dir, "page.webp");
@@ -135,6 +149,7 @@ export async function watermark(
       demuxers: "webp_pipe",
       format,
       size,
+      ...(tiles ? { tiles } : {}),
       signal,
       style,
     });

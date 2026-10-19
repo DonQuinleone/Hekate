@@ -79,6 +79,7 @@ function Renditions({ details }: { details: FileDetails }) {
       .join(" · "),
   );
   if (pages) lines.push(`${pages.drawn} of ${pages.total} pages drawn, watermarked on render`);
+  if (details.filmstrip) lines.push(`Filmstrip, ${details.filmstrip} frames`);
   return (
     <section className="flex flex-col gap-1.5">
       <Heading>Renditions</Heading>

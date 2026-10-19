@@ -34,7 +34,7 @@ import { type JobFailure, runJob } from "./jobs.ts";
 import { createKeyring } from "./keyring.ts";
 import { memoryMailer } from "./mail.ts";
 import { probe, run } from "./media/ffmpeg.ts";
-import { webpComplete } from "./media/pages.ts";
+import { webpComplete, webpSize } from "./media/pages.ts";
 import { jpegSize } from "./media/pdf.ts";
 import { samplePdf } from "./media/sample-pdf.ts";
 import {
@@ -15138,10 +15138,14 @@ describe.runIf(url)("api", () => {
         };
         const start = async (cookie: string, fileId: string) => {
           const res = await app.request(`/api/files/${fileId}/playback`, json({}, cookie));
-          return {
-            res,
-            url: res.status === 201 ? ((await res.json()) as { url: string }).url : "",
-          };
+          const body =
+            res.status === 201
+              ? ((await res.json()) as {
+                  url: string;
+                  filmstrip: { url: string; frames: number } | null;
+                })
+              : null;
+          return { res, body, url: body?.url ?? "" };
         };
 
         it("plays as encrypted HLS that decrypts to the recording, logging the session and key", async () => {
@@ -15304,7 +15308,19 @@ describe.runIf(url)("api", () => {
         it("plays video as an encrypted ladder that decrypts to H.264 and AAC, and AV1 and Opus (#148)", async () => {
           const owner = cookieOf(await setup());
           const { fileId } = await playableFile(owner, "video");
-          const { url } = await start(owner, fileId);
+          const { url, body } = await start(owner, fileId);
+          // Its filmstrip (#16), through the same link: a WebP of every frame side by side.
+          const filmstrip = body?.filmstrip;
+          expect(filmstrip).toEqual({ url: url.replace(/master\.m3u8$/, "filmstrip"), frames: 12 });
+          const strip = await get(filmstrip?.url ?? "", owner);
+          expect(strip.status).toBe(200);
+          expect(strip.headers.get("content-type")).toBe("image/webp");
+          const picture = Buffer.from(await strip.arrayBuffer());
+          expect(webpComplete(picture)).toBe(true);
+          expect(webpSize(picture)).toEqual({ width: 12 * 160, height: 90 });
+          // Bound to the session it was made for, as the streams are.
+          const colleague = await joinAs(owner, "filmstrip@example.test", "member");
+          expect((await get(filmstrip?.url ?? "", colleague)).status).toBe(403);
           const master = await (await get(url, owner)).text();
           expect(master).toContain("RESOLUTION=1920x1080");
           expect(master).toContain("RESOLUTION=1280x720");
