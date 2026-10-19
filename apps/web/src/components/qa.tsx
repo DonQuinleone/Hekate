@@ -285,10 +285,13 @@ export function QualityChecks({
   canChoose,
   onLoop,
   onComment,
+  omit,
 }: {
   fileId: string;
   media: HTMLMediaElement | null;
   canChoose: boolean;
+  /** Findings shown elsewhere on the page, left out of this list and its counts. */
+  omit?: (finding: QaFinding) => boolean;
   /** Loop a finding's passage in the player and hear it from its start. */
   onLoop?: (loop: Loop) => void;
   /** Write a comment about a finding, for those who may comment (#43). */
@@ -312,11 +315,12 @@ export function QualityChecks({
   const id = useId();
   const checkId = useId();
   if (!data) return null;
-  const problems = data.findings.filter((f) => f.severity !== "pass");
-  const passed = data.findings.filter((f) => f.severity === "pass");
+  const findings = omit ? data.findings.filter((f) => !omit(f)) : data.findings;
+  const problems = findings.filter((f) => f.severity !== "pass");
+  const passed = findings.filter((f) => f.severity === "pass");
   // Checks, not findings: clipping in twenty places is one check failed.
   const count = (s: QaSeverity) =>
-    new Set(data.findings.filter((f) => f.severity === s).map((f) => f.check)).size;
+    new Set(findings.filter((f) => f.severity === s).map((f) => f.check)).size;
   const seek = (t: number) => {
     if (!media) return;
     media.currentTime = t;
