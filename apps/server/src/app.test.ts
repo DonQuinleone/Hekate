@@ -49,6 +49,7 @@ import { collectFromDatabase, collectQueues } from "./metrics/index.ts";
 import { deliverDigests, deliverInstant, tellProcessingFailed } from "./notifications.ts";
 import { playbackSecret, signPlayback } from "./playback.ts";
 import { purgeDueProjects } from "./project-purge.ts";
+import { moveProject } from "./project-transfer.ts";
 import { admit } from "./rate-limit.ts";
 import { reconcileStorage } from "./reconcile.ts";
 import { remindDue } from "./reminders.ts";
@@ -7118,6 +7119,203 @@ describe.runIf(url)("api", () => {
               "project.delete",
             ]),
           );
+        });
+
+        it("moves a project to another workspace with its rows, keys, objects and decisions (#240)", async () => {
+          const s = await studio();
+          await app.request(
+            `/api/files/${s.mix}/comments`,
+            json({ body: "Pedal noise", anchor: { kind: "time", start: 3, end: 3 } }, s.owner),
+          );
+          const approval = await reviewOf(
+            await request(s.owner, s.projectId, {
+              kind: "approval",
+              title: "Master sign-off",
+              items: [{ trackId: s.trackId }],
+              reviewers: [s.ids.composer],
+            }),
+          );
+          expect(
+            (
+              await app.request(
+                `/api/reviews/${approval.id}/decisions`,
+                json({ decision: "approved" }, s.composer),
+              )
+            ).status,
+          ).toBe(200);
+          const decisionsOf = () =>
+            db
+              .select()
+              .from(schema.reviewDecisionLog)
+              .where(eq(schema.reviewDecisionLog.reviewId, approval.id));
+          const [decided] = await decisionsOf();
+          if (!decided) throw new Error("no decision");
+
+          // Decisions stay append-only: no change outside a move, and only the workspace in one.
+          await expect(
+            db
+              .update(schema.reviewDecisionLog)
+              .set({ decision: "changes_requested" })
+              .where(eq(schema.reviewDecisionLog.id, decided.id)),
+          ).rejects.toThrow();
+          const [gaining] = await db
+            .insert(schema.organisations)
+            .values({ name: "Endless Hall Records East", slug: "endless-hall-east" })
+            .returning();
+          const to = gaining?.id ?? "";
+          await expect(
+            db
+              .update(schema.reviewDecisionLog)
+              .set({ organisationId: to })
+              .where(eq(schema.reviewDecisionLog.id, decided.id)),
+          ).rejects.toThrow();
+          await expect(
+            db.transaction(async (tx) => {
+              await tx.execute(sql`set local hekate.project_transfer = 'on'`);
+              await tx
+                .update(schema.reviewDecisionLog)
+                .set({ organisationId: to, decision: "changes_requested" })
+                .where(eq(schema.reviewDecisionLog.id, decided.id));
+            }),
+          ).rejects.toThrow();
+          expect(await decisionsOf()).toEqual([decided]);
+
+          // The owner and the engineer are in the gaining workspace; the reviewers are not.
+          await db.insert(schema.members).values([
+            { organisationId: to, userId: s.ids.owner, role: "owner" },
+            { organisationId: to, userId: s.ids.engineer, role: "member" },
+          ]);
+          const [mixFile] = await db.select().from(schema.files).where(eq(schema.files.id, s.mix));
+          const [oldBlob] = await db
+            .select()
+            .from(schema.blobs)
+            .where(eq(schema.blobs.id, mixFile?.blobId ?? ""));
+          if (!oldBlob) throw new Error("no blob");
+
+          // A tag the gaining workspace already has by another spelling, and a calendar link.
+          const [mixTag] = await db
+            .insert(schema.tags)
+            .values({ organisationId: s.organisationId, name: "Masters" })
+            .returning();
+          await db
+            .insert(schema.fileTags)
+            .values({ organisationId: s.organisationId, fileId: s.mix, tagId: mixTag?.id ?? "" });
+          const [theirTag] = await db
+            .insert(schema.tags)
+            .values({ organisationId: to, name: "masters" })
+            .returning();
+          await db.insert(schema.calendarFeeds).values({
+            organisationId: s.organisationId,
+            userId: s.ids.owner,
+            projectId: s.projectId,
+            tokenHash: "f".repeat(64),
+          });
+
+          const deps = { db, keyring, backends, jobs };
+          const move = { projectId: s.projectId, from: s.organisationId, to };
+          await expect(moveProject(deps, { ...move, to: s.organisationId })).rejects.toThrow(
+            /already in that workspace/,
+          );
+          await expect(
+            moveProject(deps, { ...move, from: to, to: s.organisationId }),
+          ).rejects.toThrow(/Project/);
+          // Not into a workspace being closed, nor a project being deleted.
+          await db
+            .update(schema.organisations)
+            .set({ suspendedAt: new Date() })
+            .where(eq(schema.organisations.id, to));
+          await expect(moveProject(deps, move)).rejects.toThrow(/cannot take projects/);
+          await db
+            .update(schema.organisations)
+            .set({ suspendedAt: null })
+            .where(eq(schema.organisations.id, to));
+          await db
+            .update(schema.projects)
+            .set({ deleteAfter: new Date(Date.now() + 86400e3) })
+            .where(eq(schema.projects.id, s.projectId));
+          await expect(moveProject(deps, move)).rejects.toThrow(/being deleted/);
+          await db
+            .update(schema.projects)
+            .set({ deleteAfter: null })
+            .where(eq(schema.projects.id, s.projectId));
+          // A copy that fails part way leaves nothing behind under the gaining workspace.
+          const lost = await storage.put(s.organisationId, Buffer.from("lost"));
+          await db.insert(schema.files).values({
+            organisationId: s.organisationId,
+            projectId: s.projectId,
+            name: "Lost.wav",
+            kind: "audio",
+            blobId: lost.id,
+            contentType: "audio/wav",
+            byteSize: lost.byteSize,
+          });
+          await backends.get(lost.backend).delete(lost.key);
+          await expect(moveProject(deps, move)).rejects.toThrow();
+          expect(await backends.get(oldBlob.backend).head(`org/${to}/${oldBlob.id}`)).toBeNull();
+          expect(await backends.get(oldBlob.backend).head(oldBlob.key)).not.toBeNull();
+          await db.delete(schema.files).where(eq(schema.files.blobId, lost.id));
+          await db.delete(schema.blobs).where(eq(schema.blobs.id, lost.id));
+          // A checksum still to compute is asked for again, in the gaining workspace.
+          await db
+            .update(schema.blobs)
+            .set({ sha256: null })
+            .where(eq(schema.blobs.id, oldBlob.id));
+          sent.length = 0;
+          const moved = await moveProject(deps, move);
+          expect(sent).toEqual([
+            { name: "blob-checksum", data: { organisationId: to, blobId: oldBlob.id } },
+          ]);
+          expect(moved.objects).toBeGreaterThanOrEqual(2);
+          expect(moved.leftBehind.map((p) => p.userId).sort()).toEqual(
+            [s.ids.composer, s.ids.accompanist].sort(),
+          );
+
+          // Every row went: none of the project is left in the losing workspace.
+          for (const table of [schema.projects, schema.tracks, schema.files, schema.reviews])
+            expect(
+              await db
+                .select({ n: count() })
+                .from(table)
+                .where(eq(table.organisationId, s.organisationId)),
+            ).toEqual([{ n: 0 }]);
+          // The decision moved as recorded: same id, decision, maker and time.
+          expect(await decisionsOf()).toEqual([{ ...decided, organisationId: to }]);
+          // Its file opens in the gaining workspace, under its prefix and key, and no longer
+          // in the losing one; the old object is gone.
+          const opened = await storage.open(to, oldBlob.id);
+          expect((await buffer(opened.stream)).toString()).toBe("Mix v1.wav");
+          expect(opened.blob.key).toBe(`org/${to}/${oldBlob.id}`);
+          expect(opened.blob.wrappedKey).not.toBe(oldBlob.wrappedKey);
+          await expect(storage.open(s.organisationId, oldBlob.id)).rejects.toThrow();
+          expect(await backends.get(oldBlob.backend).head(oldBlob.key)).toBeNull();
+          // Those left behind lost their place; those who came keep theirs.
+          const people = await db
+            .select({ userId: schema.projectMembers.userId })
+            .from(schema.projectMembers)
+            .where(eq(schema.projectMembers.projectId, s.projectId));
+          expect(people.map((p) => p.userId).sort()).toEqual([s.ids.owner, s.ids.engineer].sort());
+          // The tag is the gaining workspace's own; the calendar link, given out before, is gone.
+          expect(
+            await db
+              .select({
+                tagId: schema.fileTags.tagId,
+                organisationId: schema.fileTags.organisationId,
+              })
+              .from(schema.fileTags)
+              .where(eq(schema.fileTags.fileId, s.mix)),
+          ).toEqual([{ tagId: theirTag?.id, organisationId: to }]);
+          expect(
+            await db
+              .select({ n: count() })
+              .from(schema.calendarFeeds)
+              .where(eq(schema.calendarFeeds.projectId, s.projectId)),
+          ).toEqual([{ n: 0 }]);
+          // The comment is still there, still the owner's.
+          const [thread] = await db
+            .select({ body: schema.comments.body, organisationId: schema.comments.organisationId })
+            .from(schema.comments)
+            .where(eq(schema.comments.fileId, s.mix));
+          expect(thread).toEqual({ body: "Pedal noise", organisationId: to });
         });
 
         it("tells reviewers and requesters, in the app and by mail, and no one else", async () => {
