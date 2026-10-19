@@ -563,7 +563,7 @@ function Defaults() {
 
 /** The player tools the five default roles start with in a new project (#55). */
 function ToolAccess() {
-  const { settings, change, error } = useSettings();
+  const { settings, change, pending, error } = useSettings();
   // On a phone one role is shown at a time, chosen above the table.
   const [shown, setShown] = useState<DefaultRoleName>(defaultRoleNames[0]);
   if (!settings) return null;
@@ -600,7 +600,8 @@ function ToolAccess() {
       </div>
       <PlayerToolsTable
         roles={roles}
-        manage
+        // Each change is built from the settings shown, so one waits for the last to land.
+        manage={!pending}
         column={(role) => (role === shown ? "" : "hidden @3xl/app:table-cell")}
         onToggle={(role, tool, on) => {
           const name = role as DefaultRoleName;

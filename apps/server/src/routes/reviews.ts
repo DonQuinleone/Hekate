@@ -1302,13 +1302,6 @@ export async function requestReview(
   }
   // A share asks nothing (#138): its people listen and look, whatever the defaults say.
   if (input.kind === "share") granted.data = shareGrant(granted.data);
-  // An approval nobody may decide would wait for ever: everyone would only follow it.
-  if (input.kind === "approval" && !granted.data.decide) {
-    throw new HTTPException(422, {
-      message:
-        "An approval needs reviewers who may decide. The workspace's defaults leave nobody able to: say that they may, or ask for feedback.",
-    });
-  }
   const who = await deps.audit.member(actor.userId);
   const review = await deps.db.transaction(async (tx) => {
     // Not into a project being archived: archiving closes every open review.
@@ -1369,7 +1362,10 @@ export async function requestReview(
       !people.some((_, i) => (permissions[i] ?? granted.data).decide)
     ) {
       throw new HTTPException(422, {
-        message: "An approval needs at least one reviewer who may decide.",
+        // Asked once each reviewer's own permissions are known: the project's People page may
+        // let someone decide where the workspace's defaults let nobody (#55).
+        message:
+          "An approval needs at least one reviewer who may decide: say that they may, here or on the project's People page, or ask for feedback.",
       });
     }
     await tx.insert(reviewReviewers).values(

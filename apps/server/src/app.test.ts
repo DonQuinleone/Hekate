@@ -11373,6 +11373,29 @@ describe.runIf(url)("api", () => {
           { download: "proxy", tools: ["score"], maxPlays: 3 },
         ]);
 
+        // Where the workspace lets nobody decide, the People page may let someone.
+        expect(
+          (
+            await app.request("/api/organisation/settings", {
+              ...json({ reviewer: { decide: false } }, s.owner),
+              method: "PATCH",
+            })
+          ).status,
+        ).toBe(200);
+        const approval = (reviewers: string[]) =>
+          request(s.owner, s.projectId, {
+            kind: "approval",
+            items: [{ trackId: s.trackId }],
+            reviewers,
+          });
+        expect((await approval([s.ids.accompanist])).status).toBe(422);
+        expect((await put(`member/${s.ids.accompanist}`, { decide: true })).status).toBe(204);
+        const decided = await approval([s.ids.accompanist]);
+        expect(decided.status).toBe(201);
+        expect(
+          ((await reviewOf(decided)) as unknown as Asked).reviewers[0]?.permissions,
+        ).toMatchObject({ decide: true });
+
         // Another workspace's project has none to read or set.
         const [elsewhere] = await db
           .insert(schema.organisations)
