@@ -54,6 +54,35 @@ export function compareSources(
   return [...siblings, ...others];
 }
 
+/**
+ * The cut a deliverable's file is compared with frame by frame (#147): the primary rendition of
+ * the latest earlier cut ready to play. Named with the file's own cut, as "Cut 2" over "Cut 3".
+ */
+export function previousCut(
+  track: CompareFamily,
+  fileId: string,
+  profile?: ProjectProfile,
+): { mine: string; previous: CompareSource } | undefined {
+  const mine = track.versions.find((v) => v.variations.some((x) => x.fileId === fileId));
+  if (!mine) return undefined;
+  const earlier = [...track.versions]
+    .filter((v) => v.number < mine.number)
+    .sort((a, b) => b.number - a.number);
+  for (const v of earlier) {
+    const primary = v.variations.find((x) => x.isPrimary) ?? v.variations[0];
+    if (primary?.streamStatus === "ready")
+      return {
+        mine: versionLabel(mine.number, profile),
+        previous: {
+          fileId: primary.fileId,
+          label: versionLabel(v.number, profile),
+          versionNumber: v.number,
+        },
+      };
+  }
+  return undefined;
+}
+
 /** Any ready variation of the track as a source, whichever version it belongs to. */
 export function sourceFor(
   track: CompareFamily,

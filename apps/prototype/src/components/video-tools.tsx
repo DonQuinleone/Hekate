@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Icon, type IconName } from "~/components/icons";
 import { Kbd } from "~/components/label";
@@ -144,6 +145,8 @@ export function Captions({ time }: { time: number }) {
 export function CompareCuts({
   a,
   b,
+  labels,
+  compare,
   time,
   mode,
   onMode,
@@ -151,6 +154,10 @@ export function CompareCuts({
 }: {
   a: File;
   b: File;
+  /** "Cut 2", "Cut 3": each cut's name, laid on its picture. */
+  labels: [string, string];
+  /** The two cuts on the comparison page, where their comments and findings are (#137). */
+  compare?: { trackId: string; a: number; b: number };
   time: number;
   mode: "wipe" | "side";
   onMode: (m: "wipe" | "side") => void;
@@ -161,8 +168,14 @@ export function CompareCuts({
     <div className="flex flex-col gap-2">
       {mode === "side" ? (
         <div className="grid grid-cols-2 gap-2">
-          <Frame file={a} time={time} className="rounded-panel" />
-          <Frame file={b} time={time} className="rounded-panel" />
+          <div className="relative">
+            <Frame file={a} time={time} className="rounded-panel" />
+            <CutLabel>{labels[0]}</CutLabel>
+          </div>
+          <div className="relative">
+            <Frame file={b} time={time} className="rounded-panel" />
+            <CutLabel>{labels[1]}</CutLabel>
+          </div>
         </div>
       ) : (
         <div className="relative overflow-hidden rounded-panel">
@@ -172,6 +185,19 @@ export function CompareCuts({
               <Frame file={b} time={time} />
             </div>
           </div>
+          <div
+            className="pointer-events-none absolute top-0 bottom-0 w-px bg-signal shadow-[0_0_8px_var(--hk-signal)]"
+            style={{ left: `${split * 100}%` }}
+          />
+          <CutLabel>{labels[1]}</CutLabel>
+          <CutLabel right>{labels[0]}</CutLabel>
+        </div>
+      )}
+      <div className="flex items-center gap-3 text-[12px] text-ink-3">
+        {/* Which cut is which, the labels on the frame say. */}
+        <span className="font-medium text-ink">Compare cuts</span>
+        {/* In the bar, not over the frame, which a click still plays and pauses. */}
+        {mode === "wipe" && (
           <input
             type="range"
             min={0}
@@ -180,19 +206,9 @@ export function CompareCuts({
             value={split}
             onChange={(e) => setSplit(Number(e.target.value))}
             aria-label="Wipe"
-            className="absolute inset-x-0 bottom-0 h-full cursor-col-resize opacity-0"
+            className="w-40"
           />
-          <div
-            className="pointer-events-none absolute top-0 bottom-0 w-px bg-signal shadow-[0_0_8px_var(--hk-signal)]"
-            style={{ left: `${split * 100}%` }}
-          />
-        </div>
-      )}
-      <div className="flex items-center gap-3 text-[12px] text-ink-3">
-        <span className="font-medium text-ink">Compare cuts</span>
-        <span>
-          {b.name} over {a.name}
-        </span>
+        )}
         <div
           role="radiogroup"
           className="ml-auto flex rounded-control border border-line bg-ground/60 p-0.5"
@@ -213,11 +229,40 @@ export function CompareCuts({
             </button>
           ))}
         </div>
-        <button type="button" onClick={onClose} className="hover:text-ink">
-          Close
+        {compare && (
+          <Link
+            to="/tracks/$trackId/compare"
+            params={{ trackId: compare.trackId }}
+            search={{ a: String(compare.a), b: String(compare.b) }}
+            className="hover:text-ink"
+          >
+            Comments and findings
+          </Link>
+        )}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Stop comparing"
+          title="Stop comparing"
+          className="hover:text-ink"
+        >
+          <Icon name="close" size={14} />
         </button>
       </div>
     </div>
+  );
+}
+
+function CutLabel({ children, right = false }: { children: string; right?: boolean }) {
+  return (
+    <span
+      className={cn(
+        "pointer-events-none absolute top-2 rounded-[4px] bg-ground/80 px-1.5 py-0.5 text-[12px] text-ink",
+        right ? "right-2" : "left-2",
+      )}
+    >
+      {children}
+    </span>
   );
 }
 

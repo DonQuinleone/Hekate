@@ -67,7 +67,7 @@ function recording(path: string, seconds: number, brightness: number, damage = f
   ]);
 }
 
-function cut(path: string, size = "1280x720") {
+function cut(path: string, size = "1280x720", source = "testsrc2") {
   execFileSync("ffmpeg", [
     "-v",
     "error",
@@ -75,7 +75,7 @@ function cut(path: string, size = "1280x720") {
     "-f",
     "lavfi",
     "-i",
-    `testsrc2=size=${size}:rate=25:duration=12`,
+    `${source}=size=${size}:rate=25:duration=12`,
     "-f",
     "lavfi",
     "-i",
@@ -152,6 +152,8 @@ setup("seed", async ({ page, browser }) => {
   cut(file("Opening titles - Cut 3.mp4"));
   cut(file("Title sequence - Cut 1 - 16x9.mp4"));
   cut(file("Title sequence - Cut 1 - 9x16.mp4"), "360x640");
+  // The next cut looks unlike the first, so comparing them shows which is which (#147).
+  cut(file("Title sequence - Cut 2 - 16x9.mp4"), "1280x720", "smptehdbars");
 
   // The first person sets up the organisation; the form is only there once, so it is
   // captured here, at both widths.
@@ -210,6 +212,7 @@ setup("seed", async ({ page, browser }) => {
     file("Opening titles - Cut 3.mp4"),
     file("Title sequence - Cut 1 - 16x9.mp4"),
     file("Title sequence - Cut 1 - 9x16.mp4"),
+    file("Title sequence - Cut 2 - 16x9.mp4"),
   ]);
   const musicFiles = await settled(page, music.id);
   const videoFiles = await settled(page, video.id);
@@ -249,6 +252,11 @@ setup("seed", async ({ page, browser }) => {
   if (main) {
     await api(page, "PATCH", `/api/variations/${main.id}`, { subtitled: false, graded: true });
   }
+  // Its second cut, to compare with the first frame by frame (#147).
+  await api(page, "POST", `/api/tracks/${deliverable.id}/versions`, {
+    notes: "Titles moved up a second.",
+    variations: [{ fileId: rendition("Cut 2"), name: "Main" }],
+  });
 
   // A track in two versions, and one not yet started.
   const { track } = await api<{ track: { id: string } }>(
@@ -841,6 +849,7 @@ setup("seed", async ({ page, browser }) => {
     scoreFileId: score,
     cutFileId: cutFile.id,
     deliverableId: deliverable.id,
+    cutTwoFileId: rendition("Cut 2"),
     reviewId: review.id,
     reviewStates: { decided, changes, approved, cancelled, waiting, overdue },
     shareId: shared,

@@ -7,6 +7,7 @@ import {
   levelGains,
   levelMatchable,
   needsResync,
+  previousCut,
   shiftLabel,
   sourceFor,
 } from "./compare";
@@ -81,6 +82,31 @@ const track: Track = {
     },
   ],
 };
+
+describe("compare cuts (#147)", () => {
+  it("compares a cut with the latest earlier one ready to play, in video words", () => {
+    expect(previousCut(track, "file-e", "video")).toEqual({
+      mine: "Cut 3",
+      previous: { fileId: "file-b", label: "Cut 2", versionNumber: 2 },
+    });
+    // A variation other than the primary is compared with the cut before too.
+    expect(previousCut(track, "file-c", "video")?.previous.fileId).toBe("file-a");
+  });
+
+  it("skips an earlier cut not yet ready, and has none before the first", () => {
+    const pending: Track = {
+      ...track,
+      versions: track.versions.map((v) =>
+        v.number === 2
+          ? { ...v, variations: v.variations.map((x) => ({ ...x, streamStatus: "pending" })) }
+          : v,
+      ),
+    };
+    expect(previousCut(pending, "file-e", "video")?.previous.fileId).toBe("file-a");
+    expect(previousCut(track, "file-a", "video")).toBeUndefined();
+    expect(previousCut(track, "elsewhere", "video")).toBeUndefined();
+  });
+});
 
 describe("comparison", () => {
   it("offers sibling variations, then other versions newest first, ready ones only", () => {

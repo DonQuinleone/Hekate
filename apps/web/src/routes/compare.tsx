@@ -47,7 +47,7 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
     enabled: Boolean(data),
   });
   const can = useProjectCan(data?.track.projectId);
-  const { words, versionLabel } = useItemWords(data?.track.projectId);
+  const { words, versionLabel, video } = useItemWords(data?.track.projectId);
   const compareTitle = `Compare ${words.versions}`;
   const realign = useRealign(trackId);
   const [blind, setBlind] = useState(false);
@@ -326,7 +326,7 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
               </button>
               <span className="tabular text-[15px] text-ink">{formatClock(time)}</span>
               <span>
-                Keys 1 and 2 switch at the same musical position
+                Keys 1 and 2 switch at the same {video ? "moment" : "musical position"}
                 {gains.some((g) => g < 1) ? ", level-matched" : ""}.
               </span>
               {blind && (
@@ -357,7 +357,7 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
             )}
           </div>
           <aside className="flex min-w-0 flex-col gap-5">
-            <AlignmentPath comparison={data} label={label} />
+            <AlignmentPath comparison={data} label={label} video={video} />
             <Findings
               title={`Fixed in ${label(later)}`}
               findings={data.findings.fixed}
@@ -446,9 +446,12 @@ function AlignmentState({ comparison }: { comparison: TrackComparison }) {
 function AlignmentPath({
   comparison,
   label,
+  video,
 }: {
   comparison: TrackComparison;
   label: (which: Which) => string;
+  /** A deliverable's cuts (#147): an edit moves the picture and its sound together. */
+  video: boolean;
 }) {
   const { points } = comparison.alignment;
   const across = comparison.a.duration ?? 1;
@@ -486,7 +489,7 @@ function AlignmentPath({
       </svg>
       <span className="text-[12px] text-ink-3">
         {label("a")} across, {label("b")} up. A straight line is the same timing; a bend is where an
-        edit moved the music.
+        edit moved {video ? "the sound" : "the music"}.
       </span>
     </section>
   );

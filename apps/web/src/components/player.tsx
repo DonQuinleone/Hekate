@@ -28,6 +28,7 @@ import {
   type WaveLook,
   waveColours,
 } from "@hekate/shared";
+import { Link } from "@tanstack/react-router";
 import type Hls from "hls.js";
 import {
   type KeyboardEvent,
@@ -58,6 +59,7 @@ import { familyOf, videoFamilyFor } from "~/lib/video-family";
 import { useViewer } from "~/lib/viewer";
 import { anchoredScroll, followScroll, maxZoom, panScroll, zoomLabel, zoomStep } from "~/lib/zoom";
 import { ChannelsButton, ChannelsPanel } from "./channels";
+import { CutVideo } from "./cut-video";
 import {
   DrawingMarks,
   DrawLayer,
@@ -244,6 +246,7 @@ export function Player({
   drawings = [],
   draft = null,
   onDraft,
+  cuts = null,
 }: {
   fileId: string;
   kind: "audio" | "video";
@@ -267,6 +270,13 @@ export function Player({
   tools?: readonly string[] | null;
   /** The viewer's visible mark, laid over a video where the project marks them (#31). */
   mark?: VisibleMark | null;
+  /** A deliverable's cut and the one before it, to compare frame by frame (#147). */
+  cuts?: {
+    mine: string;
+    previous: { fileId: string; label: string };
+    /** The two cuts' versions on the comparison page, for whoever may open it. */
+    compare?: { trackId: string; a: number; b: number } | null;
+  } | null;
   /** Normalised playback (#240): offered as a switch where it is each person's choice. */
   normalisation?: Normalisation | null;
   /** Whether it is heard normalised now, and the switch's choice. */
@@ -323,6 +333,11 @@ export function Player({
     if (!draft) undo.current = [];
   }, [draft]);
   const [matte, setMatte] = useState<Matte | null>(null);
+  // Comparing with the cut before (#147): one over the other with a wipe, or side by side.
+  const [cutView, setCutView] = useState<"wipe" | "side" | null>(null);
+  const [wipe, setWipe] = useState(0.5);
+  const canCompareCuts = kind === "video" && Boolean(cuts) && (!tools || tools.includes("compare"));
+  const comparing = canCompareCuts && cuts ? cutView : null;
   const [safe, setSafe] = useState(false);
   // Drawing on the frame (#146): the tool and colour chosen, kept while drawing is on.
   const [drawingOn, setDrawingOn] = useState(false);
@@ -779,53 +794,152 @@ export function Player({
       className="flex flex-col overflow-hidden rounded-panel border border-hairline bg-surface outline-none focus-visible:border-edge"
     >
       {kind === "video" ? (
-        <div className={cn("relative", failure && "hidden")}>
-          <video
-            ref={media}
-            playsInline
-            onClick={toggle}
-            className="aspect-video w-full cursor-pointer bg-ground"
-            {...events}
-          />
-          {info?.video && (
-            <FrameGuides aspect={info.video.width / info.video.height} matte={matte} safe={safe} />
-          )}
-          {info?.video && (
-            <DrawingMarks
-              aspect={info.video.width / info.video.height}
-              drawings={drawings
-                .filter((d) => regionShowsAt(d, frameNow, frameSeconds))
-                .map((d) => d.drawing)}
-              draft={draft?.drawing ?? null}
-            />
-          )}
-          {drawingOn && onDraft && info?.video && (
-            <>
-              <DrawLayer
-                tool={tool}
-                colour={colour}
-                aspect={info.video.width / info.video.height}
-                onDrawn={(drawing) => {
-                  // Each drawing replaces the one before, which Undo brings back.
-                  undo.current.push(draft);
-                  onDraft({
-                    drawing,
-                    at: Math.round((media.current?.currentTime ?? time) * 1000) / 1000,
-                  });
-                }}
+        <>
+          <div
+            className={cn(
+              comparing === "side" && "grid grid-cols-2 gap-px bg-hairline",
+              failure && "hidden",
+            )}
+          >
+            {comparing === "side" && cuts && element && (
+              <div className="relative">
+                <CutVideo
+                  fileId={cuts.previous.fileId}
+                  master={element}
+                  frameSeconds={frameSeconds}
+                  className="aspect-video w-full"
+                />
+                <CutLabel>{cuts.previous.label}</CutLabel>
+                {mark && <VideoMark mark={mark} />}
+              </div>
+            )}
+            <div className="relative">
+              <video
+                ref={media}
+                playsInline
+                onClick={toggle}
+                className="aspect-video w-full cursor-pointer bg-ground"
+                {...events}
               />
-              <DrawToolbar
-                tool={tool}
-                onTool={setTool}
-                colour={colour}
-                onColour={setColour}
-                onUndo={draft ? () => onDraft(undo.current.pop() ?? null) : undefined}
-                onClose={() => setDrawingOn(false)}
+              {info?.video && (
+                <FrameGuides
+                  aspect={info.video.width / info.video.height}
+                  matte={matte}
+                  safe={safe}
+                />
+              )}
+              {info?.video && (
+                <DrawingMarks
+                  aspect={info.video.width / info.video.height}
+                  drawings={drawings
+                    .filter((d) => regionShowsAt(d, frameNow, frameSeconds))
+                    .map((d) => d.drawing)}
+                  draft={draft?.drawing ?? null}
+                />
+              )}
+              {drawingOn && onDraft && info?.video && (
+                <>
+                  <DrawLayer
+                    tool={tool}
+                    colour={colour}
+                    aspect={info.video.width / info.video.height}
+                    onDrawn={(drawing) => {
+                      // Each drawing replaces the one before, which Undo brings back.
+                      undo.current.push(draft);
+                      onDraft({
+                        drawing,
+                        at: Math.round((media.current?.currentTime ?? time) * 1000) / 1000,
+                      });
+                    }}
+                  />
+                  <DrawToolbar
+                    tool={tool}
+                    onTool={setTool}
+                    colour={colour}
+                    onColour={setColour}
+                    onUndo={draft ? () => onDraft(undo.current.pop() ?? null) : undefined}
+                    onClose={() => setDrawingOn(false)}
+                  />
+                </>
+              )}
+              {comparing === "wipe" && cuts && element && (
+                <>
+                  <CutVideo
+                    fileId={cuts.previous.fileId}
+                    master={element}
+                    frameSeconds={frameSeconds}
+                    className="pointer-events-none absolute inset-0 aspect-video w-full"
+                    style={{ clipPath: `inset(0 0 0 ${wipe * 100}%)` }}
+                  />
+                  <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-y-0 w-px bg-signal"
+                    style={{ left: `${wipe * 100}%` }}
+                  />
+                  <CutLabel>{cuts.mine}</CutLabel>
+                  <CutLabel right>{cuts.previous.label}</CutLabel>
+                </>
+              )}
+              {comparing === "side" && cuts && <CutLabel>{cuts.mine}</CutLabel>}
+              {mark && <VideoMark mark={mark} />}
+            </div>
+          </div>
+          {comparing && cuts && (
+            <div
+              className={cn(
+                "flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-hairline px-3 py-2 text-[13px]",
+                failure && "hidden",
+              )}
+            >
+              {/* Which cut is which, the labels on the frame say. */}
+              {/* On a phone the bar's controls say it; the room goes to them. */}
+              <span className="sr-only font-medium text-ink @md/app:not-sr-only">Compare cuts</span>
+              {comparing === "wipe" && (
+                <span className="w-32 shrink-0">
+                  <Slider
+                    aria-label="Wipe"
+                    min={0}
+                    max={1}
+                    step={0.005}
+                    value={wipe}
+                    onChange={(event) => setWipe(Number(event.target.value))}
+                    className="w-full"
+                  />
+                </span>
+              )}
+              <Segmented
+                label="Compare cuts"
+                value={comparing}
+                options={[
+                  { value: "wipe", label: "Wipe" },
+                  { value: "side", label: "Side by side" },
+                ]}
+                onChange={setCutView}
+                className="ml-auto"
               />
-            </>
+              {cuts.compare && (
+                <Button variant="ghost" size="sm" asChild>
+                  <Link
+                    to="/tracks/$trackId/compare"
+                    params={{ trackId: cuts.compare.trackId }}
+                    search={{ a: cuts.compare.a, b: cuts.compare.b }}
+                  >
+                    Comments and findings
+                  </Link>
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Stop comparing"
+                title="Stop comparing"
+                onClick={() => setCutView(null)}
+              >
+                <Icon name="close" size={14} />
+              </Button>
+            </div>
           )}
-          {mark && <VideoMark mark={mark} />}
-        </div>
+        </>
       ) : (
         <>
           <audio ref={media} {...events} />
@@ -1105,6 +1219,22 @@ export function Player({
                     checked: matte === m,
                     onSelect: () => setMatte((on) => (on === m ? null : m)),
                   })),
+                  ...(canCompareCuts && cuts
+                    ? [
+                        "divider" as const,
+                        {
+                          label: "Compare cuts: wipe",
+                          hint: `With ${cuts.previous.label}`,
+                          checked: comparing === "wipe",
+                          onSelect: () => setCutView((on) => (on === "wipe" ? null : "wipe")),
+                        },
+                        {
+                          label: "Compare cuts: side by side",
+                          checked: comparing === "side",
+                          onSelect: () => setCutView((on) => (on === "side" ? null : "side")),
+                        },
+                      ]
+                    : []),
                 ]}
               />
             )}
@@ -1527,5 +1657,19 @@ export function VideoMark({ mark }: { mark: VisibleMark }) {
         </span>
       ))}
     </div>
+  );
+}
+
+/** Which cut a frame shows, in its top corner (#147). */
+function CutLabel({ children, right = false }: { children: string; right?: boolean }) {
+  return (
+    <span
+      className={cn(
+        "pointer-events-none absolute top-2 rounded-[4px] bg-ground/80 px-1.5 py-0.5 text-[12px] text-ink",
+        right ? "right-2" : "left-2",
+      )}
+    >
+      {children}
+    </span>
   );
 }

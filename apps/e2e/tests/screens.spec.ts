@@ -1667,6 +1667,51 @@ test("deliverable-renditions", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Two cuts of a deliverable compared frame by frame (#147): the second wiped over the first,
+// then side by side.
+test("deliverable-compare-cuts", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().cutTwoFileId}`);
+  await page.getByRole("button", { name: "Frame" }).click();
+  await page.getByRole("menuitemradio", { name: /Compare cuts: wipe/ }).click();
+  await expect(page.getByRole("slider", { name: "Wipe" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Comments and findings" })).toBeVisible();
+  // The other cut's picture, from its own stream, on screen before the capture: decoded, then
+  // handed to the compositor, which can come a moment later.
+  const shown = async () => {
+    const cut = page.locator("video[aria-hidden]");
+    await expect
+      .poll(() => cut.evaluate((v: HTMLVideoElement) => v.readyState))
+      .toBeGreaterThanOrEqual(2);
+    await cut.evaluate(
+      (v: HTMLVideoElement) =>
+        new Promise<void>((done) => {
+          v.requestVideoFrameCallback(() => done());
+          setTimeout(done, 3000);
+        }),
+    );
+  };
+  await shown();
+  await settle(page, "main >> text=Cut 1");
+  await saveScreen(page, "deliverable-compare-cuts");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Side by side" }).click();
+  await expect(page.getByRole("button", { name: "Side by side" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await shown();
+  await settle(page, "main >> text=Cut 1");
+  await saveScreen(page, "deliverable-compare-cuts-side");
+  await checkScreen(page);
+  // The two cuts' comments and findings, on the comparison page (#137).
+  await page.getByRole("link", { name: "Comments and findings" }).click();
+  await expect(page).toHaveURL(/\/compare\?a=1&b=2/);
+  await settle(page, "main >> text=Comments mapped");
+  await saveScreen(page, "deliverable-compare-cuts-page");
+  await checkScreen(page);
+});
+
 // A new version may start the track's workflow again from a stage (#25), for those who edit
 // workflows; by default it carries on where it is. Not sent, so no other capture sees a run.
 test("track-new-version-restart", async ({ page }) => {
