@@ -1547,6 +1547,27 @@ test("track-follow", async ({ page }) => {
   await expect(button).toHaveAttribute("aria-pressed", "true");
 });
 
+// A project's board (#141): its tracks in columns from the workflow that is switched on.
+test("project-board", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/board`);
+  await settle(page, "main >> text=Maple Leaf Rag");
+  await expect(page.getByRole("region", { name: "No version" })).toBeVisible();
+  await saveScreen(page, "project-board");
+  await checkScreen(page);
+});
+
+// Its display options: the grouping, what cards carry, which fields.
+test("project-board-customise", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/board`);
+  await settle(page, "main >> text=Maple Leaf Rag");
+  await page.getByRole("button", { name: "Customise" }).click();
+  await expect(page.getByRole("dialog", { name: "Customise the board" })).toBeVisible();
+  await saveScreen(page, "project-board-customise");
+  await checkScreen(page);
+});
+
 // A project's tasks (#140): grouped by status, what waits on a decision first; one late.
 test("project-tasks", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);

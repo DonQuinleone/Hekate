@@ -2,6 +2,7 @@ export * from "./account.ts";
 export * from "./alignment.ts";
 export * from "./anchor.ts";
 export * from "./audit.ts";
+export * from "./board.ts";
 export * from "./categories.ts";
 export * from "./comment-export.ts";
 export * from "./comment-import.ts";

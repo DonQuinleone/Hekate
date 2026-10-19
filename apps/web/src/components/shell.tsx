@@ -160,6 +160,7 @@ function useCurrentProjectId(): string | undefined {
 const projectSections = [
   { id: "", label: "Overview", icon: "dashboard", to: "/projects/$projectId" },
   { id: "files", label: "Files", icon: "folder", to: "/projects/$projectId/files" },
+  { id: "board", label: "Board", icon: "board", to: "/projects/$projectId/board" },
   { id: "reviews", label: "Reviews", icon: "review", to: "/projects/$projectId/reviews" },
   { id: "tasks", label: "Tasks", icon: "task", to: "/projects/$projectId/tasks" },
   { id: "people", label: "People", icon: "users", to: "/projects/$projectId/people" },

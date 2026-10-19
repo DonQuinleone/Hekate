@@ -39,6 +39,7 @@ import {
   type SignInSearch,
   SuspendedPage,
 } from "~/routes/auth-pages";
+import { BoardPage } from "~/routes/board";
 import { ComparePage } from "~/routes/compare";
 import { FilePage } from "~/routes/file";
 import { GuestHomePage, GuestLinkPage, GuestShell, GuestSignedOutPage } from "~/routes/guest";
@@ -459,6 +460,15 @@ const projectPeople = createRoute({
     return <ProjectPeoplePage projectId={projectId} />;
   },
 });
+// The project's board (#141): its tracks by where their workflow has them.
+const projectBoard = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/board",
+  component: function ProjectBoardRoute() {
+    const { projectId } = projectBoard.useParams();
+    return <BoardPage projectId={projectId} />;
+  },
+});
 // The project's tasks (#140): one opened beside the list, or a new one being made.
 const projectTasks = createRoute({
   getParentRoute: () => app,
@@ -735,6 +745,7 @@ export const router = createRouter({
       projectReviews,
       requestReview,
       projectPeople,
+      projectBoard,
       projectTasks,
       projectSessions,
       session,

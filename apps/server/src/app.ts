@@ -14,6 +14,7 @@ import type { Mailer } from "./mail.ts";
 import { countRequests, metricsHandler } from "./metrics/index.ts";
 import { rateLimit } from "./rate-limit.ts";
 import { attachmentRoutes } from "./routes/attachments.ts";
+import { projectBoardRoutes } from "./routes/board.ts";
 import { categoryRoutes, projectCategoryRoutes } from "./routes/categories.ts";
 import { carryRoutes, commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
 import { directoryRoutes } from "./routes/directory.ts";
@@ -238,6 +239,7 @@ export function createApi(deps: AppDeps) {
       .route("/projects", projectWorkflowRoutes(deps.db))
       .route("/projects", projectTemplateRoutes(deps.db))
       .route("/projects", projectTaskRoutes(taskMail))
+      .route("/projects", projectBoardRoutes(deps.db))
       .use("/tags/*", ...member)
       .use("/tags", ...member)
       .route("/tags", tagRoutes(deps.db))
