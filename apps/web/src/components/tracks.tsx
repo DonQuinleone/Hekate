@@ -1,4 +1,4 @@
-import { type AlignmentPoints, mapTime } from "@hekate/shared";
+import { type AlignmentPoints, capital, mapTime } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, type MouseEvent, useState } from "react";
@@ -10,6 +10,7 @@ import {
   projectTracksQuery,
   type Track,
   trackQuery,
+  useItemWords,
   useProjectCan,
   useTrackMutations,
   type Version,
@@ -142,6 +143,7 @@ export function FileContext({
     enabled: Boolean(variation),
     retry: false,
   });
+  const { words, versionLabel } = useItemWords(track?.projectId);
   if (!variation) return null;
   /** Go to another version or variation, at the same music; a modified click opens it as is. */
   const follow = (fileId: string) => (event: MouseEvent) => {
@@ -163,7 +165,7 @@ export function FileContext({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px]">
         {/* The track itself is in the page's breadcrumb; here, only where to go within it. */}
         {track && track.versions.length > 0 && (
-          <nav aria-label="Versions" className="flex flex-wrap items-center gap-1">
+          <nav aria-label={capital(words.versions)} className="flex flex-wrap items-center gap-1">
             {track.versions.map((v) => {
               const target = primaryOf(v);
               const current = v.id === variation.versionId;
@@ -183,7 +185,7 @@ export function FileContext({
                       : "border-transparent text-ink-3 hover:text-ink",
                   )}
                 >
-                  V{v.number}
+                  {versionLabel(v.number)}
                 </Link>
               ) : null;
             })}
@@ -191,7 +193,7 @@ export function FileContext({
         )}
       </div>
       {version && version.variations.length > 1 && (
-        <nav aria-label="Variations" className="flex flex-wrap items-center gap-1">
+        <nav aria-label={capital(words.variations)} className="flex flex-wrap items-center gap-1">
           {version.variations.map((v) => (
             <Link
               key={v.id}

@@ -1,4 +1,10 @@
-import { type OverviewSection, overviewSections, type TrackState } from "@hekate/shared";
+import {
+  itemWords,
+  type OverviewSection,
+  overviewSections,
+  type ProjectProfile,
+  type TrackState,
+} from "@hekate/shared";
 import type { ReviewState } from "~/components/ui/status";
 import { dueIn } from "./home";
 import type { MyReview, ProjectOverview } from "./queries";
@@ -113,6 +119,10 @@ export function overviewAttention(
 }
 
 /** How a track's standing reads, and the dot that goes with it. */
+/** A track's state in its project's words (#16): a deliverable has no cuts yet. */
+export const trackStateLabel = (state: TrackState, profile?: ProjectProfile) =>
+  state === "no_version" ? `No ${itemWords(profile).versions} yet` : trackStateCopy[state].label;
+
 export const trackStateCopy: Record<TrackState, { label: string; dot: ReviewState | null }> = {
   no_version: { label: "No versions yet", dot: null },
   not_reviewed: { label: "Not in review", dot: null },

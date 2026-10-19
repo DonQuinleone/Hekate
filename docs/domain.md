@@ -17,8 +17,9 @@ The words in this document are used exactly as defined, in code, in the interfac
 | **Variation** | One file within a version that differs in treatment, not in edit: for example the dry mix and the wet mix of Version 4. Every version has at least one variation, and one is primary. |
 | **Take** | A snippet of audio captured in a recording session, usually not a complete run of the music. A take belongs to one track (a track has many takes), never to the session it was recorded in. Takes are reference material for the producer and editor: they show what is available for each passage and what has been stitched into the edit. A take is one file for now, its scratch mix; uploading one file per microphone follows. Its rating, star, notes, score page, bar range and in and out points are all optional: bars matter for classical music and rarely for pop. Takes are **not** versions and do not normally appear in review. |
 | **Session** | A recording session (for example "Day 2 · St John's"), with its date and venue. Sessions and tracks are linked many to many: a session records several tracks, and a track may be recorded across several sessions. |
-| **Deliverable** | The video equivalent of a track: something delivered and reviewed, such as "Trailer 60s" or "Episode 3". A deliverable has versions (cuts), and each version has renditions. |
-| **Rendition** | One file within a video version that differs in format or treatment: 16:9 or 9:16, subtitled or clean, graded or ungraded. One is primary. |
+| **Deliverable** | What a video project calls a track: something delivered and reviewed, such as "Trailer 60s" or "Episode 3". A deliverable has cuts (its versions), and each cut has renditions (its variations). Only the words differ; a deliverable is a track in the data model. |
+| **Cut** | What a video project calls a version: one edit of a deliverable, numbered in order (Cut 1, Cut 2). |
+| **Rendition** | What a video project calls a variation: one file within a cut that differs in format or treatment, such as 16:9 or 9:16, subtitled or clean, graded or ungraded. Its shape and codec are read from the file; whether it is subtitled and graded is said by its people. One is primary. |
 | **Edit decision** | Which takes a version uses for which bars or time ranges, optionally imported from the editor's edit decision list (EDL). |
 | **Reviewer permissions** | What one reviewer may see and do in one review: versions, comments, tools, downloads, expiry, view limits and which items. |
 | **Work** | An entry in a project's repertoire: title, composer, forces, abbreviation, and its tracks in order. A single-track work is just one track. Used by the schedule, the take log and the score. |
@@ -74,7 +75,7 @@ Workspace (organisation)
 - Files are the only thing stored. Tracks, versions, variations and takes organise files; they never copy them.
 - A file can be a variation of exactly one version, part of exactly one take, or neither (a loose file in a folder such as cover artwork or a score PDF).
 - A track can link a score file, used for bar anchors and the score view.
-- Video projects use **deliverables** instead of tracks: a deliverable has versions (cuts) and each version has **renditions** (16:9, 9:16, subtitled, graded). The structure parallels tracks but is its own concept with its own tools.
+- Video projects call their tracks **deliverables**, their versions **cuts** and their variations **renditions** (16:9, 9:16, subtitled, graded). They are the same structure under video words, so workflows, reviews, the board, carry-over and the access log work for them as they do for tracks; the profile hides what is music's (takes, scores, bars).
 - General projects use folders and files, with simple version chains on files.
 
 ## Listening and viewing
@@ -274,7 +275,7 @@ Workspace owners and admins can do everything in every project. Guests have no r
 
 - Carry-over: a per-comment *Show on this version* toggle with a status.
 - Hardware security keys: five per account is a default the operator can raise.
-- Video: deliverables, versions and renditions, a separate concept from tracks.
+- Video: deliverables, cuts and renditions are tracks, versions and variations under video words (decision 138).
 - Guest visibility: governed by reviewer permissions, not a fixed rule.
 - Commercial DRM: later; the delivery design leaves room for it.
 - Edit decisions: optional EDL import; an optional project rule can require it on upload.

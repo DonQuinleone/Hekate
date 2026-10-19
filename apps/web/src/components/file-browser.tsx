@@ -1,4 +1,5 @@
 import {
+  capital,
   defaultFileColumns,
   descendantsOf,
   type FileColumn,
@@ -50,7 +51,7 @@ import {
 } from "~/lib/browser";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
-import { trackStateCopy } from "~/lib/overview";
+import { trackStateCopy, trackStateLabel } from "~/lib/overview";
 import {
   type Folder,
   fileColumnsQuery,
@@ -64,6 +65,7 @@ import {
   type Track,
   tagsQuery,
   useFileColumns,
+  useItemWords,
   useMarks,
   useOrganise,
   useProjectCan,
@@ -105,14 +107,14 @@ function storedView(): View {
   }
 }
 
-const itemName = (item: Item) =>
+const itemName = (item: Item, version: (n: number) => string = (n) => `V${n}`) =>
   item.kind === "folder"
     ? item.folder.name
     : item.kind === "track"
       ? item.track.name
       : item.kind === "file"
         ? item.file.name
-        : `${item.track.name} · V${item.version.number}`;
+        : `${item.track.name} · ${version(item.version.number)}`;
 const itemIcon = (item: Item): IconName =>
   item.kind === "folder"
     ? "folder"
@@ -288,9 +290,11 @@ export function FileBrowser({
   onOpenFolder: (folderId: string | null) => void;
   filters: BrowserFilters;
   onFilter: (filters: BrowserFilters) => void;
-  /** Music projects hold tracks. */
+  /** Music projects hold tracks, and video projects deliverables (#16). */
   tracks: boolean;
 }) {
+  const { words, versionLabel, video } = useItemWords(projectId);
+  const profile = video ? "video" : undefined;
   const { data: files, error } = useQuery(projectFilesQuery(projectId));
   const { data: folders, error: foldersError } = useQuery(projectFoldersQuery(projectId));
   const { data: trackList, error: tracksError } = useQuery({
@@ -325,7 +329,10 @@ export function FileBrowser({
   }, []);
   const columns = listWidth === null ? chosenColumns : fitColumns(chosenColumns, listWidth);
   const gridVars = { "--cols": gridTemplate(columns) } as CSSProperties;
-  const names = { ...columnNames, versions: withTracks ? "Versions" : "Details" };
+  const names = {
+    ...columnNames,
+    versions: withTracks ? capital(words.versions) : "Details",
+  };
   const tagging = useTagMutations(projectId);
   const [view, setView] = useState<View>(storedView);
   const [naming, setNaming] = useState<"folder" | "track" | null>(null);
@@ -680,7 +687,7 @@ export function FileBrowser({
           ...(item.kind === "file" && withTracks && allTracks.length > 0 && can("upload")
             ? [
                 {
-                  label: "Attach to a track…",
+                  label: `Attach to a ${words.track}…`,
                   onSelect: () => setEditing({ id: item.id, mode: "attach" }),
                 },
               ]
@@ -717,7 +724,7 @@ export function FileBrowser({
       : [];
     return (
       <ActionMenu
-        label={itemName(item)}
+        label={itemName(item, versionLabel)}
         actions={[...personal, ...about, ...recovering, ...organising]}
         always={always}
       />
@@ -730,7 +737,7 @@ export function FileBrowser({
     if (editing.mode === "rename") {
       return (
         <RenameForm
-          initial={itemName(item)}
+          initial={itemName(item, versionLabel)}
           pending={pending}
           onSave={(name) => rename(item, name)}
           onCancel={() => setEditing(null)}
@@ -804,7 +811,7 @@ export function FileBrowser({
         <span className="text-[13px] text-ink-2">
           {item.kind === "folder"
             ? `Delete ${item.folder.name}? What is in it moves to ${parentOf(item.folder)}.`
-            : `Delete ${itemName(item)}? This cannot be undone.`}
+            : `Delete ${itemName(item, versionLabel)}? This cannot be undone.`}
         </span>
         <Button size="sm" variant="primary" disabled={pending} onClick={() => remove(item)}>
           Delete
@@ -834,7 +841,7 @@ export function FileBrowser({
               item.kind !== "file" && "font-medium",
             )}
           >
-            {itemName(item)}
+            {itemName(item, versionLabel)}
           </span>
           {marks.pinned.has(key) && (
             <span title="Pinned" className="flex shrink-0 text-ink-3">
@@ -915,17 +922,17 @@ export function FileBrowser({
         case "status": {
           // While its latest file is prepared, or after that failed, that is what it says.
           if (file && processing(file)) return statusOf(file);
-          const copy =
-            trackStateCopy[t.state ?? (t.versions.length ? "not_reviewed" : "no_version")];
+          const state = t.state ?? (t.versions.length ? "not_reviewed" : "no_version");
+          const copy = trackStateCopy[state];
           return (
             <>
               {copy.dot && <StatusDot state={copy.dot} />}
-              <span className="truncate text-ink-2">{copy.label}</span>
+              <span className="truncate text-ink-2">{trackStateLabel(state, profile)}</span>
             </>
           );
         }
         case "versions":
-          return <span className="tabular truncate">{versionSummary(t)}</span>;
+          return <span className="tabular truncate">{versionSummary(t, profile)}</span>;
         case "people":
           return t.waitingOn?.length ? <AvatarRow people={t.waitingOn} size={22} max={3} /> : "—";
         case "updated":
@@ -988,12 +995,10 @@ export function FileBrowser({
   const subOf = (item: Item) => {
     if (item.kind === "folder") return folderCount(all, allTracks, allFiles, item.folder.id);
     if (item.kind === "track") {
-      const copy =
-        trackStateCopy[
-          item.track.state ?? (item.track.versions.length ? "not_reviewed" : "no_version")
-        ];
+      const state =
+        item.track.state ?? (item.track.versions.length ? "not_reviewed" : "no_version");
       const latest = item.track.versions.at(-1);
-      return `${copy.label}${latest ? ` · V${latest.number}` : ""}`;
+      return `${trackStateLabel(state, profile)}${latest ? ` · ${versionLabel(latest.number)}` : ""}`;
     }
     return item.kind === "file" ? details(item.file) : undefined;
   };
@@ -1147,7 +1152,12 @@ export function FileBrowser({
                 ? [
                     { label: "New folder", onSelect: () => setNaming("folder") },
                     ...(withTracks
-                      ? [{ label: "New track", onSelect: () => setNaming("track") }]
+                      ? [
+                          {
+                            label: `New ${words.track}`,
+                            onSelect: () => setNaming("track"),
+                          },
+                        ]
                       : []),
                     "divider" as const,
                   ]
@@ -1166,12 +1176,18 @@ export function FileBrowser({
         <form
           onSubmit={create}
           className="flex flex-wrap items-center gap-2"
-          aria-label={naming === "track" ? "New track" : "New folder"}
+          aria-label={naming === "track" ? `New ${words.track}` : "New folder"}
         >
           <Input
             autoFocus
-            aria-label={naming === "track" ? "Track name" : "Folder name"}
-            placeholder={naming === "track" ? "Maple Leaf Rag" : "Mixes"}
+            aria-label={naming === "track" ? `${capital(words.track)} name` : "Folder name"}
+            placeholder={
+              naming === "track"
+                ? words.track === "deliverable"
+                  ? "Trailer 60s"
+                  : "Maple Leaf Rag"
+                : "Mixes"
+            }
             className="w-64"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
@@ -1213,7 +1229,7 @@ export function FileBrowser({
           title={folderId ? "This folder is empty" : "Nothing here yet"}
           text={
             can("upload")
-              ? `Drop files anywhere on this page to upload them here, or use Upload.${withTracks ? " A track groups a piece's versions." : ""}`
+              ? `Drop files anywhere on this page to upload them here, or use Upload.${withTracks ? (words.track === "deliverable" ? " A deliverable groups its cuts." : " A track groups a piece's versions.") : ""}`
               : "Files appear here once someone uploads them."
           }
         />
@@ -1276,7 +1292,7 @@ export function FileBrowser({
               item.kind === "folder"
                 ? folderCount(all, allTracks, allFiles, item.folder.id)
                 : item.kind === "track"
-                  ? trackStateCopy[item.track.state ?? "no_version"].label
+                  ? trackStateLabel(item.track.state ?? "no_version", profile)
                   : item.kind === "file"
                     ? details(item.file)
                     : "";
@@ -1299,7 +1315,7 @@ export function FileBrowser({
                 <span className="relative flex aspect-[2/1] items-center justify-center rounded-[6px] bg-sunken text-ink-3">
                   <Icon name={itemIcon(item)} size={24} />
                   <Checkbox
-                    aria-label={`Select ${itemName(item)}`}
+                    aria-label={`Select ${itemName(item, versionLabel)}`}
                     checked={selected.has(markKey(item))}
                     onChange={() => {}}
                     onClick={(event) => select(item, event.shiftKey)}
@@ -1701,6 +1717,7 @@ function ColumnBrowser({
   menu: (item: Item) => ReactNode;
   editor: (item: Item) => ReactNode;
 }) {
+  const { words, versionLabel, video } = useItemWords(tracks[0]?.projectId);
   // The path holds what was chosen; after a rename, move, delete or refresh, it follows the
   // current items, and stops where a choice no longer exists.
   const fresh = freshPath(root, path, open);
@@ -1722,14 +1739,14 @@ function ColumnBrowser({
             if (item.kind === "folder")
               return <ColumnRow key={item.id} {...common} name={item.folder.name} container />;
             if (item.kind === "track") {
-              const copy = trackStateCopy[item.track.state ?? "no_version"];
+              const state = item.track.state ?? "no_version";
               const latest = item.track.versions.at(-1);
               return (
                 <ColumnRow
                   key={item.id}
                   {...common}
                   name={item.track.name}
-                  hint={`${copy.label}${latest ? ` · V${latest.number}` : ""}`}
+                  hint={`${trackStateLabel(state, video ? "video" : undefined)}${latest ? ` · ${versionLabel(latest.number)}` : ""}`}
                   container={item.track.versions.length > 0}
                 />
               );
@@ -1739,8 +1756,8 @@ function ColumnBrowser({
                 <ColumnRow
                   key={item.id}
                   {...common}
-                  name={`V${item.version.number}`}
-                  hint={`${item.version.variations.length} variation${item.version.variations.length === 1 ? "" : "s"} · ${ago(item.version.createdAt)}`}
+                  name={versionLabel(item.version.number)}
+                  hint={`${item.version.variations.length} ${item.version.variations.length === 1 ? words.variation : words.variations} · ${ago(item.version.createdAt)}`}
                   container={false}
                 />
               );
@@ -1793,6 +1810,7 @@ function Preview({
   menu: (item: Item) => ReactNode;
   editor: (item: Item) => ReactNode;
 }) {
+  const { words, versionLabel, video } = useItemWords(tracks[0]?.projectId);
   const file =
     item.kind === "file"
       ? item.file
@@ -1809,12 +1827,15 @@ function Preview({
   if (item.kind === "folder")
     rows.push(["Holds", folderCount(folders, tracks, files, item.folder.id)]);
   if (item.kind === "track") {
-    rows.push(["Status", trackStateCopy[item.track.state ?? "no_version"].label]);
-    rows.push(["Versions", String(item.track.versions.length)]);
+    rows.push([
+      "Status",
+      trackStateLabel(item.track.state ?? "no_version", video ? "video" : undefined),
+    ]);
+    rows.push([capital(words.versions), String(item.track.versions.length)]);
   }
   if (item.kind === "version") {
     rows.push(["Added", ago(item.version.createdAt)]);
-    rows.push(["Variations", item.version.variations.map((v) => v.name).join(", ")]);
+    rows.push([capital(words.variations), item.version.variations.map((v) => v.name).join(", ")]);
     if (item.version.notes) rows.push(["Notes", item.version.notes]);
   }
   if (file) {
@@ -1830,7 +1851,7 @@ function Preview({
       </span>
       <div className="flex items-start gap-2">
         <h3 className="m-0 min-w-0 flex-1 text-[14px] font-medium break-words text-ink">
-          {itemName(item)}
+          {itemName(item, versionLabel)}
         </h3>
         {menu(item)}
       </div>

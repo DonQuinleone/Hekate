@@ -533,8 +533,14 @@ async function reviewView(db: Database, actor: Actor, reviewId: string) {
     r.kind === "share" && member && access.permissions.has("manage_reviewers")
       ? await shareUsage(db, org, r, rows, covered)
       : null;
+  // Its project's profile, so a guest's page names its items in the project's words (#16).
+  const [project] = await db
+    .select({ profile: projects.profile })
+    .from(projects)
+    .where(inOrg(projects, org, eq(projects.id, r.projectId)));
   return {
     ...r,
+    profile: project?.profile ?? "general",
     createdByName: review.createdByName,
     cancelledByName: r.cancelledBy ? await nameOf(db, r.cancelledBy) : null,
     items: items.map(({ fileIds: _, ...item }) => ({

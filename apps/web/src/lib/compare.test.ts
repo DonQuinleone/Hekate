@@ -27,6 +27,9 @@ const variation = (
   fileName: `${name}.wav`,
   kind: "audio",
   streamStatus: "ready",
+  subtitled: null,
+  graded: null,
+  video: null,
   ...extra,
 });
 

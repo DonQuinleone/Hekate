@@ -98,11 +98,11 @@ Each screen lists its states. Every screen is designed at desktop (1440) and pho
 | Comment export and import | A version's comments as a timed list for a target application (Pro Tools, Nuendo, Reaper, Final Cut Pro, DaVinci Resolve, Premiere Pro, Avid, CSV, plain text), scope (open threads or all, with or without replies), time base (timecode from 00:00:00:00 or 01:00:00:00 at a frame rate; seconds or samples for CSV and plain text), encoding (UTF-8, Latin-1); a preview of the file itself; a printable sheet; import of a marker list in the same formats with an author and colour mapping, each thread it brings saying the list it came from. | Nothing to export; threads without a time left out of a marker list; an import with unmatched rows. | #99 #134, legacy |
 | DAW synchronisation | The take log's "synced to recorder" state and a connected-client indicator, as a placeholder for the post-1.0 client. | Not connected. | #58 |
 
-### 3.5 Video: deliverables, versions and renditions
+### 3.5 Video: deliverables, cuts and renditions
 
 | Screen | What it shows | States | Issues |
 | --- | --- | --- | --- |
-| Deliverable | Like a track: cuts in order, renditions per cut (16:9, 9:16, subtitled, clean, graded; one primary), the H.264 and the royalty-free (AV1 or VP9) rendition marked. | No cuts; a rendition still encoding. | #16 |
+| Deliverable | A track in a video project, in video words (decision 138): cuts in order ("Cut 3"), renditions per cut with one primary, each shown by its shape and codec, read from the file, and whether it is subtitled or clean, graded or ungraded, as its people said (Describe the renditions); no takes or score; the H.264 and the royalty-free (AV1 or VP9) stream marked. | No cuts; renditions not yet described; a rendition still encoding. | #16 |
 | Video: Review | The frame with filmstrip and waveform, SMPTE timecode and frame number (drop-frame aware), frame stepping and JKL shuttle, go to timecode, mattes and safe areas, captions, range and region comments and drawing (box, circle, line, arrow, freehand, text), rendition switch, compare cuts side by side and by wipe, the per-viewer watermark overlay, audio layout (stereo, 5.1, Atmos bed) with solo and mute. | Processing; failed; long comment list; a guest with a visible watermark. | #16 #31 #44 #74 |
 | Video: QA | Format conformance, black and frozen frames, dropped or duplicated frames, interlacing, broadcast-safe levels, letterboxing, timecode continuity, flashing risk, programme loudness; markers on the timeline; report. | No findings; running. | #42 #43 |
 

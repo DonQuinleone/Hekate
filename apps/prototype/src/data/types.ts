@@ -136,6 +136,9 @@ export interface Variation {
   name: string;
   fileId: string;
   primary: boolean;
+  /** A rendition's treatment (#16), as its people said; unset until they do. */
+  subtitled?: boolean;
+  graded?: boolean;
 }
 
 export interface Version {

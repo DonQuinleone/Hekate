@@ -2,6 +2,7 @@ import {
   type ApprovalRule,
   applyPermissions,
   type CreateReviewInput,
+  capital,
   type GuestInput,
   type ReviewerInput,
   type ReviewerPermissionsChange,
@@ -39,6 +40,7 @@ import {
   projectRolesQuery,
   projectTracksQuery,
   useCreateReview,
+  useItemWords,
   useProjectCan,
   workspaceSettingsQuery,
 } from "~/lib/queries";
@@ -131,6 +133,7 @@ export function RequestReviewPage({
   const { data: groups = [] } = useQuery(projectGroupsQuery(projectId));
   const { data: settings } = useQuery(workspaceSettingsQuery);
   const can = useProjectCan(projectId);
+  const { words, versionLabel } = useItemWords(projectId);
   const mayRequest = can("request_reviews");
   const { data: known = [] } = useQuery({
     ...projectGuestsQuery(projectId),
@@ -421,7 +424,7 @@ export function RequestReviewPage({
             <Section
               n={2}
               title="What"
-              hint="Tracks at their latest version or a chosen one, and files."
+              hint={`${capital(words.tracks)} at their latest ${words.version} or a chosen one, and files.`}
             >
               <ItemPicker projectId={projectId} chosen={chosen} onToggle={toggleItem} />
               {items.length > 0 && (
@@ -450,12 +453,14 @@ export function RequestReviewPage({
                             size="sm"
                             value={
                               <span className="tabular text-[12px]">
-                                {picked ? `V${picked.number}` : `Latest (V${latest.number})`}
+                                {picked
+                                  ? versionLabel(picked.number)
+                                  : `Latest (${versionLabel(latest.number)})`}
                               </span>
                             }
                             actions={[
                               {
-                                label: `Latest (V${latest.number})`,
+                                label: `Latest (${versionLabel(latest.number)})`,
                                 checked: !picked,
                                 onSelect: () =>
                                   setChosen(new Map(chosen).set(key, { versionId: null })),
@@ -463,7 +468,7 @@ export function RequestReviewPage({
                               ...[...track.versions]
                                 .sort((a, b) => b.number - a.number)
                                 .map((v) => ({
-                                  label: `V${v.number}`,
+                                  label: versionLabel(v.number),
                                   checked: picked?.id === v.id,
                                   onSelect: () =>
                                     setChosen(new Map(chosen).set(key, { versionId: v.id })),

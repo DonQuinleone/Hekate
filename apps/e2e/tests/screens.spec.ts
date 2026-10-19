@@ -258,6 +258,12 @@ const screens: Screen[] = [
     path: (s) => `/tracks/${s.trackId}?view=versions`,
     ready: "text=Bars 12 to 16",
   },
+  // A deliverable (#16): a track in a video project, in video words, its renditions described.
+  {
+    name: "deliverable",
+    path: (s) => `/tracks/${s.deliverableId}?view=versions`,
+    ready: "text=Picture lock candidate",
+  },
   // Two versions side by side (#137): aligned by their audio, the checks fixed and new.
   {
     name: "track-compare",
@@ -1633,6 +1639,18 @@ test("track-new-version", async ({ page }) => {
   await settle(page, "form li");
   await refusal.evaluate((el) => el.scrollIntoView({ block: "center" }));
   await saveScreen(page, "track-new-version");
+  await checkScreen(page);
+});
+
+// A deliverable's renditions (#16): named, and said to be subtitled or clean, graded or not.
+test("deliverable-renditions", async ({ page }) => {
+  await page.goto(`/tracks/${seeded().deliverableId}?view=versions`);
+  await page.getByRole("button", { name: "Actions for Cut 1" }).click();
+  await page.getByRole("menuitem", { name: "Describe the renditions…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Renditions of Cut 1" });
+  await expect(dialog.getByLabel("Subtitles").first()).toHaveValue("no");
+  await expect(dialog.getByLabel("Grade").first()).toHaveValue("yes");
+  await saveScreen(page, "deliverable-renditions");
   await checkScreen(page);
 });
 

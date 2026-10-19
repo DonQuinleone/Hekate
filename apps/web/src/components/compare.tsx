@@ -1,4 +1,4 @@
-import { mapTime } from "@hekate/shared";
+import { mapTime, versionLabel } from "@hekate/shared";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import type Hls from "hls.js";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -302,17 +302,17 @@ export function Compare({
   });
   const candidates = useMemo(() => {
     if (!track) return [];
-    const offered = compareSources(track, file.id);
+    const offered = compareSources(track, file.id, file.profile);
     // A focused source joins the offer even when it is not one of the usual ones.
     const extra =
       focus && !offered.some((c) => c.fileId === focus.fileId)
-        ? (sourceFor(track, focus.fileId) ??
+        ? (sourceFor(track, focus.fileId, file.profile) ??
           (focus.outside && focus.outside.trackId === variation?.trackId
             ? { fileId: focus.fileId, label: focus.outside.label, versionNumber: 0 }
             : undefined))
         : undefined;
     return extra ? [extra, ...offered] : offered;
-  }, [track, file.id, focus, variation?.trackId]);
+  }, [track, file.id, focus, variation?.trackId, file.profile]);
   const [pinned, setPinned] = useState<string[]>([]);
   /** The source being heard, by file, so pinning or unpinning others never changes it. */
   const [heard, setHeard] = useState<string | null>(null);
@@ -352,7 +352,9 @@ export function Compare({
 
   const self: CompareSource = {
     fileId: file.id,
-    label: variation ? `V${variation.versionNumber} · ${variation.name}` : file.name,
+    label: variation
+      ? `${versionLabel(variation.versionNumber, file.profile)} · ${variation.name}`
+      : file.name,
     versionNumber: variation?.versionNumber ?? 0,
   };
   const sources = [

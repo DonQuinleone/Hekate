@@ -19,6 +19,7 @@ import {
   speakerOf,
   speakersOf,
   type TriageInput,
+  versionLabel,
   videoClock,
   videoTimecode,
 } from "@hekate/shared";
@@ -80,6 +81,8 @@ export const anchorLabel = (anchor: Anchor, time?: TimeFormat | null) =>
 type TimeFormat = (seconds: number) => string;
 /** How moments read on this file: a video's own timecode, else the clock (#146). */
 const TimeFormatting = createContext<TimeFormat | null>(null);
+/** How the file's project names a version: "V3", or "Cut 3" in video (#16). */
+const VersionNaming = createContext<(n: number) => string>((n) => `V${n}`);
 
 const textButton =
   "inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink disabled:cursor-default disabled:opacity-40";
@@ -715,7 +718,8 @@ function ThreadView({
   const carry = comment.carry;
   /** This version's number, for "Fixed in V3". */
   const here = comment.history?.hops.find((h) => h.fileId === fileId)?.versionNumber;
-  const path = historyLabel(comment.history);
+  const versionName = useContext(VersionNaming);
+  const path = historyLabel(comment.history, versionName);
   const from = carry?.from.anchor;
   const setCarry = (change: { status?: CarryStatus; visible?: boolean; anchor?: Anchor | null }) =>
     carry && mutations.carry.mutate({ id: carry.id, ...change });
@@ -852,7 +856,7 @@ function ThreadView({
               >
                 {carryStatuses.map((s) => (
                   <option key={s} value={s}>
-                    {carryStatusLabel(s, here ?? 0)}
+                    {carryStatusLabel(s, here ?? 0, versionName)}
                   </option>
                 ))}
               </Select>
@@ -898,7 +902,7 @@ function ThreadView({
           ) : (
             carry.status !== "open" && (
               <span className="ml-auto text-xs text-ink-3">
-                {carryStatusLabel(carry.status, here ?? 0)}
+                {carryStatusLabel(carry.status, here ?? 0, versionName)}
               </span>
             )
           )
@@ -1648,124 +1652,126 @@ export function Comments({
 
   return (
     <TimeFormatting.Provider value={timeFormat}>
-      <Mentionable value={mentionable}>
-        <section aria-label="Comments" className="flex flex-col gap-4">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="m-0 text-[15px] font-medium">Comments</h2>
-            <div className="flex items-center gap-1">
-              <span className="tabular text-xs text-ink-3">
-                {threads.open.length} open
-                {threads.deferred.length > 0 && ` · ${threads.deferred.length} deferred`}
-                {threads.resolved.length > 0 && ` · ${threads.resolved.length} resolved`}
-              </span>
-              {tools}
-            </div>
-          </div>
-          {canComment && (
-            <>
-              {/* On a phone the composer opens as a sheet, so the comments stay in view. */}
-              <div ref={composer} onFocusCapture={capture} className="hidden @3xl/app:block">
-                {composerBody}
+      <VersionNaming.Provider value={(n) => versionLabel(n, file?.profile)}>
+        <Mentionable value={mentionable}>
+          <section aria-label="Comments" className="flex flex-col gap-4">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="m-0 text-[15px] font-medium">Comments</h2>
+              <div className="flex items-center gap-1">
+                <span className="tabular text-xs text-ink-3">
+                  {threads.open.length} open
+                  {threads.deferred.length > 0 && ` · ${threads.deferred.length} deferred`}
+                  {threads.resolved.length > 0 && ` · ${threads.resolved.length} resolved`}
+                </span>
+                {tools}
               </div>
-              <Button
-                variant="secondary"
-                className="w-full @3xl/app:hidden"
-                onClick={() => {
-                  media?.pause();
-                  capture();
-                  setSheet(true);
-                }}
-              >
-                <Icon name="comment" size={14} />
-                {composerLabel}
-              </Button>
-              {sheet && (
-                <Dialog title={composerLabel} onClose={() => setSheet(false)}>
-                  {/* Opened to write in: the text box takes focus. */}
-                  <div onFocusCapture={capture} ref={sheetBody}>
-                    {composerBody}
-                  </div>
-                </Dialog>
-              )}
-            </>
-          )}
-          {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
-          {data &&
-            threads.open.length === 0 &&
-            threads.deferred.length === 0 &&
-            threads.resolved.length === 0 &&
-            threads.hidden.length === 0 && (
-              <p className="m-0 text-[13px] text-ink-3">No comments yet.</p>
-            )}
-          {used.length > 1 && (
-            <fieldset className="m-0 flex min-w-0 flex-wrap gap-1 border-0 p-0">
-              <legend className="sr-only">Show comments of</legend>
-              <ToggleChip pressed={!onlyCategory} onClick={() => setOnlyCategory(null)}>
-                All
-              </ToggleChip>
-              {used.map((c) => (
-                <ToggleChip
-                  key={c.id}
-                  pressed={onlyCategory === c.id}
-                  onClick={() => setOnlyCategory(onlyCategory === c.id ? null : c.id)}
+            </div>
+            {canComment && (
+              <>
+                {/* On a phone the composer opens as a sheet, so the comments stay in view. */}
+                <div ref={composer} onFocusCapture={capture} className="hidden @3xl/app:block">
+                  {composerBody}
+                </div>
+                <Button
+                  variant="secondary"
+                  className="w-full @3xl/app:hidden"
+                  onClick={() => {
+                    media?.pause();
+                    capture();
+                    setSheet(true);
+                  }}
                 >
-                  {c.name}
+                  <Icon name="comment" size={14} />
+                  {composerLabel}
+                </Button>
+                {sheet && (
+                  <Dialog title={composerLabel} onClose={() => setSheet(false)}>
+                    {/* Opened to write in: the text box takes focus. */}
+                    <div onFocusCapture={capture} ref={sheetBody}>
+                      {composerBody}
+                    </div>
+                  </Dialog>
+                )}
+              </>
+            )}
+            {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
+            {data &&
+              threads.open.length === 0 &&
+              threads.deferred.length === 0 &&
+              threads.resolved.length === 0 &&
+              threads.hidden.length === 0 && (
+                <p className="m-0 text-[13px] text-ink-3">No comments yet.</p>
+              )}
+            {used.length > 1 && (
+              <fieldset className="m-0 flex min-w-0 flex-wrap gap-1 border-0 p-0">
+                <legend className="sr-only">Show comments of</legend>
+                <ToggleChip pressed={!onlyCategory} onClick={() => setOnlyCategory(null)}>
+                  All
                 </ToggleChip>
-              ))}
-            </fieldset>
-          )}
-          <ul className="m-0 flex list-none flex-col p-0">
-            {threads.open.filter(inCategory).map(view)}
-          </ul>
-          {threads.deferred.length > 0 && (
-            <div className="flex flex-col">
-              <button
-                type="button"
-                onClick={() => setShowDeferred((v) => !v)}
-                aria-expanded={showDeferred}
-                className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
-              >
-                {showDeferred ? "Hide" : "Show"} {threads.deferred.length} deferred
-              </button>
-              {showDeferred && (
-                <ul className="m-0 flex list-none flex-col p-0">
-                  {threads.deferred.filter(inCategory).map(view)}
-                </ul>
-              )}
-            </div>
-          )}
-          {threads.resolved.length > 0 && (
-            <div className="flex flex-col">
-              <button
-                type="button"
-                onClick={() => setShowResolved((v) => !v)}
-                aria-expanded={showResolved}
-                className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
-              >
-                {showResolved ? "Hide" : "Show"} {threads.resolved.length} resolved
-              </button>
-              {showResolved && (
-                <ul className="m-0 flex list-none flex-col p-0">{threads.resolved.map(view)}</ul>
-              )}
-            </div>
-          )}
-          {threads.hidden.length > 0 && (
-            <div className="flex flex-col">
-              <button
-                type="button"
-                onClick={() => setShowHidden((v) => !v)}
-                aria-expanded={showHidden}
-                className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
-              >
-                {showHidden ? "Hide" : "Show"} {threads.hidden.length} hidden on this version
-              </button>
-              {showHidden && (
-                <ul className="m-0 flex list-none flex-col p-0">{threads.hidden.map(view)}</ul>
-              )}
-            </div>
-          )}
-        </section>
-      </Mentionable>
+                {used.map((c) => (
+                  <ToggleChip
+                    key={c.id}
+                    pressed={onlyCategory === c.id}
+                    onClick={() => setOnlyCategory(onlyCategory === c.id ? null : c.id)}
+                  >
+                    {c.name}
+                  </ToggleChip>
+                ))}
+              </fieldset>
+            )}
+            <ul className="m-0 flex list-none flex-col p-0">
+              {threads.open.filter(inCategory).map(view)}
+            </ul>
+            {threads.deferred.length > 0 && (
+              <div className="flex flex-col">
+                <button
+                  type="button"
+                  onClick={() => setShowDeferred((v) => !v)}
+                  aria-expanded={showDeferred}
+                  className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+                >
+                  {showDeferred ? "Hide" : "Show"} {threads.deferred.length} deferred
+                </button>
+                {showDeferred && (
+                  <ul className="m-0 flex list-none flex-col p-0">
+                    {threads.deferred.filter(inCategory).map(view)}
+                  </ul>
+                )}
+              </div>
+            )}
+            {threads.resolved.length > 0 && (
+              <div className="flex flex-col">
+                <button
+                  type="button"
+                  onClick={() => setShowResolved((v) => !v)}
+                  aria-expanded={showResolved}
+                  className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+                >
+                  {showResolved ? "Hide" : "Show"} {threads.resolved.length} resolved
+                </button>
+                {showResolved && (
+                  <ul className="m-0 flex list-none flex-col p-0">{threads.resolved.map(view)}</ul>
+                )}
+              </div>
+            )}
+            {threads.hidden.length > 0 && (
+              <div className="flex flex-col">
+                <button
+                  type="button"
+                  onClick={() => setShowHidden((v) => !v)}
+                  aria-expanded={showHidden}
+                  className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+                >
+                  {showHidden ? "Hide" : "Show"} {threads.hidden.length} hidden on this version
+                </button>
+                {showHidden && (
+                  <ul className="m-0 flex list-none flex-col p-0">{threads.hidden.map(view)}</ul>
+                )}
+              </div>
+            )}
+          </section>
+        </Mentionable>
+      </VersionNaming.Provider>
     </TimeFormatting.Provider>
   );
 }

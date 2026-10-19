@@ -201,12 +201,17 @@ export type CarryStatus = z.infer<typeof carryStatus>;
 export const carrySettles = (status: CarryStatus) => status === "fixed" || status === "wont_fix";
 
 /** How a status reads on the version it was set on: "Fixed in V5". */
-export function carryStatusLabel(status: CarryStatus, versionNumber: number): string {
+export function carryStatusLabel(
+  status: CarryStatus,
+  versionNumber: number,
+  /** A version's name: "V3", or "Cut 3" in a video project (#16). */
+  version: (n: number) => string = (n) => `V${n}`,
+): string {
   switch (status) {
     case "open":
       return "Open";
     case "fixed":
-      return `Fixed in V${versionNumber}`;
+      return `Fixed in ${version(versionNumber)}`;
     case "not_fixed":
       return "Not fixed";
     case "wont_fix":

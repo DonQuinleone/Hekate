@@ -7,6 +7,7 @@ import { Button } from "./ui/button";
 /** What following tells you about. */
 const told = {
   track: "told when a new version arrives",
+  deliverable: "told when a new cut arrives",
   review: "told when someone decides, gives feedback or opens it as a guest",
 };
 
@@ -15,7 +16,7 @@ const told = {
  * versions already follows it, and whoever asked for a review is told anyway; this is for
  * everyone else who wants to keep up, as GitHub's Watch and Linear's Subscribe are.
  */
-export function FollowButton({ target, what }: { target: FollowInput; what: "track" | "review" }) {
+export function FollowButton({ target, what }: { target: FollowInput; what: keyof typeof told }) {
   const { data: follows } = useQuery(followsQuery);
   const follow = useFollow();
   const unfollow = useUnfollow();

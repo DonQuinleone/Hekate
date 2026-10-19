@@ -26,6 +26,7 @@ import {
   projectQuery,
   type TrackComparison,
   trackCompareQuery,
+  useItemWords,
   useProjectCan,
   useRealign,
 } from "~/lib/queries";
@@ -46,6 +47,8 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
     enabled: Boolean(data),
   });
   const can = useProjectCan(data?.track.projectId);
+  const { words, versionLabel } = useItemWords(data?.track.projectId);
+  const compareTitle = `Compare ${words.versions}`;
   const realign = useRealign(trackId);
   const [blind, setBlind] = useState(false);
   /** Blind: whether key 1 is B rather than A. */
@@ -110,7 +113,7 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
 
   const say = useAnnounce();
   const label = (which: Which) =>
-    blind ? ((which === "a") !== swapped ? "X" : "Y") : `V${data?.[which].number ?? ""}`;
+    blind ? ((which === "a") !== swapped ? "X" : "Y") : versionLabel(data?.[which].number ?? 0);
   const keyFor = (which: Which) => ((which === "a") !== swapped ? "1" : "2");
   const hear = (which: Which) => {
     setHeard(which);
@@ -123,11 +126,11 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
   };
   useShortcuts(
     "compare-versions",
-    "Compare versions",
+    compareTitle,
     [
       {
         keys: ["1", "2"],
-        label: "Hear one version or the other",
+        label: `Hear one ${words.version} or the other`,
         run: (event) => hear((event.key === "1") !== swapped ? "a" : "b"),
       },
       { keys: ["Space"], label: "Play or pause", run: toggle },
@@ -138,7 +141,7 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
   if (error) {
     return (
       <>
-        <PageHeader title="Compare versions" />
+        <PageHeader title={compareTitle} />
         <Page className="gap-6">
           <Empty title="Nothing to compare" text={error.message} />
         </Page>
@@ -196,7 +199,7 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
             ),
           },
         ]}
-        title="Compare versions"
+        title={compareTitle}
         actions={
           <Button
             variant={blind ? "primary" : "secondary"}
@@ -213,7 +216,9 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
           {(["a", "b"] as const).map((which) => (
             <label key={which} className="flex items-center gap-2 text-[13px] text-ink-2">
               <Kbd>{which === "a" ? "1" : "2"}</Kbd>
-              <span className="sr-only">{which === "a" ? "First version" : "Second version"}</span>
+              <span className="sr-only">
+                {which === "a" ? `First ${words.version}` : `Second ${words.version}`}
+              </span>
               <Select
                 value={data[which].number}
                 onChange={(e) => choose(which, Number(e.target.value))}
@@ -226,7 +231,7 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
                     value={v.number}
                     disabled={v.number === data[which === "a" ? "b" : "a"].number}
                   >
-                    {blind ? "Hidden" : `V${v.number} · ${v.name}`}
+                    {blind ? "Hidden" : `${versionLabel(v.number)} · ${v.name}`}
                   </option>
                 ))}
               </Select>
@@ -295,9 +300,9 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
                   ) : (
                     <div className="flex h-[168px] items-center justify-center rounded-control bg-sunken/40 text-[13px] text-ink-3">
                       {side.failed
-                        ? "This version could not be prepared to play."
+                        ? `This ${words.version} could not be prepared to play.`
                         : !side.ready
-                          ? "Preparing this version to play"
+                          ? `Preparing this ${words.version} to play`
                           : null}
                     </div>
                   )}
@@ -306,7 +311,7 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
             })}
             {failed && (
               <p className="m-0 text-[13px] text-signal">
-                One of the versions could not be loaded to play.
+                One of the {words.versions} could not be loaded to play.
               </p>
             )}
             <div className="flex flex-wrap items-center gap-3 px-1 text-[13px] text-ink-3">
@@ -373,7 +378,7 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
               <span className="text-[12px] text-ink-3">
                 {data.alignment.status === "ready"
                   ? `Each comment on ${label("a")} follows the audio to its place on ${label("b")}.`
-                  : "Comments stay on their own versions until the alignment is good enough."}
+                  : `Comments stay on their own ${words.versions} until the alignment is good enough.`}
               </span>
               {data.alignment.status === "ready" && data.comments.length > 0 && (
                 <ul className="m-0 flex list-none flex-col gap-1 p-0 text-[13px]">

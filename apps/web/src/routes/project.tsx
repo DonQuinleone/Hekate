@@ -169,7 +169,7 @@ export function ProjectFilesPage({
               onOpenFolder={onOpenFolder}
               filters={filters}
               onFilter={onFilter}
-              tracks={project.profile === "music"}
+              tracks={project.profile !== "general"}
             />
           </div>
         </UploadProvider>

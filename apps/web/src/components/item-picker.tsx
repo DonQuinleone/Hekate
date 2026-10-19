@@ -7,6 +7,7 @@ import {
   projectFoldersQuery,
   projectTracksQuery,
   type Track,
+  useItemWords,
 } from "~/lib/queries";
 import { kindIcon } from "./files";
 import { Icon } from "./icons";
@@ -33,6 +34,7 @@ export function ItemPicker({
   const { data: folders = [] } = useQuery(projectFoldersQuery(projectId));
   const { data: tracks = [] } = useQuery(projectTracksQuery(projectId));
   const { data: files = [] } = useQuery(projectFilesQuery(projectId));
+  const { words, versionLabel } = useItemWords(projectId);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const children = (folderId: string | null) => itemsIn(folders, tracks, files, folderId);
@@ -120,7 +122,7 @@ export function ItemPicker({
           )}
           {item.kind === "track" && (
             <span className="tabular shrink-0 text-[12px] text-ink-3">
-              {latest ? `V${latest.number}` : "no version yet"}
+              {latest ? versionLabel(latest.number) : `no ${words.version} yet`}
             </span>
           )}
         </div>
@@ -137,8 +139,8 @@ export function ItemPicker({
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Find a track or file"
-          aria-label="Find a track or file"
+          placeholder={`Find a ${words.track} or file`}
+          aria-label={`Find a ${words.track} or file`}
           className="h-8 border-transparent bg-transparent px-1 shadow-none hover:border-transparent focus:border-transparent"
         />
       </div>

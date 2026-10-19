@@ -3961,8 +3961,22 @@ describe.runIf(url)("api", () => {
         versions: {
           id: string;
           number: number;
-          variations: { id: string; fileId: string; name: string; isPrimary: boolean }[];
+          variations: {
+            id: string;
+            fileId: string;
+            name: string;
+            isPrimary: boolean;
+            subtitled?: boolean | null;
+          }[];
         }[];
+      };
+      const joinAs = async (owner: string, email: string, role: string) => {
+        const { body } = await invite(owner, email, role);
+        const res = await app.request(
+          `/api/invitations/${tokenFrom(body.link)}/accept`,
+          json({ name: "Colleague", password: "correct horse battery" }),
+        );
+        return cookieOf(res);
       };
       const organisationOf = async (cookie: string) =>
         (
@@ -4078,6 +4092,39 @@ describe.runIf(url)("api", () => {
           await app.request(`/api/variations/${variations2[0]?.id}/primary`, json({}, owner)),
         );
         expect(restored.versions[1]?.variations.map((v) => v.isPrimary)).toEqual([true, false]);
+
+        // A variation is renamed; in a music project it has no treatment to say (#16).
+        const variationPath = `/api/variations/${variations2[1]?.id}`;
+        expect((await send("PATCH", variationPath, { subtitled: true }, owner)).status).toBe(422);
+        // In a video project it is a rendition, and says it; unsaid stays null.
+        const asVideo = (profile: "music" | "video") =>
+          db.update(schema.projects).set({ profile }).where(eq(schema.projects.id, projectId));
+        await asVideo("video");
+        const treated = await trackFrom(
+          await send("PATCH", variationPath, { name: "Wet, subtitled", subtitled: true }, owner),
+        );
+        expect(treated.versions[1]?.variations[1]).toMatchObject({
+          name: "Wet, subtitled",
+          subtitled: true,
+          graded: null,
+          video: null,
+        });
+        // Its name back, its treatment kept.
+        const named = await trackFrom(
+          await send("PATCH", `/api/variations/${variations2[1]?.id}`, { name: "Wet" }, owner),
+        );
+        expect(named.versions[1]?.variations[1]).toMatchObject({ name: "Wet", subtitled: true });
+        expect(
+          (await send("PATCH", `/api/variations/${variations2[1]?.id}`, {}, owner)).status,
+        ).toBe(400);
+        // Only those who organise the project change it.
+        const reviewer = await joinAs(owner, "variation-reviewer@example.test", "member");
+        await grantRole(owner, projectId, reviewer, "Reviewer");
+        expect(
+          (await send("PATCH", `/api/variations/${variations2[1]?.id}`, { graded: true }, reviewer))
+            .status,
+        ).toBe(403);
+        await asVideo("music");
 
         const renamed = await trackFrom(
           await send(
@@ -4263,6 +4310,10 @@ describe.runIf(url)("api", () => {
         ).toBe(404);
         expect(
           (await app.request(`/api/variations/${foreignVariation?.id}/primary`, json({}, owner)))
+            .status,
+        ).toBe(404);
+        expect(
+          (await send("PATCH", `/api/variations/${foreignVariation?.id}`, { graded: true }, owner))
             .status,
         ).toBe(404);
         // Nor can another organisation's file become a variation here.
@@ -6060,6 +6111,8 @@ describe.runIf(url)("api", () => {
         await app.request(`/api/files/${s.mix}/comments`, json({ body: "Pedal" }, s.composer));
         const theirs = await pageOf(await getAs(path(made.id), s.composer));
         expect(theirs.you.opened).toEqual([trackItem]);
+        // Its project's profile names its items in the project's words (#16).
+        expect((theirs as PageReview & { profile: string }).profile).toBe("music");
         const seen = await pageOf(await getAs(path(made.id), s.owner));
         expect(seen.reviewers[0]?.comments).toMatchObject({ count: 1, fileId: s.mix });
         expect(seen.items.find((i) => i.id === trackItem)?.openComments).toBe(1);
