@@ -56,6 +56,7 @@ export const fileDetailRoutes = (db: Database) =>
           byteSize: files.byteSize,
           mediaInfo: files.mediaInfo,
           pageCount: files.pageCount,
+          filmstripFrames: files.filmstripFrames,
           streamStatus: files.streamStatus,
           analysisStatus: files.analysisStatus,
           createdAt: files.createdAt,
@@ -175,7 +176,7 @@ export const fileDetailRoutes = (db: Database) =>
           ),
         );
 
-      const { keyVersion, backend, sha256, takeId, ...rest } = file;
+      const { keyVersion, backend, sha256, takeId, filmstripFrames, ...rest } = file;
       const [inTake] = take;
       const admin = actor.organisationRole === "owner" || actor.organisationRole === "admin";
       return c.json({
@@ -190,6 +191,7 @@ export const fileDetailRoutes = (db: Database) =>
         },
         renditions: made,
         pages: file.pageCount === null ? null : { total: file.pageCount, drawn: pages?.n ?? 0 },
+        filmstrip: filmstripFrames,
         analysis: {
           status: file.analysisStatus,
           peaks: (peaks?.n ?? 0) > 0,

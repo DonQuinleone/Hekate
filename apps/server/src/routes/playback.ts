@@ -534,6 +534,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
           kind: files.kind,
           projectId: files.projectId,
           streamStatus: files.streamStatus,
+          filmstripFrames: files.filmstripFrames,
         })
         .from(files)
         .where(inOrg(files, organisationId, eq(files.id, id)));
@@ -629,6 +630,10 @@ export const fileRoutes = (deps: PlaybackDeps) =>
           expiresAt: new Date(expiresAt * 1000),
           // So the player can name what it offers; the playlists carry the same ids.
           renditions: available,
+          // A video's frames along it (#16), through this link like its streams.
+          filmstrip: file.filmstripFrames
+            ? { url: `/api/play/${token}/filmstrip`, frames: file.filmstripFrames }
+            : null,
         },
         201,
       );
@@ -923,6 +928,43 @@ export const playRoutes = (deps: PlaybackDeps) => {
         });
       },
     )
+
+    .get("/:token/filmstrip", async (c) => {
+      const claims = c.var.playback;
+      const [row] = await deps.db
+        .select({ blobId: files.filmstripBlobId, watermark: projects.watermark })
+        .from(files)
+        .innerJoin(
+          projects,
+          and(eq(projects.id, files.projectId), eq(projects.organisationId, claims.organisationId)),
+        )
+        .where(inOrg(files, claims.organisationId, eq(files.id, claims.fileId)));
+      if (!row?.blobId) throw new NotFound("Filmstrip");
+      // Small frames to find a place by, as a page's thumbnails are: marked like them where the
+      // project marks this viewer, and, like them, not logged apart from the stream it belongs to.
+      const actor = c.var.actor;
+      const style = watermarkOf(row.watermark);
+      if (!marks(style, actor.kind === "guest" ? "guest" : "member"))
+        return sendBlob(claims.organisationId, row.blobId, "image/webp");
+      const text = await viewerMark(deps.db, actor);
+      if (!text) throw new NotFound("Filmstrip");
+      const { stream } = await deps.storage.open(claims.organisationId, row.blobId);
+      const stored = Buffer.concat(await stream.toArray());
+      const marked = await watermark(
+        stored,
+        text,
+        "thumb",
+        c.req.raw.signal,
+        style,
+        "webp",
+        deps.workDir,
+      );
+      return c.body(new Uint8Array(marked), 200, {
+        ...PRIVATE,
+        "content-type": "image/webp",
+        "content-length": String(marked.length),
+      });
+    })
 
     .get("/:token/r/:rid/key", ridParam, async (c) => {
       const claims = c.var.playback;

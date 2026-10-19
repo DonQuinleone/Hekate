@@ -16,6 +16,7 @@ describe("a wide layout's later channels (#74)", () => {
       url: "/api/play/abc.def/master.m3u8",
       expiresAt: "2026-10-19T18:00:00Z",
       renditions: [part],
+      filmstrip: null,
     };
     expect(renditionPlaylist(playback, part)).toBe("/api/play/abc.def/r/r2/index.m3u8");
   });
@@ -34,6 +35,7 @@ describe("a wide layout's later channels (#74)", () => {
   const at = (renditions: Rendition[]): Playback => ({
     url: "/api/play/abc.def/master.m3u8",
     expiresAt: "2026-10-19T18:00:00Z",
+    filmstrip: null,
     renditions,
   });
 

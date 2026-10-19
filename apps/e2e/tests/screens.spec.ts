@@ -1727,6 +1727,8 @@ test("video-captions", async ({ page }) => {
   await expect(details.getByRole("list", { name: "Captions" })).toContainText(
     "SubRip · 2 captions",
   );
+  // Its filmstrip (#16), made with its streams.
+  await expect(details).toContainText("Filmstrip, 12 frames");
   await details.getByText("Captions", { exact: true }).first().scrollIntoViewIfNeeded();
   await saveScreen(page, "video-captions-details");
   await checkScreen(page);

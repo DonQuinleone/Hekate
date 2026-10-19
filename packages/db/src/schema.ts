@@ -831,6 +831,15 @@ export const files = pgTable(
     analysisStatus: streamStatusEnum("analysis_status").notNull().default("none"),
     /** Measured by the media worker; null until the file has been probed. */
     mediaInfo: jsonb("media_info").$type<MediaInfo>(),
+    /**
+     * A video's filmstrip (#16): its frames at even steps along it, side by side in one
+     * encrypted picture; null for anything else, or a video packaged before there was one.
+     */
+    filmstripBlobId: uuid("filmstrip_blob_id").references(() => blobs.id, {
+      onDelete: "no action",
+    }),
+    /** How many frames the filmstrip holds. */
+    filmstripFrames: integer("filmstrip_frames"),
     takeId: uuid("take_id").references(() => takes.id, { onDelete: "set null" }),
     /** Within a take: the microphone or channel name, for example "Main pair L". */
     takeChannel: text("take_channel"),
