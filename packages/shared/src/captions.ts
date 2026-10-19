@@ -53,11 +53,22 @@ export interface CaptionTrack {
 /** A caption file that cannot be read, with a sentence saying why. */
 export class CaptionError extends Error {}
 
+/** Whether a file opens with TTML's root, after any XML declaration and comments. */
+function isTtml(head: string): boolean {
+  let rest = head.replace(/^<\?xml[^>]*>/, "").trimStart();
+  while (rest.startsWith("<!--")) {
+    const end = rest.indexOf("-->");
+    if (end < 0) return false;
+    rest = rest.slice(end + 3).trimStart();
+  }
+  return /^<(?:\w+:)?tt[\s>]/.test(rest);
+}
+
 /** The format a file is in, by its contents first and then its name; null when it is none. */
 export function captionFormatOf(name: string, text: string): CaptionFormat | null {
   const head = text.replace(/^﻿/, "").trimStart();
   if (/^WEBVTT(\s|$)/.test(head)) return "vtt";
-  if (/^(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*<(\w+:)?tt[\s>]/.test(head)) return "ttml";
+  if (isTtml(head)) return "ttml";
   if (/^\d+\s*\r?\n\s*\d{1,2}:\d{2}:\d{2}[,.]\d{1,3}\s*-->/.test(head)) return "srt";
   const extension = name.toLowerCase().split(".").pop();
   if (extension === "srt") return "srt";
@@ -109,7 +120,14 @@ function decodeEntities(text: string): string {
 
 /** One line's text without markup: tags, SubRip's position codes and WebVTT's timestamps. */
 function plain(line: string): string {
-  return decodeEntities(line.replace(/\{\\[^}]*\}/g, "").replace(/<[^>]*>/g, "")).trim();
+  // Stripped until none is left, so a tag broken around another ("<<b>i>") goes too.
+  let text = line.replace(/\{\\[^}]*\}/g, "");
+  let before: string;
+  do {
+    before = text;
+    text = text.replace(/<[^<>]*>/g, "");
+  } while (text !== before);
+  return decodeEntities(text).trim();
 }
 
 /** `01:02:03,456`, `01:02:03.456` or WebVTT's `02:03.456`, in seconds. */

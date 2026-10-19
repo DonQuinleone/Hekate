@@ -86,6 +86,14 @@ describe("captions from a sidecar file (#146)", () => {
       parseCaptions("<tt><body><p begin='soon' end='2s'>x</p></body></tt>", "ttml"),
     ).toThrow("This begin cannot be read: soon");
     expect(captionFormatOf("notes.txt", "Just some words")).toBeNull();
+    // Comments before the root, however many, and an unclosed one.
+    expect(captionFormatOf("x", `<!-- a --><!-- b -->\n<tt>`)).toBe("ttml");
+    expect(captionFormatOf("x", `<!--${"--><!--".repeat(5000)}`)).toBeNull();
+  });
+
+  it("leaves no tag behind, however it is nested", () => {
+    const [cue] = parseCaptions("1\n00:00:01,000 --> 00:00:02,000\n<<b>i>Hello</<b>i>\n", "srt");
+    expect(cue?.text).toBe("Hello");
   });
 
   it("orders cues by time and shows those under the playhead", () => {
