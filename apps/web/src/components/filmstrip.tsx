@@ -24,32 +24,64 @@ export function coverFrame(
   };
 }
 
+/** A filmstrip's picture as a local address, or null where it could not be had. */
+type Picture = Promise<string | null>;
+
 /**
- * A filmstrip's picture, fetched once through the playback link and kept as a local address
- * while it is shown; null until it arrives, or where it cannot be had (the video plays all
- * the same).
+ * Pictures fetched, by link, with how many are showing each: the player's lane and the QA
+ * view's frames share one fetch (each is a protected read, and a watermark drawn), and the
+ * picture is let go once the last of them is gone.
  */
-export function useFilmstripPicture(url: string | null): string | null {
-  const [src, setSrc] = useState<string | null>(null);
+const pictures = new Map<string, { picture: Picture; users: number }>();
+
+function borrow(url: string): Picture {
+  const held = pictures.get(url);
+  if (held) {
+    held.users += 1;
+    return held.picture;
+  }
+  const picture = fetch(url, { credentials: "same-origin" })
+    .then((res) => (res.ok ? res.blob() : null))
+    .then((blob) => (blob ? URL.createObjectURL(blob) : null))
+    .catch(() => null);
+  pictures.set(url, { picture, users: 1 });
+  return picture;
+}
+
+function giveBack(url: string) {
+  const held = pictures.get(url);
+  if (!held) return;
+  held.users -= 1;
+  if (held.users > 0) return;
+  pictures.delete(url);
+  void held.picture.then((src) => {
+    if (src) URL.revokeObjectURL(src);
+  });
+}
+
+/**
+ * A filmstrip's picture, fetched through the playback link and kept as a local address while
+ * anything shows it: the address, null until it arrives, and whether it could not be had (the
+ * video plays all the same).
+ */
+export function useFilmstripPicture(url: string | null): { src: string | null; failed: boolean } {
+  const [state, setState] = useState<{ src: string | null; failed: boolean }>({
+    src: null,
+    failed: false,
+  });
   useEffect(() => {
     if (!url) return;
-    let made: string | null = null;
-    let cancelled = false;
-    fetch(url, { credentials: "same-origin" })
-      .then((res) => (res.ok ? res.blob() : null))
-      .then((blob) => {
-        if (!blob || cancelled) return;
-        made = URL.createObjectURL(blob);
-        setSrc(made);
-      })
-      .catch(() => undefined);
+    let current = true;
+    borrow(url).then((src) => {
+      if (current) setState({ src, failed: src === null });
+    });
     return () => {
-      cancelled = true;
-      if (made) URL.revokeObjectURL(made);
-      setSrc(null);
+      current = false;
+      giveBack(url);
+      setState({ src: null, failed: false });
     };
   }, [url]);
-  return src;
+  return state;
 }
 
 /** The filmstrip frame nearest a time: frame i spans the i-th equal part of the video. */
@@ -108,7 +140,7 @@ export function Filmstrip({
   at: number;
 }) {
   const strip = useRef<HTMLDivElement>(null);
-  const src = useFilmstripPicture(url);
+  const { src } = useFilmstripPicture(url);
   const [picture, setPicture] = useState<{ width: number; height: number } | null>(null);
   const [box, setBox] = useState<{ width: number; height: number } | null>(null);
   // A new picture is measured afresh when it loads.

@@ -1,7 +1,13 @@
-import type { QaFinding } from "@hekate/shared";
+import { type QaFinding, videoClock } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
 import { filmstripFrame } from "./filmstrip";
-import { deliveryChecklist, framesToLookAt, streamLines } from "./qa-video";
+import {
+  deliveryChecklist,
+  frameLabel,
+  framesToLookAt,
+  soundFigures,
+  streamLines,
+} from "./qa-video";
 
 const finding = (
   check: QaFinding["check"],
@@ -90,5 +96,21 @@ describe("a video's QA (#42)", () => {
     expect(filmstripFrame(30, 60, 30)).toBe(15);
     expect(filmstripFrame(60, 60, 30)).toBe(29);
     expect(filmstripFrame(5, 0, 30)).toBe(0);
+  });
+
+  it("reads loudness and true peak from the checks, which QA alone may see", () => {
+    const loud = { ...finding("loudness", "warn"), details: { integrated: -21.8, target: -14 } };
+    const peak = { ...finding("true-peak", "pass"), details: { truePeak: -14.5, ceiling: -1 } };
+    expect(soundFigures([loud, peak])).toEqual({ integrated: -21.8, truePeak: -14.5 });
+    // A profile without a loudness target, or a silent video, has nothing to show.
+    expect(soundFigures([peak])).toEqual({ integrated: null, truePeak: -14.5 });
+    expect(soundFigures([])).toEqual({ integrated: null, truePeak: null });
+  });
+
+  it("labels a frame by its timecode without the hour, or by its time without a rate", () => {
+    const clock = videoClock({ fps: 25, timecode: "10:00:00:00" });
+    expect(frameLabel(4.4, clock)).toBe("00:04:10");
+    expect(frameLabel(4.4, null)).toBe("0:04");
+    expect(frameLabel(754, null)).toBe("12:34");
   });
 });

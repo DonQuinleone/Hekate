@@ -19,7 +19,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { cn } from "~/lib/cn";
 import type { Loop } from "~/lib/loop";
-import { loudnessQuery, playbackQuery, qaQuery } from "~/lib/queries";
+import { playbackQuery, qaQuery } from "~/lib/queries";
 import { FilmstripFrame, filmstripFrame, useFilmstripPicture } from "./filmstrip";
 import { QualityChecks, SeverityDot } from "./qa";
 
@@ -155,6 +155,28 @@ function Tile({
   );
 }
 
+/**
+ * The loudness and true peak the tiles show, from the checks themselves: QA is all a viewer
+ * needs to see them, without the meters (#240).
+ */
+export function soundFigures(findings: readonly QaFinding[]): {
+  integrated: number | null;
+  truePeak: number | null;
+} {
+  const figure = (check: QaFinding["check"], key: string) => {
+    const value = findings.find((f) => f.check === check)?.details[key];
+    return typeof value === "number" ? value : null;
+  };
+  return {
+    integrated: figure("loudness", "integrated"),
+    truePeak: figure("true-peak", "truePeak"),
+  };
+}
+
+/** Where a frame is, short: the timecode without its hour, or the time from the start. */
+export const frameLabel = (at: number, clock: ReturnType<typeof videoClock>) =>
+  clock ? videoTimecode(at, clock).slice(3) : formatDuration(at);
+
 const bad = (f: QaFinding | undefined) => f?.severity === "fail" || f?.severity === "warn";
 
 /**
@@ -186,14 +208,16 @@ export function VideoQa({
   aside?: ReactNode;
 }) {
   const { data } = useQuery(qaQuery(fileId));
-  const { data: measured } = useQuery({ ...loudnessQuery(fileId), enabled: Boolean(info.audio) });
   // The player fetched the playback link; this only reads it, never asks for another.
   const { data: playback } = useQuery({ ...playbackQuery(fileId), enabled: false });
   const filmstrip = playback?.filmstrip ?? null;
-  const src = useFilmstripPicture(filmstrip?.url ?? null);
+  const { src, failed } = useFilmstripPicture(filmstrip?.url ?? null);
+  // Without a filmstrip (a video made before them, or one that would not load), the frames
+  // are listed by name and time, a click away all the same.
+  const thumbnails = Boolean(filmstrip) && !failed;
   const findings = data?.findings ?? [];
   const by = (check: QaFinding["check"]) => findings.find((f) => f.check === check);
-  const summary = measured?.summary ?? null;
+  const summary = soundFigures(findings);
   const loudness = by("loudness");
   const peak = by("true-peak");
   const v = info.video;
@@ -310,11 +334,28 @@ export function VideoQa({
           {frames.length > 0 && (
             <section aria-label="Frames to look at" className="flex flex-col gap-2">
               <h2 className="label m-0">Frames to look at</h2>
-              <ul className="m-0 grid list-none grid-cols-2 gap-2 p-0">
+              <ul
+                className={cn(
+                  "m-0 list-none p-0",
+                  thumbnails ? "grid grid-cols-2 gap-2" : "flex flex-col border-t border-hairline",
+                )}
+              >
                 {frames.map((f) => {
                   const at = f.start ?? 0;
-                  const label = clock ? videoTimecode(at, clock) : formatDuration(at);
-                  return (
+                  const label = frameLabel(at, clock);
+                  return !thumbnails ? (
+                    <li key={`${f.check}-${at}`} className="border-b border-hairline">
+                      <button
+                        type="button"
+                        onClick={() => seek(at)}
+                        className="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-0 py-2 text-left text-[13px] text-ink-2 hover:text-ink"
+                      >
+                        <SeverityDot severity={f.severity} />
+                        <span className="truncate">{qaCheckNames[f.check]}</span>
+                        <span className="tabular ml-auto shrink-0 text-ink-3">{label}</span>
+                      </button>
+                    </li>
+                  ) : (
                     <li key={`${f.check}-${at}`}>
                       <button
                         type="button"
@@ -332,7 +373,7 @@ export function VideoQa({
                         <span className="absolute inset-x-0 bottom-0 flex items-center gap-1 bg-ground/75 px-1.5 py-0.5 text-[11px] text-ink">
                           <SeverityDot severity={f.severity} />
                           <span className="truncate">{qaCheckNames[f.check]}</span>
-                          <span className="tabular ml-auto shrink-0">{label.slice(3)}</span>
+                          <span className="tabular ml-auto shrink-0">{label}</span>
                         </span>
                       </button>
                     </li>
