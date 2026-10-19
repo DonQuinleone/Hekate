@@ -128,7 +128,7 @@ const sections = [
     label: "QA rules",
     group: "Quality assurance",
     intro:
-      "Every check that runs on a recording, by category: plain errors always on, delivery checks and your own rules as you choose.",
+      "Every check that runs on a recording or a video, by category: plain errors always on, delivery checks and your own rules as you choose.",
   },
 ] as const;
 export type ProjectSettingsSection = (typeof sections)[number]["id"];

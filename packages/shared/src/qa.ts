@@ -41,6 +41,17 @@ export const qaChecks = [
   "lfe",
   /** How high the content reaches: a wall where lossy encoding cut it, or an upsampled file. */
   "bandwidth",
+  // The picture (#42), measured once like the signal checks.
+  "black-frames",
+  "frozen-frames",
+  /** Gaps between frames longer than the frame rate allows. */
+  "dropped-frames",
+  "interlacing",
+  "broadcast-levels",
+  /** Bars the picture never reaches into: letterboxing, pillarboxing. */
+  "letterbox",
+  /** Screen-wide flashing, more than three flashes a second. */
+  "flashing",
   /** One of the project's own rules (#144); its name is in the finding's details. */
   "custom",
 ] as const;
@@ -478,6 +489,13 @@ export const qaCheckNames: Record<QaCheck, string> = {
   phase: "Phase",
   lfe: "LFE",
   bandwidth: "Bandwidth",
+  "black-frames": "Black frames",
+  "frozen-frames": "Frozen frames",
+  "dropped-frames": "Dropped frames",
+  interlacing: "Interlacing",
+  "broadcast-levels": "Broadcast-safe levels",
+  letterbox: "Letterboxing",
+  flashing: "Flashing risk",
   // The project's own rules: the finding's summary starts with the rule's name.
   custom: "Project rule",
 };

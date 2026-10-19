@@ -28,9 +28,10 @@ const { files, loudness, organisations, projects, qaFindings, variations, versio
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
 /**
- * A recording's quality report: the signal checks measured when it was analysed, and the
- * delivery checks read now against its profile, as its project wants them. Null for a file
- * without audio, which is not checked.
+ * A recording's quality report: the signal checks measured when it was analysed (a video's
+ * picture among them, #42), and the delivery checks read now against its profile, as its
+ * project wants them. Null for a file with neither sound nor a video's picture, which is not
+ * checked.
  */
 export async function qaReportOf(db: Database, organisationId: string, id: string) {
   const [file] = await db
@@ -48,8 +49,8 @@ export async function qaReportOf(db: Database, organisationId: string, id: strin
     )
     .where(inOrg(files, organisationId, eq(files.id, id)));
   if (!file) throw new NotFound("File");
-  const channels = file.mediaInfo?.audio?.channels;
-  if (!channels) return null;
+  const channels = file.mediaInfo?.audio?.channels ?? 0;
+  if (!channels && !(file.kind === "video" && file.mediaInfo?.video)) return null;
   const adm = Boolean(file.mediaInfo?.metadata?.adm);
 
   // The file's own profile, else its track's, its project's or the workspace's (#144).
@@ -112,7 +113,8 @@ export const fileQaRoutes = (db: Database) =>
       const access = await canOnFile(db, c.var.actor, "view", id);
       if (!mayUseTool(access, "qa")) throw toolRefused(access);
       const report = await qaReportOf(db, c.var.organisationId, id);
-      if (!report) throw new HTTPException(409, { message: "Only audio is checked" });
+      if (!report)
+        throw new HTTPException(409, { message: "Only recordings and videos are checked" });
       return c.json(report);
     })
     // What the checks found fixed and new since the previous version of the same track
@@ -187,7 +189,8 @@ export const fileQaRoutes = (db: Database) =>
         const access = await canOnFile(db, c.var.actor, "view", id);
         if (!mayUseTool(access, "qa")) throw toolRefused(access);
         const report = await qaReportOf(db, org, id);
-        if (!report) throw new HTTPException(409, { message: "Only audio is checked" });
+        if (!report)
+          throw new HTTPException(409, { message: "Only recordings and videos are checked" });
         const [where] = await db
           .select({
             name: files.name,

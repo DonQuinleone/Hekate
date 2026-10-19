@@ -5039,6 +5039,114 @@ describe.runIf(url)("api", () => {
         },
       );
 
+      it.runIf(spawnSync("ffmpeg", ["-version"]).status === 0 || process.env.CI)(
+        "checks a silent video's picture, and one checked before it was looked at (#42)",
+        async () => {
+          const { owner, organisationId, projectId } = await studio();
+          const dir = mkdtempSync(join(tmpdir(), "hekate-picture-"));
+          try {
+            const source = join(dir, "source.mp4");
+            // A second and a half of black, then the picture: no sound at all.
+            await run("ffmpeg", [
+              ...["-hide_banner", "-nostdin", "-v", "error", "-f", "lavfi", "-i"],
+              "color=black:s=320x240:r=25:d=1.5[a];testsrc2=s=320x240:r=25:d=2[b];[a][b]concat=n=2,format=yuv420p",
+              ...["-c:v", "libx264", source],
+            ]);
+            const blob = await storage.put(organisationId, readFileSync(source));
+            const [file] = await db
+              .insert(schema.files)
+              .values({
+                organisationId,
+                projectId,
+                name: "Opening titles mute.mp4",
+                kind: "video",
+                blobId: blob.id,
+                contentType: "video/mp4",
+                byteSize: blob.byteSize,
+              })
+              .returning();
+            const fileId = file?.id ?? "";
+            const queued: string[] = [];
+            const workers = {
+              db,
+              storage,
+              keyring,
+              jobs: {
+                send: async (name: string) => {
+                  queued.push(name);
+                  return null;
+                },
+              },
+              workDir: join(dir, "work"),
+            };
+            const job = { id: "test", signal: new AbortController().signal, retryCount: 0 };
+            await probeHandler(workers)({ organisationId, fileId }, job);
+            expect(queued).toContain("media-analysis");
+            const status = async () =>
+              (
+                await db
+                  .select({ analysisStatus: schema.files.analysisStatus })
+                  .from(schema.files)
+                  .where(eq(schema.files.id, fileId))
+              )[0]?.analysisStatus;
+            expect(await status()).toBe("pending");
+            await analysisHandler(workers)({ organisationId, fileId }, job);
+            expect(await status()).toBe("ready");
+
+            type Report = {
+              status: string;
+              findings: { check: string; severity: string; start: number | null }[];
+            };
+            const report = async () =>
+              (await (await getAs(`/api/files/${fileId}/qa`, owner)).json()) as Report;
+            const first = await report();
+            expect(first.status).toBe("ready");
+            expect(first.findings.filter((f) => f.check === "black-frames")).toEqual([
+              expect.objectContaining({ severity: "info", start: 0 }),
+            ]);
+            expect(first.findings.map((f) => f.check)).toEqual(
+              expect.arrayContaining([
+                "frozen-frames",
+                "dropped-frames",
+                "interlacing",
+                "broadcast-levels",
+                "letterbox",
+                "flashing",
+              ]),
+            );
+            // No sound, so nothing of it is reported.
+            expect(first.findings.some((f) => f.check === "loudness" || f.check === "format")).toBe(
+              false,
+            );
+
+            // As if probed before the picture was checked: queued once, and checked once.
+            await db.delete(schema.qaFindings).where(eq(schema.qaFindings.fileId, fileId));
+            await db
+              .update(schema.files)
+              .set({ analysisStatus: "none" })
+              .where(eq(schema.files.id, fileId));
+            const again: string[] = [];
+            const requeue = () =>
+              requeueMissingFindings(db, {
+                send: async (_name, data) => {
+                  again.push((data as { fileId: string }).fileId);
+                  return null;
+                },
+              });
+            expect(await requeue()).toBe(1);
+            expect(again).toEqual([fileId]);
+            await analysisHandler(workers)({ organisationId, fileId }, job);
+            await analysisHandler(workers)({ organisationId, fileId }, job);
+            expect(await status()).toBe("ready");
+            expect((await report()).findings).toHaveLength(first.findings.length);
+            expect(await requeue()).toBe(0);
+          } finally {
+            rmSync(dir, { recursive: true, force: true });
+          }
+        },
+        60_000,
+      );
+
       it("gives every project the default roles, and its creator the Producer's", async () => {
         const { owner, projectId } = await studio();
         const roles = (await (await getAs(`/api/projects/${projectId}/roles`, owner)).json()) as {
