@@ -591,6 +591,23 @@ test("workflows-inspector", async ({ page }) => {
   await checkScreen(page);
 });
 
+// A workflow copied from another project (#26): chosen from those the member may see there.
+test("workflows-copy", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  // From a project with none yet, to one with two.
+  await page.goto(`/projects/${seeded().videoProjectId}/workflow?view=basic`);
+  await settle(page, "main >> text=No workflows yet");
+  await page.getByRole("button", { name: "From a template" }).click();
+  await page.getByRole("menuitem", { name: "From another project…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Copy a workflow from another project" });
+  await dialog
+    .getByRole("combobox", { name: "Project to copy from" })
+    .selectOption({ label: "Joplin Rags" });
+  await expect(dialog.getByRole("button", { name: "Copy Album review" })).toBeVisible();
+  await saveScreen(page, "workflows-copy");
+  await checkScreen(page);
+});
+
 // The project's statuses (#26): how each reads on the board, and the steps that set it. Looked
 // at only, so no other capture sees a change.
 test("workflows-statuses", async ({ page }) => {

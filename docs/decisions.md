@@ -601,3 +601,7 @@ Each project has a status set (#26), as the prototype's Statuses panel on the wo
 - **The board follows it.** Grouped by status, the board's columns are the set in its order and with its categories, then any status a step sets that the set lacks, as before (a finish's reading as done). With no set, nothing changes from decision 125. The rule is pure, in `packages/shared` (`projectStatuses`).
 - **Steps choose from it.** Once a project has any statuses, a step's status is chosen from them rather than written, so the same status is never spelt two ways; a project with none yet still writes one.
 - **The panel lists what is really there.** It shows the set and the statuses only a step sets so far, kept in the set with the first change. A status a step sets cannot be removed until no step does; each name is kept once, whatever its case.
+
+## 129. A workflow is copied from another project by reading it there and making it here
+
+Copying a workflow from another project of the workspace (#26) needs nothing new on the server: the builder reads the other project's workflows as any member does (so only where their role there shows workflows) and makes the chosen one here through the same validated create as a template, switched off and as this project's own, a track's own becoming the project's. Who its steps name (roles, groups) is kept as named; a name this project lacks shows as such in the step, to choose again. It is offered beside the templates in the basic view.
