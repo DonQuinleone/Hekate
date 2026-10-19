@@ -3961,8 +3961,22 @@ describe.runIf(url)("api", () => {
         versions: {
           id: string;
           number: number;
-          variations: { id: string; fileId: string; name: string; isPrimary: boolean }[];
+          variations: {
+            id: string;
+            fileId: string;
+            name: string;
+            isPrimary: boolean;
+            subtitled?: boolean | null;
+          }[];
         }[];
+      };
+      const joinAs = async (owner: string, email: string, role: string) => {
+        const { body } = await invite(owner, email, role);
+        const res = await app.request(
+          `/api/invitations/${tokenFrom(body.link)}/accept`,
+          json({ name: "Colleague", password: "correct horse battery" }),
+        );
+        return cookieOf(res);
       };
       const organisationOf = async (cookie: string) =>
         (
@@ -4078,6 +4092,37 @@ describe.runIf(url)("api", () => {
           await app.request(`/api/variations/${variations2[0]?.id}/primary`, json({}, owner)),
         );
         expect(restored.versions[1]?.variations.map((v) => v.isPrimary)).toEqual([true, false]);
+
+        // A variation is renamed, and a rendition's treatment said (#16); unsaid stays null.
+        const treated = await trackFrom(
+          await send(
+            "PATCH",
+            `/api/variations/${variations2[1]?.id}`,
+            { name: "Wet, subtitled", subtitled: true },
+            owner,
+          ),
+        );
+        expect(treated.versions[1]?.variations[1]).toMatchObject({
+          name: "Wet, subtitled",
+          subtitled: true,
+          graded: null,
+          video: null,
+        });
+        // Its name back, its treatment kept.
+        const named = await trackFrom(
+          await send("PATCH", `/api/variations/${variations2[1]?.id}`, { name: "Wet" }, owner),
+        );
+        expect(named.versions[1]?.variations[1]).toMatchObject({ name: "Wet", subtitled: true });
+        expect(
+          (await send("PATCH", `/api/variations/${variations2[1]?.id}`, {}, owner)).status,
+        ).toBe(400);
+        // Only those who organise the project change it.
+        const reviewer = await joinAs(owner, "variation-reviewer@example.test", "member");
+        await grantRole(owner, projectId, reviewer, "Reviewer");
+        expect(
+          (await send("PATCH", `/api/variations/${variations2[1]?.id}`, { graded: true }, reviewer))
+            .status,
+        ).toBe(403);
 
         const renamed = await trackFrom(
           await send(
@@ -4263,6 +4308,10 @@ describe.runIf(url)("api", () => {
         ).toBe(404);
         expect(
           (await app.request(`/api/variations/${foreignVariation?.id}/primary`, json({}, owner)))
+            .status,
+        ).toBe(404);
+        expect(
+          (await send("PATCH", `/api/variations/${foreignVariation?.id}`, { graded: true }, owner))
             .status,
         ).toBe(404);
         // Nor can another organisation's file become a variation here.

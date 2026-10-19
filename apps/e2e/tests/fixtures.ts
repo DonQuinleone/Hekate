@@ -17,6 +17,8 @@ export interface Seeded {
   dryFileId: string;
   scoreFileId: string;
   cutFileId: string;
+  /** A deliverable (#16): a track in the video project, one cut in two renditions. */
+  deliverableId: string;
   reviewId: string;
   /** A review in each state its page shows, by state. */
   reviewStates: Record<

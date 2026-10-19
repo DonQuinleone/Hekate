@@ -1,8 +1,10 @@
 import {
   type CarryChoice,
+  capital,
   formatAnchor,
   isPdf,
   profileFor,
+  renditionTraits,
   restartPoints,
   variationNameFrom,
 } from "@hekate/shared";
@@ -22,6 +24,7 @@ import {
   projectWorkflowsQuery,
   type Track,
   trackStandingQuery,
+  useItemWords,
   useProjectCan,
   useProjectTool,
   useTrackMutations,
@@ -235,6 +238,7 @@ function NewVersion({
   onClose: () => void;
 }) {
   const can = useProjectCan(track.projectId);
+  const { words, video } = useItemWords(track.projectId);
   const { createVersion } = useTrackMutations(track.projectId);
   const { data: carry = [] } = useQuery(carryQuery(track.id));
   const { data: files = [] } = useQuery(projectFilesQuery(track.projectId));
@@ -299,17 +303,19 @@ function NewVersion({
   return (
     <form
       onSubmit={submit}
-      aria-label={`Version ${next}`}
+      aria-label={`${capital(words.version)} ${next}`}
       className="rise-in flex flex-col gap-5 rounded-panel-lg border border-line bg-raised/40 p-5 shadow-1"
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-[16px] font-medium">Version {next}</h2>
+        <h2 className="text-[16px] font-medium">
+          {capital(words.version)} {next}
+        </h2>
         <span className="text-[13px] text-ink-3">
-          A new edit is a new version, never a replacement.
+          A new edit is a new {words.version}, never a replacement.
         </span>
       </div>
       <DropZone
-        hint="Drop the files of this version here, or choose them. One file per variation."
+        hint={`Drop the files of this ${words.version} here, or choose them. One file per ${words.variation}.`}
         accept="audio/*,video/*"
         onFiles={media.upload}
         loose={loose.filter((f) => !media.picks.some((p) => p.fileId === f.id))}
@@ -331,7 +337,7 @@ function NewVersion({
                   size="sm"
                   value={p.variation}
                   onChange={(e) => media.rename(p.key, e.target.value)}
-                  aria-label={`Variation name for ${p.name}`}
+                  aria-label={`${capital(words.variation)} name for ${p.name}`}
                   className="col-span-2 @3xl/app:col-span-1"
                 />
                 <span className="flex items-center gap-3">
@@ -394,7 +400,11 @@ function NewVersion({
           rows={2}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Pedal noise cleaned at bar 5; tighter join at 17."
+          placeholder={
+            video
+              ? "Grade pass on the night exteriors; titles re-timed."
+              : "Pedal noise cleaned at bar 5; tighter join at 17."
+          }
         />
       </Field>
       {carry.length > 0 && (
@@ -539,6 +549,135 @@ function EdlChooser({ busy, onFiles }: { busy: boolean; onFiles: (files: FileLis
   );
 }
 
+type Said = "yes" | "no" | "";
+const saidOf = (value: boolean | null): Said => (value === null ? "" : value ? "yes" : "no");
+const answerOf = (said: Said) => (said === "" ? null : said === "yes");
+
+/**
+ * A version's variations by name, and for a deliverable's renditions what sets each apart
+ * (#16): subtitled or clean, graded or ungraded. Its shape and codec are measured, not said.
+ */
+function DescribeDialog({
+  track,
+  version,
+  onClose,
+}: {
+  track: Track;
+  version: Version;
+  onClose: () => void;
+}) {
+  const { updateVariation } = useTrackMutations(track.projectId);
+  const { versionLabel, video } = useItemWords(track.projectId);
+  const [rows, setRows] = useState(() =>
+    version.variations.map((v) => ({
+      id: v.id,
+      name: v.name,
+      subtitled: saidOf(v.subtitled),
+      graded: saidOf(v.graded),
+      measured: renditionTraits(v, {}).join(" · "),
+    })),
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const change = (id: string, patch: Partial<(typeof rows)[number]>) =>
+    setRows((all) => all.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      for (const row of rows) {
+        const was = version.variations.find((v) => v.id === row.id);
+        if (!was) continue;
+        const name = row.name.trim();
+        const input = {
+          ...(name && name !== was.name ? { name } : {}),
+          ...(video && answerOf(row.subtitled) !== was.subtitled
+            ? { subtitled: answerOf(row.subtitled) }
+            : {}),
+          ...(video && answerOf(row.graded) !== was.graded ? { graded: answerOf(row.graded) } : {}),
+        };
+        if (Object.keys(input).length > 0)
+          await updateVariation.mutateAsync({ id: row.id, ...input });
+      }
+      onClose();
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Could not save");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Dialog
+      title={`${video ? "Renditions" : "Variations"} of ${versionLabel(version.number)}`}
+      description={
+        video
+          ? "Each rendition's shape and codec are read from its file; say whether it is subtitled and graded."
+          : undefined
+      }
+      onClose={onClose}
+    >
+      <form onSubmit={save} className="flex flex-col gap-4">
+        {rows.map((row) => (
+          <fieldset
+            key={row.id}
+            className="m-0 flex flex-col gap-2 border-0 border-line p-0 not-first:border-t not-first:pt-4"
+          >
+            <Field label="Name" hint={row.measured || undefined}>
+              <Input
+                value={row.name}
+                maxLength={80}
+                onChange={(e) => change(row.id, { name: e.target.value })}
+              />
+            </Field>
+            {video && (
+              <span className="grid grid-cols-2 gap-2">
+                <Field label="Subtitles">
+                  <Select
+                    value={row.subtitled}
+                    onChange={(e) => change(row.id, { subtitled: e.target.value as Said })}
+                  >
+                    <option value="">Not said</option>
+                    <option value="yes">Subtitled</option>
+                    <option value="no">Clean</option>
+                  </Select>
+                </Field>
+                <Field label="Grade">
+                  <Select
+                    value={row.graded}
+                    onChange={(e) => change(row.id, { graded: e.target.value as Said })}
+                  >
+                    <option value="">Not said</option>
+                    <option value="yes">Graded</option>
+                    <option value="no">Ungraded</option>
+                  </Select>
+                </Field>
+              </span>
+            )}
+          </fieldset>
+        ))}
+        {error && (
+          <p role="alert" className="m-0 text-[12px] text-signal">
+            {error}
+          </p>
+        )}
+        <span className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={saving || rows.some((r) => !r.name.trim())}
+          >
+            Save
+          </Button>
+        </span>
+      </form>
+    </Dialog>
+  );
+}
+
 /**
  * A version's edit decision list given after it was made (#56), or another in its place:
  * uploaded, or one already in the project. The takes view then reads which take each edit
@@ -553,6 +692,7 @@ function EdlDialog({
   version: Version;
   onClose: () => void;
 }) {
+  const { words, versionLabel, video } = useItemWords(track.projectId);
   const { setEdl } = useTrackMutations(track.projectId);
   const { data: files = [] } = useQuery(projectFilesQuery(track.projectId));
   const pick = useFilePicks(track);
@@ -560,8 +700,8 @@ function EdlDialog({
   const lists = files.filter((f) => /\.edl$/i.test(f.name) && f.id !== version.edlFileId);
   return (
     <Dialog
-      title={`Edit decision list for V${version.number}`}
-      description="The list the version was cut from, as the editor's DAW exports it (CMX 3600). Its edits are matched to the track's takes."
+      title={`Edit decision list for ${versionLabel(version.number)}`}
+      description={`The list the ${words.version} was cut from, as the editing software exports it (CMX 3600).${video ? "" : " Its edits are matched to the track's takes."}`}
       onClose={onClose}
       footer={
         <>
@@ -648,6 +788,7 @@ function VariationDialog({
   onClose: () => void;
 }) {
   const { addVariation, replaceFile } = useTrackMutations(track.projectId);
+  const { words, versionLabel, video } = useItemWords(track.projectId);
   const loose = useLooseMedia(track);
   const pick = useFilePicks(track);
   const [primary, setPrimary] = useState(false);
@@ -675,12 +816,14 @@ function VariationDialog({
     <Dialog
       title={
         mode === "add"
-          ? `Add a variation to V${version.number}`
-          : `Replace a file of V${version.number}`
+          ? `Add a ${words.variation} to ${versionLabel(version.number)}`
+          : `Replace a file of ${versionLabel(version.number)}`
       }
       description={
         mode === "add"
-          ? "Another treatment of the same edit, such as a wet mix beside the dry one."
+          ? video
+            ? "Another treatment of the same cut, such as a 9:16 or a subtitled rendition beside the main one."
+            : "Another treatment of the same edit, such as a wet mix beside the dry one."
           : "A corrected export in its place. Its comments move to the new file; the old one stays in the project."
       }
       onClose={onClose}
@@ -690,14 +833,14 @@ function VariationDialog({
             Cancel
           </Button>
           <Button variant="primary" disabled={!chosen?.fileId || mutation.isPending} onClick={save}>
-            {mode === "add" ? "Add variation" : "Replace"}
+            {mode === "add" ? `Add ${words.variation}` : "Replace"}
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-4">
         {mode === "replace" && version.variations.length > 1 && (
-          <Field label="Variation">
+          <Field label={capital(words.variation)}>
             <Select value={target} onChange={(e) => setTarget(e.target.value)}>
               {version.variations.map((v) => (
                 <option key={v.id} value={v.id}>
@@ -771,10 +914,12 @@ function VersionRow({
   const tool = useProjectTool(track.projectId);
   const navigate = useNavigate();
   const { makePrimary, setEdl } = useTrackMutations(track.projectId);
+  const { words, versionLabel, video } = useItemWords(track.projectId);
+  const label = versionLabel(version.number);
   const previous = [...track.versions]
     .filter((v) => v.number < version.number)
     .sort((x, y) => y.number - x.number)[0];
-  const [dialog, setDialog] = useState<"add" | "replace" | "edl" | null>(null);
+  const [dialog, setDialog] = useState<"add" | "replace" | "edl" | "describe" | null>(null);
   const pending = version.variations.some((v) => v.streamStatus === "pending");
   const failed = version.variations.some((v) => v.streamStatus === "failed");
   const actions: MenuAction[] = [
@@ -782,7 +927,7 @@ function VersionRow({
     ...(previous && tool("compare")
       ? [
           {
-            label: "Compare with the previous version",
+            label: `Compare with the previous ${words.version}`,
             onSelect: () =>
               void navigate({
                 to: "/tracks/$trackId/compare",
@@ -792,10 +937,17 @@ function VersionRow({
           },
         ]
       : []),
-    ...(can("upload") ? [{ label: "Add a variation…", onSelect: () => setDialog("add") }] : []),
+    ...(can("upload")
+      ? [{ label: `Add a ${words.variation}…`, onSelect: () => setDialog("add") }]
+      : []),
     ...(can("organise")
       ? [
           { label: "Replace a file…", onSelect: () => setDialog("replace") },
+          // A rendition says how it differs (#16); a variation only needs a name.
+          {
+            label: video ? "Describe the renditions…" : `Rename the ${words.variations}…`,
+            onSelect: () => setDialog("describe"),
+          },
           {
             label: version.edlFileId
               ? "Replace the edit decision list…"
@@ -822,7 +974,7 @@ function VersionRow({
   return (
     <li className="flex flex-col gap-3 border-b border-line px-4 py-4 last:border-b-0">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="tabular text-[15px] font-medium text-ink">V{version.number}</span>
+        <span className="tabular text-[15px] font-medium text-ink">{label}</span>
         {latest && <span className="label">latest</span>}
         {(pending || failed) && (
           <span className="flex items-center gap-2 text-[13px] text-ink-2">
@@ -854,9 +1006,7 @@ function VersionRow({
           {version.letThroughBy && (
             <Chip title="Let in past the project's checks">let through</Chip>
           )}
-          {actions.length > 0 && (
-            <ActionMenu always label={`V${version.number}`} actions={actions} />
-          )}
+          {actions.length > 0 && <ActionMenu always label={label} actions={actions} />}
         </span>
       </div>
       {version.notes && <p className="text-[14px] text-ink-2">{version.notes}</p>}
@@ -864,7 +1014,7 @@ function VersionRow({
         <p className="flex items-start gap-2 text-[14px] text-ink-2">
           <Icon name="warning" className="mt-0.5 shrink-0 text-signal" />
           <span>
-            A file of this version could not be read. Re-export it and replace the file.
+            A file of this {words.version} could not be read. Re-export it and replace the file.
             {can("organise") && (
               <Button
                 variant="ghost"
@@ -888,7 +1038,12 @@ function VersionRow({
               : v.streamStatus === "failed"
                 ? "failed"
                 : [
-                    file ? mediaSummary(file.kind, file.mediaInfo) : "",
+                    // A rendition by what sets it apart; anything else by what was measured.
+                    v.video
+                      ? renditionTraits(v, v).join(" · ")
+                      : file
+                        ? mediaSummary(file.kind, file.mediaInfo)
+                        : "",
                     open > 0 ? `${open} ${open === 1 ? "comment" : "comments"}` : "",
                   ]
                     .filter(Boolean)
@@ -931,6 +1086,9 @@ function VersionRow({
       )}
       {dialog === "edl" && (
         <EdlDialog track={track} version={version} onClose={() => setDialog(null)} />
+      )}
+      {dialog === "describe" && (
+        <DescribeDialog track={track} version={version} onClose={() => setDialog(null)} />
       )}
     </li>
   );
@@ -995,12 +1153,13 @@ export function TrackHeading({ track, aside }: { track: Track; aside?: ReactNode
   const latest = track.versions.at(-1);
   const primary = latest && primaryOf(latest);
   const count = track.versions.length;
+  const { words, versionLabel } = useItemWords(track.projectId);
   return (
     <div className="flex flex-wrap items-end gap-3">
       <div className="min-w-0 flex-1">
         <h1 className="text-[22px] font-medium tracking-tight text-ink">{track.name}</h1>
         <p className="mt-1 text-[13px] text-ink-3">
-          {count} {count === 1 ? "version" : "versions"}
+          {count} {count === 1 ? words.version : words.versions}
           {latest && primary && (
             <>
               {" · "}
@@ -1009,7 +1168,7 @@ export function TrackHeading({ track, aside }: { track: Track; aside?: ReactNode
                 params={{ fileId: primary.fileId }}
                 className="text-ink-2 hover:text-ink"
               >
-                open V{latest.number} in the player
+                open {versionLabel(latest.number)} in the player
               </Link>
             </>
           )}
@@ -1035,6 +1194,7 @@ export function TrackVersions({
   aside?: ReactNode;
 }) {
   const can = useProjectCan(track.projectId);
+  const { words, video } = useItemWords(track.projectId);
   const { data: files = [] } = useQuery(projectFilesQuery(track.projectId));
   const byId = new Map(files.map((f) => [f.id, f]));
   const newest = [...track.versions].reverse();
@@ -1058,12 +1218,12 @@ export function TrackVersions({
       {newest.length === 0 ? (
         !adding && (
           <Empty
-            title="No versions yet"
-            text="Upload the first version of this track. Each later edit becomes the next version, and comments carry across."
+            title={`No ${words.versions} yet`}
+            text={`Upload the first ${words.version} of this ${words.track}. Each later edit becomes the next ${words.version}, and comments carry across.`}
             action={
               can("upload") ? (
                 <Button variant="primary" onClick={() => onAdding(true)}>
-                  Add version 1
+                  Add {words.version} 1
                 </Button>
               ) : undefined
             }
@@ -1091,14 +1251,15 @@ export function TrackVersions({
               </span>
             )}
             {standing?.next && <span>Next: {standing.next}</span>}
-            <ScoreChoice track={track} canEdit={can("organise")} />
+            {/* A score is music's; a video project has none (#16). */}
+            {!video && <ScoreChoice track={track} canEdit={can("organise")} />}
             <span>
               {open} open {open === 1 ? "comment" : "comments"}
             </span>
             {profile && <span>Delivery: {profile.label}</span>}
           </div>
           <Card>
-            <ul aria-label="Versions">
+            <ul aria-label={capital(words.versions)}>
               {newest.map((v) => (
                 <VersionRow
                   key={v.id}

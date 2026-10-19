@@ -202,6 +202,9 @@ function VersionRow({
 }) {
   const viewer = useViewer();
   const canOrganise = viewer.can(projectId, "organise");
+  // A video project's tracks are deliverables, in cuts and renditions (#16).
+  const video = projectById(projectId)?.profile === "video";
+  const label = video ? `Cut ${version.number}` : `V${version.number}`;
   const review = reviews.find(
     (r) =>
       r.status === "open" &&
@@ -214,7 +217,7 @@ function VersionRow({
   return (
     <li className="flex flex-col gap-3 border-b border-line px-4 py-4 last:border-b-0">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="tabular text-[15px] font-medium text-ink">V{version.number}</span>
+        <span className="tabular text-[15px] font-medium text-ink">{label}</span>
         {latest && <Label>latest</Label>}
         <span className="flex items-center gap-2 text-[13px] text-ink-2">
           <Dot
@@ -249,12 +252,21 @@ function VersionRow({
           )}
           {canOrganise && (
             <ActionMenu
-              label={`V${version.number}`}
+              label={label}
               actions={[
-                { label: "Add a variation…", onSelect: () => {} },
+                { label: video ? "Add a rendition…" : "Add a variation…", onSelect: () => {} },
                 { label: "Replace a file…", onSelect: () => {} },
+                {
+                  label: video ? "Describe the renditions…" : "Rename the variations…",
+                  onSelect: () => {},
+                },
                 { label: "Import an edit decision list…", onSelect: () => {} },
-                { label: "Compare with the previous version", onSelect: () => {} },
+                {
+                  label: video
+                    ? "Compare with the previous cut"
+                    : "Compare with the previous version",
+                  onSelect: () => {},
+                },
                 ...(viewer.can(projectId, "delete")
                   ? [{ label: "Delete version…", danger: true, onSelect: () => {} }]
                   : []),
@@ -308,7 +320,7 @@ function VersionRow({
                       : file?.state === "failed"
                         ? "failed"
                         : [
-                            file?.media.layout,
+                            ...(video && file ? renditionTraits(file, v) : [file?.media.layout]),
                             qa && qa.issues > 0 ? plural(qa.issues, "QA issue") : "",
                             open > 0 ? plural(open, "comment") : "",
                           ]
@@ -537,4 +549,27 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: string })
       )}
     </Page>
   );
+}
+
+/** A rendition by what sets it apart (#16): its shape and codec, read; its treatment, said. */
+function renditionTraits(
+  file: { media: { width?: number; height?: number; codec?: string } },
+  v: { subtitled?: boolean; graded?: boolean },
+) {
+  const { width, height, codec } = file.media;
+  const ratio = width && height ? width / height : 0;
+  const shape =
+    ratio === 0
+      ? ""
+      : Math.abs(ratio - 16 / 9) < 0.02
+        ? "16:9"
+        : Math.abs(ratio - 9 / 16) < 0.01
+          ? "9:16"
+          : `${ratio.toFixed(2)}:1`;
+  return [
+    shape,
+    codec?.split(" ")[0] ?? "",
+    v.subtitled === true ? "subtitled" : v.subtitled === false ? "clean" : "",
+    v.graded === true ? "graded" : v.graded === false ? "ungraded" : "",
+  ];
 }

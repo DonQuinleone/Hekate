@@ -60,7 +60,7 @@ Scheduling, personnel, venues, repertoire, live take logging, score marking with
 
 ## 015. Video deliverables and reviewer permissions
 
-Video uses deliverables, versions and renditions, a concept separate from tracks. Every reviewer has an individual permission set (items, history, comment visibility, tools, downloads, access window, view limits, actions), with defaults per organisation and project. Edit decisions are optional, imported from an EDL, and a project can require one on upload.
+Video uses deliverables, cuts and renditions, a concept separate from tracks in the interface but not in the tables: a deliverable is a track in a video project, its cuts are versions and its renditions are variations (decision 138). Every reviewer has an individual permission set (items, history, comment visibility, tools, downloads, access window, view limits, actions), with defaults per organisation and project. Edit decisions are optional, imported from an EDL, and a project can require one on upload.
 
 ## 016. How work lands
 
@@ -680,3 +680,14 @@ Drawing on the picture (#146), on top of the video's own timecode (decision 134)
 - **Drawing pauses.** Choosing Draw pauses playback and lays the tools over the foot of the picture. A drag draws a box, circle, line or arrow from corner to corner, or a freehand stroke along its path; a click places text. The drawing joins the comment being written as its anchor; a new drawing replaces it, Undo brings back the one before, and it can be discarded before it is posted.
 - **Checked like any time.** A drawing past the end of the video, or ending before it starts, is refused. A new version's alignment moves a drawing's time and end as it moves any other time.
 - **Timecode on a video's comments.** A comment on a video is labelled in the video's own timecode, frames and all, where one on audio keeps minutes and seconds.
+
+## 138. Deliverables are tracks in video words
+
+A video project's deliverables, cuts and renditions (#16) are its tracks, versions and variations, not tables of their own. The owner chose this over separate tables on the issue. Decision 015 is reworded to match.
+
+- **One structure.** Workflows, reviews of an item, the board, the timeline, followers, carry-over, tasks and the access log already work for tracks, so they work for deliverables on the day they ship. Separate tables would have doubled each of those paths and their tests, and every later feature would have had to remember both.
+- **Video words.** A video project says deliverable, cut and rendition wherever a music project says track, version and variation, and names a cut "Cut 3" where a version is "V3". The words come from one shared function (`itemWords`), so a screen cannot mix them. Takes and scores, which are music's, do not appear on a deliverable.
+- **What a rendition is.** Its shape (16:9, 9:16, 2.39:1) and codec are read from the file, never typed, so they cannot disagree with it. Whether it is subtitled or clean, and graded or ungraded, is said by those who organise the project, and stays unsaid (null) until someone says it. A rendition never claims what no one checked.
+- **Stored.** Two nullable columns on `variations`, `subtitled` and `graded`. A variation in a music project simply leaves them empty.
+- **Changed.** A variation's name and treatment change through one route (`PATCH /api/variations/:id`), for those whose role may organise the project.
+- **The shape is the picture's.** It comes from the frame's width and height. An anamorphic file whose pixels are not square would read narrower than it plays; reading the sample aspect ratio can follow when such files turn up.

@@ -67,7 +67,7 @@ function recording(path: string, seconds: number, brightness: number, damage = f
   ]);
 }
 
-function cut(path: string) {
+function cut(path: string, size = "1280x720") {
   execFileSync("ffmpeg", [
     "-v",
     "error",
@@ -75,7 +75,7 @@ function cut(path: string) {
     "-f",
     "lavfi",
     "-i",
-    "testsrc2=size=1280x720:rate=25:duration=12",
+    `testsrc2=size=${size}:rate=25:duration=12`,
     "-f",
     "lavfi",
     "-i",
@@ -150,6 +150,8 @@ setup("seed", async ({ page, browser }) => {
     recording(path, 6 + i * 2, 0.7);
   });
   cut(file("Opening titles - Cut 3.mp4"));
+  cut(file("Title sequence - Cut 1 - 16x9.mp4"));
+  cut(file("Title sequence - Cut 1 - 9x16.mp4"), "360x640");
 
   // The first person sets up the organisation; the form is only there once, so it is
   // captured here, at both widths.
@@ -204,9 +206,14 @@ setup("seed", async ({ page, browser }) => {
     file("Maple Leaf Rag - Dry v3.wav"),
     file("Maple Leaf Rag - Score.pdf"),
   ]);
-  await upload(page, video.id, [file("Opening titles - Cut 3.mp4")]);
+  await upload(page, video.id, [
+    file("Opening titles - Cut 3.mp4"),
+    file("Title sequence - Cut 1 - 16x9.mp4"),
+    file("Title sequence - Cut 1 - 9x16.mp4"),
+  ]);
   const musicFiles = await settled(page, music.id);
-  const [cutFile] = await settled(page, video.id);
+  const videoFiles = await settled(page, video.id);
+  const cutFile = videoFiles.find((f) => f.name === "Opening titles - Cut 3.mp4");
   const named = (part: string) => {
     const found = musicFiles.find((f) => f.name.includes(part));
     if (!found) throw new Error(`No file named like ${part}`);
@@ -215,6 +222,33 @@ setup("seed", async ({ page, browser }) => {
   const score = named("Score");
   const dry = named("Dry v2");
   if (!cutFile) throw new Error("The cut did not upload");
+
+  // A deliverable (#16): a track in the video project, its first cut in two renditions, one
+  // said to be clean and graded.
+  const { track: deliverable } = await api<{ track: { id: string } }>(
+    page,
+    "POST",
+    `/api/projects/${video.id}/tracks`,
+    { name: "Title sequence" },
+  );
+  const rendition = (part: string) => {
+    const found = videoFiles.find((f) => f.name.includes(part));
+    if (!found) throw new Error(`No rendition named like ${part}`);
+    return found.id;
+  };
+  const { track: withCut } = await api<{
+    track: { versions: { variations: { id: string }[] }[] };
+  }>(page, "POST", `/api/tracks/${deliverable.id}/versions`, {
+    notes: "Picture lock candidate.",
+    variations: [
+      { fileId: rendition("16x9"), name: "Main" },
+      { fileId: rendition("9x16"), name: "Social" },
+    ],
+  });
+  const main = withCut.versions[0]?.variations[0];
+  if (main) {
+    await api(page, "PATCH", `/api/variations/${main.id}`, { subtitled: false, graded: true });
+  }
 
   // A track in two versions, and one not yet started.
   const { track } = await api<{ track: { id: string } }>(
@@ -806,6 +840,7 @@ setup("seed", async ({ page, browser }) => {
     dryFileId: dry,
     scoreFileId: score,
     cutFileId: cutFile.id,
+    deliverableId: deliverable.id,
     reviewId: review.id,
     reviewStates: { decided, changes, approved, cancelled, waiting, overdue },
     shareId: shared,

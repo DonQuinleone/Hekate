@@ -49,6 +49,7 @@ import {
   type InstanceWorkspacePage,
   type InstanceWorkspaceSettings,
   type InstanceWorkspaceStorage,
+  itemWords,
   type LoudnessSummary,
   type Mark,
   type MarkInput,
@@ -106,6 +107,8 @@ import {
   type TriageInput,
   type UpdateCarryInput,
   type UpdateProjectInput,
+  type UpdateVariationInput,
+  versionLabel,
   type WatermarkPosition,
   type WatermarkSettings,
   type WorkflowChange,
@@ -336,6 +339,16 @@ export interface ProjectWithFigures extends Project {
 export function useProjectTool(projectId: string | undefined) {
   const { data } = useQuery({ ...projectQuery(projectId ?? ""), enabled: Boolean(projectId) });
   return (tool: PlayerTool) => Boolean(data?.tools?.includes(tool));
+}
+
+/** What the project calls its tracks, versions and variations (#16): deliverables, cuts and renditions in video. */
+export function useItemWords(projectId: string | undefined) {
+  const { data } = useQuery({ ...projectQuery(projectId ?? ""), enabled: Boolean(projectId) });
+  return {
+    words: itemWords(data?.profile),
+    versionLabel: (n: number) => versionLabel(n, data?.profile),
+    video: data?.profile === "video",
+  };
 }
 
 export function useProjectCan(projectId: string | undefined) {
@@ -1751,6 +1764,11 @@ export interface Variation {
   fileName: string;
   kind: FileKind;
   streamStatus: StreamStatus;
+  /** A rendition's treatment (#16): null until someone says. */
+  subtitled: boolean | null;
+  graded: boolean | null;
+  /** The picture, where the file has one: its shape and codec. */
+  video: MediaInfo["video"] | null;
 }
 
 export interface Version {
@@ -2112,6 +2130,15 @@ export function useTrackMutations(projectId: string) {
         (
           await json<{ track: Track }>(
             await api.variations[":id"].primary.$post({ param: { id: variationId } }),
+          )
+        ).track,
+      onSuccess: refresh,
+    }),
+    updateVariation: useMutation({
+      mutationFn: async ({ id, ...input }: UpdateVariationInput & { id: string }) =>
+        (
+          await json<{ track: Track }>(
+            await api.variations[":id"].$patch({ param: { id }, json: input }),
           )
         ).track,
       onSuccess: refresh,

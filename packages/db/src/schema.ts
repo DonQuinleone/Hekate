@@ -918,6 +918,9 @@ export const variations = pgTable(
     name: text("name").notNull(),
     isPrimary: boolean("is_primary").notNull().default(false),
     position: integer("position").notNull().default(0),
+    /** A rendition's treatment (#16): subtitled or clean, graded or ungraded; null until said. */
+    subtitled: boolean("subtitled"),
+    graded: boolean("graded"),
     ...timestamps,
   },
   (t) => [

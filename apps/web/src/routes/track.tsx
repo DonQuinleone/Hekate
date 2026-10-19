@@ -9,7 +9,13 @@ import { TakeManager } from "~/components/takes";
 import { primaryOf, TrackHeading, TrackVersions } from "~/components/track-versions";
 import { Button } from "~/components/ui/button";
 import { Segmented } from "~/components/ui/segmented";
-import { projectQuery, trackQuery, useProjectCan, useProjectTool } from "~/lib/queries";
+import {
+  projectQuery,
+  trackQuery,
+  useItemWords,
+  useProjectCan,
+  useProjectTool,
+} from "~/lib/queries";
 
 /**
  * A track (#131): it opens in the player on its latest version's primary file, like a
@@ -25,30 +31,33 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
   });
   const can = useProjectCan(track?.projectId);
   const tool = useProjectTool(track?.projectId);
+  const { words, video } = useItemWords(track?.projectId);
   const navigate = useNavigate();
   const [adding, setAdding] = useState(false);
   if (error) return <p className="p-8 text-signal">{error.message}</p>;
   if (!track || !project) return <p className="p-8 text-ink-3">Loading</p>;
   const latest = track.versions.at(-1);
   const playable = latest && primaryOf(latest);
-  const takes = view === "takes" && can("view_takes");
+  // Takes are music's: a deliverable has its cuts and nothing beside them (#16).
+  const takes = view === "takes" && can("view_takes") && !video;
   if (!view && playable) {
     return <Navigate to="/files/$fileId" params={{ fileId: playable.fileId }} replace />;
   }
   const live = !project.archivedAt;
-  const switcher = can("view_takes") ? (
-    <Segmented
-      label="Versions or takes"
-      value={takes ? "takes" : "versions"}
-      onChange={(next) =>
-        navigate({ to: "/tracks/$trackId", params: { trackId }, search: { view: next } })
-      }
-      options={[
-        { value: "versions", label: "Versions" },
-        { value: "takes", label: "Takes" },
-      ]}
-    />
-  ) : undefined;
+  const switcher =
+    can("view_takes") && !video ? (
+      <Segmented
+        label="Versions or takes"
+        value={takes ? "takes" : "versions"}
+        onChange={(next) =>
+          navigate({ to: "/tracks/$trackId", params: { trackId }, search: { view: next } })
+        }
+        options={[
+          { value: "versions", label: "Versions" },
+          { value: "takes", label: "Takes" },
+        ]}
+      />
+    ) : undefined;
   return (
     <>
       <PageHeader
@@ -63,11 +72,11 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
             ),
           },
         ]}
-        title={`${track.name}: ${takes ? "takes" : "versions"}`}
+        title={`${track.name}: ${takes ? "takes" : words.versions}`}
         actions={
           <>
             {/* Following is the member's own choice, so it stays on an archived project too. */}
-            <FollowButton target={{ trackId: track.id }} what="track" />
+            <FollowButton target={{ trackId: track.id }} what={video ? "deliverable" : "track"} />
             {live && (
               <>
                 {track.versions.length > 1 && tool("compare") && !takes && (
@@ -92,7 +101,7 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
                 {can("upload") && !adding && !takes && (
                   <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
                     <Icon name="upload" size={14} />
-                    {project.profile === "video" ? "Add cut" : "Add version"}
+                    Add {words.version}
                   </Button>
                 )}
               </>
