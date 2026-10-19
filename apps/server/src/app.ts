@@ -49,6 +49,7 @@ import { ssoRoutes } from "./routes/sso.ts";
 import { storageSettingsRoutes } from "./routes/storage-settings.ts";
 import { fileTagRoutes, tagRoutes } from "./routes/tags.ts";
 import { sharedTakeRoutes, takeRoutes, trackTakeRoutes } from "./routes/takes.ts";
+import { projectTaskRoutes, taskRoutes } from "./routes/tasks.ts";
 import { projectTemplateRoutes, templateRoutes } from "./routes/templates.ts";
 import { trackCompareRoutes } from "./routes/track-compare.ts";
 import {
@@ -129,6 +130,7 @@ export function createApi(deps: AppDeps) {
     trustProxy: deps.trustProxy ?? false,
     workDir: deps.workDir,
   };
+  const taskMail = { db: deps.db, mailer: deps.mailer, publicUrl: deps.publicUrl };
   const reviewDeps: ReviewDeps = {
     db: deps.db,
     audit: deps.audit,
@@ -235,6 +237,7 @@ export function createApi(deps: AppDeps) {
       .route("/projects", projectSessionRoutes(deps.db))
       .route("/projects", projectWorkflowRoutes(deps.db))
       .route("/projects", projectTemplateRoutes(deps.db))
+      .route("/projects", projectTaskRoutes(taskMail))
       .use("/tags/*", ...member)
       .use("/tags", ...member)
       .route("/tags", tagRoutes(deps.db))
@@ -261,6 +264,8 @@ export function createApi(deps: AppDeps) {
       .route("/takes", takeRoutes(deps.db))
       .use("/sessions/*", ...member)
       .route("/sessions", sessionRoutes(deps.db))
+      .use("/tasks/*", ...member)
+      .route("/tasks", taskRoutes(taskMail))
       .use("/workflows/*", ...member)
       .route("/workflows", workflowRoutes(deps.db))
       .use("/workflow-runs/*", ...member)

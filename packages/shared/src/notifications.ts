@@ -28,6 +28,8 @@ export const notificationKinds = [
   "assigned",
   /** A project's workflow tells your role something, or gives it a stage to do (#25). */
   "workflow",
+  /** A task was given to you, or one you run waits for your approval (#140). */
+  "task",
 ] as const;
 export type NotificationKind = (typeof notificationKinds)[number];
 
@@ -56,6 +58,7 @@ export const notificationDefaults: Record<NotificationKind, NotificationChannels
   due_soon: { app: true, mail: true },
   assigned: { app: true, mail: true },
   workflow: { app: true, mail: true },
+  task: { app: true, mail: true },
 };
 
 /** Reviews asked of you and mentions always reach you in the app, whatever you choose. */

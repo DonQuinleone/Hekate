@@ -27,6 +27,7 @@ const comment = (id: string, extra: Partial<Comment> = {}): Comment => ({
   mentions: [],
   attachments: [],
   todo: false,
+  taskId: null,
   todoDoneAt: null,
   todoDoneByName: null,
   channel: null,

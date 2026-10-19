@@ -183,6 +183,7 @@ const actionLabel: Record<NotificationKind, string> = {
   due_soon: "Open the review",
   assigned: "Open your comments",
   workflow: "Open the track",
+  task: "Open the task",
 };
 
 /** Why each kind of mail came. */
@@ -199,6 +200,7 @@ const whyFoot: Record<NotificationKind, string> = {
   due_soon: "A reminder, sent once, the day before the due date.",
   assigned: "You get this because the comments are assigned to you.",
   workflow: "You get this because a project's workflow names you or your role.",
+  task: "You get this because the task is yours, or you run it.",
 };
 
 /** The workspace a mail comes from: its name, and its own subject lines. */

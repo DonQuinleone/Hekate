@@ -184,7 +184,9 @@ Comments can be given a category with one action, such as marking a comment as *
 - **Deferred to a stage:** leaves the current round's to-do list, stays open, and returns when the named workflow stage starts (for example *Noise reduction* at the end of the process).
 - **Information only:** recorded, no action expected.
 
-Triage (producer or whoever holds the permission) can change a comment's category, defer or undefer it, assign it, and make it a **task**: marked *to do* until it is *done*. Whoever the task is for may mark it done (or not done) without triage; guests see neither tasks nor assignees.
+Triage (producer or whoever holds the permission) can change a comment's category, defer or undefer it, assign it, and make it a **task** of its project (one task to a thread): *to do* until it is *done*. Whoever the task is for may mark it done (or not done) without triage; giving the thread to someone gives them its task, and the other way round. Guests see neither tasks nor assignees.
+
+A **task** is something to do in a project: a title, notes, an owner, a priority (low, normal, high), a due date and a status (*to do*, *in progress*, *needs approval*, *done*). It may be about a track or a file, and is made by hand, from a thread, or by a workflow's task stage. Tasks are numbered per project and shown by key (*JR-3* in Joplin Rags); a number is never reused. Whoever sees the project sees its tasks; whoever writes in it may make one. Its creator and triage run it; whoever it is for moves it along, and a task they mark as needing approval is closed by its creator or triage.
 
 A comment **mentions** members with `@` and their name, chosen from the project's people as it is written; nobody outside the project can be mentioned, and guests are offered nobody to choose.
 
