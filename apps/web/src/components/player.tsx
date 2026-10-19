@@ -55,7 +55,7 @@ import { type Playback, type Rendition, usePreferences, useSavePreferences } fro
 import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
 import { readView, type SpectrogramView } from "~/lib/spectrogram";
 import { holdRate } from "~/lib/speed";
-import { familyOf, videoFamilyFor } from "~/lib/video-family";
+import { familyOf, type VideoFamily, videoFamilyFor } from "~/lib/video-family";
 import { useViewer } from "~/lib/viewer";
 import { anchoredScroll, followScroll, maxZoom, panScroll, zoomLabel, zoomStep } from "~/lib/zoom";
 import { ChannelsButton, ChannelsPanel } from "./channels";
@@ -314,6 +314,8 @@ export function Player({
   const [rate, setRate] = useState(1);
   /** A source is attached, so play can start. */
   const [ready, setReady] = useState(false);
+  /** The encoding the video plays in (#148), for another cut compared with it to match. */
+  const [family, setFamily] = useState<VideoFamily | null>(null);
   /** Safari on iOS plays the stream itself, so its errors come from the element, not hls.js. */
   const native = useRef(false);
   /** The media element once mounted, for the waveform to follow. */
@@ -496,6 +498,7 @@ export function Player({
     Promise.all([import("hls.js"), family])
       .then(([{ default: Hls }, chosen]) => {
         if (cancelled) return;
+        setFamily(chosen);
         if (!Hls.isSupported()) {
           // Safari on iOS has no Media Source Extensions but plays AES-128 HLS natively.
           if (element.canPlayType("application/vnd.apple.mpegurl")) {
@@ -807,6 +810,7 @@ export function Player({
                   fileId={cuts.previous.fileId}
                   master={element}
                   frameSeconds={frameSeconds}
+                  family={family}
                   className="aspect-video w-full"
                 />
                 <CutLabel>{cuts.previous.label}</CutLabel>
@@ -868,6 +872,7 @@ export function Player({
                     fileId={cuts.previous.fileId}
                     master={element}
                     frameSeconds={frameSeconds}
+                    family={family}
                     className="pointer-events-none absolute inset-0 aspect-video w-full"
                     style={{ clipPath: `inset(0 0 0 ${wipe * 100}%)` }}
                   />
