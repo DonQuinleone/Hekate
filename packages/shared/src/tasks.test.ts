@@ -8,6 +8,7 @@ import {
   taskEventText,
   taskInput,
   taskKey,
+  taskReminder,
   taskRights,
   tasksCsv,
   taskTitleFromComment,
@@ -119,6 +120,29 @@ describe("the list's filters", () => {
   it("calls a task late only before today, and never once done", () => {
     expect(isOverdue({ dueOn: "2026-10-19", status: "pending" }, "2026-10-19")).toBe(false);
     expect(isOverdue({ dueOn: "2026-10-18", status: "done" }, "2026-10-19")).toBe(false);
+  });
+});
+
+describe("reminders of a task's date", () => {
+  const task = {
+    status: "pending" as const,
+    dueOn: "2026-10-21",
+    dueRemindedOn: null,
+    lateRemindedOn: null,
+  };
+  it("come on the day, and once late, each once, never before eight", () => {
+    expect(taskReminder(task, "2026-10-20", 9)).toBeNull();
+    expect(taskReminder(task, "2026-10-21", 7)).toBeNull();
+    expect(taskReminder(task, "2026-10-21", 8)).toBe("due");
+    expect(taskReminder({ ...task, dueRemindedOn: "2026-10-21" }, "2026-10-21", 15)).toBeNull();
+    expect(taskReminder({ ...task, dueRemindedOn: "2026-10-21" }, "2026-10-22", 9)).toBe("late");
+    expect(taskReminder({ ...task, lateRemindedOn: "2026-10-21" }, "2026-10-25", 9)).toBeNull();
+  });
+
+  it("start afresh for a new date, and stop once done", () => {
+    expect(taskReminder({ ...task, dueRemindedOn: "2026-10-14" }, "2026-10-21", 9)).toBe("due");
+    expect(taskReminder({ ...task, status: "done" }, "2026-10-21", 9)).toBeNull();
+    expect(taskReminder({ ...task, dueOn: null }, "2026-10-21", 9)).toBeNull();
   });
 });
 

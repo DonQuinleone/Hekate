@@ -63,7 +63,7 @@ const kindCopy: Record<NotificationKind, string> = {
   due_soon: "A review waiting on you is due tomorrow",
   assigned: "Someone sends you the comments assigned to you",
   workflow: "A workflow tells your role something, or gives it a stage to do",
-  task: "A task is given to you, or one you run waits for your approval",
+  task: "A task is given to you or is due, or one you run waits for your approval",
 };
 
 function Channel({

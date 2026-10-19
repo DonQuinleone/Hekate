@@ -54,6 +54,7 @@ import { reconcileStorage } from "./reconcile.ts";
 import { remindDue } from "./reminders.ts";
 import { createSetupGate, SETUP_CODE_HEADER } from "./setup-code.ts";
 import { createStorage } from "./storage.ts";
+import { remindTasksDue } from "./tasks.ts";
 import { expireUploads } from "./uploads.ts";
 import { clockElapsed, fileMeasured, sweepRuns, workflowsFor } from "./workflow-runner.ts";
 import { rewrapBehind, rewrapOrganisation } from "./workspace-keys.ts";
@@ -7577,6 +7578,41 @@ describe.runIf(url)("api", () => {
           expect(await list(s.owner)).toEqual([]);
           // Numbers are never reused.
           expect((await read(await make({ title: "Again" }, s.owner))).key).toBe("R-3");
+        });
+
+        it("reminds whoever a task is for on its day and once late, once each (#140)", async () => {
+          const s = await studio();
+          const made = await app.request(
+            `/api/projects/${s.projectId}/tasks`,
+            json(
+              { title: "Bounce the stems", assigneeId: s.ids.composer, dueOn: "2026-10-21" },
+              s.owner,
+            ),
+          );
+          const { task } = (await made.json()) as { task: { id: string } };
+          const texts = async () =>
+            (await inbox(s.composer)).notifications
+              .filter((n) => n.kind === "task")
+              .map((n) => n.text);
+          // Being given it is one; the day before, and before eight on the day, nothing more.
+          expect(await texts()).toHaveLength(1);
+          expect(await remindTasksDue(db, new Date("2026-10-20T12:00:00Z"))).toBe(0);
+          expect(await remindTasksDue(db, new Date("2026-10-21T07:00:00Z"))).toBe(0);
+          // On the day, once; the next day, late, once.
+          expect(await remindTasksDue(db, new Date("2026-10-21T09:00:00Z"))).toBe(1);
+          expect(await remindTasksDue(db, new Date("2026-10-21T15:00:00Z"))).toBe(0);
+          expect(await remindTasksDue(db, new Date("2026-10-22T09:00:00Z"))).toBe(1);
+          expect(await remindTasksDue(db, new Date("2026-10-23T09:00:00Z"))).toBe(0);
+          expect((await texts()).slice(0, 2)).toEqual([
+            "your task R-1 is overdue",
+            "your task R-1 is due today",
+          ]);
+          // Done, it is never reminded of again, even given a new date.
+          await app.request(`/api/tasks/${task.id}`, {
+            ...json({ dueOn: "2026-10-28", status: "done" }, s.owner),
+            method: "PATCH",
+          });
+          expect(await remindTasksDue(db, new Date("2026-10-28T09:00:00Z"))).toBe(0);
         });
 
         it("carries files attached to a comment, downloaded once each and logged (#133)", async () => {

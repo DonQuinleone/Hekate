@@ -28,7 +28,7 @@ export const notificationKinds = [
   "assigned",
   /** A project's workflow tells your role something, or gives it a stage to do (#25). */
   "workflow",
-  /** A task was given to you, or one you run waits for your approval (#140). */
+  /** A task was given to you or is due, or one you run waits for your approval (#140). */
   "task",
 ] as const;
 export type NotificationKind = (typeof notificationKinds)[number];

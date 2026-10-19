@@ -105,7 +105,10 @@ export const jobDefinitions = {
     options: { retryLimit: 1, expireInSeconds: 30 * 60 },
     schedule: "41 * * * *",
   },
-  /** Remind reviewers the day before a review waiting on them is due. Hourly. */
+  /**
+   * Remind reviewers the day before a review waiting on them is due, and whoever a task is for
+   * on the day it is due and once it is late (#140). Hourly.
+   */
   "reviews-remind": {
     data: z.object({}),
     options: { retryLimit: 1, expireInSeconds: 30 * 60 },
