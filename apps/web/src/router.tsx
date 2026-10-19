@@ -464,9 +464,9 @@ const projectPeople = createRoute({
 const projectBoard = createRoute({
   getParentRoute: () => app,
   path: "/projects/$projectId/board",
-  // The calendar, and its month, kept in the address.
+  // The timeline or the calendar, and its month, kept in the address.
   validateSearch: z.object({
-    view: z.enum(["calendar"]).optional().catch(undefined),
+    view: z.enum(["timeline", "calendar"]).optional().catch(undefined),
     month: z
       .string()
       .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
@@ -485,7 +485,7 @@ const projectBoard = createRoute({
         onChange={(next) =>
           void navigate({
             search: {
-              view: next.mode === "calendar" ? "calendar" : undefined,
+              view: next.mode === "board" ? undefined : next.mode,
               month: next.mode === "calendar" ? next.month : undefined,
             },
             replace: next.mode === "calendar" && view === "calendar",

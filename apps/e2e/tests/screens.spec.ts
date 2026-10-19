@@ -1568,6 +1568,16 @@ test("project-board-customise", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The project's timeline (#141): each track from its latest version to its review's due date.
+test("project-timeline", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/board?view=timeline`);
+  await settle(page, "main >> text=Maple Leaf Rag");
+  await expect(page.getByRole("button", { name: "Timeline", pressed: true })).toBeVisible();
+  await saveScreen(page, "project-timeline");
+  await checkScreen(page);
+});
+
 // The project's calendar (#141): what is due and booked in the month, late ones marked.
 test("project-calendar", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);

@@ -121,7 +121,8 @@ export interface BoardDecision {
 export interface BoardCard {
   id: string;
   name: string;
-  version: { number: number; fileId: string | null } | null;
+  /** Its latest version, and when that arrived. */
+  version: { number: number; fileId: string | null; createdAt: string } | null;
   /** The status its workflow last gave it. */
   status: string | null;
   /** The step its running workflow waits at, if any. */
@@ -141,4 +142,45 @@ export interface Board {
   /** Its columns in each grouping. */
   columns: Record<BoardGrouping, BoardColumn[]>;
   cards: BoardCard[];
+}
+
+const DAY = 86_400_000;
+const isoDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+/**
+ * The Mondays a board's timeline shows: `weeks` of them, starting two weeks before the week of
+ * `day` (YYYY-MM-DD), so what has just happened and what is coming are both in view.
+ */
+export function timelineWeeks(day: string, weeks = 6): string[] {
+  const at = Date.parse(`${day}T00:00:00Z`);
+  const monday = at - ((new Date(at).getUTCDay() + 6) % 7) * DAY - 14 * DAY;
+  return Array.from({ length: weeks }, (_, i) => isoDay(monday + i * 7 * DAY));
+}
+
+/** A timeline moved on (or back) by whole weeks. */
+export const shiftWeeks = (day: string, weeks: number) =>
+  isoDay(Date.parse(`${day}T00:00:00Z`) + weeks * 7 * DAY);
+
+/**
+ * Where a track's bar sits on a timeline of `days` from `start`: from its latest version to the
+ * due date of an open review of it, or a week on where none is due. As fractions of the span,
+ * cut to it; null when it has no version or falls wholly outside.
+ */
+export function timelineBar(
+  card: Pick<BoardCard, "version" | "dueAt">,
+  start: string,
+  days: number,
+): { left: number; width: number; from: string; to: string } | null {
+  if (!card.version) return null;
+  const from = Date.parse(card.version.createdAt.slice(0, 10));
+  const due = card.dueAt ? Date.parse(card.dueAt.slice(0, 10)) : from + 7 * DAY;
+  // Its last day included, and never less than a day long.
+  const to = Math.max(due, from) + DAY;
+  const begin = Date.parse(start);
+  const end = begin + days * DAY;
+  if (to <= begin || from >= end) return null;
+  const span = end - begin;
+  const left = (Math.max(from, begin) - begin) / span;
+  const right = (Math.min(to, end) - begin) / span;
+  return { left, width: right - left, from: isoDay(from), to: isoDay(to - DAY) };
 }

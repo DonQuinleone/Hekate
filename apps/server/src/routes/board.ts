@@ -243,7 +243,9 @@ export const projectBoardRoutes = (db: Database) =>
       cards.push({
         id: t.id,
         name: t.name,
-        version: t.version ? { number: t.version.number, fileId: t.version.fileId } : null,
+        version: t.version
+          ? { number: t.version.number, fileId: t.version.fileId, createdAt: t.version.createdAt }
+          : null,
         status: statusOf.get(t.id) ?? null,
         stage: stage ?? null,
         waitingOn: t.waitingOn,

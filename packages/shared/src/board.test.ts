@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { boardColumnOf, boardColumns, NO_STATUS, NO_VERSION, NOT_AT_A_STAGE } from "./board.ts";
+import {
+  boardColumnOf,
+  boardColumns,
+  NO_STATUS,
+  NO_VERSION,
+  NOT_AT_A_STAGE,
+  shiftWeeks,
+  timelineBar,
+  timelineWeeks,
+} from "./board.ts";
 import type { WorkflowDefinition } from "./workflows.ts";
 
 const node = (id: string, type: string, name: string, status?: string) => ({
@@ -90,5 +99,66 @@ describe("where a card sits", () => {
     expect(boardColumnOf({ ...card, version: null }, "status")).toBe(NO_VERSION);
     expect(boardColumnOf({ ...card, status: null }, "status")).toBe(NO_STATUS);
     expect(boardColumnOf({ ...card, stage: null }, "stage")).toBe(NOT_AT_A_STAGE);
+  });
+});
+
+describe("a board's timeline", () => {
+  it("shows six weeks from the Monday two weeks before", () => {
+    // A Wednesday.
+    expect(timelineWeeks("2026-10-14")).toEqual([
+      "2026-09-28",
+      "2026-10-05",
+      "2026-10-12",
+      "2026-10-19",
+      "2026-10-26",
+      "2026-11-02",
+    ]);
+    // A Monday and a Sunday stay in their own week.
+    expect(timelineWeeks("2026-10-12")[2]).toBe("2026-10-12");
+    expect(timelineWeeks("2026-10-18")[2]).toBe("2026-10-12");
+    expect(shiftWeeks("2026-10-14", -3)).toBe("2026-09-23");
+  });
+
+  const version = (createdAt: string) => ({ number: 2, fileId: null, createdAt });
+
+  it("runs a bar from the latest version to the review's due date, both days included", () => {
+    const bar = timelineBar(
+      { version: version("2026-10-01T09:30:00Z"), dueAt: "2026-10-07T17:00:00Z" },
+      "2026-09-28",
+      42,
+    );
+    expect(bar).toEqual({
+      left: expect.closeTo(3 / 42),
+      width: expect.closeTo(7 / 42),
+      from: "2026-10-01",
+      to: "2026-10-07",
+    });
+  });
+
+  it("gives a week where no review is due, and a day where one was due before", () => {
+    expect(
+      timelineBar({ version: version("2026-10-01T09:30:00Z"), dueAt: null }, "2026-09-28", 42)?.to,
+    ).toBe("2026-10-08");
+    expect(
+      timelineBar(
+        { version: version("2026-10-10T09:30:00Z"), dueAt: "2026-10-01T00:00:00Z" },
+        "2026-09-28",
+        42,
+      ),
+    ).toMatchObject({ width: expect.closeTo(1 / 42), from: "2026-10-10", to: "2026-10-10" });
+  });
+
+  it("cuts a bar to the span, and leaves out one wholly outside it or with no version", () => {
+    expect(
+      timelineBar(
+        { version: version("2026-09-20T00:00:00Z"), dueAt: "2026-10-02T00:00:00Z" },
+        "2026-09-28",
+        42,
+      ),
+    ).toMatchObject({ left: 0, width: expect.closeTo(5 / 42) });
+    expect(
+      timelineBar({ version: version("2026-08-01T00:00:00Z"), dueAt: null }, "2026-09-28", 42),
+    ).toBeNull();
+    expect(timelineBar({ version: null, dueAt: null }, "2026-09-28", 42)).toBeNull();
   });
 });
