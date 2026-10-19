@@ -69,7 +69,7 @@ import { Icon } from "./icons";
 import { LoopControls, LoopSurface } from "./loop";
 import { Spectrogram, type SpectrogramChannelChoice } from "./spectrogram";
 import { SpectrogramLook, SpectrogramSettings } from "./spectrogram-settings";
-import { StreamPart } from "./stream-part";
+import { nativeSource, StreamPart, wholeRendition } from "./stream-part";
 import { Button } from "./ui/button";
 import { Input, Select } from "./ui/input";
 import { Dropdown } from "./ui/menu";
@@ -460,7 +460,14 @@ export function Player({
           // Safari on iOS has no Media Source Extensions but plays AES-128 HLS natively.
           if (element.canPlayType("application/vnd.apple.mpegurl")) {
             native.current = true;
-            element.src = playback.url;
+            const source = nativeSource(playback);
+            element.src = source;
+            // Where it is given one rendition (a wide layout's whole AAC), say which.
+            const whole = wholeRendition(playback.renditions);
+            if (whole && source !== playback.url) {
+              setChoices([{ rendition: whole, level: 0 }]);
+              setLevel(0);
+            }
             setReady(true);
           } else setFailure("unsupported");
           return;
