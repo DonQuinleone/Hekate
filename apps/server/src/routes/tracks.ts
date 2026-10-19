@@ -10,7 +10,6 @@ import {
   type ProjectPermission,
   parseCmx3600,
   replaceVariationInput,
-  restartPoints,
   trackNormalisationInput,
   trackReferencesInput,
   updateTrackInput,
@@ -37,7 +36,7 @@ import { follow, followersOf, notifyNow } from "../notifications.ts";
 import type { Storage } from "../storage.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { trackStandings } from "../track-standing.ts";
-import { type RunnerDeps, versionArrived, workflowsFor } from "../workflow-runner.ts";
+import { type RunnerDeps, restartAt, runAfter, versionArrived } from "../workflow-runner.ts";
 import { folderIn, lockProject } from "./folders.ts";
 
 const {
@@ -476,19 +475,11 @@ export const trackRoutes = (
         );
       }
       if (letThrough) await canSeeTrack(db, c.var, track.projectId, "edit_workflows");
-      // Restarting a workflow from a stage (#25) is for those who edit workflows, and only from
-      // a stage of a workflow that runs for this track.
+      // Restarting a workflow from a stage (#25) is for those who edit workflows; the stage
+      // is checked, and the restart made, in the version's own transaction (`restartAt`).
       const restartFrom = input.restartFrom ?? null;
-      if (restartFrom) {
-        await canSeeTrack(db, c.var, track.projectId, "edit_workflows");
-        const flow = (await workflowsFor(db, organisationId, track.projectId, id)).find(
-          (w) => w.id === restartFrom.workflowId,
-        );
-        if (!flow || !restartPoints(flow.definition).some((n) => n.id === restartFrom.nodeId))
-          throw new HTTPException(422, {
-            message: "That is not a stage this track's workflows can start again from",
-          });
-      }
+      if (restartFrom) await canSeeTrack(db, c.var, track.projectId, "edit_workflows");
+      let restarted: Awaited<ReturnType<typeof restartAt>> = [];
       const who = letThrough ? await audit.member(c.var.userId) : null;
       let aligning: string[] = [];
       let made = 0;
@@ -549,6 +540,16 @@ export const trackRoutes = (
               tx,
             );
           }
+          // The workflow chosen starts again at its stage with the version, or neither lands.
+          if (restartFrom)
+            restarted = await restartAt(tx, runner, {
+              organisationId,
+              projectId: track.projectId,
+              trackId: id,
+              versionId: madeId,
+              userId: c.var.userId,
+              ...restartFrom,
+            });
           // The previous version's open threads come along, to be settled here, as whoever
           // added it chose.
           return carryThreads(
@@ -566,6 +567,7 @@ export const trackRoutes = (
         }
         throw error;
       }
+      await runAfter(restarted);
       // Where the music moved between this version and the last, worked out from the audio.
       // The version is made either way: what the queue misses now, the sweep queues later.
       for (const alignmentId of aligning) {
@@ -598,7 +600,6 @@ export const trackRoutes = (
         trackId: id,
         versionId: madeId,
         userId: c.var.userId,
-        restartFrom,
       });
       return c.json({ track: await oneTrack(db, organisationId, id) }, 201);
     });

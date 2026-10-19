@@ -8793,9 +8793,19 @@ describe.runIf(url)("api", () => {
           const restartFrom = (nodeId: string) => ({
             restartFrom: { workflowId: made.workflow.id, nodeId },
           });
+          const versionCount = async () =>
+            (
+              await db
+                .select({ id: schema.versions.id })
+                .from(schema.versions)
+                .where(eq(schema.versions.trackId, s.trackId))
+            ).length;
+          const versionsBefore = await versionCount();
           await newVersion("Mix v4.wav", restartFrom("edit"), s.engineer, 403);
           await newVersion("Mix v4.wav", restartFrom("tell"), s.owner, 422);
           await newVersion("Mix v4.wav", restartFrom("gone"), s.owner, 422);
+          // A restart refused takes the version with it: neither lands.
+          expect(await versionCount()).toBe(versionsBefore);
           const before = await runs();
           await newVersion("Mix v4.wav", restartFrom("fb"));
           const after = await runs();
