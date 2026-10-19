@@ -593,3 +593,11 @@ The board's Calendar view (#141) shows a month of the project: reviews due (not 
 ## 127. The board's timeline runs each track from its latest version to its review's due date
 
 The board's Timeline view (#141) approximates a Gantt chart, as the prototype does, from what the board already knows rather than from a schedule of its own: each track runs from the day its latest version arrived to the day an open review of it is due, or a week on where none is, labelled with the step it waits at (else its status, else its version). Finished tracks are solid, late ones marked. It shows six weeks from the Monday two weeks before today, moved three weeks at a time; the names stay pinned while the weeks scroll beneath them, and a phone opens it scrolled to today. The rules are pure, in `packages/shared` (`timelineWeeks`, `timelineBar`).
+
+## 128. A project keeps a status set, which the board and the steps follow
+
+Each project has a status set (#26), as the prototype's Statuses panel on the workflow canvas has it: names in an order, each read as to do, in progress or done. It is kept on the project (`workflow_statuses`), changed whole by those who edit workflows, and seen by those who see them.
+
+- **The board follows it.** Grouped by status, the board's columns are the set in its order and with its categories, then any status a step sets that the set lacks, as before (a finish's reading as done). With no set, nothing changes from decision 125. The rule is pure, in `packages/shared` (`projectStatuses`).
+- **Steps choose from it.** Once a project has any statuses, a step's status is chosen from them rather than written, so the same status is never spelt two ways; a project with none yet still writes one.
+- **The panel lists what is really there.** It shows the set and the statuses only a step sets so far, kept in the set with the first change. A status a step sets cannot be removed until no step does; each name is kept once, whatever its case.

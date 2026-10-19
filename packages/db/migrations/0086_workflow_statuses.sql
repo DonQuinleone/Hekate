@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "workflow_statuses" jsonb DEFAULT '[]'::jsonb NOT NULL;

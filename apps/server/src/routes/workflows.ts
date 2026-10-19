@@ -1,10 +1,12 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  projectStatuses,
   type WorkflowDefinition,
   type WorkflowSummary,
   workflowChangeInput,
   workflowInput,
   workflowProblems,
+  workflowStatusesInput,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { asc, eq, sql } from "drizzle-orm";
@@ -15,7 +17,7 @@ import { actorOf, can, lockLiveProject } from "../access.ts";
 import { NotFound } from "../errors.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
-const { tracks, workflows } = schema;
+const { projects, tracks, workflows } = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
@@ -47,6 +49,26 @@ async function workflowOf(db: Database, organisationId: string, id: string) {
   return row;
 }
 
+/** A project's statuses (#26): its set, then any its workflows' steps set that it lacks. */
+async function statusesOf(db: Pick<Database, "select">, organisationId: string, projectId: string) {
+  const [[project], flows] = await Promise.all([
+    db
+      .select({ set: projects.workflowStatuses })
+      .from(projects)
+      .where(inOrg(projects, organisationId, eq(projects.id, projectId))),
+    db
+      .select({ definition: workflows.definition })
+      .from(workflows)
+      .where(inOrg(workflows, organisationId, eq(workflows.projectId, projectId)))
+      .orderBy(sql`${workflows.trackId} is not null`, asc(workflows.createdAt)),
+  ]);
+  if (!project) throw new NotFound("Project");
+  return projectStatuses(
+    project.set,
+    flows.map((f) => f.definition),
+  );
+}
+
 /**
  * A project's workflows (#25), under `/api/projects/:id/workflows`: its own and the tracks'
  * overrides, and making one. Seeing them needs `view_workflows`; changing them,
@@ -66,6 +88,31 @@ export const projectWorkflowRoutes = (db: Database) =>
         .orderBy(sql`${workflows.trackId} is not null`, asc(workflows.createdAt));
       return c.json({ workflows: rows.map(summaryOf) });
     })
+    // Its status set (#26): what the board's columns are, and what a step may set.
+    .get("/:id/workflow-statuses", idParam, async (c) => {
+      const projectId = c.req.valid("param").id;
+      await can(db, actorOf(c.var), "view_workflows", projectId);
+      return c.json({ statuses: await statusesOf(db, c.var.organisationId, projectId) });
+    })
+    .put(
+      "/:id/workflow-statuses",
+      idParam,
+      zValidator("json", workflowStatusesInput),
+      async (c) => {
+        const organisationId = c.var.organisationId;
+        const projectId = c.req.valid("param").id;
+        await can(db, actorOf(c.var), "edit_workflows", projectId);
+        const statuses = await db.transaction(async (tx) => {
+          await lockLiveProject(tx, organisationId, projectId);
+          await tx
+            .update(projects)
+            .set({ workflowStatuses: c.req.valid("json").statuses })
+            .where(inOrg(projects, organisationId, eq(projects.id, projectId)));
+          return statusesOf(tx, organisationId, projectId);
+        });
+        return c.json({ statuses });
+      },
+    )
     .post("/:id/workflows", idParam, zValidator("json", workflowInput), async (c) => {
       const organisationId = c.var.organisationId;
       const projectId = c.req.valid("param").id;

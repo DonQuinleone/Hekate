@@ -8575,6 +8575,49 @@ describe.runIf(url)("api", () => {
           expect((await getAs(`/api/projects/${s.projectId}/board`, outsiderBoard)).status).toBe(
             404,
           );
+          // Its status set (#26): the board's columns follow its order and categories, and the
+          // statuses only a step sets come after. Only those who edit workflows change it.
+          const statusesPath = `/api/projects/${s.projectId}/workflow-statuses`;
+          const putStatuses = (statuses: unknown, cookie = s.owner) =>
+            app.request(statusesPath, { ...json({ statuses }, cookie), method: "PUT" });
+          const set = [
+            { name: "Editing", category: "todo" },
+            { name: "On hold", category: "todo" },
+            { name: "Approved", category: "done" },
+          ];
+          expect((await putStatuses(set, s.engineer)).status).toBe(403);
+          expect((await putStatuses(set, outsiderBoard)).status).toBe(404);
+          expect(
+            (
+              await putStatuses([
+                { name: "Editing", category: "todo" },
+                { name: "editing", category: "done" },
+              ])
+            ).status,
+          ).toBe(400);
+          const saved = (await (await putStatuses(set)).json()) as {
+            statuses: { name: string; category: string; steps: number; kept: boolean }[];
+          };
+          expect(saved.statuses.map((x) => [x.name, x.kept])).toEqual([
+            ["Editing", true],
+            ["On hold", true],
+            ["Approved", true],
+            ["With conductor", false],
+          ]);
+          expect((await (await getAs(statusesPath, s.composer)).json()) as typeof saved).toEqual(
+            saved,
+          );
+          expect((await getAs(statusesPath, outsiderBoard)).status).toBe(404);
+          expect((await board(s.composer)).columns.status.map((c) => [c.name, c.category])).toEqual(
+            [
+              ["No version", "todo"],
+              ["No status", "todo"],
+              ["Editing", "todo"],
+              ["On hold", "todo"],
+              ["Approved", "done"],
+              ["With conductor", "in_progress"],
+            ],
+          );
 
           // Ended by hand by those who edit workflows: the engineer is told, and given the edit.
           const step = (body: unknown, cookie = s.owner) =>

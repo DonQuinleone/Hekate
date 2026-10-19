@@ -16,6 +16,7 @@ import { trackStandings } from "../track-standing.ts";
 
 const {
   comments,
+  projects,
   guests,
   reviewDecisionLog,
   reviewItems,
@@ -98,7 +99,7 @@ export const projectBoardRoutes = (db: Database) =>
     const organisationId = c.var.organisationId;
     const access = await can(db, actorOf(c.var), "view", c.req.valid("param").id);
     const projectId = access.projectId;
-    const [standing, statusRows, flows, running, open] = await Promise.all([
+    const [standing, statusRows, flows, running, open, [project]] = await Promise.all([
       trackStandings(db, organisationId, projectId),
       db
         .select({ id: tracks.id, status: tracks.workflowStatus })
@@ -158,6 +159,10 @@ export const projectBoardRoutes = (db: Database) =>
           ),
         )
         .orderBy(desc(reviews.createdAt)),
+      db
+        .select({ statuses: projects.workflowStatuses })
+        .from(projects)
+        .where(inOrg(projects, organisationId, eq(projects.id, projectId))),
     ]);
     const statusOf = new Map(statusRows.map((r) => [r.id, r.status]));
     const versionIds = standing.tracks.flatMap((t) => (t.version ? [t.version.id] : []));
@@ -266,7 +271,7 @@ export const projectBoardRoutes = (db: Database) =>
     const board: Board = {
       workflows: flows.map((f) => f.name),
       columns: {
-        status: boardColumns(definitions, "status", held),
+        status: boardColumns(definitions, "status", held, project?.statuses ?? []),
         stage: boardColumns(definitions, "stage", [
           ...new Set(cards.flatMap((k) => (k.stage ? [k.stage] : []))),
         ]),

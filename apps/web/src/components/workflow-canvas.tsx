@@ -23,6 +23,7 @@ import { Choice } from "~/components/ui/choice";
 import { Input, Select } from "~/components/ui/input";
 import { Dropdown } from "~/components/ui/menu";
 import { Committed, StepField } from "~/components/workflow-fields";
+import { StatusesPanel } from "~/components/workflow-statuses";
 import { cn } from "~/lib/cn";
 import { useShortcuts } from "~/lib/shortcuts";
 import {
@@ -207,6 +208,7 @@ export function WorkflowCanvas({
   const [zoom, setZoom] = useState(0.85);
   const [panning, setPanning] = useState(false);
   const [walk, setWalk] = useState<Walk | null>(null);
+  const [statusesOpen, setStatusesOpen] = useState(false);
   const canvas = useRef<HTMLDivElement>(null);
   const drag = useRef<
     | { kind: "pan"; start: Pt; origin: Pt }
@@ -439,6 +441,7 @@ export function WorkflowCanvas({
         setPicking(null);
         setSelection(null);
         setWalk(null);
+        setStatusesOpen(false);
       },
     },
     {
@@ -653,7 +656,7 @@ export function WorkflowCanvas({
   };
   const walked = (flowId: string) => (walk?.flowId === flowId ? walk : null);
 
-  const inspectorOpen = picking !== null || selection !== null || walk !== null;
+  const inspectorOpen = picking !== null || selection !== null || walk !== null || statusesOpen;
 
   return (
     <div className="relative flex min-h-0 flex-1">
@@ -686,12 +689,29 @@ export function WorkflowCanvas({
             )}
           </div>
           <Button
+            variant={statusesOpen && !walk ? "secondary" : "ghost"}
+            size="sm"
+            className="shrink-0"
+            aria-pressed={statusesOpen && !walk}
+            onClick={() => {
+              setWalk(null);
+              setSelection(null);
+              setPicking(null);
+              setStatusesOpen(!(statusesOpen && !walk));
+            }}
+          >
+            <Icon name="list" size={13} />
+            <span className="hidden @3xl/app:inline">Statuses</span>
+            <span className="sr-only @3xl/app:hidden">Statuses</span>
+          </Button>
+          <Button
             variant={walk ? "secondary" : "ghost"}
             size="sm"
             className="shrink-0"
-            onClick={() =>
-              walk ? setWalk(null) : startWalk(selection?.flowId ?? workflows[0]?.id ?? "")
-            }
+            onClick={() => {
+              setStatusesOpen(false);
+              walk ? setWalk(null) : startWalk(selection?.flowId ?? workflows[0]?.id ?? "");
+            }}
           >
             <Icon name="play" size={13} />
             <span className="hidden @3xl/app:inline">Walk through</span>
@@ -1106,6 +1126,16 @@ export function WorkflowCanvas({
               onRestart={() => startWalk(walk.flowId)}
               onClose={() => setWalk(null)}
             />
+          )}
+          {!picking && !selection && !walk && statusesOpen && (
+            <>
+              <PanelHead
+                title="Statuses"
+                hint="What the board's columns are; a step sets one."
+                onClose={() => setStatusesOpen(false)}
+              />
+              <StatusesPanel projectId={projectId} editing={editing} />
+            </>
           )}
           {!picking && selection && selectedNode && (
             <NodeInspector

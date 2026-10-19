@@ -68,6 +68,7 @@ import {
   type ProjectDeletion,
   type ProjectPermission,
   type ProjectProfile,
+  type ProjectStatus,
   type ProjectTemplate,
   permissionsOfLevels,
   type QaFinding,
@@ -105,6 +106,7 @@ import {
   type WatermarkSettings,
   type WorkflowChange,
   type WorkflowInput,
+  type WorkflowStatus,
   type WorkflowSummary,
   type WorkspaceSettings,
   type WorkspaceSettingsInput,
@@ -3533,6 +3535,38 @@ export function useTaskMutations(projectId: string) {
 }
 
 /** A project's board (#141): its tracks as cards, and the columns of both groupings. */
+/** A project's statuses (#26): its set, then any only a step sets. */
+export const projectWorkflowStatusesQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "workflow-statuses"],
+    queryFn: async () =>
+      (
+        await json<{ statuses: ProjectStatus[] }>(
+          await api.projects[":id"]["workflow-statuses"].$get({ param: { id: projectId } }),
+        )
+      ).statuses,
+  });
+
+/** Keeping a project's status set (#26), all of it at once; the board's columns follow. */
+export function useSaveWorkflowStatuses(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (statuses: WorkflowStatus[]) =>
+      (
+        await json<{ statuses: ProjectStatus[] }>(
+          await api.projects[":id"]["workflow-statuses"].$put({
+            param: { id: projectId },
+            json: { statuses },
+          }),
+        )
+      ).statuses,
+    onSuccess: (statuses) => {
+      client.setQueryData(projectWorkflowStatusesQuery(projectId).queryKey, statuses);
+      void client.invalidateQueries({ queryKey: projectBoardQuery(projectId).queryKey });
+    },
+  });
+}
+
 export const projectBoardQuery = (projectId: string) =>
   queryOptions({
     queryKey: ["projects", projectId, "board"],

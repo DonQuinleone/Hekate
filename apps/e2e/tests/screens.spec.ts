@@ -591,6 +591,18 @@ test("workflows-inspector", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The project's statuses (#26): how each reads on the board, and the steps that set it. Looked
+// at only, so no other capture sees a change.
+test("workflows-statuses", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/workflow`);
+  await settle(page, "main [data-node]:has-text('Label approval')");
+  await page.getByRole("button", { name: "Statuses" }).click();
+  await settle(page, "aside[aria-label=Inspector] >> text=Set by a step");
+  await saveScreen(page, "workflows-statuses");
+  await checkScreen(page);
+});
+
 // An item walked through a workflow (#26): the steps it has taken, and the choices where it waits.
 test("workflows-walk", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
