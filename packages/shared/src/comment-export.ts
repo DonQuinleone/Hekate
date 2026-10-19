@@ -236,7 +236,11 @@ export function threadsForExport(
 export function threadTime(anchor: Anchor | null): { start: number; end: number } | null {
   if (!anchor) return null;
   if (anchor.kind === "time") return { start: anchor.start, end: anchor.end };
-  if (anchor.at !== undefined) return { start: anchor.at, end: anchor.at };
+  if (anchor.at !== undefined)
+    return {
+      start: anchor.at,
+      end: anchor.kind === "region" ? (anchor.end ?? anchor.at) : anchor.at,
+    };
   return null;
 }
 

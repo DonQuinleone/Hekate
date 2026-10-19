@@ -12836,6 +12836,50 @@ describe.runIf(url)("api", () => {
           ).toBe(403);
         });
 
+        it("keeps a drawing on a video's frame with its comment (#146)", async () => {
+          const s = await invited();
+          await db
+            .update(schema.files)
+            .set({
+              kind: "video",
+              mediaInfo: {
+                duration: 60,
+                video: { codec: "h264", width: 1920, height: 1080, fps: 25 },
+              },
+            })
+            .where(eq(schema.files.id, s.mix));
+          const commented = `/api/files/${s.mix}/comments`;
+          const drawn = (at: number, end?: number) => ({
+            body: "Lose the boom in the top corner",
+            anchor: {
+              kind: "region",
+              x: 0.6,
+              y: 0.05,
+              width: 0.3,
+              height: 0.2,
+              at,
+              ...(end === undefined ? {} : { end }),
+              drawing: {
+                tool: "box",
+                colour: "signal",
+                points: [
+                  [0.6, 0.05],
+                  [0.9, 0.25],
+                ],
+              },
+            },
+          });
+          const posted = await app.request(commented, json(drawn(12.5, 14), s.owner));
+          expect(posted.status).toBe(201);
+          const { comment } = (await posted.json()) as { comment: { id: string } };
+          type Listed = { comments: { id: string; anchor: unknown }[] };
+          const listed = ((await (await getAs(commented, s.owner)).json()) as Listed).comments;
+          expect(listed.find((c) => c.id === comment.id)?.anchor).toEqual(drawn(12.5, 14).anchor);
+          // Past the end of the video, or ending before it starts, is refused.
+          expect((await app.request(commented, json(drawn(12.5, 61), s.owner))).status).toBe(422);
+          expect((await app.request(commented, json(drawn(14, 12.5), s.owner))).status).toBe(400);
+        });
+
         it("binds a guest's playback to their browser", async () => {
           const s = await invited();
           await db

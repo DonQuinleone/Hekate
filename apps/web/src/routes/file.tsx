@@ -18,12 +18,14 @@ import {
   Comments,
   type PageComments,
   useCommentMarkers,
+  useFrameDrawings,
   useRegionMarkers,
 } from "~/components/comments";
 import { Compare, type CompareFocus } from "~/components/compare";
 import { DecisionStrip } from "~/components/decision-strip";
 import { DocumentViewer } from "~/components/document-viewer";
 import { DownloadDialog } from "~/components/downloads";
+import type { FrameDraft } from "~/components/drawings";
 import { ExportCommentsDialog } from "~/components/exports";
 import { FileDetailsSheet } from "~/components/file-details";
 import { mediaSummary } from "~/components/files";
@@ -92,8 +94,13 @@ function Playback({
   onNormalised,
   showFindings,
   showEdits,
+  draft,
+  onDraft,
 }: {
   file: FileDetail;
+  /** The drawing waiting to join the next comment on a video (#146). */
+  draft: FrameDraft | null;
+  onDraft: (draft: FrameDraft | null) => void;
   /** Whether to lay a version's edit decisions under its waveform (#56): for those who see takes. */
   showEdits: boolean;
   /** Whether to mark what the quality checks found on the timeline (#43). */
@@ -112,6 +119,7 @@ function Playback({
   // A take shared with a guest has no comments for them (#133).
   const markers = useCommentMarkers(file.id, !file.grant?.listenOnly);
   const regions = useRegionMarkers(file.id, !file.grant?.listenOnly);
+  const drawings = useFrameDrawings(file.id, file.kind === "video" && !file.grant?.listenOnly);
   const { data: qa } = useQuery({ ...qaQuery(file.id), enabled: showFindings });
   const findings = showFindings ? findingMarks(qa?.findings ?? []) : [];
   const variation = showEdits ? file.variation : null;
@@ -178,6 +186,9 @@ function Playback({
       normalisation={file.normalisation}
       normalised={normalised}
       onNormalised={onNormalised}
+      drawings={drawings}
+      draft={draft}
+      onDraft={file.kind === "video" && canComment ? onDraft : undefined}
       onExpired={() => client.resetQueries({ queryKey: playbackQuery(file.id).queryKey })}
     />
   );
@@ -265,6 +276,7 @@ export function FilePage({
   const loudnessShown = usePlayerView().view.loudness;
   /** On a document: the page shown, and the region drawn or thread picked on it. */
   const [pageFocus, setPageFocus] = useState<PageFocus>(initialFocus);
+  const [frameDraft, setFrameDraft] = useState<FrameDraft | null>(null);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [chosenNormal, setChosenNormal] = useNormalisedChoice();
@@ -280,6 +292,8 @@ export function FilePage({
   // Another file starts on its first page, with nothing drawn.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset whenever the file changes.
   useEffect(() => setPageFocus(initialFocus), [fileId]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a drawing belongs to its file.
+  useEffect(() => setFrameDraft(null), [fileId]);
   const can = useProjectCan(guest || !file ? undefined : file.projectId);
   // Guests see the files of their reviews, never the project around them.
   const { data: project } = useQuery({
@@ -418,6 +432,8 @@ export function FilePage({
       onNormalised={setChosenNormal}
       showFindings={Boolean(file.mediaInfo?.audio) && allows("qa")}
       showEdits={!guest && can("view_takes")}
+      draft={frameDraft}
+      onDraft={setFrameDraft}
     />
   );
   if (shown === "triage")
@@ -615,6 +631,11 @@ export function FilePage({
                     media={media}
                     loop={passage}
                     pages={file.streamStatus === "ready" ? pages : undefined}
+                    frame={
+                      file.kind === "video"
+                        ? { draft: frameDraft, onClear: () => setFrameDraft(null) }
+                        : undefined
+                    }
                     onBeforeAfter={comparable ? beforeAfter : undefined}
                     seed={seed}
                     onLoop={allows("loops") ? hear : undefined}

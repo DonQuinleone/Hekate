@@ -22,6 +22,43 @@ export const timeAnchor = z
   })
   .refine((a) => a.end >= a.start, { message: "end must not be before start", path: ["end"] });
 
+/** The marks a drawing on a frame or page can make (#146). */
+export const drawingTools = ["box", "circle", "line", "arrow", "free", "text"] as const;
+export type DrawingTool = (typeof drawingTools)[number];
+
+/** The colours a drawing comes in, each a token of the design system. */
+export const drawingColours = ["signal", "paper", "blue", "green"] as const;
+export type DrawingColour = (typeof drawingColours)[number];
+
+/**
+ * A mark drawn on a frame or page (#146), in the same 0 to 1 coordinates as its region: a box
+ * or circle from one corner to the other, a line or arrow from its start to its end, a
+ * freehand stroke through its points, a piece of text at its point.
+ */
+export const drawing = z
+  .object({
+    tool: z.enum(drawingTools),
+    colour: z.enum(drawingColours),
+    points: z
+      .array(z.tuple([unit, unit]))
+      .min(1)
+      .max(512),
+    text: z.string().trim().min(1).max(200).optional(),
+  })
+  .refine((d) => (d.tool === "text") === (d.text !== undefined), {
+    message: "text goes with the text tool, and the text tool with text",
+    path: ["text"],
+  })
+  .refine((d) => d.tool === "free" || d.tool === "text" || d.points.length === 2, {
+    message: "a box, circle, line or arrow has two points",
+    path: ["points"],
+  })
+  .refine((d) => d.tool !== "text" || d.points.length === 1, {
+    message: "text has one point",
+    path: ["points"],
+  });
+export type Drawing = z.infer<typeof drawing>;
+
 export const regionAnchor = z
   .object({
     kind: z.literal("region"),
@@ -29,14 +66,69 @@ export const regionAnchor = z
     page: z.number().int().positive().optional(),
     /** Time in seconds when the region is drawn on a video frame. */
     at: seconds.optional(),
+    /** Where a region drawn across a range of a video ends, in seconds (#146). */
+    end: seconds.optional(),
     x: unit,
     y: unit,
     width: unit,
     height: unit,
+    /** What was drawn there; the region is the box around it (#146). */
+    drawing: drawing.optional(),
   })
   .refine((a) => a.x + a.width <= 1 && a.y + a.height <= 1, {
     message: "region must lie inside the page or frame",
-  });
+  })
+  .refine((a) => a.end === undefined || (a.at !== undefined && a.end >= a.at), {
+    message: "a range must start before it ends",
+    path: ["end"],
+  })
+  // The region is where the drawing is, never somewhere else, whoever sent it.
+  .refine(
+    (a) => {
+      if (!a.drawing) return true;
+      const box = drawingBounds(a.drawing);
+      const near = (p: number, q: number) => Math.abs(p - q) < 1e-3;
+      return (
+        near(a.x, box.x) &&
+        near(a.y, box.y) &&
+        near(a.width, box.width) &&
+        near(a.height, box.height)
+      );
+    },
+    { message: "a drawn region is the box around its drawing", path: ["drawing"] },
+  );
+
+/** The box around a drawing, as its region: at least a hair wide, so a straight line has one. */
+export function drawingBounds(d: Pick<Drawing, "points">): {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} {
+  const xs = d.points.map((p) => p[0]);
+  const ys = d.points.map((p) => p[1]);
+  const round = (v: number) => Math.round(v * 10_000) / 10_000;
+  const x = round(Math.min(...xs));
+  const y = round(Math.min(...ys));
+  return {
+    x,
+    y,
+    width: Math.min(round(Math.max(...xs) - x), 1 - x),
+    height: Math.min(round(Math.max(...ys) - y), 1 - y),
+  };
+}
+
+/** Whether a region drawn on a video shows at a time: its frame, or anywhere in its range. */
+export function regionShowsAt(
+  a: Pick<RegionAnchor, "at" | "end">,
+  seconds: number,
+  frame: number,
+): boolean {
+  if (a.at === undefined) return false;
+  const end = a.end ?? a.at;
+  // A frame lasts until the next one: a moment within it shows the frame's drawings.
+  return seconds >= a.at - frame / 2 && seconds < end + frame / 2 + 1e-6;
+}
 
 const barPosition = z.object({
   /** Bar 0 is an upbeat, before the first full bar. */

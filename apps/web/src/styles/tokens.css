@@ -13,6 +13,9 @@
   /* What is printed on paper, in every theme: a QR code's modules. */
   --hk-paper-ink: #111113;
   --hk-ok: #58b98a;
+  /* Marks drawn on a frame or page (#146), beside the signal and paper: legible over any picture. */
+  --hk-draw-blue: #6fa8ff;
+  --hk-draw-green: #58b98a;
   /** Which way native controls (scroll bars, form fields) are drawn. */
   --hk-scheme: dark;
 

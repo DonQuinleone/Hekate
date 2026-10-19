@@ -8,6 +8,7 @@ import {
   type CommentMention,
   carryStatuses,
   carryStatusLabel,
+  drawingBounds,
   formatAnchor,
   formatBytes,
   mentionAt,
@@ -18,6 +19,8 @@ import {
   speakerOf,
   speakersOf,
   type TriageInput,
+  videoClock,
+  videoTimecode,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -55,6 +58,7 @@ import { useShortcuts } from "~/lib/shortcuts";
 import { useViewer } from "~/lib/viewer";
 import { Avatar } from "./avatar";
 import type { RegionMarker } from "./document-viewer";
+import type { FrameDraft, FrameDrawing } from "./drawings";
 import { Icon } from "./icons";
 import type { TimelineMarker } from "./player";
 import { OtherTakes, SharedTakes } from "./takes";
@@ -69,8 +73,13 @@ const fullTime = formatDates({ dateStyle: "medium", timeStyle: "short" });
 
 /** Lowercase time labels read better inline than the upper-case anchor labels on markers. */
 // "00:12.500" reads as "0:12.500", at either end of a range.
-export const anchorLabel = (anchor: Anchor) =>
-  formatAnchor(anchor).replace(/(^|\s)0(\d:)/g, "$1$2");
+// A video's comments read in its own timecode instead (#146).
+export const anchorLabel = (anchor: Anchor, time?: TimeFormat | null) =>
+  time ? formatAnchor(anchor, { time }) : formatAnchor(anchor).replace(/(^|\s)0(\d:)/g, "$1$2");
+
+type TimeFormat = (seconds: number) => string;
+/** How moments read on this file: a video's own timecode, else the clock (#146). */
+const TimeFormatting = createContext<TimeFormat | null>(null);
 
 const textButton =
   "inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink disabled:cursor-default disabled:opacity-40";
@@ -683,6 +692,8 @@ function ThreadView({
   /** The thread a link points at: brought into view and marked. */
   focused?: boolean;
 }) {
+  const time = useContext(TimeFormatting);
+  const label = (a: Anchor) => anchorLabel(a, time);
   const [replying, setReplying] = useState(false);
   const [takesOpen, setTakesOpen] = useState(false);
   const [asking, setAsking] = useState<"defer" | "assign" | null>(null);
@@ -769,18 +780,18 @@ function ThreadView({
               type="button"
               onClick={() => onSeek(anchor.start)}
               className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 text-[11px] text-ink hover:border-signal"
-              aria-label={`Play from ${anchorLabel(anchor)}`}
+              aria-label={`Play from ${label(anchor)}`}
             >
-              {anchorLabel(anchor)}
+              {label(anchor)}
             </button>
           ) : anchor.kind === "bar" && anchor.at !== undefined ? (
             <button
               type="button"
               onClick={() => onSeek(anchor.at ?? 0)}
               className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 text-[11px] text-ink hover:border-signal"
-              aria-label={`Play ${anchorLabel(anchor).toLowerCase()} from ${anchorLabel({ kind: "time", start: anchor.at, end: anchor.at })}`}
+              aria-label={`Play ${label(anchor).toLowerCase()} from ${label({ kind: "time", start: anchor.at, end: anchor.at })}`}
             >
-              {anchorLabel(anchor)}
+              {label(anchor)}
             </button>
           ) : anchor.kind === "region" && pages ? (
             <button
@@ -797,13 +808,23 @@ function ThreadView({
                 "tabular flex h-6 cursor-pointer items-center gap-1.5 rounded-chip border bg-transparent px-2 text-[11px] text-ink hover:border-signal",
                 picked ? "border-signal" : "border-edge",
               )}
-              aria-label={`Show ${marker ? `thread ${marker.n}, ` : ""}${anchorLabel(anchor)}`}
+              aria-label={`Show ${marker ? `thread ${marker.n}, ` : ""}${label(anchor)}`}
             >
               {marker && <span className="text-signal">{marker.n}</span>}
-              {anchorLabel(anchor)}
+              {label(anchor)}
+            </button>
+          ) : anchor.kind === "region" && anchor.at !== undefined ? (
+            // A drawing on a video's frame (#146): back to its frame, as the prototype does.
+            <button
+              type="button"
+              onClick={() => onSeek(anchor.at ?? 0)}
+              className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 text-[11px] text-ink hover:border-signal"
+              aria-label={`Show the drawing at ${label({ kind: "time", start: anchor.at, end: anchor.at })}`}
+            >
+              {label(anchor)}
             </button>
           ) : (
-            <span className="label">{formatAnchor(anchor)}</span>
+            <span className="label">{formatAnchor(anchor, time ? { time } : {})}</span>
           )
         ) : (
           <span className="label">Whole file</span>
@@ -813,7 +834,7 @@ function ThreadView({
             type="button"
             onClick={() => onLoop({ start: anchor.start, end: anchor.end })}
             className="inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
-            aria-label={`Loop ${anchorLabel(anchor)}`}
+            aria-label={`Loop ${label(anchor)}`}
           >
             Loop
           </button>
@@ -1102,10 +1123,13 @@ export function Comments({
   onLoop,
   onBeforeAfter,
   pages,
+  frame,
   seed,
   tools,
   focus,
 }: {
+  /** On a video: the drawing waiting to join the next comment (#146), and letting it go. */
+  frame?: { draft: FrameDraft | null; onClear: () => void };
   /** A thread a link points at (#140): brought into view and marked, as one picked on a page. */
   focus?: string;
   /** A comment begun elsewhere (from a finding, #43): at its moment, starting with its words. */
@@ -1133,6 +1157,12 @@ export function Comments({
   const { data: file } = useQuery(fileQuery(fileId));
   const canComment = guest ? Boolean(file?.grant?.comment) : can("comment");
   const canTriage = !guest && can("triage");
+  // A video's comments read in its own timecode (#146).
+  const video = file?.mediaInfo?.video;
+  const timeFormat = useMemo(() => {
+    const clock = video ? videoClock(video) : null;
+    return clock ? (seconds: number) => videoTimecode(seconds, clock) : null;
+  }, [video]);
   // A thread on a bar of a track's version can list the track's takes of that bar (#46).
   const takesOf = !guest && can("view_takes") ? file?.variation?.trackId : undefined;
   const { data: me } = useQuery(meQuery);
@@ -1172,6 +1202,12 @@ export function Comments({
   const [channel, setChannel] = useState("");
   /** With a loop set, new comments point at the looped passage unless told otherwise. */
   const [onPassage, setOnPassage] = useState(true);
+  /** A drawing made on the frame is where the next comment goes, unless told otherwise (#146). */
+  const [onDrawing, setOnDrawing] = useState(true);
+  const frameDraft = frame?.draft ?? null;
+  useEffect(() => {
+    if (frameDraft) setOnDrawing(true);
+  }, [frameDraft]);
   const [showResolved, setShowResolved] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   /** On a page: whether a new comment points at the region drawn, the page, or the file. */
@@ -1260,6 +1296,14 @@ export function Comments({
         return { kind: "region", ...page, x: 0, y: 0, width: 1, height: 1 };
       return null;
     }
+    // A drawing on the frame: the region around it, at the moment it was drawn (#146).
+    if (frameDraft && onDrawing)
+      return {
+        kind: "region",
+        at: frameDraft.at,
+        ...drawingBounds(frameDraft.drawing),
+        drawing: frameDraft.drawing,
+      };
     if (!media || wholeFile) return null;
     if (loop && onPassage) return { kind: "time", start: loop.start, end: loop.end };
     const start = at ?? Math.round(media.currentTime * 1000) / 1000;
@@ -1310,13 +1354,16 @@ export function Comments({
     Boolean(media && canComment),
   );
 
-  const composerLabel = media
-    ? "Comment at the playhead"
-    : pages && pageAim === "region"
-      ? "Comment on the region"
-      : pages?.paged && pageAim === "page"
-        ? `Comment on page ${pages.focus.page}`
-        : "Comment on this file";
+  const drawingAim = frameDraft !== null && onDrawing && !barsOn;
+  const composerLabel = drawingAim
+    ? "Comment on the drawing"
+    : media
+      ? "Comment at the playhead"
+      : pages && pageAim === "region"
+        ? "Comment on the region"
+        : pages?.paged && pageAim === "page"
+          ? `Comment on page ${pages.focus.page}`
+          : "Comment on this file";
   const composerBody = (
     <Composer
       // A comment begun from a finding starts with its words; a new one starts empty.
@@ -1338,6 +1385,7 @@ export function Comments({
       }}
       onAttach={(commentId, file) => mutations.attach.mutateAsync({ commentId, file })}
       onSaved={() => {
+        if (drawingAim) frame?.onClear();
         setAt(null);
         setWholeFile(false);
         setCategoryId("");
@@ -1448,53 +1496,81 @@ export function Comments({
       )}
       {media && (
         <span className="flex items-center gap-1">
+          {frameDraft && (
+            <span className="flex items-center">
+              <Target
+                pressed={drawingAim}
+                onClick={() => {
+                  setBars("");
+                  setOnDrawing(true);
+                }}
+                mono
+              >
+                {`Drawing at ${anchorLabel({ kind: "time", start: frameDraft.at, end: frameDraft.at }, timeFormat)}`}
+              </Target>
+              <button
+                type="button"
+                aria-label="Discard the drawing"
+                title="Discard the drawing"
+                onClick={() => frame?.onClear()}
+                className="flex size-6 cursor-pointer items-center justify-center rounded-chip border-0 bg-transparent text-ink-3 hover:text-ink"
+              >
+                <Icon name="close" size={12} />
+              </button>
+            </span>
+          )}
           <button
             type="button"
-            aria-pressed={!barsOn && !wholeFile && !(loop && onPassage)}
+            aria-pressed={!barsOn && !drawingAim && !wholeFile && !(loop && onPassage)}
             onClick={() => {
               setBars("");
+              setOnDrawing(false);
               setWholeFile(false);
               setOnPassage(false);
               setAt(Math.round(media.currentTime * 1000) / 1000);
             }}
             className={cn(
               "tabular h-6 cursor-pointer rounded-chip border px-2 text-[11px]",
-              !barsOn && !wholeFile && !(loop && onPassage)
+              !barsOn && !drawingAim && !wholeFile && !(loop && onPassage)
                 ? "border-edge bg-raised text-ink"
                 : "border-transparent bg-transparent text-ink-3",
             )}
           >
-            {at === null ? "At playhead" : anchorLabel({ kind: "time", start: at, end: at })}
+            {at === null
+              ? "At playhead"
+              : anchorLabel({ kind: "time", start: at, end: at }, timeFormat)}
           </button>
           {loop && (
             <button
               type="button"
-              aria-pressed={!barsOn && !wholeFile && onPassage}
+              aria-pressed={!barsOn && !drawingAim && !wholeFile && onPassage}
               onClick={() => {
                 setBars("");
+                setOnDrawing(false);
                 setWholeFile(false);
                 setOnPassage(true);
               }}
               className={cn(
                 "tabular h-6 cursor-pointer rounded-chip border px-2 text-[11px]",
-                !barsOn && !wholeFile && onPassage
+                !barsOn && !drawingAim && !wholeFile && onPassage
                   ? "border-edge bg-raised text-ink"
                   : "border-transparent bg-transparent text-ink-3",
               )}
             >
-              {anchorLabel({ kind: "time", start: loop.start, end: loop.end })}
+              {anchorLabel({ kind: "time", start: loop.start, end: loop.end }, timeFormat)}
             </button>
           )}
           <button
             type="button"
-            aria-pressed={!barsOn && wholeFile}
+            aria-pressed={!barsOn && !drawingAim && wholeFile}
             onClick={() => {
               setBars("");
+              setOnDrawing(false);
               setWholeFile(true);
             }}
             className={cn(
               "h-6 cursor-pointer rounded-chip border px-2 text-[11px]",
-              !barsOn && wholeFile
+              !barsOn && !drawingAim && wholeFile
                 ? "border-edge bg-raised text-ink"
                 : "border-transparent bg-transparent text-ink-3",
             )}
@@ -1571,124 +1647,126 @@ export function Comments({
   );
 
   return (
-    <Mentionable value={mentionable}>
-      <section aria-label="Comments" className="flex flex-col gap-4">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="m-0 text-[15px] font-medium">Comments</h2>
-          <div className="flex items-center gap-1">
-            <span className="tabular text-xs text-ink-3">
-              {threads.open.length} open
-              {threads.deferred.length > 0 && ` · ${threads.deferred.length} deferred`}
-              {threads.resolved.length > 0 && ` · ${threads.resolved.length} resolved`}
-            </span>
-            {tools}
-          </div>
-        </div>
-        {canComment && (
-          <>
-            {/* On a phone the composer opens as a sheet, so the comments stay in view. */}
-            <div ref={composer} onFocusCapture={capture} className="hidden @3xl/app:block">
-              {composerBody}
+    <TimeFormatting.Provider value={timeFormat}>
+      <Mentionable value={mentionable}>
+        <section aria-label="Comments" className="flex flex-col gap-4">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="m-0 text-[15px] font-medium">Comments</h2>
+            <div className="flex items-center gap-1">
+              <span className="tabular text-xs text-ink-3">
+                {threads.open.length} open
+                {threads.deferred.length > 0 && ` · ${threads.deferred.length} deferred`}
+                {threads.resolved.length > 0 && ` · ${threads.resolved.length} resolved`}
+              </span>
+              {tools}
             </div>
-            <Button
-              variant="secondary"
-              className="w-full @3xl/app:hidden"
-              onClick={() => {
-                media?.pause();
-                capture();
-                setSheet(true);
-              }}
-            >
-              <Icon name="comment" size={14} />
-              {composerLabel}
-            </Button>
-            {sheet && (
-              <Dialog title={composerLabel} onClose={() => setSheet(false)}>
-                {/* Opened to write in: the text box takes focus. */}
-                <div onFocusCapture={capture} ref={sheetBody}>
-                  {composerBody}
-                </div>
-              </Dialog>
-            )}
-          </>
-        )}
-        {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
-        {data &&
-          threads.open.length === 0 &&
-          threads.deferred.length === 0 &&
-          threads.resolved.length === 0 &&
-          threads.hidden.length === 0 && (
-            <p className="m-0 text-[13px] text-ink-3">No comments yet.</p>
-          )}
-        {used.length > 1 && (
-          <fieldset className="m-0 flex min-w-0 flex-wrap gap-1 border-0 p-0">
-            <legend className="sr-only">Show comments of</legend>
-            <ToggleChip pressed={!onlyCategory} onClick={() => setOnlyCategory(null)}>
-              All
-            </ToggleChip>
-            {used.map((c) => (
-              <ToggleChip
-                key={c.id}
-                pressed={onlyCategory === c.id}
-                onClick={() => setOnlyCategory(onlyCategory === c.id ? null : c.id)}
+          </div>
+          {canComment && (
+            <>
+              {/* On a phone the composer opens as a sheet, so the comments stay in view. */}
+              <div ref={composer} onFocusCapture={capture} className="hidden @3xl/app:block">
+                {composerBody}
+              </div>
+              <Button
+                variant="secondary"
+                className="w-full @3xl/app:hidden"
+                onClick={() => {
+                  media?.pause();
+                  capture();
+                  setSheet(true);
+                }}
               >
-                {c.name}
+                <Icon name="comment" size={14} />
+                {composerLabel}
+              </Button>
+              {sheet && (
+                <Dialog title={composerLabel} onClose={() => setSheet(false)}>
+                  {/* Opened to write in: the text box takes focus. */}
+                  <div onFocusCapture={capture} ref={sheetBody}>
+                    {composerBody}
+                  </div>
+                </Dialog>
+              )}
+            </>
+          )}
+          {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
+          {data &&
+            threads.open.length === 0 &&
+            threads.deferred.length === 0 &&
+            threads.resolved.length === 0 &&
+            threads.hidden.length === 0 && (
+              <p className="m-0 text-[13px] text-ink-3">No comments yet.</p>
+            )}
+          {used.length > 1 && (
+            <fieldset className="m-0 flex min-w-0 flex-wrap gap-1 border-0 p-0">
+              <legend className="sr-only">Show comments of</legend>
+              <ToggleChip pressed={!onlyCategory} onClick={() => setOnlyCategory(null)}>
+                All
               </ToggleChip>
-            ))}
-          </fieldset>
-        )}
-        <ul className="m-0 flex list-none flex-col p-0">
-          {threads.open.filter(inCategory).map(view)}
-        </ul>
-        {threads.deferred.length > 0 && (
-          <div className="flex flex-col">
-            <button
-              type="button"
-              onClick={() => setShowDeferred((v) => !v)}
-              aria-expanded={showDeferred}
-              className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
-            >
-              {showDeferred ? "Hide" : "Show"} {threads.deferred.length} deferred
-            </button>
-            {showDeferred && (
-              <ul className="m-0 flex list-none flex-col p-0">
-                {threads.deferred.filter(inCategory).map(view)}
-              </ul>
-            )}
-          </div>
-        )}
-        {threads.resolved.length > 0 && (
-          <div className="flex flex-col">
-            <button
-              type="button"
-              onClick={() => setShowResolved((v) => !v)}
-              aria-expanded={showResolved}
-              className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
-            >
-              {showResolved ? "Hide" : "Show"} {threads.resolved.length} resolved
-            </button>
-            {showResolved && (
-              <ul className="m-0 flex list-none flex-col p-0">{threads.resolved.map(view)}</ul>
-            )}
-          </div>
-        )}
-        {threads.hidden.length > 0 && (
-          <div className="flex flex-col">
-            <button
-              type="button"
-              onClick={() => setShowHidden((v) => !v)}
-              aria-expanded={showHidden}
-              className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
-            >
-              {showHidden ? "Hide" : "Show"} {threads.hidden.length} hidden on this version
-            </button>
-            {showHidden && (
-              <ul className="m-0 flex list-none flex-col p-0">{threads.hidden.map(view)}</ul>
-            )}
-          </div>
-        )}
-      </section>
-    </Mentionable>
+              {used.map((c) => (
+                <ToggleChip
+                  key={c.id}
+                  pressed={onlyCategory === c.id}
+                  onClick={() => setOnlyCategory(onlyCategory === c.id ? null : c.id)}
+                >
+                  {c.name}
+                </ToggleChip>
+              ))}
+            </fieldset>
+          )}
+          <ul className="m-0 flex list-none flex-col p-0">
+            {threads.open.filter(inCategory).map(view)}
+          </ul>
+          {threads.deferred.length > 0 && (
+            <div className="flex flex-col">
+              <button
+                type="button"
+                onClick={() => setShowDeferred((v) => !v)}
+                aria-expanded={showDeferred}
+                className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+              >
+                {showDeferred ? "Hide" : "Show"} {threads.deferred.length} deferred
+              </button>
+              {showDeferred && (
+                <ul className="m-0 flex list-none flex-col p-0">
+                  {threads.deferred.filter(inCategory).map(view)}
+                </ul>
+              )}
+            </div>
+          )}
+          {threads.resolved.length > 0 && (
+            <div className="flex flex-col">
+              <button
+                type="button"
+                onClick={() => setShowResolved((v) => !v)}
+                aria-expanded={showResolved}
+                className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+              >
+                {showResolved ? "Hide" : "Show"} {threads.resolved.length} resolved
+              </button>
+              {showResolved && (
+                <ul className="m-0 flex list-none flex-col p-0">{threads.resolved.map(view)}</ul>
+              )}
+            </div>
+          )}
+          {threads.hidden.length > 0 && (
+            <div className="flex flex-col">
+              <button
+                type="button"
+                onClick={() => setShowHidden((v) => !v)}
+                aria-expanded={showHidden}
+                className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
+              >
+                {showHidden ? "Hide" : "Show"} {threads.hidden.length} hidden on this version
+              </button>
+              {showHidden && (
+                <ul className="m-0 flex list-none flex-col p-0">{threads.hidden.map(view)}</ul>
+              )}
+            </div>
+          )}
+        </section>
+      </Mentionable>
+    </TimeFormatting.Provider>
   );
 }
 
@@ -1752,6 +1830,28 @@ export function commentMarkers(comments: Comment[]): TimelineMarker[] {
     if (!seen || rank[state] > rank[seen.state]) byTime.set(at, { at, state });
   }
   return [...byTime.values()];
+}
+
+/** The open threads' drawings on a video, each shown on its frame or through its range (#146). */
+export function frameDrawings(comments: Comment[]): FrameDrawing[] {
+  const out: FrameDrawing[] = [];
+  for (const c of comments) {
+    if (c.parentId || c.resolvedAt || c.carry?.visible === false) continue;
+    const a = c.anchor;
+    if (a?.kind !== "region" || !a.drawing || a.at === undefined) continue;
+    out.push({
+      id: c.id,
+      drawing: a.drawing,
+      at: a.at,
+      ...(a.end === undefined ? {} : { end: a.end }),
+    });
+  }
+  return out;
+}
+
+export function useFrameDrawings(fileId: string, enabled = true): FrameDrawing[] {
+  const { data } = useQuery({ ...commentsQuery(fileId), enabled });
+  return data ? frameDrawings(data) : [];
 }
 
 export function useCommentMarkers(fileId: string, enabled = true): TimelineMarker[] {

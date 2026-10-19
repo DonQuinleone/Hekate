@@ -2,6 +2,7 @@ import { frameRates } from "@hekate/shared";
 import { type ReactNode, useState } from "react";
 import { Avatar, AvatarRow } from "~/components/avatar";
 import { Lockup, Mark, Wordmark } from "~/components/brand";
+import { DrawingMarks, DrawToolbar } from "~/components/drawings";
 import { Empty } from "~/components/empty";
 import { Icon, type IconName, iconNames } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
@@ -647,6 +648,76 @@ function Components() {
               <FrameGuides aspect={16 / 9} matte={matte} safe={matte === "2.39"} />
             </div>
           ))}
+        </Spec>
+        <Spec
+          name="Drawing on a frame"
+          rule="Each mark in a colour of the system, over the picture; the one being written in full, the rest fainter."
+        >
+          <div className="relative aspect-video w-full max-w-96 bg-ink-3">
+            <DrawingMarks
+              aspect={16 / 9}
+              drawings={[
+                {
+                  tool: "box",
+                  colour: "signal",
+                  points: [
+                    [0.06, 0.1],
+                    [0.36, 0.42],
+                  ],
+                },
+                {
+                  tool: "circle",
+                  colour: "paper",
+                  points: [
+                    [0.5, 0.1],
+                    [0.72, 0.45],
+                  ],
+                },
+                {
+                  tool: "arrow",
+                  colour: "blue",
+                  points: [
+                    [0.1, 0.85],
+                    [0.35, 0.6],
+                  ],
+                },
+                {
+                  tool: "free",
+                  colour: "green",
+                  points: [
+                    [0.45, 0.8],
+                    [0.52, 0.68],
+                    [0.6, 0.78],
+                    [0.68, 0.66],
+                    [0.76, 0.8],
+                  ],
+                },
+                {
+                  tool: "line",
+                  colour: "paper",
+                  points: [
+                    [0.8, 0.2],
+                    [0.95, 0.4],
+                  ],
+                },
+              ]}
+              draft={{
+                tool: "text",
+                colour: "signal",
+                points: [[0.06, 0.48]],
+                text: "Boom in shot",
+              }}
+            />
+          </div>
+          <div className="relative h-14 w-full max-w-[32rem]">
+            <DrawToolbar
+              tool="box"
+              onTool={() => {}}
+              colour="signal"
+              onColour={() => {}}
+              onClose={() => {}}
+            />
+          </div>
         </Spec>
         <Spec
           name="Go to"
