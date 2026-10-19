@@ -54,6 +54,7 @@ import { type Playback, type Rendition, usePreferences, useSavePreferences } fro
 import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
 import { readView, type SpectrogramView } from "~/lib/spectrogram";
 import { holdRate } from "~/lib/speed";
+import { familyOf, videoFamilyFor } from "~/lib/video-family";
 import { useViewer } from "~/lib/viewer";
 import { anchoredScroll, followScroll, maxZoom, panScroll, zoomLabel, zoomStep } from "~/lib/zoom";
 import { ChannelsButton, ChannelsPanel } from "./channels";
@@ -158,8 +159,12 @@ export function renditionLabel(rendition: Rendition, info: MediaInfo | null): st
       return audio ? `Dolby Digital Plus · ${layout}` : "Dolby Digital Plus";
     case "ac3":
       return audio ? `Dolby Digital · ${layout}` : "Dolby Digital";
-    default:
-      return rendition.height ? `${rendition.height}p` : rendition.name;
+    default: {
+      // A royalty-free encoding beside H.264 says which it is (#148).
+      const free = /-(av1|vp9)$/.exec(rendition.name)?.[1];
+      if (!rendition.height) return rendition.name;
+      return free ? `${rendition.height}p · ${free.toUpperCase()}` : `${rendition.height}p`;
+    }
   }
 }
 
@@ -469,8 +474,10 @@ export function Player({
     setChoices([]);
     setReady(false);
     native.current = false;
-    import("hls.js")
-      .then(({ default: Hls }) => {
+    // A video plays one of its two encodings (#148), chosen before the stream starts.
+    const family = kind === "video" ? videoFamilyFor(playback.renditions) : Promise.resolve(null);
+    Promise.all([import("hls.js"), family])
+      .then(([{ default: Hls }, chosen]) => {
         if (cancelled) return;
         if (!Hls.isSupported()) {
           // Safari on iOS has no Media Source Extensions but plays AES-128 HLS natively.
@@ -495,6 +502,14 @@ export function Player({
         });
         hls.current = instance;
         instance.on(Hls.Events.MANIFEST_PARSED, () => {
+          // The other encoding goes, so the picture never changes codec as it plays.
+          if (chosen)
+            for (let i = instance.levels.length - 1; i >= 0; i--) {
+              const level = instance.levels[i];
+              const codecs = level?.videoCodec ?? level?.codecSet ?? "";
+              if (instance.levels.length > 1 && familyOf({ codecs }) !== chosen)
+                instance.removeLevel(i);
+            }
           // The browser drops renditions it cannot decode; offer what is left.
           const found: Choice[] = [];
           instance.levels.forEach((l, index) => {

@@ -117,6 +117,12 @@ export async function boot(
         jobs,
         ...(config.WORK_DIR ? { workDir: config.WORK_DIR } : {}),
         ...(config.ADM_RENDERER_PATH ? { admRenderer: config.ADM_RENDERER_PATH } : {}),
+        videoLadder: {
+          rungs: config.VIDEO_LADDER,
+          most: config.VIDEO_RUNGS,
+          royaltyFree: config.VIDEO_ROYALTY_FREE === "off" ? null : config.VIDEO_ROYALTY_FREE,
+          hardware: config.VIDEO_HARDWARE ?? null,
+        },
       },
       config.WORKER_CONCURRENCY,
     );

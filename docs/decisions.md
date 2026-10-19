@@ -724,3 +724,12 @@ The rest of #55: what the prototype's People page and workspace Defaults show.
 - **Order.** The more particular wins: the workspace's defaults, then what a request sets for everyone (a workflow stage may), then the person's People page grant, then the request's own override for them. A reviewer added to an open review later gets the review's grant with their People page grant on top. A member's grant still cannot reach past their project role (decision 030).
 - **Tool access per workspace.** Workspace settings, Defaults, chooses the player tools each of the five default roles starts with in a new project. Projects made from a template keep the template's roles; existing projects keep their own.
 
+## 142. Video in AV1 beside H.264, and the ladder is the instance's
+
+#148. H.264 plays everywhere a licence for it was paid, and nowhere else: open-source browser builds, some Linux desktops and the browser the visual suite runs do not decode it.
+
+- **A royalty-free encoding at every rung.** Each rung of the ladder is encoded twice: H.264 with AAC, as before, and AV1 (SVT-AV1, a fast preset) with Opus. An instance may choose VP9 instead (quicker to encode, larger) or neither (`VIDEO_ROYALTY_FREE`). Both are packaged, encrypted and delivered like every rendition (decision 022); the playlist names each by its codecs and level, so a browser takes only what it plays. The encode costs about twice what H.264 alone did.
+- **One family per viewer.** A player picks one encoding before the stream starts and drops the other's renditions, so the picture never changes codec mid-stream. It takes AV1 where H.264 cannot be played, or where the browser says it decodes AV1 smoothly and power-efficiently; otherwise H.264, which every device decodes in hardware. Choosing a rendition by hand offers the chosen family's rungs, named "720p · AV1". Downloads still make their proxy from the H.264 encoding, which is quicker to decode.
+- **The ladder is the instance's.** `VIDEO_LADDER` lists the rungs as height and bitrate, highest first (1080p at 6 Mbit/s, 720p at 3, 480p at 1.2 by default). A video gets the highest rungs at or below its own height, up to `VIDEO_RUNGS` (two). The AV1 or VP9 rung gets two thirds of the H.264 rate.
+- **A GPU where there is one.** `VIDEO_HARDWARE` names a VAAPI render node (Intel or AMD); H.264 is then encoded on it. A rendition the GPU cannot encode (no device, a busy one, a picture it refuses) is encoded again in software, and the worker logs why. AV1 stays in software: few GPUs encode it.
+

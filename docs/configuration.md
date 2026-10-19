@@ -60,6 +60,10 @@ A setting marked as secret may instead name a file that holds it, with `_FILE` a
 | `WORKER_CONCURRENCY` | `2` | Media jobs run at once in this process. ffmpeg is CPU-heavy; about half the cores is a good start. |
 | `WORK_DIR` | unset | Scratch space for decrypted media while a job runs, or a page or download is marked; a tmpfs keeps it off disk. Defaults to hekate-work in the system's temporary directory. Example: `/tmp/hekate-work`. |
 | `ADM_RENDERER_PATH` | unset | Where the EBU ADM Renderer (ear) and its Python packages are installed, to render an ADM master's objects for listening. The image sets it; without it, only an ADM master's bed is heard. Example: `/opt/ear`. |
+| `VIDEO_LADDER` | `1080:6000,720:3000,480:1200` | The video ladder: each rung an even height in pixels and a bitrate in kbit/s, highest first. A video gets the highest rungs at or below its own height, as many as VIDEO_RUNGS allows. Example: `2160:16000,1080:6000,720:3000`. |
+| `VIDEO_RUNGS` | `2` | The most rungs of the ladder one video is encoded at. Each is another encode, twice over with VIDEO_ROYALTY_FREE. |
+| `VIDEO_ROYALTY_FREE` | `av1` | A royalty-free encoding beside H.264 at every rung, with Opus sound, for browsers that play it: AV1, VP9 (faster to encode, larger), or off. |
+| `VIDEO_HARDWARE` | unset | A VAAPI render node (Intel or AMD) to encode H.264 on. Pass the device to the container; a rendition the GPU cannot encode is encoded in software instead. Example: `/dev/dri/renderD128`. |
 | `STORAGE_RECONCILE` | `remove` | What the daily storage reconciliation does with bytes and blobs nothing uses, once a second run a day later still finds them: remove them, or only report them. |
 
 ## Modules

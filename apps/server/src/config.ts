@@ -328,6 +328,78 @@ const schema = z.object({
         example: "/opt/ear",
       }),
     ),
+  VIDEO_LADDER: z
+    .string()
+    .default("1080:6000,720:3000,480:1200")
+    .transform((text, ctx) => {
+      const rungs = text.split(",").map((rung) => {
+        const [height, kbps] = rung.trim().split(":").map(Number);
+        return { height: height ?? Number.NaN, rate: (kbps ?? Number.NaN) * 1000 };
+      });
+      const valid = rungs.every(
+        (r) =>
+          Number.isInteger(r.height) &&
+          r.height >= 144 &&
+          r.height <= 4320 &&
+          r.height % 2 === 0 &&
+          Number.isInteger(r.rate) &&
+          r.rate >= 100_000 &&
+          r.rate <= 100_000_000,
+      );
+      const descending = rungs.every((r, i) => i === 0 || r.height < (rungs[i - 1]?.height ?? 0));
+      if (!valid || !descending || rungs.length > 8) {
+        ctx.addIssue({
+          code: "custom",
+          message:
+            "must be up to eight rungs of height:kbps, highest first, such as 1080:6000,720:3000",
+        });
+        return z.NEVER;
+      }
+      return rungs;
+    })
+    .meta(
+      info({
+        group: "Media",
+        description:
+          "The video ladder: each rung an even height in pixels and a bitrate in kbit/s, highest first. A video gets the highest rungs at or below its own height, as many as VIDEO_RUNGS allows.",
+        example: "2160:16000,1080:6000,720:3000",
+      }),
+    ),
+  VIDEO_RUNGS: z.coerce
+    .number({ error: "must be a number from 1 to 4" })
+    .int()
+    .min(1)
+    .max(4)
+    .default(2)
+    .meta(
+      info({
+        group: "Media",
+        description:
+          "The most rungs of the ladder one video is encoded at. Each is another encode, twice over with VIDEO_ROYALTY_FREE.",
+      }),
+    ),
+  VIDEO_ROYALTY_FREE: z
+    .enum(["av1", "vp9", "off"], { error: "use av1, vp9 or off" })
+    .default("av1")
+    .meta(
+      info({
+        group: "Media",
+        description:
+          "A royalty-free encoding beside H.264 at every rung, with Opus sound, for browsers that play it: AV1, VP9 (faster to encode, larger), or off.",
+      }),
+    ),
+  VIDEO_HARDWARE: z
+    .string()
+    .regex(/^\/dev\/dri\/[A-Za-z0-9]+$/, "must be a render node such as /dev/dri/renderD128")
+    .optional()
+    .meta(
+      info({
+        group: "Media",
+        description:
+          "A VAAPI render node (Intel or AMD) to encode H.264 on. Pass the device to the container; a rendition the GPU cannot encode is encoded in software instead.",
+        example: "/dev/dri/renderD128",
+      }),
+    ),
   STORAGE_RECONCILE: z
     .enum(["remove", "report"], { error: "use remove or report" })
     .default("remove")
