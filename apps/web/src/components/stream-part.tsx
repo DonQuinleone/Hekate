@@ -1,6 +1,6 @@
 import { isFollowingPart } from "@hekate/shared";
 import type Hls from "hls.js";
-import { useEffect, useRef } from "react";
+import { type RefObject, useEffect, useRef } from "react";
 import type { Playback, Rendition } from "~/lib/queries";
 import { followRate } from "~/lib/speed";
 import { audioBuffer, preferredRendition } from "./player";
@@ -86,41 +86,62 @@ export function StreamPart({
     };
   }, [playback, rendition]);
 
+  useFollow(element, master, PART_DRIFT);
+
+  // biome-ignore lint/a11y/useMediaCaption: a part of the recording playing, never shown.
+  return <audio ref={element} preload="auto" />;
+}
+
+/**
+ * Keeps a hidden media element in step with the player's: play, pause, seeks and speed, and
+ * the volume and mute where it is heard. Put back whenever it drifts by more than `drift`
+ * seconds; `playingDrift`, if wider, while both play, so a picture is not sought every moment.
+ */
+export function useFollow(
+  element: RefObject<HTMLMediaElement | null>,
+  master: HTMLMediaElement,
+  drift: number,
+  { playingDrift = drift, heard = true }: { playingDrift?: number; heard?: boolean } = {},
+) {
   useEffect(() => {
-    const audio = element.current;
-    if (!audio) return;
+    const follower = element.current;
+    if (!follower) return;
     const sync = () => {
-      if (Math.abs(audio.currentTime - master.currentTime) > PART_DRIFT)
-        audio.currentTime = master.currentTime;
+      const allowed = master.paused ? drift : playingDrift;
+      if (Math.abs(follower.currentTime - master.currentTime) > allowed)
+        follower.currentTime = master.currentTime;
     };
     const play = () => {
       sync();
       // A rejection before the stream is attached is retried once it can play.
-      void audio.play().catch(() => undefined);
+      void follower.play().catch(() => undefined);
     };
     const pause = () => {
-      audio.pause();
+      follower.pause();
       sync();
     };
     const ready = () => {
-      if (!master.paused && audio.paused) play();
+      if (!master.paused && follower.paused) play();
+      else sync();
     };
     // The page's volume (normalised playback) and the mute button act on every part alike.
     const volume = () => {
-      audio.volume = master.volume;
-      audio.muted = master.muted;
+      if (!heard) return;
+      follower.volume = master.volume;
+      follower.muted = master.muted;
     };
     master.addEventListener("play", play);
     master.addEventListener("pause", pause);
     master.addEventListener("seeked", sync);
     master.addEventListener("volumechange", volume);
-    audio.addEventListener("canplay", ready);
-    volume();
-    const unfollow = followRate(master, audio);
+    follower.addEventListener("canplay", ready);
+    if (heard) volume();
+    else follower.muted = true;
+    const unfollow = followRate(master, follower);
     const timer = window.setInterval(() => {
       if (master.paused) return;
       sync();
-      if (audio.paused) play();
+      if (follower.paused) play();
     }, 250);
     sync();
     if (!master.paused) play();
@@ -129,13 +150,10 @@ export function StreamPart({
       master.removeEventListener("pause", pause);
       master.removeEventListener("seeked", sync);
       master.removeEventListener("volumechange", volume);
-      audio.removeEventListener("canplay", ready);
+      follower.removeEventListener("canplay", ready);
       unfollow();
       window.clearInterval(timer);
-      audio.pause();
+      follower.pause();
     };
-  }, [master]);
-
-  // biome-ignore lint/a11y/useMediaCaption: a part of the recording playing, never shown.
-  return <audio ref={element} preload="auto" />;
+  }, [element, master, drift, playingDrift, heard]);
 }

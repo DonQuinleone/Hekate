@@ -810,6 +810,19 @@ export function FilePage({
         <CompareCuts
           a={previousFile}
           b={file}
+          labels={[
+            `Cut ${(inTrack?.version.number ?? 2) - 1}`,
+            `Cut ${inTrack?.version.number ?? 2}`,
+          ]}
+          compare={
+            inTrack
+              ? {
+                  trackId: inTrack.track.id,
+                  a: inTrack.version.number - 1,
+                  b: inTrack.version.number,
+                }
+              : undefined
+          }
           time={playback.time}
           mode={cuts}
           onMode={setCuts}

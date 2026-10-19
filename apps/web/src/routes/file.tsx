@@ -43,6 +43,7 @@ import { Button } from "~/components/ui/button";
 import { ActionMenu } from "~/components/ui/menu";
 import { cn } from "~/lib/cn";
 import { threadsOf } from "~/lib/comments";
+import { previousCut } from "~/lib/compare";
 import { editSegments } from "~/lib/edit-decisions";
 import { useFileMedia } from "~/lib/file-media";
 import { formatDates } from "~/lib/locale";
@@ -52,6 +53,7 @@ import { usePanelLayout } from "~/lib/panel-layout";
 import { usePlayerView } from "~/lib/player-view";
 import {
   commentsQuery,
+  compareFamilyQuery,
   downloadsQuery,
   editDecisionsQuery,
   type FileDetail,
@@ -94,10 +96,13 @@ function Playback({
   onNormalised,
   showFindings,
   showEdits,
+  comparePage,
   draft,
   onDraft,
 }: {
   file: FileDetail;
+  /** Whether the viewer may open the comparison of two cuts' comments and findings (#147). */
+  comparePage: boolean;
   /** The drawing waiting to join the next comment on a video (#146). */
   draft: FrameDraft | null;
   onDraft: (draft: FrameDraft | null) => void;
@@ -135,6 +140,26 @@ function Playback({
     () => editSegments(decisions, (id) => takes?.find((t) => t.id === id)?.number),
     [decisions, takes],
   );
+  // A deliverable's cut is compared frame by frame with the one before it (#147).
+  const { data: family } = useQuery({
+    ...compareFamilyQuery(file.id),
+    enabled: file.kind === "video" && Boolean(file.variation),
+  });
+  const before = family ? previousCut(family, file.id, file.profile) : undefined;
+  const cuts = before
+    ? {
+        ...before,
+        // Where the two cuts' comments and findings are set side by side (#137).
+        compare:
+          comparePage && file.variation
+            ? {
+                trackId: file.variation.trackId,
+                a: before.previous.versionNumber,
+                b: file.variation.versionNumber,
+              }
+            : null,
+      }
+    : null;
   const ready = file.streamStatus === "ready";
   // Only a recording plays: asking for a document's playback would log a session for nothing.
   const plays = file.kind === "audio" || file.kind === "video";
@@ -189,6 +214,7 @@ function Playback({
       drawings={drawings}
       draft={draft}
       onDraft={file.kind === "video" && canComment ? onDraft : undefined}
+      cuts={cuts}
       onExpired={() => client.resetQueries({ queryKey: playbackQuery(file.id).queryKey })}
     />
   );
@@ -432,6 +458,7 @@ export function FilePage({
       onNormalised={setChosenNormal}
       showFindings={Boolean(file.mediaInfo?.audio) && allows("qa")}
       showEdits={!guest && can("view_takes")}
+      comparePage={!guest}
       draft={frameDraft}
       onDraft={setFrameDraft}
     />
