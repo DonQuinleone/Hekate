@@ -1637,6 +1637,31 @@ export function SettingsPage({
                   <option value="any">Any</option>
                 </Select>
               </label>
+              <fieldset className="grid gap-4 @md/app:col-span-2 @md/app:grid-cols-3">
+                <legend className="mb-3 text-[13px] text-ink">
+                  Picture <span className="text-ink-3">for videos; any is not checked</span>
+                </legend>
+                {[
+                  ["Codec", ["Any codec", "ProRes", "DNxHD or DNxHR", "H.264", "HEVC (H.265)"]],
+                  ["Size", ["Any size", "1280 × 720", "1920 × 1080", "3840 × 2160"]],
+                  ["Frame rate", ["Any rate", "23.976 fps", "24 fps", "25 fps", "29.97 fps"]],
+                  ["Scan", ["Either", "Progressive", "Interlaced"]],
+                  ["Colour", ["Any primaries", "Rec. 709", "Rec. 2020"]],
+                  ["Range", ["Either", "Limited (video)", "Full"]],
+                ].map(([name, options]) => (
+                  <label
+                    key={String(name)}
+                    className="flex flex-col gap-1.5 text-[13px] text-ink-2"
+                  >
+                    {name}
+                    <Select>
+                      {(options as string[]).map((o) => (
+                        <option key={o}>{o}</option>
+                      ))}
+                    </Select>
+                  </label>
+                ))}
+              </fieldset>
               <label className="flex flex-col gap-1.5 text-[13px] text-ink-2 @md/app:col-span-2">
                 Notes
                 <Textarea rows={2} />

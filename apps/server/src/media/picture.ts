@@ -1,5 +1,6 @@
 import type { MediaInfo, QaFinding } from "@hekate/shared";
 import { MediaToolError, run, safeInputArgs } from "./ffmpeg.ts";
+import { TimecodeChecks } from "./timecode.ts";
 
 /**
  * The picture checks of the video QA (#42): black, frozen and missing frames, interlacing,
@@ -100,6 +101,8 @@ export function pictureFilters(): string {
     "cropdetect=limit=0.094:round=2:reset=0",
     // The rest needs no more than a small picture.
     "scale=w='min(iw,640)':h=-2:flags=area",
+    // Each frame's timecode, where the picture carries one, to the log (#42).
+    "showinfo=checksum=0",
     "blackdetect=d=0:pix_th=0.10",
     "freezedetect=n=-60dB:d=2",
     // EBU R103 allows luma from −1% to 103%: what lies inside that is moved into the nominal
@@ -524,12 +527,16 @@ export async function analysePicture(
   signal?: AbortSignal,
 ): Promise<QaFinding[]> {
   const checks = new PictureChecks(video);
+  const timecodes = new TimecodeChecks(video);
   await run(
     "ffmpeg",
     [
       ...safeInputArgs("ffmpeg"),
+      // showinfo writes at the info level; the banner and progress are left out.
+      "-hide_banner",
+      "-nostats",
       "-v",
-      "error",
+      "info",
       "-i",
       `file:${input}`,
       "-map",
@@ -540,10 +547,15 @@ export async function analysePicture(
       "null",
       "-",
     ],
-    { signal, timeoutMs: 60 * 60_000, onStdout: (chunk) => checks.push(chunk) },
+    {
+      signal,
+      timeoutMs: 60 * 60_000,
+      onStdout: (chunk) => checks.push(chunk),
+      onStderr: (chunk) => timecodes.push(chunk),
+    },
   );
   const findings = checks.finish();
   // Not one frame: the picture cannot be read, which no finding should pass over.
   if (checks.frames === 0) throw new MediaToolError("No frame of the picture could be read");
-  return findings;
+  return [...findings, ...timecodes.finish()];
 }

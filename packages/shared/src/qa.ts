@@ -20,6 +20,8 @@ export type QaSeverity = (typeof qaSeverities)[number];
 
 export const qaChecks = [
   "format",
+  /** A video's picture against the profile's: codec, size, rate, scan, colour (#42). */
+  "picture-format",
   /** How the channels are laid out, against the profile's layout (#74). */
   "layout",
   /** Whether an ADM master's description of its bed and objects is there when asked for (#74). */
@@ -52,6 +54,8 @@ export const qaChecks = [
   "letterbox",
   /** Screen-wide flashing, more than three flashes a second. */
   "flashing",
+  /** Whether the timecode runs on without a break, and its sources agree (#42). */
+  "timecode",
   /** One of the project's own rules (#144); its name is in the finding's details. */
   "custom",
 ] as const;
@@ -89,7 +93,47 @@ export interface DeliveryProfile {
   layout?: LayoutName | null;
   /** Whether it is delivered as ADM BWF, its bed and objects described in the file (#74). */
   atmos?: boolean;
+  /** What it asks of a video's picture (#42); null or absent asks nothing. */
+  video?: VideoDelivery | null;
 }
+
+/** Codecs a profile can ask for, by ffprobe's names. */
+export const videoCodecs = {
+  prores: "ProRes",
+  dnxhd: "DNxHD or DNxHR",
+  h264: "H.264",
+  hevc: "HEVC (H.265)",
+  mpeg2video: "MPEG-2 (XDCAM)",
+  jpeg2000: "JPEG 2000",
+  av1: "AV1",
+} as const;
+export type VideoCodec = keyof typeof videoCodecs;
+export const videoCodecIds = Object.keys(videoCodecs) as VideoCodec[];
+
+/** Colour primaries a profile can ask for, by ffprobe's names. */
+export const videoPrimaries = { bt709: "Rec. 709", bt2020: "Rec. 2020" } as const;
+export type VideoPrimaries = keyof typeof videoPrimaries;
+
+/** Frame rates a profile can ask for, as they are said. */
+export const videoFrameRates = [23.976, 24, 25, 29.97, 30, 50, 59.94, 60] as const;
+
+/** What a delivery asks of a picture. Each null is not checked. */
+export const videoDelivery = z.object({
+  codec: z.enum(videoCodecIds as [VideoCodec, ...VideoCodec[]]).nullable(),
+  /** Coded size, in pixels; square pixels are asked for with it. */
+  resolution: z
+    .object({
+      width: z.number().int().min(16).max(16_384),
+      height: z.number().int().min(16).max(16_384),
+    })
+    .nullable(),
+  /** Frames per second, as said: 23.976, 25, 29.97. */
+  frameRate: z.number().min(1).max(240).nullable(),
+  scan: z.enum(["progressive", "interlaced"]).nullable(),
+  range: z.enum(["limited", "full"]).nullable(),
+  primaries: z.enum(["bt709", "bt2020"]).nullable(),
+});
+export type VideoDelivery = z.infer<typeof videoDelivery>;
 
 export const deliveryProfileIds = [
   "streaming",
@@ -110,6 +154,15 @@ export const deliveryProfiles: Record<DeliveryProfileId, DeliveryProfile> = {
     sampleRates: { rates: [44_100], atLeast: true },
     bitDepthMin: 16,
     channels: 2,
+    // What the streaming services ask of every picture they take.
+    video: {
+      codec: null,
+      resolution: null,
+      frameRate: null,
+      scan: "progressive",
+      range: "limited",
+      primaries: null,
+    },
   },
   cd: {
     label: "CD",
@@ -135,6 +188,15 @@ export const deliveryProfiles: Record<DeliveryProfileId, DeliveryProfile> = {
     sampleRates: { rates: [48_000], atLeast: false },
     bitDepthMin: 16,
     channels: 2,
+    // HD as EBU members take it.
+    video: {
+      codec: null,
+      resolution: { width: 1920, height: 1080 },
+      frameRate: 25,
+      scan: null,
+      range: "limited",
+      primaries: "bt709",
+    },
   },
   surround: {
     label: "Surround 5.1",
@@ -176,6 +238,7 @@ export const customProfileInput = z.object({
   channels: z.number().int().min(1).max(64).nullable(),
   layout: z.enum(layoutNames).nullable().optional(),
   atmos: z.boolean().optional(),
+  video: videoDelivery.nullable().optional(),
 });
 export type CustomProfileInput = z.infer<typeof customProfileInput>;
 
@@ -309,6 +372,7 @@ export function deliveryFindings(
     });
   }
   out.push(...layoutFindings(profile, info));
+  out.push(...pictureFormat(profile, info));
   if (!summary) return out;
 
   if (profile.loudness && summary.integrated !== null) {
@@ -458,6 +522,79 @@ function layoutFindings(profile: DeliveryProfile, info: MediaInfo | null): QaFin
   return out;
 }
 
+/** A frame rate as people say it: 25, 29.97, 23.976. */
+export const frameRateName = (fps: number) => String(Math.round(fps * 1000) / 1000);
+
+/**
+ * A rate and a profile's agree within five thousandths of a frame a second: 23.976 is
+ * 24000/1001, while 23.976 and 24, 29.97 and 30, 59.94 and 60 stay apart.
+ */
+const sameRate = (fps: number, asked: number) => Math.abs(fps - asked) <= 0.005;
+
+/**
+ * The picture against what the profile asks of it (#42): one finding, whatever fails named in
+ * it, as the audio's format check does. What the file does not say is not held against it.
+ */
+function pictureFormat(profile: DeliveryProfile, info: MediaInfo | null): QaFinding[] {
+  const video = info?.video;
+  const asked = profile.video;
+  if (!video || !asked) return [];
+  const problems: string[] = [];
+  const facts: string[] = [];
+  const codec = videoCodecs[video.codec as VideoCodec] ?? video.codec;
+  facts.push(video.profile ? `${codec} ${video.profile}` : codec);
+  if (asked.codec && video.codec !== asked.codec)
+    problems.push(`${codec}, not ${videoCodecs[asked.codec]}`);
+  facts.push(`${video.width} × ${video.height}`);
+  if (
+    asked.resolution &&
+    (video.width !== asked.resolution.width || video.height !== asked.resolution.height)
+  )
+    problems.push(
+      `${video.width} × ${video.height}, not ${asked.resolution.width} × ${asked.resolution.height}`,
+    );
+  else if (asked.resolution && video.pixelAspect && video.pixelAspect !== "1:1")
+    problems.push(`pixels shaped ${video.pixelAspect}, not square`);
+  if (video.fps) facts.push(`${frameRateName(video.fps)} fps`);
+  if (asked.frameRate && video.fps && !sameRate(video.fps, asked.frameRate))
+    problems.push(`${frameRateName(video.fps)} fps, not ${frameRateName(asked.frameRate)}`);
+  if (video.scan) facts.push(video.scan);
+  if (asked.scan && video.scan && video.scan !== asked.scan)
+    problems.push(`${video.scan}, not ${asked.scan}`);
+  if (video.primaries)
+    facts.push(videoPrimaries[video.primaries as VideoPrimaries] ?? video.primaries);
+  if (asked.primaries && video.primaries && video.primaries !== asked.primaries)
+    problems.push(
+      `${videoPrimaries[video.primaries as VideoPrimaries] ?? video.primaries}, not ${videoPrimaries[asked.primaries]}`,
+    );
+  if (video.range) facts.push(`${video.range} range`);
+  if (asked.range && video.range && video.range !== asked.range)
+    problems.push(`${video.range} range, not ${asked.range}`);
+  return [
+    {
+      check: "picture-format",
+      severity: problems.length ? "fail" : "pass",
+      summary: problems.length
+        ? `Not as ${profile.label} asks: ${problems.join(", ")}`
+        : facts.join(", "),
+      channel: null,
+      start: null,
+      end: null,
+      details: {
+        codec: video.codec,
+        profile: video.profile ?? null,
+        width: video.width,
+        height: video.height,
+        fps: video.fps ?? null,
+        scan: video.scan ?? null,
+        primaries: video.primaries ?? null,
+        range: video.range ?? null,
+        pixelAspect: video.pixelAspect ?? null,
+      },
+    },
+  ];
+}
+
 const severityOrder: Record<QaSeverity, number> = { fail: 0, warn: 1, info: 2, pass: 3 };
 
 /** Findings worst first, each check together, then in the order they occur. */
@@ -473,6 +610,7 @@ export const orderFindings = (findings: readonly QaFinding[]) =>
 /** What each check is called in the list, in reports, and in the project's QA rules. */
 export const qaCheckNames: Record<QaCheck, string> = {
   format: "Format",
+  "picture-format": "Picture format",
   layout: "Layout",
   atmos: "Atmos",
   integrity: "Integrity",
@@ -496,6 +634,7 @@ export const qaCheckNames: Record<QaCheck, string> = {
   "broadcast-levels": "Broadcast-safe levels",
   letterbox: "Letterboxing",
   flashing: "Flashing risk",
+  timecode: "Timecode",
   // The project's own rules: the finding's summary starts with the rule's name.
   custom: "Project rule",
 };

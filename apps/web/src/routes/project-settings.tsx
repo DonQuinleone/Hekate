@@ -32,10 +32,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useState } from "react";
 import {
+  deliveryHint,
   formatDb,
   ProfileEditor,
   ProfileOptions,
-  profileSummary,
   useWorkspaceAdmin,
 } from "~/components/delivery-profiles";
 import { Empty } from "~/components/empty";
@@ -1144,7 +1144,7 @@ function Delivery({ project }: { project: Project }) {
         title="Delivery profile"
         intro={`What QA measures every recording against. A ${words.track} or a file can have its own; without any, each file is measured against the profile its channels suggest.`}
       >
-        <Row name="Project default" hint={shown ? profileSummary(shown) : undefined}>
+        <Row name="Project default" hint={shown ? deliveryHint(shown) : undefined}>
           <Select
             value={project.deliveryProfile ?? ""}
             aria-label="Project default"
