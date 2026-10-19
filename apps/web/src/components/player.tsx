@@ -1,5 +1,7 @@
 import {
   channelLabels,
+  type DrawingColour,
+  type DrawingTool,
   formatChannels,
   formatDuration,
   frameShowing,
@@ -9,6 +11,7 @@ import {
   mattes,
   type Normalisation,
   normalisationLabel,
+  regionShowsAt,
   type SpectrogramPlace,
   savePreset,
   spectrogramPlaces,
@@ -50,6 +53,13 @@ import { holdRate } from "~/lib/speed";
 import { useViewer } from "~/lib/viewer";
 import { anchoredScroll, followScroll, maxZoom, panScroll, zoomLabel, zoomStep } from "~/lib/zoom";
 import { ChannelsButton, ChannelsPanel } from "./channels";
+import {
+  DrawingMarks,
+  DrawLayer,
+  DrawToolbar,
+  type FrameDraft,
+  type FrameDrawing,
+} from "./drawings";
 import { EditLane } from "./edit-lane";
 import { Icon } from "./icons";
 import { LoopControls, LoopSurface } from "./loop";
@@ -214,6 +224,9 @@ export function Player({
   normalisation = null,
   normalised = false,
   onNormalised,
+  drawings = [],
+  draft = null,
+  onDraft,
 }: {
   fileId: string;
   kind: "audio" | "video";
@@ -242,6 +255,12 @@ export function Player({
   /** Whether it is heard normalised now, and the switch's choice. */
   normalised?: boolean;
   onNormalised?: (normalised: boolean) => void;
+  /** Threads' drawings on the video, shown on their frame or through their range (#146). */
+  drawings?: FrameDrawing[];
+  /** The drawing waiting to join the comment being written. */
+  draft?: FrameDraft | null;
+  /** Drawing is offered where it is given: to someone who may comment on a video. */
+  onDraft?: (draft: FrameDraft | null) => void;
 }) {
   const preferences = usePreferences();
   const { guest } = useViewer();
@@ -276,8 +295,14 @@ export function Player({
   const savePreferences = useSavePreferences();
   // A video counts in frames on its own timecode (#146); null where its rate is unknown.
   const clock = useMemo(() => (info?.video ? videoClock(info.video) : null), [info?.video]);
+  /** How long a frame shows: a drawing on one shows for that long (#146). */
+  const frameSeconds = clock ? frameTime(1, clock.rate) : 1 / 25;
   const [matte, setMatte] = useState<Matte | null>(null);
   const [safe, setSafe] = useState(false);
+  // Drawing on the frame (#146): the tool and colour chosen, kept while drawing is on.
+  const [drawingOn, setDrawingOn] = useState(false);
+  const [tool, setTool] = useState<DrawingTool>("box");
+  const [colour, setColour] = useState<DrawingColour>("signal");
   const channels = info?.audio?.channels ?? 0;
   // Each channel to hear apart (#74), over the lossless stream that carries them all.
   const [mix, setMix] = useState<ChannelMix>(plainMix);
@@ -695,6 +720,37 @@ export function Player({
           {info?.video && (
             <FrameGuides aspect={info.video.width / info.video.height} matte={matte} safe={safe} />
           )}
+          {info?.video && (
+            <DrawingMarks
+              aspect={info.video.width / info.video.height}
+              drawings={drawings
+                .filter((d) => regionShowsAt(d, time, frameSeconds))
+                .map((d) => d.drawing)}
+              draft={draft?.drawing ?? null}
+            />
+          )}
+          {drawingOn && onDraft && info?.video && (
+            <>
+              <DrawLayer
+                tool={tool}
+                colour={colour}
+                aspect={info.video.width / info.video.height}
+                onDrawn={(drawing) =>
+                  onDraft({
+                    drawing,
+                    at: Math.round((media.current?.currentTime ?? time) * 1000) / 1000,
+                  })
+                }
+              />
+              <DrawToolbar
+                tool={tool}
+                onTool={setTool}
+                colour={colour}
+                onColour={setColour}
+                onClose={() => setDrawingOn(false)}
+              />
+            </>
+          )}
           {mark && <VideoMark mark={mark} />}
         </div>
       ) : (
@@ -962,6 +1018,22 @@ export function Player({
             )}
             {kind === "video" && clock && (
               <GoToTimecode clock={clock} time={time} duration={duration} onGo={goToFrame} />
+            )}
+            {kind === "video" && onDraft && (
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-pressed={drawingOn}
+                onClick={() => {
+                  // The frame holds still while it is drawn on.
+                  media.current?.pause();
+                  setDrawingOn((on) => !on);
+                }}
+                className={cn(drawingOn && "bg-raised text-ink")}
+              >
+                <Icon name="edit" size={14} />
+                Draw
+              </Button>
             )}
             {(kind === "audio" || offersNormalise) && (
               <Button

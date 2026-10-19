@@ -23,8 +23,16 @@ export function formatTimecode(seconds: number, fps: number): string {
 }
 
 /** Labels follow the brand system: upper case, en dash for ranges. */
-export function formatAnchor(anchor: Anchor, options: { fps?: number } = {}): string {
-  const time = (s: number) => (options.fps ? formatTimecode(s, options.fps) : formatClock(s));
+export function formatAnchor(
+  anchor: Anchor,
+  options: {
+    fps?: number;
+    /** How a moment reads instead, such as a video's own timecode (#146). */
+    time?: (seconds: number) => string;
+  } = {},
+): string {
+  const time = (s: number) =>
+    options.time ? options.time(s) : options.fps ? formatTimecode(s, options.fps) : formatClock(s);
   switch (anchor.kind) {
     case "time": {
       const range =
@@ -36,10 +44,18 @@ export function formatAnchor(anchor: Anchor, options: { fps?: number } = {}): st
     case "region": {
       const whole = anchor.x === 0 && anchor.y === 0 && anchor.width === 1 && anchor.height === 1;
       // A picture is one page: a region on it needs no place.
-      if (anchor.page === undefined && anchor.at === undefined) return "REGION";
-      const where = anchor.page !== undefined ? `P. ${anchor.page}` : time(anchor.at ?? 0);
+      // A drawing says so (#146); any other region is a region.
+      const what = anchor.drawing ? "DRAWING" : "REGION";
+      if (anchor.page === undefined && anchor.at === undefined) return what;
+      const at = anchor.at ?? 0;
+      const where =
+        anchor.page !== undefined
+          ? `P. ${anchor.page}`
+          : anchor.end !== undefined && anchor.end > at
+            ? `${time(at)} – ${time(anchor.end)}`
+            : time(at);
       // The whole of a page is simply the page; a whole video frame stays a region.
-      return whole && anchor.page !== undefined ? where : `${where} · REGION`;
+      return whole && anchor.page !== undefined && !anchor.drawing ? where : `${where} · ${what}`;
     }
     case "bar": {
       // The score's page first, when the reviewer gave it (#240).

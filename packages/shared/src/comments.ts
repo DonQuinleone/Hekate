@@ -168,6 +168,11 @@ export function anchorProblem(
       // Say where: a document's page, a video's moment. An image is one picture.
       if (file.kind === "document" && value.page === undefined) return "Say which page";
       if (file.kind === "video" && value.at === undefined) return "Say which frame";
+      if (
+        file.duration !== undefined &&
+        (value.end ?? value.at ?? 0) > file.duration + END_TOLERANCE
+      )
+        return "The time is past the end of the file";
       if (value.page !== undefined && file.pages && value.page > file.pages)
         return "The document has no such page";
       return null;
@@ -244,9 +249,13 @@ export function anchorShift(from: Anchor | null, to: Anchor | null): number {
   return a === null || b === null ? 0 : a - b;
 }
 
-/** Where in a recording an anchor plays from: a time's start, or the moment a bar was named. */
+/**
+ * Where in a recording an anchor plays from: a time's start, the moment a bar was named, or
+ * the frame a region was drawn on (#146).
+ */
 export function anchorTime(anchor: Anchor | null): number | null {
   if (anchor?.kind === "time") return anchor.start;
-  if (anchor?.kind === "bar" && anchor.at !== undefined) return anchor.at;
+  if ((anchor?.kind === "bar" || anchor?.kind === "region") && anchor.at !== undefined)
+    return anchor.at;
   return null;
 }

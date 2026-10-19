@@ -669,3 +669,14 @@ Who may move a project between workspaces, and how it is confirmed (#240), on to
 - **Operators.** An operator can move a project from the instance side without approval or acceptance, confirmed by typing its name and their password. A transfer waiting on the project is withdrawn, but only once the operator's move has succeeded; a move refused leaves it as it was. The move is kept as a transfer already done, written to both workspaces' logs and the instance's events, and both workspaces' owners and admins are told.
 - **Who sees them.** A workspace's owners and admins see every transfer naming it. Other members see only those moving out a project they can see, so no project's name reaches someone who cannot see the project.
 - **Stored across two workspaces.** `project_transfers` belongs to both workspaces, so it has no single `organisation_id`. Instead it has `from_organisation_id` and `to_organisation_id`, and every query names the asking workspace as one of them, so each side sees only the transfers that name it. One transfer waits on a project at a time (a unique partial index).
+
+## 137. Drawings on a video's frame, and timecode on its comments
+
+Drawing on the picture (#146), on top of the video's own timecode (decision 134).
+
+- **A drawing is a region anchor.** It is not a new kind of anchor. A region on a video carries the time it was drawn at (`at`), optionally an end (`end`) for a drawing meant to stay over a range, and the `drawing` itself: one tool (box, circle, line, arrow, freehand or text), one of four colours, and its points in the picture's normalised coordinates. The region's rectangle is the drawing's bounds, so anything that reads regions (the comment sheet, exports) keeps working without knowing about drawings.
+- **Colours are named, not chosen freely.** Orange (the signal colour), white, blue and green, each a token in `tokens.css`. A drawing never stores a hex value, so it follows the theme and stays legible over any picture.
+- **Shown at its frame.** A drawing shows while the playhead is on its frame, or anywhere in its range, and the one being written shows over the others, which fade. Drawings take no clicks, so the picture still plays and pauses beneath them.
+- **Drawing pauses.** Choosing Draw pauses playback and lays the tools over the foot of the picture. A drag draws a box, circle, line or arrow from corner to corner, or a freehand stroke along its path; a click places text. The drawing joins the comment being written as its anchor, and can be discarded before it is posted.
+- **Checked like any time.** A drawing past the end of the video, or ending before it starts, is refused. A new version's alignment moves a drawing's time and end as it moves any other time.
+- **Timecode on a video's comments.** A comment on a video is labelled in the video's own timecode, frames and all, where one on audio keeps minutes and seconds.

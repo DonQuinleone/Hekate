@@ -467,6 +467,7 @@ setup("seed", async ({ page, browser }) => {
     start: 4,
     end: 6,
   });
+  // Drawn on the frame (#146): a box round the logo.
   await comment(cutFile.id, "Logo sits too close to the edge here.", {
     kind: "region",
     at: 8,
@@ -474,6 +475,14 @@ setup("seed", async ({ page, browser }) => {
     y: 0.75,
     width: 0.25,
     height: 0.2,
+    drawing: {
+      tool: "box",
+      colour: "signal",
+      points: [
+        [0.7, 0.75],
+        [0.95, 0.95],
+      ],
+    },
   });
 
   // An approval review, with a guest.

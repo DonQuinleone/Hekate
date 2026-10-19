@@ -112,6 +112,13 @@ export function remapAnchor(points: AlignmentPoints, anchor: Anchor | null): Anc
   if (anchor?.kind === "bar" && anchor.at !== undefined) {
     return { ...anchor, at: ms(mapTime(points, anchor.at)) };
   }
+  // A region drawn on a video frame, or across a range of it, moves with its moment (#146).
+  if (anchor?.kind === "region" && anchor.at !== undefined) {
+    const at = ms(mapTime(points, anchor.at));
+    return anchor.end === undefined
+      ? { ...anchor, at }
+      : { ...anchor, at, end: Math.max(at, ms(mapTime(points, anchor.end))) };
+  }
   return null;
 }
 
