@@ -229,15 +229,17 @@ function ttmlTime(value: string, rates: TtmlRates): number | null {
 function readTtml(text: string): CaptionCue[] {
   const root = /<(?:\w+:)?tt[\s>][^>]*>?/.exec(text)?.[0];
   if (!root) throw new CaptionError("A TTML file has a <tt> element at its root");
-  const frameRate = Number(attribute(root, "frameRate") ?? 30) || 30;
+  const named = Number(attribute(root, "frameRate"));
+  const frameRate = named > 0 ? named : 30;
   const [num = 1, den = 1] = (attribute(root, "frameRateMultiplier") ?? "1 1")
     .split(/\s+/)
     .map(Number);
-  const rates: TtmlRates = {
-    frameRate: (frameRate * (num || 1)) / (den || 1),
-    subFrameRate: Number(attribute(root, "subFrameRate") ?? 1) || 1,
-    tickRate: Number(attribute(root, "tickRate") ?? 0) || frameRate,
-  };
+  const effective = (frameRate * (num || 1)) / (den || 1);
+  const subFrameRate = Number(attribute(root, "subFrameRate") ?? 1) || 1;
+  // TTML1: with no tick rate, a tick is a sub-frame where a frame rate is given, else a second.
+  const tickRate =
+    Number(attribute(root, "tickRate") ?? 0) || (named > 0 ? effective * subFrameRate : 1);
+  const rates: TtmlRates = { frameRate: effective, subFrameRate, tickRate };
   const time = (value: string | undefined, what: string) => {
     if (value === undefined) return undefined;
     const t = ttmlTime(value, rates);

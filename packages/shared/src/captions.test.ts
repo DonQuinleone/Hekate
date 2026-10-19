@@ -76,6 +76,15 @@ describe("captions from a sidecar file (#146)", () => {
     expect(cue?.end).toBeCloseTo(1 + 15 / (30000 / 1001), 6);
   });
 
+  it("counts ticks as TTML does where no tick rate is given", () => {
+    const ticks = (root: string) =>
+      parseCaptions(`<tt${root}><body><p begin="50t" end="100t">x</p></body></tt>`, "ttml")[0];
+    // No timing parameters: a tick is a second.
+    expect(ticks("")).toMatchObject({ start: 50, end: 100 });
+    // A frame rate: a tick is a sub-frame of it.
+    expect(ticks(' ttp:frameRate="25" ttp:subFrameRate="2"')).toMatchObject({ start: 1, end: 2 });
+  });
+
   it("says why a file cannot be read", () => {
     expect(() => parseCaptions("Nothing timed here", "srt")).toThrow(CaptionError);
     expect(() => parseCaptions("1\n00:00:01 --> 00:00:02\nHi", "srt")).toThrow(

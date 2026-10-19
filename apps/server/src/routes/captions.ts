@@ -123,12 +123,15 @@ export const captionRoutes = (deps: CaptionDeps) =>
         });
         try {
           const row = await db.transaction(async (tx) => {
-            // One addition at a time per video, so two at once cannot pass the limit together.
-            await tx
+            // One addition at a time per video, so two at once cannot pass the limit together;
+            // and a video moved to another workspace meanwhile (a project transfer rewrites its
+            // row) is no longer here to caption.
+            const [locked] = await tx
               .select({ id: files.id })
               .from(files)
               .where(inOrg(files, organisationId, eq(files.id, fileId)))
               .for("update");
+            if (!locked) throw new NotFound("File");
             const [held] = await tx
               .select({ n: count() })
               .from(captionTracks)
@@ -183,29 +186,35 @@ export const captionRoutes = (deps: CaptionDeps) =>
         const actor = c.var.actor;
         const { id: fileId, captionId } = c.req.valid("param");
         const access = await canOnFile(db, actor, "upload", fileId);
-        const [row] = await db
-          .delete(captionTracks)
-          .where(
-            inOrg(
-              captionTracks,
-              organisationId,
-              eq(captionTracks.id, captionId),
-              eq(captionTracks.fileId, fileId),
-            ),
-          )
-          .returning();
-        if (!row) throw new NotFound("Captions");
-        await audit.record(
-          organisationId,
-          await audit.actor(actor),
-          {
-            action: "file.captions_remove",
-            projectId: access.projectId,
-            fileId,
-            details: { captionId, name: row.name, label: row.label },
-          },
-          requestInfo(c, deps.trustProxy),
-        );
+        const who = await audit.actor(actor);
+        // Gone and logged together, or neither.
+        const row = await db.transaction(async (tx) => {
+          const [removed] = await tx
+            .delete(captionTracks)
+            .where(
+              inOrg(
+                captionTracks,
+                organisationId,
+                eq(captionTracks.id, captionId),
+                eq(captionTracks.fileId, fileId),
+              ),
+            )
+            .returning();
+          if (!removed) throw new NotFound("Captions");
+          await audit.record(
+            organisationId,
+            who,
+            {
+              action: "file.captions_remove",
+              projectId: access.projectId,
+              fileId,
+              details: { captionId, name: removed.name, label: removed.label },
+            },
+            requestInfo(c, deps.trustProxy),
+            tx,
+          );
+          return removed;
+        });
         // Bytes left behind if this fails are found and removed by storage reconciliation.
         await storage
           .remove(organisationId, row.blobId)
