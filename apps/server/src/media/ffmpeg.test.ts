@@ -85,6 +85,16 @@ describe("probe output", () => {
     expect(tc([video])).toBeUndefined();
   });
 
+  it("reads the range a picture says it has (#42)", () => {
+    const video = { codec_type: "video", codec_name: "h264", width: 1920, height: 1080 };
+    const range = (color_range?: string) =>
+      parseProbe({ streams: [{ ...video, color_range }] }).video?.range;
+    expect(range("tv")).toBe("limited");
+    expect(range("pc")).toBe("full");
+    expect(range("unknown")).toBeUndefined();
+    expect(range()).toBeUndefined();
+  });
+
   it("reads the common tags by whatever name the container gives them (#41)", () => {
     const info = parseProbe(
       {

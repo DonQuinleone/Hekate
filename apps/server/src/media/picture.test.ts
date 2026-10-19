@@ -128,6 +128,50 @@ describe("the picture checks (#42)", () => {
     expect(of(findings, "letterbox")).toEqual([]);
   }, 60_000);
 
+  it("fails a black picture however short it is", async () => {
+    const path = await clip("bumper.mp4", [plain(16, 0.5)]);
+    const findings = await analysePicture(path, video);
+    expect(of(findings, "black-frames")).toMatchObject([
+      { severity: "fail", summary: "The picture is black throughout" },
+    ]);
+  }, 60_000);
+
+  it("judges levels by the range the stream says it has", async () => {
+    // Bright as full range allows, which limited range would refuse.
+    const path = await clip("full.mp4", [plain(250, 2)]);
+    const unsafe = (found: QaFinding[]) =>
+      of(found, "broadcast-levels").filter((f) => f.severity === "warn");
+    expect(unsafe(await analysePicture(path, video))).not.toEqual([]);
+    expect(unsafe(await analysePicture(path, { ...video, range: "full" }))).toEqual([]);
+  }, 60_000);
+
+  it("does not count a variable frame rate's held frames as missing", async () => {
+    const path = join(root, "variable.mkv");
+    // Every third frame held a third of a frame longer, and one held for half a second.
+    await run("ffmpeg", [
+      ...["-hide_banner", "-nostdin", "-v", "error", "-f", "lavfi"],
+      ...["-i", `${moving(3)},settb=1/1000,setpts='(N/25+0.013*floor(N/3)+if(gt(N,40),0.5,0))/TB'`],
+      ...[
+        "-fps_mode",
+        "passthrough",
+        "-enc_time_base",
+        "1/1000",
+        "-c:v",
+        "libx264",
+        "-crf",
+        "16",
+        path,
+      ],
+    ]);
+    const findings = await analysePicture(path, video);
+    expect(of(findings, "dropped-frames")).toMatchObject([
+      {
+        severity: "info",
+        summary: "Variable frame rate: a held frame cannot be told from a missing one",
+      },
+    ]);
+  }, 60_000);
+
   it("reads frame times from where the stream starts", () => {
     const checks = new PictureChecks({ ...video, fps: undefined });
     const frame = (n: number, t: number, keys: string[] = []) =>

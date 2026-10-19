@@ -121,6 +121,8 @@ export const mediaInfo = z.object({
       pixelFormat: z.string().optional(),
       /** The timecode of its first frame, as written: "10:00:00:00", or "01:00:00;00" dropping frames (#146). */
       timecode: z.string().regex(timecodePattern).optional(),
+      /** Limited (video) or full range, where the stream says (#42). */
+      range: z.enum(["limited", "full"]).optional(),
     })
     .optional(),
   metadata: embeddedMetadata.optional(),

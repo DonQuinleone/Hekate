@@ -15,6 +15,12 @@ const FREEZE_MIN = 2;
 const STILL_SHARE = 0.9;
 /** A gap this many frames long, or longer, between frames means frames are missing. */
 const GAP_FRAMES = 1.5;
+/**
+ * Frames this far from the frame rate's grid, in frames, were timed by a variable-rate
+ * source; more than VARIABLE_SHARE of them and a held frame cannot be told from a missing one.
+ */
+const OFF_GRID = 0.2;
+const VARIABLE_SHARE = 0.05;
 /** Luma outside EBU R103's range on more than this share of a frame makes it unsafe. */
 const LEVELS_AREA = 0.01;
 /** Unsafe passages shorter than this are left alone: a sparkle, not a grade. */
@@ -133,6 +139,8 @@ export class PictureChecks {
   private readonly frozen = new Spans(0);
   private readonly gaps = new Spans();
   private missing = 0;
+  /** Frames whose time is off the frame rate's grid. */
+  private offGrid = 0;
   private fields = { tff: 0, bff: 0, progressive: 0, undetermined: 0 };
   private bounds: { x1: number; x2: number; y1: number; y2: number } | null = null;
   private readonly unsafe = new Spans();
@@ -152,8 +160,11 @@ export class PictureChecks {
     this.width = video.width;
     this.height = video.height;
     this.depthScale = 2 ** (pixelDepth(video.pixelFormat) - 8);
-    this.limited = limitedRange(video.pixelFormat);
-    this.fullRange = video.pixelFormat?.startsWith("yuvj") ?? false;
+    // The range the stream says it has, else the one its pixel format implies.
+    this.fullRange = video.range
+      ? video.range === "full"
+      : (video.pixelFormat?.startsWith("yuvj") ?? false);
+    this.limited = limitedRange(video.pixelFormat) && !this.fullRange;
   }
 
   /** Read more of ffmpeg's output. */
@@ -204,6 +215,8 @@ export class PictureChecks {
       const delta = t - this.last;
       if (delta > 0) this.step ??= delta;
       const frame = this.fps ? 1 / this.fps : null;
+      const frames = frame ? delta / frame : 0;
+      if (frame && Math.abs(frames - Math.round(frames)) > OFF_GRID) this.offGrid += 1;
       if (frame && delta > GAP_FRAMES * frame) {
         const count = Math.round(delta / frame) - 1;
         this.missing += count;
@@ -317,12 +330,14 @@ export class PictureChecks {
     this.endFrame();
     if (this.frames === 0 || this.last === null) return [];
     const length = this.last + this.frame();
-    // Passages still open at the end run to it.
-    if (this.blackFrom !== null) this.addBlack(this.blackFrom, length);
+    const edge = this.frame() * 1.5;
+    // Passages still open at the end run to it; black from the start to the end counts
+    // however short the video is.
+    if (this.blackFrom !== null && this.blackFrom <= edge) this.black.add(this.blackFrom, length);
+    else if (this.blackFrom !== null) this.addBlack(this.blackFrom, length);
     if (this.freezeFrom !== null) this.addFrozen(this.freezeFrom, length);
     this.blackFrom = null;
     this.freezeFrom = null;
-    const edge = this.frame() * 1.5;
     const atStart = (s: Span) => s.start <= edge;
     const atEnd = (s: Span) => s.end >= length - edge;
     const out: QaFinding[] = [];
@@ -387,7 +402,16 @@ export class PictureChecks {
     }
 
     // Missing frames, where the frame rate says how many there should be.
-    if (this.fps) {
+    if (this.fps && this.offGrid > Math.max(2, VARIABLE_SHARE * this.frames)) {
+      // A variable frame rate (a screen recording, a phone) holds frames as long as it likes.
+      finding(
+        "dropped-frames",
+        "info",
+        "Variable frame rate: a held frame cannot be told from a missing one",
+        null,
+        { offGrid: this.offGrid, frames: this.frames },
+      );
+    } else if (this.fps) {
       for (const s of this.gaps.list) {
         finding(
           "dropped-frames",

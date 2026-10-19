@@ -169,6 +169,7 @@ interface ProbeStream {
   avg_frame_rate?: string;
   r_frame_rate?: string;
   pix_fmt?: string;
+  color_range?: string;
   disposition?: { attached_pic?: number };
   tags?: Record<string, string>;
   duration?: string;
@@ -254,6 +255,8 @@ export function parseProbe(
     if (fps) info.video.fps = fps;
     if (rate && fps) info.video.frameRate = rate;
     if (video.pix_fmt) info.video.pixelFormat = video.pix_fmt;
+    if (video.color_range === "tv") info.video.range = "limited";
+    if (video.color_range === "pc") info.video.range = "full";
     const start = startTimecode(output, video);
     if (start) info.video.timecode = start;
   }
