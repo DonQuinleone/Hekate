@@ -37,6 +37,7 @@ import { EmailSection } from "./org-email.tsx";
 import { toolCopy } from "./project-settings.tsx";
 
 const intros: Record<string, string> = {
+  transfers: "Projects moving in from, or out to, another workspace, and what each waits for.",
   general: "The workspace's name, how guests sign in, and what every project starts from.",
   defaults: "What a new project copies unless it says otherwise.",
   categories: "The categories a comment can carry, and their colours.",
@@ -69,6 +70,7 @@ const sections = [
   { id: "api", label: "API and OAuth clients", group: "Access" },
   { id: "billing", label: "Billing", group: "Plan and help" },
   { id: "support", label: "Support", group: "Plan and help" },
+  { id: "transfers", label: "Transfers", group: "Operations" },
   { id: "storage", label: "Storage", group: "Operations" },
   { id: "leaks", label: "Leak tracing", group: "Operations" },
   { id: "log", label: "Access log", group: "Operations" },
@@ -1317,6 +1319,38 @@ export function SettingsPage({
                   </div>
                 )}
               </div>
+            </Row>
+          </Section>
+        </>
+      )}
+      {sec === "transfers" && (
+        <>
+          <Section title="This workspace">
+            <Row
+              name="Its address"
+              hint="Someone moving a project here from a workspace you are not in gives it."
+            >
+              <code className="tabular text-[14px] text-ink">endless-hall</code>
+            </Row>
+          </Section>
+          <Section title="Waiting">
+            <Row
+              name="Opening titles"
+              hint="To Endless Hall Records East. Tomas Varga asked on 14 October. Waiting for approval by a second member of Endless Hall Records and acceptance by Endless Hall Records East."
+            >
+              <span className="flex gap-2">
+                <Button variant="ghost" size="md">
+                  Refuse
+                </Button>
+                <Button variant="secondary" size="md">
+                  Approve…
+                </Button>
+              </span>
+            </Row>
+          </Section>
+          <Section title="Settled">
+            <Row name="Joplin Rags" hint="From Endless Hall Records East. Asked on 2 October.">
+              <span className="text-[13px] text-ink-2">Moved</span>
             </Row>
           </Section>
         </>

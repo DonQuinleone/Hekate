@@ -327,7 +327,7 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
   const [profileOpen, setProfileOpen] = useState(false);
   const [ruleOpen, setRuleOpen] = useState(false);
   const [packsOn, setPacksOn] = useState<Set<string>>(new Set(projectPacks[project.id] ?? []));
-  const [confirm, setConfirm] = useState<"archive" | "delete" | null>(null);
+  const [confirm, setConfirm] = useState<"archive" | "delete" | "move" | null>(null);
   const [roles, setRoles] = useState(project.roles);
   const [adding, setAdding] = useState(false);
   const canRoles = viewer.can(project.id, "manage_roles");
@@ -431,6 +431,14 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
                 onClick={() => setConfirm("delete")}
               >
                 Delete…
+              </Button>
+            </Row>
+            <Row
+              name="Move to another workspace"
+              hint="Everything in it goes, files re-encrypted. Needs a second member here and the other workspace to agree, unless you run both."
+            >
+              <Button variant="secondary" size="md" onClick={() => setConfirm("move")}>
+                Move…
               </Button>
             </Row>
           </Danger>
@@ -1116,7 +1124,38 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
           </label>
         </Dialog>
       )}
-      {confirm && (
+      {confirm === "move" && (
+        <Dialog
+          title={`Move ${project.name} to another workspace?`}
+          description="Its files, comments, reviews and their sign-offs, roles and workflows go with it, its files re-encrypted under that workspace's key. People who are not members there lose their place in it; guests, tags and delivery profiles are matched there or copied."
+          onClose={() => setConfirm(null)}
+          width="sm"
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setConfirm(null)}>
+                Keep it here
+              </Button>
+              <Button variant="secondary" className="text-signal" onClick={() => setConfirm(null)}>
+                Ask to move
+              </Button>
+            </>
+          }
+        >
+          <div className="flex flex-col gap-3">
+            <Select aria-label="Workspace" defaultValue="east">
+              <option value="east">Endless Hall Records East</option>
+              <option value="address">Another workspace, by its address</option>
+            </Select>
+            <p className="m-0 text-[13px] text-ink-2">
+              A second member here approves it, and an owner or admin of that workspace accepts it,
+              before anything moves. It lapses after a week.
+            </p>
+            <Input placeholder={`Type ${project.name} to confirm`} />
+            <Input type="password" placeholder="Password" />
+          </div>
+        </Dialog>
+      )}
+      {(confirm === "archive" || confirm === "delete") && (
         <Dialog
           title={confirm === "archive" ? "Archive this project?" : "Delete this project?"}
           onClose={() => setConfirm(null)}

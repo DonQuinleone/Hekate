@@ -954,6 +954,96 @@ test("project-settings-deletion", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Moving a project to another workspace (#240). The answers are amended in the page alone, so
+// nothing ever moves: one waiting on this person's approval, then the asking, with a
+// destination and the project's name typed.
+const homeOf = async (page: Page) =>
+  ((await (await page.request.get("/api/me")).json()) as { activeOrganisationId: string })
+    .activeOrganisationId;
+const transferOf = (home: string, overrides: Record<string, unknown> = {}) => ({
+  id: "01a15000-0000-7000-8000-000000000001",
+  project: { id: seeded().musicProjectId, name: "Joplin Rags" },
+  from: { id: home, name: "Endless Hall Records" },
+  to: { id: "01a15000-0000-7000-8000-00000000000b", name: "Endless Hall Records East" },
+  status: "pending",
+  requestedBy: "Tomas Varga",
+  requestedAt: "2026-10-14T09:30:00Z",
+  approvedBy: null,
+  approvedAt: null,
+  acceptedBy: null,
+  acceptedAt: null,
+  expiresAt: "2026-10-21T09:30:00Z",
+  you: { mayApprove: true, mayAccept: false, mayRefuse: true, mayCancel: false },
+  ...overrides,
+});
+
+test("project-settings-transfer", async ({ page }) => {
+  const home = await homeOf(page);
+  await page.route(`**/api/projects/${seeded().musicProjectId}/transfer`, (route) =>
+    route.request().method() === "GET"
+      ? route.fulfill({ json: { transfer: transferOf(home) } })
+      : route.continue(),
+  );
+  await page.goto(`/projects/${seeded().musicProjectId}/settings`);
+  await settle(page, "main >> text=Moving to Endless Hall Records East");
+  await saveScreen(page, "project-settings-transfer");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Approve…" }).click();
+  await page.getByRole("textbox", { name: "Type Joplin Rags to confirm" }).fill("Joplin Rags");
+  await saveScreen(page, "project-settings-transfer-approve");
+  await checkScreen(page);
+});
+
+test("project-settings-move", async ({ page }) => {
+  await page.route(`**/api/projects/${seeded().musicProjectId}/transfer/destinations`, (route) =>
+    route.fulfill({
+      json: {
+        destinations: [
+          {
+            id: "01a15000-0000-7000-8000-00000000000b",
+            name: "Endless Hall Records East",
+            atOnce: false,
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto(`/projects/${seeded().musicProjectId}/settings`);
+  await settle(page, "main >> text=Move to another workspace");
+  await page.getByRole("button", { name: "Move…" }).click();
+  await page.getByRole("textbox", { name: "Type Joplin Rags to confirm" }).fill("Joplin Rags");
+  await settle(page, "[role=dialog] >> text=A second member here approves it");
+  await saveScreen(page, "project-settings-move");
+  await checkScreen(page);
+});
+
+test("settings-transfers", async ({ page }) => {
+  const home = await homeOf(page);
+  await page.route("**/api/transfers", (route) =>
+    route.fulfill({
+      json: {
+        transfers: [
+          transferOf(home),
+          transferOf(home, {
+            id: "01a15000-0000-7000-8000-000000000002",
+            project: { id: seeded().videoProjectId, name: "Opening titles" },
+            from: { id: "01a15000-0000-7000-8000-00000000000b", name: "Endless Hall Records East" },
+            to: { id: home, name: "Endless Hall Records" },
+            status: "moved",
+            requestedBy: "Ines Arlow",
+            requestedAt: "2026-10-02T15:00:00Z",
+            you: { mayApprove: false, mayAccept: false, mayRefuse: false, mayCancel: false },
+          }),
+        ],
+      },
+    }),
+  );
+  await page.goto("/settings/transfers");
+  await settle(page, "main >> text=Its address");
+  await saveScreen(page, "settings-transfers");
+  await checkScreen(page);
+});
+
 // How fast it plays (#15): the speed menu, opening upward inside the player.
 test("file-speed", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}`);

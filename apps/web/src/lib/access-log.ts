@@ -49,4 +49,10 @@ export const actionCopy: Record<string, string> = {
   "project.deletion_confirm": "Project deletion confirmed",
   "project.deletion_cancel": "Project deletion withdrawn",
   "project.delete": "Project deleted",
+  "project.transfer_request": "Project move asked for",
+  "project.transfer_approve": "Project move approved",
+  "project.transfer_accept": "Project move accepted",
+  "project.transfer_refuse": "Project move refused",
+  "project.transfer_cancel": "Project move withdrawn",
+  "project.transfer": "Project moved between workspaces",
 };

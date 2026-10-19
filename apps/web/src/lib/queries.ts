@@ -70,6 +70,7 @@ import {
   type ProjectProfile,
   type ProjectStatus,
   type ProjectTemplate,
+  type ProjectTransfer,
   permissionsOfLevels,
   type QaFinding,
   type QaSettings,
@@ -99,6 +100,9 @@ import {
   type TaskInput,
   type TaskSummary,
   type TrackState,
+  type TransferConfirmation,
+  type TransferDestination,
+  type TransferRequestInput,
   type TriageInput,
   type UpdateCarryInput,
   type UpdateProjectInput,
@@ -192,6 +196,8 @@ export interface Me {
   organisations: {
     id: string;
     name: string;
+    /** Its address, which someone moving a project here gives (#240). */
+    address: string;
     role: "owner" | "admin" | "member";
     /** The workspace's language, for members without their own. */
     locale?: string | null;
@@ -538,6 +544,79 @@ export function useProjectDeletion(projectId: string) {
         ok(await api.projects[":id"].deletion.confirm.$post({ param: { id: projectId } })),
       // Archived now: lists, the sidebar, the home page and every review list change.
       onSuccess: () => void client.invalidateQueries(),
+    }),
+  };
+}
+
+/** The transfer waiting on a project, for its danger zone (#240). */
+export const projectTransferQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "transfer"],
+    queryFn: async () =>
+      (
+        await json<{ transfer: ProjectTransfer | null }>(
+          await api.projects[":id"].transfer.$get({ param: { id: projectId } }),
+        )
+      ).transfer,
+  });
+
+/** Where this person may ask to move a project: their other workspaces (#240). */
+export const transferDestinationsQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "transfer", "destinations"],
+    queryFn: async () =>
+      (
+        await json<{ destinations: TransferDestination[] }>(
+          await api.projects[":id"].transfer.destinations.$get({ param: { id: projectId } }),
+        )
+      ).destinations,
+  });
+
+/** The transfers naming the workspace, waiting first (#240). */
+export const transfersQuery = queryOptions({
+  queryKey: ["transfers"],
+  queryFn: async () =>
+    (await json<{ transfers: ProjectTransfer[] }>(await api.transfers.$get())).transfers,
+});
+
+/**
+ * Moving a project between workspaces (#240): asking, approving, accepting, refusing and
+ * withdrawing. A move changes what the workspace holds, so every list is fetched again.
+ */
+export function useTransferMutations() {
+  const client = useQueryClient();
+  const refresh = () => void client.invalidateQueries();
+  const ok = async (res: Response) => {
+    if (!res.ok) await json(res);
+  };
+  return {
+    ask: useMutation({
+      mutationFn: async ({ projectId, ...input }: TransferRequestInput & { projectId: string }) =>
+        (
+          await json<{ transfer: ProjectTransfer | null }>(
+            await api.projects[":id"].transfer.$post({ param: { id: projectId }, json: input }),
+          )
+        ).transfer,
+      onSuccess: refresh,
+    }),
+    approve: useMutation({
+      mutationFn: async ({ id, ...input }: TransferConfirmation & { id: string }) =>
+        ok(await api.transfers[":id"].approve.$post({ param: { id }, json: input })),
+      onSuccess: refresh,
+    }),
+    accept: useMutation({
+      mutationFn: async ({ id, ...input }: TransferConfirmation & { id: string }) =>
+        ok(await api.transfers[":id"].accept.$post({ param: { id }, json: input })),
+      onSuccess: refresh,
+    }),
+    refuse: useMutation({
+      mutationFn: async (id: string) =>
+        ok(await api.transfers[":id"].refuse.$post({ param: { id } })),
+      onSuccess: refresh,
+    }),
+    withdraw: useMutation({
+      mutationFn: async (id: string) => ok(await api.transfers[":id"].$delete({ param: { id } })),
+      onSuccess: refresh,
     }),
   };
 }
@@ -3270,6 +3349,29 @@ export const instanceKeysQuery = (id: string) =>
     // While a rewrap runs, its progress shows.
     refetchInterval: (q) => ((q.state.data?.pending ?? 0) > 0 ? 5000 : false),
   });
+
+/** An operator moves a project to another workspace (#240), confirmed with its name and their password. */
+export function useOperatorMove(workspaceId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      projectId,
+      ...input
+    }: {
+      projectId: string;
+      to: string;
+      name: string;
+      password?: string;
+    }) => {
+      const res = await api.instance.workspaces[":id"].projects[":projectId"].move.$post({
+        param: { id: workspaceId, projectId },
+        json: input,
+      });
+      if (!res.ok) await json(res);
+    },
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["instance"] }),
+  });
+}
 
 export const instanceProjectsQuery = (id: string) =>
   queryOptions({

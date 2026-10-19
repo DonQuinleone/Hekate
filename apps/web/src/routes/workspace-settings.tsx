@@ -25,6 +25,7 @@ import { EmailTemplatesSection } from "~/components/email-templates";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { PageHeader } from "~/components/page-header";
+import { TransfersSection } from "~/components/project-transfer";
 import { Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
 import { SsoSection } from "~/components/sso";
 import { Button } from "~/components/ui/button";
@@ -124,6 +125,13 @@ const allSections: SectionSpec[] = [
     from: "admin",
     intro: "How members sign in to this workspace.",
     docs: "/security/model/",
+  },
+  {
+    id: "transfers",
+    label: "Transfers",
+    group: "Operations",
+    from: "member",
+    intro: "Projects moving in from, or out to, another workspace, and what each waits for.",
   },
   {
     id: "storage",
@@ -1052,6 +1060,7 @@ export function WorkspaceSettingsPage({ section }: { section: string }) {
           </>
         )}
         {current.id === "storage" && <Storage role={role} />}
+        {current.id === "transfers" && <TransfersSection />}
         {current.id === "log" && <AccessLog />}
       </SettingsLayout>
     </>
