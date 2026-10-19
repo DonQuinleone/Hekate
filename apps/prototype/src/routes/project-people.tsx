@@ -144,19 +144,14 @@ export function People({ project }: { project: Project }) {
                   </span>
                   <span className="flex items-center gap-1">
                     {manageReviewers && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setPermissionsFor({ id: g.personId, guest: true })}
-                      >
-                        Permissions
-                      </Button>
-                    )}
-                    {manageReviewers && (
                       <ActionMenu
                         always
                         label={p.name}
                         actions={[
+                          {
+                            label: "Review permissions…",
+                            onSelect: () => setPermissionsFor({ id: g.personId, guest: true }),
+                          },
                           { label: "Send a new link", onSelect: () => {} },
                           { label: "Change label…", onSelect: () => {} },
                           "divider",
