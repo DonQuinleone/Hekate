@@ -187,7 +187,7 @@ export async function taskDetail(
       at: e.createdAt.toISOString(),
       actorName: e.actorName,
       kind: e.kind,
-      text: taskEventText(e.kind, e.detail),
+      text: taskEventText(e.kind, e.detail, e.actorName),
       note: e.note,
     })),
   };

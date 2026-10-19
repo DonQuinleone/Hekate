@@ -64,6 +64,7 @@ import { RequestReviewPage } from "~/routes/request-review";
 import { ReviewPage } from "~/routes/review";
 import { SearchPage } from "~/routes/search";
 import { SessionPage, SessionsPage } from "~/routes/sessions";
+import { TasksPage } from "~/routes/tasks";
 import { TrackPage } from "~/routes/track";
 import { WorkflowsPage } from "~/routes/workflows";
 import { WorkspaceSettingsPage } from "~/routes/workspace-settings";
@@ -455,6 +456,20 @@ const projectPeople = createRoute({
     return <ProjectPeoplePage projectId={projectId} />;
   },
 });
+// The project's tasks (#140): one opened beside the list, or a new one being made.
+const projectTasks = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/tasks",
+  validateSearch: z.object({
+    task: z.uuid().optional().catch(undefined),
+    new: z.boolean().optional().catch(undefined),
+  }),
+  component: function ProjectTasksRoute() {
+    const { projectId } = projectTasks.useParams();
+    const { task, new: creating } = projectTasks.useSearch();
+    return <TasksPage projectId={projectId} taskId={task} creating={creating === true} />;
+  },
+});
 // The project's recording sessions (#21, #45), in its Production area.
 const projectSessions = createRoute({
   getParentRoute: () => app,
@@ -716,6 +731,7 @@ export const router = createRouter({
       projectReviews,
       requestReview,
       projectPeople,
+      projectTasks,
       projectSessions,
       session,
       projectSettings,

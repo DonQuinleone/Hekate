@@ -25,6 +25,8 @@ export interface Seeded {
   >;
   /** A share (#138): a track shared with a guest, nothing asked. */
   shareId: string;
+  /** A task (#140): late, in progress, about the track, with notes. */
+  taskId: string;
   /** An invitation's page, waiting to be accepted. */
   invitationPath: string;
   /** A guest link already used, which no longer signs anyone in. */

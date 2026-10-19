@@ -20,6 +20,7 @@ import {
   type TriageInput,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import {
   createContext,
   type FormEvent,
@@ -647,6 +648,7 @@ function ThreadView({
   pages,
   takesOf,
   channelNames = [],
+  projectId,
 }: {
   thread: Thread;
   /** The file being looked at, which a carried thread was brought to. */
@@ -675,6 +677,8 @@ function ThreadView({
   takesOf?: string;
   /** The recording's speakers, to name the channel a thread is about (#74). */
   channelNames?: readonly string[];
+  /** The file's project, where a thread's task is kept (#140). */
+  projectId?: string;
 }) {
   const [replying, setReplying] = useState(false);
   const [takesOpen, setTakesOpen] = useState(false);
@@ -928,6 +932,16 @@ function ThreadView({
                 {doneWords}
               </Chip>
             ))}
+          {comment.taskId && projectId && !guest && (
+            <Link
+              to="/projects/$projectId/tasks"
+              params={{ projectId }}
+              search={{ task: comment.taskId }}
+              className="text-ink-3 underline-offset-2 hover:text-ink hover:underline"
+            >
+              Open the task
+            </Link>
+          )}
           {comment.deferredTo && <span>deferred to {comment.deferredTo}</span>}
           {comment.assigneeName && <span>for {comment.assigneeName}</span>}
         </p>
@@ -1545,6 +1559,7 @@ export function Comments({
       pages={pages}
       takesOf={takesOf}
       channelNames={channelNames}
+      projectId={projectId}
     />
   );
 
