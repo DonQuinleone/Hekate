@@ -18,6 +18,7 @@ import { Segmented } from "~/components/ui/segmented";
 import { Switch } from "~/components/ui/toggle";
 import { WorkflowCanvas } from "~/components/workflow-canvas";
 import { WorkflowCode } from "~/components/workflow-code";
+import { CopyWorkflowDialog } from "~/components/workflow-copy";
 import { Committed, StepField } from "~/components/workflow-fields";
 import { cn } from "~/lib/cn";
 import {
@@ -152,6 +153,17 @@ export function WorkflowsPage({
       { name: "New workflow", definition: newWorkflowDefinition() },
       { onSuccess: (made) => setFocus(made.id) },
     );
+  const [copying, setCopying] = useState(false);
+  const copy = (name: string, definition: WorkflowDefinition) =>
+    create.mutate(
+      { name, definition },
+      {
+        onSuccess: (made) => {
+          setCopying(false);
+          setFocus(made.id);
+        },
+      },
+    );
   const fromTemplate = (text: string) => {
     const read = workflowFromYaml(text);
     if (read.ok)
@@ -261,10 +273,17 @@ export function WorkflowsPage({
                         </Button>
                         <Dropdown
                           value="From a template"
-                          actions={workflowTemplates.map((t) => ({
-                            label: t.name,
-                            onSelect: () => fromTemplate(t.text),
-                          }))}
+                          actions={[
+                            ...workflowTemplates.map((t) => ({
+                              label: t.name,
+                              onSelect: () => fromTemplate(t.text),
+                            })),
+                            "divider" as const,
+                            {
+                              label: "From another project…",
+                              onSelect: () => setCopying(true),
+                            },
+                          ]}
                         />
                       </div>
                     ) : undefined
@@ -286,10 +305,17 @@ export function WorkflowsPage({
                     />
                   ))}
                   {editing && (
-                    <div>
+                    <div className="flex flex-wrap items-center gap-2">
                       <Button variant="secondary" onClick={newWorkflow} disabled={create.isPending}>
                         <Icon name="plus" size={14} />
                         New workflow
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => setCopying(true)}
+                        disabled={create.isPending}
+                      >
+                        Copy from another project
                       </Button>
                     </div>
                   )}
@@ -299,6 +325,14 @@ export function WorkflowsPage({
                     from the track.
                   </p>
                 </>
+              )}
+              {copying && (
+                <CopyWorkflowDialog
+                  projectId={projectId}
+                  pending={create.isPending}
+                  onCopy={copy}
+                  onClose={() => setCopying(false)}
+                />
               )}
             </div>
           </div>

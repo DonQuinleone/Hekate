@@ -49,6 +49,7 @@ import {
   type WorkflowDefinition,
   type WorkflowEffect,
   type WorkflowRun,
+  type WorkflowStatus,
 } from "@hekate/shared";
 import { type SQL, sql } from "drizzle-orm";
 import {
@@ -458,6 +459,11 @@ export const projects = pgTable(
     categoriesSeeded: boolean("categories_seeded").notNull().default(false),
     /** How many tasks it has numbered (#140): the next is one more, so a key is never reused. */
     tasksNumbered: integer("tasks_numbered").notNull().default(0),
+    /** Its status set (#26): what its workflows set, in order, each read as to do, under way or done. */
+    workflowStatuses: jsonb("workflow_statuses")
+      .$type<WorkflowStatus[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     ...timestamps,
   },

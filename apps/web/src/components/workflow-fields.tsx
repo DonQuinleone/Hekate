@@ -1,9 +1,9 @@
-import type { WorkflowNode } from "@hekate/shared";
+import { sameStatus, type WorkflowNode } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Input, Select } from "~/components/ui/input";
 import { cn } from "~/lib/cn";
-import { projectGroupsQuery, projectRolesQuery } from "~/lib/queries";
+import { projectGroupsQuery, projectRolesQuery, projectWorkflowStatusesQuery } from "~/lib/queries";
 import type { NodeField } from "~/lib/workflow-nodes";
 
 /**
@@ -30,15 +30,28 @@ export function StepField({
   // Groups are asked as themselves by a review; a task or a notification reaches roles only.
   const withGroups = !!field.people && (node.type === "approval" || node.type === "feedback");
   const { data: groups } = useQuery({ ...projectGroupsQuery(projectId), enabled: withGroups });
+  // A status is one of the project's (#26), once it has any; written where it has none yet.
+  const isStatus = field.id === "status";
+  const { data: statuses } = useQuery({
+    ...projectWorkflowStatusesQuery(projectId),
+    enabled: isStatus,
+  });
+  const chosen = isStatus && (statuses?.length ?? 0) > 0;
   const value = node.config[field.id] ?? "";
+  // A status spelt in another case is the set's own, so it shows as the set spells it.
+  const shown = chosen
+    ? ((statuses ?? []).find((st) => sameStatus(st.name, value))?.name ?? value)
+    : value;
   const label = `${node.name}: ${field.label.toLowerCase()}`;
-  const options = field.people
-    ? [
-        ...(field.id === "to" ? ["Everyone in the project"] : []),
-        ...(roles ?? []).map((r) => r.name),
-        ...(withGroups ? (groups ?? []) : []).map((g) => g.name),
-      ]
-    : field.options;
+  const options = chosen
+    ? (statuses ?? []).map((st) => st.name)
+    : field.people
+      ? [
+          ...(field.id === "to" ? ["Everyone in the project"] : []),
+          ...(roles ?? []).map((r) => r.name),
+          ...(withGroups ? (groups ?? []) : []).map((g) => g.name),
+        ]
+      : field.options;
   return (
     // The control is named on its own, so this only lays the words beside it.
     <span
@@ -53,13 +66,14 @@ export function StepField({
           className={stacked ? undefined : "w-auto"}
           size={stacked ? "md" : "sm"}
           aria-label={label}
-          value={field.people ? value : value || options[0]}
+          value={field.people || chosen ? shown : value || options[0]}
           disabled={!editing}
           onChange={(e) => onChange(e.target.value)}
         >
           {field.people && <option value="">Nobody yet</option>}
+          {chosen && <option value="">No status</option>}
           {/* Someone named another way (a guest, several at once) stays as named. */}
-          {value && !options.includes(value) && <option value={value}>{value}</option>}
+          {shown && !options.includes(shown) && <option value={shown}>{shown}</option>}
           {options.map((o) => (
             <option key={o} value={o}>
               {o}

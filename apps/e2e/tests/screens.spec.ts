@@ -591,6 +591,55 @@ test("workflows-inspector", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Where a track's workflow has it (#26): its status, the step it waits at, and the next. No run
+// is started in the seed (one would ask for a review), so the answer is amended in this page.
+test("track-standing", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.route(`**/api/tracks/${seeded().trackId}/workflow-standing`, (route) =>
+    route.fulfill({
+      json: {
+        status: "With the soloists",
+        category: "in_progress",
+        stage: "Soloists' notes",
+        next: "Engineer edits",
+      },
+    }),
+  );
+  await page.goto(`/tracks/${seeded().trackId}?view=versions`);
+  await settle(page, "main >> text=Next: Engineer edits");
+  await saveScreen(page, "track-standing");
+  await checkScreen(page);
+});
+
+// A workflow copied from another project (#26): chosen from those the member may see there.
+test("workflows-copy", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  // From a project with none yet, to one with two.
+  await page.goto(`/projects/${seeded().videoProjectId}/workflow?view=basic`);
+  await settle(page, "main >> text=No workflows yet");
+  await page.getByRole("button", { name: "From a template" }).click();
+  await page.getByRole("menuitem", { name: "From another project…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Copy a workflow from another project" });
+  await dialog
+    .getByRole("combobox", { name: "Project to copy from" })
+    .selectOption({ label: "Joplin Rags" });
+  await expect(dialog.getByRole("button", { name: "Copy Album review" })).toBeVisible();
+  await saveScreen(page, "workflows-copy");
+  await checkScreen(page);
+});
+
+// The project's statuses (#26): how each reads on the board, and the steps that set it. Looked
+// at only, so no other capture sees a change.
+test("workflows-statuses", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/workflow`);
+  await settle(page, "main [data-node]:has-text('Label approval')");
+  await page.getByRole("button", { name: "Statuses" }).click();
+  await settle(page, "aside[aria-label=Inspector] >> text=Set by a step");
+  await saveScreen(page, "workflows-statuses");
+  await checkScreen(page);
+});
+
 // An item walked through a workflow (#26): the steps it has taken, and the choices where it waits.
 test("workflows-walk", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);

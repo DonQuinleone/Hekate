@@ -4,6 +4,7 @@ import {
   type BoardCard,
   type BoardDecision,
   boardColumns,
+  sameStatus,
   type WorkflowDefinition,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
@@ -16,6 +17,7 @@ import { trackStandings } from "../track-standing.ts";
 
 const {
   comments,
+  projects,
   guests,
   reviewDecisionLog,
   reviewItems,
@@ -98,7 +100,7 @@ export const projectBoardRoutes = (db: Database) =>
     const organisationId = c.var.organisationId;
     const access = await can(db, actorOf(c.var), "view", c.req.valid("param").id);
     const projectId = access.projectId;
-    const [standing, statusRows, flows, running, open] = await Promise.all([
+    const [standing, statusRows, flows, running, open, [project]] = await Promise.all([
       trackStandings(db, organisationId, projectId),
       db
         .select({ id: tracks.id, status: tracks.workflowStatus })
@@ -158,6 +160,10 @@ export const projectBoardRoutes = (db: Database) =>
           ),
         )
         .orderBy(desc(reviews.createdAt)),
+      db
+        .select({ statuses: projects.workflowStatuses })
+        .from(projects)
+        .where(inOrg(projects, organisationId, eq(projects.id, projectId))),
     ]);
     const statusOf = new Map(statusRows.map((r) => [r.id, r.status]));
     const versionIds = standing.tracks.flatMap((t) => (t.version ? [t.version.id] : []));
@@ -263,15 +269,22 @@ export const projectBoardRoutes = (db: Database) =>
     }
     const definitions: WorkflowDefinition[] = flows.map((f) => f.definition);
     const held = [...new Set(cards.flatMap((k) => (k.status ? [k.status] : [])))];
+    const statusColumns = boardColumns(definitions, "status", held, project?.statuses ?? []);
     const board: Board = {
       workflows: flows.map((f) => f.name),
       columns: {
-        status: boardColumns(definitions, "status", held),
+        status: statusColumns,
         stage: boardColumns(definitions, "stage", [
           ...new Set(cards.flatMap((k) => (k.stage ? [k.stage] : []))),
         ]),
       },
-      cards,
+      // Each card's status as its column spells it, so one held in another case still lands.
+      cards: cards.map((k) => {
+        const status = k.status;
+        return status
+          ? { ...k, status: statusColumns.find((col) => sameStatus(col.id, status))?.id ?? status }
+          : k;
+      }),
     };
     return c.json(board);
   });

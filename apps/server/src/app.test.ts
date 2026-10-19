@@ -8572,9 +8572,75 @@ describe.runIf(url)("api", () => {
             { name: "Maple Leaf Rag", status: "With conductor", stage: "Conductor" },
           ]);
           const outsiderBoard = await joinAs(s.owner, "outsider-board@example.test");
+          // The track's page says the same (#26), and what comes next, to whoever sees the track.
+          const standingPath = `/api/tracks/${s.trackId}/workflow-standing`;
+          expect(await (await getAs(standingPath, s.composer)).json()).toEqual({
+            status: "With conductor",
+            category: "in_progress",
+            stage: "Conductor",
+            next: "Engineer edits",
+          });
+          expect((await getAs(standingPath, outsiderBoard)).status).toBe(404);
           expect((await getAs(`/api/projects/${s.projectId}/board`, outsiderBoard)).status).toBe(
             404,
           );
+          // Its status set (#26): the board's columns follow its order and categories, and the
+          // statuses only a step sets come after. Only those who edit workflows change it.
+          const statusesPath = `/api/projects/${s.projectId}/workflow-statuses`;
+          const putStatuses = (statuses: unknown, cookie = s.owner) =>
+            app.request(statusesPath, { ...json({ statuses }, cookie), method: "PUT" });
+          const set = [
+            { name: "Editing", category: "todo" },
+            { name: "On hold", category: "todo" },
+            { name: "Approved", category: "done" },
+          ];
+          expect((await putStatuses(set, s.engineer)).status).toBe(403);
+          expect((await putStatuses(set, outsiderBoard)).status).toBe(404);
+          expect(
+            (
+              await putStatuses([
+                { name: "Editing", category: "todo" },
+                { name: "editing", category: "done" },
+              ])
+            ).status,
+          ).toBe(400);
+          const saved = (await (await putStatuses(set)).json()) as {
+            statuses: { name: string; category: string; steps: number; kept: boolean }[];
+          };
+          expect(saved.statuses.map((x) => [x.name, x.kept])).toEqual([
+            ["Editing", true],
+            ["On hold", true],
+            ["Approved", true],
+            ["With conductor", false],
+          ]);
+          expect((await (await getAs(statusesPath, s.composer)).json()) as typeof saved).toEqual(
+            saved,
+          );
+          expect((await getAs(statusesPath, outsiderBoard)).status).toBe(404);
+          expect((await board(s.composer)).columns.status.map((c) => [c.name, c.category])).toEqual(
+            [
+              ["No version", "todo"],
+              ["No status", "todo"],
+              ["Editing", "todo"],
+              ["On hold", "todo"],
+              ["Approved", "done"],
+              ["With conductor", "in_progress"],
+            ],
+          );
+          // A step's status in another case is the set's own: one column, as the set spells it,
+          // which the card and the track's line follow.
+          expect(
+            (await putStatuses([...set, { name: "with CONDUCTOR", category: "todo" }])).status,
+          ).toBe(200);
+          const cased = await board(s.composer);
+          expect(
+            cased.columns.status.filter((c) => c.name.toLowerCase() === "with conductor"),
+          ).toEqual([expect.objectContaining({ name: "with CONDUCTOR", category: "todo" })]);
+          expect(cased.cards[0]?.status).toBe("with CONDUCTOR");
+          expect(await (await getAs(standingPath, s.composer)).json()).toMatchObject({
+            category: "todo",
+          });
+          expect((await putStatuses(set)).status).toBe(200);
 
           // Ended by hand by those who edit workflows: the engineer is told, and given the edit.
           const step = (body: unknown, cookie = s.owner) =>

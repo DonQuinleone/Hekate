@@ -5,9 +5,11 @@ import {
   NO_STATUS,
   NO_VERSION,
   NOT_AT_A_STAGE,
+  projectStatuses,
   shiftWeeks,
   timelineBar,
   timelineWeeks,
+  workflowStatusesInput,
 } from "./board.ts";
 import type { WorkflowDefinition } from "./workflows.ts";
 
@@ -160,5 +162,61 @@ describe("a board's timeline", () => {
       timelineBar({ version: version("2026-08-01T00:00:00Z"), dueAt: null }, "2026-09-28", 42),
     ).toBeNull();
     expect(timelineBar({ version: null, dueAt: null }, "2026-09-28", 42)).toBeNull();
+  });
+});
+
+describe("a project's statuses", () => {
+  it("are the set, in its order and categories, then those only a step sets", () => {
+    const set = [
+      { name: "Approved", category: "done" as const },
+      { name: "Editing", category: "todo" as const },
+      { name: "On hold", category: "todo" as const },
+    ];
+    expect(projectStatuses(set, [album])).toEqual([
+      { name: "Approved", category: "done", steps: 1, kept: true },
+      { name: "Editing", category: "todo", steps: 1, kept: true },
+      { name: "On hold", category: "todo", steps: 0, kept: true },
+      { name: "With conductor", category: "in_progress", steps: 1, kept: false },
+      { name: "With label", category: "in_progress", steps: 1, kept: false },
+    ]);
+    // The board's columns follow them.
+    expect(boardColumns([album], "status", [], set).map((c) => [c.name, c.category])).toEqual([
+      [NO_VERSION, "todo"],
+      [NO_STATUS, "todo"],
+      ["Approved", "done"],
+      ["Editing", "todo"],
+      ["On hold", "todo"],
+      ["With conductor", "in_progress"],
+      ["With label", "in_progress"],
+    ]);
+  });
+
+  it("take a step's status in another case as the set's own, spelt as the set spells it", () => {
+    const set = [{ name: "EDITING", category: "todo" as const }];
+    const statuses = projectStatuses(set, [album]);
+    expect(statuses.filter((s) => s.name.toLowerCase() === "editing")).toEqual([
+      { name: "EDITING", category: "todo", steps: 1, kept: true },
+    ]);
+    const names = boardColumns([album], "status", ["editing"], set).map((c) => c.name);
+    expect(names.filter((n) => n.toLowerCase() === "editing")).toEqual(["EDITING"]);
+  });
+
+  it("with no set, are the ones the steps set", () => {
+    expect(projectStatuses([], [album]).map((s) => [s.name, s.category, s.kept])).toEqual([
+      ["With conductor", "in_progress", false],
+      ["Editing", "in_progress", false],
+      ["With label", "in_progress", false],
+      ["Approved", "done", false],
+    ]);
+  });
+
+  it("keep each name once in a set", () => {
+    const twice = workflowStatusesInput.safeParse({
+      statuses: [
+        { name: "Mixing", category: "in_progress" },
+        { name: "mixing", category: "done" },
+      ],
+    });
+    expect(twice.success).toBe(false);
   });
 });

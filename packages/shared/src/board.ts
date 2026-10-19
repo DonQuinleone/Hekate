@@ -37,7 +37,69 @@ export const defaultBoardDisplay: BoardDisplay = {
 };
 
 /** How a column reads beside its name: not started, under way, or done. */
-export type ColumnCategory = "todo" | "in_progress" | "done";
+export const statusCategories = ["todo", "in_progress", "done"] as const;
+export type ColumnCategory = (typeof statusCategories)[number];
+
+/** Whether two names are the same status: a set keeps each name once, whatever its case. */
+export const sameStatus = (a: string, b: string) =>
+  a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/** A status of a project's set (#26): what its workflows' steps set, and how it reads. */
+export const workflowStatusSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  category: z.enum(statusCategories),
+});
+export type WorkflowStatus = z.infer<typeof workflowStatusSchema>;
+
+/** A project's whole status set, in its order: each name once, whatever its case. */
+export const workflowStatusesInput = z.object({
+  statuses: z
+    .array(workflowStatusSchema)
+    .max(50)
+    .refine(
+      (list) => new Set(list.map((s) => s.name.toLowerCase())).size === list.length,
+      "Each status once",
+    ),
+});
+
+/** A status as the Statuses panel lists it: in the set, or only set by a step so far. */
+export interface ProjectStatus extends WorkflowStatus {
+  /** How many steps of the project's workflows set it. */
+  steps: number;
+  /** Kept in the project's set, rather than only found on a step. */
+  kept: boolean;
+}
+
+/**
+ * A project's statuses: its set, in its order and with the categories it gives, then any a step
+ * sets that the set does not have, in the order a run reaches them, a finish's counting as done.
+ */
+export function projectStatuses(
+  set: WorkflowStatus[],
+  workflows: WorkflowDefinition[],
+): ProjectStatus[] {
+  const out: ProjectStatus[] = set.map((s) => ({ ...s, steps: 0, kept: true }));
+  // A step that spells a status in another case sets the same one, as the set spells it.
+  const find = (name: string) => out.find((s) => sameStatus(s.name, name));
+  for (const flow of workflows) {
+    const byId = new Map(flow.nodes.map((n) => [n.id, n]));
+    for (const id of flowShape(flow).order) {
+      const node = byId.get(id);
+      const name = node?.config.status?.trim();
+      if (!node || !name) continue;
+      const done = node.type === "finish";
+      const known = find(name);
+      if (!known)
+        out.push({ name, category: done ? "done" : "in_progress", steps: 1, kept: false });
+      else {
+        known.steps += 1;
+        // Only a status the set does not place reads as done for a finish's setting it.
+        if (done && !known.kept) known.category = "done";
+      }
+    }
+  }
+  return out;
+}
 
 export interface BoardColumn {
   /** Its name, which is what a card names too. */
@@ -56,15 +118,16 @@ export const NOT_AT_A_STAGE = "Not at a stage";
 const waitingTypes = new Set(["approval", "feedback", "task", "checks", "wait", "share"]);
 
 /**
- * The columns for a project's workflows: in status grouping, every status a step sets, in the
- * order a run reaches them, those a finish sets counted as done; in stage grouping, every step a
- * track can wait at. Statuses tracks hold that no workflow sets any more (one renamed, or
- * switched off) are added after, so no track is left out.
+ * The columns for a project's workflows: in status grouping, the project's statuses (its set,
+ * then any only a step sets); in stage grouping, every step a track can wait at. Statuses tracks
+ * hold that no workflow sets any more (one renamed, or switched off) are added after, so no track
+ * is left out.
  */
 export function boardColumns(
   workflows: WorkflowDefinition[],
   groupBy: BoardGrouping,
   held: string[] = [],
+  set: WorkflowStatus[] = [],
 ): BoardColumn[] {
   // Tracks with a version but no status, or at no step, come next: not yet in the workflow.
   const rest = groupBy === "stage" ? NOT_AT_A_STAGE : NO_STATUS;
@@ -74,27 +137,18 @@ export function boardColumns(
   ];
   const add = (name: string, category: ColumnCategory) => {
     const key = name.trim();
-    if (!key) return;
-    const known = columns.find((c) => c.id === key);
-    // A status a finish sets reads as done, even where an earlier step sets it too.
-    if (known) {
-      if (category === "done" && known.id !== NO_VERSION && known.id !== rest)
-        known.category = "done";
-      return;
-    }
+    if (!key || columns.some((c) => sameStatus(c.id, key))) return;
     columns.push({ id: key, name: key, category });
   };
-  for (const flow of workflows) {
-    const byId = new Map(flow.nodes.map((n) => [n.id, n]));
-    for (const id of flowShape(flow).order) {
-      const node = byId.get(id);
-      if (!node) continue;
-      if (groupBy === "stage") {
-        if (waitingTypes.has(node.type)) add(node.name, "in_progress");
-        continue;
+  if (groupBy === "status") {
+    for (const s of projectStatuses(set, workflows)) add(s.name, s.category);
+  } else {
+    for (const flow of workflows) {
+      const byId = new Map(flow.nodes.map((n) => [n.id, n]));
+      for (const id of flowShape(flow).order) {
+        const node = byId.get(id);
+        if (node && waitingTypes.has(node.type)) add(node.name, "in_progress");
       }
-      const status = node.config.status?.trim();
-      if (status) add(status, node.type === "finish" ? "done" : "in_progress");
     }
   }
   for (const name of held) add(name, "in_progress");
