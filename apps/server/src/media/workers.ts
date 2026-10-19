@@ -10,6 +10,7 @@ import {
   lfeChannels,
   type MediaInfo,
   type QaCheck,
+  type QaFinding,
   usableAlignment,
 } from "@hekate/shared";
 import { wrapKey } from "@hekate/storage";
@@ -25,6 +26,7 @@ import { alignInThread } from "./align.ts";
 import { analyseAudio, declaredLength } from "./analysis.ts";
 import { InvalidMediaError, probe } from "./ffmpeg.ts";
 import { pageSourceOf, renderPages } from "./pages.ts";
+import { analysePicture } from "./picture.ts";
 import {
   type PackagedRendition,
   packageRendition,
@@ -86,6 +88,10 @@ async function discard(storage: Storage, organisationId: string, blobIds: string
  * A file has been measured, or cannot be: the workflow checks stages waiting on it look again
  * (#25). A send that fails is left to the hourly sweep rather than failing the job.
  */
+/** A video's picture is checked (#42); an audio file's artwork is not. */
+const pictureOf = (kind: string, info: MediaInfo | null | undefined) =>
+  kind === "video" ? info?.video : undefined;
+
 async function measured(deps: MediaWorkerDeps, organisationId: string, fileId: string) {
   await deps.jobs
     .send("workflow-checks", { organisationId, fileId })
@@ -149,22 +155,24 @@ export function probeHandler(deps: MediaWorkerDeps): JobHandler<"media-probe"> {
     }
 
     const playable = Boolean(info.audio || info.video);
+    const checked = Boolean(info.audio || pictureOf(file.kind, info));
     await deps.db
       .update(files)
       .set({
         mediaInfo: info,
         ...(playable ? {} : { streamStatus: "failed" as const }),
-        ...(info.audio ? { analysisStatus: "pending" as const } : {}),
+        ...(checked ? { analysisStatus: "pending" as const } : {}),
       })
       .where(inOrg(files, organisationId, eq(files.id, fileId)));
     if (!playable) await tellProcessingFailed(deps.db, organisationId, fileId);
     if (playable) {
       await deps.jobs.send("media-proxy", { organisationId, fileId }, { singletonKey: fileId });
     }
-    if (info.audio) {
+    if (checked) {
       await deps.jobs.send("media-analysis", { organisationId, fileId }, { singletonKey: fileId });
     } else {
-      // Without sound it is not checked, which a checks stage may have been waiting to learn.
+      // Without sound or picture it is not checked, which a checks stage may have been waiting
+      // to learn.
       await measured(deps, organisationId, fileId);
     }
   };
@@ -337,7 +345,14 @@ export function analysisHandler(deps: MediaWorkerDeps): JobHandler<"media-analys
       .from(files)
       .where(inOrg(files, organisationId, eq(files.id, fileId)));
     const audio = file?.mediaInfo?.audio;
-    if (!file || !audio) return;
+    const picture = file && pictureOf(file.kind, file.mediaInfo);
+    if (!file || (!audio && !picture)) return;
+    if (!audio && picture) {
+      // A silent video: its picture alone.
+      await analyseSilentPicture(deps, organisationId, file, picture, job);
+      return;
+    }
+    if (!audio) return;
     const existing = await deps.db
       .select({ id: peakLevels.id })
       .from(peakLevels)
@@ -346,7 +361,7 @@ export function analysisHandler(deps: MediaWorkerDeps): JobHandler<"media-analys
     if (existing.length > 0) {
       // Analysed already. A file analysed before some of the signal checks existed lacks
       // their findings (every check records its pass), so measure those alone and keep the rest.
-      await backfillFindings(deps, organisationId, file, audio, job.signal);
+      await backfillFindings(deps, organisationId, file, audio, picture, job.signal);
       return;
     }
 
@@ -360,12 +375,14 @@ export function analysisHandler(deps: MediaWorkerDeps): JobHandler<"media-analys
       return blob.id;
     };
     try {
-      const [analysis, spectra] = await withWorkspace(deps.workDir, async (dir) => {
+      const [analysis, spectra, pictured] = await withWorkspace(deps.workDir, async (dir) => {
         const input = await materialise(deps.storage, organisationId, file.blobId, dir, job.signal);
-        // Two decodes side by side, the spectrograms on their own thread.
+        // The decodes side by side, the spectrograms on their own thread, and a video's
+        // picture beside them (#42).
         return together(job.signal, [
           (signal) => analyseAudio(input, audio, dir, signal, declaredLength(file)),
           (signal) => spectrogramsInThread(input, audio, file.mediaInfo?.duration, signal),
+          (signal) => (picture ? analysePicture(input, picture, signal) : Promise.resolve([])),
         ] as const);
       });
       const rows: (typeof peakLevels.$inferInsert)[] = [];
@@ -416,6 +433,7 @@ export function analysisHandler(deps: MediaWorkerDeps): JobHandler<"media-analys
           ...analysis.findings,
           ...(bandwidth ? [bandwidth] : []),
           ...lfeOf(spectra, lfeChannels(file.mediaInfo)),
+          ...pictured,
         ];
         if (findings.length > 0) {
           await tx
@@ -674,63 +692,122 @@ async function storedSpectra(deps: MediaWorkerDeps, organisationId: string, file
   return spectra;
 }
 
+/** Add the findings of the checks a file has none of yet, under a lock so a run at once adds them once. */
+async function addMissing(tx: Tx, organisationId: string, fileId: string, findings: QaFinding[]) {
+  await tx
+    .select({ id: files.id })
+    .from(files)
+    .where(inOrg(files, organisationId, eq(files.id, fileId)))
+    .for("update");
+  const have = await checksOf(tx, organisationId, fileId);
+  const missing = findings.filter((f) => !have.has(f.check));
+  if (missing.length > 0) {
+    await tx.insert(qaFindings).values(missing.map((f) => ({ organisationId, fileId, ...f })));
+  }
+}
+
 /**
- * The signal checks for a file analysed before they existed (#41, #74); nothing if it has
+ * The signal checks for a file analysed before they existed (#41, #74, #42); nothing if it has
  * them. Integrity is recorded for every file analysed since, so its absence marks such a
- * file, and the LFE check for every file with an LFE channel: the file is decoded again only
- * for what needs it, and how high it reaches and what its LFE carries are read from its
- * stored spectrograms. Only the checks it lacks are added.
+ * file, the LFE check for every file with an LFE channel, and black frames for every video:
+ * the file is decoded again only for what needs it, and how high it reaches and what its LFE
+ * carries are read from its stored spectrograms. Only the checks it lacks are added.
  */
 async function backfillFindings(
   deps: MediaWorkerDeps,
   organisationId: string,
   file: { id: string; blobId: string; kind: string; mediaInfo: MediaInfo | null },
   audio: NonNullable<MediaInfo["audio"]>,
+  picture: MediaInfo["video"],
   signal: AbortSignal,
 ) {
   const had = await checksOf(deps.db, organisationId, file.id);
   const lfe = lfeChannels(file.mediaInfo);
   const decode = !had.has("integrity");
-  if (!decode && (lfe.length === 0 || had.has("lfe"))) return;
-  const analysis = decode
-    ? await withWorkspace(deps.workDir, async (dir) => {
-        const input = await materialise(deps.storage, organisationId, file.blobId, dir, signal);
-        return analyseAudio(input, audio, dir, signal, declaredLength(file));
-      })
-    : null;
+  const look = picture && !had.has("black-frames") ? picture : undefined;
+  if (!decode && !look && (lfe.length === 0 || had.has("lfe"))) return;
+  const [analysis, pictured] =
+    decode || look
+      ? await withWorkspace(deps.workDir, async (dir) => {
+          const input = await materialise(deps.storage, organisationId, file.blobId, dir, signal);
+          return together(signal, [
+            (s) =>
+              decode
+                ? analyseAudio(input, audio, dir, s, declaredLength(file))
+                : Promise.resolve(null),
+            (s) => (look ? analysePicture(input, look, s) : Promise.resolve([])),
+          ] as const);
+        })
+      : [null, []];
   const spectra = await storedSpectra(deps, organisationId, file.id);
   const bandwidth = bandwidthOf(spectra);
-  await deps.db.transaction(async (tx) => {
-    // Locked, so two runs at once write the findings only once.
-    await tx
-      .select({ id: files.id })
-      .from(files)
-      .where(inOrg(files, organisationId, eq(files.id, file.id)))
-      .for("update");
-    const have = await checksOf(tx, organisationId, file.id);
-    const missing = [
+  await deps.db.transaction((tx) =>
+    addMissing(tx, organisationId, file.id, [
       ...(analysis?.findings ?? []),
       ...(bandwidth ? [bandwidth] : []),
       ...lfeOf(spectra, lfe),
-    ].filter((f) => !have.has(f.check));
-    if (missing.length > 0) {
+      ...pictured,
+    ]),
+  );
+}
+
+/**
+ * A silent video's checks (#42): its picture, measured once. Like a recording's analysis it
+ * leaves the file ready, or failed once out of retries, and tells a checks stage either way.
+ */
+async function analyseSilentPicture(
+  deps: MediaWorkerDeps,
+  organisationId: string,
+  file: { id: string; blobId: string },
+  picture: NonNullable<MediaInfo["video"]>,
+  job: { signal: AbortSignal; retryCount: number },
+) {
+  try {
+    const had = await checksOf(deps.db, organisationId, file.id);
+    const findings = had.has("black-frames")
+      ? []
+      : await withWorkspace(deps.workDir, async (dir) => {
+          const input = await materialise(
+            deps.storage,
+            organisationId,
+            file.blobId,
+            dir,
+            job.signal,
+          );
+          return analysePicture(input, picture, job.signal);
+        });
+    await deps.db.transaction(async (tx) => {
+      await addMissing(tx, organisationId, file.id, findings);
       await tx
-        .insert(qaFindings)
-        .values(missing.map((f) => ({ organisationId, fileId: file.id, ...f })));
+        .update(files)
+        .set({ analysisStatus: "ready" })
+        .where(inOrg(files, organisationId, eq(files.id, file.id)));
+    });
+  } catch (error) {
+    if (job.retryCount >= jobDefinitions["media-analysis"].options.retryLimit) {
+      await deps.db
+        .update(files)
+        .set({ analysisStatus: "failed" })
+        .where(inOrg(files, organisationId, eq(files.id, file.id)));
+      await tellProcessingFailed(deps.db, organisationId, file.id);
+      await measured(deps, organisationId, file.id);
     }
-  });
+    throw error;
+  }
+  await measured(deps, organisationId, file.id);
 }
 
 /**
  * Queue analysis for files measured before the signal checks existed, or before some of them
- * (#41, #74), so their QA view fills in after an upgrade. Instance-wide, a batch at a time;
- * each job reads only its file. Integrity is always recorded, and the LFE check wherever there
- * is an LFE channel, so their absence is what marks them.
+ * (#41, #74, #42), so their QA view fills in after an upgrade. Instance-wide, a batch at a
+ * time; each job reads only its file. Integrity is always recorded, the LFE check wherever
+ * there is an LFE channel, and black frames for every video, so their absence is what marks
+ * them.
  */
 export async function requeueMissingFindings(db: Database, jobs: Pick<Jobs, "send">) {
   const lacks = (check: QaCheck) =>
-    sql`not exists (select 1 from ${qaFindings} where ${qaFindings.fileId} = ${peakLevels.fileId}
-        and ${qaFindings.organisationId} = ${peakLevels.organisationId}
+    sql`not exists (select 1 from ${qaFindings} where ${qaFindings.fileId} = ${files.id}
+        and ${qaFindings.organisationId} = ${files.organisationId}
         and ${qaFindings.check} = ${check})`;
   // Where the file's layout or its ADM bed has an LFE channel, as `lfeChannels` reads them.
   const layout = sql`${files.mediaInfo}->'audio'->>'channelLayout'`;
@@ -750,10 +827,27 @@ export async function requeueMissingFindings(db: Database, jobs: Pick<Jobs, "sen
     )
     .where(or(lacks("integrity"), and(hasLfe, lacks("lfe"))))
     .limit(500);
-  for (const { organisationId, fileId } of waiting) {
+  // Videos, silent ones included, whose picture was never looked at (#42): measured, or never
+  // measured for want of sound, and not failed or already waiting.
+  const pictures = await db
+    .select({ organisationId: files.organisationId, fileId: files.id })
+    .from(files)
+    .where(
+      and(
+        eq(files.kind, "video"),
+        sql`jsonb_typeof(${files.mediaInfo}->'video') = 'object'`,
+        inArray(files.analysisStatus, ["none", "ready"]),
+        lacks("black-frames"),
+      ),
+    )
+    .limit(500);
+  const queued = new Set<string>();
+  for (const { organisationId, fileId } of [...waiting, ...pictures]) {
+    if (queued.has(fileId)) continue;
+    queued.add(fileId);
     await jobs.send("media-analysis", { organisationId, fileId }, { singletonKey: fileId });
   }
-  return waiting.length;
+  return queued.size;
 }
 
 export async function startWorkers(jobs: Jobs, deps: MediaWorkerDeps, concurrency: number) {

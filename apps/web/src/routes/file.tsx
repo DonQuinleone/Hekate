@@ -400,7 +400,11 @@ export function FilePage({
    * A recording's measurements, checks and details have a view of their own (#41), for a
    * role with either of the tools it holds (#240).
    */
-  const hasQa = Boolean(file.mediaInfo?.audio && (allows("qa") || allows("meters")));
+  // A video's picture is checked too (#42), silent or not.
+  const picture = file.kind === "video" && Boolean(file.mediaInfo?.video);
+  const hasQa =
+    Boolean(file.mediaInfo?.audio && (allows("qa") || allows("meters"))) ||
+    (picture && allows("qa"));
   /** Triage (#132) belongs to members who may triage. */
   const canTriage = !guest && can("triage");
   const shown = view === "triage" ? (canTriage ? "triage" : "review") : hasQa ? view : "review";
@@ -463,7 +467,7 @@ export function FilePage({
       canComment={canComment}
       normalised={normalised}
       onNormalised={setChosenNormal}
-      showFindings={Boolean(file.mediaInfo?.audio) && allows("qa")}
+      showFindings={Boolean(file.mediaInfo?.audio || picture) && allows("qa")}
       showEdits={!guest && can("view_takes")}
       comparePage={!guest}
       draft={frameDraft}

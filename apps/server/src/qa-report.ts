@@ -39,12 +39,18 @@ const number = (n: number | null | undefined, unit: string, digits = 1) =>
 
 const formatLine = (info: MediaInfo | null) => {
   const audio = info?.audio;
-  if (!audio) return "Not measured";
+  const video = info?.video;
+  if (!audio && !video) return "Not measured";
   return [
-    audio.codec,
-    `${audio.sampleRate / 1000} kHz`,
-    audio.bitDepth ? `${audio.bitDepth}-bit` : null,
-    `${audio.channels} channel${audio.channels === 1 ? "" : "s"}${audio.channelLayout ? ` (${audio.channelLayout})` : ""}`,
+    // A video's picture first (#42), then its sound.
+    video ? `${video.codec} ${video.width}×${video.height}` : null,
+    video?.fps ? `${Number(video.fps.toFixed(3))} fps` : null,
+    audio?.codec,
+    audio ? `${audio.sampleRate / 1000} kHz` : null,
+    audio?.bitDepth ? `${audio.bitDepth}-bit` : null,
+    audio
+      ? `${audio.channels} channel${audio.channels === 1 ? "" : "s"}${audio.channelLayout ? ` (${audio.channelLayout})` : ""}`
+      : null,
     info?.duration !== undefined ? formatClock(info.duration) : null,
   ]
     .filter(Boolean)

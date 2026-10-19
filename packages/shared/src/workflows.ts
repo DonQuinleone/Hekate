@@ -767,7 +767,8 @@ export type MeasuredFile =
  * How far a file has been measured, for a checks stage: still being measured, not checked, not
  * measurable, or measured, when its quality report is to be read. Sound and picture are measured
  * once probed. A recording whose probe found no sound, or a video in which it found neither sound
- * nor picture, could not be read; a silent video, like a score, is not checked.
+ * nor picture, could not be read; a silent video has its picture checked (#42), unless it was
+ * probed before that, and a score is not checked.
  */
 export function measuredState(file: {
   kind: string;
@@ -778,8 +779,11 @@ export function measuredState(file: {
   const media = file.kind === "audio" || file.kind === "video";
   if (!media) return "unchecked";
   if (!file.mediaInfo) return file.streamStatus === "failed" ? "unmeasurable" : "measuring";
-  if (!file.mediaInfo.audio?.channels)
-    return file.kind === "audio" || !file.mediaInfo.video ? "unmeasurable" : "unchecked";
+  if (!file.mediaInfo.audio?.channels) {
+    if (file.kind === "audio" || !file.mediaInfo.video) return "unmeasurable";
+    // A silent video's picture is checked (#42); one probed before that was not.
+    if (file.analysisStatus === "none") return "unchecked";
+  }
   if (file.analysisStatus === "failed") return "unmeasurable";
   return file.analysisStatus === "ready" ? "measured" : "measuring";
 }

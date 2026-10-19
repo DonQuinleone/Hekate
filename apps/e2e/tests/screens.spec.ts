@@ -1275,6 +1275,47 @@ test("file-qa-atmos", async ({ page }) => {
   await checkScreen(page);
 });
 
+// A video's picture checks (#42), on its QA view and marked along its timeline. The seeded cut
+// is a clean test pattern, so the report is amended in this page alone to show a few problems.
+test("file-qa-video", async ({ page }) => {
+  const id = seeded().cutFileId;
+  await page.route(`**/api/files/${id}/qa`, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { findings: Record<string, unknown>[] };
+    const at = (start: number, end: number) => ({ channel: null, start, end, details: {} });
+    body.findings = [
+      {
+        check: "black-frames",
+        severity: "warn",
+        summary: "Black for 1.2 s",
+        ...at(4.4, 5.6),
+      },
+      {
+        check: "flashing",
+        severity: "warn",
+        summary: "Screen-wide flashing for 1.4 s, more than 3 flashes a second",
+        ...at(8.2, 9.6),
+      },
+      {
+        check: "black-frames",
+        severity: "info",
+        summary: "Black for 1.0 s at the start",
+        ...at(0, 1),
+      },
+      ...body.findings.filter((f) => f.check !== "black-frames" && f.check !== "flashing"),
+    ];
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto(`/files/${id}?view=qa`);
+  await settle(page, "section[aria-label=Checks] >> text=Screen-wide flashing");
+  await saveScreen(page, "file-qa-video");
+  await checkScreen(page);
+  await page.goto(`/files/${id}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await saveScreen(page, "file-video-findings");
+  await checkScreen(page);
+});
+
 // Normalised playback as each person's choice (#240): the View menu's switch, and the level heard.
 // The file's answer is amended in this page alone, so no other capture sees the project change.
 test("file-normalised", async ({ page }) => {

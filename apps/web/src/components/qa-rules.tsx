@@ -61,6 +61,13 @@ const checkHints: Record<BuiltInCheck, string> = {
   phase: "Left and right cancelling each other",
   integrity: "Decodes cleanly, to the length the file declares",
   bandwidth: "A sharp cut-off in the high frequencies, or a hi-res file made from a lower rate",
+  "black-frames": "A second or more of black, at either end or inside the picture",
+  "frozen-frames": "Two seconds or more of a picture that does not move",
+  "dropped-frames": "Gaps between frames longer than the frame rate allows",
+  interlacing: "Field order, and a picture interlaced only in places",
+  "broadcast-levels": "Luma outside EBU R103's range on more than 1% of a frame",
+  letterbox: "Bars the picture never reaches into, top and bottom or at the sides",
+  flashing: "More than three screen-wide flashes in a second (Ofcom)",
 };
 
 const severityLabel: Record<RuleSeverity, string> = {
@@ -287,7 +294,7 @@ export function QaRules({ project }: { project: Project }) {
         {settings.delivery
           ? "Delivery checks follow what distributors and aggregators refuse or query at delivery, against the delivery profile."
           : `${deliveryChecks.length} delivery checks are off: switch them on when this project delivers through a distributor.`}{" "}
-        Video and artwork rules arrive with their checks.
+        Artwork rules arrive with their checks.
       </p>
       {editing && (
         <RuleDialog
