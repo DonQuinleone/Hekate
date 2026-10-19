@@ -28,6 +28,7 @@ import {
   tellAwaitingApproval,
 } from "../tasks.ts";
 import type { TenantVariables } from "../tenancy.ts";
+import { type RunnerDeps, stageTaskDone } from "../workflow-runner.ts";
 import { attachment } from "./comments.ts";
 
 const { comments, files, projects, tasks, tracks } = schema;
@@ -191,7 +192,7 @@ const fieldNames: Record<string, string> = {
  * note and deleting it. What each member may do is `taskRights`, checked again on the row as
  * it is locked, so a change made meanwhile is decided on what it is now.
  */
-export const taskRoutes = (deps: TaskMail) => {
+export const taskRoutes = (deps: TaskMail & { runner?: RunnerDeps }) => {
   const { db } = deps;
   return new Hono<{ Variables: TenantVariables }>()
     .get("/:id", idParam, async (c) => {
@@ -282,6 +283,15 @@ export const taskRoutes = (deps: TaskMail) => {
         );
       if (outcome.moved && outcome.status === "needs_approval" && task.createdById !== userId)
         await tellAwaitingApproval(deps, { ...task, title: input.title ?? task.title }, userId);
+      // A task a workflow's task stage made, done: the stage ends done (#140, #25).
+      if (outcome.moved && outcome.status === "done" && task.runId && task.nodeId && deps.runner)
+        await stageTaskDone(
+          deps.runner,
+          { id, organisationId, runId: task.runId, nodeId: task.nodeId },
+          userId,
+        ).catch((error: unknown) =>
+          console.warn(`Could not move a workflow on from a task: ${String(error)}`),
+        );
       return c.json({ task: await taskDetail(db, organisationId, id, viewer) });
     })
     .post("/:id/notes", idParam, zValidator("json", taskNoteInput), async (c) => {

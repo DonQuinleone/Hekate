@@ -265,7 +265,7 @@ export function createApi(deps: AppDeps) {
       .use("/sessions/*", ...member)
       .route("/sessions", sessionRoutes(deps.db))
       .use("/tasks/*", ...member)
-      .route("/tasks", taskRoutes(taskMail))
+      .route("/tasks", taskRoutes({ ...taskMail, runner }))
       .use("/workflows/*", ...member)
       .route("/workflows", workflowRoutes(deps.db))
       .use("/workflow-runs/*", ...member)

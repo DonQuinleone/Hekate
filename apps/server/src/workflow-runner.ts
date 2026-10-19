@@ -20,6 +20,7 @@ import type { Jobs } from "./jobs.ts";
 import { projectPeople, recordNotification } from "./notifications.ts";
 import { qaReportOf } from "./routes/qa.ts";
 import type { ReviewDeps } from "./routes/reviews.ts";
+import { nameOf, nextTaskNumber, recordTaskEvent } from "./tasks.ts";
 import { askForStageReview, cancelStageReview, stageOutcome } from "./workflow-reviews.ts";
 
 const {
@@ -30,6 +31,7 @@ const {
   projectMembers,
   projectRoles,
   tags,
+  tasks,
   tracks,
   variations,
   versions,
@@ -203,6 +205,9 @@ async function apply(
     .where(inOrg(tracks, organisationId, eq(tracks.id, trackId)));
   const node = (id: string) => row.definition.nodes.find((n) => n.id === id);
   const after: After[] = [];
+  // A task stage ended done by hand: its open task is done too, so the list agrees.
+  if (from.nodeId && from.outcome === "done" && node(from.nodeId)?.type === "task")
+    await closeStageTasks(tx, organisationId, row.id, from.nodeId, from.byUserId);
   const tell = async (recipients: string[], text: string, detail?: string) => {
     if (recipients.length === 0) return;
     await recordNotification(tx, {
@@ -236,8 +241,33 @@ async function apply(
       // else when the last file has been measured.
       after.push(() => checksDue(deps, organisationId, row.id));
     } else if (effect.kind === "start" && effect.type === "task") {
-      // Until tasks (#140) are wired in, whoever it names marks it done.
+      // A task of the project (#140, decision 124), for whoever the stage names where it names
+      // one person, and due when its clock runs out. Marking it done ends the stage.
       const who = await peopleNamed(tx, organisationId, projectId, effect.config.who);
+      const clock = stageClock(effect);
+      const [task] = await tx
+        .insert(tasks)
+        .values({
+          organisationId,
+          projectId,
+          number: await nextTaskNumber(tx, organisationId, projectId),
+          title: node(effect.nodeId)?.name ?? "A stage",
+          assigneeId: who.length === 1 ? (who[0] ?? null) : null,
+          dueOn: clock
+            ? new Date(Date.now() + clock.seconds * 1000).toISOString().slice(0, 10)
+            : null,
+          trackId,
+          runId: row.id,
+          nodeId: effect.nodeId,
+        })
+        .returning({ id: tasks.id, assigneeId: tasks.assigneeId });
+      if (task) {
+        await recordTaskEvent(tx, organisationId, task.id, null, "from_workflow");
+        if (task.assigneeId)
+          await recordTaskEvent(tx, organisationId, task.id, null, "assigned", {
+            assignee: await nameOf(tx, task.assigneeId),
+          });
+      }
       await tell(
         who,
         `${node(effect.nodeId)?.name ?? "A stage"} on ${track?.name ?? "a track"} is yours`,
@@ -298,6 +328,77 @@ async function apply(
     }
   }
   return after;
+}
+
+/** The open tasks a task stage made in a run, marked done, each in its activity. */
+async function closeStageTasks(
+  tx: Tx,
+  organisationId: string,
+  runId: string,
+  nodeId: string,
+  byUserId: string | null,
+) {
+  const open = await tx
+    .select({ id: tasks.id, status: tasks.status })
+    .from(tasks)
+    .where(
+      inOrg(
+        tasks,
+        organisationId,
+        eq(tasks.runId, runId),
+        eq(tasks.nodeId, nodeId),
+        sql`${tasks.status} <> 'done'`,
+      ),
+    )
+    .for("update");
+  for (const t of open) {
+    await tx
+      .update(tasks)
+      .set({ status: "done", doneAt: new Date(), doneById: byUserId, updatedAt: new Date() })
+      .where(inOrg(tasks, organisationId, eq(tasks.id, t.id)));
+    await recordTaskEvent(tx, organisationId, t.id, byUserId, "status", {
+      from: t.status,
+      to: "done",
+    });
+  }
+}
+
+/**
+ * A task a task stage made is done (#140): the stage ends done, if the run still waits on it and
+ * this is the task it made last (a loop back makes a new one). Anything else is left as it is.
+ */
+export async function stageTaskDone(
+  deps: RunnerDeps,
+  task: { id: string; organisationId: string; runId: string; nodeId: string },
+  userId: string,
+) {
+  await completeStep(
+    deps,
+    {
+      organisationId: task.organisationId,
+      runId: task.runId,
+      nodeId: task.nodeId,
+      outcome: "done",
+      userId,
+    },
+    async (locked, tx) => {
+      if (locked.state !== "running" || !locked.engine.active.includes(task.nodeId)) return false;
+      const [latest] = await tx
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(
+          inOrg(
+            tasks,
+            task.organisationId,
+            eq(tasks.runId, task.runId),
+            eq(tasks.nodeId, task.nodeId),
+          ),
+        )
+        .orderBy(desc(tasks.number))
+        .limit(1);
+      return latest?.id === task.id;
+    },
+  );
 }
 
 /** Why a move stage could not move its track: told to whoever started the run. */
