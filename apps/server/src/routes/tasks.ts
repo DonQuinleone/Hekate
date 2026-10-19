@@ -156,6 +156,7 @@ export const projectTaskRoutes = (deps: TaskMail) => {
         if (row.assigneeId)
           await recordTaskEvent(tx, organisationId, row.id, userId, "assigned", {
             assignee: await nameOf(tx, row.assigneeId),
+            self: row.assigneeId === userId,
           });
         return row;
       });
@@ -272,6 +273,7 @@ export const taskRoutes = (deps: TaskMail & { runner?: RunnerDeps }) => {
         if (reassigned)
           await recordTaskEvent(tx, organisationId, id, userId, "assigned", {
             assignee: await nameOf(tx, input.assigneeId ?? null),
+            self: input.assigneeId === userId,
           });
         if (moved) {
           const detail: TaskEventDetail = { from: task.status, to: status };

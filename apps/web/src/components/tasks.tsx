@@ -128,6 +128,7 @@ function TaskPanel({
   const mutations = useTaskMutations(projectId);
   const [note, setNote] = useState("");
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !document.querySelector("[role=dialog]")) onClose();
@@ -163,11 +164,17 @@ function TaskPanel({
               label="the task"
               actions={[
                 {
-                  label: copied ? "Link copied" : "Copy link",
+                  label: copied
+                    ? "Link copied"
+                    : copyFailed
+                      ? "Could not copy the link"
+                      : "Copy link",
                   onSelect: () => {
+                    // Refused where the browser keeps the clipboard from the page.
                     void navigator.clipboard
                       ?.writeText(window.location.href)
-                      .then(() => setCopied(true));
+                      .then(() => setCopied(true))
+                      .catch(() => setCopyFailed(true));
                   },
                 },
                 ...(task.rights.delete
@@ -373,6 +380,8 @@ function TaskBody({
                 <Link
                   to="/files/$fileId"
                   params={{ fileId: task.file.id }}
+                  // Back to the thread it came from, brought into view.
+                  search={task.commentId ? { comment: task.commentId } : {}}
                   className="flex items-center gap-1.5 text-ink hover:text-signal"
                 >
                   <Icon name="file" size={13} className="text-ink-3" />

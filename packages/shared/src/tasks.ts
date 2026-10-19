@@ -176,18 +176,16 @@ export type TaskEventKind =
 export interface TaskEventDetail {
   /** Whom it was given to; null when it was left with nobody. */
   assignee?: string | null;
+  /** Whoever did it gave it to themselves: names alone cannot say so, as two may share one. */
+  self?: boolean;
   from?: TaskStatus;
   to?: TaskStatus;
   /** What was changed, for an edit: "title", "due date"… */
   fields?: string[];
 }
 
-/** How an event reads after the name of whoever did it (`actorName`, where known). */
-export function taskEventText(
-  kind: TaskEventKind,
-  detail: TaskEventDetail | null,
-  actorName: string | null = null,
-): string {
+/** How an event reads after the name of whoever did it. */
+export function taskEventText(kind: TaskEventKind, detail: TaskEventDetail | null): string {
   switch (kind) {
     case "created":
       return "created the task";
@@ -196,7 +194,7 @@ export function taskEventText(
     case "from_workflow":
       return "made it as a workflow stage";
     case "assigned":
-      if (detail?.assignee && detail.assignee === actorName) return "took it on";
+      if (detail?.assignee && detail.self) return "took it on";
       return detail?.assignee ? `gave it to ${detail.assignee}` : "left it with nobody";
     case "status":
       if (detail?.from === "needs_approval" && detail.to === "done")

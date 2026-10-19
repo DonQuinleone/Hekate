@@ -649,6 +649,7 @@ function ThreadView({
   takesOf,
   channelNames = [],
   projectId,
+  focused = false,
 }: {
   thread: Thread;
   /** The file being looked at, which a carried thread was brought to. */
@@ -679,6 +680,8 @@ function ThreadView({
   channelNames?: readonly string[];
   /** The file's project, where a thread's task is kept (#140). */
   projectId?: string;
+  /** The thread a link points at: brought into view and marked. */
+  focused?: boolean;
 }) {
   const [replying, setReplying] = useState(false);
   const [takesOpen, setTakesOpen] = useState(false);
@@ -709,7 +712,7 @@ function ThreadView({
     mutations.edit.mutateAsync({ id, body, mentions });
   const download = (attachmentId: string) => mutations.download.mutate(attachmentId);
   const remove = (attachmentId: string) => mutations.detach.mutate(attachmentId);
-  const picked = pages?.focus.selected === comment.id;
+  const picked = pages?.focus.selected === comment.id || focused;
   const row = useRef<HTMLLIElement>(null);
   // Picked on the page, the thread comes into view here.
   useEffect(() => {
@@ -1101,7 +1104,10 @@ export function Comments({
   pages,
   seed,
   tools,
+  focus,
 }: {
+  /** A thread a link points at (#140): brought into view and marked, as one picked on a page. */
+  focus?: string;
   /** A comment begun elsewhere (from a finding, #43): at its moment, starting with its words. */
   seed?: CommentSeed;
   /** Controls for the panel itself, in its header: where it sits (#15). */
@@ -1560,6 +1566,7 @@ export function Comments({
       takesOf={takesOf}
       channelNames={channelNames}
       projectId={projectId}
+      focused={t.comment.id === focus}
     />
   );
 

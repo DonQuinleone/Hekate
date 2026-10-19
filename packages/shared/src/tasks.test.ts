@@ -126,9 +126,9 @@ describe("a task's activity", () => {
   it("reads as what was done", () => {
     expect(taskEventText("assigned", { assignee: "Tomas Varga" })).toBe("gave it to Tomas Varga");
     expect(taskEventText("assigned", { assignee: null })).toBe("left it with nobody");
-    expect(taskEventText("assigned", { assignee: "Mira Solberg" }, "Mira Solberg")).toBe(
-      "took it on",
-    );
+    expect(taskEventText("assigned", { assignee: "Mira Solberg", self: true })).toBe("took it on");
+    // A namesake given it is someone else.
+    expect(taskEventText("assigned", { assignee: "Mira Solberg" })).toBe("gave it to Mira Solberg");
     expect(taskEventText("status", { from: "needs_approval", to: "done" })).toBe(
       "approved and closed it",
     );
