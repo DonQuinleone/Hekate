@@ -932,7 +932,11 @@ export const playRoutes = (deps: PlaybackDeps) => {
     .get("/:token/filmstrip", async (c) => {
       const claims = c.var.playback;
       const [row] = await deps.db
-        .select({ blobId: files.filmstripBlobId, watermark: projects.watermark })
+        .select({
+          blobId: files.filmstripBlobId,
+          frames: files.filmstripFrames,
+          watermark: projects.watermark,
+        })
         .from(files)
         .innerJoin(
           projects,
@@ -940,8 +944,8 @@ export const playRoutes = (deps: PlaybackDeps) => {
         )
         .where(inOrg(files, claims.organisationId, eq(files.id, claims.fileId)));
       if (!row?.blobId) throw new NotFound("Filmstrip");
-      // Small frames to find a place by, as a page's thumbnails are: marked like them where the
-      // project marks this viewer, and, like them, not logged apart from the stream it belongs to.
+      // Small frames to find a place by, as a page's thumbnails are: each frame marked where the
+      // project marks this viewer, and, like thumbnails, not logged apart from its stream.
       const actor = c.var.actor;
       const style = watermarkOf(row.watermark);
       if (!marks(style, actor.kind === "guest" ? "guest" : "member"))
@@ -953,11 +957,12 @@ export const playRoutes = (deps: PlaybackDeps) => {
       const marked = await watermark(
         stored,
         text,
-        "thumb",
+        "frame",
         c.req.raw.signal,
         style,
         "webp",
         deps.workDir,
+        row.frames ?? undefined,
       );
       return c.body(new Uint8Array(marked), 200, {
         ...PRIVATE,

@@ -116,4 +116,47 @@ describe("watermarks", () => {
       expect(await ink(centred)).toBeGreaterThan(await ink(white));
     },
   );
+
+  it.runIf(hasFfmpeg || process.env.CI)(
+    "marks every frame of a filmstrip, not the strip once (#16)",
+    async () => {
+      const strip = join(dir, "strip.webp");
+      await run("ffmpeg", [
+        ...["-hide_banner", "-nostdin", "-v", "error", "-f", "lavfi"],
+        ...["-i", "color=white:s=1920x90", "-frames:v", "1", "-c:v", "libwebp", strip],
+      ]);
+      const marked = await watermark(
+        readFileSync(strip),
+        "Tomas Varga · tomas@example.test",
+        "frame",
+        undefined,
+        undefined,
+        "webp",
+        undefined,
+        12,
+      );
+      expect(webpComplete(marked)).toBe(true);
+      const path = join(dir, "strip-marked.webp");
+      writeFileSync(path, marked);
+      const chunks: Buffer[] = [];
+      await run(
+        "ffmpeg",
+        [
+          ...["-hide_banner", "-nostdin", "-v", "error", "-i", path],
+          ...["-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"],
+        ],
+        { onStdout: (chunk) => chunks.push(chunk) },
+      );
+      const grey = Buffer.concat(chunks);
+      // Each frame's own ink: every one carries the mark.
+      const perFrame = Array.from({ length: 12 }, (_, frame) => {
+        let sum = 0;
+        for (let y = 0; y < 90; y++)
+          for (let x = frame * 160; x < (frame + 1) * 160; x++)
+            sum += 255 - (grey[y * 1920 + x] ?? 255);
+        return sum;
+      });
+      for (const ink of perFrame) expect(ink).toBeGreaterThan(1_000);
+    },
+  );
 });
