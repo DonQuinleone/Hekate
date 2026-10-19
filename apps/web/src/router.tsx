@@ -464,9 +464,35 @@ const projectPeople = createRoute({
 const projectBoard = createRoute({
   getParentRoute: () => app,
   path: "/projects/$projectId/board",
+  // The calendar, and its month, kept in the address.
+  validateSearch: z.object({
+    view: z.enum(["calendar"]).optional().catch(undefined),
+    month: z
+      .string()
+      .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
+      .optional()
+      .catch(undefined),
+  }),
   component: function ProjectBoardRoute() {
     const { projectId } = projectBoard.useParams();
-    return <BoardPage projectId={projectId} />;
+    const { view, month } = projectBoard.useSearch();
+    const navigate = projectBoard.useNavigate();
+    return (
+      <BoardPage
+        projectId={projectId}
+        mode={view ?? "board"}
+        month={month}
+        onChange={(next) =>
+          void navigate({
+            search: {
+              view: next.mode === "calendar" ? "calendar" : undefined,
+              month: next.mode === "calendar" ? next.month : undefined,
+            },
+            replace: next.mode === "calendar" && view === "calendar",
+          })
+        }
+      />
+    );
   },
 });
 // The project's tasks (#140): one opened beside the list, or a new one being made.

@@ -1568,6 +1568,30 @@ test("project-board-customise", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The project's calendar (#141): what is due and booked in the month, late ones marked.
+test("project-calendar", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/board?view=calendar`);
+  // In the grid at desktop width, in the list below it on a phone.
+  await settle(page, 'main >> a:visible:has-text("Re-export the stems at 96 kHz")');
+  await expect(page.getByRole("heading", { name: "October 2026" })).toBeVisible();
+  await saveScreen(page, "project-calendar");
+  await checkScreen(page);
+});
+
+// Its feed: a link made for the viewer alone, shown once. Not made, so no other capture sees it.
+test("project-calendar-subscribe", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/board?view=calendar`);
+  // In the grid at desktop width, in the list below it on a phone.
+  await settle(page, 'main >> a:visible:has-text("Re-export the stems at 96 kHz")');
+  await page.getByRole("button", { name: "Add to your calendar" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add to your calendar" });
+  await expect(dialog.getByRole("button", { name: "Make my link" })).toBeVisible();
+  await saveScreen(page, "project-calendar-subscribe");
+  await checkScreen(page);
+});
+
 // A project's tasks (#140): grouped by status, what waits on a decision first; one late.
 test("project-tasks", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);

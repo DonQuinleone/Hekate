@@ -4,6 +4,7 @@ import {
   type Anchor,
   type ApprovalRule,
   type Board,
+  type CalendarEvent,
   type CarryStatus,
   type CategoryHandling,
   type CategoryInput,
@@ -3540,3 +3541,38 @@ export const projectBoardQuery = (projectId: string) =>
     // Transitions made elsewhere (a decision, a stage ended) show within seconds.
     refetchInterval: 15_000,
   });
+
+/** A month of a project's calendar (#141), and whether the viewer has a feed of it. */
+export const projectCalendarQuery = (projectId: string, month: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "calendar", month],
+    queryFn: async () =>
+      json<{
+        events: CalendarEvent[];
+        feed: { createdAt: string; readAt: string | null } | null;
+      }>(await api.projects[":id"].calendar.$get({ param: { id: projectId }, query: { month } })),
+  });
+
+/** Getting a feed of a project's calendar (a new link replacing any before), or stopping it. */
+export function useCalendarFeed(projectId: string) {
+  const client = useQueryClient();
+  const refresh = () => client.invalidateQueries({ queryKey: ["projects", projectId, "calendar"] });
+  return {
+    create: useMutation({
+      mutationFn: async () =>
+        (
+          await json<{ url: string }>(
+            await api.projects[":id"].calendar.feed.$post({ param: { id: projectId } }),
+          )
+        ).url,
+      onSuccess: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: async () => {
+        const res = await api.projects[":id"].calendar.feed.$delete({ param: { id: projectId } });
+        if (!res.ok) await json(res);
+      },
+      onSuccess: refresh,
+    }),
+  };
+}

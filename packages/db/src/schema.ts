@@ -2077,6 +2077,33 @@ export const tasks = pgTable(
   ],
 );
 
+/**
+ * Someone's calendar feed of a project (#141): its dates and titles as ICS, at a link that is
+ * theirs alone. Only a hash of the link's token is kept, so a stolen database opens no feed;
+ * resetting the link replaces the row. Whoever holds the link sees what its owner may still see.
+ */
+export const calendarFeeds = pgTable(
+  "calendar_feeds",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    projectId: projectId(),
+    /** SHA-256 of the token in the link, hex. */
+    tokenHash: text("token_hash").notNull(),
+    /** When a calendar last read it. */
+    readAt: timestamp("read_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("calendar_feeds_org_idx").on(t.organisationId),
+    uniqueIndex("calendar_feeds_token_idx").on(t.tokenHash),
+    uniqueIndex("calendar_feeds_owner_idx").on(t.organisationId, t.userId, t.projectId),
+  ],
+);
+
 /** What happened to a task, for its activity: made, given, moved along, changed, noted. */
 export const taskEvents = pgTable(
   "task_events",

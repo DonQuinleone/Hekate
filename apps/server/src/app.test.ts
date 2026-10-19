@@ -7628,6 +7628,68 @@ describe.runIf(url)("api", () => {
           expect(await remindTasksDue(db, new Date("2026-10-28T09:00:00Z"))).toBe(0);
         });
 
+        it("keeps a project's calendar, and a feed of it that only its owner's access opens (#141)", async () => {
+          const s = await studio();
+          await app.request(
+            `/api/projects/${s.projectId}/tasks`,
+            json({ title: "Bounce the stems; then, master", dueOn: "2026-10-21" }, s.owner),
+          );
+          type Month = {
+            events: { kind: string; date: string; title: string; link: string }[];
+            feed: { createdAt: string } | null;
+          };
+          const month = async (cookie: string, m = "2026-10") =>
+            (await (
+              await getAs(`/api/projects/${s.projectId}/calendar?month=${m}`, cookie)
+            ).json()) as Month;
+          const october = await month(s.composer);
+          expect(october.events).toMatchObject([
+            { kind: "task", date: "2026-10-21", title: "Bounce the stems; then, master" },
+          ]);
+          expect(october.feed).toBeNull();
+          expect((await month(s.composer, "2026-12")).events).toEqual([]);
+          expect(
+            (await getAs(`/api/projects/${s.projectId}/calendar?month=2026-13`, s.composer)).status,
+          ).toBe(400);
+
+          // A feed: shown once, then read with no session, as a calendar reads it.
+          const feedOf = async (cookie: string) =>
+            (
+              (await (
+                await app.request(`/api/projects/${s.projectId}/calendar/feed`, json({}, cookie))
+              ).json()) as {
+                url: string;
+              }
+            ).url;
+          const read = (url: string) => app.request(new URL(url).pathname);
+          const first = await feedOf(s.composer);
+          const ics = await read(first);
+          expect(ics.status).toBe(200);
+          expect(ics.headers.get("content-type")).toContain("text/calendar");
+          const text = await ics.text();
+          expect(text).toContain("SUMMARY:Bounce the stems\\; then\\, master");
+          expect(text).toContain("DTSTART;VALUE=DATE:20261021");
+          expect((await month(s.composer)).feed).not.toBeNull();
+          // A new link replaces the old; a made-up one opens nothing.
+          const second = await feedOf(s.composer);
+          expect((await read(first)).status).toBe(404);
+          expect((await read(second)).status).toBe(200);
+          expect((await app.request(`/api/calendar/${"a".repeat(43)}.ics`)).status).toBe(404);
+          // It shows only what its owner may still see: out of the project, nothing.
+          await db
+            .delete(schema.projectMembers)
+            .where(eq(schema.projectMembers.userId, s.ids.composer));
+          expect((await read(second)).status).toBe(404);
+          // Stopped, it is gone.
+          const owners = await feedOf(s.owner);
+          expect((await read(owners)).status).toBe(200);
+          await app.request(`/api/projects/${s.projectId}/calendar/feed`, {
+            ...json({}, s.owner),
+            method: "DELETE",
+          });
+          expect((await read(owners)).status).toBe(404);
+        });
+
         it("carries files attached to a comment, downloaded once each and logged (#133)", async () => {
           const s = await studio();
           const post = (body: unknown, cookie = s.owner) =>

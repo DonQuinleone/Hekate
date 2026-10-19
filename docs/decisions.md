@@ -581,3 +581,12 @@ A project's board (#141) shows every track as a card in a column, as Linear's bo
 - **Fresh within seconds.** The board asks again every fifteen seconds, so a transition made elsewhere shows without reloading.
 - **Not yet.** Moving a card by dragging it is left out: the prototype has none, and a track's status is the workflow's to set. The calendar, its subscription and the timeline follow in parts of their own.
 
+
+## 126. A project's calendar, and a feed of it that only its owner's access opens
+
+The board's Calendar view (#141) shows a month of the project: reviews due (not cancelled), tasks due, and, for those who may see takes, the days sessions were recorded. Each opens where it is; one past its date and not finished is marked late. At phone width the days carry dots and the month's events are listed under the grid, as Apple Calendar does.
+
+- **A feed for any calendar.** *Add to your calendar* makes a link to an iCalendar feed of the project (`/api/calendar/<token>.ics`) that Apple Calendar, Google Calendar and Outlook subscribe to. Its events are all-day, with the date, the title and a link back; nothing else of the project is in it.
+- **The link is the credential, so it is treated as one.** It is 32 random bytes, shown once as it is made; only its SHA-256 is kept (`calendar_feeds`), so the database alone opens no feed. Each person has at most one per project: making a new one stops the old, and *Stop the feed* removes it.
+- **Access is checked on every read.** The feed shows only what its owner may see at that moment: someone no longer a member, a project they can no longer see, or a suspended or closing workspace reads as not found, as does an unknown link. Each read is noted (`readAt`, shown in the dialog), the response is never cached, and the path is rate limited.
+- **Not yet.** The timeline follows in a part of its own.

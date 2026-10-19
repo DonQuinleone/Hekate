@@ -15,6 +15,7 @@ import { countRequests, metricsHandler } from "./metrics/index.ts";
 import { rateLimit } from "./rate-limit.ts";
 import { attachmentRoutes } from "./routes/attachments.ts";
 import { projectBoardRoutes } from "./routes/board.ts";
+import { calendarFeedRoutes, projectCalendarRoutes } from "./routes/calendar.ts";
 import { categoryRoutes, projectCategoryRoutes } from "./routes/categories.ts";
 import { carryRoutes, commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
 import { directoryRoutes } from "./routes/directory.ts";
@@ -240,6 +241,7 @@ export function createApi(deps: AppDeps) {
       .route("/projects", projectTemplateRoutes(deps.db))
       .route("/projects", projectTaskRoutes(taskMail))
       .route("/projects", projectBoardRoutes(deps.db))
+      .route("/projects", projectCalendarRoutes(deps.db, deps.publicUrl))
       .use("/tags/*", ...member)
       .use("/tags", ...member)
       .route("/tags", tagRoutes(deps.db))
@@ -319,6 +321,18 @@ export function createApi(deps: AppDeps) {
       .route("/downloads", downloadRoutes(downloads))
       .use("/reviews/*", viewer)
       .route("/reviews", reviewRoutes(reviewDeps))
+      // Calendar feeds (#141), read by calendars with no session: the link is the credential,
+      // so guessing at links is slowed, per address.
+      .use(
+        "/calendar/*",
+        rateLimit(
+          deps.db,
+          "calendar",
+          { max: 120, windowMs: 10 * 60_000 },
+          { trustProxy: deps.trustProxy ?? false },
+        ),
+      )
+      .route("/calendar", calendarFeedRoutes(deps.db, deps.publicUrl))
       // Opening links and trying codes, per address: few people need many in ten minutes.
       .use(
         "/guest/sessions/*",
