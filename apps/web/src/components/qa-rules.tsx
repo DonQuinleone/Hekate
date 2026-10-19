@@ -68,6 +68,8 @@ const checkHints: Record<BuiltInCheck, string> = {
   "broadcast-levels": "Luma outside EBU R103's range on more than 1% of a frame",
   letterbox: "Bars the picture never reaches into, top and bottom or at the sides",
   flashing: "More than three screen-wide flashes in a second (Ofcom)",
+  timecode: "Runs on without a break, and the file's records of it agree",
+  "picture-format": "Codec, size, frame rate, scan, colour and range, against the profile",
 };
 
 const severityLabel: Record<RuleSeverity, string> = {

@@ -157,12 +157,12 @@ Audio checks:
 
 Video checks:
 
-- Format conformance: codec, profile, resolution, frame rate, scan type, colour space and range, aspect ratio, audio layout
+- Format conformance against the delivery profile: codec, resolution, frame rate, scan type, colour primaries and range (decision 147); audio layout as above
 - Black frames, frozen frames, and dropped or duplicated frames
 - Interlacing and combing artefacts
 - Broadcast-safe luma and chroma levels
 - Letterboxing and pillarboxing against the expected aspect
-- Timecode continuity
+- Timecode continuity (decision 147)
 - Photosensitive flashing risk
 - Programme loudness and true peak of the audio, as above
 

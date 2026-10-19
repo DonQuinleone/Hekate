@@ -573,6 +573,18 @@ test("file-qa-report", async ({ page }) => {
   await checkScreen(page);
 });
 
+// A workspace's own delivery profile (#144), with what it asks of a picture (#42).
+test("settings-delivery-profile", async ({ page }) => {
+  await page.goto("/settings/delivery");
+  await settle(page, "main >> text=Built in >> nth=0");
+  await page.getByRole("button", { name: "Profile", exact: true }).click();
+  await settle(page, "[role=dialog] >> text=Frame rate");
+  await page.getByLabel("Size").selectOption("1920x1080");
+  await page.getByLabel("Frame rate").selectOption("25");
+  await saveScreen(page, "settings-delivery-profile");
+  await checkScreen(page);
+});
+
 // Sharing (#138): the Share dialog, from the project's Reviews, a track and someone chosen.
 test("share-dialog", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);

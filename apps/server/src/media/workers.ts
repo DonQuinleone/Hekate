@@ -724,7 +724,7 @@ async function backfillFindings(
   const had = await checksOf(deps.db, organisationId, file.id);
   const lfe = lfeChannels(file.mediaInfo);
   const decode = !had.has("integrity");
-  const look = picture && !had.has("black-frames") ? picture : undefined;
+  const look = picture && !had.has("timecode") ? picture : undefined;
   if (!decode && !look && (lfe.length === 0 || had.has("lfe"))) return;
   const [analysis, pictured] =
     decode || look
@@ -764,7 +764,7 @@ async function analyseSilentPicture(
 ) {
   try {
     const had = await checksOf(deps.db, organisationId, file.id);
-    const findings = had.has("black-frames")
+    const findings = had.has("timecode")
       ? []
       : await withWorkspace(deps.workDir, async (dir) => {
           const input = await materialise(
@@ -827,8 +827,8 @@ export async function requeueMissingFindings(db: Database, jobs: Pick<Jobs, "sen
     )
     .where(or(lacks("integrity"), and(hasLfe, lacks("lfe"))))
     .limit(500);
-  // Videos, silent ones included, whose picture was never looked at (#42): measured, or never
-  // measured for want of sound, and not failed or already waiting.
+  // Videos, silent ones included, whose picture was never looked at (#42), or looked at before
+  // its timecode was: measured, or never measured for want of sound, and not failed or waiting.
   const pictures = await db
     .select({ organisationId: files.organisationId, fileId: files.id })
     .from(files)
@@ -837,7 +837,7 @@ export async function requeueMissingFindings(db: Database, jobs: Pick<Jobs, "sen
         eq(files.kind, "video"),
         sql`jsonb_typeof(${files.mediaInfo}->'video') = 'object'`,
         inArray(files.analysisStatus, ["none", "ready"]),
-        lacks("black-frames"),
+        lacks("timecode"),
       ),
     )
     .limit(500);

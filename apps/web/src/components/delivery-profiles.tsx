@@ -5,12 +5,18 @@ import {
   type DeliveryProfile,
   deliveryProfileIds,
   deliveryProfiles,
+  frameRateName,
   type LayoutName,
   layoutChannels,
   layoutLabel,
   layoutNames,
   type ProfileRef,
   profileFor,
+  type VideoDelivery,
+  videoCodecIds,
+  videoCodecs,
+  videoFrameRates,
+  videoPrimaries,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
@@ -102,6 +108,73 @@ export function profileSummary(p: DeliveryProfile): string {
   ].join(" · ");
 }
 
+/** What a delivery profile asks of a video's picture, in one line; null where it asks nothing (#42). */
+export function pictureSummary(p: Pick<DeliveryProfile, "video">): string | null {
+  const v = p.video;
+  if (!v) return null;
+  const parts = [
+    v.codec ? videoCodecs[v.codec] : null,
+    v.resolution ? `${v.resolution.width} × ${v.resolution.height}` : null,
+    v.frameRate ? `${frameRateName(v.frameRate)} fps` : null,
+    v.scan,
+    v.primaries ? videoPrimaries[v.primaries] : null,
+    v.range ? `${v.range} range` : null,
+  ].filter((part): part is string => part !== null);
+  if (parts.length === 0) return null;
+  const line = parts.join(", ");
+  return line.charAt(0).toUpperCase() + line.slice(1);
+}
+
+/** A profile's line in a list: its sound, then its picture where it asks something of one. */
+export function deliveryHint(p: DeliveryProfile): string {
+  const picture = pictureSummary(p);
+  return picture ? `${profileSummary(p)} · Picture: ${picture}` : profileSummary(p);
+}
+
+/** Picture sizes a profile is most often asked for. */
+const resolutions = [
+  [1280, 720],
+  [1920, 1080],
+  [2048, 1080],
+  [3840, 2160],
+  [4096, 2160],
+] as const;
+
+/** The editor's choices for a picture, as select values; "" is any. */
+interface PictureFields {
+  codec: string;
+  resolution: string;
+  frameRate: string;
+  scan: string;
+  primaries: string;
+  range: string;
+}
+
+export function pictureFields(video: VideoDelivery | null | undefined): PictureFields {
+  return {
+    codec: video?.codec ?? "",
+    resolution: video?.resolution ? `${video.resolution.width}x${video.resolution.height}` : "",
+    frameRate: video?.frameRate ? String(video.frameRate) : "",
+    scan: video?.scan ?? "",
+    primaries: video?.primaries ?? "",
+    range: video?.range ?? "",
+  };
+}
+
+/** The picture a profile asks for, from the editor's choices; null where every one is any. */
+export function pictureFrom(fields: PictureFields): unknown {
+  if (Object.values(fields).every((v) => v === "")) return null;
+  const [width, height] = fields.resolution.split("x").map(Number);
+  return {
+    codec: fields.codec || null,
+    resolution: width && height ? { width, height } : null,
+    frameRate: fields.frameRate ? Number(fields.frameRate) : null,
+    scan: fields.scan || null,
+    primaries: fields.primaries || null,
+    range: fields.range || null,
+  };
+}
+
 /** A profile's name, a workspace's own included; null for one since deleted. */
 export const profileLabel = (
   ref: ProfileRef | null | undefined,
@@ -167,6 +240,15 @@ export function ProfileEditor({
     ? layoutChoices
     : [...layoutChoices, initial];
   const [layout, setLayout] = useState(initial.value);
+  const [picture, setPicture] = useState(pictureFields(profile?.video));
+  const pick = (key: keyof PictureFields) => (e: { target: { value: string } }) =>
+    setPicture((p) => ({ ...p, [key]: e.target.value }));
+  // A size or rate saved that the lists do not offer is kept as a choice.
+  const sizes = resolutions.map(([w, h]) => `${w}x${h}`);
+  if (picture.resolution && !sizes.includes(picture.resolution)) sizes.push(picture.resolution);
+  const frameRates = videoFrameRates.map(String);
+  if (picture.frameRate && !frameRates.includes(picture.frameRate))
+    frameRates.push(picture.frameRate);
   const [invalid, setInvalid] = useState<string | null>(null);
   const saving = profile ? update : create;
 
@@ -184,6 +266,7 @@ export function ProfileEditor({
       channels: chosen.channels,
       layout: chosen.layout,
       atmos: chosen.atmos,
+      video: pictureFrom(picture),
     });
     if (!parsed.success) {
       setInvalid(parsed.error.issues[0]?.message ?? "Check the numbers");
@@ -295,6 +378,73 @@ export function ProfileEditor({
             </Select>
           </label>
         </div>
+        <fieldset className="flex flex-col gap-3">
+          <legend className="mb-3 text-[13px] text-ink">
+            Picture <span className="text-ink-3">for videos; any is not checked</span>
+          </legend>
+          <div className="grid gap-4 @md/app:grid-cols-3">
+            <label className={field}>
+              Codec
+              <Select value={picture.codec} onChange={pick("codec")}>
+                <option value="">Any codec</option>
+                {videoCodecIds.map((id) => (
+                  <option key={id} value={id}>
+                    {videoCodecs[id]}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className={field}>
+              Size
+              <Select value={picture.resolution} onChange={pick("resolution")}>
+                <option value="">Any size</option>
+                {sizes.map((size) => (
+                  <option key={size} value={size}>
+                    {size.replace("x", " × ")}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className={field}>
+              Frame rate
+              <Select value={picture.frameRate} onChange={pick("frameRate")}>
+                <option value="">Any rate</option>
+                {frameRates.map((rate) => (
+                  <option key={rate} value={rate}>
+                    {frameRateName(Number(rate))} fps
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className={field}>
+              Scan
+              <Select value={picture.scan} onChange={pick("scan")}>
+                <option value="">Either</option>
+                <option value="progressive">Progressive</option>
+                <option value="interlaced">Interlaced</option>
+              </Select>
+            </label>
+            <label className={field}>
+              Colour
+              <Select value={picture.primaries} onChange={pick("primaries")}>
+                <option value="">Any primaries</option>
+                {Object.entries(videoPrimaries).map(([id, name]) => (
+                  <option key={id} value={id}>
+                    {name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className={field}>
+              Range
+              <Select value={picture.range} onChange={pick("range")}>
+                <option value="">Either</option>
+                <option value="limited">Limited (video)</option>
+                <option value="full">Full</option>
+              </Select>
+            </label>
+          </div>
+        </fieldset>
         {(invalid ?? saving.error?.message) && (
           <p className="text-[13px] text-signal">{invalid ?? saving.error?.message}</p>
         )}
