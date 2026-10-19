@@ -1,5 +1,11 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { effectiveNormalisation, marks, type PlayerTool, watermarkOf } from "@hekate/shared";
+import {
+  effectiveNormalisation,
+  isFollowingPart,
+  marks,
+  type PlayerTool,
+  watermarkOf,
+} from "@hekate/shared";
 import { unwrapKey } from "@hekate/storage";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, count, eq, sql } from "drizzle-orm";
@@ -730,7 +736,9 @@ export const playRoutes = (deps: PlaybackDeps) => {
       const rows = await renditionsOf(c.var.playback);
       if (rows.length === 0) throw new NotFound("Rendition");
       const lines = ["#EXTM3U", "#EXT-X-VERSION:7", "#EXT-X-INDEPENDENT-SEGMENTS"];
-      for (const r of rows) {
+      // A part carrying a wide layout's later channels is no alternative to the rest: it plays
+      // beside the first part, from its own playlist, never chosen in place of it (#74).
+      for (const r of rows.filter((x) => !isFollowingPart(x.name))) {
         const resolution = r.width && r.height ? `,RESOLUTION=${r.width}x${r.height}` : "";
         lines.push(`#EXT-X-STREAM-INF:BANDWIDTH=${r.bandwidth},CODECS="${r.codecs}"${resolution}`);
         lines.push(`r/${r.id}/index.m3u8`);

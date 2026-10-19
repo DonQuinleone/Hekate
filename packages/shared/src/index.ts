@@ -45,6 +45,7 @@ export * from "./roles.ts";
 export * from "./search.ts";
 export * from "./spectrogram.ts";
 export * from "./sso.ts";
+export * from "./stream-parts.ts";
 export * from "./tags.ts";
 export * from "./take-import.ts";
 export * from "./takes.ts";

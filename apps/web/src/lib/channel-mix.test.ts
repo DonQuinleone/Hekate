@@ -68,12 +68,16 @@ describe("hearing a recording's channels (#74)", () => {
     );
   });
 
-  it("hears a wide file apart only in the lossless stream, and only up to eight channels", () => {
+  it("hears a wide file apart only in the lossless stream, and only all its channels", () => {
     expect(mixUnavailable(2, "aac-256")).toBeUndefined();
     expect(mixUnavailable(6, "flac")).toBeUndefined();
     expect(mixUnavailable(6, "aac-256")).toMatch(/stereo downmix: choose Lossless/);
     expect(mixUnavailable(6, "eac3")).toMatch(/Dolby stream/);
-    expect(mixUnavailable(12, "flac")).toMatch(/12 channels; a browser plays up to 8/);
+    // A wider layout is heard apart once its parts carry every channel (#74); one prepared
+    // when a single stream of eight was all there was is not.
+    expect(mixUnavailable(12, "flac", 12)).toBeUndefined();
+    expect(mixUnavailable(12, "aac-256", 12)).toMatch(/stereo downmix/);
+    expect(mixUnavailable(12, "flac")).toMatch(/12 channels, but its streams carry 8/);
   });
 
   it("places each speaker around the listener for a binaural render, the LFE nowhere", () => {

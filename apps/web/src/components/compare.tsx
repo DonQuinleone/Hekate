@@ -26,7 +26,8 @@ import {
 } from "~/lib/queries";
 import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
 import { followRate } from "~/lib/speed";
-import { audioBuffer, preferredRendition } from "./player";
+import { audioBuffer } from "./player";
+import { nativeSource, wholeRendition } from "./stream-part";
 import { Button } from "./ui/button";
 
 /**
@@ -35,7 +36,8 @@ import { Button } from "./ui/button";
  */
 /**
  * A protected stream attached to an audio element with hls.js, on the rendition the main
- * player would choose: lossless where the browser can. `onFail` hears a stream that cannot load.
+ * player would choose: lossless where the browser can, and every channel of a wider layout
+ * folded into the AAC (#74). `onFail` hears a stream that cannot load.
  */
 function useStream(
   element: React.RefObject<HTMLAudioElement | null>,
@@ -52,19 +54,16 @@ function useStream(
     import("hls.js").then(({ default: Hls }) => {
       if (cancelled) return;
       if (!Hls.isSupported()) {
-        audio.src = playback.url;
+        audio.src = nativeSource(playback);
         return;
       }
+      const whole = wholeRendition(playback.renditions);
       hls = new Hls({ enableWorker: true, ...audioBuffer(playback.renditions) });
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal) fail.current();
       });
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        // The same rendition the master would choose: lossless where the browser can.
-        const preferred = preferredRendition(playback.renditions);
-        const level = hls?.levels.findIndex(
-          (l) => preferred && l.uri.includes(`/r/${preferred.id}/`),
-        );
+        const level = hls?.levels.findIndex((l) => whole && l.uri.includes(`/r/${whole.id}/`));
         if (hls && level !== undefined && level >= 0) hls.currentLevel = level;
       });
       hls.loadSource(playback.url);

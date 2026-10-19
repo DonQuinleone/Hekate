@@ -4,7 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { probe, run } from "./ffmpeg.ts";
-import { h264Level, hasMedia, packageRendition, parsePlaylist, planRenditions } from "./proxy.ts";
+import {
+  h264Level,
+  hasMedia,
+  packageRendition,
+  parsePlaylist,
+  partFilter,
+  planRenditions,
+} from "./proxy.ts";
 
 const box = (type: string, payload: Buffer) => {
   const header = Buffer.alloc(8);
@@ -58,6 +65,26 @@ describe("proxies", () => {
     const small = planRenditions("video", { video: { codec: "h264", width: 640, height: 360 } });
     expect(small.map((r) => [r.name, r.height, r.codecs])).toEqual([["360p", 360, "avc1.64001e"]]);
     expect(planRenditions("audio", {})).toEqual([]);
+  });
+
+  it("carries a layout wider than eight channels in lossless parts of eight (#74)", () => {
+    const wide = planRenditions("audio", {
+      audio: { codec: "pcm_s24le", channels: 12, sampleRate: 48000, bitDepth: 24 },
+    });
+    expect(wide.map((r) => [r.name, r.bandwidth])).toEqual([
+      ["aac-256", 300_000],
+      ["flac", 48000 * 8 * 24],
+      ["flac-2", 48000 * 4 * 24],
+    ]);
+    expect(wide[2]?.args).toContain("pan=quad|c0=c8|c1=c9|c2=c10|c3=c11");
+    expect(partFilter({ name: "flac", from: 0, count: 8 })).toBe(
+      "pan=7.1|c0=c0|c1=c1|c2=c2|c3=c3|c4=c4|c5=c5|c6=c6|c7=c7",
+    );
+    // Up to eight channels, one stream as it always was: no channels picked out.
+    const eight = planRenditions("audio", {
+      audio: { codec: "pcm_s24le", channels: 8, sampleRate: 48000, bitDepth: 24 },
+    });
+    expect(eight.find((r) => r.name === "flac")?.args.join(" ")).not.toContain("pan=");
   });
 
   it("declares the H.264 level the frame size and rate need", () => {
@@ -155,6 +182,52 @@ describe("surround packaging", () => {
     const source = await surround("pcm_s24le", "mix-51.wav");
     const delivered = await roundTrip(source, "flac");
     expect(delivered.audio).toMatchObject({ codec: "flac", channels: 6, sampleRate: 48000 });
+  });
+
+  it("carries a 7.1.4 mix in two lossless parts, the heights in the second (#74)", async () => {
+    // Sound only in the first height channel (TFL, the ninth): it must arrive first in part two.
+    const path = join(root, "mix-714.wav");
+    await run("ffmpeg", [
+      "-hide_banner",
+      "-nostdin",
+      "-v",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "sine=duration=2:sample_rate=48000",
+      "-af",
+      "pan=7.1.4|TFL=c0",
+      "-c:a",
+      "pcm_s24le",
+      path,
+    ]);
+    const bed = await roundTrip(path, "flac");
+    const heights = await roundTrip(path, "flac-2");
+    expect(bed.audio).toMatchObject({ codec: "flac", channels: 8 });
+    expect(heights.audio).toMatchObject({ codec: "flac", channels: 4 });
+    const levels = async (file: string) => {
+      const { stderr } = await run("ffmpeg", [
+        "-hide_banner",
+        "-nostdin",
+        "-i",
+        file,
+        "-af",
+        "astats=measure_overall=none:measure_perchannel=Peak_level",
+        "-f",
+        "null",
+        "-",
+      ]);
+      return [...stderr.matchAll(/Peak level dB: (\S+)/g)].map((m) =>
+        m[1] === "-inf" ? Number.NEGATIVE_INFINITY : Number(m[1]),
+      );
+    };
+    const [tfl, ...rest] = await levels(join(root, "flac-2.mp4"));
+    expect(tfl).toBeGreaterThan(-40);
+    for (const silent of rest) expect(silent).toBe(Number.NEGATIVE_INFINITY);
+    expect(
+      (await levels(join(root, "flac.mp4"))).every((l) => l === Number.NEGATIVE_INFINITY),
+    ).toBe(true);
   });
 
   it("delivers E-AC-3 surround as it came", async () => {

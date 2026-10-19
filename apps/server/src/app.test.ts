@@ -14901,6 +14901,25 @@ describe.runIf(url)("api", () => {
             new Set(["stream.key", "stream.session", "stream.segment"]),
           );
           expect(logged.events.every((e) => e.projectId)).toBe(true);
+
+          // A wide layout's later channels (#74) play beside the first part, from their own
+          // playlist: never offered in the master as a stream to choose instead.
+          await db
+            .update(schema.renditions)
+            .set({ name: "flac-2" })
+            .where(and(eq(schema.renditions.fileId, fileId), eq(schema.renditions.name, "flac")));
+          const wide = (await (
+            await app.request(`/api/files/${fileId}/playback`, json({}, owner))
+          ).json()) as { url: string; renditions: { id: string; name: string }[] };
+          const part = wide.renditions.find((r) => r.name === "flac-2");
+          expect(part).toBeDefined();
+          const wideBase = wide.url.replace(/master\.m3u8$/, "");
+          const wideMaster = await (await get(wide.url, owner)).text();
+          expect(wideMaster).not.toContain(`r/${part?.id}/`);
+          expect(wideMaster).toContain('CODECS="mp4a.40.2"');
+          const own = await get(`${wideBase}r/${part?.id}/index.m3u8`, owner);
+          expect(own.status).toBe(200);
+          expect(await own.text()).toContain("#EXT-X-ENDLIST");
         }, 120_000);
 
         it("plays video as an encrypted ladder that decrypts to H.264 and AAC", async () => {
