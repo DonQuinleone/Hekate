@@ -31,6 +31,7 @@ describe("workspace settings", () => {
       },
       emailSubjects: { invitation: "Join {workspace}", decision: "{nonsense}", stale: "x" },
       deliveryProfile: "vinyl",
+      roleTools: { Reviewer: ["score"], Viewer: ["x-ray"], Mixer: ["qa"] },
       stale: true,
     });
     expect(read).toEqual({
@@ -43,6 +44,7 @@ describe("workspace settings", () => {
       emailSubjects: { invitation: "Join {workspace}" },
       secondFactor: "off",
       securityKeyForAdmins: false,
+      roleTools: { ...defaultWorkspaceSettings.roleTools, Reviewer: ["score"] },
       reviewer: {
         comment: true,
         decide: false,
@@ -64,6 +66,26 @@ describe("workspace settings", () => {
     expect(workspaceSettingsInput.safeParse({}).success).toBe(false);
     expect(workspaceSettingsInput.safeParse({ reviewer: {} }).success).toBe(false);
     expect(workspaceSettingsInput.safeParse({ storageBackend: "s3" }).success).toBe(false);
+  });
+
+  it("starts the default roles on their usual tools, and takes a change role by role (#55)", () => {
+    expect(defaultWorkspaceSettings.roleTools.Producer).toContain("qa");
+    expect(defaultWorkspaceSettings.roleTools.Reviewer).toEqual([
+      "score",
+      "compare",
+      "loops",
+      "normalise",
+    ]);
+    expect(defaultWorkspaceSettings.roleTools.Viewer).toEqual(["score"]);
+    const next = applyWorkspaceSettings(defaultWorkspaceSettings, {
+      roleTools: { Viewer: [] },
+    });
+    expect(next.roleTools).toEqual({ ...defaultWorkspaceSettings.roleTools, Viewer: [] });
+    expect(workspaceSettingsInput.safeParse({ roleTools: {} }).success).toBe(false);
+    expect(workspaceSettingsInput.safeParse({ roleTools: { Mixer: [] } }).success).toBe(false);
+    expect(workspaceSettingsInput.safeParse({ roleTools: { Viewer: ["x-ray"] } }).success).toBe(
+      false,
+    );
   });
 
   it("merges a change into what was there", () => {

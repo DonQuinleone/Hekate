@@ -14,6 +14,7 @@ import {
   defaultReviewerPermissions,
   type ReviewerPermissions,
 } from "./reviewer-permissions.ts";
+import { defaultProjectRoles, type PlayerTool, playerTool, playerTools } from "./roles.ts";
 
 /** Organisation-level roles, highest first. Per-project roles are a separate model. */
 export const organisationRoles = ["owner", "admin", "member"] as const;
@@ -111,6 +112,18 @@ export function sessionMeets(factor: SessionFactor, demand: FactorDemand): boole
   return true;
 }
 
+/** The roles every project starts with, whose tools the workspace chooses (#55). */
+export const defaultRoleNames = ["Producer", "Engineer", "Editor", "Reviewer", "Viewer"] as const;
+export type DefaultRoleName = (typeof defaultRoleNames)[number];
+
+/** The tools each default role starts with unless the workspace says otherwise. */
+const startingRoleTools = Object.fromEntries(
+  defaultRoleNames.map((name) => [
+    name,
+    defaultProjectRoles.find((r) => r.name === name)?.tools ?? [...playerTools],
+  ]),
+) as Record<DefaultRoleName, PlayerTool[]>;
+
 /**
  * A workspace's settings (decision 037 names it a workspace; code keeps organisation). Each takes
  * effect where it applies: guest links when sent, the language for members without their own,
@@ -134,6 +147,12 @@ export const workspaceSettingsSchema = z.object({
   secondFactor: secondFactorPolicy,
   /** Whether owners and admins must sign in with a passkey or hardware security key. */
   securityKeyForAdmins: z.boolean(),
+  /** The player tools each default role starts with in a new project (#55); projects override. */
+  roleTools: z.object(
+    Object.fromEntries(
+      defaultRoleNames.map((name) => [name, z.array(playerTool).max(playerTools.length)]),
+    ) as Record<DefaultRoleName, z.ZodArray<typeof playerTool>>,
+  ),
   /** What a review grants unless the request says otherwise. */
   reviewer: z.object({
     comment: z.boolean(),
@@ -158,6 +177,7 @@ export const defaultWorkspaceSettings: WorkspaceSettings = {
   emailSubjects: {},
   secondFactor: "off",
   securityKeyForAdmins: false,
+  roleTools: startingRoleTools,
   reviewer: {
     comment: true,
     decide: true,
@@ -180,6 +200,7 @@ export const workspaceSettingsInput = z
     emailSubjects: emailSubjectsChange.optional(),
     secondFactor: workspaceSettingsSchema.shape.secondFactor.optional(),
     securityKeyForAdmins: workspaceSettingsSchema.shape.securityKeyForAdmins.optional(),
+    roleTools: workspaceSettingsSchema.shape.roleTools.partial().strict().optional(),
     reviewer: workspaceSettingsSchema.shape.reviewer.partial().strict().optional(),
   })
   .strict()
@@ -187,6 +208,7 @@ export const workspaceSettingsInput = z
     (s) =>
       Object.keys(s).length > 0 &&
       (!s.reviewer || Object.keys(s.reviewer).length > 0) &&
+      (!s.roleTools || Object.keys(s.roleTools).length > 0) &&
       (!s.emailSubjects || Object.keys(s.emailSubjects).length > 0),
     "Nothing to change",
   );
@@ -236,6 +258,12 @@ export function workspaceSettingsOf(stored: unknown): WorkspaceSettings {
       read(stored, "securityKeyForAdmins"),
       d.securityKeyForAdmins,
     ),
+    roleTools: Object.fromEntries(
+      defaultRoleNames.map((name) => [
+        name,
+        pick(shape.roleTools.shape[name], read(read(stored, "roleTools"), name), d.roleTools[name]),
+      ]),
+    ) as Record<DefaultRoleName, PlayerTool[]>,
     reviewer: {
       comment: pick(reviewer.comment, read(storedReviewer, "comment"), d.reviewer.comment),
       decide: pick(reviewer.decide, read(storedReviewer, "decide"), d.reviewer.decide),
@@ -271,6 +299,7 @@ export function applyWorkspaceSettings(
     ) as EmailSubjects,
     secondFactor: change.secondFactor ?? current.secondFactor,
     securityKeyForAdmins: change.securityKeyForAdmins ?? current.securityKeyForAdmins,
+    roleTools: { ...current.roleTools, ...change.roleTools },
     reviewer: { ...current.reviewer, ...change.reviewer },
   };
 }

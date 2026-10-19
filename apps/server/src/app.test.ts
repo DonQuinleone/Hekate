@@ -3202,6 +3202,13 @@ describe.runIf(url)("api", () => {
           emailSubjects: {},
           secondFactor: "off",
           securityKeyForAdmins: false,
+          roleTools: {
+            Producer: ["qa", "meters", "spectrogram", "score", "compare", "loops", "normalise"],
+            Engineer: ["qa", "meters", "spectrogram", "score", "compare", "loops", "normalise"],
+            Editor: ["qa", "meters", "spectrogram", "score", "compare", "loops", "normalise"],
+            Reviewer: ["score", "compare", "loops", "normalise"],
+            Viewer: ["score"],
+          },
           reviewer: {
             comment: true,
             decide: true,
@@ -3259,6 +3266,33 @@ describe.runIf(url)("api", () => {
           .from(schema.projects)
           .where(eq(schema.projects.id, project.id));
         expect(row?.shown).toBe(false);
+
+        // And its default roles with the workspace's tools (#55).
+        expect(
+          (await change({ roleTools: { Viewer: ["score", "loops"], Editor: [] } }, owner)).status,
+        ).toBe(200);
+        const tooled = (await (
+          await app.request("/api/projects", json({ name: "Joplin Rags", profile: "music" }, owner))
+        ).json()) as { project: { id: string } };
+        const roles = await db
+          .select({ name: schema.projectRoles.name, tools: schema.projectRoles.tools })
+          .from(schema.projectRoles)
+          .where(eq(schema.projectRoles.projectId, tooled.project.id));
+        const toolsOf = (name: string) => roles.find((r) => r.name === name)?.tools;
+        expect(toolsOf("Viewer")).toEqual(["score", "loops"]);
+        expect(toolsOf("Editor")).toEqual([]);
+        expect(toolsOf("Reviewer")).toEqual(["score", "compare", "loops", "normalise"]);
+        // The project made before keeps what it started with.
+        const [before] = await db
+          .select({ tools: schema.projectRoles.tools })
+          .from(schema.projectRoles)
+          .where(
+            and(
+              eq(schema.projectRoles.projectId, project.id),
+              eq(schema.projectRoles.name, "Viewer"),
+            ),
+          );
+        expect(before?.tools).toEqual(["score"]);
 
         // Another workspace keeps its own.
         const [other] = await db

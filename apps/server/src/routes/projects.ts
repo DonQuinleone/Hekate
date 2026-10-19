@@ -2,6 +2,7 @@ import { type Database, inOrg, schema } from "@hekate/db";
 import {
   createProjectInput,
   creatorRole,
+  type DefaultRoleName,
   defaultProjectRoles,
   type ProjectProfile,
   permissionsFor,
@@ -161,17 +162,26 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
           ? // A saved template (#240): its copy of a project's set-up.
             await db.transaction((tx) => templateFor(tx, organisationId, savedTemplateId))
           : null;
-      const roles = template?.roles.length ? template.roles : defaultProjectRoles;
-      // Without a template, the workspace's defaults.
+      // Without a template, the workspace's defaults: its carried comments, and the tools its
+      // default roles start with (#55).
       const [workspace] = template
         ? []
         : await db
             .select({ settings: schema.organisations.settings })
             .from(schema.organisations)
             .where(eq(schema.organisations.id, organisationId));
-      const defaults = workspace && {
-        carriedCommentsShown: workspaceSettingsOf(workspace.settings).carriedCommentsShown,
+      const workspaceSettings = workspace && workspaceSettingsOf(workspace.settings);
+      const defaults = workspaceSettings && {
+        carriedCommentsShown: workspaceSettings.carriedCommentsShown,
       };
+      const roles = template?.roles.length
+        ? template.roles
+        : defaultProjectRoles.map((role) => ({
+            ...role,
+            tools: [
+              ...new Set(workspaceSettings?.roleTools[role.name as DefaultRoleName] ?? role.tools),
+            ],
+          }));
       const project = await db.transaction(async (tx) => {
         const [created] = await tx
           .insert(projects)
