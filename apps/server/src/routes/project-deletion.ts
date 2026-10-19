@@ -6,7 +6,7 @@ import {
   type ProjectDeletion,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { eq } from "drizzle-orm";
+import { and, eq, gt, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -114,6 +114,23 @@ export const projectDeletionRoutes = (deps: {
               message: "This project's deletion is already asked for",
             });
           }
+          // Not while it is asked to move (#240): the deletion would travel with it.
+          const [moving] = await tx
+            .select({ id: schema.projectTransfers.id })
+            .from(schema.projectTransfers)
+            .where(
+              and(
+                eq(schema.projectTransfers.fromOrganisationId, organisationId),
+                eq(schema.projectTransfers.projectId, access.projectId),
+                inArray(schema.projectTransfers.status, ["pending", "moving"]),
+                gt(schema.projectTransfers.expiresAt, new Date()),
+              ),
+            );
+          if (moving)
+            throw new HTTPException(409, {
+              message:
+                "A move of this project to another workspace is waiting; withdraw or refuse it first",
+            });
           await tx
             .update(projects)
             .set({ deletionRequestedBy: userId, deletionRequestedAt: new Date() })

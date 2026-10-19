@@ -1742,6 +1742,43 @@ describe.runIf(url)("api", () => {
           expect(
             (await send("POST", path, { to, name: "Opening titles", password }, owner)).status,
           ).toBe(403);
+          // A move refused leaves a transfer waiting on the project as it was.
+          const [waiting] = await db
+            .insert(schema.projectTransfers)
+            .values({
+              fromOrganisationId: from,
+              toOrganisationId: to,
+              projectId: project?.id ?? "",
+              projectName: "Opening titles",
+              expiresAt: new Date(Date.now() + 86400e3),
+            })
+            .returning();
+          const stored = await storage.put(from, Buffer.from("cut"));
+          await db.insert(schema.files).values({
+            organisationId: from,
+            projectId: project?.id ?? "",
+            name: "Cut 3.mp4",
+            kind: "video",
+            blobId: stored.id,
+            contentType: "video/mp4",
+            byteSize: stored.byteSize,
+            streamStatus: "pending",
+          });
+          expect(
+            (await send("POST", path, { to, name: "Opening titles", password }, operator)).status,
+          ).toBe(409);
+          const waitingStatus = async () =>
+            (
+              await db
+                .select({ status: schema.projectTransfers.status })
+                .from(schema.projectTransfers)
+                .where(eq(schema.projectTransfers.id, waiting?.id ?? ""))
+            )[0]?.status;
+          expect(await waitingStatus()).toBe("pending");
+          await db
+            .update(schema.files)
+            .set({ streamStatus: "ready" })
+            .where(eq(schema.files.blobId, stored.id));
           const moved = await send(
             "POST",
             path,
@@ -1754,13 +1791,19 @@ describe.runIf(url)("api", () => {
             .from(schema.projects)
             .where(eq(schema.projects.id, project?.id ?? ""));
           expect(after?.organisationId).toBe(to);
-          // Kept as a transfer already done, in both logs and the instance's events.
+          // Kept as a transfer already done, the one waiting withdrawn, in both logs and the
+          // instance's events.
+          expect(await waitingStatus()).toBe("cancelled");
           expect(
-            await db
-              .select({ status: schema.projectTransfers.status })
-              .from(schema.projectTransfers)
-              .where(eq(schema.projectTransfers.projectId, project?.id ?? "")),
-          ).toEqual([{ status: "moved" }]);
+            (
+              await db
+                .select({ status: schema.projectTransfers.status })
+                .from(schema.projectTransfers)
+                .where(eq(schema.projectTransfers.projectId, project?.id ?? ""))
+            )
+              .map((t) => t.status)
+              .sort(),
+          ).toEqual(["cancelled", "moved"]);
           for (const organisationId of [from, to])
             expect(
               await db
@@ -7470,8 +7513,14 @@ describe.runIf(url)("api", () => {
                 eq(schema.members.userId, s.ids.engineer),
               ),
             );
-          const approved = await approve(s.engineer);
-          expect(approved.status).toBe(200);
+          // Its deletion cannot be asked for while it waits to move.
+          expect(
+            (await app.request(`/api/projects/${s.projectId}/deletion`, json({}, s.owner))).status,
+          ).toBe(409);
+          // Two approvals at the same moment: one is taken, the other refused.
+          const both = await Promise.all([approve(s.engineer), approve(s.engineer)]);
+          expect(both.map((r) => r.status).sort()).toEqual([200, 409]);
+          const approved = both.find((r) => r.status === 200) as Response;
           expect(await transferOf(approved)).toMatchObject({ status: "pending" });
           // The losing side cannot accept for the gaining one.
           expect((await accept(s.owner)).status).toBe(404);
@@ -7509,6 +7558,28 @@ describe.runIf(url)("api", () => {
             }),
           ]);
           expect((await accept(s.composer, "Ragtime")).status).toBe(422);
+          // A move that cannot happen yet takes the acceptance back, to be given again.
+          await db
+            .update(schema.files)
+            .set({ streamStatus: "pending" })
+            .where(eq(schema.files.id, s.mix));
+          const early = await accept(s.composer);
+          expect(early.status).toBe(409);
+          expect(await early.text()).toMatch(/still being prepared/);
+          const [held] = await db
+            .select({
+              status: schema.projectTransfers.status,
+              acceptedAt: schema.projectTransfers.acceptedAt,
+              approvedAt: schema.projectTransfers.approvedAt,
+            })
+            .from(schema.projectTransfers)
+            .where(eq(schema.projectTransfers.id, transfer.id));
+          expect(held).toMatchObject({ status: "pending", acceptedAt: null });
+          expect(held?.approvedAt).not.toBeNull();
+          await db
+            .update(schema.files)
+            .set({ streamStatus: "ready" })
+            .where(eq(schema.files.id, s.mix));
           const accepted = await accept(s.composer);
           expect(accepted.status).toBe(200);
           expect(await transferOf(accepted)).toMatchObject({ status: "moved" });
@@ -7611,6 +7682,15 @@ describe.runIf(url)("api", () => {
             ).json()) as unknown,
           ).toEqual({ transfer: null });
           expect((await accept(s.composer, "Rags", lapsing.id)).status).toBe(409);
+          // One that lapsed unread does not stand in the way of asking again.
+          const unread = await transferOf(
+            await ask(s.owner, { to: { id: to }, name: "Rags", password }),
+          );
+          await db
+            .update(schema.projectTransfers)
+            .set({ expiresAt: new Date(Date.now() - 1000) })
+            .where(eq(schema.projectTransfers.id, unread.id));
+          expect((await ask(s.owner, { to: { id: to }, name: "Rags", password })).status).toBe(201);
           // A workspace the transfer does not name can neither see nor act on it.
           const [elsewhere] = await db
             .insert(schema.organisations)

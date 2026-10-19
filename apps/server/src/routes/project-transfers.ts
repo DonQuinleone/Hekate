@@ -16,7 +16,7 @@ import {
 } from "@hekate/shared";
 import type { Backends } from "@hekate/storage";
 import { zValidator } from "@hono/zod-validator";
-import { and, desc, eq, inArray, ne, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lte, ne, or, type SQL } from "drizzle-orm";
 import { type Context, Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -38,6 +38,13 @@ const { members, organisations, projectMembers, projectRoles, projects, projectT
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
 type Transfer = typeof projectTransfers.$inferSelect;
+
+/** A transfer's two workspaces, named in every change to its row, as tenancy asks. */
+const sidesOf = (t: Pick<Transfer, "fromOrganisationId" | "toOrganisationId">) =>
+  and(
+    eq(projectTransfers.fromOrganisationId, t.fromOrganisationId),
+    eq(projectTransfers.toOrganisationId, t.toOrganisationId),
+  );
 
 export interface TransferDeps {
   db: Database;
@@ -219,7 +226,9 @@ export const projectTransferRoutes = (deps: TransferDeps) => {
     await db
       .update(projectTransfers)
       .set({ status: "expired", resolvedAt: now })
-      .where(and(eq(projectTransfers.id, row.id), eq(projectTransfers.status, "pending")));
+      .where(
+        and(eq(projectTransfers.id, row.id), sidesOf(row), eq(projectTransfers.status, "pending")),
+      );
     return { ...row, status: "expired", resolvedAt: now };
   };
 
@@ -268,18 +277,29 @@ export const projectTransferRoutes = (deps: TransferDeps) => {
    * Move it, once approved and accepted. Claimed first (pending to moving), so two people
    * finishing it at once move it once; a move that fails puts it back to wait.
    */
-  const execute = async (id: string, userId: string, request: RequestInfo) => {
+  const execute = async (
+    row: Transfer,
+    userId: string,
+    request: RequestInfo,
+    /** The step that made it ready, undone should the move fail, so it can be taken again. */
+    undo: "ask" | "approve" | "accept",
+    /** Written once the move has happened, before the move itself: the step that made it ready. */
+    first?: () => Promise<void>,
+  ) => {
+    const id = row.id;
+    const scoped = (...conditions: SQL[]) =>
+      and(eq(projectTransfers.id, id), sidesOf(row), ...conditions);
     const [claimed] = await db
       .update(projectTransfers)
       .set({ status: "moving" })
-      .where(and(eq(projectTransfers.id, id), eq(projectTransfers.status, "pending")))
+      .where(scoped(eq(projectTransfers.status, "pending")))
       .returning();
     if (!claimed || !readyToMove(claimed)) {
       if (claimed)
         await db
           .update(projectTransfers)
           .set({ status: "pending" })
-          .where(and(eq(projectTransfers.id, id), eq(projectTransfers.status, "moving")));
+          .where(scoped(eq(projectTransfers.status, "moving")));
       return claimed ?? null;
     }
     try {
@@ -289,17 +309,26 @@ export const projectTransferRoutes = (deps: TransferDeps) => {
         to: claimed.toOrganisationId,
       });
     } catch (failure) {
+      // Nothing moved. A request moved at once ends; a sign-off is taken back, to be given
+      // again once whatever stopped it is put right.
       await db
         .update(projectTransfers)
-        .set({ status: "pending" })
-        .where(and(eq(projectTransfers.id, id), eq(projectTransfers.status, "moving")));
+        .set(
+          undo === "ask"
+            ? { status: "cancelled", resolvedBy: userId, resolvedAt: new Date() }
+            : undo === "approve"
+              ? { status: "pending", approvedBy: null, approvedAt: null }
+              : { status: "pending", acceptedBy: null, acceptedAt: null },
+        )
+        .where(scoped(eq(projectTransfers.status, "moving")));
       throw failure;
     }
     const [moved] = await db
       .update(projectTransfers)
       .set({ status: "moved", resolvedAt: new Date() })
-      .where(eq(projectTransfers.id, id))
+      .where(scoped())
       .returning();
+    await first?.();
     await logBoth(claimed, userId, "project.transfer", request, true);
     const [from, to] = await Promise.all([
       orgName(claimed.fromOrganisationId),
@@ -419,6 +448,18 @@ export const projectTransferRoutes = (deps: TransferDeps) => {
           await confirmStep(deps, c.var, input, project.name);
           const atOnce = mayTakeProjects(role);
           const now = new Date();
+          // One that lapsed unread no longer stands in the way.
+          await db
+            .update(projectTransfers)
+            .set({ status: "expired", resolvedAt: now })
+            .where(
+              and(
+                eq(projectTransfers.fromOrganisationId, organisationId),
+                eq(projectTransfers.projectId, access.projectId),
+                eq(projectTransfers.status, "pending"),
+                lte(projectTransfers.expiresAt, now),
+              ),
+            );
           const [row] = await db
             .insert(projectTransfers)
             .values({
@@ -443,7 +484,7 @@ export const projectTransferRoutes = (deps: TransferDeps) => {
           const request = requestInfo(c, deps.trustProxy);
           await logBoth(row, userId, "project.transfer_request", request);
           if (atOnce) {
-            const moved = await execute(row.id, userId, request);
+            const moved = await execute(row, userId, request, "ask");
             return c.json({ transfer: moved ? await view(moved, c.var) : null }, 201);
           }
           const to = await orgName(gaining.id);
@@ -592,25 +633,37 @@ export const projectTransferRoutes = (deps: TransferDeps) => {
       .where(
         and(
           eq(projectTransfers.id, row.id),
+          sidesOf(row),
           eq(projectTransfers.status, "pending"),
+          // Claimed once: of two people signing at the same moment, one does.
           kind === "approve"
-            ? eq(projectTransfers.fromOrganisationId, c.var.organisationId)
-            : eq(projectTransfers.toOrganisationId, c.var.organisationId),
+            ? and(
+                eq(projectTransfers.fromOrganisationId, c.var.organisationId),
+                isNull(projectTransfers.approvedAt),
+              )
+            : and(
+                eq(projectTransfers.toOrganisationId, c.var.organisationId),
+                isNull(projectTransfers.acceptedAt),
+              ),
         ),
       )
       .returning();
     if (!updated) throw new HTTPException(409, { message: "This transfer is no longer waiting" });
     const request = requestInfo(c, deps.trustProxy);
-    await logBoth(
-      updated,
-      userId,
-      kind === "approve" ? "project.transfer_approve" : "project.transfer_accept",
-      request,
-    );
+    const logStep = () =>
+      logBoth(
+        updated,
+        userId,
+        kind === "approve" ? "project.transfer_approve" : "project.transfer_accept",
+        request,
+      );
+    // The last sign-off is written only once the move it starts has happened; one taken back
+    // because the move could not happen yet leaves no trace but the refusal.
     if (readyToMove(updated)) {
-      const moved = await execute(updated.id, userId, request);
+      const moved = await execute(updated, userId, request, kind, logStep);
       return moved ? view(moved, c.var) : null;
     }
+    await logStep();
     const verb = kind === "approve" ? "approved" : "accepted";
     if (updated.requestedBy)
       await tell(
@@ -633,7 +686,9 @@ export const projectTransferRoutes = (deps: TransferDeps) => {
     const [ended] = await db
       .update(projectTransfers)
       .set({ status, resolvedBy: userId, resolvedAt: new Date() })
-      .where(and(eq(projectTransfers.id, row.id), eq(projectTransfers.status, "pending")))
+      .where(
+        and(eq(projectTransfers.id, row.id), sidesOf(row), eq(projectTransfers.status, "pending")),
+      )
       .returning();
     if (!ended) throw new HTTPException(409, { message: "This transfer is no longer waiting" });
     await logBoth(
@@ -672,17 +727,18 @@ export async function operatorMove(
     .where(inOrg(projects, input.from, eq(projects.id, input.projectId)));
   if (!project) throw new NotFound("Project");
   const now = new Date();
+  await moveProject(deps, { projectId: input.projectId, from: input.from, to: input.to });
+  // Only once it has moved: a move refused leaves a transfer waiting on it as it was.
   await db
     .update(projectTransfers)
-    .set({ status: "cancelled", resolvedBy: input.operatorId, resolvedAt: now })
+    .set({ status: "cancelled", resolvedBy: input.operatorId, resolvedAt: new Date() })
     .where(
       and(
         eq(projectTransfers.fromOrganisationId, input.from),
         eq(projectTransfers.projectId, input.projectId),
-        eq(projectTransfers.status, "pending"),
+        inArray(projectTransfers.status, ["pending", "moving"]),
       ),
     );
-  await moveProject(deps, { projectId: input.projectId, from: input.from, to: input.to });
   await db.insert(projectTransfers).values({
     fromOrganisationId: input.from,
     toOrganisationId: input.to,
