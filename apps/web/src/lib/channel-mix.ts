@@ -1,3 +1,4 @@
+import { losslessParts, STREAM_CHANNELS } from "@hekate/shared";
 import { useEffect } from "react";
 
 /**
@@ -66,18 +67,23 @@ export function downmixGains(labels: readonly string[]) {
   return gains.map((g) => ({ left: g.left / loudest, right: g.right / loudest }));
 }
 
-/** The most channels a browser plays from one stream, and so the most heard apart. */
-export const MAX_MIX_CHANNELS = 8;
+/** The most channels a browser plays from one stream. */
+export const MAX_MIX_CHANNELS = STREAM_CHANNELS;
 
 /**
  * Why a recording's channels cannot be heard apart in what is playing, or undefined when they
  * can: a stereo file in anything, a wider one only in the lossless stream, which carries
  * every channel as recorded (the AAC is a stereo downmix; a Dolby stream is decoded as the
- * browser sees fit).
+ * browser sees fit). A layout wider than eight is carried in parts that play together
+ * (decision 139): `carried` is how many of its channels they hold.
  */
-export function mixUnavailable(channels: number, rendition: string | null): string | undefined {
-  if (channels > MAX_MIX_CHANNELS)
-    return `This file has ${channels} channels; a browser plays up to ${MAX_MIX_CHANNELS} from one stream, so they cannot be heard apart yet.`;
+export function mixUnavailable(
+  channels: number,
+  rendition: string | null,
+  carried = Math.min(channels, MAX_MIX_CHANNELS),
+): string | undefined {
+  if (channels > carried)
+    return `This file has ${channels} channels, but its streams carry ${carried}: it was prepared before wider layouts were carried whole, so its channels cannot be heard apart.`;
   if (channels <= 2 || rendition === "flac") return undefined;
   if (rendition === "aac-256")
     return "Playing the AAC, which is a stereo downmix: choose Lossless to hear each channel.";
@@ -211,6 +217,8 @@ export function mixLabel(mix: ChannelMix, names: readonly string[]): string | nu
 interface Graph {
   context: AudioContext;
   source: MediaElementAudioSourceNode;
+  /** The elements playing a wide layout's later channels (#74), fed into the same context. */
+  parts: Map<HTMLMediaElement, MediaElementAudioSourceNode>;
   nodes: AudioNode[];
 }
 
@@ -221,20 +229,30 @@ const graphs = new WeakMap<HTMLMediaElement, Graph>();
  * Plays a media element through a mix of its channels. Nothing is built until the mix first
  * changes from plain, so ordinary listening never passes through Web Audio; once built, the
  * graph stays, and a plain mix through it is the recording as it was.
+ *
+ * A layout wider than eight channels (#74) plays from `parts` too: the elements carrying its
+ * later channels, eight to a stream, in step with this one. They are always heard through the
+ * graph, so every channel is one of the same recording, whichever stream carries it.
  */
 export function useChannelMix(
   media: HTMLMediaElement | null,
   channels: number,
   labels: readonly string[] | null,
   mix: ChannelMix,
+  parts: readonly HTMLMediaElement[] = [],
 ) {
   useEffect(() => {
     if (!media || channels < 1) return;
-    if (!graphs.has(media) && isPlain(mix)) return;
+    if (!graphs.has(media) && isPlain(mix) && parts.length === 0) return;
     let graph = graphs.get(media);
     if (!graph) {
       const context = new AudioContext();
-      graph = { context, source: context.createMediaElementSource(media), nodes: [] };
+      graph = {
+        context,
+        source: context.createMediaElementSource(media),
+        parts: new Map(),
+        nodes: [],
+      };
       graphs.set(media, graph);
       // A context made outside a click starts suspended; playing resumes it.
       media.addEventListener("play", () => void graph?.context.resume());
@@ -242,10 +260,36 @@ export function useChannelMix(
     const { context, source } = graph;
     for (const node of graph.nodes) node.disconnect();
     source.disconnect();
-    const splitter = context.createChannelSplitter(channels);
-    source.connect(splitter);
-    const levels = channelGains(channels, mix);
-    const nodes: AudioNode[] = [splitter];
+    for (const part of graph.parts.values()) part.disconnect();
+    // Each stream's channels, from the recording's channel where it starts.
+    const streams = losslessParts(channels);
+    const inputs = parts.length > 0 ? streams.slice(0, parts.length + 1) : [streams[0]];
+    const splitters = inputs.map((stream, i) => {
+      const element = i === 0 ? null : parts[i - 1];
+      let input: MediaElementAudioSourceNode = source;
+      if (element) {
+        // An element feeds Web Audio once, for good: its source is kept for every rebuild.
+        input = graph.parts.get(element) ?? context.createMediaElementSource(element);
+        graph.parts.set(element, input);
+      }
+      const count = i === 0 && parts.length === 0 ? channels : (stream?.count ?? channels);
+      const splitter = context.createChannelSplitter(count);
+      input.connect(splitter);
+      return { splitter, from: stream?.from ?? 0, count };
+    });
+    /** Connects a channel of the recording, wherever it travels, to a node. */
+    const tap = (channel: number, node: AudioNode) => {
+      const carrier = splitters.find((s) => channel >= s.from && channel < s.from + s.count);
+      carrier?.splitter.connect(node, channel - carrier.from);
+    };
+    // What the parts carry is all there is to hear; a channel no stream carries stays silent.
+    const heard = splitters.reduce((n, s) => Math.max(n, s.from + s.count), 0);
+    const levels = channelGains(heard, mix);
+    const nodes: AudioNode[] = splitters.map((s) => s.splitter);
+    // A wide layout as recorded on a device with fewer outputs is folded down here, as the
+    // browser does for one stream: otherwise it would only drop the channels it has no room for.
+    const outputs = context.destination.maxChannelCount || 2;
+    const fold = mix.downmix || (parts.length > 0 && !mix.binaural && heard > outputs);
     // A fold-down needs to know which speaker each channel is; without that, none is made.
     if (mix.binaural && labels && canBinaural(labels)) {
       // Each speaker at its place around the listener, through the browser's HRTF; the LFE
@@ -257,7 +301,7 @@ export function useChannelMix(
       labels.forEach((label, i) => {
         const gain = context.createGain();
         gain.gain.value = levels[i] ?? 0;
-        splitter.connect(gain, i);
+        tap(i, gain);
         nodes.push(gain);
         const direction = speakerDirection(label, labels);
         // canBinaural leaves only the LFE without a place: to both ears.
@@ -282,7 +326,7 @@ export function useChannelMix(
       context.destination.channelCount = 2;
       out.connect(context.destination);
       nodes.push(out);
-    } else if (mix.downmix && labels) {
+    } else if (fold && labels) {
       const merger = context.createChannelMerger(2);
       downmixGains(labels).forEach((share, i) => {
         for (const [output, amount] of [
@@ -292,7 +336,7 @@ export function useChannelMix(
           if (amount === 0) continue;
           const gain = context.createGain();
           gain.gain.value = amount * (levels[i] ?? 0);
-          splitter.connect(gain, i);
+          tap(i, gain);
           gain.connect(merger, 0, output);
           nodes.push(gain);
         }
@@ -301,21 +345,20 @@ export function useChannelMix(
       nodes.push(merger);
     } else {
       // Every channel as recorded; a device with fewer outputs folds them down itself.
-      const merger = context.createChannelMerger(channels);
+      const merger = context.createChannelMerger(heard);
       levels.forEach((level, i) => {
         const gain = context.createGain();
         gain.gain.value = level;
-        splitter.connect(gain, i);
+        tap(i, gain);
         gain.connect(merger, 0, i);
         nodes.push(gain);
       });
-      const outputs = Math.min(channels, context.destination.maxChannelCount || 2);
-      context.destination.channelCount = Math.max(outputs, 1);
+      context.destination.channelCount = Math.max(Math.min(heard, outputs), 1);
       context.destination.channelInterpretation = "speakers";
       merger.connect(context.destination);
       nodes.push(merger);
     }
     graph.nodes = nodes;
     if (!media.paused) void context.resume();
-  }, [media, channels, labels, mix]);
+  }, [media, channels, labels, mix, parts]);
 }

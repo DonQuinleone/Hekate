@@ -1,7 +1,7 @@
 import { createCipheriv, randomBytes } from "node:crypto";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import type { MediaInfo } from "@hekate/shared";
+import { losslessParts, type MediaInfo, STREAM_CHANNELS, type StreamPart } from "@hekate/shared";
 import { run, safeInputArgs } from "./ffmpeg.ts";
 
 /**
@@ -60,6 +60,15 @@ function scaled(info: NonNullable<MediaInfo["video"]>, height: number) {
   return { width, height };
 }
 
+/** FLAC's own layout for each channel count, so a part's channels decode in the order given. */
+const FLAC_LAYOUTS = ["mono", "stereo", "3.0", "quad", "5.0", "5.1", "6.1", "7.1"];
+
+/** The filter that takes one part's channels from the recording, by index. */
+export function partFilter(part: StreamPart): string {
+  const routes = Array.from({ length: part.count }, (_, i) => `c${i}=c${part.from + i}`);
+  return `pan=${FLAC_LAYOUTS[part.count - 1]}|${routes.join("|")}`;
+}
+
 export function planRenditions(kind: "audio" | "video", info: MediaInfo): RenditionPlan[] {
   const audio = info.audio;
   // AAC at the source rate when it is a common one, otherwise 48 kHz; stereo at most.
@@ -80,7 +89,6 @@ export function planRenditions(kind: "audio" | "video", info: MediaInfo): Rendit
   if (kind === "audio" || !info.video) {
     if (!audio) return [];
     const depth = audio.bitDepth ?? 16;
-    const channels = Math.min(audio.channels, 8);
     const dolby = DOLBY_PASSTHROUGH[audio.codec];
     return [
       // Dolby Digital and Dolby Digital Plus pass through untouched, so surround and
@@ -103,24 +111,27 @@ export function planRenditions(kind: "audio" | "video", info: MediaInfo): Rendit
         segmentSeconds: 6,
         args: ["-map", "0:a:0", "-vn", ...audioArgs("256k")],
       },
-      // Lossless, for listening that matters: the source's rate, channels and bit depth.
-      {
-        name: "flac",
+      // Lossless, for listening that matters: the source's rate, channels and bit depth. A
+      // browser plays eight channels from one stream at most, so a wider layout travels in
+      // parts of eight, in its own order, which the player hears together (#74).
+      ...losslessParts(audio.channels).map((part) => ({
+        name: part.name,
         codecs: "fLaC",
-        bandwidth: audio.sampleRate * channels * Math.min(depth, 32),
+        bandwidth: audio.sampleRate * part.count * Math.min(depth, 32),
         segmentSeconds: 6,
         args: [
           "-map",
           "0:a:0",
           "-vn",
+          ...(audio.channels > STREAM_CHANNELS ? ["-af", partFilter(part)] : []),
           "-c:a",
           "flac",
           "-sample_fmt",
           depth > 16 ? "s32" : "s16",
           "-ac",
-          String(channels),
+          String(part.count),
         ],
-      },
+      })),
     ];
   }
 

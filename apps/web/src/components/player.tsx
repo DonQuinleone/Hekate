@@ -6,6 +6,8 @@ import {
   formatDuration,
   frameShowing,
   frameTime,
+  isFollowingPart,
+  losslessPartIndex,
   type Matte,
   type MediaInfo,
   mattes,
@@ -13,6 +15,7 @@ import {
   normalisationLabel,
   regionShowsAt,
   type SpectrogramPlace,
+  STREAM_CHANNELS,
   savePreset,
   spectrogramPlaces,
   timecodeFor,
@@ -66,6 +69,7 @@ import { Icon } from "./icons";
 import { LoopControls, LoopSurface } from "./loop";
 import { Spectrogram, type SpectrogramChannelChoice } from "./spectrogram";
 import { SpectrogramLook, SpectrogramSettings } from "./spectrogram-settings";
+import { StreamPart } from "./stream-part";
 import { Button } from "./ui/button";
 import { Input, Select } from "./ui/input";
 import { Dropdown } from "./ui/menu";
@@ -321,7 +325,25 @@ export function Player({
   const labels = useMemo(() => channelLabels(channelLayout, channels), [channelLayout, channels]);
   const names = useMemo(() => speakerNames(labels, channels), [labels, channels]);
   const heardRendition = choices.find((c) => c.level === level)?.rendition.name ?? null;
-  const channelsUnavailable = mixUnavailable(channels, heardRendition);
+  // A layout wider than eight channels (#74) also plays its later channels from parts of their
+  // own, in step with the lossless stream and heard through the same mix.
+  const partRenditions = useMemo(
+    () =>
+      playback.renditions
+        .filter((r) => isFollowingPart(r.name))
+        .sort((a, b) => (losslessPartIndex(a.name) ?? 0) - (losslessPartIndex(b.name) ?? 0)),
+    [playback.renditions],
+  );
+  const carried = Math.min(channels, STREAM_CHANNELS * (partRenditions.length + 1));
+  const [partElements, setPartElements] = useState<(HTMLAudioElement | null)[]>([]);
+  const playsParts = kind === "audio" && heardRendition === "flac" && partRenditions.length > 0;
+  const parts = useMemo(() => {
+    const ready = partElements.slice(0, partRenditions.length);
+    return playsParts && ready.length === partRenditions.length && ready.every(Boolean)
+      ? (ready as HTMLAudioElement[])
+      : [];
+  }, [playsParts, partElements, partRenditions.length]);
+  const channelsUnavailable = mixUnavailable(channels, heardRendition, carried);
   // Folding down or placing the speakers needs each channel's speaker; a file that does not
   // say offers neither.
   const heardMix = channelsUnavailable
@@ -329,7 +351,7 @@ export function Player({
     : labels
       ? { ...mix, binaural: mix.binaural && canBinaural(labels) }
       : { ...mix, downmix: false, binaural: false };
-  useChannelMix(element, channels, labels, heardMix);
+  useChannelMix(element, channels, labels, heardMix, parts);
   const view: WaveformView = split && channels > 1 ? "channels" : "combined";
   const display: Display =
     !canSpectrogram || playerView.spectrogram === "off"
@@ -765,7 +787,26 @@ export function Player({
           {mark && <VideoMark mark={mark} />}
         </div>
       ) : (
-        <audio ref={media} {...events} />
+        <>
+          <audio ref={media} {...events} />
+          {playsParts &&
+            element &&
+            partRenditions.map((rendition, i) => (
+              <StreamPart
+                key={rendition.id}
+                playback={playback}
+                rendition={rendition}
+                master={element}
+                onElement={(part) =>
+                  setPartElements((all) => {
+                    const next = [...all];
+                    next[i] = part;
+                    return next;
+                  })
+                }
+              />
+            ))}
+        </>
       )}
       {failure ? (
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4">
