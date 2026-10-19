@@ -17,7 +17,7 @@
   "dependencies": {
     "@hekate/shared": "workspace:*",
     "drizzle-orm": "^0.45.4",
-    "kysely": "0.29.6",
+    "kysely": "0.29.7",
     "postgres": "^3.4.9"
   },
   "devDependencies": {
