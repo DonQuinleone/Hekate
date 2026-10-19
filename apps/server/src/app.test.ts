@@ -8528,6 +8528,15 @@ describe.runIf(url)("api", () => {
             expect(added.status).toBe(201);
           };
 
+          // Whoever follows the track hears of a new status (#110).
+          expect(
+            (
+              await app.request(
+                "/api/notifications/follows",
+                json({ trackId: s.trackId }, s.accompanist),
+              )
+            ).status,
+          ).toBe(204);
           // A new version starts it: the conductor is asked, and the track says so.
           await newVersion("Mix v2.wav");
           let [run] = await runs(s.composer);
@@ -8537,6 +8546,17 @@ describe.runIf(url)("api", () => {
             waiting: [{ nodeId: "fb" }],
           });
           expect(await statusOf()).toBe("With conductor");
+          const statusNews = (
+            (await (await getAs("/api/notifications", s.accompanist)).json()) as {
+              notifications: { kind: string; text: string }[];
+            }
+          ).notifications;
+          expect(statusNews).toContainEqual(
+            expect.objectContaining({
+              kind: "workflow",
+              text: "Maple Leaf Rag is now With conductor",
+            }),
+          );
           // The board (#141) has the track under its status, waiting at its stage; its columns
           // come from the workflow, in the order a run reaches them.
           type BoardBody = {

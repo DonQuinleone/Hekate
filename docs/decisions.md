@@ -609,3 +609,7 @@ Copying a workflow from another project of the workspace (#26) needs nothing new
 ## 130. A track's page says where its workflow has it
 
 A track's versions page carries the prototype's line (#26): the status its workflow gave it, read by the project's status set (decision 128), the step its run waits at, and *Next:* the step it usually reaches after, by the waiting step's first outcome and past anything done at once (`nextStep` in `packages/shared`). It is read from `/api/tracks/:id/workflow-standing` by whoever sees the track, as the board's cards are; the run's log and ending a step by hand stay with those who edit workflows.
+
+## 131. A track's followers hear when its workflow gives it a new status
+
+When a workflow sets a track's status (a step's status, or a finish's) to one it did not already hold, everyone who follows the track is told under the *workflow* kind (#110): "Maple Leaf Rag is now With the label", linking to the track. Whoever moved it is not told of their own move, and a status set again unchanged (in whatever case, decision 128) tells nobody. The track is locked as its run moves it, so two runs moving it at once take turns and its followers hear of one change once. The mail says why it came: the workflow names them or their role, or they follow the track it moved. Stage changes are told as before: those a stage asks are asked, and a notify step tells whom it names.

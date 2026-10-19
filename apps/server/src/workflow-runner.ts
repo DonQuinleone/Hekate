@@ -4,6 +4,7 @@ import {
   completeNode,
   type MeasuredFile,
   measuredState,
+  sameStatus,
   stageClock,
   startRun,
   triggersOf,
@@ -17,7 +18,7 @@ import { HTTPException } from "hono/http-exception";
 import { lockLiveProject } from "./access.ts";
 import { NotFound } from "./errors.ts";
 import type { Jobs } from "./jobs.ts";
-import { projectPeople, recordNotification } from "./notifications.ts";
+import { followersOf, projectPeople, recordNotification } from "./notifications.ts";
 import { qaReportOf } from "./routes/qa.ts";
 import type { ReviewDeps } from "./routes/reviews.ts";
 import { nameOf, nextTaskNumber, recordTaskEvent } from "./tasks.ts";
@@ -199,10 +200,15 @@ async function apply(
       byUserId: from.byUserId,
     })
     .returning({ id: workflowSteps.id });
+  // Locked (always after its run), so two runs moving the track at once take turns, and each
+  // sees the status the other left: its followers hear of a change once.
   const [track] = await tx
-    .select({ name: tracks.name })
+    .select({ name: tracks.name, status: tracks.workflowStatus })
     .from(tracks)
-    .where(inOrg(tracks, organisationId, eq(tracks.id, trackId)));
+    .where(inOrg(tracks, organisationId, eq(tracks.id, trackId)))
+    .for("update");
+  // The status it held before this move, to tell its followers only of a real change.
+  let held = track?.status ?? null;
   const node = (id: string) => row.definition.nodes.find((n) => n.id === id);
   const after: After[] = [];
   // A task stage ended done by hand: its open task is done too, so the list agrees.
@@ -229,6 +235,14 @@ async function apply(
         .update(tracks)
         .set({ workflowStatus: status, updatedAt: new Date() })
         .where(inOrg(tracks, organisationId, eq(tracks.id, trackId)));
+      // Those who follow the track hear of its new status (#110), but not whoever moved it.
+      if (status && !(held && sameStatus(held, status))) {
+        const followers = (await followersOf(tx, organisationId, { trackId })).filter(
+          (id) => id !== from.byUserId,
+        );
+        await tell(followers, `${track?.name ?? "A track"} is now ${status}`);
+      }
+      held = status;
     } else if (effect.kind === "do" && effect.type === "notify") {
       const to = await peopleNamed(tx, organisationId, projectId, effect.config.to);
       await tell(
