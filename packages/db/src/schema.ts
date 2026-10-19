@@ -586,11 +586,17 @@ export const sessions = pgTable(
     /** Where it was recorded, for example "Endless Hall, studio 2". */
     venue: text("venue"),
     position: integer("position").notNull().default(0),
+    /** How the take log numbers its takes (#51): continuous, per-track or recorder. */
+    numbering: text("numbering").notNull().default("per-track"),
+    /** The booked slot the take log counts down to. */
+    slotStart: timestamp("slot_start", { withTimezone: true }),
+    slotEnd: timestamp("slot_end", { withTimezone: true }),
     ...timestamps,
   },
   (t) => [
     index("sessions_org_idx").on(t.organisationId),
     index("sessions_project_idx").on(t.projectId),
+    check("sessions_numbering", sql`${t.numbering} in ('continuous', 'per-track', 'recorder')`),
   ],
 );
 
@@ -733,6 +739,20 @@ export const takes = pgTable(
     /** The part of the recording that counts, in seconds; null is from the start, to the end. */
     inPoint: doublePrecision("in_point"),
     outPoint: doublePrecision("out_point"),
+    /**
+     * Where it is in the control room (#51): idle, armed, recording, recorded or aborted. A
+     * take made from a file is recorded.
+     */
+    lifecycle: text("lifecycle").notNull().default("recorded"),
+    falseStarts: integer("false_starts").notNull().default(0),
+    /** The recorder's timecode where it started and stopped, as written: 10:00:00:00. */
+    timecodeIn: text("timecode_in"),
+    timecodeOut: text("timecode_out"),
+    /** When it started and stopped rolling, by the wall clock. */
+    wallIn: timestamp("wall_in", { withTimezone: true }),
+    wallOut: timestamp("wall_out", { withTimezone: true }),
+    /** The page it ends on, where it turns one. */
+    pageTo: integer("page_to"),
     ...timestamps,
   },
   (t) => [
@@ -742,6 +762,11 @@ export const takes = pgTable(
     // "Which takes cover bar 72?" is a range query per track.
     index("takes_coverage_idx").on(t.organisationId, t.trackId, t.barFrom, t.barTo),
     check("takes_rating_range", sql`${t.rating} between 0 and 5`),
+    check(
+      "takes_lifecycle",
+      sql`${t.lifecycle} in ('idle', 'armed', 'recording', 'recorded', 'aborted')`,
+    ),
+    check("takes_false_starts", sql`${t.falseStarts} >= 0`),
     check(
       "takes_bars_order",
       sql`${t.barFrom} is null or ${t.barTo} is null or ${t.barFrom} <= ${t.barTo}`,

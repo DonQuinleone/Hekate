@@ -2,12 +2,17 @@ import { describe, expect, it } from "vitest";
 import {
   barSpan,
   barsLabel,
+  canMoveTake,
   clockOf,
   coverageGaps,
   covers,
   gapsLabel,
+  nextTakeNumber,
   parseClock,
+  slotProblem,
+  startTakeInput,
   takeChangeInput,
+  takeLogCsv,
   takeProblem,
   takesCovering,
 } from "./takes.ts";
@@ -104,5 +109,98 @@ describe("a bar in a take", () => {
     expect(barSpan(take, 17)).toBeNull();
     expect(barSpan({ ...take, outPoint: null, duration: null }, 9)).toBeNull();
     expect(barSpan({ ...take, barFrom: null, barTo: null }, 9)).toBeNull();
+  });
+});
+
+describe("the take log (#51)", () => {
+  it("moves a take only where a control room would", () => {
+    expect(canMoveTake("idle", "recording")).toBe(true);
+    expect(canMoveTake("armed", "recording")).toBe(true);
+    expect(canMoveTake("recording", "recorded")).toBe(true);
+    expect(canMoveTake("recording", "aborted")).toBe(true);
+    expect(canMoveTake("aborted", "recorded")).toBe(true);
+    expect(canMoveTake("recorded", "recorded")).toBe(true);
+    expect(canMoveTake("recorded", "recording")).toBe(false);
+    expect(canMoveTake("aborted", "recording")).toBe(false);
+    expect(canMoveTake("idle", "recorded")).toBe(false);
+  });
+
+  it("numbers on across the project, per track, or as the recorder does", () => {
+    const last = { project: 40, track: 7 };
+    expect(nextTakeNumber("continuous", last)).toBe(41);
+    expect(nextTakeNumber("per-track", last)).toBe(8);
+    expect(nextTakeNumber("recorder", last, 112)).toBe(112);
+    // Without the recorder's number, its track's next.
+    expect(nextTakeNumber("recorder", last)).toBe(8);
+    expect(nextTakeNumber("continuous", { project: 0, track: 0 })).toBe(1);
+  });
+
+  it("refuses a slot that ends before it starts", () => {
+    expect(slotProblem("2026-10-14T14:00:00Z", "2026-10-14T16:00:00Z")).toBeNull();
+    expect(slotProblem("2026-10-14T14:00:00Z", "2026-10-14T14:00:00Z")).toBe(
+      "The slot ends before it starts",
+    );
+    expect(slotProblem(null, "2026-10-14T14:00:00Z")).toBeNull();
+  });
+
+  it("starts rolling unless armed, and takes only a timecode as one", () => {
+    expect(startTakeInput.parse({ trackId: "0199f000-0000-7000-8000-000000000001" })).toEqual({
+      trackId: "0199f000-0000-7000-8000-000000000001",
+      lifecycle: "recording",
+    });
+    expect(
+      startTakeInput.safeParse({
+        trackId: "0199f000-0000-7000-8000-000000000001",
+        timecodeIn: "10:00",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("writes the log as a spreadsheet, with nobody's notes read as a formula", () => {
+    const take = {
+      id: "t",
+      number: 12,
+      label: null,
+      notes: '=HYPERLINK("x"), then a good ending',
+      rating: 4,
+      starred: true,
+      page: 3,
+      pageTo: 4,
+      sessionId: "s",
+      lifecycle: "recorded" as const,
+      falseStarts: 2,
+      timecodeIn: "11:02:14:00",
+      timecodeOut: "11:04:01:12",
+      wallIn: "2026-10-14T14:02:14.000Z",
+      wallOut: "2026-10-14T14:04:01.000Z",
+      barFrom: 65,
+      barTo: 88,
+      inPoint: null,
+      outPoint: null,
+      file: null,
+      createdAt: "2026-10-14T14:02:14.000Z",
+      track: { id: "k", name: "Maple Leaf Rag" },
+    };
+    const csv = takeLogCsv([
+      take,
+      {
+        ...take,
+        number: 13,
+        lifecycle: "aborted",
+        notes: null,
+        rating: 0,
+        starred: false,
+        falseStarts: 0,
+        page: null,
+        barFrom: null,
+        barTo: null,
+      },
+    ]);
+    expect(csv.split("\r\n")).toEqual([
+      "Take,Track,State,Rating,Starred,False starts,Timecode in,Timecode out,Wall clock in,Wall clock out,Page,Bars,Notes",
+      `12,Maple Leaf Rag,Recorded,4,Yes,2,11:02:14:00,11:04:01:12,2026-10-14T14:02:14.000Z,2026-10-14T14:04:01.000Z,3–4,65–88,"'=HYPERLINK(""x""), then a good ending"`,
+      "13,Maple Leaf Rag,Aborted,,,,11:02:14:00,11:04:01:12,2026-10-14T14:02:14.000Z,2026-10-14T14:04:01.000Z,,,",
+      "",
+    ]);
   });
 });

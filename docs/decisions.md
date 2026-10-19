@@ -784,3 +784,16 @@ The rest of #55: what the prototype's People page and workspace Defaults show.
 ## 148. A video's QA reads like its delivery sheet
 
 #42. A video's QA view follows the prototype's (`qa-video.tsx`). The picture shrinks to 300 pixels beside its filmstrip and transport (the same element, so switching views never stops it, and comparing cuts is left to the review view). Above the checks, four tiles give loudness, true peak, the picture and the length, each with what the profile asks or where the timecode starts. The measured checks are listed as for a recording. The delivery checks sit apart in a delivery checklist, each once at its worst, so nothing is said twice. On the right are the streams as a delivery sheet gives them, the frames worth a look (taken from the filmstrip, a click away from the moment), and the embedded metadata. The prototype's checklist also names what cannot yet be measured (head and tail, slates, captions, a checksum); those wait for their checks.
+
+## 149. The take log writes ordinary takes, numbered as the session says
+
+#51, first part. The take log does not keep a list of its own: each take it logs is a row in `takes`, of its track and in its session, so the take manager, coverage and import (#21, #45) see it at once.
+
+- **Lifecycle.** A take is idle, armed, recording, recorded or aborted. It may go from idle or armed to recording, from recording to recorded or aborted, back from armed to idle, and an aborted take may be counted after all; a recorded take never rolls again. Takes made from files, and those already kept, are recorded. A move is checked against the state it was read in, so two people stopping one take at once cannot overwrite each other: the second is told the take changed.
+- **Wall clock.** Rolling and stopping are timed by the server's clock unless the log gives the times itself (as one written offline will). The recorder's timecode in and out are kept as written.
+- **Numbering, per session.** *Continuous* runs on from the project's last take, whichever track it was of, so every take of a recording has its own number, as a classical session counts them; *per track* runs on from the track's last take; *recorder* takes the recorder's number as given, refused when that number is already logged for the track. Numbers stay unique per track: continuous numbers are above every number in the project, and the project's takes are numbered one at a time under an advisory lock.
+- **Session.** A session says how it numbers and the slot it is booked for, which the take log counts down to. A take logged in a session for a track it did not name adds the track to it.
+- **More of a take.** False starts, the page a take ends on (beside the page it starts on and its bars), and both timecodes.
+- **Export.** The log as CSV is built in the browser from the session the page already holds, like the task list's; notes and names are never read as formulas.
+
+Several people at once with their own views, local-first writes, the session clock and the tone and metronome follow in the next parts.

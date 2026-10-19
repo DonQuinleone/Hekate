@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { timecodePattern } from "./video-time.ts";
 
 /**
  * Takes (#21, #46): recording-session snippets made for a track, never versions of it. Each is
@@ -39,6 +40,60 @@ export type TakeImport = z.infer<typeof takeImportInput>;
 /** Takes of the thread's track shared on it (#133), for everyone who sees the thread to hear. */
 export const shareTakesInput = z.object({ takeIds: z.array(z.uuid()).min(1).max(50) });
 
+/**
+ * Where a take is in the control room (#51): waiting, armed, rolling, done, or stopped short.
+ * Takes made from files are recorded already.
+ */
+export const takeLifecycles = ["idle", "armed", "recording", "recorded", "aborted"] as const;
+export type TakeLifecycle = (typeof takeLifecycles)[number];
+
+/** Where a take may go from each state; an aborted take can be counted after all. */
+const lifecycleMoves: Record<TakeLifecycle, readonly TakeLifecycle[]> = {
+  idle: ["armed", "recording", "aborted"],
+  armed: ["idle", "recording", "aborted"],
+  recording: ["recorded", "aborted"],
+  recorded: ["aborted"],
+  aborted: ["recorded"],
+};
+
+/** Whether a take may move from one state to another; staying put always may. */
+export const canMoveTake = (from: TakeLifecycle, to: TakeLifecycle) =>
+  from === to || lifecycleMoves[from].includes(to);
+
+/**
+ * How a session numbers the takes logged in it (#51): on from the project's last take, so
+ * every take of the recording has its own number; from each track's last; or as the recorder
+ * numbers them.
+ */
+export const takeNumberings = ["continuous", "per-track", "recorder"] as const;
+export type TakeNumbering = (typeof takeNumberings)[number];
+
+/** The number the next take gets, from the highest numbers so far (0 for none). */
+export function nextTakeNumber(
+  numbering: TakeNumbering,
+  last: { project: number; track: number },
+  given?: number,
+): number {
+  if (numbering === "recorder" && given !== undefined) return given;
+  return (numbering === "continuous" ? last.project : last.track) + 1;
+}
+
+const timecode = z.string().regex(timecodePattern, "A timecode such as 10:00:00:00");
+const moment = z.iso.datetime({ offset: true });
+
+/**
+ * A take started in the take log (#51): the track it is of, and optionally the recorder's
+ * number and timecode. It starts rolling, or armed to roll.
+ */
+export const startTakeInput = z.object({
+  trackId: z.uuid(),
+  lifecycle: z.enum(["armed", "recording"]).default("recording"),
+  /** The recorder's number, for a session numbered by the recorder. */
+  number: z.number().int().min(1).max(100_000).optional(),
+  timecodeIn: timecode.optional(),
+});
+export type StartTake = z.infer<typeof startTakeInput>;
+
 /** What changes on a take; anything left out stays as it is. */
 export const takeChangeInput = z.object({
   label: z.string().trim().max(120).nullable().optional(),
@@ -52,6 +107,15 @@ export const takeChangeInput = z.object({
   outPoint: seconds.nullable().optional(),
   /** The session it was recorded in, of the same project; null for none. */
   sessionId: z.uuid().nullable().optional(),
+  // The take log's (#51).
+  lifecycle: z.enum(takeLifecycles).optional(),
+  falseStarts: z.number().int().min(0).max(99).optional(),
+  timecodeIn: timecode.nullable().optional(),
+  timecodeOut: timecode.nullable().optional(),
+  wallIn: moment.nullable().optional(),
+  wallOut: moment.nullable().optional(),
+  /** The page the take ends on, where it turns one. */
+  pageTo: z.number().int().min(1).max(10_000).nullable().optional(),
 });
 export type TakeChange = z.infer<typeof takeChangeInput>;
 
@@ -65,6 +129,11 @@ export const sessionInput = z.object({
   recordedOn: z.iso.date().nullable().optional(),
   venue: z.string().trim().max(200).nullable().optional(),
   trackIds: z.array(z.uuid()).max(200).optional(),
+  /** How the take log numbers its takes (#51). */
+  numbering: z.enum(takeNumberings).optional(),
+  /** The booked slot, which the take log counts down to. */
+  slotStart: moment.nullable().optional(),
+  slotEnd: moment.nullable().optional(),
 });
 export type SessionInput = z.infer<typeof sessionInput>;
 export const sessionChangeInput = sessionInput.partial();
@@ -77,6 +146,9 @@ export interface SessionSummary {
   name: string;
   recordedOn: string | null;
   venue: string | null;
+  numbering: TakeNumbering;
+  slotStart: string | null;
+  slotEnd: string | null;
   tracks: { id: string; name: string }[];
   /** The takes recorded in it, how many are starred, and how long they run together. */
   takes: number;
@@ -95,6 +167,12 @@ export interface TakePlace {
   barTo: number | null;
   inPoint: number | null;
   outPoint: number | null;
+}
+
+/** Why a session's slot cannot be, or null when it can. */
+export function slotProblem(start: string | null, end: string | null): string | null {
+  if (start && end && Date.parse(end) <= Date.parse(start)) return "The slot ends before it starts";
+  return null;
 }
 
 /** Why a take's bars or in and out points cannot be, or null when they can. */
@@ -118,6 +196,14 @@ export interface TakeRow extends TakePlace {
   page: number | null;
   /** The session it was recorded in, if any. */
   sessionId: string | null;
+  lifecycle: TakeLifecycle;
+  falseStarts: number;
+  timecodeIn: string | null;
+  timecodeOut: string | null;
+  /** When it started and stopped rolling, by the wall clock. */
+  wallIn: string | null;
+  wallOut: string | null;
+  pageTo: number | null;
   /** Its scratch mix; null once the file is gone. */
   file: { id: string; name: string; duration: number | null; streamStatus: string } | null;
   createdAt: string;
@@ -237,4 +323,60 @@ export function clockOf(seconds: number): string {
   const s = String(whole % 60).padStart(2, "0");
   const fraction = tenths % 10 ? `.${tenths % 10}` : "";
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}${fraction}` : `${m}:${s}${fraction}`;
+}
+
+const csvCell = (s: string) => (/[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+/** People's words in a spreadsheet cell: never read as a formula (OWASP's CSV injection). */
+const spreadsheetText = (s: string) => (/^[=+\-@\t\r]/.test(s) ? `'${s}` : s);
+
+/** How each state is said, in the take log and its export. */
+export const takeLifecycleNames: Record<TakeLifecycle, string> = {
+  idle: "Waiting",
+  armed: "Armed",
+  recording: "Recording",
+  recorded: "Recorded",
+  aborted: "Aborted",
+};
+
+/** A session's take log as a spreadsheet (#51), one take a row, in the order given. */
+export function takeLogCsv(rows: SessionDetail["takeRows"]): string {
+  const header = [
+    "Take",
+    "Track",
+    "State",
+    "Rating",
+    "Starred",
+    "False starts",
+    "Timecode in",
+    "Timecode out",
+    "Wall clock in",
+    "Wall clock out",
+    "Page",
+    "Bars",
+    "Notes",
+  ];
+  const pages = (t: TakeRow) =>
+    t.page === null
+      ? ""
+      : t.pageTo && t.pageTo !== t.page
+        ? `${t.page}–${t.pageTo}`
+        : String(t.page);
+  const bars = (t: TakeRow) =>
+    t.barFrom === null ? "" : t.barTo === null ? String(t.barFrom) : `${t.barFrom}–${t.barTo}`;
+  const body = rows.map((t) => [
+    String(t.number),
+    spreadsheetText(t.track.name),
+    takeLifecycleNames[t.lifecycle],
+    t.rating ? String(t.rating) : "",
+    t.starred ? "Yes" : "",
+    t.falseStarts ? String(t.falseStarts) : "",
+    t.timecodeIn ?? "",
+    t.timecodeOut ?? "",
+    t.wallIn ?? "",
+    t.wallOut ?? "",
+    pages(t),
+    bars(t),
+    spreadsheetText(t.notes ?? ""),
+  ]);
+  return `${[header, ...body].map((r) => r.map(csvCell).join(",")).join("\r\n")}\r\n`;
 }
