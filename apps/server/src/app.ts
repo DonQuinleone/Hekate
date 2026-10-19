@@ -16,6 +16,7 @@ import { rateLimit } from "./rate-limit.ts";
 import { attachmentRoutes } from "./routes/attachments.ts";
 import { projectBoardRoutes } from "./routes/board.ts";
 import { calendarFeedRoutes, projectCalendarRoutes } from "./routes/calendar.ts";
+import { captionRoutes } from "./routes/captions.ts";
 import { categoryRoutes, projectCategoryRoutes } from "./routes/categories.ts";
 import { carryRoutes, commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
 import { directoryRoutes } from "./routes/directory.ts";
@@ -336,6 +337,7 @@ export function createApi(deps: AppDeps) {
       .route("/files", fileDetailRoutes(deps.db))
       .route("/files", fileDownloadRoutes(downloads))
       .route("/files", attachmentRoutes(downloads))
+      .route("/files", captionRoutes(downloads))
       .use("/downloads/*", viewer)
       .route("/downloads", downloadRoutes(downloads))
       .use("/reviews/*", viewer)

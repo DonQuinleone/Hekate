@@ -52,6 +52,7 @@ import { initialFocus, type PageFocus } from "~/lib/pages";
 import { usePanelLayout } from "~/lib/panel-layout";
 import { usePlayerView } from "~/lib/player-view";
 import {
+  captionsQuery,
   commentsQuery,
   compareFamilyQuery,
   downloadsQuery,
@@ -164,6 +165,11 @@ function Playback({
   // Only a recording plays: asking for a document's playback would log a session for nothing.
   const plays = file.kind === "audio" || file.kind === "video";
   const { data, error } = useQuery({ ...playbackQuery(file.id), enabled: ready && plays });
+  // A video's captions from sidecar files (#146), offered in the player's Frame menu.
+  const { data: captions } = useQuery({
+    ...captionsQuery(file.id),
+    enabled: file.kind === "video",
+  });
   if (pages) {
     // Seen only as pages the server draws: never the file itself.
     if (file.streamStatus === "ready")
@@ -208,6 +214,7 @@ function Playback({
       cue={cue}
       tools={file.grant?.tools ?? file.tools ?? null}
       mark={file.watermark}
+      captions={captions}
       normalisation={file.normalisation}
       normalised={normalised}
       onNormalised={onNormalised}

@@ -93,6 +93,21 @@ export function FileDetailsSheet({ file, onClose }: { file: File; onClose: () =>
             The original never leaves storage except through a permitted, watermarked download.
           </span>
         </section>
+        {file.kind === "video" && (
+          <section className="flex flex-col gap-1.5">
+            <Label>Captions</Label>
+            {/* Sidecar files (#146), named for the Frame menu, which lays them over the picture. */}
+            <span className="flex items-center gap-2 text-[13px]">
+              <span className="text-ink">English</span>
+              <span className="truncate text-ink-3">TTML · 48 captions</span>
+            </span>
+            <div>
+              <Button variant="secondary" size="sm">
+                Add captions…
+              </Button>
+            </div>
+          </section>
+        )}
         <section className="flex flex-col gap-1.5">
           <Label>Access · {log.length}</Label>
           {log.map((e) => (

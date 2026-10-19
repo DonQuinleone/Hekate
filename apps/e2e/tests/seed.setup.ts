@@ -225,6 +225,31 @@ setup("seed", async ({ page, browser }) => {
   const score = named("Score");
   const dry = named("Dry v2");
   if (!cutFile) throw new Error("The cut did not upload");
+  // Its captions, from a sidecar file (#146).
+  const captioned = await page.request.fetch(
+    `/api/files/${cutFile.id}/captions?label=${encodeURIComponent("English")}`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/octet-stream",
+        "x-file-name": encodeURIComponent("Opening titles - Cut 3 - English.srt"),
+      },
+      data: Buffer.from(
+        [
+          "1",
+          "00:00:00,000 --> 00:00:04,000",
+          "ENDLESS HALL RECORDS",
+          "PRESENTS",
+          "",
+          "2",
+          "00:00:06,000 --> 00:00:10,000",
+          "OPENING TITLES",
+          "",
+        ].join("\n"),
+      ),
+    },
+  );
+  expect(captioned.ok(), await captioned.text()).toBe(true);
 
   // A deliverable (#16): a track in the video project, its first cut in two renditions, one
   // said to be clean and graded.

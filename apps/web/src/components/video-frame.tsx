@@ -1,4 +1,6 @@
 import {
+  type CaptionCue,
+  cuesAt,
   type Matte,
   matteBars,
   mattes,
@@ -15,6 +17,51 @@ import { Input } from "./ui/input";
 import { usePopover } from "./ui/menu";
 
 const share = (n: number) => `${n * 100}%`;
+
+/**
+ * Captions over the picture (#146), from the sidecar chosen in the Frame menu: what is said at
+ * the playhead, low in the picture itself and sized with it, as a television lays them.
+ */
+export function CaptionText({
+  aspect,
+  cues,
+  time,
+}: {
+  aspect: number;
+  cues: readonly CaptionCue[];
+  time: number;
+}) {
+  const now = cuesAt(cues, time);
+  return (
+    <div
+      data-e2e-overlap
+      className="pointer-events-none absolute inset-0 flex items-center justify-center select-none"
+    >
+      <div
+        className={cn(
+          "@container relative max-h-full max-w-full",
+          aspect >= 16 / 9 ? "w-full" : "h-full",
+        )}
+        style={{ aspectRatio: aspect }}
+      >
+        {/* Read out as it changes, for whoever cannot hear it. */}
+        <div
+          aria-live="polite"
+          className="absolute inset-x-[10%] bottom-[8%] flex flex-col items-center gap-1 text-center"
+        >
+          {now.map((cue) => (
+            <span
+              key={`${cue.start}-${cue.text}`}
+              className="rounded-[3px] bg-paper-ink/75 px-2 py-0.5 text-[max(12px,2.6cqw)] leading-snug whitespace-pre-line text-paper"
+            >
+              {cue.text}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Mattes and safe areas over the picture (#146), as the prototype's Frame menu lays them:

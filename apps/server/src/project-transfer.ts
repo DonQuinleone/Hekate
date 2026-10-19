@@ -57,6 +57,7 @@ export const transferTables = {
     "spectrograms",
     "file_pages",
     "file_tags",
+    "caption_tracks",
     "blobs",
     "groups",
     "group_members",
@@ -152,6 +153,7 @@ function objectsOf(projectId: string, from: string) {
       union ${blobsOf("spectrograms", "blob_id", sql`file_id in ${files}`)}
       union ${blobsOf("file_pages", "blob_id", sql`file_id in ${files}`)}
       union ${blobsOf("file_pages", "thumb_blob_id", sql`file_id in ${files}`)}
+      union ${blobsOf("caption_tracks", "blob_id", sql`file_id in ${files}`)}
     )`;
 }
 
@@ -531,6 +533,7 @@ async function moveRows(tx: Tx, projectId: string, from: string, to: string) {
       "spectrograms",
       "file_pages",
       "file_tags",
+      "caption_tracks",
     ].map((t): [string, SQL] => [t, sql`file_id in ${files}`]),
     ["alignments", sql`from_file_id in ${files}`],
     ...[

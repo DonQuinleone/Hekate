@@ -1712,6 +1712,26 @@ test("deliverable-compare-cuts", async ({ page }) => {
   await checkScreen(page);
 });
 
+// A video's captions from a sidecar file (#146): shown over the picture from the Frame menu,
+// and listed in its details, where whoever may upload adds and removes them.
+test("video-captions", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().cutFileId}`);
+  await page.getByRole("button", { name: "Frame" }).click();
+  await page.getByRole("menuitemradio", { name: "Captions" }).click();
+  await settle(page, "main >> text=ENDLESS HALL RECORDS");
+  await saveScreen(page, "video-captions");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Details" }).click();
+  const details = page.getByRole("complementary", { name: "Details" });
+  await expect(details.getByRole("list", { name: "Captions" })).toContainText(
+    "SubRip · 2 captions",
+  );
+  await details.getByText("Captions", { exact: true }).first().scrollIntoViewIfNeeded();
+  await saveScreen(page, "video-captions-details");
+  await checkScreen(page);
+});
+
 // A new version may start the track's workflow again from a stage (#25), for those who edit
 // workflows; by default it carries on where it is. Not sent, so no other capture sees a run.
 test("track-new-version-restart", async ({ page }) => {
