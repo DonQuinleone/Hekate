@@ -116,7 +116,7 @@ jobs:
       - name: Upload to code scanning
         if: ${{ !cancelled() && steps.trivy.outcome != 'skipped' }}
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           sarif_file: trivy-repo.sarif
           category: trivy-repository
@@ -163,7 +163,7 @@ jobs:
         run: scripts/backup-drill.sh
       - name: Keep the captures
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: screens
           path: apps/e2e/test-results/screens
@@ -254,7 +254,7 @@ jobs:
       - name: Upload to code scanning
         if: ${{ !cancelled() && steps.trivy.outcome != 'skipped' }}
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           sarif_file: trivy-image.sarif
           category: trivy-image
