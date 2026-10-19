@@ -13,6 +13,7 @@ import {
   placeTakes,
   proposeTakeImport,
   renameSession,
+  sameSpan,
   takeHeld,
 } from "./take-import.ts";
 import { readWaveHeader } from "./wave.ts";
@@ -113,6 +114,20 @@ describe("the summed mix among a take's files (#45)", () => {
   });
 });
 
+describe("files recorded together (#45)", () => {
+  it("start within a second, or share at least half of the shorter's length", () => {
+    // Microphones started together, or a few seconds apart and stopped at different times.
+    expect(sameSpan({ start: 100, length: 60 }, { start: 100.5, length: null })).toBe(true);
+    expect(sameSpan({ start: 100, length: 120 }, { start: 103, length: 118 })).toBe(true);
+    expect(sameSpan({ start: 100, length: 120 }, { start: 140, length: 30 })).toBe(true);
+    // One take after another, or a file with no length starting well apart.
+    expect(sameSpan({ start: 100, length: 60 }, { start: 161, length: 60 })).toBe(false);
+    expect(sameSpan({ start: 100, length: 60 }, { start: 150, length: 60 })).toBe(false);
+    expect(sameSpan({ start: 100, length: null }, { start: 105, length: 60 })).toBe(false);
+    expect(sameSpan({ start: null, length: 60 }, { start: 100, length: 60 })).toBe(false);
+  });
+});
+
 describe("proposing the organisation of a day's files (#45)", () => {
   it("groups files into takes and takes into the day's session, matched to tracks", async () => {
     const files = [
@@ -147,8 +162,14 @@ describe("proposing the organisation of a day's files (#45)", () => {
 
   it("joins files without take numbers by their timecode, and reads names by the pattern", async () => {
     const files = [
-      await source("A_Mix.wav", { channels: 2, start: 100, day: "2026-10-13" }, "Day 2"),
+      await source(
+        "A_Mix.wav",
+        { channels: 2, start: 100, seconds: 8, day: "2026-10-13" },
+        "Day 2",
+      ),
       await source("A_Spot.wav", { start: 100.4, day: "2026-10-13" }, "Day 2"),
+      // Started a few seconds late, and stopped late: recorded with them all the same.
+      await source("A_Tree.wav", { start: 103, seconds: 6, day: "2026-10-13" }, "Day 2"),
       await source("B_Mix.wav", { channels: 2, start: 400, day: "2026-10-13" }, "Day 2"),
       await source("Solace T4 Mix.wav", {}, "Day 4/Solace"),
     ];
@@ -161,7 +182,7 @@ describe("proposing the organisation of a day's files (#45)", () => {
     // Recorded the day an existing session was: added to it.
     expect(day2).toMatchObject({ sessionId: "day-2", name: "Day 2" });
     expect(day2?.takes.map((t) => [t.label, t.files.length, t.trackId])).toEqual([
-      ["Take at 00:01:40", 2, null],
+      ["Take at 00:01:40", 3, null],
       ["Take at 00:06:40", 1, null],
     ]);
     // No day or tape: the folder names the session, and the name gives take and track.
