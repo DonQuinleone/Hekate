@@ -61,6 +61,8 @@ export const meRoutes = (db: Database, rule: SecondFactorRule, deps: { maxPasske
         .select({
           id: schema.organisations.id,
           name: schema.organisations.name,
+          // Its address, which someone moving a project here gives (#240).
+          address: schema.organisations.slug,
           role: schema.members.role,
           settings: schema.organisations.settings,
           suspendedAt: schema.organisations.suspendedAt,

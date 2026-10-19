@@ -41,6 +41,7 @@ import { Icon } from "~/components/icons";
 import { Page } from "~/components/page";
 import { VideoMark } from "~/components/player";
 import { ProjectRoles } from "~/components/project-access";
+import { TransferProject } from "~/components/project-transfer";
 import { QaRules } from "~/components/qa-rules";
 import { Danger, Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
 import { Button } from "~/components/ui/button";
@@ -390,6 +391,9 @@ function General({ project }: { project: Project }) {
             </Row>
           )}
           <DeleteProject project={project} />
+          {!project.archivedAt && !project.deletion && (
+            <TransferProject project={project} mayMove={project.mayArchive ?? false} />
+          )}
         </Danger>
       )}
       {confirm && (

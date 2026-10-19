@@ -24,11 +24,12 @@ import { Icon } from "~/components/icons";
 import { Code, Fact, Inspect } from "~/components/inspect";
 import { Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
+import { ConfirmStep } from "~/components/project-transfer";
 import { Danger, Row, Section, SwitchRow } from "~/components/settings";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
-import { Input, Textarea } from "~/components/ui/input";
+import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
 import { StatusDot } from "~/components/ui/status";
@@ -54,6 +55,7 @@ import {
   instanceWorkspaceQuery,
   instanceWorkspacesQuery,
   json,
+  useOperatorMove,
 } from "~/lib/queries";
 
 const since = formatDates({ day: "numeric", month: "short", year: "numeric" });
@@ -680,7 +682,7 @@ function WorkspaceDetail({ id, operator }: { id: string; operator: boolean }) {
           <WorkspaceMembers id={id} operator={operator} />
         </TabsContent>
         <TabsContent value="projects" className="flex flex-col gap-6 pt-6">
-          <WorkspaceProjects id={id} />
+          <WorkspaceProjects id={id} operator={operator} />
         </TabsContent>
         <TabsContent value="storage" className="flex flex-col gap-6 pt-6">
           <WorkspaceStorage id={id} />
@@ -855,8 +857,65 @@ const helpDone: Record<MemberHelp, string> = {
 };
 const roleWords: Record<string, string> = { owner: "Owner", admin: "Admin", member: "Member" };
 
-function WorkspaceProjects({ id }: { id: string }) {
+/**
+ * An operator moves a project to another workspace (#240), without the approval and acceptance
+ * its members would need, confirmed with its name and their own password.
+ */
+function OperatorMove({
+  from,
+  project,
+  onClose,
+}: {
+  from: string;
+  project: { id: string; name: string };
+  onClose: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const found = useInfiniteQuery(instanceWorkspacesQuery({ q: useDeferredValue(q) }));
+  const options = (found.data?.pages.flatMap((p) => p.workspaces) ?? []).filter(
+    (w) => w.id !== from && w.state === "active",
+  );
+  const [to, setTo] = useState("");
+  const chosen = options.find((w) => w.id === to) ?? options[0] ?? null;
+  const move = useOperatorMove(from);
+  return (
+    <ConfirmStep
+      title={`Move ${project.name} to another workspace?`}
+      description="It moves at once, without its members' approval or the other workspace's acceptance. Both workspaces' logs and owners hear of it, and members who are not in the other workspace lose their place in it."
+      projectName={project.name}
+      action="Move now"
+      pending={move.isPending}
+      error={move.error}
+      onClose={onClose}
+      onConfirm={(input) =>
+        chosen &&
+        move.mutate({ projectId: project.id, to: chosen.id, ...input }, { onSuccess: onClose })
+      }
+    >
+      <Field label="Find the workspace">
+        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name or address" />
+      </Field>
+      <Field label="Move it to">
+        <Select
+          value={chosen?.id ?? ""}
+          onChange={(e) => setTo(e.target.value)}
+          disabled={options.length === 0}
+        >
+          {options.length === 0 && <option value="">No workspace matches</option>}
+          {options.map((w) => (
+            <option key={w.id} value={w.id}>
+              {w.name} ({w.slug})
+            </option>
+          ))}
+        </Select>
+      </Field>
+    </ConfirmStep>
+  );
+}
+
+function WorkspaceProjects({ id, operator }: { id: string; operator: boolean }) {
   const { data: projects, isSuccess } = useQuery(instanceProjectsQuery(id));
+  const [moving, setMoving] = useState<{ id: string; name: string } | null>(null);
   return (
     <Section title="Projects" intro="Names and sizes only; the content stays the workspace’s.">
       {isSuccess && projects.length === 0 && (
@@ -874,9 +933,23 @@ function WorkspaceProjects({ id }: { id: string }) {
           ].join(" · ")}
           inline
         >
-          <span className="text-[12px] text-ink-3">{p.archived ? "archived" : "active"}</span>
+          <span className="flex items-center gap-2">
+            <span className="text-[12px] text-ink-3">{p.archived ? "archived" : "active"}</span>
+            {operator && (
+              <ActionMenu
+                label={p.name}
+                actions={[
+                  {
+                    label: "Move to another workspace…",
+                    onSelect: () => setMoving({ id: p.id, name: p.name }),
+                  },
+                ]}
+              />
+            )}
+          </span>
         </Row>
       ))}
+      {moving && <OperatorMove from={id} project={moving} onClose={() => setMoving(null)} />}
     </Section>
   );
 }
