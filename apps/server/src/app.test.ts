@@ -6759,6 +6759,13 @@ describe.runIf(url)("api", () => {
         const after = await home(s.owner);
         const card = after.projects.find((p) => p.id === s.projectId);
         expect(card).toMatchObject({ approvedTracks: 1, openReviews: 1 });
+        // The board (#141) reads a review that follows the track as one of its latest version.
+        const board = (await (
+          await app.request(`/api/projects/${s.projectId}/board`, { headers: { cookie: s.owner } })
+        ).json()) as { cards: { decisions: { decision: string }[] }[] };
+        expect(board.cards[0]?.decisions).toEqual([
+          expect.objectContaining({ decision: "approved" }),
+        ]);
         expect(card?.faces.length).toBe(Math.min(card?.members ?? 0, 4));
         // The newest first: the approval settling, then the requests and the version.
         expect(after.activity[0]).toMatchObject({
@@ -8412,6 +8419,44 @@ describe.runIf(url)("api", () => {
             waiting: [{ nodeId: "fb" }],
           });
           expect(await statusOf()).toBe("With conductor");
+          // The board (#141) has the track under its status, waiting at its stage; its columns
+          // come from the workflow, in the order a run reaches them.
+          type BoardBody = {
+            workflows: string[];
+            columns: { status: { name: string; category: string }[]; stage: { name: string }[] };
+            cards: {
+              name: string;
+              status: string | null;
+              stage: string | null;
+              version: unknown;
+            }[];
+          };
+          const board = async (cookie = s.owner) =>
+            (await (await getAs(`/api/projects/${s.projectId}/board`, cookie)).json()) as BoardBody;
+          const seen = await board(s.composer);
+          expect(seen.workflows).toEqual(["Album review"]);
+          expect(seen.columns.status.map((c) => c.name)).toEqual([
+            "No version",
+            "No status",
+            "With conductor",
+            "Editing",
+            "Approved",
+          ]);
+          expect(seen.columns.status.find((c) => c.name === "Approved")?.category).toBe("done");
+          expect(seen.columns.stage.map((c) => c.name)).toEqual([
+            "No version",
+            "Not at a stage",
+            "Conductor",
+            "Engineer edits",
+            "Let it rest",
+          ]);
+          expect(seen.cards).toMatchObject([
+            { name: "Maple Leaf Rag", status: "With conductor", stage: "Conductor" },
+          ]);
+          const outsiderBoard = await joinAs(s.owner, "outsider-board@example.test");
+          expect((await getAs(`/api/projects/${s.projectId}/board`, outsiderBoard)).status).toBe(
+            404,
+          );
 
           // Ended by hand by those who edit workflows: the engineer is told, and given the edit.
           const step = (body: unknown, cookie = s.owner) =>

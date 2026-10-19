@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { boardDisplaySchema, defaultBoardDisplay } from "./board.ts";
 import { playerViewSchema, viewPresetsSchema } from "./player-view.ts";
 
 /** The languages Hekate's dates and numbers can be shown in; its words are English for now. */
@@ -77,6 +78,8 @@ export const preferencesSchema = z.object({
   playerView: playerViewSchema.nullable(),
   /** Views kept under a name. */
   viewPresets: viewPresetsSchema,
+  /** How they arrange a project's board (#141): its grouping, what cards carry, hidden columns. */
+  board: boardDisplaySchema,
   /** How far the arrow keys move the playhead, in seconds. */
   skipSeconds: z.union(
     skipSteps.map((n) => z.literal(n)) as [z.ZodLiteral<1>, z.ZodLiteral<5>, z.ZodLiteral<10>],
@@ -96,6 +99,7 @@ export const defaultPreferences: Preferences = {
   splitChannels: false,
   playerView: null,
   viewPresets: [],
+  board: defaultBoardDisplay,
   skipSeconds: 5,
   preRoll: 1,
 };

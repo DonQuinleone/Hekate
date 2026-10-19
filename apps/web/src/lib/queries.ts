@@ -3,6 +3,7 @@ import {
   type AlignmentPoints,
   type Anchor,
   type ApprovalRule,
+  type Board,
   type CarryStatus,
   type CategoryHandling,
   type CategoryInput,
@@ -3529,3 +3530,13 @@ export function useTaskMutations(projectId: string) {
     }),
   };
 }
+
+/** A project's board (#141): its tracks as cards, and the columns of both groupings. */
+export const projectBoardQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "board"],
+    queryFn: async () =>
+      json<Board>(await api.projects[":id"].board.$get({ param: { id: projectId } })),
+    // Transitions made elsewhere (a decision, a stage ended) show within seconds.
+    refetchInterval: 15_000,
+  });
