@@ -94,6 +94,18 @@ describe("drawings on a frame or page (#146)", () => {
       drawing: d,
     });
     expect(parsed).toMatchObject({ kind: "region", drawing: { tool: "circle" } });
+    // A region somewhere other than its drawing is refused, whoever sends it.
+    expect(
+      anchor.safeParse({
+        kind: "region",
+        at: 12.5,
+        x: 0,
+        y: 0,
+        width: 0.1,
+        height: 0.1,
+        drawing: d,
+      }).success,
+    ).toBe(false);
     expect(
       anchor.safeParse({ kind: "region", at: 12, end: 11, x: 0, y: 0, width: 1, height: 1 })
         .success,

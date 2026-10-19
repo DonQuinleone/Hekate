@@ -709,7 +709,7 @@ function Components() {
               }}
             />
           </div>
-          <div className="relative h-14 w-full max-w-[28rem]">
+          <div className="relative h-14 w-full max-w-[32rem]">
             <DrawToolbar
               tool="box"
               onTool={() => {}}

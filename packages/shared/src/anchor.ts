@@ -81,7 +81,22 @@ export const regionAnchor = z
   .refine((a) => a.end === undefined || (a.at !== undefined && a.end >= a.at), {
     message: "a range must start before it ends",
     path: ["end"],
-  });
+  })
+  // The region is where the drawing is, never somewhere else, whoever sent it.
+  .refine(
+    (a) => {
+      if (!a.drawing) return true;
+      const box = drawingBounds(a.drawing);
+      const near = (p: number, q: number) => Math.abs(p - q) < 1e-3;
+      return (
+        near(a.x, box.x) &&
+        near(a.y, box.y) &&
+        near(a.width, box.width) &&
+        near(a.height, box.height)
+      );
+    },
+    { message: "a drawn region is the box around its drawing", path: ["drawing"] },
+  );
 
 /** The box around a drawing, as its region: at least a hair wide, so a straight line has one. */
 export function drawingBounds(d: Pick<Drawing, "points">): {

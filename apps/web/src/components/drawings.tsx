@@ -5,7 +5,14 @@ import {
   drawingColours,
   drawingTools,
 } from "@hekate/shared";
-import { type PointerEvent, type ReactNode, useRef, useState } from "react";
+import {
+  type PointerEvent,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { cn } from "~/lib/cn";
 import { Icon, type IconName } from "./icons";
 import { Input } from "./ui/input";
@@ -48,6 +55,43 @@ const toolCopy: Record<DrawingTool, { label: string; icon: IconName }> = {
   free: { label: "Freehand", icon: "pulse" },
   text: { label: "Text", icon: "tag" },
 };
+
+/**
+ * The picture's own time, frame by frame while it plays (#146). `timeupdate` comes only a few
+ * times a second, so a drawing on a single frame would slip past unseen between two of them;
+ * each frame the video presents is followed here instead. Paused, it is `fallback`.
+ */
+export function useFrameClock(
+  video: RefObject<HTMLVideoElement | null>,
+  running: boolean,
+  fallback: number,
+): number {
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => {
+    const element = video.current;
+    if (!running || !element) {
+      setNow(null);
+      return;
+    }
+    let stopped = false;
+    let handle = 0;
+    const perFrame = typeof element.requestVideoFrameCallback === "function";
+    const tick = (_at?: number, frame?: VideoFrameCallbackMetadata) => {
+      if (stopped) return;
+      setNow(frame?.mediaTime ?? element.currentTime);
+      handle = perFrame
+        ? element.requestVideoFrameCallback(tick)
+        : requestAnimationFrame(() => tick());
+    };
+    tick();
+    return () => {
+      stopped = true;
+      if (perFrame) element.cancelVideoFrameCallback(handle);
+      else cancelAnimationFrame(handle);
+    };
+  }, [video, running]);
+  return now ?? fallback;
+}
 
 /** Units across the picture's height; its width is the aspect times this, so shapes keep their shape. */
 const H = 1000;
@@ -304,12 +348,15 @@ export function DrawToolbar({
   onTool,
   colour,
   onColour,
+  onUndo,
   onClose,
 }: {
   tool: DrawingTool;
   onTool: (tool: DrawingTool) => void;
   colour: DrawingColour;
   onColour: (colour: DrawingColour) => void;
+  /** Takes back the last drawing, as the prototype's toolbar does; absent when there is none. */
+  onUndo?: () => void;
   onClose: () => void;
 }) {
   const button =
@@ -349,6 +396,19 @@ export function DrawToolbar({
         </button>
       ))}
       <span className="mx-1 h-5 w-px bg-line-strong" />
+      <button
+        type="button"
+        aria-label="Undo"
+        title="Undo"
+        disabled={!onUndo}
+        onClick={onUndo}
+        className={cn(
+          button,
+          "text-ink-2 hover:text-ink disabled:cursor-default disabled:opacity-40",
+        )}
+      >
+        <Icon name="back5" size={14} />
+      </button>
       <button
         type="button"
         aria-label="Stop drawing"

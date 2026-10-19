@@ -813,6 +813,16 @@ function ThreadView({
               {marker && <span className="text-signal">{marker.n}</span>}
               {label(anchor)}
             </button>
+          ) : anchor.kind === "region" && anchor.at !== undefined ? (
+            // A drawing on a video's frame (#146): back to its frame, as the prototype does.
+            <button
+              type="button"
+              onClick={() => onSeek(anchor.at ?? 0)}
+              className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 text-[11px] text-ink hover:border-signal"
+              aria-label={`Show the drawing at ${label({ kind: "time", start: anchor.at, end: anchor.at })}`}
+            >
+              {label(anchor)}
+            </button>
           ) : (
             <span className="label">{formatAnchor(anchor, time ? { time } : {})}</span>
           )

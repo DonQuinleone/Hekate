@@ -59,6 +59,7 @@ import {
   DrawToolbar,
   type FrameDraft,
   type FrameDrawing,
+  useFrameClock,
 } from "./drawings";
 import { EditLane } from "./edit-lane";
 import { Icon } from "./icons";
@@ -297,6 +298,13 @@ export function Player({
   const clock = useMemo(() => (info?.video ? videoClock(info.video) : null), [info?.video]);
   /** How long a frame shows: a drawing on one shows for that long (#146). */
   const frameSeconds = clock ? frameTime(1, clock.rate) : 1 / 25;
+  // Followed frame by frame while it plays, but only when there is a drawing to show (#146).
+  const frameNow = useFrameClock(media, kind === "video" && playing && drawings.length > 0, time);
+  /** The drafts each new drawing replaced, newest last, for Undo; gone once the draft is. */
+  const undo = useRef<(FrameDraft | null)[]>([]);
+  useEffect(() => {
+    if (!draft) undo.current = [];
+  }, [draft]);
   const [matte, setMatte] = useState<Matte | null>(null);
   const [safe, setSafe] = useState(false);
   // Drawing on the frame (#146): the tool and colour chosen, kept while drawing is on.
@@ -724,7 +732,7 @@ export function Player({
             <DrawingMarks
               aspect={info.video.width / info.video.height}
               drawings={drawings
-                .filter((d) => regionShowsAt(d, time, frameSeconds))
+                .filter((d) => regionShowsAt(d, frameNow, frameSeconds))
                 .map((d) => d.drawing)}
               draft={draft?.drawing ?? null}
             />
@@ -735,18 +743,21 @@ export function Player({
                 tool={tool}
                 colour={colour}
                 aspect={info.video.width / info.video.height}
-                onDrawn={(drawing) =>
+                onDrawn={(drawing) => {
+                  // Each drawing replaces the one before, which Undo brings back.
+                  undo.current.push(draft);
                   onDraft({
                     drawing,
                     at: Math.round((media.current?.currentTime ?? time) * 1000) / 1000,
-                  })
-                }
+                  });
+                }}
               />
               <DrawToolbar
                 tool={tool}
                 onTool={setTool}
                 colour={colour}
                 onColour={setColour}
+                onUndo={draft ? () => onDraft(undo.current.pop() ?? null) : undefined}
                 onClose={() => setDrawingOn(false)}
               />
             </>
