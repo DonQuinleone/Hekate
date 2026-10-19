@@ -8392,10 +8392,43 @@ describe.runIf(url)("api", () => {
             { text: "Engineer edits on Maple Leaf Rag is yours", detail: null },
           ]);
           expect(await statusOf()).toBe("Editing");
+          // The edit is a task of the project (#140), the engineer's, about the track.
+          type StageTask = {
+            id: string;
+            key: string;
+            title: string;
+            status: string;
+            fromWorkflow: boolean;
+            assignee: { id: string } | null;
+            track: { id: string } | null;
+          };
+          const stageTasks = async () =>
+            (
+              (await (await getAs(`/api/projects/${s.projectId}/tasks`, s.owner)).json()) as {
+                tasks: StageTask[];
+              }
+            ).tasks;
+          const [edit] = await stageTasks();
+          expect(edit).toMatchObject({
+            key: "R-1",
+            title: "Engineer edits",
+            status: "pending",
+            fromWorkflow: true,
+            assignee: { id: s.ids.engineer },
+            track: { id: s.trackId },
+          });
 
-          // The edit done, the wait is queued for its day; when it elapses the run finishes.
+          // The engineer marks it done: the stage ends done, the wait is queued for its day, and
+          // when it elapses the run finishes.
           sent.length = 0;
-          await step({ nodeId: "edit", outcome: "done" });
+          expect(
+            (
+              await app.request(`/api/tasks/${edit?.id}`, {
+                ...json({ status: "done" }, s.engineer),
+                method: "PATCH",
+              })
+            ).status,
+          ).toBe(200);
           const wait = sent.find((j) => j.name === "workflow-wait")?.data as {
             organisationId: string;
             runId: string;
@@ -8427,6 +8460,30 @@ describe.runIf(url)("api", () => {
           // The next version starts it again; it is not started by hand.
           await newVersion("Mix v3.wav");
           expect((await runs()).map((r) => r.state)).toEqual(["running", "finished"]);
+          // Its edit, ended by hand, is a new task, done with it.
+          const [again] = await runs();
+          const stepAgain = (body: unknown) => send(`/api/workflow-runs/${again?.id}/steps`, body);
+          await stepAgain({ nodeId: "fb", outcome: "done" });
+          expect((await stageTasks()).map((t) => [t.key, t.status])).toEqual([
+            ["R-2", "pending"],
+            ["R-1", "done"],
+          ]);
+          // One an earlier visit to the stage left open (it ended overdue) stays open: only
+          // the task of the visit being ended is closed with it.
+          await db.insert(schema.tasks).values({
+            organisationId: s.organisationId,
+            projectId: s.projectId,
+            number: 0,
+            title: "Engineer edits",
+            runId: again?.id,
+            nodeId: "edit",
+          });
+          await stepAgain({ nodeId: "edit", outcome: "done" });
+          expect((await stageTasks()).map((t) => [t.key, t.status])).toEqual([
+            ["R-0", "pending"],
+            ["R-1", "done"],
+            ["R-2", "done"],
+          ]);
           expect(
             (await send(`/api/tracks/${s.trackId}/workflow-runs`, { workflowId: made.workflow.id }))
               .status,
