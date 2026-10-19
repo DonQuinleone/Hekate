@@ -613,3 +613,7 @@ A track's versions page carries the prototype's line (#26): the status its workf
 ## 131. A track's followers hear when its workflow gives it a new status
 
 When a workflow sets a track's status (a step's status, or a finish's) to one it did not already hold, everyone who follows the track is told under the *workflow* kind (#110): "Maple Leaf Rag is now With the label", linking to the track. Whoever moved it is not told of their own move, and a status set again unchanged (in whatever case, decision 128) tells nobody. The track is locked as its run moves it, so two runs moving it at once take turns and its followers hear of one change once. The mail says why it came: the workflow names them or their role, or they follow the track it moved. Stage changes are told as before: those a stage asks are asked, and a notify step tells whom it names.
+
+## 132. Files recorded together make one take though they start or stop apart
+
+Decision 115 grouped files without take numbers by starting within a second of one another. A recorder's microphones do not always: one is armed a few seconds late, another stopped early. Such files now also make one take where both lengths are known and they record together for at least half of the shorter one (`sameSpan` in `packages/shared`). Takes recorded one after another share at most a moment, so stay apart, as does a file with no length that starts more than a second away.

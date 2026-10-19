@@ -6,8 +6,9 @@ import { type WaveHeader, waveSeconds } from "./wave.ts";
  * proposed from what the files say about themselves (Broadcast Wave's bext and iXML) and from
  * their names, for someone to confirm or correct before anything is made.
  *
- * - Files make takes by their take number (iXML's, or the name's), else by starting at the same
- *   timecode: a recorder writes one file per microphone, all from the same moment.
+ * - Files make takes by their take number (iXML's, or the name's), else by their timecode: a
+ *   recorder writes one file per microphone over the same span, though one may start or stop a
+ *   little apart from the others (`sameSpan`).
  * - A take's summed mix is the file named so, or the one stereo file among mono microphones.
  * - Takes make sessions by the day they were recorded, else the recorder's tape, else their folder.
  * - Takes go to tracks by name: the scene, the description or the folder against the project's
@@ -293,6 +294,22 @@ const byNumber = (a: string | null, b: string | null) =>
  * The proposed organisation of the files chosen: sessions holding takes, each take its files
  * with its mix and track, and what could not be placed, with why.
  */
+/**
+ * Whether two files without take numbers are the same take by their timecode: starting within a
+ * second of each other, or, where both lengths are known, recording together for at least half
+ * of the shorter one. Takes recorded one after another share at most a moment, so stay apart.
+ */
+export function sameSpan(
+  a: { start: number | null; length: number | null },
+  b: { start: number | null; length: number | null },
+): boolean {
+  if (a.start === null || b.start === null) return false;
+  if (Math.abs(a.start - b.start) <= 1) return true;
+  if (!a.length || !b.length) return false;
+  const together = Math.min(a.start + a.length, b.start + b.length) - Math.max(a.start, b.start);
+  return together >= Math.min(a.length, b.length) / 2;
+}
+
 export function proposeTakeImport(
   sources: ImportSource[],
   options: {
@@ -325,7 +342,7 @@ export function proposeTakeImport(
 
   const sessions: ProposedSession[] = [];
   for (const [key, group] of grouped) {
-    // Numbered takes first; the rest join a take starting within a second of theirs.
+    // Numbered takes first; the rest join a take they were recorded with (`sameSpan`).
     const loose: Facts[] = [];
     for (const facts of group.facts) {
       if (facts.take === null) {
@@ -346,7 +363,7 @@ export function proposeTakeImport(
         continue;
       }
       const near = [...group.takes.entries()].find(([, files]) =>
-        files.some((f) => f.start !== null && Math.abs(f.start - start) <= 1),
+        files.some((f) => sameSpan(f, facts)),
       );
       const take = near?.[0] ?? `tc:${start}`;
       group.takes.set(take, [...(group.takes.get(take) ?? []), facts]);
