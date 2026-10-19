@@ -3,6 +3,7 @@ import {
   type BoardColumn,
   type BoardDisplay,
   boardColumnOf,
+  capital,
   defaultBoardDisplay,
   NO_STATUS,
   NOT_AT_A_STAGE,
@@ -20,7 +21,7 @@ import { ReviewerDot, type ReviewerDotState } from "~/components/ui/status";
 import { Switch } from "~/components/ui/toggle";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
-import { projectBoardQuery, usePreferences, useSavePreferences } from "~/lib/queries";
+import { projectBoardQuery, useItemWords, usePreferences, useSavePreferences } from "~/lib/queries";
 
 const dayFormat = formatDates({ day: "numeric", month: "short" });
 
@@ -45,9 +46,12 @@ const decisionWords = {
 function Customise({
   display,
   onChange,
+  version,
 }: {
   display: BoardDisplay;
   onChange: (d: BoardDisplay) => void;
+  /** What the project calls a version: Version, or Cut in video (#16). */
+  version: string;
 }) {
   const [open, setOpen, box] = usePopover();
   const row = (label: string, checked: boolean, set: (v: boolean) => void) => (
@@ -96,7 +100,7 @@ function Customise({
             <div className="flex flex-wrap gap-1">
               {(
                 [
-                  ["version", "Version"],
+                  ["version", version],
                   ["stage", "Stage"],
                   ["reviewers", "Reviewers"],
                   ["due", "Due"],
@@ -132,7 +136,15 @@ function Customise({
   );
 }
 
-function Card({ card, display }: { card: BoardCard; display: BoardDisplay }) {
+function Card({
+  card,
+  display,
+  versionLabel,
+}: {
+  card: BoardCard;
+  display: BoardDisplay;
+  versionLabel: (n: number) => string;
+}) {
   const late = card.dueAt !== null && new Date(card.dueAt).getTime() < Date.now();
   const shows =
     (display.decisions && card.decisions.length > 0) ||
@@ -150,7 +162,9 @@ function Card({ card, display }: { card: BoardCard; display: BoardDisplay }) {
           {card.name}
         </span>
         {display.fields.version && card.version && (
-          <span className="tabular shrink-0 text-[12px] text-ink-3">V{card.version.number}</span>
+          <span className="tabular shrink-0 text-[12px] text-ink-3">
+            {versionLabel(card.version.number)}
+          </span>
         )}
       </span>
       {display.fields.stage && card.stage && (
@@ -213,6 +227,7 @@ function Card({ card, display }: { card: BoardCard; display: BoardDisplay }) {
  */
 export function ProjectBoard({ projectId }: { projectId: string }) {
   const { data, error } = useQuery(projectBoardQuery(projectId));
+  const { words, versionLabel } = useItemWords(projectId);
   const display = usePreferences().board;
   const save = useSavePreferences();
   const set = (board: BoardDisplay) => save.mutate({ board });
@@ -233,8 +248,8 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
   if (data.cards.length === 0)
     return (
       <Empty
-        title="No tracks yet"
-        text="The board shows each track by where its workflow has it. Add a track and upload a version to start."
+        title={`No ${words.tracks} yet`}
+        text={`The board shows each ${words.track} by where its workflow has it. Add a ${words.track} and upload a ${words.version} to start.`}
       />
     );
   return (
@@ -243,10 +258,10 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
         <span className="min-w-0 truncate text-[13px] text-ink-3">
           {data.workflows.length > 0
             ? data.workflows.join(", ")
-            : "No workflow is switched on; tracks show the last status they were given."}
+            : `No workflow is switched on; ${words.tracks} show the last status they were given.`}
         </span>
         <span className="ml-auto">
-          <Customise display={display} onChange={set} />
+          <Customise display={display} onChange={set} version={capital(words.version)} />
         </span>
       </div>
       <div className="scroll-quiet -mx-5 overflow-x-auto px-5 @3xl/app:-mx-10 @3xl/app:px-10">
@@ -274,7 +289,7 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
                 </div>
                 <div className="flex min-h-28 flex-col gap-2 rounded-panel-lg bg-sunken/80 p-2">
                   {cards.map((card) => (
-                    <Card key={card.id} card={card} display={display} />
+                    <Card key={card.id} card={card} display={display} versionLabel={versionLabel} />
                   ))}
                   {cards.length === 0 && (
                     <span className="px-2 py-4 text-center text-[12px] text-ink-3">

@@ -1,7 +1,7 @@
-import { folderPath } from "@hekate/shared";
+import { capital, folderPath } from "@hekate/shared";
 import { type FormEvent, useState } from "react";
 import { variationNameFor } from "~/lib/browser";
-import type { Folder, ProjectFile, Track } from "~/lib/queries";
+import { type Folder, type ProjectFile, type Track, useItemWords } from "~/lib/queries";
 import { Button } from "./ui/button";
 import { Input, Select } from "./ui/input";
 
@@ -74,6 +74,7 @@ export function AttachForm({
 }) {
   const [trackId, setTrackId] = useState(tracks[0]?.id ?? "");
   const track = tracks.find((t) => t.id === trackId);
+  const { words, versionLabel } = useItemWords(tracks[0]?.projectId);
   const latest = track?.versions.at(-1);
   const [as, setAs] = useState<"version" | "variation">("version");
   const [name, setName] = useState("");
@@ -85,10 +86,10 @@ export function AttachForm({
         if (track && shown.trim()) onAttach(track, latest ? as : "version", shown.trim());
       }}
       className="flex flex-wrap items-center gap-2"
-      aria-label="Attach to a track"
+      aria-label={`Attach to a ${words.track}`}
     >
       <Select
-        aria-label="Track"
+        aria-label={capital(words.track)}
         className="max-w-60"
         value={trackId}
         onChange={(e) => setTrackId(e.target.value)}
@@ -105,11 +106,17 @@ export function AttachForm({
         value={latest ? as : "version"}
         onChange={(e) => setAs(e.target.value as "version" | "variation")}
       >
-        <option value="version">As V{(latest?.number ?? 0) + 1}, a new version</option>
-        {latest && <option value="variation">As a variation of V{latest.number}</option>}
+        <option value="version">
+          As {versionLabel((latest?.number ?? 0) + 1)}, a new {words.version}
+        </option>
+        {latest && (
+          <option value="variation">
+            As a {words.variation} of {versionLabel(latest.number)}
+          </option>
+        )}
       </Select>
       <Input
-        aria-label="Variation name"
+        aria-label={`${capital(words.variation)} name`}
         className="w-40"
         maxLength={80}
         value={shown}

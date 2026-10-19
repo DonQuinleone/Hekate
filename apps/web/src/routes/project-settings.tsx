@@ -1,11 +1,13 @@
 import {
   type CategoryHandling,
+  capital,
   categoryHandlings,
   customRef,
   defaultReferences,
   defaultWatermark,
   formatBytes,
   handlingWords,
+  itemWords,
   type NormalisationMode,
   normalisationModes,
   normalisationWords,
@@ -1125,9 +1127,12 @@ function Delivery({ project }: { project: Project }) {
   const update = useUpdateProject(project.id);
   const admin = useWorkspaceAdmin();
   const { customs, own, inherited } = useProjectProfile(project);
+  // Tracks, and a video project's deliverables (#16), can each measure against their own.
+  const withTracks = project.profile !== "general";
+  const words = itemWords(project.profile);
   const { data: tracks } = useQuery({
     ...projectTracksQuery(project.id),
-    enabled: project.profile === "music",
+    enabled: withTracks,
   });
   const onTrack = useTrackDeliveryProfile(project.id);
   const [editing, setEditing] = useState(false);
@@ -1137,7 +1142,7 @@ function Delivery({ project }: { project: Project }) {
     <>
       <Section
         title="Delivery profile"
-        intro="What QA measures every recording against. A track or a file can have its own; without any, each file is measured against the profile its channels suggest."
+        intro={`What QA measures every recording against. A ${words.track} or a file can have its own; without any, each file is measured against the profile its channels suggest.`}
       >
         <Row name="Project default" hint={shown ? profileSummary(shown) : undefined}>
           <Select
@@ -1162,11 +1167,17 @@ function Delivery({ project }: { project: Project }) {
         </Row>
       </Section>
       {error && <p className="-mt-6 text-[13px] text-signal">{error.message}</p>}
-      {project.profile === "music" && (
-        <Section title="Overrides" intro="Tracks that measure against a different profile.">
+      {withTracks && (
+        <Section
+          title="Overrides"
+          intro={`${capital(words.tracks)} that measure against a different profile.`}
+        >
           {!tracks && <Row name="Loading" />}
           {tracks?.length === 0 && (
-            <Row name="No tracks yet" hint="Each track can measure against its own profile." />
+            <Row
+              name={`No ${words.tracks} yet`}
+              hint={`Each ${words.track} can measure against its own profile.`}
+            />
           )}
           {tracks?.map((t) => (
             <Row

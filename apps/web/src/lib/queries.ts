@@ -2168,6 +2168,8 @@ export interface ReviewSummary {
 export interface ReviewDetail {
   id: string;
   projectId: string;
+  /** Its project's profile, which names its items (#16): deliverables and cuts in video. */
+  profile: ProjectProfile;
   kind: ReviewKind;
   title: string;
   message: string | null;

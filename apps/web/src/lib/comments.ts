@@ -68,12 +68,16 @@ const hopStatus: Record<CarryStatus, string> = {
  * The versions a thread has passed through, for one line under it: "V2 → V3, not fixed →
  * V4, moved by hand". Null when it has never left the version it was raised on.
  */
-export function historyLabel(history: CommentHistory | null): string | null {
+export function historyLabel(
+  history: CommentHistory | null,
+  /** A version's name: "V3", or "Cut 3" in a video project (#16). */
+  version: (n: number) => string = (n) => `V${n}`,
+): string | null {
   if (!history || history.hops.length === 0) return null;
   const steps = [
-    history.versionNumber === null ? "Raised" : `V${history.versionNumber}`,
+    history.versionNumber === null ? "Raised" : version(history.versionNumber),
     ...history.hops.map((h) =>
-      [`V${h.versionNumber}`, hopStatus[h.status], h.moved ? "moved by hand" : ""]
+      [version(h.versionNumber), hopStatus[h.status], h.moved ? "moved by hand" : ""]
         .filter(Boolean)
         .join(", "),
     ),

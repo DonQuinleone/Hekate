@@ -6109,6 +6109,8 @@ describe.runIf(url)("api", () => {
         await app.request(`/api/files/${s.mix}/comments`, json({ body: "Pedal" }, s.composer));
         const theirs = await pageOf(await getAs(path(made.id), s.composer));
         expect(theirs.you.opened).toEqual([trackItem]);
+        // Its project's profile names its items in the project's words (#16).
+        expect((theirs as PageReview & { profile: string }).profile).toBe("music");
         const seen = await pageOf(await getAs(path(made.id), s.owner));
         expect(seen.reviewers[0]?.comments).toMatchObject({ count: 1, fileId: s.mix });
         expect(seen.items.find((i) => i.id === trackItem)?.openComments).toBe(1);

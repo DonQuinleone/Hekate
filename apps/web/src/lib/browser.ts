@@ -5,9 +5,12 @@ import {
   type FileColumn,
   type FileColumnLayout,
   fileColumns,
+  itemWords,
   type Mark,
   maxColumnWidth,
   minColumnWidth,
+  type ProjectProfile,
+  versionLabel,
 } from "@hekate/shared";
 import type { Folder, ProjectFile, Track, Version } from "./queries";
 
@@ -89,14 +92,18 @@ export function freshPath(root: Item[], path: Item[], open: (item: Item) => Item
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
-/** "V3 of 4 · 2 variations", or a dash for a track with nothing yet. */
-export function versionSummary(track: Track): string {
+/**
+ * "V3 of 4 · 2 variations", or a dash for a track with nothing yet; a deliverable's in its own
+ * words (#16): "Cut 3 of 4 · 2 renditions".
+ */
+export function versionSummary(track: Track, profile?: ProjectProfile): string {
   const latest = track.versions.at(-1);
   if (!latest) return "—";
+  const words = itemWords(profile);
   const of = track.versions.length > 1 ? ` of ${track.versions.length}` : "";
   const variations =
-    latest.variations.length > 1 ? ` · ${plural(latest.variations.length, "variation")}` : "";
-  return `V${latest.number}${of}${variations}`;
+    latest.variations.length > 1 ? ` · ${plural(latest.variations.length, words.variation)}` : "";
+  return `${versionLabel(latest.number, profile)}${of}${variations}`;
 }
 
 /** How much a folder holds, counting what it shows: folders, tracks and loose files. */

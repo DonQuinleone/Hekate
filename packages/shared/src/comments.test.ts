@@ -65,6 +65,7 @@ describe("comments", () => {
 
   it("names statuses on their version and knows which settle a thread", () => {
     expect(carryStatusLabel("fixed", 5)).toBe("Fixed in V5");
+    expect(carryStatusLabel("fixed", 5, (n) => `Cut ${n}`)).toBe("Fixed in Cut 5");
     expect(carryStatusLabel("wont_fix", 5)).toBe("Won't fix");
     expect(carrySettles("fixed")).toBe(true);
     expect(carrySettles("wont_fix")).toBe(true);

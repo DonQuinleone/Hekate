@@ -1,4 +1,11 @@
-import { type OverviewSection, overviewSections, profiles, reviewKindNames } from "@hekate/shared";
+import {
+  itemWords,
+  type OverviewSection,
+  overviewSections,
+  profiles,
+  reviewKindNames,
+  versionLabel,
+} from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
@@ -25,6 +32,7 @@ import {
   sectionNames,
   sectionsOf,
   trackStateCopy,
+  trackStateLabel,
 } from "~/lib/overview";
 import {
   myReviewsQuery,
@@ -247,7 +255,7 @@ export function ProjectOverview({ project }: { project: Project }) {
           <Stat
             label={`${noun} approved`}
             value={`${f.approvedTracks} of ${f.versionedTracks}`}
-            hint={`${f.tracks - f.versionedTracks} without a version`}
+            hint={`${f.tracks - f.versionedTracks} without a ${itemWords(project.profile).version}`}
           />
         )}
         <Stat
@@ -293,7 +301,9 @@ export function ProjectOverview({ project }: { project: Project }) {
                       {t.name}
                     </span>
                     <span className="block truncate text-[13px] text-ink-3">
-                      {t.version ? `V${t.version.number}` : "No versions yet"}
+                      {t.version
+                        ? versionLabel(t.version.number, project.profile)
+                        : trackStateLabel("no_version", project.profile)}
                       {t.version && <span className="@3xl/app:hidden"> · {copy.label}</span>}
                     </span>
                   </span>
@@ -437,7 +447,7 @@ export function ProjectOverview({ project }: { project: Project }) {
           <p className="m-0 mt-1 text-[13px] text-ink-3">
             {project.profile === "general"
               ? plural(f.files, "file")
-              : plural(f.tracks, noun === "Tracks" ? "track" : "deliverable")}{" "}
+              : plural(f.tracks, itemWords(project.profile).track)}{" "}
             · {plural(f.members, "member")}
           </p>
         </div>

@@ -1,4 +1,4 @@
-import { shiftWeeks, timelineBar, timelineWeeks } from "@hekate/shared";
+import { capital, shiftWeeks, timelineBar, timelineWeeks } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useLayoutEffect, useRef, useState } from "react";
@@ -7,7 +7,7 @@ import { Icon } from "~/components/icons";
 import { Card } from "~/components/page";
 import { cn } from "~/lib/cn";
 import { dayHere, formatDates } from "~/lib/locale";
-import { projectBoardQuery } from "~/lib/queries";
+import { projectBoardQuery, useItemWords } from "~/lib/queries";
 
 const weekFormat = formatDates({ day: "numeric", month: "short", timeZone: "UTC" });
 const rangeFormat = formatDates({
@@ -30,6 +30,7 @@ const noon = (day: string) => new Date(`${day}T12:00:00Z`);
  */
 export function ProjectTimeline({ projectId }: { projectId: string }) {
   const { data, error } = useQuery(projectBoardQuery(projectId));
+  const { words } = useItemWords(projectId);
   const [day, setDay] = useState(today);
   const scroller = useRef<HTMLDivElement>(null);
   const span = useRef<HTMLDivElement>(null);
@@ -52,8 +53,8 @@ export function ProjectTimeline({ projectId }: { projectId: string }) {
   if (data.cards.length === 0)
     return (
       <Empty
-        title="No tracks yet"
-        text="The timeline runs each track from its latest version to when its review is due. Add a track and upload a version to start."
+        title={`No ${words.tracks} yet`}
+        text={`The timeline runs each ${words.track} from its latest ${words.version} to when its review is due. Add a ${words.track} and upload a ${words.version} to start.`}
       />
     );
   const last = shiftWeeks(start, WEEKS);
@@ -124,7 +125,7 @@ export function ProjectTimeline({ projectId }: { projectId: string }) {
                 const label =
                   card.stage ??
                   card.status ??
-                  (card.version ? `Version ${card.version.number}` : "");
+                  (card.version ? `${capital(words.version)} ${card.version.number}` : "");
                 return (
                   <li
                     key={card.id}
@@ -166,7 +167,7 @@ export function ProjectTimeline({ projectId }: { projectId: string }) {
                         </span>
                       ) : (
                         <span className="absolute top-3.5 left-2 text-[12px] text-ink-3">
-                          {card.version ? "Not in these weeks" : "No version yet"}
+                          {card.version ? "Not in these weeks" : `No ${words.version} yet`}
                         </span>
                       )}
                     </div>

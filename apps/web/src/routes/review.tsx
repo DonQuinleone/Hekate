@@ -1,10 +1,12 @@
 import {
   gateCounts,
   gateState,
+  itemWords,
   type ReviewerState,
   reviewKindNames,
   reviewSteps,
   type StepState,
+  versionLabel,
   withinWindow,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -468,8 +470,8 @@ function Items({ review }: { review: ReviewDetail }) {
             const detail =
               item.kind === "track"
                 ? item.version
-                  ? `V${item.version.number}${item.follows === "latest" ? ", the latest" : ""}${item.version.variations.length > 0 ? ` · ${item.version.variations.join(", ")}` : ""}`
-                  : "No versions yet"
+                  ? `${versionLabel(item.version.number, review.profile)}${item.follows === "latest" ? ", the latest" : ""}${item.version.variations.length > 0 ? ` · ${item.version.variations.join(", ")}` : ""}`
+                  : `No ${itemWords(review.profile).versions} yet`
                 : "File";
             const name = (
               <>
