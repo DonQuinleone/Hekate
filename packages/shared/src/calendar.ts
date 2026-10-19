@@ -32,6 +32,25 @@ export function monthGrid(month: string): { first: string; last: string; days: s
   return { first: first.toISOString().slice(0, 10), last: last.toISOString().slice(0, 10), days };
 }
 
+/**
+ * The day (YYYY-MM-DD) an instant falls on where someone is: their time zone, or UTC where they
+ * chose none or chose one this system does not know.
+ */
+export function dayIn(instant: Date, timeZone?: string | null): string {
+  const day = (zone: string) =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: zone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(instant);
+  try {
+    return day(timeZone || "UTC");
+  } catch {
+    return day("UTC");
+  }
+}
+
 /** A month next to another: -1 for the one before. */
 export function shiftMonth(month: string, by: number): string {
   const [y, m] = month.split("-").map(Number) as [number, number];

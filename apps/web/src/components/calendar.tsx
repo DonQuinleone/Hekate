@@ -7,7 +7,7 @@ import { Card } from "~/components/page";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { cn } from "~/lib/cn";
-import { formatDates } from "~/lib/locale";
+import { dayHere, formatDates } from "~/lib/locale";
 import { projectCalendarQuery, useCalendarFeed } from "~/lib/queries";
 
 const kindIcon: Record<CalendarKind, IconName> = {
@@ -21,7 +21,7 @@ const dayFormat = formatDates({ weekday: "short", day: "numeric", timeZone: "UTC
 const sinceFormat = formatDates({ day: "numeric", month: "long", year: "numeric" });
 
 /** This month where the member is: 2026-10. */
-export const thisMonth = () => new Date().toLocaleDateString("en-CA").slice(0, 7);
+export const thisMonth = () => dayHere().slice(0, 7);
 
 /**
  * The feed of a project's calendar (#141), into whichever calendar someone keeps. The link is
@@ -135,7 +135,7 @@ export function ProjectCalendar({
   const { data, error } = useQuery(projectCalendarQuery(projectId, month));
   const [subscribing, setSubscribing] = useState(false);
   const { days } = monthGrid(month);
-  const today = new Date().toLocaleDateString("en-CA");
+  const today = dayHere();
   const byDay = new Map<string, CalendarEvent[]>();
   for (const e of data?.events ?? []) byDay.set(e.date, [...(byDay.get(e.date) ?? []), e]);
   const monthEvents = (data?.events ?? []).filter((e) => e.date.startsWith(month));

@@ -6,7 +6,7 @@ import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { Card } from "~/components/page";
 import { cn } from "~/lib/cn";
-import { formatDates } from "~/lib/locale";
+import { dayHere, formatDates } from "~/lib/locale";
 import { projectBoardQuery } from "~/lib/queries";
 
 const weekFormat = formatDates({ day: "numeric", month: "short", timeZone: "UTC" });
@@ -20,7 +20,7 @@ const rangeFormat = formatDates({
 const WEEKS = 6;
 const DAYS = WEEKS * 7;
 
-const today = () => new Date().toLocaleDateString("en-CA");
+const today = () => dayHere();
 const noon = (day: string) => new Date(`${day}T12:00:00Z`);
 
 /**
@@ -106,7 +106,18 @@ export function ProjectTimeline({ projectId }: { projectId: string }) {
             </div>
             <ol className="m-0 list-none p-0">
               {data.cards.map((card) => {
-                const bar = timelineBar(card, start, DAYS);
+                // Each end on the day it is where the member is.
+                const bar = timelineBar(
+                  {
+                    version: card.version && {
+                      ...card.version,
+                      createdAt: dayHere(card.version.createdAt),
+                    },
+                    dueAt: card.dueAt && dayHere(card.dueAt),
+                  },
+                  start,
+                  DAYS,
+                );
                 const finished = card.status !== null && done.has(card.status);
                 const late =
                   !finished && card.dueAt !== null && new Date(card.dueAt).getTime() < Date.now();

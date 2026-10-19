@@ -7642,10 +7642,27 @@ describe.runIf(url)("api", () => {
             (await (
               await getAs(`/api/projects/${s.projectId}/calendar?month=${m}`, cookie)
             ).json()) as Month;
+          // A review due at five in the afternoon in Los Angeles is that day there, though
+          // already the next in UTC.
+          await db
+            .update(schema.users)
+            .set({ timeZone: "America/Los_Angeles" })
+            .where(eq(schema.users.id, s.ids.composer));
+          await request(s.owner, s.projectId, {
+            kind: "feedback",
+            title: "First listen",
+            items: [{ trackId: s.trackId }],
+            reviewers: [s.ids.composer],
+            dueAt: "2026-10-22T00:00:00.000Z",
+          });
           const october = await month(s.composer);
           expect(october.events).toMatchObject([
+            { kind: "review", date: "2026-10-21", title: "First listen" },
             { kind: "task", date: "2026-10-21", title: "Bounce the stems; then, master" },
           ]);
+          expect((await month(s.owner)).events.find((e) => e.kind === "review")?.date).toBe(
+            "2026-10-22",
+          );
           expect(october.feed).toBeNull();
           expect((await month(s.composer, "2026-12")).events).toEqual([]);
           expect(
@@ -7670,7 +7687,15 @@ describe.runIf(url)("api", () => {
           expect(text).toContain("SUMMARY:Bounce the stems\\; then\\, master");
           expect(text).toContain("DTSTART;VALUE=DATE:20261021");
           expect((await month(s.composer)).feed).not.toBeNull();
-          // A new link replaces the old; a made-up one opens nothing.
+          expect(text).toContain("SUMMARY:First listen");
+          expect(text).toContain(
+            "DTSTART;VALUE=DATE:20261021\r\nDTEND;VALUE=DATE:20261022\r\nSUMMARY:First listen",
+          );
+          // A new link replaces the old, even two asked for at once; a made-up one opens nothing.
+          const both = await Promise.all([feedOf(s.composer), feedOf(s.composer)]);
+          expect(
+            (await Promise.all(both.map(async (url) => (await read(url)).status))).sort(),
+          ).toEqual([200, 404]);
           const second = await feedOf(s.composer);
           expect((await read(first)).status).toBe(404);
           expect((await read(second)).status).toBe(200);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type CalendarEvent, icsCalendar, monthGrid, shiftMonth } from "./calendar.ts";
+import { type CalendarEvent, dayIn, icsCalendar, monthGrid, shiftMonth } from "./calendar.ts";
 
 describe("a month on the calendar", () => {
   it("is six weeks from the Monday on or before its first", () => {
@@ -56,5 +56,18 @@ describe("the calendar as a feed", () => {
 
   it("ends the last of a month on the first of the next", () => {
     expect(ics([event({ date: "2026-12-31" })])).toContain("DTEND;VALUE=DATE:20270101");
+  });
+});
+
+describe("the day an instant falls on", () => {
+  // A review due at five in the afternoon in Los Angeles is already the next day in UTC.
+  const due = new Date("2026-10-22T00:00:00Z");
+  it("is the day where someone is", () => {
+    expect(dayIn(due, "America/Los_Angeles")).toBe("2026-10-21");
+    expect(dayIn(due, "Europe/London")).toBe("2026-10-22");
+  });
+  it("is UTC's where they chose no zone, or one unknown", () => {
+    expect(dayIn(due, null)).toBe("2026-10-22");
+    expect(dayIn(due, "Mars/Olympus_Mons")).toBe("2026-10-22");
   });
 });

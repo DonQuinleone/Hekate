@@ -1,3 +1,5 @@
+import { dayIn } from "@hekate/shared";
+
 /** Each offered language by its English name ("British English", "German (Germany)"). */
 export const languageNames = new Intl.DisplayNames(["en-GB"], { type: "language" });
 
@@ -60,3 +62,7 @@ export function relativeFormat(options: Intl.RelativeTimeFormatOptions) {
     },
   };
 }
+
+/** The day (YYYY-MM-DD) an instant falls on where the member is, in their time zone. */
+export const dayHere = (instant: Date | string | number = new Date()) =>
+  dayIn(new Date(instant), current.timeZone);
