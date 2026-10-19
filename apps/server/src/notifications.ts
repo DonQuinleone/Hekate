@@ -199,7 +199,8 @@ const whyFoot: Record<NotificationKind, string> = {
     "You get this because deleting a project needs a workspace owner's confirmation.",
   due_soon: "A reminder, sent once, the day before the due date.",
   assigned: "You get this because the comments are assigned to you.",
-  workflow: "You get this because a project's workflow names you or your role.",
+  workflow:
+    "You get this because a project's workflow names you or your role, or you follow the track it moved.",
   task: "You get this because the task is yours, or you run it.",
 };
 
