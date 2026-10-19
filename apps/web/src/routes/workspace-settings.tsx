@@ -2,7 +2,9 @@ import {
   accessWindowDays,
   type CommentScope,
   type CustomProfile,
+  type DefaultRoleName,
   type DownloadLevel,
+  defaultRoleNames,
   deliveryProfileIds,
   deliveryProfiles,
   formatBytes,
@@ -11,6 +13,7 @@ import {
   locales,
   type ProfileRef,
   type ProjectProfile,
+  playerTools,
   profiles,
   type SecondFactorPolicy,
   secondFactorPolicies,
@@ -25,6 +28,7 @@ import { EmailTemplatesSection } from "~/components/email-templates";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { PageHeader } from "~/components/page-header";
+import { PlayerToolsTable } from "~/components/player-tools";
 import { TransfersSection } from "~/components/project-transfer";
 import { Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
 import { SsoSection } from "~/components/sso";
@@ -552,7 +556,67 @@ function Defaults() {
           onChange={(carriedCommentsShown) => change({ carriedCommentsShown })}
         />
       </Section>
+      <ToolAccess />
     </>
+  );
+}
+
+/** The player tools the five default roles start with in a new project (#55). */
+function ToolAccess() {
+  const { settings, change, pending, error } = useSettings();
+  // On a phone one role is shown at a time, chosen above the table.
+  const [shown, setShown] = useState<DefaultRoleName>(defaultRoleNames[0]);
+  if (!settings) return null;
+  const roles = defaultRoleNames.map((name) => ({
+    id: name,
+    name,
+    tools: settings.roleTools[name],
+  }));
+  return (
+    <section aria-label="Tool access" className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-[16px] font-medium text-ink">Tool access</h2>
+          <p className="mt-0.5 max-w-[620px] text-[13px] text-ink-3">
+            What the five default roles get in a new project. Each project can change its own.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 text-[13px] text-ink-3 @3xl/app:hidden">
+          <label htmlFor="default-role-shown">Role</label>
+          <Select
+            id="default-role-shown"
+            size="sm"
+            value={shown}
+            onChange={(event) => setShown(event.target.value as DefaultRoleName)}
+            className="w-auto"
+          >
+            {defaultRoleNames.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </Select>
+        </div>
+      </div>
+      <PlayerToolsTable
+        roles={roles}
+        // Each change is built from the settings shown, so one waits for the last to land.
+        manage={!pending}
+        column={(role) => (role === shown ? "" : "hidden @3xl/app:table-cell")}
+        onToggle={(role, tool, on) => {
+          const name = role as DefaultRoleName;
+          const tools = settings.roleTools[name];
+          change({
+            roleTools: {
+              [name]: on
+                ? playerTools.filter((t) => t === tool || tools.includes(t))
+                : tools.filter((t) => t !== tool),
+            },
+          });
+        }}
+      />
+      {error}
+    </section>
   );
 }
 

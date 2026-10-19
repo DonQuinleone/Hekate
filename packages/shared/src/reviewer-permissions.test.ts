@@ -5,6 +5,7 @@ import {
   invitedGrant,
   mergeGrants,
   readGrant,
+  standingGrant,
   visibleComments,
   withinWindow,
 } from "./reviewer-permissions.ts";
@@ -86,5 +87,13 @@ describe("reviewer permissions", () => {
     // A grant stored before inviting existed lets no one invite.
     const { invite: _, ...stored } = all;
     expect(readGrant(stored).invite).toBe(false);
+  });
+
+  it("keeps what a project says for one person to what holds across its reviews (#55)", () => {
+    expect(standingGrant.safeParse({ download: "proxy", tools: ["score"] }).success).toBe(true);
+    // Nothing to set, and nothing that belongs to one review: its dates and its items.
+    expect(standingGrant.safeParse({}).success).toBe(false);
+    expect(standingGrant.safeParse({ expiresAt: "2030-01-01T00:00:00Z" }).success).toBe(false);
+    expect(standingGrant.safeParse({ items: null }).success).toBe(false);
   });
 });

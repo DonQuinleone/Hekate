@@ -25,6 +25,7 @@ import {
   reviewOutcome,
   reviewTitleFor,
   shareGrant,
+  standingGrant,
   submitFeedbackInput,
   updateReviewInput,
   withinWindow,
@@ -73,6 +74,7 @@ const {
   guestLinks,
   guestSessions,
   projects,
+  projectReviewerGrants,
 } = schema;
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
@@ -86,6 +88,38 @@ const addReviewerInput = z.union([
 ]);
 const reviewerParam = zValidator("param", z.object({ id: z.uuid(), reviewerId: z.uuid() }));
 const projectGuestParam = zValidator("param", z.object({ id: z.uuid(), guestId: z.uuid() }));
+
+const reviewerGrantParam = zValidator(
+  "param",
+  z.object({
+    id: z.uuid(),
+    kind: z.enum(["member", "guest"]),
+    personId: z.string().min(1).max(100),
+  }),
+);
+
+/**
+ * Someone a standing grant can be set for (#55), or 404: a member of the workspace, or a guest
+ * this project knows.
+ */
+async function grantee(
+  db: Database,
+  organisationId: string,
+  projectId: string,
+  kind: "member" | "guest",
+  personId: string,
+) {
+  if (kind === "guest") {
+    if (!z.uuid().safeParse(personId).success) throw new NotFound("Guest");
+    await projectGuest(db, organisationId, projectId, personId);
+    return;
+  }
+  const [member] = await db
+    .select({ id: members.id })
+    .from(members)
+    .where(inOrg(members, organisationId, eq(members.userId, personId)));
+  if (!member) throw new NotFound("Member");
+}
 
 /**
  * A guest this project knows, through its reviews or its groups, or 404: a project's People
@@ -1102,18 +1136,62 @@ async function expandReviewers(
 }
 
 /**
- * Each person's permissions in a new review: what the request grants everyone, changed again
- * by any override given for them (by `reviewerKey`: a member by user id, a guest by email).
- * An approval reviewer left unable to decide only follows it.
+ * What each person starts with in a review of this project: what the review grants everyone,
+ * with what the project's People page says for them on top (#55). The more particular wins.
+ */
+async function standingFor(
+  tx: Tx,
+  organisationId: string,
+  projectId: string,
+  people: Pick<Person, "userId" | "guestId">[],
+  granted: ReviewerPermissions,
+): Promise<ReviewerPermissions[]> {
+  const userIds = people.flatMap((p) => (p.userId ? [p.userId] : []));
+  const guestIds = people.flatMap((p) => (p.guestId ? [p.guestId] : []));
+  if (userIds.length === 0 && guestIds.length === 0) return people.map(() => granted);
+  const standing = await tx
+    .select({
+      userId: projectReviewerGrants.userId,
+      guestId: projectReviewerGrants.guestId,
+      grant: projectReviewerGrants.grant,
+    })
+    .from(projectReviewerGrants)
+    .where(
+      inOrg(
+        projectReviewerGrants,
+        organisationId,
+        eq(projectReviewerGrants.projectId, projectId),
+        or(
+          userIds.length ? inArray(projectReviewerGrants.userId, userIds) : sql`false`,
+          guestIds.length ? inArray(projectReviewerGrants.guestId, guestIds) : sql`false`,
+        ),
+      ),
+    );
+  return people.map((person) => {
+    const theirs = standing.find((g) =>
+      person.userId ? g.userId === person.userId : g.guestId === person.guestId,
+    );
+    // A standing grant has no dates, so it always fits what the review grants.
+    return theirs ? (applyPermissions(granted, theirs.grant).data ?? granted) : granted;
+  });
+}
+
+/**
+ * Each person's permissions in a new review: what the request grants everyone, then what the
+ * project's People page says for them, then any override given for them in the request (by
+ * `reviewerKey`: a member by user id, a guest by email). An approval reviewer left unable to
+ * decide only follows it.
  */
 async function overridden(
   tx: Tx,
   organisationId: string,
+  projectId: string,
   people: Person[],
   granted: ReviewerPermissions,
   overrides: Record<string, ReviewerPermissionsChange>,
 ) {
-  if (Object.keys(overrides).length === 0) return people.map(() => granted);
+  const bases = await standingFor(tx, organisationId, projectId, people, granted);
+  if (Object.keys(overrides).length === 0) return bases;
   const guestIds = people.flatMap((p) => (p.guestId ? [p.guestId] : []));
   const emails = new Map(
     guestIds.length
@@ -1125,13 +1203,14 @@ async function overridden(
         ).map((g) => [g.id, g.email])
       : [],
   );
-  return people.map((person) => {
+  return people.map((person, i) => {
+    const base = bases[i] ?? granted;
     const key = person.userId
       ? `member:${person.userId}`
       : `guest:${(person.guestId && emails.get(person.guestId)) || ""}`;
     const change = overrides[key];
-    if (!change) return granted;
-    const result = applyPermissions(granted, change);
+    if (!change) return base;
+    const result = applyPermissions(base, change);
     if (!result.success) {
       throw new HTTPException(422, {
         message: result.error.issues[0]?.message ?? "Those permissions do not fit together",
@@ -1223,13 +1302,6 @@ export async function requestReview(
   }
   // A share asks nothing (#138): its people listen and look, whatever the defaults say.
   if (input.kind === "share") granted.data = shareGrant(granted.data);
-  // An approval nobody may decide would wait for ever: everyone would only follow it.
-  if (input.kind === "approval" && !granted.data.decide) {
-    throw new HTTPException(422, {
-      message:
-        "An approval needs reviewers who may decide. The workspace's defaults leave nobody able to: say that they may, or ask for feedback.",
-    });
-  }
   const who = await deps.audit.member(actor.userId);
   const review = await deps.db.transaction(async (tx) => {
     // Not into a project being archived: archiving closes every open review.
@@ -1282,7 +1354,7 @@ export async function requestReview(
       0,
     );
     const permissions = (
-      await overridden(tx, organisationId, people, granted.data, input.overrides ?? {})
+      await overridden(tx, organisationId, projectId, people, granted.data, input.overrides ?? {})
     ).map((p) => (input.kind === "share" && p ? shareGrant(p) : p));
     // Overrides may take the decision from everyone; such an approval would never end.
     if (
@@ -1290,7 +1362,10 @@ export async function requestReview(
       !people.some((_, i) => (permissions[i] ?? granted.data).decide)
     ) {
       throw new HTTPException(422, {
-        message: "An approval needs at least one reviewer who may decide.",
+        // Asked once each reviewer's own permissions are known: the project's People page may
+        // let someone decide where the workspace's defaults let nobody (#55).
+        message:
+          "An approval needs at least one reviewer who may decide: say that they may, here or on the project's People page, or ask for feedback.",
       });
     }
     await tx.insert(reviewReviewers).values(
@@ -1585,6 +1660,101 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
         return c.body(null, 204);
       },
     )
+    // What each person may do in this project's reviews, where its People page says (#55).
+    .get("/:id/reviewer-grants", idParam, async (c) => {
+      const actor = actorOf(c.var);
+      const { projectId } = await can(deps.db, actor, "manage_reviewers", c.req.valid("param").id);
+      const grants = await deps.db
+        .select({
+          userId: projectReviewerGrants.userId,
+          guestId: projectReviewerGrants.guestId,
+          grant: projectReviewerGrants.grant,
+        })
+        .from(projectReviewerGrants)
+        .where(
+          inOrg(
+            projectReviewerGrants,
+            actor.organisationId,
+            eq(projectReviewerGrants.projectId, projectId),
+          ),
+        );
+      return c.json({ grants });
+    })
+    // Set what one person may do in every review of this project they are asked into; a
+    // review's own overrides still come on top.
+    .put(
+      "/:id/reviewer-grants/:kind/:personId",
+      reviewerGrantParam,
+      zValidator("json", standingGrant),
+      async (c) => {
+        const actor = actorOf(c.var);
+        const { id, kind, personId } = c.req.valid("param");
+        const { projectId } = await can(deps.db, actor, "manage_reviewers", id);
+        await grantee(deps.db, actor.organisationId, projectId, kind, personId);
+        const grant = c.req.valid("json");
+        const who = await deps.audit.member(actor.userId);
+        await deps.db.transaction(async (tx) => {
+          const person =
+            kind === "member"
+              ? { userId: personId, guestId: null }
+              : { userId: null, guestId: personId };
+          await tx
+            .insert(projectReviewerGrants)
+            .values({ organisationId: actor.organisationId, projectId, ...person, grant })
+            .onConflictDoUpdate({
+              target: [
+                projectReviewerGrants.organisationId,
+                projectReviewerGrants.projectId,
+                kind === "member" ? projectReviewerGrants.userId : projectReviewerGrants.guestId,
+              ],
+              set: { grant, updatedAt: new Date() },
+            });
+          await deps.audit.record(
+            actor.organisationId,
+            who,
+            { action: "project.reviewer_grant", projectId, details: { ...person, grant } },
+            requestInfo(c, deps.trustProxy),
+            tx,
+          );
+        });
+        return c.body(null, 204);
+      },
+    )
+    // Back to the workspace's defaults.
+    .delete("/:id/reviewer-grants/:kind/:personId", reviewerGrantParam, async (c) => {
+      const actor = actorOf(c.var);
+      const { id, kind, personId } = c.req.valid("param");
+      const { projectId } = await can(deps.db, actor, "manage_reviewers", id);
+      const who = await deps.audit.member(actor.userId);
+      const person =
+        kind === "member"
+          ? { userId: personId, guestId: null }
+          : { userId: null, guestId: personId };
+      await deps.db.transaction(async (tx) => {
+        const cleared = await tx
+          .delete(projectReviewerGrants)
+          .where(
+            inOrg(
+              projectReviewerGrants,
+              actor.organisationId,
+              eq(projectReviewerGrants.projectId, projectId),
+              kind === "member"
+                ? eq(projectReviewerGrants.userId, personId)
+                : eq(projectReviewerGrants.guestId, personId),
+            ),
+          )
+          .returning({ id: projectReviewerGrants.id });
+        if (cleared.length === 0) return;
+        await deps.audit.record(
+          actor.organisationId,
+          who,
+          { action: "project.reviewer_grant", projectId, details: { ...person, grant: null } },
+          requestInfo(c, deps.trustProxy),
+          tx,
+        );
+      });
+      return c.body(null, 204);
+    })
     // End every link and signed-in browser a guest has, as revoking them from a review does.
     .post("/:id/guests/:guestId/revoke", projectGuestParam, async (c) => {
       const actor = actorOf(c.var);
@@ -1977,18 +2147,20 @@ export const reviewRoutes = (deps: ReviewDeps) =>
             .where(eq(schema.organisations.id, actor.organisationId));
           grant = reviewerDefaults(workspaceSettingsOf(workspace?.settings), new Date());
         }
-        if (review.kind === "share") grant = shareGrant(grant);
+        // With what the project's People page says for each of them (#55).
+        const grants = await standingFor(tx, actor.organisationId, review.projectId, people, grant);
         const inserted = await tx
           .insert(reviewReviewers)
           .values(
-            people.map((person) => ({
+            people.map((person, i) => ({
               organisationId: actor.organisationId,
               reviewId: review.id,
               userId: person.userId ?? null,
               guestId: person.guestId ?? null,
               groupId: person.groupId,
               position: person.position,
-              permissions: grant,
+              permissions:
+                review.kind === "share" ? shareGrant(grants[i] ?? grant) : (grants[i] ?? grant),
             })),
           )
           .onConflictDoNothing()

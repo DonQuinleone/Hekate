@@ -634,6 +634,19 @@ test("workflows-copy", async ({ page }) => {
   await checkScreen(page);
 });
 
+// What a guest may do in every review of a project (#55), from its People page. Looked at only.
+test("project-people-permissions", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/people`);
+  await settle(page, "main >> text=Ines Arlow");
+  await page.getByRole("button", { name: "Actions for Mira Solberg" }).click();
+  await page.getByRole("menuitem", { name: /Review permissions/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Mira Solberg in this project's reviews" });
+  await expect(dialog.getByRole("button", { name: "Save" })).toBeVisible();
+  await saveScreen(page, "project-people-permissions");
+  await checkScreen(page);
+});
+
 // The project's statuses (#26): how each reads on the board, and the steps that set it. Looked
 // at only, so no other capture sees a change.
 test("workflows-statuses", async ({ page }) => {

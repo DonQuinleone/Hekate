@@ -65,6 +65,7 @@ export const transferTables = {
     "review_reviewers",
     "review_item_opens",
     "review_decisions",
+    "project_reviewer_grants",
     "tasks",
     "task_events",
     "marks",
@@ -369,7 +370,7 @@ async function leavePeople(tx: Tx, projectId: string, from: string, to: string) 
     and project_id = ${projectId} and user_id not in ${kept}`);
   await tx.execute(sql`delete from group_members where organisation_id = ${from}
     and user_id is not null and user_id not in ${kept} and group_id in ${groups}`);
-  for (const table of ["marks", "overview_layouts", "notifications"])
+  for (const table of ["marks", "overview_layouts", "notifications", "project_reviewer_grants"])
     await tx.execute(sql`delete from ${sql.identifier(table)} where organisation_id = ${from}
       and project_id = ${projectId} and user_id not in ${kept}`);
   await tx.execute(sql`delete from follows where organisation_id = ${from}
@@ -400,6 +401,8 @@ async function mapGuests(tx: Tx, projectId: string, from: string, to: string) {
         where organisation_id = ${from} and group_id in ${groups}
       union select actor_guest_id from notifications
         where organisation_id = ${from} and project_id = ${projectId}
+      union select guest_id from project_reviewer_grants
+        where organisation_id = ${from} and project_id = ${projectId}
     )`,
   );
   for (const guest of named) {
@@ -419,6 +422,9 @@ async function mapGuests(tx: Tx, projectId: string, from: string, to: string) {
       where organisation_id = ${from} and guest_id = ${guest.id} and group_id in ${groups}`);
     await tx.execute(sql`update notifications set actor_guest_id = ${there.id}
       where organisation_id = ${from} and actor_guest_id = ${guest.id}
+        and project_id = ${projectId}`);
+    await tx.execute(sql`update project_reviewer_grants set guest_id = ${there.id}
+      where organisation_id = ${from} and guest_id = ${guest.id}
         and project_id = ${projectId}`);
   }
 }
@@ -543,6 +549,7 @@ async function moveRows(tx: Tx, projectId: string, from: string, to: string) {
       "marks",
       "overview_layouts",
       "notifications",
+      "project_reviewer_grants",
     ].map((t): [string, SQL] => [t, byProject]),
     ["projects", sql`id = ${P}`],
   ];

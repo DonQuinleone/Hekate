@@ -3202,6 +3202,13 @@ describe.runIf(url)("api", () => {
           emailSubjects: {},
           secondFactor: "off",
           securityKeyForAdmins: false,
+          roleTools: {
+            Producer: ["qa", "meters", "spectrogram", "score", "compare", "loops", "normalise"],
+            Engineer: ["qa", "meters", "spectrogram", "score", "compare", "loops", "normalise"],
+            Editor: ["qa", "meters", "spectrogram", "score", "compare", "loops", "normalise"],
+            Reviewer: ["score", "compare", "loops", "normalise"],
+            Viewer: ["score"],
+          },
           reviewer: {
             comment: true,
             decide: true,
@@ -3259,6 +3266,33 @@ describe.runIf(url)("api", () => {
           .from(schema.projects)
           .where(eq(schema.projects.id, project.id));
         expect(row?.shown).toBe(false);
+
+        // And its default roles with the workspace's tools (#55).
+        expect(
+          (await change({ roleTools: { Viewer: ["score", "loops"], Editor: [] } }, owner)).status,
+        ).toBe(200);
+        const tooled = (await (
+          await app.request("/api/projects", json({ name: "Joplin Rags", profile: "music" }, owner))
+        ).json()) as { project: { id: string } };
+        const roles = await db
+          .select({ name: schema.projectRoles.name, tools: schema.projectRoles.tools })
+          .from(schema.projectRoles)
+          .where(eq(schema.projectRoles.projectId, tooled.project.id));
+        const toolsOf = (name: string) => roles.find((r) => r.name === name)?.tools;
+        expect(toolsOf("Viewer")).toEqual(["score", "loops"]);
+        expect(toolsOf("Editor")).toEqual([]);
+        expect(toolsOf("Reviewer")).toEqual(["score", "compare", "loops", "normalise"]);
+        // The project made before keeps what it started with.
+        const [before] = await db
+          .select({ tools: schema.projectRoles.tools })
+          .from(schema.projectRoles)
+          .where(
+            and(
+              eq(schema.projectRoles.projectId, project.id),
+              eq(schema.projectRoles.name, "Viewer"),
+            ),
+          );
+        expect(before?.tools).toEqual(["score"]);
 
         // Another workspace keeps its own.
         const [other] = await db
@@ -7379,6 +7413,15 @@ describe.runIf(url)("api", () => {
             projectId: s.projectId,
             tokenHash: "f".repeat(64),
           });
+          // What the People page says for two of its people (#55).
+          await db.insert(schema.projectReviewerGrants).values(
+            [s.ids.engineer, s.ids.composer].map((userId) => ({
+              organisationId: s.organisationId,
+              projectId: s.projectId,
+              userId,
+              grant: { invite: true },
+            })),
+          );
 
           const deps = { db, keyring, backends, jobs };
           const move = { projectId: s.projectId, from: s.organisationId, to };
@@ -7463,6 +7506,16 @@ describe.runIf(url)("api", () => {
             .from(schema.projectMembers)
             .where(eq(schema.projectMembers.projectId, s.projectId));
           expect(people.map((p) => p.userId).sort()).toEqual([s.ids.owner, s.ids.engineer].sort());
+          // So do their standing grants.
+          expect(
+            await db
+              .select({
+                userId: schema.projectReviewerGrants.userId,
+                organisationId: schema.projectReviewerGrants.organisationId,
+              })
+              .from(schema.projectReviewerGrants)
+              .where(eq(schema.projectReviewerGrants.projectId, s.projectId)),
+          ).toEqual([{ userId: s.ids.engineer, organisationId: to }]);
           // The tag is the gaining workspace's own; the calendar link, given out before, is gone.
           expect(
             await db
@@ -11204,6 +11257,165 @@ describe.runIf(url)("api", () => {
           "observing",
         ]);
         expect(mailer.sent.some((m) => m.to === "follower@example.test")).toBe(true);
+      });
+
+      it("starts each person on what the project's People page says for them (#55)", async () => {
+        const s = await studio();
+        const put = (path: string, body: unknown, cookie = s.owner) =>
+          app.request(`/api/projects/${s.projectId}/reviewer-grants/${path}`, {
+            ...json(body, cookie),
+            method: "PUT",
+          });
+        const grants = async (cookie = s.owner) =>
+          getAs(`/api/projects/${s.projectId}/reviewer-grants`, cookie);
+        type Asked = {
+          reviewers: { name: string; permissions: Record<string, unknown> | null }[];
+        };
+        // A guest first known through a review, which starts them on the defaults.
+        const conductor = { name: "Mira Solberg", email: "conductor@example.test" };
+        const first = await request(s.owner, s.projectId, {
+          kind: "feedback",
+          items: [{ trackId: s.trackId }],
+          reviewers: [conductor],
+        });
+        expect(first.status).toBe(201);
+        const known = (await (
+          await getAs(`/api/projects/${s.projectId}/guests`, s.owner)
+        ).json()) as {
+          guests: { id: string }[];
+        };
+        const guestId = known.guests[0]?.id ?? "";
+
+        // Only those who manage reviewers set it; nothing empty, nothing with dates.
+        expect((await put(`guest/${guestId}`, { download: "proxy" }, s.composer)).status).toBe(403);
+        expect((await grants(s.composer)).status).toBe(403);
+        expect((await put(`guest/${guestId}`, {})).status).toBe(400);
+        expect((await put(`guest/${guestId}`, { expiresAt: "2030-01-01T00:00:00Z" })).status).toBe(
+          400,
+        );
+        // Nobody the workspace does not know, and no guest this project has not asked.
+        expect((await put("member/nobody", { decide: false })).status).toBe(404);
+        const [stranger] = await db
+          .insert(schema.guests)
+          .values({
+            organisationId: s.organisationId,
+            name: "Tomas Varga",
+            email: "x@example.test",
+          })
+          .returning();
+        expect((await put(`guest/${stranger?.id}`, { download: "proxy" })).status).toBe(404);
+
+        expect(
+          (await put(`guest/${guestId}`, { download: "proxy", tools: ["score"], maxPlays: 3 }))
+            .status,
+        ).toBe(204);
+        expect((await put(`member/${s.ids.composer}`, { decide: false })).status).toBe(204);
+        // Set again, it replaces what was there.
+        expect(
+          (await put(`guest/${guestId}`, { download: "proxy", tools: ["score", "loops"] })).status,
+        ).toBe(204);
+        expect(((await (await grants()).json()) as { grants: unknown[] }).grants).toHaveLength(2);
+
+        // A new review starts each on theirs; the request's own override still wins.
+        const second = await request(s.owner, s.projectId, {
+          kind: "approval",
+          items: [{ trackId: s.trackId }],
+          reviewers: [s.ids.composer, s.ids.accompanist, conductor],
+          overrides: { "guest:conductor@example.test": { tools: ["loops"] } },
+        });
+        expect(second.status).toBe(201);
+        const asked = (await reviewOf(second)) as unknown as Asked & { id: string };
+        const [composer, accompanist, guest] = asked.reviewers.map((r) => r.permissions);
+        expect(composer).toMatchObject({ decide: false });
+        expect(accompanist).toMatchObject({ decide: true });
+        expect(guest).toMatchObject({ download: "proxy", tools: ["loops"], maxPlays: null });
+        // Someone added later starts on theirs too.
+        const singer = await joinAs(s.owner, "singer@example.test");
+        await grantRole(s.owner, s.projectId, singer, "Reviewer");
+        const singerId = await idOf(singer);
+        expect((await put(`member/${singerId}`, { invite: true })).status).toBe(204);
+        const added = await app.request(
+          `/api/reviews/${asked.id}/reviewers`,
+          json({ userId: singerId }, s.owner),
+        );
+        expect(added.status).toBeLessThan(300);
+        const after = (await reviewOf(
+          await getAs(`/api/reviews/${asked.id}`, s.owner),
+        )) as unknown as Asked;
+        expect(after.reviewers.at(-1)?.permissions).toMatchObject({ invite: true, decide: true });
+        // Cleared, the defaults again; and the access log says who set what.
+        expect(
+          (
+            await app.request(`/api/projects/${s.projectId}/reviewer-grants/guest/${guestId}`, {
+              method: "DELETE",
+              headers: { cookie: s.owner },
+            })
+          ).status,
+        ).toBe(204);
+        const third = await reviewOf(
+          await request(s.owner, s.projectId, {
+            kind: "feedback",
+            items: [{ trackId: s.trackId }],
+            reviewers: [conductor],
+          }),
+        );
+        expect((third as unknown as Asked).reviewers[0]?.permissions).toMatchObject({
+          download: "none",
+        });
+        const logged = (await (
+          await getAs("/api/organisation/audit?action=project.reviewer_grant", s.owner)
+        ).json()) as { events: { details: { grant: unknown } }[] };
+        expect(logged.events.map((e) => e.details.grant)).toEqual([
+          null,
+          { invite: true },
+          { download: "proxy", tools: ["score", "loops"] },
+          { decide: false },
+          { download: "proxy", tools: ["score"], maxPlays: 3 },
+        ]);
+
+        // Where the workspace lets nobody decide, the People page may let someone.
+        expect(
+          (
+            await app.request("/api/organisation/settings", {
+              ...json({ reviewer: { decide: false } }, s.owner),
+              method: "PATCH",
+            })
+          ).status,
+        ).toBe(200);
+        const approval = (reviewers: string[]) =>
+          request(s.owner, s.projectId, {
+            kind: "approval",
+            items: [{ trackId: s.trackId }],
+            reviewers,
+          });
+        expect((await approval([s.ids.accompanist])).status).toBe(422);
+        expect((await put(`member/${s.ids.accompanist}`, { decide: true })).status).toBe(204);
+        const decided = await approval([s.ids.accompanist]);
+        expect(decided.status).toBe(201);
+        expect(
+          ((await reviewOf(decided)) as unknown as Asked).reviewers[0]?.permissions,
+        ).toMatchObject({ decide: true });
+
+        // Another workspace's project has none to read or set.
+        const [elsewhere] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-grants" })
+          .returning();
+        const [theirs] = await db
+          .insert(schema.projects)
+          .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+          .returning();
+        expect((await getAs(`/api/projects/${theirs?.id}/reviewer-grants`, s.owner)).status).toBe(
+          404,
+        );
+        expect(
+          (
+            await app.request(
+              `/api/projects/${theirs?.id}/reviewer-grants/member/${s.ids.composer}`,
+              { ...json({ decide: false }, s.owner), method: "PUT" },
+            )
+          ).status,
+        ).toBe(404);
       });
 
       it("completes feedback when everyone has submitted", async () => {

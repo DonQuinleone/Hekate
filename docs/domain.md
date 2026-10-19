@@ -211,6 +211,8 @@ Every reviewer in a review has their own permission set. Defaults are set per wo
 
 The same model applies to members in a review (their project role sets the ceiling) and to guests (the review sets it entirely).
 
+What a reviewer starts with is built up from the general to the particular, each layer changing only what it names: the workspace's defaults (Settings, Defaults), then anything the request sets for everyone, then what the project's People page sets for that person, then any override the request makes for them alone (decision 141). The People page holds no dates or items, which belong to one review.
+
 A reviewer in an approval who may not record a decision is an **observer**: they follow the approval, and comment where they may, while the decision rests with others. Nothing waits on an observer, so they are told as soon as they take part, whatever their place in a sequence: when the review is requested, when they are added or invited, or when their decision is taken away while they are still waiting their turn. A guest observer gets their link then. What they are sent asks them to follow the approval, never to approve it.
 
 

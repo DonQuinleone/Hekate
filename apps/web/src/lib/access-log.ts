@@ -23,6 +23,7 @@ export const actionCopy: Record<string, string> = {
   "guest.code_sent": "Guest sent a code",
   "guest.code_failed": "Guest code refused",
   "guest.revoke": "Guest revoked",
+  "project.reviewer_grant": "Reviewer permissions set",
   "guest.view": "Guest opened a review",
   "comment.create": "Comment",
   "comment.attachment_add": "File attached",

@@ -49,6 +49,8 @@ export const auditActions = [
   /** A guest's code was wrong, had expired, or had been tried too often. */
   "guest.code_failed",
   "guest.revoke",
+  /** What someone may do in a project's reviews was set on its People page (#55), or cleared. */
+  "project.reviewer_grant",
   /** A guest opened a review, or commented. */
   "guest.view",
   "comment.create",

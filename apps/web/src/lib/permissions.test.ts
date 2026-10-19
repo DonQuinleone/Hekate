@@ -1,7 +1,13 @@
-import { defaultReviewerPermissions as all } from "@hekate/shared";
+import { defaultReviewerPermissions as all, reviewerTools } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
 import { setLocale } from "./locale";
-import { accessNote, fromLocalInput, permissionSummary, toLocalInput } from "./permissions";
+import {
+  accessNote,
+  fromLocalInput,
+  permissionSummary,
+  standingChange,
+  toLocalInput,
+} from "./permissions";
 
 // Dates as a British member reads them, whatever the machine running the tests.
 setLocale("en-GB");
@@ -47,5 +53,29 @@ describe("reviewer permissions in words", () => {
     expect(fromLocalInput(toLocalInput(iso))).toBe(iso);
     expect(toLocalInput(null)).toBe("");
     expect(fromLocalInput("")).toBeNull();
+  });
+});
+
+describe("what a project keeps for one person (#55)", () => {
+  const defaults = { ...all, download: "none" as const };
+
+  it("keeps only where they depart from the workspace's defaults", () => {
+    expect(
+      standingChange(defaults, {
+        comment: true,
+        decide: false,
+        comments: "all",
+        tools: [...reviewerTools].reverse(),
+        download: "proxy",
+        maxPlays: null,
+      }),
+    ).toEqual({ decide: false, download: "proxy" });
+    expect(standingChange(defaults, { tools: ["score", "loops"] })).toEqual({
+      tools: ["loops", "score"],
+    });
+  });
+
+  it("keeps nothing where nothing departs", () => {
+    expect(standingChange(defaults, { comment: true, decide: true, history: false })).toBeNull();
   });
 });

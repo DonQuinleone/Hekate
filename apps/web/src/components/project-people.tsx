@@ -1,3 +1,4 @@
+import { applyPermissions, reviewerDefaults } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
@@ -11,17 +12,22 @@ import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { StatusDot } from "~/components/ui/status";
 import { formatDates } from "~/lib/locale";
+import { standingChange } from "~/lib/permissions";
 import {
   type KnownGuest,
   membersQuery,
   meQuery,
   projectGuestsQuery,
   projectMembersQuery,
+  projectReviewerGrantsQuery,
   projectRolesQuery,
   useProjectAccessMutations,
   useProjectCan,
   useProjectGuestMutations,
+  useProjectReviewerGrant,
+  workspaceSettingsQuery,
 } from "~/lib/queries";
+import { ReviewerPermissionsEditor } from "./reviewer-permissions";
 
 const dayFormat = formatDates({ day: "numeric", month: "short" });
 
@@ -47,7 +53,13 @@ function Members({ projectId }: { projectId: string }) {
   const { data: roles } = useQuery(projectRolesQuery(projectId));
   const { data: me } = useQuery(meQuery);
   const { assign, remove } = useProjectAccessMutations(projectId);
+  const manageReviewers = can("manage_reviewers");
+  const { data: grants } = useQuery({
+    ...projectReviewerGrantsQuery(projectId),
+    enabled: manageReviewers,
+  });
   const [adding, setAdding] = useState(false);
+  const [granting, setGranting] = useState<Grantee | null>(null);
   const error = loadError ?? assign.error ?? remove.error;
   return (
     <section aria-label="Members" className="flex flex-col gap-3">
@@ -89,6 +101,9 @@ function Members({ projectId }: { projectId: string }) {
                   <span className="block truncate text-[14px] text-ink">
                     {m.name}
                     {m.userId === me?.user.id && <span className="text-ink-3"> · you</span>}
+                    {grants?.some((g) => g.userId === m.userId) && (
+                      <span className="text-ink-3"> · own review permissions</span>
+                    )}
                   </span>
                   <span className="block truncate text-[13px] text-ink-3">{m.email}</span>
                 </span>
@@ -111,16 +126,30 @@ function Members({ projectId }: { projectId: string }) {
                 ) : (
                   <span className="text-[13px] text-ink-2">{role?.name}</span>
                 )}
-                {manage ? (
+                {manage || manageReviewers ? (
                   <ActionMenu
                     always
                     label={m.name}
                     actions={[
-                      {
-                        label: "Remove from project",
-                        danger: true,
-                        onSelect: () => remove.mutate(m.userId),
-                      },
+                      ...(manageReviewers
+                        ? [
+                            {
+                              label: "Review permissions…",
+                              onSelect: () =>
+                                setGranting({ kind: "member", id: m.userId, name: m.name }),
+                            },
+                          ]
+                        : []),
+                      ...(manage && manageReviewers ? ["divider" as const] : []),
+                      ...(manage
+                        ? [
+                            {
+                              label: "Remove from project",
+                              danger: true,
+                              onSelect: () => remove.mutate(m.userId),
+                            },
+                          ]
+                        : []),
                     ]}
                   />
                 ) : (
@@ -135,6 +164,9 @@ function Members({ projectId }: { projectId: string }) {
         Workspace owners and admins can do everything in every project, with a role here or not.
       </p>
       {adding && <AddMember projectId={projectId} onClose={() => setAdding(false)} />}
+      {granting && (
+        <StandingDialog projectId={projectId} person={granting} onClose={() => setGranting(null)} />
+      )}
     </section>
   );
 }
@@ -220,6 +252,8 @@ function Reviewers({ projectId }: { projectId: string }) {
   const { sendLink, revoke } = useProjectGuestMutations(projectId);
   const [labelling, setLabelling] = useState<KnownGuest | null>(null);
   const [revoking, setRevoking] = useState<KnownGuest | null>(null);
+  const [granting, setGranting] = useState<Grantee | null>(null);
+  const { data: grants } = useQuery({ ...projectReviewerGrantsQuery(projectId), enabled: manage });
   const [sent, setSent] = useState<string | null>(null);
   const error = loadError ?? sendLink.error ?? revoke.error;
   return (
@@ -258,6 +292,9 @@ function Reviewers({ projectId }: { projectId: string }) {
                 <span className="block truncate text-[14px] text-ink">
                   {g.name}
                   {g.label && <span className="text-ink-3"> · {g.label}</span>}
+                  {grants?.some((x) => x.guestId === g.id) && (
+                    <span className="text-ink-3"> · own review permissions</span>
+                  )}
                 </span>
                 <span className="block truncate text-[13px] text-ink-3">{g.email}</span>
               </span>
@@ -281,6 +318,11 @@ function Reviewers({ projectId }: { projectId: string }) {
                   always
                   label={g.name}
                   actions={[
+                    {
+                      label: "Review permissions…",
+                      hint: "For every review of this project that asks them",
+                      onSelect: () => setGranting({ kind: "guest", id: g.id, name: g.name }),
+                    },
                     // A link opens a review, so there is none to send without an open one.
                     ...(g.openReviews > 0
                       ? [
@@ -312,6 +354,9 @@ function Reviewers({ projectId }: { projectId: string }) {
       </p>
       {labelling && (
         <LabelDialog projectId={projectId} guest={labelling} onClose={() => setLabelling(null)} />
+      )}
+      {granting && (
+        <StandingDialog projectId={projectId} person={granting} onClose={() => setGranting(null)} />
       )}
       {revoking && (
         <Dialog
@@ -383,6 +428,80 @@ function LabelDialog({
           </Button>
         </div>
       </form>
+    </Dialog>
+  );
+}
+
+/** Someone whose review permissions in this project can be set: a member or a guest. */
+interface Grantee {
+  kind: "member" | "guest";
+  id: string;
+  name: string;
+}
+
+/**
+ * What someone may do in every review of this project that asks them (#55): the workspace's
+ * defaults, changed for them alone. A review can still change it for itself.
+ */
+function StandingDialog({
+  projectId,
+  person,
+  onClose,
+}: {
+  projectId: string;
+  person: Grantee;
+  onClose: () => void;
+}) {
+  const { data: settings } = useQuery(workspaceSettingsQuery);
+  const { data: grants } = useQuery(projectReviewerGrantsQuery(projectId));
+  const { set, clear } = useProjectReviewerGrant(projectId);
+  const theirs = grants?.find((g) =>
+    person.kind === "member" ? g.userId === person.id : g.guestId === person.id,
+  );
+  if (!settings || !grants) return null;
+  // No window of their own here: the defaults' runs from each review's start.
+  const defaults = { ...reviewerDefaults(settings, new Date()), expiresAt: null };
+  const initial = theirs ? (applyPermissions(defaults, theirs.grant).data ?? defaults) : defaults;
+  const target = { kind: person.kind, personId: person.id };
+  const error = set.error ?? clear.error;
+  return (
+    <Dialog
+      title={`${person.name} in this project's reviews`}
+      description={
+        theirs
+          ? "Their own permissions, in place of the workspace's defaults."
+          : "The workspace's defaults, until you change them here."
+      }
+      onClose={onClose}
+    >
+      <ReviewerPermissionsEditor
+        name={person.name}
+        kind="approval"
+        guest={person.kind === "guest"}
+        standing
+        initial={initial}
+        pending={set.isPending || clear.isPending}
+        error={error?.message ?? null}
+        onSave={(chosen) => {
+          const grant = standingChange(defaults, chosen);
+          if (grant) set.mutate({ ...target, grant }, { onSuccess: onClose });
+          else if (theirs) clear.mutate(target, { onSuccess: onClose });
+          else onClose();
+        }}
+        onCancel={onClose}
+      />
+      {theirs && (
+        <div className="mt-3 flex justify-start">
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={clear.isPending}
+            onClick={() => clear.mutate(target, { onSuccess: onClose })}
+          >
+            Back to the workspace's defaults
+          </Button>
+        </div>
+      )}
     </Dialog>
   );
 }

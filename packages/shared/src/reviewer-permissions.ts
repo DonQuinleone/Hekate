@@ -101,6 +101,26 @@ export const reviewerPermissionsChange = z.object({
 });
 export type ReviewerPermissionsChange = z.infer<typeof reviewerPermissionsChange>;
 
+/**
+ * What one person may do in every review of a project they are asked into (#55), set on the
+ * project's People page over the workspace's defaults. A review's own overrides still come
+ * on top. No dates and no items: those belong to one review.
+ */
+export const standingGrant = reviewerPermissionsChange
+  .pick({
+    comment: true,
+    decide: true,
+    invite: true,
+    comments: true,
+    tools: true,
+    download: true,
+    history: true,
+    maxPlays: true,
+  })
+  .strict()
+  .refine((g) => Object.keys(g).length > 0, "Nothing to set");
+export type StandingGrant = z.infer<typeof standingGrant>;
+
 /** A change applied, checked as a whole (an end before the start is refused). */
 export function applyPermissions(
   current: ReviewerPermissions,

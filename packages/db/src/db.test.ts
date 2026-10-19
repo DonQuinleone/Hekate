@@ -61,6 +61,7 @@ describe("tenancy", () => {
       "overview_layouts",
       "peak_levels",
       "project_members",
+      "project_reviewer_grants",
       "project_roles",
       "project_templates",
       "projects",

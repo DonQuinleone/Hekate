@@ -92,6 +92,7 @@ import {
   type SsoServiceProvider,
   type SsoSettings,
   type SsoSettingsInput,
+  type StandingGrant,
   searchResponse,
   type TakeChange,
   type TakeImport,
@@ -2360,6 +2361,56 @@ export function useProjectGuestMutations(projectId: string) {
     revoke: useMutation({
       mutationFn: async (guestId: string) =>
         ok(await api.projects[":id"].guests[":guestId"].revoke.$post({ param: param(guestId) })),
+      onSuccess: refresh,
+    }),
+  };
+}
+
+/** What the project's People page says each person may do in its reviews (#55). */
+export interface StandingGrantRow {
+  userId: string | null;
+  guestId: string | null;
+  grant: StandingGrant;
+}
+
+export const projectReviewerGrantsQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "reviewer-grants"],
+    queryFn: async () =>
+      (
+        await json<{ grants: StandingGrantRow[] }>(
+          await api.projects[":id"]["reviewer-grants"].$get({ param: { id: projectId } }),
+        )
+      ).grants,
+  });
+
+/** Set or clear what one person may do in every review of a project (#55). */
+export function useProjectReviewerGrant(projectId: string) {
+  const client = useQueryClient();
+  const refresh = () =>
+    client.invalidateQueries({ queryKey: projectReviewerGrantsQuery(projectId).queryKey });
+  const ok = async (res: Response) => {
+    if (!res.ok) await json(res);
+  };
+  type Person = { kind: "member" | "guest"; personId: string };
+  return {
+    set: useMutation({
+      mutationFn: async ({ kind, personId, grant }: Person & { grant: StandingGrant }) =>
+        ok(
+          await api.projects[":id"]["reviewer-grants"][":kind"][":personId"].$put({
+            param: { id: projectId, kind, personId },
+            json: grant,
+          }),
+        ),
+      onSuccess: refresh,
+    }),
+    clear: useMutation({
+      mutationFn: async ({ kind, personId }: Person) =>
+        ok(
+          await api.projects[":id"]["reviewer-grants"][":kind"][":personId"].$delete({
+            param: { id: projectId, kind, personId },
+          }),
+        ),
       onSuccess: refresh,
     }),
   };
