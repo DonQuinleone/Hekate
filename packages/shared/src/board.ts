@@ -40,6 +40,10 @@ export const defaultBoardDisplay: BoardDisplay = {
 export const statusCategories = ["todo", "in_progress", "done"] as const;
 export type ColumnCategory = (typeof statusCategories)[number];
 
+/** Whether two names are the same status: a set keeps each name once, whatever its case. */
+export const sameStatus = (a: string, b: string) =>
+  a.trim().toLowerCase() === b.trim().toLowerCase();
+
 /** A status of a project's set (#26): what its workflows' steps set, and how it reads. */
 export const workflowStatusSchema = z.object({
   name: z.string().trim().min(1).max(60),
@@ -75,7 +79,8 @@ export function projectStatuses(
   workflows: WorkflowDefinition[],
 ): ProjectStatus[] {
   const out: ProjectStatus[] = set.map((s) => ({ ...s, steps: 0, kept: true }));
-  const find = (name: string) => out.find((s) => s.name === name);
+  // A step that spells a status in another case sets the same one, as the set spells it.
+  const find = (name: string) => out.find((s) => sameStatus(s.name, name));
   for (const flow of workflows) {
     const byId = new Map(flow.nodes.map((n) => [n.id, n]));
     for (const id of flowShape(flow).order) {
@@ -132,7 +137,7 @@ export function boardColumns(
   ];
   const add = (name: string, category: ColumnCategory) => {
     const key = name.trim();
-    if (!key || columns.some((c) => c.id === key)) return;
+    if (!key || columns.some((c) => sameStatus(c.id, key))) return;
     columns.push({ id: key, name: key, category });
   };
   if (groupBy === "status") {

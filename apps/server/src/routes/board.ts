@@ -4,6 +4,7 @@ import {
   type BoardCard,
   type BoardDecision,
   boardColumns,
+  sameStatus,
   type WorkflowDefinition,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
@@ -268,15 +269,22 @@ export const projectBoardRoutes = (db: Database) =>
     }
     const definitions: WorkflowDefinition[] = flows.map((f) => f.definition);
     const held = [...new Set(cards.flatMap((k) => (k.status ? [k.status] : [])))];
+    const statusColumns = boardColumns(definitions, "status", held, project?.statuses ?? []);
     const board: Board = {
       workflows: flows.map((f) => f.name),
       columns: {
-        status: boardColumns(definitions, "status", held, project?.statuses ?? []),
+        status: statusColumns,
         stage: boardColumns(definitions, "stage", [
           ...new Set(cards.flatMap((k) => (k.stage ? [k.stage] : []))),
         ]),
       },
-      cards,
+      // Each card's status as its column spells it, so one held in another case still lands.
+      cards: cards.map((k) => {
+        const status = k.status;
+        return status
+          ? { ...k, status: statusColumns.find((col) => sameStatus(col.id, status))?.id ?? status }
+          : k;
+      }),
     };
     return c.json(board);
   });

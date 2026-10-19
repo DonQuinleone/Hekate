@@ -191,6 +191,16 @@ describe("a project's statuses", () => {
     ]);
   });
 
+  it("take a step's status in another case as the set's own, spelt as the set spells it", () => {
+    const set = [{ name: "EDITING", category: "todo" as const }];
+    const statuses = projectStatuses(set, [album]);
+    expect(statuses.filter((s) => s.name.toLowerCase() === "editing")).toEqual([
+      { name: "EDITING", category: "todo", steps: 1, kept: true },
+    ]);
+    const names = boardColumns([album], "status", ["editing"], set).map((c) => c.name);
+    expect(names.filter((n) => n.toLowerCase() === "editing")).toEqual(["EDITING"]);
+  });
+
   it("with no set, are the ones the steps set", () => {
     expect(projectStatuses([], [album]).map((s) => [s.name, s.category, s.kept])).toEqual([
       ["With conductor", "in_progress", false],

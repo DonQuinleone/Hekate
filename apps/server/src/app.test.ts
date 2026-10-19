@@ -8627,6 +8627,20 @@ describe.runIf(url)("api", () => {
               ["With conductor", "in_progress"],
             ],
           );
+          // A step's status in another case is the set's own: one column, as the set spells it,
+          // which the card and the track's line follow.
+          expect(
+            (await putStatuses([...set, { name: "with CONDUCTOR", category: "todo" }])).status,
+          ).toBe(200);
+          const cased = await board(s.composer);
+          expect(
+            cased.columns.status.filter((c) => c.name.toLowerCase() === "with conductor"),
+          ).toEqual([expect.objectContaining({ name: "with CONDUCTOR", category: "todo" })]);
+          expect(cased.cards[0]?.status).toBe("with CONDUCTOR");
+          expect(await (await getAs(standingPath, s.composer)).json()).toMatchObject({
+            category: "todo",
+          });
+          expect((await putStatuses(set)).status).toBe(200);
 
           // Ended by hand by those who edit workflows: the engineer is told, and given the edit.
           const step = (body: unknown, cookie = s.owner) =>

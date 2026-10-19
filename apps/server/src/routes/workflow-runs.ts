@@ -2,6 +2,7 @@ import { type Database, inOrg, schema } from "@hekate/db";
 import {
   nextStep,
   projectStatuses,
+  sameStatus,
   type WorkflowRunSummary,
   type WorkflowStanding,
   workflowRunStartInput,
@@ -108,7 +109,7 @@ export const trackWorkflowRunRoutes = (runner: RunnerDeps) => {
           ? (projectStatuses(
               project?.set ?? [],
               flows.map((f) => f.definition),
-            ).find((x) => x.name === status)?.category ?? "in_progress")
+            ).find((x) => sameStatus(x.name, status))?.category ?? "in_progress")
           : null;
         const at = run?.engine.active[0];
         const stage = at ? run?.definition.nodes.find((n) => n.id === at) : undefined;
