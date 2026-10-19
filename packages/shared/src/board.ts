@@ -72,11 +72,16 @@ export function boardColumns(
     { id: NO_VERSION, name: NO_VERSION, category: "todo" },
     { id: rest, name: rest, category: "todo" },
   ];
-  const seen = new Set<string>([NO_VERSION, rest]);
   const add = (name: string, category: ColumnCategory) => {
     const key = name.trim();
-    if (!key || seen.has(key)) return;
-    seen.add(key);
+    if (!key) return;
+    const known = columns.find((c) => c.id === key);
+    // A status a finish sets reads as done, even where an earlier step sets it too.
+    if (known) {
+      if (category === "done" && known.id !== NO_VERSION && known.id !== rest)
+        known.category = "done";
+      return;
+    }
     columns.push({ id: key, name: key, category });
   };
   for (const flow of workflows) {

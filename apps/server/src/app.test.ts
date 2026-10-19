@@ -6759,6 +6759,13 @@ describe.runIf(url)("api", () => {
         const after = await home(s.owner);
         const card = after.projects.find((p) => p.id === s.projectId);
         expect(card).toMatchObject({ approvedTracks: 1, openReviews: 1 });
+        // The board (#141) reads a review that follows the track as one of its latest version.
+        const board = (await (
+          await app.request(`/api/projects/${s.projectId}/board`, { headers: { cookie: s.owner } })
+        ).json()) as { cards: { decisions: { decision: string }[] }[] };
+        expect(board.cards[0]?.decisions).toEqual([
+          expect.objectContaining({ decision: "approved" }),
+        ]);
         expect(card?.faces.length).toBe(Math.min(card?.members ?? 0, 4));
         // The newest first: the approval settling, then the requests and the version.
         expect(after.activity[0]).toMatchObject({

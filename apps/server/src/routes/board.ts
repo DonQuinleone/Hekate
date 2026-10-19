@@ -7,17 +7,19 @@ import {
   type WorkflowDefinition,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { actorOf, can } from "../access.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { trackStandings } from "../track-standing.ts";
-import { reviewersOf } from "./reviews.ts";
 
 const {
   comments,
+  guests,
+  reviewDecisionLog,
   reviewItems,
+  reviewReviewers,
   reviews,
   tasks,
   tracks,
@@ -29,20 +31,59 @@ const {
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
-/** What a track's latest review says of it: each reviewer who has answered, as their card lists them. */
+/**
+ * What each track's latest review says of it, for all of them in two queries: every reviewer who
+ * has answered, by name, with their last decision (or feedback where they gave none).
+ */
 async function decisionsOf(
   db: Database,
   organisationId: string,
-  reviewId: string,
-): Promise<BoardDecision[]> {
-  const { rows, facts } = await reviewersOf(db, organisationId, reviewId);
-  return facts.flatMap((f): BoardDecision[] => {
-    const row = rows.find((r) => r.id === f.id);
-    if (!row?.name || !f.submitted) return [];
-    const decision =
-      f.decision === "approved" || f.decision === "changes_requested" ? f.decision : "feedback";
-    return [{ name: row.name, decision }];
-  });
+  reviewIds: string[],
+): Promise<Map<string, BoardDecision[]>> {
+  const out = new Map<string, BoardDecision[]>();
+  if (reviewIds.length === 0) return out;
+  const [rows, logged] = await Promise.all([
+    db
+      .select({
+        id: reviewReviewers.id,
+        reviewId: reviewReviewers.reviewId,
+        name: sql<string | null>`coalesce(${users.name}, ${guests.name})`,
+      })
+      .from(reviewReviewers)
+      .leftJoin(users, eq(users.id, reviewReviewers.userId))
+      .leftJoin(
+        guests,
+        and(eq(guests.id, reviewReviewers.guestId), eq(guests.organisationId, organisationId)),
+      )
+      .where(
+        inOrg(
+          reviewReviewers,
+          organisationId,
+          inArray(reviewReviewers.reviewId, reviewIds),
+          isNotNull(reviewReviewers.submittedAt),
+        ),
+      )
+      .orderBy(
+        asc(reviewReviewers.position),
+        asc(reviewReviewers.createdAt),
+        asc(reviewReviewers.id),
+      ),
+    db
+      .select({ reviewerId: reviewDecisionLog.reviewerId, decision: reviewDecisionLog.decision })
+      .from(reviewDecisionLog)
+      .where(
+        inOrg(reviewDecisionLog, organisationId, inArray(reviewDecisionLog.reviewId, reviewIds)),
+      )
+      .orderBy(asc(reviewDecisionLog.createdAt), asc(reviewDecisionLog.id)),
+  ]);
+  const last = new Map(logged.map((d) => [d.reviewerId, d.decision]));
+  for (const r of rows) {
+    if (!r.name) continue;
+    const d = last.get(r.id);
+    const decision = d === "approved" || d === "changes_requested" ? d : "feedback";
+    out.set(r.reviewId, [...(out.get(r.reviewId) ?? []), { name: r.name, decision }]);
+  }
+  return out;
 }
 
 /**
@@ -174,6 +215,18 @@ export const projectBoardRoutes = (db: Database) =>
             .groupBy(comments.fileId),
     ]);
     const threadsOn = new Map(threads.map((t) => [t.fileId, t.n]));
+    // Each track's latest review of its latest version: one pinned to it, or one that follows
+    // the track (no version of its own) and so covers whichever is latest.
+    const latestOf = new Map<string, string>();
+    for (const t of standing.tracks) {
+      const latest = t.version
+        ? open.find(
+            (r) => r.trackId === t.id && (r.versionId === null || r.versionId === t.version?.id),
+          )
+        : undefined;
+      if (latest) latestOf.set(t.id, latest.reviewId);
+    }
+    const said = await decisionsOf(db, organisationId, [...new Set(latestOf.values())]);
     const cards: BoardCard[] = [];
     for (const t of standing.tracks) {
       const files = new Set(
@@ -187,7 +240,6 @@ export const projectBoardRoutes = (db: Database) =>
         .filter((r) => r.status === "open" && r.dueAt)
         .map((r) => r.dueAt as Date)
         .sort((a, b) => a.getTime() - b.getTime())[0];
-      const latest = t.version ? ofTrack.find((r) => r.versionId === t.version?.id) : undefined;
       cards.push({
         id: t.id,
         name: t.name,
@@ -196,7 +248,7 @@ export const projectBoardRoutes = (db: Database) =>
         stage: stage ?? null,
         waitingOn: t.waitingOn,
         dueAt: due ? due.toISOString() : null,
-        decisions: latest ? await decisionsOf(db, organisationId, latest.reviewId) : [],
+        decisions: said.get(latestOf.get(t.id) ?? "") ?? [],
         tasks: openTasks
           .filter((k) => k.trackId === t.id || (k.fileId !== null && files.has(k.fileId)))
           .map((k) => ({

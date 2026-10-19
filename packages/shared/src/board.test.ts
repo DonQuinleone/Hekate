@@ -45,6 +45,22 @@ describe("a board's columns", () => {
     expect(columns[0]?.category).toBe("todo");
   });
 
+  it("count a status as done where a finish sets it, even if a step before sets it too", () => {
+    const early = {
+      ...album,
+      nodes: album.nodes.map((n) =>
+        n.id === "label" ? { ...n, config: { status: "Approved" } } : n,
+      ),
+    } as WorkflowDefinition;
+    const columns = boardColumns([early], "status");
+    expect(columns.filter((c) => c.name === "Approved")).toEqual([
+      { id: "Approved", name: "Approved", category: "done" },
+    ]);
+    expect(
+      boardColumns([album], "status", ["Approved"]).find((c) => c.name === "Approved"),
+    ).toMatchObject({ category: "done" });
+  });
+
   it("by stage, every step a track waits at", () => {
     expect(boardColumns([album], "stage").map((c) => c.name)).toEqual([
       NO_VERSION,
