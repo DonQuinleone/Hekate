@@ -7607,6 +7607,12 @@ describe.runIf(url)("api", () => {
             "your task R-1 is overdue",
             "your task R-1 is due today",
           ]);
+          // Moved away and set back to the same day, it is reminded of afresh.
+          const move = (dueOn: string) =>
+            app.request(`/api/tasks/${task.id}`, { ...json({ dueOn }, s.owner), method: "PATCH" });
+          await move("2026-10-30");
+          await move("2026-10-21");
+          expect(await remindTasksDue(db, new Date("2026-10-23T09:00:00Z"))).toBe(1);
           // Done, it is never reminded of again, even given a new date.
           await app.request(`/api/tasks/${task.id}`, {
             ...json({ dueOn: "2026-10-28", status: "done" }, s.owner),
