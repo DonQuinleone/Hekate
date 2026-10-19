@@ -91,6 +91,10 @@ import {
   type TakeChange,
   type TakeImport,
   type TakeRow,
+  type TaskChange,
+  type TaskDetail,
+  type TaskInput,
+  type TaskSummary,
   type TrackState,
   type TriageInput,
   type UpdateCarryInput,
@@ -3455,6 +3459,73 @@ export function useWorkflowMutations(projectId: string) {
       },
       onSuccess: (_done, id) =>
         client.setQueryData(key, (list) => list?.filter((w) => w.id !== id)),
+    }),
+  };
+}
+
+/** A project's tasks (#140), in the list's order, and whom one may be given to. */
+export const projectTasksQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "tasks"],
+    queryFn: async () =>
+      json<{ tasks: TaskSummary[]; people: { id: string; name: string }[] }>(
+        await api.projects[":id"].tasks.$get({ param: { id: projectId } }),
+      ),
+  });
+
+/** One task in full: the comment it came from and its activity. */
+export const taskQuery = (taskId: string) =>
+  queryOptions({
+    queryKey: ["tasks", taskId],
+    queryFn: async () =>
+      (await json<{ task: TaskDetail }>(await api.tasks[":id"].$get({ param: { id: taskId } })))
+        .task,
+  });
+
+/** Making, changing, noting and deleting a project's tasks. */
+export function useTaskMutations(projectId: string) {
+  const client = useQueryClient();
+  const refresh = (task?: TaskDetail) => {
+    void client.invalidateQueries({ queryKey: projectTasksQuery(projectId).queryKey });
+    if (task) client.setQueryData(taskQuery(task.id).queryKey, task);
+    // A thread's task shows on its comment; a workflow's moves its run on.
+    void client.invalidateQueries({ queryKey: ["files"] });
+    void client.invalidateQueries({ queryKey: ["tracks"] });
+  };
+  return {
+    create: useMutation({
+      mutationFn: async (input: TaskInput) =>
+        (
+          await json<{ task: TaskDetail }>(
+            await api.projects[":id"].tasks.$post({ param: { id: projectId }, json: input }),
+          )
+        ).task,
+      onSuccess: refresh,
+    }),
+    change: useMutation({
+      mutationFn: async ({ id, ...change }: TaskChange & { id: string }) =>
+        (
+          await json<{ task: TaskDetail }>(
+            await api.tasks[":id"].$patch({ param: { id }, json: change }),
+          )
+        ).task,
+      onSuccess: refresh,
+    }),
+    note: useMutation({
+      mutationFn: async ({ id, note }: { id: string; note: string }) =>
+        (
+          await json<{ task: TaskDetail }>(
+            await api.tasks[":id"].notes.$post({ param: { id }, json: { note } }),
+          )
+        ).task,
+      onSuccess: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api.tasks[":id"].$delete({ param: { id } });
+        if (!res.ok) await json(res);
+      },
+      onSuccess: () => refresh(),
     }),
   };
 }

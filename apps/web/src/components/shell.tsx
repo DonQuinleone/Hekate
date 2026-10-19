@@ -161,6 +161,7 @@ const projectSections = [
   { id: "", label: "Overview", icon: "dashboard", to: "/projects/$projectId" },
   { id: "files", label: "Files", icon: "folder", to: "/projects/$projectId/files" },
   { id: "reviews", label: "Reviews", icon: "review", to: "/projects/$projectId/reviews" },
+  { id: "tasks", label: "Tasks", icon: "task", to: "/projects/$projectId/tasks" },
   { id: "people", label: "People", icon: "users", to: "/projects/$projectId/people" },
   // The production tools (#21, #45, #47), as in the prototype; its sessions for now.
   { id: "sessions", label: "Production", icon: "mic", to: "/projects/$projectId/sessions" },

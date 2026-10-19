@@ -64,6 +64,7 @@ import { RequestReviewPage } from "~/routes/request-review";
 import { ReviewPage } from "~/routes/review";
 import { SearchPage } from "~/routes/search";
 import { SessionPage, SessionsPage } from "~/routes/sessions";
+import { TasksPage } from "~/routes/tasks";
 import { TrackPage } from "~/routes/track";
 import { WorkflowsPage } from "~/routes/workflows";
 import { WorkspaceSettingsPage } from "~/routes/workspace-settings";
@@ -155,6 +156,8 @@ const fileSearchSchema = loopSearchSchema.extend({
   review: z.uuid().optional().catch(undefined),
   /** Where to start playing, in seconds: kept while switching version or variation (#15). */
   t: z.coerce.number().min(0).max(172_800).optional().catch(undefined),
+  /** A thread to bring into view, as a task made from it links back to it (#140). */
+  comment: z.uuid().optional().catch(undefined),
 });
 const fileSearch = (
   search: Record<string, unknown>,
@@ -164,6 +167,7 @@ const fileSearch = (
   sheet?: "details";
   review?: string;
   t?: number;
+  comment?: string;
 } => fileSearchSchema.parse(search);
 
 /** Every page: follows the device's dark or light while the theme is "system". */
@@ -455,6 +459,20 @@ const projectPeople = createRoute({
     return <ProjectPeoplePage projectId={projectId} />;
   },
 });
+// The project's tasks (#140): one opened beside the list, or a new one being made.
+const projectTasks = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/tasks",
+  validateSearch: z.object({
+    task: z.uuid().optional().catch(undefined),
+    new: z.boolean().optional().catch(undefined),
+  }),
+  component: function ProjectTasksRoute() {
+    const { projectId } = projectTasks.useParams();
+    const { task, new: creating } = projectTasks.useSearch();
+    return <TasksPage projectId={projectId} taskId={task} creating={creating === true} />;
+  },
+});
 // The project's recording sessions (#21, #45), in its Production area.
 const projectSessions = createRoute({
   getParentRoute: () => app,
@@ -533,12 +551,13 @@ const file = createRoute({
   validateSearch: fileSearch,
   component: function FileRoute() {
     const { fileId } = file.useParams();
-    const { loop, view, sheet, review, t } = file.useSearch();
+    const { loop, view, sheet, review, t, comment } = file.useSearch();
     const navigate = file.useNavigate();
     return (
       <FilePage
         fileId={fileId}
         reviewId={review}
+        focusComment={comment}
         startAt={t}
         onStarted={() =>
           void navigate({ search: (prev) => ({ ...prev, t: undefined }), replace: true })
@@ -716,6 +735,7 @@ export const router = createRouter({
       projectReviews,
       requestReview,
       projectPeople,
+      projectTasks,
       projectSessions,
       session,
       projectSettings,

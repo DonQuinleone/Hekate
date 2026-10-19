@@ -422,6 +422,35 @@ setup("seed", async ({ page, browser }) => {
   });
   // And it is a task (#133).
   await api(page, "POST", `/api/comments/${rushes.comment.id}/todo`, { todo: true });
+  // The project's tasks (#140): by hand, one late, one waiting for approval, one done.
+  const task = (body: Record<string, unknown>) =>
+    api<{ task: { id: string } }>(page, "POST", `/api/projects/${music.id}/tasks`, body).then(
+      (r) => r.task.id,
+    );
+  const moveTask = (id: string, status: string) =>
+    api(page, "PATCH", `/api/tasks/${id}`, { status });
+  const lateTask = await task({
+    title: "Re-export the stems at 96 kHz",
+    priority: "high",
+    assigneeId: user.id,
+    dueOn: "2026-10-12",
+    trackId: track.id,
+    notes: "The label's mastering engineer asked for the higher rate.",
+  });
+  await moveTask(lateTask, "in_progress");
+  await task({
+    title: "Check the page turns in the score",
+    dueOn: "2026-10-21",
+    trackId: track.id,
+  });
+  const cover = await task({
+    title: "Approve the cover artwork",
+    priority: "low",
+    assigneeId: user.id,
+  });
+  await moveTask(cover, "needs_approval");
+  const notes = await task({ title: "Send the session notes to the label", assigneeId: user.id });
+  await moveTask(notes, "done");
   await comment(score, "This dynamic is printed as mp in the parts.", {
     kind: "region",
     page: 1,
@@ -768,6 +797,7 @@ setup("seed", async ({ page, browser }) => {
     reviewId: review.id,
     reviewStates: { decided, changes, approved, cancelled, waiting, overdue },
     shareId: shared,
+    taskId: lateTask,
     invitationPath: new URL(invitation).pathname,
     usedGuestPath: guestLink,
   };

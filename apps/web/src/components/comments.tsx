@@ -20,6 +20,7 @@ import {
   type TriageInput,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import {
   createContext,
   type FormEvent,
@@ -647,6 +648,8 @@ function ThreadView({
   pages,
   takesOf,
   channelNames = [],
+  projectId,
+  focused = false,
 }: {
   thread: Thread;
   /** The file being looked at, which a carried thread was brought to. */
@@ -675,6 +678,10 @@ function ThreadView({
   takesOf?: string;
   /** The recording's speakers, to name the channel a thread is about (#74). */
   channelNames?: readonly string[];
+  /** The file's project, where a thread's task is kept (#140). */
+  projectId?: string;
+  /** The thread a link points at: brought into view and marked. */
+  focused?: boolean;
 }) {
   const [replying, setReplying] = useState(false);
   const [takesOpen, setTakesOpen] = useState(false);
@@ -705,7 +712,7 @@ function ThreadView({
     mutations.edit.mutateAsync({ id, body, mentions });
   const download = (attachmentId: string) => mutations.download.mutate(attachmentId);
   const remove = (attachmentId: string) => mutations.detach.mutate(attachmentId);
-  const picked = pages?.focus.selected === comment.id;
+  const picked = pages?.focus.selected === comment.id || focused;
   const row = useRef<HTMLLIElement>(null);
   // Picked on the page, the thread comes into view here.
   useEffect(() => {
@@ -928,6 +935,16 @@ function ThreadView({
                 {doneWords}
               </Chip>
             ))}
+          {comment.taskId && projectId && !guest && (
+            <Link
+              to="/projects/$projectId/tasks"
+              params={{ projectId }}
+              search={{ task: comment.taskId }}
+              className="text-ink-3 underline-offset-2 hover:text-ink hover:underline"
+            >
+              Open the task
+            </Link>
+          )}
           {comment.deferredTo && <span>deferred to {comment.deferredTo}</span>}
           {comment.assigneeName && <span>for {comment.assigneeName}</span>}
         </p>
@@ -1087,7 +1104,10 @@ export function Comments({
   pages,
   seed,
   tools,
+  focus,
 }: {
+  /** A thread a link points at (#140): brought into view and marked, as one picked on a page. */
+  focus?: string;
   /** A comment begun elsewhere (from a finding, #43): at its moment, starting with its words. */
   seed?: CommentSeed;
   /** Controls for the panel itself, in its header: where it sits (#15). */
@@ -1545,6 +1565,8 @@ export function Comments({
       pages={pages}
       takesOf={takesOf}
       channelNames={channelNames}
+      projectId={projectId}
+      focused={t.comment.id === focus}
     />
   );
 

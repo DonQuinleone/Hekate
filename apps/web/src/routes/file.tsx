@@ -226,8 +226,11 @@ export function FilePage({
   reviewId,
   startAt,
   onStarted = () => {},
+  focusComment,
 }: {
   fileId: string;
+  /** A thread to bring into view and mark, as a link to it asks (#140). */
+  focusComment?: string;
   /** The review it was opened from: its decision is offered beside the comments (#15). */
   reviewId?: string;
   /** Where to start, in seconds, once the media can seek; then `onStarted`. */
@@ -616,6 +619,7 @@ export function FilePage({
                     seed={seed}
                     onLoop={allows("loops") ? hear : undefined}
                     tools={<PanelPlacement layout={layout} onChange={setLayout} />}
+                    focus={focusComment}
                   />
                 </div>
               )}

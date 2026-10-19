@@ -1547,6 +1547,47 @@ test("track-follow", async ({ page }) => {
   await expect(button).toHaveAttribute("aria-pressed", "true");
 });
 
+// A project's tasks (#140): grouped by status, what waits on a decision first; one late.
+test("project-tasks", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/tasks`);
+  await settle(page, "main >> text=Re-export the stems at 96 kHz");
+  await expect(page.getByRole("region", { name: "Needs approval" })).toBeVisible();
+  await expect(page.getByText("Send the session notes to the label")).toBeHidden();
+  await saveScreen(page, "project-tasks");
+  await checkScreen(page);
+  // All shows the done ones too, last.
+  await page.getByRole("button", { name: "All", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Done" })).toContainText(
+    "Send the session notes to the label",
+  );
+});
+
+// One task opened beside the list: its owner, priority, date, notes and activity.
+test("project-task", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/tasks?task=${seeded().taskId}`);
+  const panel = page.getByRole("complementary", { name: "Re-export the stems at 96 kHz" });
+  await settle(page, "aside >> text=Activity");
+  await expect(panel.getByText("started on it")).toBeVisible();
+  await expect(panel.getByText("2 days overdue")).toBeVisible();
+  await saveScreen(page, "project-task");
+  await checkScreen(page);
+});
+
+// Making a task by hand. Not made, so no other capture sees it.
+test("project-task-new", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/tasks`);
+  await settle(page, "main >> text=Re-export the stems at 96 kHz");
+  await page.getByRole("button", { name: "New task" }).click();
+  const dialog = page.getByRole("dialog", { name: "New task" });
+  await dialog.getByLabel("Title").fill("Book the hall for the patch session");
+  await expect(dialog.getByRole("button", { name: "Add task" })).toBeEnabled();
+  await saveScreen(page, "project-task-new");
+  await checkScreen(page);
+});
+
 // Making a recording session (#21, #45): its name, day, place and the tracks it recorded. Not
 // made, so no other capture sees it.
 test("project-session-new", async ({ page }) => {

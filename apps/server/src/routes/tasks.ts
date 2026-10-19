@@ -103,7 +103,11 @@ export const projectTaskRoutes = (deps: TaskMail) => {
       const access = await can(db, actorOf(c.var), "view", projectId);
       const viewer = { userId: c.var.userId, permissions: access.permissions };
       const rows = await selectTasks(db, organisationId, eq(tasks.projectId, projectId), viewer);
-      return c.json({ tasks: listed(rows) });
+      // Whom a task may be given to, for those who may make or run one.
+      const people = access.permissions.has("comment")
+        ? await projectPeople(db, organisationId, projectId)
+        : [];
+      return c.json({ tasks: listed(rows), people });
     })
     .get("/:id/tasks.csv", idParam, async (c) => {
       const organisationId = c.var.organisationId;
@@ -152,6 +156,7 @@ export const projectTaskRoutes = (deps: TaskMail) => {
         if (row.assigneeId)
           await recordTaskEvent(tx, organisationId, row.id, userId, "assigned", {
             assignee: await nameOf(tx, row.assigneeId),
+            self: row.assigneeId === userId,
           });
         return row;
       });
@@ -268,6 +273,7 @@ export const taskRoutes = (deps: TaskMail & { runner?: RunnerDeps }) => {
         if (reassigned)
           await recordTaskEvent(tx, organisationId, id, userId, "assigned", {
             assignee: await nameOf(tx, input.assigneeId ?? null),
+            self: input.assigneeId === userId,
           });
         if (moved) {
           const detail: TaskEventDetail = { from: task.status, to: status };

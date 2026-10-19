@@ -522,7 +522,10 @@ export const fileCommentRoutes = (
           });
         const name = await nameOf(tx, input.assigneeId);
         for (const t of given)
-          await recordTaskEvent(tx, organisationId, t.id, by, "assigned", { assignee: name });
+          await recordTaskEvent(tx, organisationId, t.id, by, "assigned", {
+            assignee: name,
+            self: input.assigneeId === by,
+          });
         return given;
       });
       // Whoever the tasks are given to is told, as when a task is given to them directly.
