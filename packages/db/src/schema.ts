@@ -40,7 +40,11 @@ import {
   type SearchRequest,
   type SessionFactor,
   type SsoProtocol,
+  type TaskEventDetail,
+  type TaskEventKind,
   type TemplateContent,
+  taskPriorities,
+  taskStatuses,
   type WatermarkSettings,
   type WorkflowDefinition,
   type WorkflowEffect,
@@ -452,6 +456,8 @@ export const projects = pgTable(
      * one made before categories existed the first time its categories are read.
      */
     categoriesSeeded: boolean("categories_seeded").notNull().default(false),
+    /** How many tasks it has numbered (#140): the next is one more, so a key is never reused. */
+    tasksNumbered: integer("tasks_numbered").notNull().default(0),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     ...timestamps,
   },
@@ -985,10 +991,6 @@ export const comments = pgTable(
     assigneeId: text("assignee_id").references(() => users.id, { onDelete: "set null" }),
     /** The members it mentions, as the picker chose them, named as they were (#133). */
     mentions: jsonb("mentions").$type<CommentMention[]>().notNull().default([]),
-    /** A thread made a task (#133), and when and by whom it was done. */
-    todo: boolean("todo").notNull().default(false),
-    todoDoneAt: timestamp("todo_done_at", { withTimezone: true }),
-    todoDoneById: text("todo_done_by_id").references(() => users.id, { onDelete: "set null" }),
     /** The channel it is about (#74), by its place in the file's order; null is all of them. */
     channel: integer("channel"),
     /** The marker list it was imported from (#134), by the list's name, and who imported it. */
@@ -2026,3 +2028,71 @@ export const instanceFlags = pgTable("instance_flags", {
   updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const taskStatusEnum = pgEnum("task_status", taskStatuses);
+export const taskPriorityEnum = pgEnum("task_priority", taskPriorities);
+
+/**
+ * A task (#140): something to do in a project, with an owner, a priority, a status and a
+ * date. It may be about a track or a file, have come from a comment's thread (one task to a
+ * thread, decision 124), or have been made by a workflow's task stage (#25). Numbered per
+ * project, as its key shows ("JR-3").
+ */
+export const tasks = pgTable(
+  "tasks",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: projectId(),
+    number: integer("number").notNull(),
+    title: text("title").notNull(),
+    notes: text("notes"),
+    status: taskStatusEnum("status").notNull().default("pending"),
+    priority: taskPriorityEnum("priority").notNull().default("normal"),
+    assigneeId: text("assignee_id").references(() => users.id, { onDelete: "set null" }),
+    dueOn: date("due_on"),
+    trackId: uuid("track_id").references((): AnyPgColumn => tracks.id, { onDelete: "set null" }),
+    fileId: uuid("file_id").references((): AnyPgColumn => files.id, { onDelete: "set null" }),
+    /** The thread it was made from; the task goes with it. */
+    commentId: uuid("comment_id").references((): AnyPgColumn => comments.id, {
+      onDelete: "cascade",
+    }),
+    /** The workflow run and task stage that made it (#25). */
+    runId: uuid("run_id").references((): AnyPgColumn => workflowRuns.id, { onDelete: "set null" }),
+    nodeId: text("node_id"),
+    createdById: text("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    doneAt: timestamp("done_at", { withTimezone: true }),
+    doneById: text("done_by_id").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [
+    index("tasks_org_idx").on(t.organisationId),
+    uniqueIndex("tasks_number_idx").on(t.projectId, t.number),
+    index("tasks_assignee_idx").on(t.organisationId, t.assigneeId, t.status),
+    uniqueIndex("tasks_comment_idx").on(t.commentId),
+    index("tasks_run_idx").on(t.runId),
+  ],
+);
+
+/** What happened to a task, for its activity: made, given, moved along, changed, noted. */
+export const taskEvents = pgTable(
+  "task_events",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    actorId: text("actor_id").references(() => users.id, { onDelete: "set null" }),
+    /** Their name when it happened, so the line still reads after they leave. */
+    actorName: text("actor_name"),
+    kind: text("kind").$type<TaskEventKind>().notNull(),
+    detail: jsonb("detail").$type<TaskEventDetail>(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("task_events_org_idx").on(t.organisationId),
+    index("task_events_task_idx").on(t.taskId, t.createdAt),
+  ],
+);

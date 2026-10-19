@@ -78,6 +78,8 @@ describe("tenancy", () => {
       "sso_providers",
       "tags",
       "takes",
+      "task_events",
+      "tasks",
       "tracks",
       "upload_parts",
       "uploads",

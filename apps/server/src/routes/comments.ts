@@ -21,6 +21,7 @@ import {
   resolveCommentInput,
   sendListInput,
   speakersOf,
+  taskTitleFromComment,
   threadsForExport,
   triageInput,
   updateCarryInput,
@@ -32,7 +33,7 @@ import { alias } from "drizzle-orm/pg-core";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { actorOf, canOnFile } from "../access.ts";
+import { actorOf, canOnFile, lockLiveProject } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { hopsOf, lockTrackOfFile, versionNumbersOf } from "../carry.ts";
 import { commentSheet } from "../comment-sheet.ts";
@@ -42,6 +43,14 @@ import type { Mailer } from "../mail.ts";
 import { type NotificationActor, notifyNow, projectPeople } from "../notifications.ts";
 import { referencesOfFile } from "../references.ts";
 import { requesterOf } from "../requester.ts";
+import {
+  nameOf,
+  nextTaskNumber,
+  recordTaskEvent,
+  rightsFor,
+  taskOfComment,
+  tellAssigned,
+} from "../tasks.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { sharedTakesOf } from "./takes.ts";
 
@@ -53,6 +62,7 @@ const {
   files,
   organisations,
   projects,
+  tasks,
   users,
   guests,
   variations,
@@ -98,10 +108,11 @@ const commentColumns = {
   deferredTo: comments.deferredTo,
   assigneeId: comments.assigneeId,
   assigneeName: assignee.name,
-  /** Who it mentions (#133), and whether it is a task and done. */
+  /** Who it mentions (#133), and whether it is a task (#140) and done. */
   mentions: comments.mentions,
-  todo: comments.todo,
-  todoDoneAt: comments.todoDoneAt,
+  todo: sql<boolean>`${tasks.id} is not null`,
+  taskId: tasks.id,
+  todoDoneAt: tasks.doneAt,
   todoDoneByName: doneBy.name,
   /** The channel it is about (#74); null is all of them. */
   channel: comments.channel,
@@ -118,7 +129,11 @@ function selectComments(db: Database, organisationId: string, where: SQL | undef
     .leftJoin(guests, eq(comments.guestAuthorId, guests.id))
     .leftJoin(resolver, eq(comments.resolvedById, resolver.id))
     .leftJoin(assignee, eq(comments.assigneeId, assignee.id))
-    .leftJoin(doneBy, eq(comments.todoDoneById, doneBy.id))
+    .leftJoin(
+      tasks,
+      and(eq(tasks.commentId, comments.id), eq(tasks.organisationId, comments.organisationId)),
+    )
+    .leftJoin(doneBy, eq(tasks.doneById, doneBy.id))
     .leftJoin(importer, eq(comments.importedById, importer.id))
     .where(inOrg(comments, organisationId, where));
 }
@@ -296,6 +311,7 @@ export async function threadsOn(
           assigneeId: null,
           assigneeName: null,
           todo: false,
+          taskId: null,
           todoDoneAt: null,
           todoDoneByName: null,
           importedByName: null,
@@ -458,7 +474,7 @@ export const fileCommentRoutes = (
           throw new HTTPException(422, { message: "Assign it to someone in this project" });
         }
       }
-      await db.transaction(async (tx) => {
+      const given = await db.transaction(async (tx) => {
         // Not while a new version is deciding which threads to carry. Each thread's deferral is
         // read again under the locks, so a triage that waited here keeps what the first one set.
         await lockTrackOfFile(tx, organisationId, fileId);
@@ -485,7 +501,33 @@ export const fileCommentRoutes = (
             })
             .where(inOrg(comments, organisationId, eq(comments.id, id)));
         }
+        // A thread's task (#140) is for whoever the thread is for.
+        if (input.assigneeId === undefined) return [];
+        const given = await tx
+          .update(tasks)
+          .set({ assigneeId: input.assigneeId, updatedAt: now })
+          .where(
+            inOrg(
+              tasks,
+              organisationId,
+              inArray(tasks.commentId, ids),
+              sql`${tasks.assigneeId} is distinct from ${input.assigneeId}`,
+            ),
+          )
+          .returning({
+            id: tasks.id,
+            organisationId: tasks.organisationId,
+            projectId: tasks.projectId,
+            title: tasks.title,
+          });
+        const name = await nameOf(tx, input.assigneeId);
+        for (const t of given)
+          await recordTaskEvent(tx, organisationId, t.id, by, "assigned", { assignee: name });
+        return given;
       });
+      // Whoever the tasks are given to is told, as when a task is given to them directly.
+      if (input.assigneeId && by && input.assigneeId !== by)
+        for (const t of given) await tellAssigned({ db, ...mail }, t, input.assigneeId, by);
       return c.json({
         comments: await threadsOn(db, organisationId, c.var.actor, access, fileId),
       });
@@ -1107,7 +1149,10 @@ export const commentRoutes = (db: Database, mail: { mailer: Mailer; publicUrl: s
         comment: publicComment(await commentOf(db, organisationId, id), actorOf(c.var)),
       });
     })
-    // A thread as a task (#133): triage makes it one; triage, or whoever it is for, marks it done.
+    /**
+     * A thread as a task (#133, #140): triage makes it one of the project's tasks, or no longer
+     * one; triage, or whoever it is for, marks it done or not, as the task's rights allow.
+     */
     .post("/:id/todo", idParam, zValidator("json", commentTodoInput), async (c) => {
       const organisationId = c.var.organisationId;
       const { id } = c.req.valid("param");
@@ -1115,43 +1160,84 @@ export const commentRoutes = (db: Database, mail: { mailer: Mailer; publicUrl: s
       const thread = await commentOf(db, organisationId, id);
       if (thread.parentId) throw new NotFound("Thread");
       const actor = actorOf(c.var);
-      const changesTask = todo !== thread.todo;
-      const mayTriage = await canOnFile(db, actor, "triage", thread.fileId).then(
-        () => true,
-        (error: unknown) => {
-          if (error instanceof HTTPException && error.status === 403) return false;
-          throw error;
-        },
-      );
-      // Without triage, whoever it is for may mark it done or not done, and nothing more; and
-      // only where they may still write, so never in an archived project.
-      if (!mayTriage) {
-        if (changesTask || !todo || thread.assigneeId !== c.var.userId)
-          throw new HTTPException(403, { message: "Only those who triage can change this task" });
-        await canOnFile(db, actor, "comment", thread.fileId);
-      }
-      const [changed] = await db
-        .update(comments)
-        .set({
-          todo,
-          // Done once: a second "done" keeps who did it first, and when.
-          todoDoneAt: todo && done ? sql`coalesce(${comments.todoDoneAt}, now())` : null,
-          todoDoneById:
-            todo && done ? sql`coalesce(${comments.todoDoneById}, ${c.var.userId})` : null,
-          updatedAt: new Date(),
-        })
-        .where(
-          inOrg(
-            comments,
-            organisationId,
-            eq(comments.id, id),
-            // Checked as it is written: reassigned meanwhile, it is no longer theirs to mark.
-            mayTriage ? undefined : eq(comments.assigneeId, c.var.userId),
-          ),
-        )
-        .returning({ id: comments.id });
-      if (!changed)
-        throw new HTTPException(409, { message: "This task has been given to someone else" });
+      const access = await canOnFile(db, actor, "view", thread.fileId);
+      const userId = c.var.userId;
+      const viewer = { userId, permissions: access.permissions };
+      const mayTriage = access.permissions.has("triage");
+      // Writing in the project is the floor, so never in an archived one.
+      if (!access.permissions.has("comment"))
+        throw new HTTPException(403, { message: "Your role in this project does not allow that" });
+      const made = await db.transaction(async (tx) => {
+        await lockLiveProject(tx, organisationId, access.projectId);
+        // Taken for update, so two people making the same thread a task make one, and read
+        // as it is now: given to someone else meanwhile, the task is theirs.
+        const [locked] = await tx
+          .select({ body: comments.body, assigneeId: comments.assigneeId, fileId: comments.fileId })
+          .from(comments)
+          .where(inOrg(comments, organisationId, eq(comments.id, id)))
+          .for("update");
+        if (!locked) throw new NotFound("Thread");
+        const task = await taskOfComment(tx, organisationId, id);
+        if (!task) {
+          if (!todo) return null;
+          if (!mayTriage)
+            throw new HTTPException(403, { message: "Only those who triage can make a task" });
+          const [file] = await tx
+            .select({ name: files.name })
+            .from(files)
+            .where(inOrg(files, organisationId, eq(files.id, locked.fileId)));
+          const [row] = await tx
+            .insert(tasks)
+            .values({
+              organisationId,
+              projectId: access.projectId,
+              number: await nextTaskNumber(tx, organisationId, access.projectId),
+              title: taskTitleFromComment(locked.body, `Comment on ${file?.name ?? "a file"}`),
+              assigneeId: locked.assigneeId,
+              fileId: locked.fileId,
+              commentId: id,
+              createdById: userId,
+              ...(done && { status: "done" as const, doneAt: new Date(), doneById: userId }),
+            })
+            .returning();
+          if (!row) throw new Error("A task was not made");
+          await recordTaskEvent(tx, organisationId, row.id, userId, "from_comment");
+          return row;
+        }
+        const rights = rightsFor(task, viewer);
+        if (!todo) {
+          if (!rights.delete)
+            throw new HTTPException(403, { message: "Only those who triage can change this task" });
+          await tx.delete(tasks).where(inOrg(tasks, organisationId, eq(tasks.id, task.id)));
+          return null;
+        }
+        // Done once: a second "done" keeps who did it first, and when.
+        const to = done ? "done" : task.status === "done" ? "pending" : task.status;
+        if (to === task.status) return null;
+        if (!rights.statusTo.includes(to))
+          throw new HTTPException(403, {
+            message:
+              task.assigneeId === userId || mayTriage
+                ? "Whoever runs this task approves it"
+                : "Only those who triage can change this task",
+          });
+        await tx
+          .update(tasks)
+          .set({
+            status: to,
+            doneAt: to === "done" ? new Date() : null,
+            doneById: to === "done" ? userId : null,
+            updatedAt: new Date(),
+          })
+          .where(inOrg(tasks, organisationId, eq(tasks.id, task.id)));
+        await recordTaskEvent(tx, organisationId, task.id, userId, "status", {
+          from: task.status,
+          to,
+        });
+        return null;
+      });
+      if (made?.assigneeId && made.assigneeId !== userId)
+        await tellAssigned({ db, ...mail }, made, made.assigneeId, userId);
       return c.json({
         comment: publicComment(await commentOf(db, organisationId, id), actorOf(c.var)),
       });

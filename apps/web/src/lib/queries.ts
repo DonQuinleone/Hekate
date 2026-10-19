@@ -1174,8 +1174,9 @@ export interface Comment {
   takes: SharedTake[];
   /** Files attached to it (#133): names and sizes; the bytes only by a download. */
   attachments: CommentAttachment[];
-  /** A thread made a task (#133), and when and by whom it was done. */
+  /** A thread made a task (#133, #140): the project's task, and when and by whom it was done. */
   todo: boolean;
+  taskId: string | null;
   todoDoneAt: string | null;
   todoDoneByName: string | null;
   /** The channel it is about (#74), by its place in the file's order; null is all of them. */

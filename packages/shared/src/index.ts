@@ -44,6 +44,7 @@ export * from "./sso.ts";
 export * from "./tags.ts";
 export * from "./take-import.ts";
 export * from "./takes.ts";
+export * from "./tasks.ts";
 export * from "./templates.ts";
 export * from "./tracks.ts";
 export * from "./watermark.ts";

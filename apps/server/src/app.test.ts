@@ -7391,6 +7391,194 @@ describe.runIf(url)("api", () => {
           expect((await todo({ todo: true, done: true }, s.composer)).status).toBe(403);
         });
 
+        it("keeps a project's tasks: made by hand or from a thread, run by their rights (#140)", async () => {
+          const s = await studio();
+          type Rights = { edit: boolean; statusTo: string[]; delete: boolean };
+          type Task = {
+            id: string;
+            key: string;
+            number: number;
+            title: string;
+            status: string;
+            assignee: { id: string; name: string } | null;
+            commentId: string | null;
+            rights: Rights;
+            comment: { body: string } | null;
+            events: { text: string; actorName: string | null; note: string | null }[];
+          };
+          const make = (body: unknown, cookie: string, project = s.projectId) =>
+            app.request(`/api/projects/${project}/tasks`, json(body, cookie));
+          const change = (id: string, body: unknown, cookie: string) =>
+            app.request(`/api/tasks/${id}`, { ...json(body, cookie), method: "PATCH" });
+          const read = async (res: Response) => ((await res.json()) as { task: Task }).task;
+          const list = async (cookie: string) =>
+            (
+              (await (await getAs(`/api/projects/${s.projectId}/tasks`, cookie)).json()) as {
+                tasks: Task[];
+              }
+            ).tasks;
+
+          // Anyone who writes in the project may make one; whoever only looks may not.
+          const viewer = await joinAs(s.owner, "viewer-tasks@example.test");
+          await grantRole(s.owner, s.projectId, viewer, "Viewer");
+          expect((await make({ title: "Re-export the stems" }, viewer)).status).toBe(403);
+          expect((await make({ title: " " }, s.composer)).status).toBe(400);
+          const outsider = await joinAs(s.owner, "outsider-tasks@example.test");
+          expect(
+            (await make({ title: "Mine", assigneeId: await idOf(outsider) }, s.owner)).status,
+          ).toBe(422);
+          const made = await make(
+            { title: "Re-export the stems", assigneeId: s.ids.composer, dueOn: "2026-10-21" },
+            s.owner,
+          );
+          expect(made.status).toBe(201);
+          const first = await read(made);
+          expect(first).toMatchObject({ key: "R-1", number: 1, status: "pending" });
+          expect(first.events.map((e) => e.text)).toEqual([
+            "created the task",
+            "gave it to composer",
+          ]);
+          expect((await inbox(s.composer)).notifications.map((n) => n.kind)).toEqual(["task"]);
+
+          // A thread made a task is the next one, titled by its first line, and for whoever the
+          // thread is for.
+          const posted = await app.request(
+            `/api/files/${s.mix}/comments`,
+            json({ body: "Clean the pedal noise at bar 5\nIt is worst on the left." }, s.owner),
+          );
+          const { comment } = (await posted.json()) as { comment: { id: string } };
+          await app.request(
+            `/api/files/${s.mix}/comments/triage`,
+            json({ commentIds: [comment.id], assigneeId: s.ids.accompanist }, s.owner),
+          );
+          const todo = await app.request(
+            `/api/comments/${comment.id}/todo`,
+            json({ todo: true }, s.engineer),
+          );
+          const { comment: thread } = (await todo.json()) as {
+            comment: { todo: boolean; taskId: string };
+          };
+          expect(thread.todo).toBe(true);
+          const fromThread = await read(await getAs(`/api/tasks/${thread.taskId}`, s.composer));
+          expect(fromThread).toMatchObject({
+            key: "R-2",
+            title: "Clean the pedal noise at bar 5",
+            assignee: { id: s.ids.accompanist },
+            commentId: comment.id,
+            comment: { body: "Clean the pedal noise at bar 5\nIt is worst on the left." },
+          });
+          // Making it a task again makes no second one.
+          await app.request(`/api/comments/${comment.id}/todo`, json({ todo: true }, s.owner));
+          expect((await list(s.owner)).map((t) => t.key)).toEqual(["R-1", "R-2"]);
+          // The comment it came from is only for those who may read comments.
+          expect(
+            (await read(await getAs(`/api/tasks/${thread.taskId}`, viewer))).comment,
+          ).toMatchObject({ body: expect.any(String) });
+          // Giving the task to someone else gives them the thread too.
+          expect(
+            (await change(thread.taskId, { assigneeId: s.ids.composer }, s.engineer)).status,
+          ).toBe(200);
+          const threads = (await (await getAs(`/api/files/${s.mix}/comments`, s.owner)).json()) as {
+            comments: { id: string; assigneeId: string | null }[];
+          };
+          expect(threads.comments.find((c) => c.id === comment.id)?.assigneeId).toBe(
+            s.ids.composer,
+          );
+          // And giving the thread to someone gives them the task, and tells them so.
+          await app.request(
+            `/api/files/${s.mix}/comments/triage`,
+            json({ commentIds: [comment.id], assigneeId: s.ids.accompanist }, s.owner),
+          );
+          expect((await inbox(s.accompanist)).notifications.map((n) => n.kind)).toContain("task");
+          expect(
+            (await read(await getAs(`/api/tasks/${thread.taskId}`, s.owner))).assignee,
+          ).toMatchObject({
+            id: s.ids.accompanist,
+          });
+
+          // Whoever it is for moves it along, but neither edits it nor approves their own.
+          const mine = (await list(s.composer)).find((t) => t.id === first.id);
+          expect(mine?.rights).toMatchObject({ edit: false, delete: false });
+          expect((await change(first.id, { title: "Mine now" }, s.composer)).status).toBe(403);
+          expect((await change(first.id, { status: "in_progress" }, s.composer)).status).toBe(200);
+          const waiting = await change(first.id, { status: "needs_approval" }, s.composer);
+          expect((await read(waiting)).status).toBe("needs_approval");
+          expect((await inbox(s.owner)).notifications.map((n) => n.kind)).toContain("task");
+          expect((await change(first.id, { status: "done" }, s.composer)).status).toBe(403);
+          // Someone else in the project only reads it, and may add a note.
+          expect((await change(first.id, { status: "done" }, s.accompanist)).status).toBe(403);
+          expect(
+            (
+              await app.request(
+                `/api/tasks/${first.id}/notes`,
+                json({ note: "Heard it" }, s.accompanist),
+              )
+            ).status,
+          ).toBe(201);
+          expect(
+            (await app.request(`/api/tasks/${first.id}/notes`, json({ note: "Me too" }, viewer)))
+              .status,
+          ).toBe(403);
+          const approved = await read(await change(first.id, { status: "done" }, s.owner));
+          expect(approved.events.map((e) => e.text).slice(-3)).toEqual([
+            "marked it done, waiting for approval",
+            "added a note",
+            "approved and closed it",
+          ]);
+
+          // The list as a spreadsheet, done last.
+          const csv = await getAs(`/api/projects/${s.projectId}/tasks.csv`, viewer);
+          expect(csv.headers.get("content-type")).toContain("text/csv");
+          const lines = (await csv.text()).trim().split("\r\n");
+          expect(lines.map((l) => l.split(",")[0])).toEqual(["Key", "R-2", "R-1"]);
+
+          // A member who cannot see the project finds nothing, nor as another workspace's owner.
+          expect((await getAs(`/api/tasks/${first.id}`, outsider)).status).toBe(404);
+          expect((await change(first.id, { title: "Theirs" }, outsider)).status).toBe(404);
+          const [other] = await db
+            .insert(schema.organisations)
+            .values({ name: "Saltmarsh Films", slug: "saltmarsh-tasks" })
+            .returning({ id: schema.organisations.id });
+          await db.insert(schema.members).values({
+            organisationId: other?.id ?? "",
+            userId: await idOf(outsider),
+            role: "owner",
+          });
+          expect(
+            (
+              await app.request("/api/me/organisation", {
+                ...json({ organisationId: other?.id }, outsider),
+                method: "PUT",
+              })
+            ).status,
+          ).toBe(200);
+          expect((await getAs(`/api/tasks/${first.id}`, outsider)).status).toBe(404);
+          expect((await make({ title: "Theirs" }, outsider)).status).toBe(404);
+          expect((await change(first.id, { status: "done" }, outsider)).status).toBe(404);
+
+          // Deleting is for whoever runs it; a thread no longer a task has none.
+          expect(
+            (
+              await app.request(`/api/tasks/${first.id}`, {
+                ...json({}, s.composer),
+                method: "DELETE",
+              })
+            ).status,
+          ).toBe(403);
+          expect(
+            (
+              await app.request(`/api/tasks/${first.id}`, {
+                ...json({}, s.owner),
+                method: "DELETE",
+              })
+            ).status,
+          ).toBe(204);
+          await app.request(`/api/comments/${comment.id}/todo`, json({ todo: false }, s.owner));
+          expect(await list(s.owner)).toEqual([]);
+          // Numbers are never reused.
+          expect((await read(await make({ title: "Again" }, s.owner))).key).toBe("R-3");
+        });
+
         it("carries files attached to a comment, downloaded once each and logged (#133)", async () => {
           const s = await studio();
           const post = (body: unknown, cookie = s.owner) =>
