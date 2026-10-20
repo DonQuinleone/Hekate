@@ -9927,6 +9927,194 @@ describe.runIf(url)("api", () => {
           expect((await list()).map((b) => b.name)).toEqual(["Stage box B", "Box C"]);
         });
 
+        it("keeps a project's stage plans, a step at a time, linked to the patch (#53)", async () => {
+          const s = await studio();
+          const send = (method: string, url: string, body: unknown, cookie = s.owner) =>
+            app.request(url, { ...json(body, cookie), method });
+          type Item = {
+            id: string;
+            kind: string;
+            label: string;
+            x: number;
+            patchRowId: string | null;
+          };
+          type Plan = { id: string; name: string; width: number; grid: number; items: Item[] };
+          type Listed = { plans: Plan[]; channels: { id: string; box: string; source: string }[] };
+          const list = async (cookie = s.owner) =>
+            (await (
+              await getAs(`/api/projects/${s.projectId}/stage-plans`, cookie)
+            ).json()) as Listed;
+          expect((await list()).plans).toEqual([]);
+
+          const made = await send("POST", `/api/projects/${s.projectId}/stage-plans`, {
+            name: "Endless Hall",
+            width: 12,
+            depth: 8,
+          });
+          expect(made.status).toBe(201);
+          const plan = ((await made.json()) as { plan: Plan }).plan;
+          expect(plan).toMatchObject({ name: "Endless Hall", width: 12, grid: 0.5, items: [] });
+          expect(
+            (
+              await send("POST", `/api/projects/${s.projectId}/stage-plans`, {
+                name: "Endless Hall",
+                width: 10,
+                depth: 6,
+              })
+            ).status,
+          ).toBe(409);
+
+          const box = (
+            (await (
+              await send("POST", `/api/projects/${s.projectId}/stage-boxes`, {
+                name: "Stage box A",
+              })
+            ).json()) as { box: { id: string } }
+          ).box;
+          const channel = (
+            (await (
+              await send("POST", `/api/stage-boxes/${box.id}/rows`, {
+                direction: "input",
+                source: "Main L",
+              })
+            ).json()) as { row: { id: string } }
+          ).row;
+
+          const edit = (body: unknown, cookie = s.owner, id = plan.id) =>
+            send("POST", `/api/stage-plans/${id}/edits`, body, cookie);
+          const [mic, riser, piano] = [uuidv7(), uuidv7(), uuidv7()];
+          const step = {
+            add: [
+              { id: mic, kind: "mic", x: 5, y: 6, w: 0.3, h: 0.3, patchRowId: channel.id },
+              { id: riser, kind: "riser", label: "Riser", x: 7, y: 2, w: 2, h: 2 },
+              { id: piano, kind: "piano", x: 4, y: 2, w: 1.6, h: 2.7, rotation: -20 },
+            ],
+          };
+          const added = await edit(step);
+          expect(added.status).toBe(200);
+          expect(((await added.json()) as { items: Item[] }).items.map((i) => i.id)).toEqual([
+            mic,
+            riser,
+            piano,
+          ]);
+          // Sent again, it adds nothing more.
+          expect((await edit(step)).status).toBe(200);
+
+          // Moving two and removing one is one step, all of it or none.
+          const moved = await edit({
+            change: [
+              { id: mic, x: 5.5 },
+              { id: riser, x: 7.5, label: "Choir riser" },
+            ],
+            remove: [piano],
+          });
+          expect(
+            ((await moved.json()) as { items: Item[] }).items.map((i) => [i.id, i.x, i.label]),
+          ).toEqual([
+            [mic, 5.5, ""],
+            [riser, 7.5, "Choir riser"],
+          ]);
+          expect((await edit({})).status).toBe(400);
+          // Only a cable goes without a size, and a step that breaks that leaves nothing changed.
+          const shrunk = await edit({
+            change: [
+              { id: mic, x: 1 },
+              { id: riser, w: 0 },
+            ],
+          });
+          expect(shrunk.status).toBe(400);
+          expect(await shrunk.text()).toContain("Only a cable run goes without a size");
+          expect((await edit({ change: [{ id: riser, kind: "cable", w: -2, h: 0 }] })).status).toBe(
+            200,
+          );
+          expect(
+            (await edit({ change: [{ id: riser, kind: "riser", w: 2.4, h: 2.4 }] })).status,
+          ).toBe(200);
+          expect(
+            (await edit({ add: [{ id: uuidv7(), kind: "rect", x: 0, y: 0, w: 0, h: 1 }] })).status,
+          ).toBe(400);
+
+          // The engineer sees the plan and its channels but may not change it; a reviewer sees none.
+          const seen = await list(s.engineer);
+          expect(seen.plans[0]?.items).toHaveLength(2);
+          expect(seen.channels.map((c) => [c.box, c.source])).toEqual([["Stage box A", "Main L"]]);
+          expect((await edit({ remove: [mic] }, s.engineer)).status).toBe(403);
+          expect((await getAs(`/api/projects/${s.projectId}/stage-plans`, s.composer)).status).toBe(
+            403,
+          );
+
+          // Only this project's channels link; unpatching one leaves the mic, unlinked.
+          const [elsewhere] = await db
+            .insert(schema.organisations)
+            .values({ name: "Elsewhere", slug: "elsewhere-stage" })
+            .returning();
+          const [theirProject] = await db
+            .insert(schema.projects)
+            .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+            .returning();
+          const [theirBox] = await db
+            .insert(schema.stageBoxes)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              projectId: theirProject?.id ?? "",
+              name: "Theirs",
+            })
+            .returning();
+          const [theirRow] = await db
+            .insert(schema.patchRows)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              stageBoxId: theirBox?.id ?? "",
+              direction: "input",
+              channel: 1,
+            })
+            .returning();
+          const [theirPlan] = await db
+            .insert(schema.stagePlans)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              projectId: theirProject?.id ?? "",
+              name: "Theirs",
+              width: 10,
+              depth: 6,
+            })
+            .returning();
+          const linked = await edit({ change: [{ id: mic, patchRowId: theirRow?.id }] });
+          expect(linked.status).toBe(400);
+          expect(await linked.text()).toContain("not in this project's patch list");
+          expect((await edit({ remove: [mic] }, s.owner, theirPlan?.id)).status).toBe(404);
+          expect(
+            (await send("PATCH", `/api/stage-plans/${theirPlan?.id}`, { name: "Mine" })).status,
+          ).toBe(404);
+          // Another plan's item is not this plan's to change.
+          const other = (
+            (await (
+              await send("POST", `/api/projects/${s.projectId}/stage-plans`, {
+                name: "Studio 2",
+                width: 8,
+                depth: 6,
+              })
+            ).json()) as { plan: Plan }
+          ).plan;
+          await edit({ change: [{ id: riser, x: 1 }], remove: [mic] }, s.owner, other.id);
+          expect((await list()).plans[0]?.items.map((i) => [i.id, i.x])).toEqual([
+            [mic, 5.5],
+            [riser, 7.5],
+          ]);
+
+          expect((await send("DELETE", `/api/patch-rows/${channel.id}`, {})).status).toBe(204);
+          expect((await list()).plans[0]?.items[0]).toMatchObject({ id: mic, patchRowId: null });
+
+          expect(
+            (await send("PATCH", `/api/stage-plans/${plan.id}`, { name: "Studio 2" })).status,
+          ).toBe(409);
+          expect((await send("PATCH", `/api/stage-plans/${plan.id}`, { grid: 0.25 })).status).toBe(
+            200,
+          );
+          expect((await send("DELETE", `/api/stage-plans/${plan.id}`, {})).status).toBe(204);
+          expect((await list()).plans.map((p) => p.name)).toEqual(["Studio 2"]);
+        });
+
         it("keeps the producer's score marks on the track, and checks the edit plot (#52)", async () => {
           const s = await studio();
           const send = (method: string, url: string, body: unknown, cookie = s.owner) =>
