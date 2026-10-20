@@ -1710,9 +1710,10 @@ export const downloadTickets = pgTable(
   {
     id: id(),
     organisationId: organisationId(),
-    fileId: uuid("file_id")
-      .notNull()
-      .references(() => files.id, { onDelete: "cascade" }),
+    /** The file it downloads; null for every score of a project at once (`projectId`). */
+    fileId: uuid("file_id").references(() => files.id, { onDelete: "cascade" }),
+    /** Every track's score in this project, with its marks, as one PDF (#52). */
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
     /** "proxy" or "original" (packages/shared, downloads.ts), or a comment's "attachment". */
     kind: text("kind").$type<DownloadKind | "attachment">().notNull(),
     /** For an attachment: which one; `fileId` is then the file whose thread holds it. */
@@ -1730,7 +1731,11 @@ export const downloadTickets = pgTable(
     usedAt: timestamp("used_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("download_tickets_token_idx").on(t.tokenHash)],
+  (t) => [
+    uniqueIndex("download_tickets_token_idx").on(t.tokenHash),
+    // A file, or every score of a project; never both, never neither.
+    check("download_tickets_target", sql`(${t.fileId} is null) <> (${t.projectId} is null)`),
+  ],
 );
 
 // Reviews (docs/domain.md)

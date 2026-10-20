@@ -701,6 +701,13 @@
       "when": 1792488134210,
       "tag": "0099_score_rehome",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1792490146427,
+      "tag": "0100_download_every_score",
+      "breakpoints": true
     }
   ]
 }

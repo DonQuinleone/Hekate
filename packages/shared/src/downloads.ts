@@ -21,6 +21,9 @@ export const downloadInput = z
   .strict();
 export type DownloadInput = z.infer<typeof downloadInput>;
 
+/** Every track's score in a project with its marks, as one PDF (#52): the proxy or the original. */
+export const scoresDownloadInput = z.object({ kind: z.enum(downloadKinds) }).strict();
+
 const rank: Record<DownloadLevel, number> = { none: 0, proxy: 1, original: 2 };
 
 /** Whether a level lets someone take a kind of download: the original allows the proxy too. */
