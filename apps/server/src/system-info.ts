@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { type Database, schema } from "@hekate/db";
 import {
   newerReleases,
@@ -10,13 +9,10 @@ import {
 import type { Backends } from "@hekate/storage";
 import { desc, sql } from "drizzle-orm";
 import { run } from "./media/ffmpeg.ts";
+import { version } from "./version.ts";
 
 /** The release running, as Release Please writes it into the server's package. */
-export const HEKATE_VERSION: string = (
-  JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
-    version: string;
-  }
-).version;
+export const HEKATE_VERSION: string = version;
 
 /** The project's public releases. Asking it sends nothing about the instance. */
 export const RELEASES_FEED = "https://api.github.com/repos/DonQuinleone/Hekate/releases";
