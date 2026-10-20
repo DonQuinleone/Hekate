@@ -74,6 +74,7 @@ import { INVITATION_LIFETIME_MS, newInvitationToken } from "../invitation-token.
 import { type JobName, type Jobs, jobDefinitions } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
+import { admit } from "../rate-limit.ts";
 import { type SystemHealthDeps, systemHealth } from "../system-health.ts";
 import { HEKATE_VERSION, systemInformation } from "../system-info.ts";
 import { factorStanding, type SecondFactorRule } from "../tenancy.ts";
@@ -1411,9 +1412,30 @@ export function instanceRoutes(options: InstanceOptions) {
       })
       // System health (#156): the machine now, its last hour or day, services and metrics.
       .use("/health", operatorsOnly)
+      .use("/health/*", operatorsOnly)
       .get("/health", zValidator("query", healthQuery), async (c) =>
         c.json(await systemHealth(db, c.req.valid("query").range, options.health)),
       )
+      // Every backend checked against the database now, rather than at night: a few a quarter of
+      // an hour, as the run reads every object.
+      .post("/health/reconcile", async (c) => {
+        const { allowed } = await admit(db, "reconcile:instance", {
+          max: 3,
+          windowMs: 15 * 60_000,
+        });
+        if (!allowed)
+          throw new HTTPException(429, {
+            message: "The storage was checked moments ago. Try again in a quarter of an hour.",
+          });
+        await options.jobs.send("storage-reconcile", {}, { singletonKey: "storage-reconcile" });
+        await recordInstanceEvent(db, {
+          actorId: c.var.userId,
+          action: "storage.reconcile",
+          target: "Storage",
+          ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+        });
+        return c.body(null, 202);
+      })
       // The instance's settings (#160), and what the environment sets beside them.
       .use("/settings", operatorsOnly)
       .get("/settings", async (c) => {

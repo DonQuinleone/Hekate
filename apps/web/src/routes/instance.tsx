@@ -6,6 +6,7 @@ import {
   type HealthAmount,
   type HealthRange,
   type HealthService,
+  type HealthStorage,
   type InstanceAccess,
   type InstanceEnvironment,
   type InstanceFlag,
@@ -849,6 +850,23 @@ function serviceHint(s: HealthService): string {
   }
 }
 
+/** The last instance-wide run, and what runs found that is still open. */
+function reconciliationHint({ last, open }: HealthStorage["reconciliation"]): string {
+  const run = !last
+    ? "Not run yet"
+    : last.finishedAt
+      ? `Last run ${ago(last.finishedAt)}`
+      : `Running since ${ago(last.startedAt)}`;
+  const found = [
+    open.missingObjects > 0 && `${plural(open.missingObjects, "missing object")}`,
+    open.orphanObjects > 0 && `${plural(open.orphanObjects, "object")} nothing claims`,
+    open.unreferencedBlobs > 0 && `${plural(open.unreferencedBlobs, "record")} nothing uses`,
+  ].filter(Boolean);
+  return `Every backend against the database, each night. ${run}; ${
+    found.length ? found.join(", ") : "nothing found"
+  }.`;
+}
+
 /**
  * System health (#156), as the prototype has it: the machine now, the last hour or day from the
  * minutes each process measures (kept a day), the services, and every metric Prometheus reads.
@@ -859,6 +877,12 @@ function SystemHealthPage() {
   const { data, error, dataUpdatedAt } = useQuery({
     ...instanceHealthQuery(range),
     placeholderData: keepPreviousData,
+  });
+  const reconcile = useMutation({
+    mutationFn: async () => {
+      const res = await api.instance.health.reconcile.$post();
+      if (!res.ok) await json(res);
+    },
   });
   const [clock, setClock] = useState(() => Date.now());
   useEffect(() => {
@@ -977,6 +1001,70 @@ function SystemHealthPage() {
             <StatusDot state={serviceDot[s.state]} />
           </Row>
         ))}
+      </Section>
+      <Section
+        title="Storage"
+        intro="Every object is encrypted with its own key before it is written; a backend only ever holds ciphertext."
+      >
+        {data.storage.backends.map((b) => (
+          <Row
+            key={b.name}
+            name={b.name}
+            hint={[
+              b.where,
+              b.isDefault && "new objects",
+              `${formatBytes(b.storedBytes)} stored`,
+              b.disk && `disk ${amount(b.disk)}`,
+              b.state !== "ok" && "not answering",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          >
+            {b.disk && (
+              <span className="flex w-56 items-center gap-3">
+                <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-raised">
+                  <span
+                    className={cn(
+                      "block h-full rounded-full",
+                      // As the Disk gauge: signal once it is nearly full.
+                      (share(b.disk) ?? 0) >= 0.85 ? "bg-signal" : "bg-node-review",
+                    )}
+                    style={{ width: `${(share(b.disk) ?? 0) * 100}%` }}
+                  />
+                </span>
+                <span className="tabular w-9 text-right text-[12px] text-ink-3">
+                  {percent(share(b.disk))}
+                </span>
+              </span>
+            )}
+            <StatusDot state={serviceDot[b.state]} />
+          </Row>
+        ))}
+        <Row
+          name="Master key"
+          hint={`Set in the environment; wraps ${plural(data.storage.masterKey.workspaceKeys, "workspace key")}.${
+            data.storage.masterKey.previous > 0
+              ? ` ${plural(data.storage.masterKey.previous, "earlier key")} still configured: once the server has started with the new one, remove MASTER_KEYS_PREVIOUS.`
+              : ""
+          }`}
+        >
+          <Button variant="secondary" size="md" asChild>
+            <a href={`${docsUrl}/operate/keys/`} target="_blank" rel="noopener noreferrer">
+              How to rotate
+            </a>
+          </Button>
+        </Row>
+        <Row name="Reconciliation" hint={reconciliationHint(data.storage.reconciliation)}>
+          <Button
+            variant="ghost"
+            size="md"
+            disabled={reconcile.isPending || reconcile.isSuccess}
+            onClick={() => reconcile.mutate()}
+          >
+            {reconcile.isSuccess ? "Asked" : "Run now"}
+          </Button>
+        </Row>
+        {reconcile.isError && <Row name="Not run" hint={reconcile.error.message} />}
       </Section>
       <Section
         title="Metrics"

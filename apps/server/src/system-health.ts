@@ -3,14 +3,18 @@ import { freemem, totalmem } from "node:os";
 import { type Database, schema } from "@hekate/db";
 import {
   type HealthAmount,
+  type HealthBackend,
   type HealthChecks,
   type HealthMinute,
   type HealthRange,
   type HealthService,
+  type HealthStorage,
   healthSeries,
   type SystemHealth,
 } from "@hekate/shared";
-import { countDistinct, gte, max, sql } from "drizzle-orm";
+import type { Backends } from "@hekate/storage";
+import { count, countDistinct, desc, gte, isNull, max, sql } from "drizzle-orm";
+import { CHECK_MS, stateOf } from "./health-checks.ts";
 import { metrics, registry } from "./metrics/index.ts";
 import type { Sampler } from "./metrics/sampler.ts";
 import { toolVersions } from "./system-info.ts";
@@ -23,6 +27,11 @@ export interface SystemHealthDeps {
   sampler?: Sampler;
   /** The disk to measure: local storage's, or the working directory's where there is none. */
   diskPath: string;
+  backends: Backends;
+  /** Each backend's driver and where it keeps its objects, as configured. */
+  described: { name: string; driver: "local" | "s3"; where: string }[];
+  /** Earlier master keys still configured (MASTER_KEYS_PREVIOUS). */
+  previousMasterKeys: number;
   now?: () => Date;
 }
 
@@ -92,6 +101,71 @@ async function minutesSince(db: Database, since: Date): Promise<HealthMinute[]> 
   }));
 }
 
+/**
+ * Storage, instance-wide (#156): every backend with what it holds and whether it answers, the
+ * master key, and what reconciliation found. Operators only, so it reads across workspaces.
+ */
+async function storageOf(db: Database, deps: SystemHealthDeps): Promise<HealthStorage> {
+  const { blobs, organisationKeys, storageFindings, storageReconciliations } = schema;
+  const [stored, [keys], [last], open] = await Promise.all([
+    db
+      .select({
+        backend: blobs.backend,
+        bytes: sql<string>`coalesce(sum(${blobs.byteSize}), 0)::text`,
+      })
+      .from(blobs)
+      .groupBy(blobs.backend),
+    db.select({ n: count() }).from(organisationKeys),
+    db
+      .select()
+      .from(storageReconciliations)
+      .where(isNull(storageReconciliations.scopeOrganisationId))
+      .orderBy(desc(storageReconciliations.startedAt))
+      .limit(1),
+    db
+      .select({ kind: storageFindings.kind, n: count() })
+      .from(storageFindings)
+      .where(isNull(storageFindings.resolvedAt))
+      .groupBy(storageFindings.kind),
+  ]);
+  const bytes = new Map(stored.map((r) => [r.backend, Number(r.bytes)]));
+  const found = new Map(open.map((r) => [r.kind, r.n]));
+  const backends = await Promise.all(
+    deps.backends.names().map(async (name): Promise<HealthBackend> => {
+      const described = deps.described.find((d) => d.name === name);
+      const driver = described?.driver ?? "local";
+      const where = described?.where ?? "";
+      return {
+        name,
+        driver,
+        where,
+        isDefault: name === deps.backends.defaultBackend,
+        state: await stateOf(() => deps.backends.get(name).check(), CHECK_MS),
+        storedBytes: bytes.get(name) ?? 0,
+        disk: driver === "local" && where ? await diskOf(where) : null,
+      };
+    }),
+  );
+  return {
+    backends,
+    masterKey: { workspaceKeys: keys?.n ?? 0, previous: deps.previousMasterKeys },
+    reconciliation: {
+      last: last
+        ? {
+            startedAt: last.startedAt.toISOString(),
+            finishedAt: last.finishedAt?.toISOString() ?? null,
+            removing: last.removing,
+          }
+        : null,
+      open: {
+        orphanObjects: found.get("orphan_object") ?? 0,
+        unreferencedBlobs: found.get("unreferenced_blob") ?? 0,
+        missingObjects: found.get("missing_object") ?? 0,
+      },
+    },
+  };
+}
+
 /** The System health page (#156): the machine now, a range's minutes, services and metrics. */
 export async function systemHealth(
   db: Database,
@@ -103,7 +177,7 @@ export async function systemHealth(
   // From a minute's turn, as the chart's points are: the range's first minute is in it.
   const minute = Math.floor(at.getTime() / 60_000) * 60_000;
   const s = schema.healthSamples;
-  const [minutes, database, disk, checks, tools, [replicas]] = await Promise.all([
+  const [minutes, database, disk, checks, tools, [replicas], storage] = await Promise.all([
     minutesSince(db, new Date(minute - span)),
     databaseOf(db),
     diskOf(deps.diskPath),
@@ -114,6 +188,7 @@ export async function systemHealth(
       .select({ n: countDistinct(s.replica) })
       .from(s)
       .where(gte(s.at, new Date(at.getTime() - 3 * 60_000))),
+    storageOf(db, deps),
   ]);
   const lastHour = minutes.filter((m) => new Date(m.at).getTime() >= minute - HOUR);
   const p95s = lastHour.flatMap((m) => (m.p95Seconds === null ? [] : [m.p95Seconds]));
@@ -150,6 +225,7 @@ export async function systemHealth(
     range,
     series: healthSeries(minutes, range, at),
     services,
+    storage,
     metrics: registry.catalogue(),
   };
 }

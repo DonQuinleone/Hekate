@@ -1115,3 +1115,11 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Worker lanes** are new metrics: `hekate_worker_lanes` (jobs a process may run at once) and `hekate_worker_lanes_busy`.
 - **Metrics** lists the registry itself, with each metric's help, so the catalogue cannot drift from what is exported.
 - **Follows.** Storage backends with usage, the master key and reconciliation (#156, last part).
+
+## 182. System health: storage
+
+#156, last part: "storage backends with usage, the master key with its rotation date, reconciliation with \"run a slice now\"".
+
+- **Backends.** Each configured backend with where it keeps objects (path, or bucket and region), whether it takes new objects, the bytes stored there, and whether it answers now. A local backend also shows its disk filling; S3 has no size to fill, so it shows none.
+- **The master key** lives in the environment, so the page cannot rotate it: it says how many workspace keys it wraps, warns while earlier keys are still configured, and links to the rotation steps in the docs. The prototype's rotation date went: nothing records when an operator changed the environment.
+- **Reconciliation** runs over everything each night, not a slice at a time, so the prototype's "Run a slice now" became "Run now": it queues the same job (one at a time, three a quarter of an hour), recorded in the instance's events. The row says when the last instance-wide run finished and what is still open.

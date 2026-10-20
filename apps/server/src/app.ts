@@ -138,6 +138,10 @@ export interface AppDeps {
   sampler?: Sampler;
   /** The disk System health measures: local storage's, else the working directory's. */
   diskPath?: string;
+  /** Each storage backend's driver and where it keeps its objects, for System health. */
+  storageDescribed?: { name: string; driver: "local" | "s3"; where: string }[];
+  /** Earlier master keys still configured (MASTER_KEYS_PREVIOUS). */
+  previousMasterKeys?: number;
 }
 
 export function createApi(deps: AppDeps) {
@@ -224,6 +228,9 @@ export function createApi(deps: AppDeps) {
             checks,
             ...(deps.sampler ? { sampler: deps.sampler } : {}),
             diskPath: deps.diskPath ?? deps.workDir ?? tmpdir(),
+            backends: deps.storage.backends,
+            described: deps.storageDescribed ?? [],
+            previousMasterKeys: deps.previousMasterKeys ?? 0,
           },
           environment: {
             publicUrl: deps.publicUrl,

@@ -8,13 +8,16 @@ import type { Mailer } from "./mail.ts";
 const KEEP_MS = 10_000;
 
 /** How long a check may take: a probe that waits longer has failed anyway. */
-const CHECK_MS = 3_000;
+export const CHECK_MS = 3_000;
 
 /**
  * A check's state: ok, or failed for any error or for taking too long (a mail server that
  * never answers must not hold up the answer); never a message, as readiness is public.
  */
-const state = async (check: () => Promise<unknown>, limitMs: number): Promise<CheckState> => {
+export const stateOf = async (
+  check: () => Promise<unknown>,
+  limitMs: number,
+): Promise<CheckState> => {
   let timer: NodeJS.Timeout | undefined;
   try {
     await Promise.race([
@@ -46,12 +49,12 @@ export function createHealthChecks(
   return async () => {
     if (kept && now() - kept.at < KEEP_MS) return kept.checks;
     const [database, storage, worker, mail] = await Promise.all([
-      state(() => db.execute(sql`select 1`), limit),
-      deps.backends ? state(() => (deps.backends as Backends).checkAll(), limit) : "off",
+      stateOf(() => db.execute(sql`select 1`), limit),
+      deps.backends ? stateOf(() => (deps.backends as Backends).checkAll(), limit) : "off",
       // A worker finishes a scheduled job every minute; none for ten means none is running.
       (async (): Promise<CheckState> => {
         let recent = false;
-        const read = await state(async () => {
+        const read = await stateOf(async () => {
           const [row] = await db.execute<{ recent: boolean }>(
             sql`select exists (select 1 from pgboss.job where state = 'completed'
                   and completed_on > now() - interval '10 minutes') as recent`,
@@ -60,7 +63,7 @@ export function createHealthChecks(
         }, limit);
         return read === "failed" ? "failed" : recent ? "ok" : "stale";
       })(),
-      verify ? state(verify, limit) : "off",
+      verify ? stateOf(verify, limit) : "off",
     ] as const);
     kept = { at: now(), checks: { database, storage, worker, mail } };
     return kept.checks;

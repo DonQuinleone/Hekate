@@ -1839,45 +1839,44 @@ export function InstancePage({ section }: { section: string }) {
           >
             {[
               {
-                name: "Local disk",
-                hint: "/var/lib/hekate/objects · ext4 · 1.4 TB of 4 TB",
+                name: "local",
+                hint: "/var/lib/hekate/objects · new objects · 1.2 TB stored · disk 1.4 TB of 4 TB",
                 used: 0.34,
               },
               {
-                name: "S3: archive",
-                hint: "s3://endlesshall-archive · eu-west-2 · cold · 88 GB of 1 TB",
-                used: 0.09,
+                name: "archive",
+                hint: "s3://endlesshall-archive · eu-west-2 · 88 GB stored",
+                used: null,
               },
             ].map((b) => (
               <Row key={b.name} name={b.name} hint={b.hint}>
-                <span className="flex w-56 items-center gap-3">
-                  <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-raised">
-                    <span
-                      className="block h-full rounded-full bg-node-review"
-                      style={{ width: `${b.used * 100}%` }}
-                    />
+                {b.used !== null && (
+                  <span className="flex w-56 items-center gap-3">
+                    <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-raised">
+                      <span
+                        className="block h-full rounded-full bg-node-review"
+                        style={{ width: `${b.used * 100}%` }}
+                      />
+                    </span>
+                    <span className="tabular w-9 text-right text-[12px] text-ink-3">
+                      {Math.round(b.used * 100)}%
+                    </span>
                   </span>
-                  <span className="tabular w-9 text-right text-[12px] text-ink-3">
-                    {Math.round(b.used * 100)}%
-                  </span>
-                </span>
+                )}
                 <Dot state="approved" />
               </Row>
             ))}
-            <Row
-              name="Master key"
-              hint="In the environment; wraps every workspace key. Rotated 2 Oct."
-            >
+            <Row name="Master key" hint="Set in the environment; wraps 6 workspace keys.">
               <Button variant="secondary" size="md">
-                Rotate
+                How to rotate
               </Button>
             </Row>
             <Row
               name="Reconciliation"
-              hint="Every object's hash against the database, a slice a night: 12% per night, 0 mismatches."
+              hint="Every backend against the database, each night. Last run 6 h ago; nothing found."
             >
               <Button variant="ghost" size="md">
-                Run a slice now
+                Run now
               </Button>
             </Row>
           </Section>

@@ -159,10 +159,42 @@ export interface MetricEntry {
   labels: string[];
 }
 
+/** A storage backend as the page shows it: where it is, what it holds, whether it answers. */
+export interface HealthBackend {
+  name: string;
+  driver: "local" | "s3";
+  /** Its path, or its bucket (and region). Operators only. */
+  where: string;
+  /** New objects go here unless a workspace or project chooses another. */
+  isDefault: boolean;
+  state: CheckState;
+  /** Bytes stored there, before encryption. */
+  storedBytes: number;
+  /** The file system holding a local backend; none for S3, which has no size to fill. */
+  disk: HealthAmount | null;
+}
+
+export interface HealthStorage {
+  backends: HealthBackend[];
+  masterKey: {
+    /** Workspace keys it wraps. */
+    workspaceKeys: number;
+    /** Earlier master keys still configured (MASTER_KEYS_PREVIOUS). */
+    previous: number;
+  };
+  reconciliation: {
+    /** The last instance-wide run; null before the first. */
+    last: { startedAt: string; finishedAt: string | null; removing: boolean } | null;
+    /** What runs found and nothing has settled yet. */
+    open: { orphanObjects: number; unreferencedBlobs: number; missingObjects: number };
+  };
+}
+
 export interface SystemHealth {
   now: HealthNow;
   range: HealthRange;
   series: HealthSeries;
   services: HealthService[];
+  storage: HealthStorage;
   metrics: MetricEntry[];
 }
