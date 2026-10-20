@@ -22,7 +22,14 @@ import { Segmented } from "~/components/ui/segmented";
 import { Switch } from "~/components/ui/toggle";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
-import { projectQuery, sessionQuery, useProjectCan, useTakeOutbox, viewQuery } from "~/lib/queries";
+import {
+  patchQuery,
+  projectQuery,
+  sessionQuery,
+  useProjectCan,
+  useTakeOutbox,
+  viewQuery,
+} from "~/lib/queries";
 import { TEMPO_MAX, TEMPO_MIN, TONES, tempoOf, useReferenceAudio } from "~/lib/reference-audio";
 import { useShortcuts } from "~/lib/shortcuts";
 import {
@@ -579,6 +586,9 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
                   ))}
                 </ul>
               )}
+              {view === "engineer" && can("view_production") && (
+                <PatchSummary projectId={session.projectId} />
+              )}
             </div>
             <TakeLogAside
               outbox={outbox}
@@ -605,6 +615,36 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
         />
       )}
     </>
+  );
+}
+
+/**
+ * The engineer's patch (#54), under the log as the prototype has it: each stage box's inputs,
+ * channel and source, to read at a glance. Nothing when the project has none.
+ */
+function PatchSummary({ projectId }: { projectId: string }) {
+  const { data: boxes } = useQuery(patchQuery(projectId));
+  const patched = (boxes ?? []).filter((b) => b.inputs.length > 0);
+  if (patched.length === 0) return null;
+  return (
+    <section
+      aria-label="Patch"
+      className="flex flex-col gap-3 rounded-panel-lg border border-line bg-raised/25 p-3"
+    >
+      {patched.map((b) => (
+        <div key={b.id} className="flex flex-col gap-2">
+          <h2 className="label m-0">{patched.length > 1 ? `Patch · ${b.name}` : "Patch"}</h2>
+          <ul className="m-0 grid list-none grid-cols-2 gap-x-4 gap-y-1 p-0 text-[13px] @xl/app:grid-cols-3 @3xl/app:grid-cols-6">
+            {b.inputs.map((i) => (
+              <li key={i.id} className="flex min-w-0 items-center gap-2">
+                <span className="tabular text-ink-3">{i.channel}</span>
+                <span className="min-w-0 truncate text-ink">{i.source}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </section>
   );
 }
 

@@ -585,6 +585,35 @@ test("settings-delivery-profile", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The patch list (#54): the project's stage box with its inputs and outputs, and a channel
+// being changed.
+test("patch-list", async ({ page }) => {
+  await page.goto(`/projects/${seeded().musicProjectId}/patch`);
+  await settle(page, "main >> text=Spot piano L");
+  await saveScreen(page, "patch-list");
+  await checkScreen(page);
+  await page.getByRole("row", { name: /Spot piano L/ }).hover();
+  await page.getByRole("button", { name: "Actions for input 3" }).click();
+  await page.getByRole("menuitem", { name: "Edit" }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit input 3" });
+  await expect(dialog.getByRole("textbox", { name: "Notes" })).toHaveValue(
+    "Lid on the short stick",
+  );
+  await saveScreen(page, "patch-list-row");
+  await checkScreen(page);
+});
+
+// The engineer's view of the take log carries the patch, under the log.
+test("take-log-engineer", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/sessions/${seeded().sessionId}/log`);
+  await settle(page, "main ul[aria-label=Takes] >> text=T3");
+  await page.getByRole("button", { name: "Engineer" }).click();
+  await expect(page.getByRole("region", { name: "Patch" })).toContainText("Spot piano L");
+  await saveScreen(page, "take-log-engineer");
+  await checkScreen(page);
+});
+
 // The live take log (#51): the producer's view of Day 2, and the logger's.
 test("take-log", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);

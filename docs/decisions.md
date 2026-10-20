@@ -940,3 +940,13 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Notes.** The last written stands, as before; a note typed offline is sent when the connection returns.
 - **To-dos made once.** A new item is named here (a UUIDv7), so one sent again, because the log could not tell whether the first arrived, is the item it made rather than a second. An id another session or workspace holds is refused.
 - **Already gone.** Removing an item someone else removed meanwhile is done, not refused. Ticking one someone removed is refused, and the log says so.
+
+## 165. The patch list
+
+#54, first part. The patch list is in Production beside sessions and score marking, as the prototype has it: the project's stage boxes, each with an input table and an output table (channel, source, device, cable or channel, notes).
+
+- **Stage boxes.** Named, in the order they were added; no two in a project share a name. Removing one removes its channels.
+- **Channels.** Each input or output has a channel number on its box, unique for its direction; one added without a number takes the next after the highest. What it carries (source, device, cable, notes) may be left blank until it is known.
+- **Who may.** Those who see the production tools read the patch list; those who use them change it.
+- **In the take log.** The engineer's view shows each box's inputs, channel and source, under the log.
+- **Follows.** Exports as PDF and XLSX; linking a channel to a microphone on the stage plan, once stage plans exist (#53).

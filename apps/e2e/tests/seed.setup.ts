@@ -439,6 +439,36 @@ setup("seed", async ({ page, browser }) => {
     },
   ])
     await api(page, "POST", `/api/tracks/${track.id}/score-marks`, mark);
+  // The patch list (#54): one stage box, as the prototype has it.
+  const { box } = await api<{ box: { id: string } }>(
+    page,
+    "POST",
+    `/api/projects/${music.id}/stage-boxes`,
+    { name: "Stage box A" },
+  );
+  for (const row of [
+    { direction: "input", source: "Main L", device: "DPA 4006", cable: "A1" },
+    { direction: "input", source: "Main R", device: "DPA 4006", cable: "A2" },
+    {
+      direction: "input",
+      source: "Spot piano L",
+      device: "Schoeps MK4",
+      cable: "A3",
+      notes: "Lid on the short stick",
+    },
+    { direction: "input", source: "Spot piano R", device: "Schoeps MK4", cable: "A4" },
+    { direction: "input", source: "Room L", device: "Neumann KM 183", cable: "A5" },
+    { direction: "input", source: "Room R", device: "Neumann KM 183", cable: "A6" },
+    {
+      direction: "output",
+      source: "Talkback",
+      device: "Headphone amp",
+      cable: "B1",
+      notes: "To the piano",
+    },
+    { direction: "output", source: "Cue mix", device: "Headphone amp", cable: "B2" },
+  ])
+    await api(page, "POST", `/api/stage-boxes/${box.id}/rows`, row);
   // V2's edit decision list, given after it was made (#56): takes 2, 3 and 4, and a
   // pick-up recorded apart, which is no take of the track.
   const edlPath = file("Maple Leaf Rag - V2.edl");
