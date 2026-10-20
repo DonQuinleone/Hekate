@@ -131,7 +131,11 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { outboxStore } from "./outbox-store";
+import { baseOf, outcomeOf, type PendingWrite } from "./take-outbox";
+import { uuidv7 } from "./uuidv7";
 
 /** The member's session is gone: it ran out, or was ended elsewhere. */
 export class SignedOutError extends Error {}
@@ -2004,42 +2008,6 @@ export function useTakeLog(sessionId: string) {
     void client.invalidateQueries({ queryKey: ["tracks"] });
   };
   return {
-    start: useMutation({
-      mutationFn: async (input: StartTake) =>
-        (
-          await json<{ take: TakeRow }>(
-            await api.sessions[":id"].takes.$post({ param: { id: sessionId }, json: input }),
-          )
-        ).take,
-      onSettled: refresh,
-    }),
-    change: useMutation({
-      mutationFn: async ({ id, ...change }: TakeChange & { id: string }) =>
-        (
-          await json<{ take: TakeRow }>(
-            await api.takes[":id"].$patch({ param: { id }, json: change }),
-          )
-        ).take,
-      onMutate: async ({ id, ...change }) => {
-        await client.cancelQueries({ queryKey: key });
-        const before = client.getQueryData<SessionDetail>(key);
-        client.setQueryData<SessionDetail>(key, (session) =>
-          session
-            ? {
-                ...session,
-                takeRows: session.takeRows.map((t) =>
-                  t.id === id ? ({ ...t, ...change } as typeof t) : t,
-                ),
-              }
-            : session,
-        );
-        return { before };
-      },
-      onError: (_error, _change, context) => {
-        if (context?.before) client.setQueryData(key, context.before);
-      },
-      onSettled: refresh,
-    }),
     /** The room's notes and the producer's quick reference. */
     notes: useMutation({
       mutationFn: async (change: Pick<SessionChange, "notes" | "reference">) =>
@@ -2081,6 +2049,124 @@ export function useTakeLog(sessionId: string) {
       },
       onSettled: refresh,
     }),
+  };
+}
+
+/**
+ * The take log's writes (#51), local first: each is kept in this browser's outbox and shown at
+ * once, then sent in order. While the server cannot be reached they wait, and go when it
+ * returns; one the server refuses is let go, and `problem` says why.
+ */
+export function useTakeOutbox(sessionId: string) {
+  const client = useQueryClient();
+  const key = sessionQuery(sessionId).queryKey;
+  const store = outboxStore();
+  const [pending, setPending] = useState<PendingWrite[]>([]);
+  const [waiting, setWaiting] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const sending = useRef(false);
+
+  const flush = useCallback(async () => {
+    if (sending.current) return;
+    sending.current = true;
+    let sent = false;
+    try {
+      for (const write of await store.list(sessionId)) {
+        let status: number | "offline";
+        let refusal: string | null = null;
+        try {
+          const res =
+            write.kind === "start"
+              ? await api.sessions[":id"].takes.$post({
+                  param: { id: sessionId },
+                  json: write.body,
+                })
+              : await api.takes[":id"].$patch({ param: { id: write.takeId }, json: write.body });
+          status = res.status;
+          if (outcomeOf(status) === "refused")
+            refusal = await json(res).then(
+              () => null,
+              (error: Error) => error.message,
+            );
+        } catch {
+          status = "offline";
+        }
+        if (outcomeOf(status) === "retry") {
+          setWaiting(true);
+          return;
+        }
+        setWaiting(false);
+        if (refusal) setProblem(refusal);
+        if (write.seq !== undefined) await store.remove(write.seq);
+        setPending((all) => all.filter((w) => w.seq !== write.seq));
+        sent = true;
+      }
+    } finally {
+      sending.current = false;
+      if (sent) {
+        void client.invalidateQueries({ queryKey: key });
+        void client.invalidateQueries({ queryKey: ["tracks"] });
+      }
+    }
+  }, [client, key, sessionId, store]);
+
+  // What an earlier visit left unsent, then sent; again whenever the browser is back online,
+  // and every few seconds while anything waits.
+  useEffect(() => {
+    let live = true;
+    void store.list(sessionId).then((writes) => {
+      if (!live) return;
+      setPending(writes);
+      void flush();
+    });
+    const online = () => void flush();
+    window.addEventListener("online", online);
+    return () => {
+      live = false;
+      window.removeEventListener("online", online);
+    };
+  }, [sessionId, store, flush]);
+  const count = pending.length;
+  useEffect(() => {
+    if (count === 0) return;
+    const timer = setInterval(() => void flush(), 5000);
+    return () => clearInterval(timer);
+  }, [count, flush]);
+
+  const write = async (made: PendingWrite) => {
+    setProblem(null);
+    setPending((all) => [...all, made]);
+    const kept = await store.add(made);
+    setPending((all) => all.map((w) => (w === made ? kept : w)));
+    void flush();
+  };
+
+  return {
+    /** Writes not yet confirmed, to lay over the session. */
+    pending,
+    /** Whether writes are waiting for the server to be reached again. */
+    waiting,
+    problem,
+    /** The next take, numbered as the log shows it until the server numbers it. */
+    start: (input: StartTake, number: number) => {
+      const at = new Date().toISOString();
+      const takeId = uuidv7();
+      return write({
+        kind: "start",
+        sessionId,
+        takeId,
+        number,
+        body: { ...input, id: takeId, at },
+      });
+    },
+    /** A change to a take, with what the log last saw of the fields it sets. */
+    change: (take: SessionDetail["takeRows"][number], change: TakeChange) =>
+      write({
+        kind: "change",
+        sessionId,
+        takeId: take.id,
+        body: { ...change, base: baseOf(take, change), at: new Date().toISOString() },
+      }),
   };
 }
 

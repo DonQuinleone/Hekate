@@ -22,7 +22,14 @@ import { Segmented } from "~/components/ui/segmented";
 import { Switch } from "~/components/ui/toggle";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
-import { projectQuery, sessionQuery, useProjectCan, useTakeLog, viewQuery } from "~/lib/queries";
+import {
+  projectQuery,
+  sessionQuery,
+  useProjectCan,
+  useTakeLog,
+  useTakeOutbox,
+  viewQuery,
+} from "~/lib/queries";
 import { TEMPO_MAX, TEMPO_MIN, TONES, tempoOf, useReferenceAudio } from "~/lib/reference-audio";
 import { useShortcuts } from "~/lib/shortcuts";
 import {
@@ -35,6 +42,7 @@ import {
   rolled,
   slotStatus,
 } from "~/lib/take-log";
+import { withPending } from "~/lib/take-outbox";
 
 type View = "engineer" | "producer" | "logger";
 
@@ -83,19 +91,22 @@ const stateWords = (t: LoggedTake) =>
  */
 export function TakeLogPage({ sessionId }: { sessionId: string }) {
   const {
-    data: session,
+    data: served,
     error,
     isError,
   } = useQuery({
     ...sessionQuery(sessionId),
     refetchInterval: 2000,
   });
+  // Written here first (#51): the server's session, with what this browser has yet to send.
+  const outbox = useTakeOutbox(sessionId);
+  const session = served ? withPending(served, outbox.pending) : undefined;
+  const offline = isError || outbox.waiting;
   const { data: project } = useQuery({
     ...projectQuery(session?.projectId ?? ""),
     enabled: Boolean(session),
   });
   const can = useProjectCan(session?.projectId);
-  const { start, change } = useTakeLog(sessionId);
   const now = useNow();
   const [view, setView] = useState<View>("producer");
   const [chosen, setChosen] = useState<string | null>(null);
@@ -111,10 +122,8 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
   const rows = session ? logOrder(session.takeRows) : [];
   const current = liveTake(rows);
   const target = keyTake(rows);
-  // Nothing is logged while the server cannot be reached; writing offline comes later (#51).
-  const canLog = Boolean(
-    session && project && can("edit_takes") && !project.archivedAt && !isError,
-  );
+  // Logged while the server cannot be reached too: the outbox sends it when it returns.
+  const canLog = Boolean(session && project && can("edit_takes") && !project.archivedAt);
   const trackId = session ? nextTrack(chosen, rows, session.tracks) : null;
   const next = trackId ? session?.nextNumbers[trackId] : undefined;
 
@@ -134,9 +143,9 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
   const recorderValue = Number.parseInt(recorderNumber || String(next ?? ""), 10);
 
   const move = (lifecycle: LoggedTake["lifecycle"]) =>
-    current && change.mutate({ id: current.id, lifecycle });
+    current && outbox.change(current, { lifecycle });
   const toggle = () => {
-    if (!canLog || start.isPending) return;
+    if (!canLog) return;
     if (current?.lifecycle === "recording") return move("recorded");
     if (current?.lifecycle === "armed") return move("recording");
     begin("recording");
@@ -149,16 +158,17 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
   const begin = (lifecycle: "armed" | "recording") => {
     if (!trackId) return;
     if (recorded && !(recorderValue >= 1)) return;
-    start.mutate(
+    void outbox.start(
       { trackId, lifecycle, ...(recorded ? { number: recorderValue } : {}) },
-      { onSuccess: () => setRecorderNumber("") },
+      recorded ? recorderValue : (next ?? 1),
     );
+    setRecorderNumber("");
   };
-  const onTarget = (patch: TakeChange) => target && change.mutate({ id: target.id, ...patch });
+  const onTarget = (patch: TakeChange) => target && outbox.change(target, patch);
   const saveNote = () => {
     setNoteDirty(false);
     if (!target || note.trim() === (target.notes ?? "")) return;
-    change.mutate({ id: target.id, notes: note.trim() || null });
+    void outbox.change(target, { notes: note.trim() || null });
   };
   const exportCsv = () => {
     if (!session) return;
@@ -274,19 +284,24 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
             role="status"
             className={cn(
               "ml-auto flex items-center gap-1.5 text-[12px]",
-              isError ? "text-signal" : "text-ink-3",
+              offline ? "text-signal" : "text-ink-3",
             )}
           >
             <span
               aria-hidden="true"
               className={cn(
                 "size-[7px] rounded-full",
-                isError ? "border-[1.5px] border-signal" : "bg-ink-3",
+                offline ? "border-[1.5px] border-signal" : "bg-ink-3",
               )}
             />
-            {isError
-              ? "Not connected: takes cannot be logged until it returns"
-              : "Live for everyone in the room"}
+            {offline
+              ? "Offline: written here, synced when back"
+              : outbox.pending.length > 0
+                ? "Syncing"
+                : "Live for everyone in the room"}
+            {outbox.pending.length > 0 && (
+              <span className="tabular text-ink-3">· {outbox.pending.length} waiting to send</span>
+            )}
           </span>
         </div>
 
@@ -315,7 +330,7 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
                 <button
                   type="button"
                   onClick={toggle}
-                  disabled={!canLog || start.isPending}
+                  disabled={!canLog}
                   className={cn(
                     "flex h-14 cursor-pointer items-center gap-3 rounded-full border-0 px-6 text-[16px] font-medium shadow-2 transition-colors disabled:cursor-default disabled:opacity-50",
                     recording ? "bg-signal text-ground" : "bg-ink text-ground hover:bg-ink/90",
@@ -400,9 +415,9 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
                   </span>
                 </div>
               </section>
-              {(start.error ?? change.error) && (
+              {outbox.problem && (
                 <p role="alert" className="m-0 text-[13px] text-signal">
-                  {(start.error ?? change.error)?.message}
+                  {outbox.problem}
                 </p>
               )}
 
@@ -686,12 +701,16 @@ function ScorePage({
 }) {
   const client = useQueryClient();
   const { data } = useQuery({ ...viewQuery(scoreFileId), retry: false });
+  /** The link that would not load (lapsed, or the connection is down): hidden, not broken. */
+  const [failed, setFailed] = useState<string | null>(null);
   // Only the page asked for: another page under this heading would send the room to the wrong bars.
   const shown = data?.pages.find((p) => p.page === page);
-  if (!shown) return null;
+  if (!shown || failed === shown.url) return null;
   // Links lapse after a few hours: when one fails, ask for fresh ones.
-  const refresh = () =>
+  const refresh = () => {
+    setFailed(shown.url);
     void client.invalidateQueries({ queryKey: viewQuery(scoreFileId).queryKey });
+  };
   return (
     <section aria-label="Score" className="flex flex-col gap-2">
       <h2 className="label m-0">{title}</h2>

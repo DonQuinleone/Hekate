@@ -611,6 +611,33 @@ test("take-log", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The take log offline (#51): a take started and stopped with the connection down is shown at
+// once, waits in the outbox, and reaches the server when the connection returns.
+test("take-log-offline", async ({ page, context }, info) => {
+  test.skip(info.project.name === "phone", "One run is enough: it writes to the shared session");
+  const sessionId = seeded().sessionId;
+  await page.goto(`/sessions/${sessionId}/log`);
+  await settle(page, "main ul[aria-label=Takes] >> text=T3");
+  await context.setOffline(true);
+  await page.keyboard.press("Space");
+  await expect(page.getByText("Offline: written here, synced when back")).toBeVisible();
+  await expect(page.locator("main ul[aria-label=Takes]")).toContainText("T5");
+  await page.keyboard.press("Space");
+  await expect(page.getByText("2 waiting to send")).toBeVisible();
+  await saveScreen(page, "take-log-offline");
+  await checkScreen(page);
+  await context.setOffline(false);
+  await expect(page.getByText("Live for everyone in the room")).toBeVisible({ timeout: 15_000 });
+  const served = (await (await page.request.get(`/api/sessions/${sessionId}`)).json()) as {
+    session: { takeRows: { id: string; number: number; lifecycle: string }[] };
+  };
+  const take = served.session.takeRows.find((t) => t.number === 5);
+  expect(take?.lifecycle).toBe("recorded");
+  // Left as the other screens expect the session.
+  const gone = await page.request.delete(`/api/takes/${take?.id}`);
+  expect(gone.status()).toBe(204);
+});
+
 // Sharing (#138): the Share dialog, from the project's Reviews, a track and someone chosen.
 test("share-dialog", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
