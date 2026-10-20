@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { run } from "./ffmpeg.ts";
+import { pdfString } from "./helvetica.ts";
 import { jpegSize, pdfOf } from "./pdf.ts";
-import { type OverlayMark, pdfString, scoreOverlay, wrap } from "./score-overlay.ts";
+import { type OverlayMark, scoreOverlay, wrap } from "./score-overlay.ts";
 
 const hasTools =
   spawnSync("ffmpeg", ["-version"]).status === 0 && spawnSync("pdftotext", ["-v"]).status === 0;

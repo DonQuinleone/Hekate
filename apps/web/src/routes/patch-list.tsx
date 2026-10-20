@@ -8,7 +8,7 @@ import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
-import { ActionMenu } from "~/components/ui/menu";
+import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import { patchQuery, usePatchList, useProjectCan } from "~/lib/queries";
 import { ProjectFrame } from "./project";
 
@@ -87,17 +87,24 @@ function PatchList({
         <div className="flex flex-col gap-6">
           <div className="flex items-center gap-2">
             <span className="label">Stage boxes · {boxes.length}</span>
-            {canEdit && (
-              <Button
-                variant="secondary"
-                size="md"
-                onClick={() => setEditing({ kind: "box" })}
-                className="ml-auto"
-              >
-                <Icon name="plus" size={14} />
-                Stage box
-              </Button>
-            )}
+            <span className="ml-auto flex items-center gap-1">
+              {/* As the engineer prints it, and as a workbook: made on the server, for this person. */}
+              <Dropdown
+                value="Export"
+                align="right"
+                actions={(["pdf", "xlsx"] as const).map((format) => ({
+                  label: format.toUpperCase(),
+                  onSelect: () =>
+                    window.location.assign(`/api/projects/${projectId}/patch/${format}`),
+                }))}
+              />
+              {canEdit && (
+                <Button variant="secondary" size="md" onClick={() => setEditing({ kind: "box" })}>
+                  <Icon name="plus" size={14} />
+                  Stage box
+                </Button>
+              )}
+            </span>
           </div>
           {boxes.map((box) => (
             <section key={box.id} aria-label={box.name} className="flex flex-col gap-3">

@@ -950,3 +950,11 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Who may.** Those who see the production tools read the patch list; those who use them change it.
 - **In the take log.** The engineer's view shows each box's inputs, channel and source, under the log.
 - **Follows.** Exports as PDF and XLSX; linking a channel to a microphone on the stage plan, once stage plans exist (#53).
+
+## 166. The patch list as a PDF and a workbook
+
+#54, second part: "engineer-style patch list exports as PDF and XLSX".
+
+- **From the Export menu** on the patch list, as the prototype has it, for those who see the production tools; made on the server each time, sent `no-store`, and named after the project ("Joplin Rags patch list.pdf").
+- **The PDF** is A4 portrait in Helvetica, as an engineer prints it: the project and "Patch list" at the top of every page, each stage box's inputs and then its outputs as a table (channel, source, device, cable, notes), words cut with an ellipsis where a column ends, a long box carried over pages with its header repeated, and the page numbers at the foot.
+- **The workbook** has a sheet for each stage box (named as the box is, within what a workbook allows): a row for each channel, inputs then outputs, with the header row in bold and frozen and channel numbers as numbers. It is written here, as a zip of a few XML parts, rather than by a new dependency.

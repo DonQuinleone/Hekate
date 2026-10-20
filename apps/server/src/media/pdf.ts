@@ -21,9 +21,11 @@ export interface PdfPage {
 }
 
 /** The standard fonts an overlay may use: every PDF reader has them, so none is embedded. */
-const FONTS =
-  "/Font << /H << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>" +
-  " /HO << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique /Encoding /WinAnsiEncoding >> >>";
+const font = (key: string, name: string) =>
+  `/${key} << /Type /Font /Subtype /Type1 /BaseFont /${name} /Encoding /WinAnsiEncoding >>`;
+const FONTS = `/Font << ${font("H", "Helvetica")} ${font("HO", "Helvetica-Oblique")} >>`;
+/** And for a page of text: Helvetica, oblique and bold. */
+const TEXT_FONTS = `<< ${font("H", "Helvetica")} ${font("HO", "Helvetica-Oblique")} ${font("HB", "Helvetica-Bold")} >>`;
 
 const CATALOG = 1;
 const PAGES = 2;
@@ -117,4 +119,39 @@ export function jpegSize(jpeg: Buffer): { width: number; height: number } {
     at += 2 + jpeg.readUInt16BE(at + 2);
   }
   throw new Error("The JPEG has no frame header");
+}
+
+/**
+ * A PDF of text, a page for each drawing given (PDF operators in points, ASCII only, setting text
+ * in /H, /HO or /HB): how a list such as the patch list leaves as a PDF (#54).
+ */
+export function textPdfOf(
+  pages: { points: { width: number; height: number }; content: string }[],
+): Buffer {
+  if (pages.length === 0) throw new Error("A PDF needs at least one page");
+  const objects: string[] = [];
+  const add = (body: string) => objects.push(body);
+  add(`<< /Type /Catalog /Pages 2 0 R >>`);
+  const kids = pages.map((_, i) => `${4 + i * 2} 0 R`).join(" ");
+  add(`<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>`);
+  add(TEXT_FONTS);
+  for (const page of pages) {
+    const { width, height } = page.points;
+    add(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${num(width)} ${num(height)}]` +
+        ` /Resources << /Font 3 0 R >> /Contents ${objects.length + 2} 0 R >>`,
+    );
+    add(`<< /Length ${page.content.length} >>\nstream\n${page.content}\nendstream`);
+  }
+  let out = "%PDF-1.4\n%\xe2\xe3\xcf\xd3\n";
+  const offsets: number[] = [];
+  objects.forEach((body, i) => {
+    offsets.push(Buffer.byteLength(out, "latin1"));
+    out += `${i + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const xref = Buffer.byteLength(out, "latin1");
+  out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const o of offsets) out += `${String(o).padStart(10, "0")} 00000 n \n`;
+  out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(out, "latin1");
 }
