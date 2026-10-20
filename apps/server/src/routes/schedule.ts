@@ -13,10 +13,23 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, can, lockLiveProject } from "../access.ts";
 import { NotFound } from "../errors.ts";
+import { textPdfOf } from "../media/pdf.ts";
+import {
+  SCHEDULE_PAGE,
+  type ScheduleExport,
+  schedulePages,
+  scheduleSheets,
+} from "../schedule-pdf.ts";
 import type { TenantVariables } from "../tenancy.ts";
+import { xlsxOf } from "../xlsx.ts";
+import { attachment } from "./comments.ts";
+import { personnelOf } from "./personnel.ts";
 import { venuesOf, worksOf } from "./repertoire.ts";
 
-const { scheduleDays, scheduleRows, scheduleSlotItems, tracks, venues, works } = schema;
+const { projects, scheduleDays, scheduleRows, scheduleSlotItems, tracks, venues, works } = schema;
+
+/** An export is for whoever asked: nothing between them and it keeps a copy. */
+const PRIVATE = { "cache-control": "no-store, private", "x-content-type-options": "nosniff" };
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
@@ -225,6 +238,54 @@ export const projectScheduleRoutes = (db: Database) =>
           id,
           name,
         })),
+      });
+    })
+    /** As a PDF to send out, with a front page and the ensemble breakdown, or a workbook. */
+    .get("/:id/schedule/:format{pdf|xlsx}", idParam, async (c) => {
+      const organisationId = c.var.organisationId;
+      const { projectId } = await can(
+        db,
+        actorOf(c.var),
+        "view_production",
+        c.req.valid("param").id,
+      );
+      const [project] = await db
+        .select({ name: projects.name })
+        .from(projects)
+        .where(inOrg(projects, organisationId, eq(projects.id, projectId)));
+      const input: ScheduleExport = {
+        project: project?.name ?? "Project",
+        days: await daysOf(db, organisationId, projectId),
+        works: (await worksOf(db, organisationId, projectId)).map((w) => ({
+          id: w.id,
+          title: w.title,
+          composer: w.composer,
+          forces: w.forces,
+          abbreviation: w.abbreviation,
+          trackIds: w.tracks.map((t) => t.trackId),
+        })),
+        tracks: await db
+          .select({ id: tracks.id, name: tracks.name })
+          .from(tracks)
+          .where(inOrg(tracks, organisationId, eq(tracks.projectId, projectId)))
+          .orderBy(asc(tracks.name)),
+        venues: await venuesOf(db, organisationId, projectId),
+        personnel: await personnelOf(db, organisationId, projectId),
+      };
+      const name = `${input.project} schedule`;
+      if (c.req.param("format") === "xlsx")
+        return c.body(new Uint8Array(xlsxOf(scheduleSheets(input))), 200, {
+          ...PRIVATE,
+          "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "content-disposition": attachment(`${name}.xlsx`),
+        });
+      const pdf = textPdfOf(
+        schedulePages(input).map((content) => ({ points: SCHEDULE_PAGE, content })),
+      );
+      return c.body(new Uint8Array(pdf), 200, {
+        ...PRIVATE,
+        "content-type": "application/pdf",
+        "content-disposition": attachment(`${name}.pdf`),
       });
     })
     .post("/:id/schedule-days", idParam, zValidator("json", scheduleDayInput), async (c) => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   coverage,
   minutesOf,
+  rowWords,
   type ScheduleDay,
   type ScheduleRow,
   scheduleRowInput,
@@ -107,5 +108,16 @@ describe("the schedule", () => {
     // At 23:45 on the day, a slot ending at 01:00 has an hour and a quarter left.
     expect(secondsLeft("2026-09-12", 1500, new Date(2026, 8, 12, 23, 45))).toBe(75 * 60);
     expect(secondsLeft("2026-09-12", 1500, new Date(2026, 8, 13, 1, 30))).toBe(0);
+  });
+
+  it("says what a row holds", () => {
+    const works = [{ id: "w", title: "Rags", abbreviation: "RAGS" }];
+    const tracks = [{ id: "a", name: "The Entertainer" }];
+    expect(rowWords(row({ workIds: ["w"], trackIds: ["a"] }), works, tracks)).toBe(
+      "RAGS, The Entertainer",
+    );
+    expect(rowWords(row({ allRepertoire: true }), works, tracks)).toBe("All repertoire");
+    expect(rowWords(row({ kind: "break" }), works, tracks)).toBe("Break");
+    expect(rowWords(row({ kind: "break", label: "Lunch" }), works, tracks)).toBe("Lunch");
   });
 });

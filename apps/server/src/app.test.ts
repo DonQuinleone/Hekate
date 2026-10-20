@@ -10275,6 +10275,22 @@ describe.runIf(url)("api", () => {
           ).toBe(200);
           expect((await list()).days[0]?.rows[0]?.done).toBe(true);
 
+          // As a PDF to send out and a workbook, for those who see it; the files name the project.
+          const pdf = await getAs(`/api/projects/${s.projectId}/schedule/pdf`, s.engineer);
+          expect(pdf.status).toBe(200);
+          expect(pdf.headers.get("content-type")).toBe("application/pdf");
+          expect(pdf.headers.get("cache-control")).toContain("no-store");
+          expect(pdf.headers.get("content-disposition")).toContain("schedule.pdf");
+          const pdfText = Buffer.from(await pdf.arrayBuffer()).toString("latin1");
+          expect(pdfText.startsWith("%PDF-")).toBe(true);
+          expect(pdfText).toContain("(Endless Hall) Tj");
+          const book = await getAs(`/api/projects/${s.projectId}/schedule/xlsx`, s.engineer);
+          expect(book.status).toBe(200);
+          expect(book.headers.get("content-disposition")).toContain("schedule.xlsx");
+          expect(
+            (await getAs(`/api/projects/${s.projectId}/schedule/pdf`, s.composer)).status,
+          ).toBe(403);
+
           // The engineer sees it but changes none of it; a reviewer sees none of it.
           expect((await list(s.engineer)).days.map((d) => d.label)).toEqual(["Day 1"]);
           expect(
