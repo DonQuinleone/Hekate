@@ -89,6 +89,7 @@ import {
   type SessionInput,
   type SessionInspection,
   type SessionSummary,
+  type SessionTodoChange,
   type SharedTake,
   type SsoServiceProvider,
   type SsoSettings,
@@ -2036,6 +2037,47 @@ export function useTakeLog(sessionId: string) {
       },
       onError: (_error, _change, context) => {
         if (context?.before) client.setQueryData(key, context.before);
+      },
+      onSettled: refresh,
+    }),
+    /** The room's notes and the producer's quick reference. */
+    notes: useMutation({
+      mutationFn: async (change: Pick<SessionChange, "notes" | "reference">) =>
+        json(await api.sessions[":id"].$patch({ param: { id: sessionId }, json: change })),
+      onSettled: refresh,
+    }),
+    addTodo: useMutation({
+      mutationFn: async (text: string) =>
+        json(await api.sessions[":id"].todos.$post({ param: { id: sessionId }, json: { text } })),
+      onSettled: refresh,
+    }),
+    changeTodo: useMutation({
+      mutationFn: async ({ id, ...change }: SessionTodoChange & { id: string }) =>
+        json(
+          await api.sessions[":id"].todos[":todoId"].$patch({
+            param: { id: sessionId, todoId: id },
+            json: change,
+          }),
+        ),
+      onMutate: async ({ id, ...change }) => {
+        await client.cancelQueries({ queryKey: key });
+        client.setQueryData<SessionDetail>(key, (session) =>
+          session
+            ? {
+                ...session,
+                todos: session.todos.map((t) => (t.id === id ? { ...t, ...change } : t)),
+              }
+            : session,
+        );
+      },
+      onSettled: refresh,
+    }),
+    removeTodo: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api.sessions[":id"].todos[":todoId"].$delete({
+          param: { id: sessionId, todoId: id },
+        });
+        if (!res.ok) await json(res);
       },
       onSettled: refresh,
     }),

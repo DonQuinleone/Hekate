@@ -375,6 +375,21 @@ setup("seed", async ({ page, browser }) => {
   });
   for (const take of takes.slice(0, 3))
     await api(page, "PATCH", `/api/takes/${take.id}`, { sessionId: dayTwo.id });
+  // What the room kept beside the take log on the day (#51).
+  await api(page, "PATCH", `/api/sessions/${dayTwo.id}`, {
+    notes: "Piano a touch bright after lunch; room pair up 1 dB.",
+    reference: "Trio from bar 25, repeat taken. Keep T2's opening.",
+  });
+  const tuner = await api<{ todo: { id: string } }>(
+    page,
+    "POST",
+    `/api/sessions/${dayTwo.id}/todos`,
+    { text: "Tell the tuner about the A" },
+  );
+  await api(page, "PATCH", `/api/sessions/${dayTwo.id}/todos/${tuner.todo.id}`, { done: true });
+  await api(page, "POST", `/api/sessions/${dayTwo.id}/todos`, {
+    text: "Pick-ups for bars 17 to 19",
+  });
   // V2's edit decision list, given after it was made (#56): takes 2, 3 and 4, and a
   // pick-up recorded apart, which is no take of the track.
   const edlPath = file("Maple Leaf Rag - V2.edl");

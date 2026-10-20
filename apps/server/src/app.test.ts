@@ -9237,6 +9237,52 @@ describe.runIf(url)("api", () => {
             (await send("POST", `/api/sessions/${theirs?.id}/takes`, { trackId: s.trackId }))
               .status,
           ).toBe(404);
+
+          // The room's notes, the producer's quick reference and the to-do list (#51).
+          const noted = await send("PATCH", `/api/sessions/${session.id}`, {
+            notes: "Piano a touch bright after lunch",
+            reference: "Trio from bar 65. Coda at 89.",
+          });
+          expect(((await noted.json()) as { session: object }).session).toMatchObject({
+            notes: "Piano a touch bright after lunch",
+            reference: "Trio from bar 65. Coda at 89.",
+          });
+          const todo = (body: unknown, cookie = s.engineer) =>
+            send("POST", `/api/sessions/${session.id}/todos`, body, cookie);
+          expect((await todo({ text: "Pick-ups, bars 17 to 19" }, s.composer)).status).toBe(403);
+          expect((await todo({ text: " " })).status).toBe(400);
+          const item = (
+            (await (await todo({ text: "Pick-ups, bars 17 to 19" })).json()) as {
+              todo: { id: string };
+            }
+          ).todo;
+          await todo({ text: "Tell the tuner about the A" });
+          expect(
+            (await send("PATCH", `/api/sessions/${session.id}/todos/${item.id}`, { done: true }))
+              .status,
+          ).toBe(200);
+          const listed = (
+            (await (await getAs(`/api/sessions/${session.id}`, s.composer)).json()) as {
+              session: { todos: { text: string; done: boolean }[] };
+            }
+          ).session.todos;
+          expect(listed).toEqual([
+            expect.objectContaining({ text: "Pick-ups, bars 17 to 19", done: true }),
+            expect.objectContaining({ text: "Tell the tuner about the A", done: false }),
+          ]);
+          // Not through another workspace's session, nor on another session's item.
+          expect(
+            (await send("POST", `/api/sessions/${theirs?.id}/todos`, { text: "Theirs" })).status,
+          ).toBe(404);
+          expect(
+            (await send("PATCH", `/api/sessions/${perTrack.id}/todos/${item.id}`, { done: false }))
+              .status,
+          ).toBe(404);
+          const gone = await app.request(`/api/sessions/${session.id}/todos/${item.id}`, {
+            method: "DELETE",
+            headers: { cookie: s.engineer, origin: "http://localhost:3000" },
+          });
+          expect(gone.status).toBe(204);
         });
 
         it("imports takes: each file the next take of its track, in its session, once (#45)", async () => {

@@ -808,3 +808,14 @@ Several people at once with their own views, local-first writes, the session clo
 - **Clocks.** The take's time, the slot's countdown and the wall clock are worked out from the clock whenever they are shown, never counted up, so a laptop that sleeps through a take shows its true length when it wakes. Under ten minutes left, the countdown turns to the signal colour.
 - **A view per person.** Engineer, producer and logger see the same log: the engineer each take's timecode in and out and its length, the producer its pages and bars, the logger a table of everything. The log is read again every two seconds, so a take one person starts the others see; the producer's score and notes, the engineer's patch, and pushing changes to everyone at once follow in the next part.
 - **Responsive.** A rating, a star or a false start shows at once and is put right by the server's answer. The note field takes up someone else's change to the note unless it is being typed in, so it never writes an old note back over theirs. While the server cannot be reached the log says so plainly and logs nothing; writing offline and syncing later is the part after.
+
+## 151. Beside the take log, what the room keeps
+
+#51, third part. The take log has a column beside it, as the prototype's has.
+
+- **For everyone, the session's notes.** One text for the day ("piano a touch bright after lunch"), kept on the session.
+- **For the producer, the score, a to-do list and a quick reference.** The score shows the page the take the keys act on starts on, of the score its track follows, titled by the bar it starts at; it comes through the score's own page links, so its renders are logged as any other. The quick reference is a second text on the session. The to-do list is a table of its own, an item a row, so two people ticking different items never overwrite each other.
+- **Kept in step.** The notes and quick reference save when their field is left, and take up someone else's change whenever they are not being typed in, as the take's note does (decision 150).
+- **Who may.** Everyone who sees the session's takes reads them; those who may change takes write them.
+
+The engineer's patch list waits for patch lists (#54); tone, metronome and the recorder's numbers and timecode for the session tools.

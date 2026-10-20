@@ -5,6 +5,8 @@ import {
   type SessionSummary,
   sessionChangeInput,
   sessionInput,
+  sessionTodoChangeInput,
+  sessionTodoInput,
   slotProblem,
   startTakeInput,
   type TakeNumbering,
@@ -20,11 +22,12 @@ import { NotFound } from "../errors.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { takeRowsFor } from "./takes.ts";
 
-const { files, sessions, sessionTracks, takes, tracks, variations } = schema;
+const { files, sessions, sessionTodos, sessionTracks, takes, tracks, variations } = schema;
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
+const todoParams = zValidator("param", z.object({ id: z.uuid(), todoId: z.uuid() }));
 
 /** Sessions as their list shows them: the tracks each recorded, and its takes counted. */
 async function summariesOf(
@@ -35,7 +38,12 @@ async function summariesOf(
   const ids = rows.map((r) => r.id);
   if (ids.length === 0) return [];
   const linked = await db
-    .select({ sessionId: sessionTracks.sessionId, id: tracks.id, name: tracks.name })
+    .select({
+      sessionId: sessionTracks.sessionId,
+      id: tracks.id,
+      name: tracks.name,
+      scoreFileId: tracks.scoreFileId,
+    })
     .from(sessionTracks)
     .innerJoin(
       tracks,
@@ -75,7 +83,11 @@ async function summariesOf(
       numbering: r.numbering as TakeNumbering,
       slotStart: r.slotStart?.toISOString() ?? null,
       slotEnd: r.slotEnd?.toISOString() ?? null,
-      tracks: linked.filter((l) => l.sessionId === r.id).map(({ id, name }) => ({ id, name })),
+      notes: r.notes,
+      reference: r.reference,
+      tracks: linked
+        .filter((l) => l.sessionId === r.id)
+        .map(({ id, name, scoreFileId }) => ({ id, name, scoreFileId })),
       takes: its.length,
       starred: its.filter((t) => t.starred).length,
       duration: its.reduce(
@@ -206,6 +218,8 @@ export const projectSessionRoutes = (db: Database) =>
             ...(input.numbering ? { numbering: input.numbering } : {}),
             slotStart: momentOf(input.slotStart) ?? null,
             slotEnd: momentOf(input.slotEnd) ?? null,
+            notes: input.notes || null,
+            reference: input.reference || null,
           })
           .returning();
         if (!made) throw new NotFound("Session");
@@ -361,6 +375,11 @@ export const sessionRoutes = (db: Database) =>
           base.numbering,
           base.tracks.map((t) => t.id),
         ),
+        todos: await db
+          .select({ id: sessionTodos.id, text: sessionTodos.text, done: sessionTodos.done })
+          .from(sessionTodos)
+          .where(inOrg(sessionTodos, organisationId, eq(sessionTodos.sessionId, row.id)))
+          .orderBy(asc(sessionTodos.createdAt), asc(sessionTodos.id)),
       };
       return c.json({ session });
     })
@@ -380,6 +399,8 @@ export const sessionRoutes = (db: Database) =>
           .set({
             ...change,
             ...(change.venue !== undefined ? { venue: change.venue || null } : {}),
+            ...(change.notes !== undefined ? { notes: change.notes || null } : {}),
+            ...(change.reference !== undefined ? { reference: change.reference || null } : {}),
             ...(slotStart !== undefined ? { slotStart: momentOf(slotStart) } : {}),
             ...(slotEnd !== undefined ? { slotEnd: momentOf(slotEnd) } : {}),
             updatedAt: new Date(),
@@ -483,6 +504,71 @@ export const sessionRoutes = (db: Database) =>
         .where(inOrg(takes, organisationId, eq(takes.id, id)));
       const [made] = await takeRowsFor(db, organisationId, take ? [take] : []);
       return c.json({ take: made }, 201);
+    })
+    // The take log's to-do list (#51): an item at a time, so ticking one never undoes another.
+    .post("/:id/todos", idParam, zValidator("json", sessionTodoInput), async (c) => {
+      const organisationId = c.var.organisationId;
+      const row = await sessionOf(db, organisationId, c.req.valid("param").id);
+      await can(db, actorOf(c.var), "edit_takes", row.projectId);
+      const todo = await db.transaction(async (tx) => {
+        await lockLiveProject(tx, organisationId, row.projectId);
+        const [made] = await tx
+          .insert(sessionTodos)
+          .values({ organisationId, sessionId: row.id, text: c.req.valid("json").text })
+          .returning({ id: sessionTodos.id, text: sessionTodos.text, done: sessionTodos.done });
+        return made;
+      });
+      return c.json({ todo }, 201);
+    })
+    .patch(
+      "/:id/todos/:todoId",
+      todoParams,
+      zValidator("json", sessionTodoChangeInput),
+      async (c) => {
+        const organisationId = c.var.organisationId;
+        const { id, todoId } = c.req.valid("param");
+        const row = await sessionOf(db, organisationId, id);
+        await can(db, actorOf(c.var), "edit_takes", row.projectId);
+        const change = c.req.valid("json");
+        const todo = await db.transaction(async (tx) => {
+          await lockLiveProject(tx, organisationId, row.projectId);
+          const [changed] = await tx
+            .update(sessionTodos)
+            .set({ ...change, updatedAt: new Date() })
+            .where(
+              inOrg(
+                sessionTodos,
+                organisationId,
+                eq(sessionTodos.id, todoId),
+                eq(sessionTodos.sessionId, row.id),
+              ),
+            )
+            .returning({ id: sessionTodos.id, text: sessionTodos.text, done: sessionTodos.done });
+          return changed;
+        });
+        if (!todo) throw new NotFound("To-do");
+        return c.json({ todo });
+      },
+    )
+    .delete("/:id/todos/:todoId", todoParams, async (c) => {
+      const organisationId = c.var.organisationId;
+      const { id, todoId } = c.req.valid("param");
+      const row = await sessionOf(db, organisationId, id);
+      await can(db, actorOf(c.var), "edit_takes", row.projectId);
+      await db.transaction(async (tx) => {
+        await lockLiveProject(tx, organisationId, row.projectId);
+        await tx
+          .delete(sessionTodos)
+          .where(
+            inOrg(
+              sessionTodos,
+              organisationId,
+              eq(sessionTodos.id, todoId),
+              eq(sessionTodos.sessionId, row.id),
+            ),
+          );
+      });
+      return c.body(null, 204);
     })
     .delete("/:id", idParam, async (c) => {
       const organisationId = c.var.organisationId;
