@@ -1180,6 +1180,18 @@ setup("seed", async ({ page, browser }) => {
       await sql`insert into error_reports (id, reference, source, location, message, stack, status, request_id, job_id, context, organisation_id, user_id)
         values (gen_random_uuid(), ${r.reference}, ${r.source}, ${r.location}, ${r.message}, ${r.stack}, ${r.status}, ${r.request_id}, ${r.job_id}, ${r.context ? sql.json(r.context) : null}, ${r.organisation_id}, ${r.user_id})`;
 
+    // A day of the machine measured, a minute a row (#156), before the database's own clock:
+    // the page reads the minutes before now, whatever the browser's clock says.
+    await sql`insert into health_samples (id, replica, at, requests, errors, p95_seconds,
+        jobs_waiting, lanes, lanes_busy, upload_bytes, cpu, cores, memory_used, memory_total)
+      select gen_random_uuid(), '0199e3a0-0000-7000-8000-000000000156',
+        date_trunc('minute', now()) - n * interval '1 minute',
+        (420 + 120 * sin(n / 90.0))::int, round(1 + sin(n / 80.0))::int,
+        0.13 + 0.03 * sin(n / 60.0), greatest(0, round(3 + 3 * sin(n / 120.0)))::int, 4,
+        greatest(0, least(4, round(2 + 1.5 * sin(n / 75.0))))::int,
+        (18000000 + 15000000 * sin(n / 100.0))::bigint, 0.38, 8, 10500000000, 17179869184
+      from generate_series(1, 1440) as n`;
+
     const columns = await sql<{ table_name: string; column_name: string }[]>`
       select table_name, column_name from information_schema.columns
       where table_schema = 'public' and data_type like 'timestamp%'

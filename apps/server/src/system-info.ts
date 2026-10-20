@@ -70,14 +70,19 @@ async function toolVersion(command: string, args: string[], pattern: RegExp): Pr
 
 let tools: Promise<{ ffmpeg: string; poppler: string }> | null = null;
 
-/** What the instance runs on: read once for the tools, as they do not change while it runs. */
-async function environmentOf(db: Database, backends: Backends) {
+/** The media tools' versions: read once, as they do not change while the process runs. */
+export function toolVersions() {
   tools ??= Promise.all([
     toolVersion("ffmpeg", ["-version"], /ffmpeg version (\S+)/),
     toolVersion("pdftoppm", ["-v"], /pdftoppm version (\S+)/),
   ]).then(([ffmpeg, poppler]) => ({ ffmpeg, poppler }));
+  return tools;
+}
+
+/** What the instance runs on. */
+async function environmentOf(db: Database, backends: Backends) {
   const [{ ffmpeg, poppler }, [pg]] = await Promise.all([
-    tools,
+    toolVersions(),
     db.execute<{ server_version: string }>(sql`show server_version`),
   ]);
   return [

@@ -2625,6 +2625,38 @@ export const versionsRun = pgTable("versions_run", {
   firstStartedAt: timestamp("first_started_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * The machine measured (#156): one row a minute from each running process, kept for a day, for
+ * the System health page. A replica is named by an id it picks when it starts, never by its
+ * host. Counts are for that minute; gauges are as they stood when it was taken. Global.
+ */
+export const healthSamples = pgTable(
+  "health_samples",
+  {
+    id: id(),
+    replica: uuid("replica").notNull(),
+    /** The start of the minute measured. */
+    at: timestamp("at", { withTimezone: true }).notNull(),
+    requests: integer("requests").notNull(),
+    errors: integer("errors").notNull(),
+    /** The minute's 95th percentile answer time; null when nothing was asked. */
+    p95Seconds: doublePrecision("p95_seconds"),
+    jobsWaiting: integer("jobs_waiting").notNull(),
+    lanes: integer("lanes").notNull(),
+    lanesBusy: integer("lanes_busy").notNull(),
+    uploadBytes: bigint("upload_bytes", { mode: "number" }).notNull(),
+    /** The machine's processors, busy for this share of the minute. */
+    cpu: doublePrecision("cpu").notNull(),
+    cores: integer("cores").notNull(),
+    memoryUsed: bigint("memory_used", { mode: "number" }).notNull(),
+    memoryTotal: bigint("memory_total", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("health_samples_minute").on(t.replica, t.at),
+    index("health_samples_at").on(t.at),
+  ],
+);
+
 export const taskStatusEnum = pgEnum("task_status", taskStatuses);
 export const taskPriorityEnum = pgEnum("task_priority", taskPriorities);
 

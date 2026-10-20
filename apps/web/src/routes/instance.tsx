@@ -1,7 +1,11 @@
 import {
+  type CheckState,
   ERROR_REPORT_DAYS,
   errorReportText,
   formatBytes,
+  type HealthAmount,
+  type HealthRange,
+  type HealthService,
   type InstanceAccess,
   type InstanceEnvironment,
   type InstanceFlag,
@@ -19,9 +23,16 @@ import {
   WORKSPACE_DELETE_GRACE_DAYS,
   type WorkspaceState,
 } from "@hekate/shared";
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useDeferredValue, useEffect, useRef, useState } from "react";
+import { Gauge, Spark } from "~/components/charts";
 import { Stat } from "~/components/dashboard";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
@@ -36,7 +47,7 @@ import { Field } from "~/components/ui/field";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
-import { StatusDot } from "~/components/ui/status";
+import { type ReviewState, StatusDot } from "~/components/ui/status";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { actionCopy } from "~/lib/access-log";
 import { api } from "~/lib/api";
@@ -50,6 +61,7 @@ import {
   instanceErrorQuery,
   instanceErrorsQuery,
   instanceFlagsQuery,
+  instanceHealthQuery,
   instanceKeysQuery,
   instanceMembersQuery,
   instanceOperatorsQuery,
@@ -109,6 +121,7 @@ export function InstancePage({ section }: { section: InstanceSection }) {
           {current === "overview" && operatorView && <Overview />}
           {current === "operators" && operatorView && <Operators />}
           {current === "settings" && operatorView && <Settings />}
+          {current === "health" && operatorView && <SystemHealthPage />}
           {current === "system" && operatorView && <SystemInformation />}
           {current === "debug" && operatorView && <Debug />}
         </>
@@ -775,6 +788,210 @@ function SystemInformation() {
         {data.environment.map((e) => (
           <Row key={e.name} name={e.name} inline>
             <span className="tabular text-[13px] text-ink-2">{e.value}</span>
+          </Row>
+        ))}
+      </Section>
+    </>
+  );
+}
+
+const serviceNames: Record<HealthService["name"], string> = {
+  api: "API",
+  database: "Database",
+  worker: "Worker",
+  mail: "Mail",
+};
+
+const serviceDot: Record<CheckState, ReviewState> = {
+  ok: "approved",
+  failed: "changes_requested",
+  stale: "changes_requested",
+  off: "cancelled",
+};
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const share = (a: HealthAmount | null) => (a && a.total > 0 ? a.used / a.total : null);
+const percent = (v: number | null) => (v === null ? "…" : `${Math.round(v * 100)}%`);
+const amount = (a: HealthAmount | null) =>
+  a ? `${formatBytes(a.used)} of ${formatBytes(a.total)}` : "Could not be read";
+const figure = (v: number) =>
+  Number.isInteger(v) || v >= 100 ? Math.round(v).toLocaleString("en-GB") : v.toFixed(1);
+
+/** What a service's row says of it. */
+function serviceHint(s: HealthService): string {
+  switch (s.name) {
+    case "api":
+      return `${
+        s.p95Seconds === null
+          ? "Nothing asked in the last hour"
+          : `p95 ${Math.round(s.p95Seconds * 1000)} ms in the slowest minute of the last hour`
+      } · ${plural(s.replicas, "replica")}`;
+    case "database":
+      if (s.state !== "ok") return "Not answering";
+      return [
+        s.version && `PostgreSQL ${s.version}`,
+        s.bytes !== null && formatBytes(s.bytes),
+        s.connections && `${s.connections.used} of ${s.connections.total} connections`,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    case "worker":
+      if (s.state === "stale")
+        return "No job finished in the last ten minutes: is a worker running?";
+      if (s.state === "failed") return "Its queue could not be read";
+      return `ffmpeg ${s.ffmpeg ?? "unknown"} · ${plural(s.lanes.total, "lane")} · ${s.lanes.used} busy`;
+    case "mail":
+      return s.state === "ok"
+        ? "SMTP: the mail server answers"
+        : s.state === "failed"
+          ? "SMTP: the mail server does not answer"
+          : "Off: messages go to the server's log";
+  }
+}
+
+/**
+ * System health (#156), as the prototype has it: the machine now, the last hour or day from the
+ * minutes each process measures (kept a day), the services, and every metric Prometheus reads.
+ * Read again every 15 seconds.
+ */
+function SystemHealthPage() {
+  const [range, setRange] = useState<HealthRange>("24h");
+  const { data, error, dataUpdatedAt } = useQuery({
+    ...instanceHealthQuery(range),
+    placeholderData: keepPreviousData,
+  });
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setClock(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, []);
+  if (error) return <p className="m-0 text-signal">{error.message}</p>;
+  if (!data) return null;
+  const { now, series } = data;
+  const when = (i: number) => {
+    const minutes = (series.requestsPerMinute.length - 1 - i) * series.step;
+    if (minutes === 0) return "now";
+    return minutes < 60 ? `${minutes} min ago` : `${Math.round(minutes / 60)} h ago`;
+  };
+  const refreshed = Math.max(0, Math.round((clock - dataUpdatedAt) / 1000));
+  return (
+    <>
+      <section className="flex flex-col gap-3">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="eyebrow m-0">Now</h2>
+          <span className="tabular text-[12px] text-ink-3">refreshed {refreshed} s ago</span>
+        </div>
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-4">
+          <Gauge
+            label="CPU"
+            value={now.cpu?.share ?? null}
+            text={percent(now.cpu?.share ?? null)}
+            hint={
+              now.cpu
+                ? `${plural(now.cpu.cores, "core")} · ${plural(now.lanes.used, "lane")} busy`
+                : "Measured after the first minute"
+            }
+          />
+          <Gauge
+            label="Memory"
+            value={share(now.memory)}
+            text={percent(share(now.memory))}
+            hint={amount(now.memory)}
+          />
+          <Gauge
+            label="Disk"
+            value={share(now.disk)}
+            text={percent(share(now.disk))}
+            hint={amount(now.disk)}
+          />
+          <Gauge
+            label="Database connections"
+            value={share(now.connections)}
+            text={now.connections ? String(now.connections.used) : "…"}
+            hint={now.connections ? `of ${now.connections.total}` : "Could not be read"}
+          />
+        </div>
+      </section>
+      <section className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="eyebrow m-0">{range === "1h" ? "The last hour" : "The last 24 hours"}</h2>
+          <Select
+            aria-label="Range"
+            value={range}
+            onChange={(e) => setRange(e.target.value as HealthRange)}
+            className="h-7 w-36 text-[12px]"
+          >
+            <option value="1h">Last hour</option>
+            <option value="24h">Last 24 hours</option>
+          </Select>
+        </div>
+        <div className="grid gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-3">
+          <Spark
+            label="Requests per minute"
+            points={series.requestsPerMinute}
+            format={figure}
+            when={when}
+            hint="hekate_http_requests_total"
+          />
+          <Spark
+            label="p95 latency"
+            points={series.p95Ms}
+            format={(v) => `${Math.round(v)} ms`}
+            when={when}
+            hint="hekate_http_request_duration_seconds"
+          />
+          <Spark
+            label="Error rate"
+            points={series.errorRate}
+            format={(v) => `${v.toFixed(v < 1 ? 2 : 1)}%`}
+            when={when}
+            hint="hekate_http_errors_total / requests"
+          />
+          <Spark
+            label="Queue depth"
+            points={series.jobsWaiting}
+            format={figure}
+            when={when}
+            hint="hekate_jobs_waiting"
+          />
+          <Spark
+            label="Worker lanes busy"
+            points={series.lanesBusy}
+            format={figure}
+            when={when}
+            max={series.lanes}
+            hint={`hekate_worker_lanes_busy of ${series.lanes}`}
+          />
+          <Spark
+            label="Uploads"
+            points={series.uploadBytesPerHour}
+            format={(v) => `${formatBytes(Math.round(v))}/h`}
+            when={when}
+            hint="hekate_uploads_bytes_total"
+          />
+        </div>
+      </section>
+      <Section title="Services" intro="Every part of the machine, checked every 15 seconds.">
+        {data.services.map((s) => (
+          <Row key={s.name} name={serviceNames[s.name]} hint={serviceHint(s)} inline>
+            <StatusDot state={serviceDot[s.state]} />
+          </Row>
+        ))}
+      </Section>
+      <Section
+        title="Metrics"
+        intro="Everything above, and more, is exported for Prometheus at /metrics, read with the bearer token in METRICS_TOKEN. Grafana dashboards ship in the repository."
+      >
+        {data.metrics.map((m) => (
+          <Row
+            key={m.name}
+            name={<span className="tabular text-[13px]">{m.name}</span>}
+            hint={m.help}
+          >
+            <span className="text-[12px] text-ink-3">
+              {m.type}
+              {m.labels.length > 0 && ` · ${m.labels.join(", ")}`}
+            </span>
           </Row>
         ))}
       </Section>

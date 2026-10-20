@@ -9,9 +9,10 @@ export const instanceSectionIds = [
   "overview",
   "workspaces",
   "operators",
-  "settings",
-  "system",
+  "health",
   "debug",
+  "system",
+  "settings",
 ] as const;
 export type InstanceSection = (typeof instanceSectionIds)[number];
 
@@ -22,6 +23,10 @@ export const instanceSections: Record<InstanceSection, { label: string; hint: st
     hint: "Every tenant, with its people, projects and storage",
   },
   operators: { label: "Operators", hint: "The accounts that may manage the instance" },
+  health: {
+    label: "System health",
+    hint: "The machine, measured: load, latency, errors, queues and services",
+  },
   system: {
     label: "System information",
     hint: "Version, build, channel, releases and the environment",

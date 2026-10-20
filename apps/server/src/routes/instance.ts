@@ -7,6 +7,7 @@ import {
   errorReportsQuery,
   flagInput,
   flagParam,
+  healthQuery,
   type InspectKind,
   type InstanceAccess,
   type InstanceEnvironment,
@@ -73,6 +74,7 @@ import { INVITATION_LIFETIME_MS, newInvitationToken } from "../invitation-token.
 import { type JobName, type Jobs, jobDefinitions } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
+import { type SystemHealthDeps, systemHealth } from "../system-health.ts";
 import { HEKATE_VERSION, systemInformation } from "../system-info.ts";
 import { factorStanding, type SecondFactorRule } from "../tenancy.ts";
 import { pendingRewrap } from "../workspace-keys.ts";
@@ -101,6 +103,8 @@ export interface InstanceOptions {
   settings: InstanceSettingsStore;
   /** The build running and whether releases are checked (#158). */
   system: { build: string; checkOn: boolean };
+  /** What System health reads (#156). */
+  health: SystemHealthDeps;
   /** What the environment sets, shown beside the settings. */
   environment: InstanceEnvironment;
 }
@@ -1405,6 +1409,11 @@ export function instanceRoutes(options: InstanceOptions) {
         await options.jobs.send("release-check", {}, { singletonKey: "release-check" });
         return c.body(null, 202);
       })
+      // System health (#156): the machine now, its last hour or day, services and metrics.
+      .use("/health", operatorsOnly)
+      .get("/health", zValidator("query", healthQuery), async (c) =>
+        c.json(await systemHealth(db, c.req.valid("query").range, options.health)),
+      )
       // The instance's settings (#160), and what the environment sets beside them.
       .use("/settings", operatorsOnly)
       .get("/settings", async (c) => {

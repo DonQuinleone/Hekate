@@ -1757,9 +1757,9 @@ export function InstancePage({ section }: { section: string }) {
               <span className="text-[12px] text-ink-3">refreshed 14 s ago</span>
             </div>
             <div className="grid grid-cols-2 gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-4">
-              <Gauge label="CPU" value={0.38} text="38%" hint="8 cores · 2 lanes transcoding" />
-              <Gauge label="Memory" value={0.61} text="61%" hint="9.8 of 16 GB" />
-              <Gauge label="Disk" value={0.34} text="34%" hint="1.4 of 4 TB" />
+              <Gauge label="CPU" value={0.38} text="38%" hint="8 cores · 2 lanes busy" />
+              <Gauge label="Memory" value={0.61} text="61%" hint="9.8 GB of 16 GB" />
+              <Gauge label="Disk" value={0.34} text="34%" hint="1.4 TB of 4 TB" />
               <Gauge label="Database connections" value={0.12} text="12" hint="of 100" />
             </div>
           </div>
@@ -1769,7 +1769,6 @@ export function InstancePage({ section }: { section: string }) {
               <Select defaultValue="24h" className="h-7 w-36 text-[12px]">
                 <option value="1h">Last hour</option>
                 <option value="24h">Last 24 hours</option>
-                <option value="7d">Last 7 days</option>
               </Select>
             </div>
             <div className="grid gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-3">
@@ -1808,7 +1807,11 @@ export function InstancePage({ section }: { section: string }) {
           <Section title="Services" intro="Every part of the machine, checked every 15 seconds.">
             {(
               [
-                ["API", "p95 142 ms over the last hour · 2 instances", "approved"],
+                [
+                  "API",
+                  "p95 142 ms in the slowest minute of the last hour · 2 replicas",
+                  "approved",
+                ],
                 [
                   "Database",
                   "PostgreSQL 18.1 · 2.1 GB · 12 of 100 connections · replication lag 0",
@@ -1816,21 +1819,17 @@ export function InstancePage({ section }: { section: string }) {
                 ],
                 [
                   "Worker",
-                  workerDown ? "Not running since 20:12" : "ffmpeg 7.1 · 4 lanes · 2 busy",
+                  workerDown
+                    ? "No job finished in the last ten minutes: is a worker running?"
+                    : "ffmpeg 7.1 · 4 lanes · 2 busy",
                   workerDown ? "changes_requested" : "approved",
                 ],
-                ["Mail", "SMTP · last message 2 h ago · 1 bounce today", "approved"],
-                ["Proxy", "Caddy · TLS renewed · HTTP/3 on", "approved"],
+                ["Mail", "SMTP: the mail server answers", "approved"],
                 ["Billing gateway", "Stripe · webhooks healthy · last event 4 min ago", "approved"],
               ] as [string, string, DotState][]
             ).map(([name, hint, dot]) => (
               <Row key={name} name={name} hint={hint}>
                 <Dot state={dot} />
-                {name === "Worker" && workerDown && (
-                  <Button variant="secondary" size="md">
-                    Start
-                  </Button>
-                )}
               </Row>
             ))}
           </Section>
@@ -1884,7 +1883,7 @@ export function InstancePage({ section }: { section: string }) {
           </Section>
           <Section
             title="Metrics"
-            intro="Everything above, and everything below, is exported for Prometheus at /metrics (bearer token in the environment). Grafana dashboards ship in the repository."
+            intro="Everything above, and more, is exported for Prometheus at /metrics, read with the bearer token in METRICS_TOKEN. Grafana dashboards ship in the repository."
           >
             {[
               ["hekate_http_requests_total", "counter · route, method, status"],

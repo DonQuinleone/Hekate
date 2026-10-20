@@ -188,6 +188,9 @@ export interface JobFailure {
   error: unknown;
 }
 
+// Jobs running in this process now: its worker lanes in use (#156).
+let busy = 0;
+
 /**
  * Runs one attempt of a job. When it fails and no retry is left, `onFailure` hears of it before
  * the queue does (#159); the error still reaches the queue, which marks the job failed.
@@ -204,6 +207,7 @@ export async function runJob<N extends JobName>(
   const started = performance.now();
   const took = () => `${Math.round(performance.now() - started)} ms`;
   if (loud) console.log(`Job ${name} ${job.id} started (attempt ${job.retryCount + 1})`);
+  metrics.workerLanesBusy.set({}, ++busy);
   try {
     // Validate again on the way out: the queue is a database table, not a trusted channel.
     const data = jobDefinitions[name].data.parse(job.data) as JobData<N>;
@@ -227,6 +231,8 @@ export async function runJob<N extends JobName>(
         console.error("Could not report a failed job:", cause),
       );
     throw error;
+  } finally {
+    metrics.workerLanesBusy.set({}, --busy);
   }
 }
 
@@ -247,6 +253,8 @@ export function createJobs(options: {
   boss.on("error", (error) => console.error("Job queue error:", error));
   // Each kind of job this process works, to stop and take up again as maintenance comes and goes.
   const workers = new Map<string, () => Promise<unknown>>();
+  // Every kind of job's lanes, whether or not it is held: a held lane is idle, not gone.
+  let lanes = 0;
   let held = false;
   // The kinds of job this process is taking now.
   const taking = new Set<string>();
@@ -286,6 +294,8 @@ export function createJobs(options: {
           },
         );
       workers.set(name, take);
+      lanes += workOptions?.concurrency ?? 1;
+      metrics.workerLanes.set({}, lanes);
       if (!held) {
         await take();
         taking.add(name);

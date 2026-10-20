@@ -1102,3 +1102,16 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Kept ten seconds.** A storage check writes a probe, so a readiness answer is kept that long rather than written for every probe.
 - **`/api/health`** stays as it was for the image's `HEALTHCHECK`.
 - **Follows.** The System health page: gauges, the last 24 hours, services and storage (#156, later parts).
+
+## 181. System health
+
+#156, second part: "The System health page: Now (CPU, memory, disk, database connections as gauges), the last 24 hours (requests per minute, p95 latency, error rate, queue depth, worker lanes busy, uploads) as sparklines … services … The metrics catalogue … Done when the page reads from `/metrics` data kept in PostgreSQL for a day".
+
+- **A minute a row.** Each process writes one row a minute to `health_samples` (global; a replica is a random id, never its host), and deletes rows a day old as it does. The counts are the differences between two readings of the registry's own counters, and the p95 is worked out from the histogram's buckets as `histogram_quantile` does, so each chart shows what the metric it names would.
+- **Every replica together.** Requests, errors, lanes and uploads add up across replicas; the p95 is the slowest replica's, and queue depth (read from the shared queue) is the same for all.
+- **Points.** The hour is a point a minute, the day a point a quarter of an hour, rates per minute measured (`healthSeries` in packages/shared). A point no process measured is a gap, not a zero. The prototype's "Last 7 days" went: a day is kept.
+- **Now** is the answering process's machine: processors over its last minute, memory, the disk holding local storage (or the working directory) and the database's connections.
+- **Services** are the readiness checks (decision 180) with what explains them. The prototype's Proxy went (Hekate cannot see Caddy from inside), and so did the worker's Start button: the worker runs in the app's process, so a stopped one is a restarted container. The billing gateway's row follows billing.
+- **Worker lanes** are new metrics: `hekate_worker_lanes` (jobs a process may run at once) and `hekate_worker_lanes_busy`.
+- **Metrics** lists the registry itself, with each metric's help, so the catalogue cannot drift from what is exported.
+- **Follows.** Storage backends with usage, the master key and reconciliation (#156, last part).
