@@ -259,6 +259,8 @@ function Marking({
       { onSuccess: (made) => setSelected(made.id) },
     );
   };
+  // This track's exports need its marks; every score at once needs only more than one score.
+  const everyScore = canDownload.proxy && tracks.length > 1;
   const exportCsv = () => {
     const blob = new Blob([scoreMarksCsv(marks, categories)], { type: "text/csv;charset=utf-8" });
     const link = document.createElement("a");
@@ -267,6 +269,15 @@ function Marking({
     link.click();
     URL.revokeObjectURL(link.href);
   };
+  const exports = [
+    ...(marks.length > 0 && canDownload.proxy
+      ? [{ label: "Annotated PDF", onSelect: () => setExporting("one") }]
+      : []),
+    ...(everyScore
+      ? [{ label: "Every score, annotated", onSelect: () => setExporting("every") }]
+      : []),
+    ...(marks.length > 0 ? [{ label: "Marks as CSV", onSelect: exportCsv }] : []),
+  ];
 
   useShortcuts(
     "score-marking",
@@ -428,28 +439,8 @@ function Marking({
                 onSelect: () => setFilter(f),
               }))}
             />
-            {marks.length > 0 && (
-              <Dropdown
-                size="sm"
-                value="Export"
-                align="right"
-                actions={[
-                  ...(canDownload.proxy
-                    ? [
-                        { label: "Annotated PDF", onSelect: () => setExporting("one") },
-                        ...(tracks.length > 1
-                          ? [
-                              {
-                                label: "Every score, annotated",
-                                onSelect: () => setExporting("every"),
-                              },
-                            ]
-                          : []),
-                      ]
-                    : []),
-                  { label: "Marks as CSV", onSelect: exportCsv },
-                ]}
-              />
+            {exports.length > 0 && (
+              <Dropdown size="sm" value="Export" align="right" actions={exports} />
             )}
           </span>
         </div>
