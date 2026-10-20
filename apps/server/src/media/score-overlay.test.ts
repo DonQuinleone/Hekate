@@ -79,6 +79,22 @@ describe("the score marks over a page", () => {
     expect(ops).toContain("0.97 0.73 0.59 RG");
   });
 
+  it("keeps an issue's words on the page, left of a mark near its right edge", () => {
+    const at = (x: number) => {
+      const ops = scoreOverlay(
+        [mark({ x, text: "Left hand rushes", fixedBy: 2 })],
+        () => "signal",
+        A4,
+      );
+      const [, left] = /BT \/H [\d.]+ Tf [\d. ]+ rg ([\d.]+) [\d.]+ Td \(Left/.exec(ops) ?? [];
+      return Number(left);
+    };
+    expect(at(0.2)).toBeGreaterThan(0.2 * A4.width);
+    const near = at(0.95);
+    expect(near).toBeLessThan(0.95 * A4.width);
+    expect(near).toBeGreaterThan(0);
+  });
+
   it.runIf(hasTools || process.env.CI)("prints marks a PDF reader finds", async () => {
     const jpg = join(dir, "page.jpg");
     await run("ffmpeg", [

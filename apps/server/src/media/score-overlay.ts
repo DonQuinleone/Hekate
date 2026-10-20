@@ -243,10 +243,13 @@ export function scoreOverlay(
         .join(", ");
       const words = said.length > 60 ? `${said.slice(0, 59)}…` : said;
       const fs = size * 0.85;
-      const left = x + w / 2 + size * 0.35;
+      const long = widthOf(words, fs);
+      const gap = w / 2 + size * 0.35;
+      // Right of the mark, or left of it where the page ends first; never off the page.
+      const left = Math.max(2, x + gap + long <= W - 2 ? x + gap : x - gap - long);
       // On white, so neither a staff nor the region's edge runs through the words.
       ops.push(
-        `${fill(WHITE)} ${num(left - fs * 0.2)} ${num(y - fs * 0.65)} ${num(widthOf(words, fs) + fs * 0.4)} ${num(fs * 1.3)} re f`,
+        `${fill(WHITE)} ${num(left - fs * 0.2)} ${num(y - fs * 0.65)} ${num(long + fs * 0.4)} ${num(fs * 1.3)} re f`,
         text("H", fs, left, y - size * 0.3, words, c),
       );
     }
