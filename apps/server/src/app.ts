@@ -45,7 +45,12 @@ import { projectRoutes } from "./routes/projects.ts";
 import { fileQaRoutes } from "./routes/qa.ts";
 import { fileRetryRoutes } from "./routes/retry.ts";
 import { projectReviewRoutes, type ReviewDeps, reviewRoutes } from "./routes/reviews.ts";
-import { scoreMarkRoutes, trackScoreMarkRoutes } from "./routes/score-marks.ts";
+import {
+  projectScoreCategoryRoutes,
+  scoreCategoryRoutes,
+  scoreMarkRoutes,
+  trackScoreMarkRoutes,
+} from "./routes/score-marks.ts";
 import { searchRoutes } from "./routes/search.ts";
 import { projectSessionRoutes, sessionRoutes } from "./routes/sessions.ts";
 import { setupRoutes } from "./routes/setup.ts";
@@ -240,6 +245,7 @@ export function createApi(deps: AppDeps) {
       .route("/projects", projectOverviewRoutes(deps.db))
       .route("/projects", projectMarkRoutes(deps.db))
       .route("/projects", projectCategoryRoutes(deps.db))
+      .route("/projects", projectScoreCategoryRoutes(deps.db))
       .route("/projects", projectSessionRoutes(deps.db))
       .route("/projects", projectWorkflowRoutes(deps.db))
       .route("/projects", projectTemplateRoutes(deps.db))
@@ -269,6 +275,8 @@ export function createApi(deps: AppDeps) {
       .route("/tracks", trackScoreMarkRoutes(deps.db))
       .route("/tracks", trackCompareRoutes(deps.db, deps.jobs))
       .route("/tracks", trackWorkflowRunRoutes(runner))
+      .use("/score-categories/*", ...member)
+      .route("/score-categories", scoreCategoryRoutes(deps.db))
       .use("/score-marks/*", ...member)
       .route("/score-marks", scoreMarkRoutes(deps.db))
       .use("/takes/*", ...member)

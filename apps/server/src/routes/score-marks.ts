@@ -5,11 +5,12 @@ import {
   type ScoreMark,
   type ScoreMarkCategory,
   type ScoreMarkKind,
+  scoreMarkCategoryInput,
   scoreMarkChangeInput,
   scoreMarkInput,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, max, ne, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -20,6 +21,8 @@ import type { TenantVariables } from "../tenancy.ts";
 const { projects, scoreMarkCategories, scoreMarks, takes, tracks, users } = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
+/** The kinds that name a take. */
+const takesNamed: ScoreMarkKind[] = ["edit", "take-start", "take-end", "punch-in"];
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 async function trackOf(db: Database, organisationId: string, id: string) {
@@ -138,10 +141,18 @@ export const trackScoreMarkRoutes = (db: Database) =>
         .where(inOrg(scoreMarks, organisationId, eq(scoreMarks.trackId, track.id)))
         .orderBy(asc(scoreMarks.page), asc(scoreMarks.createdAt));
       const marks = rows.map((r) => shapeOf(r.mark, r.name));
+      // Only takes that were recorded: one aborted, or still rolling, is no take to edit from.
       const recorded = await db
         .select({ number: takes.number })
         .from(takes)
-        .where(inOrg(takes, organisationId, eq(takes.trackId, track.id)));
+        .where(
+          inOrg(
+            takes,
+            organisationId,
+            eq(takes.trackId, track.id),
+            eq(takes.lifecycle, "recorded"),
+          ),
+        );
       return c.json({
         marks,
         categories: await categoriesOf(db, organisationId, track.projectId),
@@ -214,8 +225,16 @@ export const scoreMarkRoutes = (db: Database) => {
       };
       if (next.barFrom != null && next.barTo != null && next.barFrom > next.barTo)
         throw new HTTPException(422, { message: "The bars run forwards" });
-      if (found.mark.kind === "edit" && to === null)
-        throw new HTTPException(422, { message: "Say which take the edit goes into" });
+      // What each kind needs holds after the change as when it was made.
+      const kind = found.mark.kind as ScoreMarkKind;
+      const nextTo = to === undefined ? found.mark.toTake : to;
+      const nextText = rest.text === undefined ? found.mark.text : rest.text;
+      if (takesNamed.includes(kind) && nextTo == null)
+        throw new HTTPException(422, {
+          message: kind === "edit" ? "Say which take the edit goes into" : "Say which take",
+        });
+      if ((kind === "dynamic" || kind === "note") && !nextText)
+        throw new HTTPException(422, { message: "Write what it says" });
       const row = await db.transaction(async (tx) => {
         await lockLiveProject(tx, organisationId, found.projectId);
         await checkCategory(tx, organisationId, found.projectId, categoryId);
@@ -250,4 +269,136 @@ export const scoreMarkRoutes = (db: Database) => {
       });
       return c.body(null, 204);
     });
+};
+
+/**
+ * A category's name and key are its project's alone: two categories are not both "Noise", nor
+ * both on key 3. Checked under the project's lock, so two changes at once cannot both pass.
+ */
+async function checkCategoryFree(
+  tx: Tx,
+  organisationId: string,
+  projectId: string,
+  input: { name: string; key: string | null },
+  except?: string,
+) {
+  const others = await tx
+    .select({ name: scoreMarkCategories.name, key: scoreMarkCategories.key })
+    .from(scoreMarkCategories)
+    .where(
+      inOrg(
+        scoreMarkCategories,
+        organisationId,
+        eq(scoreMarkCategories.projectId, projectId),
+        except ? ne(scoreMarkCategories.id, except) : undefined,
+        sql`(lower(${scoreMarkCategories.name}) = lower(${input.name})${
+          input.key ? sql` or ${scoreMarkCategories.key} = ${input.key}` : sql``
+        })`,
+      ),
+    );
+  const named = others.find((o) => o.name.toLowerCase() === input.name.toLowerCase());
+  if (named) throw new HTTPException(409, { message: "A category with that name exists" });
+  const keyed = others.find((o) => input.key && o.key === input.key);
+  if (keyed) throw new HTTPException(409, { message: `Key ${input.key} is ${keyed.name}'s` });
+}
+
+/**
+ * `/api/projects/:id/score-categories`: a project's categories of score issue (#52), for those
+ * who see the production tools; adding one belongs to those who use them.
+ */
+export const projectScoreCategoryRoutes = (db: Database) =>
+  new Hono<{ Variables: TenantVariables }>()
+    .get("/:id/score-categories", idParam, async (c) => {
+      const { projectId } = await can(
+        db,
+        actorOf(c.var),
+        "view_production",
+        c.req.valid("param").id,
+      );
+      return c.json({ categories: await categoriesOf(db, c.var.organisationId, projectId) });
+    })
+    .post(
+      "/:id/score-categories",
+      idParam,
+      zValidator("json", scoreMarkCategoryInput),
+      async (c) => {
+        const organisationId = c.var.organisationId;
+        const { projectId } = await can(
+          db,
+          actorOf(c.var),
+          "edit_production",
+          c.req.valid("param").id,
+        );
+        const input = c.req.valid("json");
+        const made = await db.transaction(async (tx) => {
+          await lockLiveProject(tx, organisationId, projectId);
+          await seedScoreCategories(tx, organisationId, projectId);
+          await checkCategoryFree(tx, organisationId, projectId, input);
+          const [last] = await tx
+            .select({ position: max(scoreMarkCategories.position) })
+            .from(scoreMarkCategories)
+            .where(
+              inOrg(
+                scoreMarkCategories,
+                organisationId,
+                eq(scoreMarkCategories.projectId, projectId),
+              ),
+            );
+          const [row] = await tx
+            .insert(scoreMarkCategories)
+            .values({ organisationId, projectId, ...input, position: (last?.position ?? -1) + 1 })
+            .returning();
+          return row;
+        });
+        return c.json({ category: made }, 201);
+      },
+    );
+
+/** `/api/score-categories/:id`: renaming, recolouring or re-keying a category, or removing it. */
+export const scoreCategoryRoutes = (db: Database) => {
+  const categoryOf = async (organisationId: string, id: string) => {
+    const [category] = await db
+      .select({ id: scoreMarkCategories.id, projectId: scoreMarkCategories.projectId })
+      .from(scoreMarkCategories)
+      .where(inOrg(scoreMarkCategories, organisationId, eq(scoreMarkCategories.id, id)));
+    if (!category) throw new NotFound("Category");
+    return category;
+  };
+  return (
+    new Hono<{ Variables: TenantVariables }>()
+      .patch("/:id", idParam, zValidator("json", scoreMarkCategoryInput), async (c) => {
+        const organisationId = c.var.organisationId;
+        const category = await categoryOf(organisationId, c.req.valid("param").id);
+        await can(db, actorOf(c.var), "edit_production", category.projectId);
+        const input = c.req.valid("json");
+        const updated = await db.transaction(async (tx) => {
+          await lockLiveProject(tx, organisationId, category.projectId);
+          await checkCategoryFree(tx, organisationId, category.projectId, input, category.id);
+          const [row] = await tx
+            .update(scoreMarkCategories)
+            .set({ ...input, updatedAt: new Date() })
+            .where(
+              inOrg(scoreMarkCategories, organisationId, eq(scoreMarkCategories.id, category.id)),
+            )
+            .returning();
+          return row;
+        });
+        return c.json({ category: updated });
+      })
+      // Its issues stay, without a category.
+      .delete("/:id", idParam, async (c) => {
+        const organisationId = c.var.organisationId;
+        const category = await categoryOf(organisationId, c.req.valid("param").id);
+        await can(db, actorOf(c.var), "edit_production", category.projectId);
+        await db.transaction(async (tx) => {
+          await lockLiveProject(tx, organisationId, category.projectId);
+          await tx
+            .delete(scoreMarkCategories)
+            .where(
+              inOrg(scoreMarkCategories, organisationId, eq(scoreMarkCategories.id, category.id)),
+            );
+        });
+        return c.body(null, 204);
+      })
+  );
 };

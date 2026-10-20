@@ -9438,11 +9438,17 @@ describe.runIf(url)("api", () => {
           };
           const list = async (cookie = s.owner) =>
             (await (await getAs(`/api/tracks/${s.trackId}/score-marks`, cookie)).json()) as Listed;
-          // Three takes recorded for the track.
+          // Three takes recorded for the track, and one aborted.
           for (const number of [3, 7, 12])
             await db
               .insert(schema.takes)
               .values({ organisationId: s.organisationId, trackId: s.trackId, number });
+          await db.insert(schema.takes).values({
+            organisationId: s.organisationId,
+            trackId: s.trackId,
+            number: 13,
+            lifecycle: "aborted",
+          });
           const mark = (body: Record<string, unknown>, cookie = s.owner) =>
             send(
               "POST",
@@ -9467,12 +9473,42 @@ describe.runIf(url)("api", () => {
           const last = await mark({ kind: "edit", y: 0.8, from: 12, to: 7, barFrom: 17 });
           const lastId = ((await last.json()) as { mark: { id: string } }).mark.id;
           expect((await list()).plot).toEqual({ chain: [3, 12, 7], problems: [] });
-          // A hand-over from the wrong take, into one never recorded, is told.
+          // A hand-over from the wrong take, into one never recorded, is told; an aborted take
+          // was not recorded either.
           await send("PATCH", `/api/score-marks/${lastId}`, { from: 3, to: 40 });
           expect((await list()).plot.problems.map((p) => p.text)).toEqual([
             "bar 17: take 40 was not recorded",
             "bar 17: hands over from T3, but the plot is in T12",
           ]);
+          await send("PATCH", `/api/score-marks/${lastId}`, { from: 12, to: 13 });
+          expect((await list()).plot.problems.map((p) => p.text)).toEqual([
+            "bar 17: take 13 was not recorded",
+          ]);
+          // A change keeps what each kind needs: an edit its take, a start its take, a note words.
+          expect((await send("PATCH", `/api/score-marks/${lastId}`, { to: null })).status).toBe(
+            422,
+          );
+          const started = (
+            (await (await mark({ kind: "take-start", y: 0.05, to: 7 })).json()) as {
+              mark: { id: string };
+            }
+          ).mark;
+          expect((await send("PATCH", `/api/score-marks/${started.id}`, { to: null })).status).toBe(
+            422,
+          );
+          const noted = (
+            (await (await mark({ kind: "note", y: 0.07, text: "Breath" })).json()) as {
+              mark: { id: string };
+            }
+          ).mark;
+          expect((await send("PATCH", `/api/score-marks/${noted.id}`, { text: "" })).status).toBe(
+            422,
+          );
+          for (const id of [started.id, noted.id])
+            await app.request(`/api/score-marks/${id}`, {
+              method: "DELETE",
+              headers: { cookie: s.owner, origin: "http://localhost:3000" },
+            });
 
           // An issue in its category, with the takes it occurred in and the take that fixed it.
           const noise = first.categories.find((c) => c.name === "Noise")?.id;
@@ -9556,6 +9592,50 @@ describe.runIf(url)("api", () => {
           expect((await getAs(`/api/tracks/${theirTrack?.id}/score-marks`, s.owner)).status).toBe(
             404,
           );
+
+          // The project's categories: one added on a free key, but not a second name or key;
+          // renamed; removed, its issues keep everything else. Not by the engineer, and not
+          // another workspace's.
+          const categories = (body: unknown, cookie = s.owner) =>
+            send("POST", `/api/projects/${s.projectId}/score-categories`, body, cookie);
+          const tuning = await categories({ name: "Tuning", colour: "blue", key: "5" });
+          expect(tuning.status).toBe(201);
+          const tuningId = ((await tuning.json()) as { category: { id: string } }).category.id;
+          expect((await categories({ name: "noise", colour: "blue", key: null })).status).toBe(409);
+          expect((await categories({ name: "Pitch", colour: "blue", key: "1" })).status).toBe(409);
+          expect(
+            (await categories({ name: "Pitch", colour: "blue", key: null }, s.engineer)).status,
+          ).toBe(403);
+          expect(
+            (
+              await send("PATCH", `/api/score-categories/${tuningId}`, {
+                name: "Tuning, piano",
+                colour: "green",
+                key: "6",
+              })
+            ).status,
+          ).toBe(200);
+          expect(
+            (
+              await send("PATCH", `/api/score-categories/${theirCategory?.id}`, {
+                name: "Mine",
+                colour: "green",
+                key: null,
+              })
+            ).status,
+          ).toBe(404);
+          const removed = await app.request(`/api/score-categories/${noise}`, {
+            method: "DELETE",
+            headers: { cookie: s.owner, origin: "http://localhost:3000" },
+          });
+          expect(removed.status).toBe(204);
+          const afterRemoval = await list();
+          expect(afterRemoval.categories.map((c) => c.name)).toEqual([
+            "Intonation",
+            "Ensemble",
+            "Balance",
+            "Tuning, piano",
+          ]);
 
           // Rubbed out, it is gone.
           const gone = await app.request(`/api/score-marks/${made.id}`, {
