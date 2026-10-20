@@ -14,9 +14,13 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, can, lockLiveProject } from "../access.ts";
 import { NotFound } from "../errors.ts";
+import { textPdfOf } from "../media/pdf.ts";
+import { PATCH_PAGE, patchListPages } from "../patch-pdf.ts";
 import type { TenantVariables } from "../tenancy.ts";
+import { xlsxOf } from "../xlsx.ts";
+import { attachment } from "./comments.ts";
 
-const { patchRows, stageBoxes } = schema;
+const { patchRows, projects, stageBoxes } = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
@@ -75,12 +79,72 @@ export async function patchListOf(
   return boxes.map((b) => ({ ...b, inputs: of(b.id, "input"), outputs: of(b.id, "output") }));
 }
 
+/** A patch list's sheets for a workbook: a sheet a stage box, inputs then outputs. */
+export function patchSheets(boxes: StageBox[]) {
+  return boxes.map((b) => ({
+    name: b.name,
+    rows: [
+      ["In or out", "Channel", "Source", "Device", "Cable", "Notes"],
+      ...(["input", "output"] as const).flatMap((direction) =>
+        (direction === "input" ? b.inputs : b.outputs).map((r) => [
+          direction === "input" ? "In" : "Out",
+          r.channel,
+          r.source,
+          r.device,
+          r.cable,
+          r.notes,
+        ]),
+      ),
+    ],
+  }));
+}
+
+/** An export is for whoever asked: nothing between them and it keeps a copy. */
+const PRIVATE = { "cache-control": "no-store, private", "x-content-type-options": "nosniff" };
+
 /**
  * `/api/projects/:id/patch` and `/api/projects/:id/stage-boxes` (#54): the patch list, for
- * those who see the production tools, and adding a stage box, for those who use them.
+ * those who see the production tools, as a PDF or a workbook too, and adding a stage box, for
+ * those who use them.
  */
 export const projectPatchRoutes = (db: Database) =>
   new Hono<{ Variables: TenantVariables }>()
+    .get("/:id/patch/:format{pdf|xlsx}", idParam, async (c) => {
+      const organisationId = c.var.organisationId;
+      const { projectId } = await can(
+        db,
+        actorOf(c.var),
+        "view_production",
+        c.req.valid("param").id,
+      );
+      const [project] = await db
+        .select({ name: projects.name })
+        .from(projects)
+        .where(inOrg(projects, organisationId, eq(projects.id, projectId)));
+      const boxes = await patchListOf(db, organisationId, projectId);
+      const name = `${project?.name ?? "Project"} patch list`;
+      if (c.req.param("format") === "xlsx") {
+        const bytes = xlsxOf(
+          boxes.length > 0 ? patchSheets(boxes) : [{ name: "Patch list", rows: [] }],
+        );
+        return c.body(new Uint8Array(bytes), 200, {
+          ...PRIVATE,
+          "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "content-disposition": attachment(`${name}.xlsx`),
+        });
+      }
+      const pdf = textPdfOf(
+        patchListPages(project?.name ?? "Project", boxes).map((content) => ({
+          points: PATCH_PAGE,
+          content,
+        })),
+      );
+      return c.body(new Uint8Array(pdf), 200, {
+        ...PRIVATE,
+        "content-type": "application/pdf",
+        "content-disposition": attachment(`${name}.pdf`),
+      });
+    })
     .get("/:id/patch", idParam, async (c) => {
       const { projectId } = await can(
         db,

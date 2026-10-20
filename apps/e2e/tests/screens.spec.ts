@@ -592,6 +592,13 @@ test("patch-list", async ({ page }) => {
   await settle(page, "main >> text=Spot piano L");
   await saveScreen(page, "patch-list");
   await checkScreen(page);
+  // Exported as the engineer prints it.
+  await page.getByRole("button", { name: "Export" }).click();
+  const [pdf] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("menuitem", { name: "PDF" }).click(),
+  ]);
+  expect(pdf.suggestedFilename()).toBe("Joplin Rags patch list.pdf");
   await page.getByRole("row", { name: /Spot piano L/ }).hover();
   await page.getByRole("button", { name: "Actions for input 3" }).click();
   await page.getByRole("menuitem", { name: "Edit" }).click();

@@ -9900,6 +9900,28 @@ describe.runIf(url)("api", () => {
           );
           expect(numbered.sort()).toEqual([1, 2]);
 
+          // As a PDF and a workbook (#54), for those who see it; the files name the project.
+          const pdf = await getAs(`/api/projects/${s.projectId}/patch/pdf`, s.engineer);
+          expect(pdf.status).toBe(200);
+          expect(pdf.headers.get("content-type")).toBe("application/pdf");
+          expect(pdf.headers.get("cache-control")).toContain("no-store");
+          expect(pdf.headers.get("content-disposition")).toContain("patch list.pdf");
+          const pdfText = Buffer.from(await pdf.arrayBuffer()).toString("latin1");
+          expect(pdfText.startsWith("%PDF-")).toBe(true);
+          expect(pdfText).toContain("(Piano box) Tj");
+          const book = await getAs(`/api/projects/${s.projectId}/patch/xlsx`, s.engineer);
+          expect(book.status).toBe(200);
+          expect(book.headers.get("content-disposition")).toContain("patch list.xlsx");
+          expect(
+            Buffer.from(await book.arrayBuffer())
+              .subarray(0, 2)
+              .toString(),
+          ).toBe("PK");
+          expect((await getAs(`/api/projects/${s.projectId}/patch/pdf`, s.composer)).status).toBe(
+            403,
+          );
+          expect((await getAs(`/api/projects/${s.projectId}/patch/csv`, s.owner)).status).toBe(404);
+
           // Removing a box takes its channels with it.
           expect((await send("DELETE", `/api/stage-boxes/${box.id}`, {})).status).toBe(204);
           expect((await list()).map((b) => b.name)).toEqual(["Stage box B", "Box C"]);
