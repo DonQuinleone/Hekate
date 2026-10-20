@@ -42,6 +42,11 @@ export const metrics = {
     "How long job attempts took in this process, by queue and outcome.",
     ["queue", "outcome"],
   ),
+  workerLanes: registry.gauge(
+    "hekate_worker_lanes",
+    "Jobs this process may run at once, every queue's together.",
+  ),
+  workerLanesBusy: registry.gauge("hekate_worker_lanes_busy", "Jobs this process is running now."),
   uploadsBytes: registry.counter(
     "hekate_uploads_bytes_total",
     "Bytes of uploads completed, by workspace.",
@@ -91,6 +96,9 @@ export const metrics = {
   ),
 };
 metrics.buildInfo.set({ version }, 1);
+// A process that works no queue has no lanes, which a dashboard should read as zero.
+metrics.workerLanes.set({}, 0);
+metrics.workerLanesBusy.set({}, 0);
 
 /** The access log's actions that are also counted here. */
 const counted: Record<string, (workspace: string) => void> = {
@@ -162,6 +170,10 @@ export function collectFromDatabase(db: Database) {
   });
 }
 
+/** The queue's tables are not made yet; the driver's error is the query error's cause. */
+export const noQueueYet = (error: unknown) =>
+  /does not exist/.test(String(error instanceof Error ? (error.cause ?? error) : error));
+
 /**
  * Queue depths from pg-boss's own table, read at each scrape. Every queue named is there,
  * at zero when it is idle, so a dashboard reads zero rather than no data.
@@ -181,7 +193,7 @@ export function collectQueues(db: Database, queues: readonly string[]) {
       )
       .catch((error: unknown) => {
         // Before the queue's tables are made there is nothing waiting.
-        if (/does not exist/.test(String(error))) return [];
+        if (noQueueYet(error)) return [];
         throw error;
       });
     const waiting = new Map<string, number>();

@@ -39,6 +39,7 @@ import {
   type FollowInput,
   type GroupInput,
   type GuestInput,
+  type HealthRange,
   type ImportMarkersInput,
   type InspectKind,
   type InstanceAccess,
@@ -120,6 +121,7 @@ import {
   type StagePlanInput,
   type StandingGrant,
   type StartTake,
+  type SystemHealth,
   type SystemInformation,
   searchResponse,
   type TakeChange,
@@ -4166,6 +4168,15 @@ export const instanceSystemQuery = queryOptions({
   queryKey: ["instance", "system"],
   queryFn: async () => json<SystemInformation>(await api.instance.system.$get()),
 });
+
+/** System health (#156): the machine now, a range's minutes, services and metrics. */
+export const instanceHealthQuery = (range: HealthRange) =>
+  queryOptions({
+    queryKey: ["instance", "health", range],
+    queryFn: async () => json<SystemHealth>(await api.instance.health.$get({ query: { range } })),
+    // Services are checked every 15 seconds; so is the page.
+    refetchInterval: 15_000,
+  });
 
 /** What everyone is told about the instance: maintenance mode's notice (#154). */
 export const noticeQuery = queryOptions({

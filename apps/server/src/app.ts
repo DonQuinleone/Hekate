@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import type { Database } from "@hekate/db";
 import { COMMENT_ATTACHMENT_MAX_BYTES, type InstanceNotice } from "@hekate/shared";
 import { Hono } from "hono";
@@ -8,11 +9,13 @@ import type { Audit } from "./audit.ts";
 import { type Auth, SESSION_DAYS } from "./auth.ts";
 import { errorHandler, requestId } from "./errors.ts";
 import { requirePlaySession, requireViewer } from "./guests.ts";
+import { createHealthChecks } from "./health-checks.ts";
 import { createInstanceSettings, type InstanceSettingsStore } from "./instance-settings.ts";
 import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
 import type { Mailer } from "./mail.ts";
 import { countRequests, metricsHandler } from "./metrics/index.ts";
+import type { Sampler } from "./metrics/sampler.ts";
 import { rateLimit } from "./rate-limit.ts";
 import { attachmentRoutes } from "./routes/attachments.ts";
 import { projectBoardRoutes } from "./routes/board.ts";
@@ -131,6 +134,10 @@ export interface AppDeps {
   build?: string;
   /** The daily release check is on (HEKATE_UPDATE_CHECK). */
   updateCheck?: boolean;
+  /** This process's minute-by-minute measures (#156); none in tests. */
+  sampler?: Sampler;
+  /** The disk System health measures: local storage's, else the working directory's. */
+  diskPath?: string;
 }
 
 export function createApi(deps: AppDeps) {
@@ -142,6 +149,10 @@ export function createApi(deps: AppDeps) {
     },
   };
   const member = [requireSession(deps.auth), requireOrganisation(deps.db, rule)] as const;
+  const checks = createHealthChecks(deps.db, {
+    backends: deps.storage.backends,
+    mailer: deps.mailer,
+  });
   // Someone who still owes a second factor may read who they are, to be sent to add one, and
   // switch to a workspace that does not ask for it; nothing else.
   const owingAllowed = new Set(["/api/me", "/api/me/organisation"]);
@@ -178,7 +189,7 @@ export function createApi(deps: AppDeps) {
   return (
     new Hono()
       // Before anything that reads the database: liveness must answer while it stalls (#156).
-      .route("/health", health(deps.db, { backends: deps.storage.backends, mailer: deps.mailer }))
+      .route("/health", health(deps.db, checks))
       // Read as each request starts (from memory, mostly), for the checks that answer at once.
       .use("*", async (_c, next) => {
         await settings.get();
@@ -209,6 +220,11 @@ export function createApi(deps: AppDeps) {
           audit: deps.audit,
           settings,
           system: { build: deps.build ?? "dev", checkOn: deps.updateCheck ?? false },
+          health: {
+            checks,
+            ...(deps.sampler ? { sampler: deps.sampler } : {}),
+            diskPath: deps.diskPath ?? deps.workDir ?? tmpdir(),
+          },
           environment: {
             publicUrl: deps.publicUrl,
             requireSecondFactor: deps.requireSecondFactor ?? false,

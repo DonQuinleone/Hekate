@@ -15,6 +15,7 @@ import {
   levelsOf,
   lookingPermissions,
   mapTime,
+  type SystemHealth,
 } from "@hekate/shared";
 import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
 import { and, asc, count, desc, eq, inArray, isNotNull, like, ne, or, sql } from "drizzle-orm";
@@ -30,6 +31,7 @@ import { failureOfJob, purgeErrorReports, recordFailure } from "./error-reports.
 import { errorHandler, requestId } from "./errors.ts";
 import { createFlags } from "./flags.ts";
 import { issueGuestLink } from "./guests.ts";
+import { createHealthChecks } from "./health-checks.ts";
 import { createInstanceSettings } from "./instance-settings.ts";
 import { type JobFailure, runJob } from "./jobs.ts";
 import { createKeyring } from "./keyring.ts";
@@ -47,6 +49,7 @@ import {
   requeueMissingFindings,
 } from "./media/workers.ts";
 import { collectFromDatabase, collectQueues } from "./metrics/index.ts";
+import { createSampler } from "./metrics/sampler.ts";
 import { deliverDigests, deliverInstant, tellProcessingFailed } from "./notifications.ts";
 import { playbackSecret, signPlayback } from "./playback.ts";
 import { purgeDueProjects } from "./project-purge.ts";
@@ -58,6 +61,7 @@ import { health } from "./routes/health.ts";
 import { rehomePending } from "./score-swap.ts";
 import { createSetupGate, SETUP_CODE_HEADER } from "./setup-code.ts";
 import { createStorage } from "./storage.ts";
+import { systemHealth } from "./system-health.ts";
 import { remindTasksDue } from "./tasks.ts";
 import { expireUploads } from "./uploads.ts";
 import { clockElapsed, fileMeasured, sweepRuns, workflowsFor } from "./workflow-runner.ts";
@@ -246,11 +250,10 @@ describe.runIf(url)("api", () => {
     expect((await probed.request("/api/health/live")).status).toBe(200);
     // A mail server that never answers fails its check in time; readiness does not wait.
     const silent = { send: async () => {}, verify: () => new Promise<never>(() => {}) };
-    const ready = await health(db, {
-      backends: storage.backends,
-      mailer: silent,
-      checkMs: 50,
-    }).request("/ready");
+    const ready = await health(
+      db,
+      createHealthChecks(db, { backends: storage.backends, mailer: silent, checkMs: 50 }),
+    ).request("/ready");
     expect(ready.status).toBe(200);
     expect(await ready.json()).toMatchObject({ status: "ready", checks: { mail: "failed" } });
   });
@@ -1433,6 +1436,82 @@ describe.runIf(url)("api", () => {
           (await asOperator.request("/api/instance/system", { headers: { cookie: theirOwner } }))
             .status,
         ).toBe(403);
+      });
+
+      it("measures the machine a minute at a time, keeping a day, for operators (#156)", async () => {
+        const operator = cookieOf(await setup());
+        await db.delete(schema.healthSamples);
+        const minute = Date.now();
+        const sampler = createSampler(db, { now: () => minute });
+        // A sample from two days ago goes at the next minute's measure.
+        await db.insert(schema.healthSamples).values({
+          replica: sampler.replica,
+          at: new Date(Date.now() - 2 * 24 * 60 * 60_000),
+          requests: 1,
+          errors: 0,
+          jobsWaiting: 0,
+          lanes: 0,
+          lanesBusy: 0,
+          uploadBytes: 0,
+          cpu: 0,
+          cores: 1,
+          memoryUsed: 0,
+          memoryTotal: 1,
+        });
+        await asOperator.request("/api/projects", { headers: { cookie: operator } });
+        await sampler.tick();
+        // Twice in a minute keeps the first.
+        await sampler.tick();
+        const rows = await db.select().from(schema.healthSamples);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]?.requests).toBeGreaterThan(0);
+        expect(sampler.cpu()?.cores).toBeGreaterThan(0);
+
+        const read = (range: string, cookie = operator) =>
+          asOperator.request(`/api/instance/health?range=${range}`, { headers: { cookie } });
+        const answer = await read("1h");
+        expect(answer.status).toBe(200);
+        const health = (await answer.json()) as SystemHealth;
+        expect(health.range).toBe("1h");
+        expect(health.series.requestsPerMinute).toHaveLength(60);
+        expect(health.series.requestsPerMinute.filter((p) => p !== null)).toHaveLength(1);
+        expect(health.now.memory?.total).toBeGreaterThan(0);
+        expect(health.now.connections?.used).toBeGreaterThan(0);
+        expect(health.services.map((service) => service.name)).toEqual([
+          "api",
+          "database",
+          "worker",
+          "mail",
+        ]);
+        expect(health.services.find((service) => service.name === "database")?.state).toBe("ok");
+        expect(health.metrics.map((m) => m.name)).toContain("hekate_worker_lanes_busy");
+        expect((await read("7d")).status).toBe(400);
+
+        // Asked half a minute past the turn, the hour's first minute is still its first point.
+        const turn = Math.floor(Date.now() / 60_000) * 60_000;
+        await db.delete(schema.healthSamples);
+        await db.insert(schema.healthSamples).values({
+          replica: sampler.replica,
+          at: new Date(turn - 60 * 60_000),
+          requests: 7,
+          errors: 0,
+          jobsWaiting: 0,
+          lanes: 0,
+          lanesBusy: 0,
+          uploadBytes: 0,
+          cpu: 0,
+          cores: 1,
+          memoryUsed: 0,
+          memoryTotal: 1,
+        });
+        const asked = await systemHealth(db, "1h", {
+          checks: async () => ({ database: "ok", storage: "ok", worker: "ok", mail: "off" }),
+          diskPath: tmpdir(),
+          now: () => new Date(turn + 30_000),
+        });
+        expect(asked.series.requestsPerMinute[0]).toBe(7);
+        const theirOwner = await join(operator, "label@example.test", "owner");
+        expect((await read("24h", theirOwner)).status).toBe(403);
       });
 
       it("keeps a report when the workspace it names does not exist", async () => {

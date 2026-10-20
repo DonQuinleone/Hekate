@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import {
   createDb,
   DatabaseAheadError,
@@ -19,6 +20,7 @@ import { createKeyring, UnknownMasterKeyError } from "./keyring.ts";
 import { createMailer } from "./mail.ts";
 import { startWorkers } from "./media/workers.ts";
 import { collectFromDatabase, collectQueues, countedMailer } from "./metrics/index.ts";
+import { createSampler } from "./metrics/sampler.ts";
 import { deliverDigests, deliverInstant } from "./notifications.ts";
 import { playbackSecret } from "./playback.ts";
 import { purgeDueProjects } from "./project-purge.ts";
@@ -256,8 +258,17 @@ export async function boot(
     console.error("Could not record the release running:", error),
   );
 
+  // The machine, measured a minute at a time for System health (#156).
+  const sampler = createSampler(db);
+  const stopSampling = sampler.start();
+
   const app = createApp({
     db,
+    sampler,
+    diskPath:
+      storageConfig.backends.flatMap((b) => (b.driver === "local" ? [b.root] : []))[0] ??
+      config.WORK_DIR ??
+      tmpdir(),
     settings,
     build: config.HEKATE_BUILD,
     updateCheck: config.HEKATE_UPDATE_CHECK,
@@ -293,6 +304,7 @@ export async function boot(
     // Let running jobs finish (or give up at the timeout) before closing the database.
     stop: () =>
       Promise.resolve(clearInterval(holding))
+        .then(stopSampling)
         .then(() => jobs.stop())
         .catch((error: unknown) => console.error("Stopping the job queue failed:", error))
         .then(() => close()),

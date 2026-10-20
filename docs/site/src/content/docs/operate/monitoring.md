@@ -1,6 +1,6 @@
 ---
 title: Monitoring
-description: Liveness and readiness probes, Prometheus metrics at /metrics, what each one says, and a Grafana dashboard.
+description: Liveness and readiness probes, Prometheus metrics at /metrics, what each one says, the System health page and a Grafana dashboard.
 ---
 
 Hekate tells Prometheus how it is doing at `/metrics`, in the text exposition format. It is off until you give it a token.
@@ -57,6 +57,7 @@ Workspaces are named by their id, never their name, and routes by their pattern 
 | `hekate_jobs_waiting`, `hekate_jobs_active` | gauge | queue | Jobs waiting and running, read from the queue at each scrape. |
 | `hekate_jobs_failed_total` | counter | queue | Job attempts that failed in this process; a job retries before it is marked failed. |
 | `hekate_job_duration_seconds` | histogram | queue, outcome | How long job attempts took. |
+| `hekate_worker_lanes`, `hekate_worker_lanes_busy` | gauge | | Jobs this process may run at once, and is running now. |
 | `hekate_uploads_bytes_total` | counter | workspace | Bytes of uploads completed. |
 | `hekate_uploads_refused_total` | counter | workspace, rule | New versions refused by a project's upload rules (`true_peak`, `edl`). |
 | `hekate_storage_bytes` | gauge | backend, workspace | Bytes stored, read at each scrape. |
@@ -68,6 +69,10 @@ Workspaces are named by their id, never their name, and routes by their pattern 
 | `hekate_signins_total`, `hekate_signins_refused_total` | counter | method | Sign-ins by password, passkey, directory or single sign-on, and those refused. |
 
 Key issues, page renders and downloads are counted as they are written to the access log, which stays the record of who saw what; the metrics only say how much.
+
+## System health
+
+Without Prometheus, operators still see the machine on the instance side's **System health** page: processor, memory, disk and database connections now; requests, latency, errors, queue depth, busy worker lanes and uploads over the last hour or day; and each service's state. Every running process writes what it measured each minute to the database, and the rows go after a day, so the page needs no token and nothing beyond PostgreSQL. Processor and memory are the machine's (or the container's host's) as the process sees them; the disk is the one holding local storage.
 
 ## Grafana
 

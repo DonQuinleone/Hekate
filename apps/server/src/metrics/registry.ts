@@ -5,6 +5,8 @@
  * request, so a metric's series stay few.
  */
 
+import type { MetricEntry } from "@hekate/shared";
+
 export type Labels = Record<string, string>;
 
 interface Family {
@@ -43,14 +45,25 @@ const keyOf = (names: readonly string[], labels: Labels) =>
 
 export interface Counter<L extends string> {
   inc(labels?: Partial<Record<L, string>>, by?: number): void;
+  /** Every series added together. */
+  total(): number;
 }
 export interface Gauge<L extends string> {
   set(labels: Partial<Record<L, string>>, value: number): void;
   /** Forget every series, before setting afresh those that still exist. */
   reset(): void;
+  /** Every series added together. */
+  total(): number;
+}
+/** A histogram's series added together: each bound's cumulative count, and the whole count. */
+export interface HistogramTotals {
+  bounds: number[];
+  counts: number[];
+  count: number;
 }
 export interface Histogram<L extends string> {
   observe(labels: Partial<Record<L, string>>, value: number): void;
+  totals(): HistogramTotals;
 }
 
 export interface Registry {
@@ -66,10 +79,12 @@ export interface Registry {
   onCollect(collect: () => Promise<void>): void;
   /** Every metric, in the text format, after the collectors have run. */
   render(): Promise<string>;
+  /** Every metric registered, in order, with its help. */
+  catalogue(): MetricEntry[];
 }
 
 export function createRegistry(): Registry {
-  const families: Family[] = [];
+  const families: (Family & { labels: readonly string[] })[] = [];
   const collectors: (() => Promise<void>)[] = [];
   const add = (family: Family, labels: readonly string[]) => {
     if (!NAME.test(family.name)) throw new Error(`Not a metric name: ${family.name}`);
@@ -77,7 +92,7 @@ export function createRegistry(): Registry {
     if (families.some((f) => f.name === family.name)) {
       throw new Error(`The metric ${family.name} is already registered`);
     }
-    families.push(family);
+    families.push({ ...family, labels });
   };
 
   return {
@@ -103,6 +118,7 @@ export function createRegistry(): Registry {
           s.value += by;
           series.set(key, s);
         },
+        total: () => [...series.values()].reduce((sum, s) => sum + s.value, 0),
       };
     },
     gauge(name, help, names = []) {
@@ -126,6 +142,7 @@ export function createRegistry(): Registry {
         reset() {
           series.clear();
         },
+        total: () => [...series.values()].reduce((sum, s) => sum + s.value, 0),
       };
     },
     histogram(name, help, names = [], buckets = DEFAULT_BUCKETS) {
@@ -169,6 +186,14 @@ export function createRegistry(): Registry {
           s.count += 1;
           series.set(key, s);
         },
+        totals() {
+          const all = [...series.values()];
+          return {
+            bounds: [...bounds],
+            counts: bounds.map((_, i) => all.reduce((sum, s) => sum + (s.counts[i] ?? 0), 0)),
+            count: all.reduce((sum, s) => sum + s.count, 0),
+          };
+        },
       };
     },
     onCollect(collect) {
@@ -191,5 +216,7 @@ export function createRegistry(): Registry {
         ])
         .join("\n")}\n`;
     },
+    catalogue: () =>
+      families.map((f) => ({ name: f.name, type: f.type, help: f.help, labels: [...f.labels] })),
   };
 }

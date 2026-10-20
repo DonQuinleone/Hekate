@@ -64,4 +64,26 @@ describe("the metrics registry (#70)", () => {
     expect(() => r.gauge("ok", "x")).toThrow();
     expect(() => ok.inc({}, -1)).toThrow();
   });
+
+  it("adds every series together, and lists what it holds (#156)", () => {
+    const r = createRegistry();
+    const requests = r.counter("a_total", "A", ["route"]);
+    requests.inc({ route: "/x" }, 2);
+    requests.inc({ route: "/y" });
+    const lanes = r.gauge("b", "B", ["queue"]);
+    lanes.set({ queue: "x" }, 2);
+    lanes.set({ queue: "y" }, 3);
+    const took = r.histogram("c_seconds", "C", ["route"], [0.1, 1]);
+    took.observe({ route: "/x" }, 0.05);
+    took.observe({ route: "/y" }, 0.5);
+    took.observe({ route: "/y" }, 5);
+    expect(requests.total()).toBe(3);
+    expect(lanes.total()).toBe(5);
+    expect(took.totals()).toEqual({ bounds: [0.1, 1], counts: [1, 2], count: 3 });
+    expect(r.catalogue()).toEqual([
+      { name: "a_total", type: "counter", help: "A", labels: ["route"] },
+      { name: "b", type: "gauge", help: "B", labels: ["queue"] },
+      { name: "c_seconds", type: "histogram", help: "C", labels: ["route"] },
+    ]);
+  });
 });

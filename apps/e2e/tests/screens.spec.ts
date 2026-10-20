@@ -373,6 +373,11 @@ const screens: Screen[] = [
     ready: "main >> text=Maintenance mode",
   },
   {
+    name: "instance-health",
+    path: () => "/instance/health",
+    ready: "main >> text=hekate_worker_lanes_busy",
+  },
+  {
     name: "instance-system",
     path: () => "/instance/system",
     ready: "main >> text=Every release this instance has run.",
