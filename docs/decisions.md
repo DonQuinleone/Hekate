@@ -879,3 +879,14 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Categories.** Each project has its categories of issue, each with a colour and a key from 1 to 9; it starts with Intonation, Ensemble, Noise and Balance. Those who use the production tools add, rename, recolour, re-key and remove them; no two share a name or a key, and an issue whose category is removed keeps everything else.
 - **Kept whole.** A change to a mark keeps what its kind needs: an edit point or a take start never loses its take, a dynamic or a note its words. The plot counts only takes that were recorded: one aborted, or still rolling, is none to edit from.
 - **Who may.** Those who see the production tools see the marks; those who use them make, change and rub them out.
+
+## 158. Score marking, in Production
+
+#52, second part: the score marking page, as the prototype's Production › Score marking.
+
+- **Production's sections.** Production now has its sections under its title, as the prototype does: Sessions and Score marking so far, the rest as they are built.
+- **A track at a time.** The page marks one track's score; a project with several scored tracks chooses the track above the score. A track without a score is not offered, and a project with none says how to give a track its score.
+- **The pencil on single keys.** I, E, [, ], P, W, D, N and K choose the kind; 1 to 9 choose an issue's category. A click on the score places the mark there; ink is drawn by dragging. A kind that needs to know something first (an edit point's takes, a take start's take, a dynamic's or a note's words) asks in a short dialog; an issue and a wrong note are placed at once and filled in from the inspector.
+- **Reading the score.** Single, two-up and continuous layouts; paper, invert, sepia, amber, cyan and grey displays for a dark room; the arrow keys turn the page, and full stop steps through the edit points in reading order.
+- **Beside it.** The inspector for the chosen mark (its bars, words, category, the takes it occurred in, the take that fixed it, resolved; an edit point's takes), the edit plot check with the chain it follows, and the marks on the pages shown.
+- **Exports.** The marks as CSV now; the annotated score PDF, going to a bar by the score's printed numbers, and swapping the score follow.

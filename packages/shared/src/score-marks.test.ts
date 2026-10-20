@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { editLabel, editPlot, readingOrder, scoreMarkInput } from "./score-marks.ts";
+import {
+  editLabel,
+  editPlot,
+  readingOrder,
+  scoreMarkInput,
+  scoreMarksCsv,
+  takeList,
+} from "./score-marks.ts";
 
 const edit = (id: string, page: number, y: number, from: number | null, to: number, more = {}) => ({
   id,
@@ -98,5 +105,73 @@ describe("scoreMarkInput", () => {
     expect(scoreMarkInput.safeParse({ ...at, kind: "issue", barFrom: 9, barTo: 5 }).success).toBe(
       false,
     );
+  });
+});
+
+describe("takeList", () => {
+  it("reads takes typed as a list", () => {
+    expect(takeList("T3, 7 12")).toEqual([3, 7, 12]);
+    expect(takeList("3,3")).toEqual([3]);
+    expect(takeList("")).toEqual([]);
+    expect(takeList("T3, twelve")).toBeNull();
+    expect(takeList("0")).toBeNull();
+  });
+});
+
+describe("scoreMarksCsv", () => {
+  const base = {
+    width: null,
+    height: null,
+    points: null,
+    barTo: null,
+    categoryId: null,
+    takes: [],
+    fixedBy: null,
+    resolved: false,
+    from: null,
+    to: null,
+    overdub: false,
+    by: null,
+    createdAt: "2026-10-14T14:00:00Z",
+  };
+  it("lists the marks in reading order, an edit as the plot writes it", () => {
+    const csv = scoreMarksCsv(
+      [
+        {
+          ...base,
+          id: "b",
+          kind: "edit",
+          page: 1,
+          x: 0.5,
+          y: 0.6,
+          barFrom: 17,
+          text: null,
+          from: 12,
+          to: 7,
+        },
+        {
+          ...base,
+          id: "a",
+          kind: "issue",
+          page: 1,
+          x: 0.2,
+          y: 0.2,
+          barFrom: 5,
+          barTo: 6,
+          text: "=Pedal, noise",
+          categoryId: "noise",
+          takes: [3, 7],
+          fixedBy: 12,
+          resolved: true,
+        },
+      ],
+      [{ id: "noise", name: "Noise" }],
+    );
+    expect(csv.split("\r\n")).toEqual([
+      "Page,Bars,Kind,Category,Text,Takes,Fixed by,Status",
+      `1,5–6,Issue,Noise,"'=Pedal, noise",T3 T7,T12,Resolved`,
+      "1,17,Edit point,,17T12 into T7,,,",
+      "",
+    ]);
   });
 });

@@ -5,6 +5,7 @@ import { type FormEvent, useState } from "react";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { PageHeader } from "~/components/page-header";
+import { ProductionNav } from "~/components/production-nav";
 import { TakeImportDialog } from "~/components/take-import";
 import { Rating } from "~/components/takes";
 import { Button } from "~/components/ui/button";
@@ -77,6 +78,7 @@ export function SessionsPage({ projectId }: { projectId: string }) {
     >
       {(project) => (
         <div className={body}>
+          <ProductionNav projectId={projectId} current="sessions" />
           {!can("view_takes") ? (
             <Empty
               title="Not among what your role shows"

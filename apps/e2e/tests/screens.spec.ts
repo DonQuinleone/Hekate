@@ -638,6 +638,16 @@ test("take-log-offline", async ({ page, context }, info) => {
   expect(gone.status()).toBe(204);
 });
 
+// Score marking (#52): the producer's marks on the track's score, an edit point chosen.
+test("score-marking", async ({ page }) => {
+  await page.goto(`/projects/${seeded().musicProjectId}/score-marking`);
+  await settle(page, "main section >> text=17T3 into T4");
+  await page.getByRole("button", { name: "17T3 into T4" }).first().click();
+  await expect(page.getByRole("region", { name: "Inspector" })).toContainText("17T3 into T4");
+  await saveScreen(page, "score-marking");
+  await checkScreen(page);
+});
+
 // Sharing (#138): the Share dialog, from the project's Reviews, a track and someone chosen.
 test("share-dialog", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
