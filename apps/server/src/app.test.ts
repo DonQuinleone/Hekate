@@ -10325,8 +10325,15 @@ describe.runIf(url)("api", () => {
           expect((await list()).days[0]?.venueId).toBeNull();
           expect((await send("DELETE", `/api/schedule-rows/${slot.id}`, {})).status).toBe(204);
           expect(await labels()).toEqual(["Lunch", "Coffee"]);
-          expect((await send("DELETE", `/api/schedule-days/${day.id}`, {})).status).toBe(204);
+          // A row added as its day goes is refused, never half-written.
+          const [added, gone] = await Promise.all([
+            addRow({ kind: "break", minutes: 10 }),
+            send("DELETE", `/api/schedule-days/${day.id}`, {}),
+          ]);
+          expect(gone.status).toBe(204);
+          expect([201, 404]).toContain(added.status);
           expect((await list()).days).toEqual([]);
+          expect((await addRow({ kind: "break", minutes: 10 })).status).toBe(404);
         });
 
         it("keeps a project's personnel, ensembles in sections, linked to members and guests (#49)", async () => {

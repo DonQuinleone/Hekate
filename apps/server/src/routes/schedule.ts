@@ -285,6 +285,26 @@ async function rowFor(db: Database, vars: TenantVariables, id: string) {
   return row;
 }
 
+/** A day held for the rest of the transaction, so it cannot go while it is acted on. */
+async function holdDay(tx: Tx, organisationId: string, id: string) {
+  const [held] = await tx
+    .select({ id: scheduleDays.id })
+    .from(scheduleDays)
+    .where(inOrg(scheduleDays, organisationId, eq(scheduleDays.id, id)))
+    .for("update");
+  if (!held) throw new NotFound("Day");
+}
+
+/** A row held for the rest of the transaction, so it cannot go while it is acted on. */
+async function holdRow(tx: Tx, organisationId: string, id: string) {
+  const [held] = await tx
+    .select({ id: scheduleRows.id })
+    .from(scheduleRows)
+    .where(inOrg(scheduleRows, organisationId, eq(scheduleRows.id, id)))
+    .for("update");
+  if (!held) throw new NotFound("Row");
+}
+
 /** `/api/schedule-days/:id`: changing a day, removing it, and adding a row to it. */
 export const scheduleDayRoutes = (db: Database) =>
   new Hono<{ Variables: TenantVariables }>()
@@ -295,6 +315,7 @@ export const scheduleDayRoutes = (db: Database) =>
       await assertVenue(db, organisationId, day.projectId, input.venueId);
       await db.transaction(async (tx) => {
         await lockLiveProject(tx, organisationId, day.projectId);
+        await holdDay(tx, organisationId, day.id);
         await tx
           .update(scheduleDays)
           .set({ ...input, updatedAt: new Date() })
@@ -310,6 +331,7 @@ export const scheduleDayRoutes = (db: Database) =>
       const day = await dayFor(db, c.var, c.req.valid("param").id);
       await db.transaction(async (tx) => {
         await lockLiveProject(tx, organisationId, day.projectId);
+        await holdDay(tx, organisationId, day.id);
         await tx
           .delete(scheduleDays)
           .where(inOrg(scheduleDays, organisationId, eq(scheduleDays.id, day.id)));
@@ -330,6 +352,7 @@ export const scheduleDayRoutes = (db: Database) =>
         await assertRepertoire(db, organisationId, day.projectId, { workIds, trackIds });
         const id = await db.transaction(async (tx) => {
           await lockLiveProject(tx, organisationId, day.projectId);
+          await holdDay(tx, organisationId, day.id);
           const order = await rowOrder(tx, organisationId, day.id);
           const at = after === undefined ? order.length : order.indexOf(after) + 1;
           if (at === 0 && after !== undefined)
@@ -361,6 +384,7 @@ export const scheduleRowRoutes = (db: Database) =>
       await assertRepertoire(db, organisationId, row.projectId, { workIds, trackIds });
       await db.transaction(async (tx) => {
         await lockLiveProject(tx, organisationId, row.projectId);
+        await holdRow(tx, organisationId, row.id);
         await tx
           .update(scheduleRows)
           .set({ ...fields, updatedAt: new Date() })
@@ -378,6 +402,7 @@ export const scheduleRowRoutes = (db: Database) =>
       const { done } = c.req.valid("json");
       await db.transaction(async (tx) => {
         await lockLiveProject(tx, organisationId, row.projectId);
+        await holdRow(tx, organisationId, row.id);
         await tx
           .update(scheduleRows)
           .set({ done, updatedAt: new Date() })
@@ -391,6 +416,9 @@ export const scheduleRowRoutes = (db: Database) =>
       const { direction } = c.req.valid("json");
       await db.transaction(async (tx) => {
         await lockLiveProject(tx, organisationId, row.projectId);
+        // The day too, as adding a row rewrites the same order.
+        await holdDay(tx, organisationId, row.dayId);
+        await holdRow(tx, organisationId, row.id);
         const order = await rowOrder(tx, organisationId, row.dayId);
         const from = order.indexOf(row.id);
         const to = direction === "up" ? from - 1 : from + 1;
@@ -405,6 +433,7 @@ export const scheduleRowRoutes = (db: Database) =>
       const row = await rowFor(db, c.var, c.req.valid("param").id);
       await db.transaction(async (tx) => {
         await lockLiveProject(tx, organisationId, row.projectId);
+        await holdRow(tx, organisationId, row.id);
         await tx
           .delete(scheduleRows)
           .where(inOrg(scheduleRows, organisationId, eq(scheduleRows.id, row.id)));

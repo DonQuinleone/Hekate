@@ -92,17 +92,27 @@ export function timeOfDay(minutes: number): string {
 
 /**
  * Each row's start and end on its day: a row with its own start begins then; any other begins
- * where the row before ends, and the first at the day's start.
+ * where the row before ends, and the first at the day's start. `ends` is the end in minutes
+ * past the day's midnight, past 1440 when the day runs over, for a countdown to it.
  */
 export function timesOf(
   day: Pick<ScheduleDay, "start" | "rows">,
-): { start: string; end: string; fixed: boolean }[] {
+): { start: string; end: string; fixed: boolean; ends: number }[] {
   let at = minutesOf(day.start);
   return day.rows.map((r) => {
-    const start = r.start === null ? at : minutesOf(r.start);
+    let start = r.start === null ? at : minutesOf(r.start);
+    // A set start earlier than where the day has reached is after midnight.
+    while (r.start !== null && start < at - 12 * 60) start += 1440;
     at = start + r.minutes;
-    return { start: timeOfDay(start), end: timeOfDay(at), fixed: r.start !== null };
+    return { start: timeOfDay(start), end: timeOfDay(at), fixed: r.start !== null, ends: at };
   });
+}
+
+/** Seconds left until a row ends, on its day ("2026-09-12"), as the clock reads now. */
+export function secondsLeft(date: string, ends: number, now: Date): number {
+  const [y = 0, m = 1, d = 1] = date.split("-").map(Number);
+  const end = new Date(y, m - 1, d, 0, ends);
+  return Math.max(0, Math.round((end.getTime() - now.getTime()) / 1000));
 }
 
 /** The tracks a slot covers: its tracks, its works' tracks, or all of them. */

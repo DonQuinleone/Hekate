@@ -1,10 +1,10 @@
 import {
   coverage,
-  minutesOf,
   type ScheduleDay,
   type ScheduleRow,
   type ScheduleRowKind,
   scheduleRowKinds,
+  secondsLeft,
   timesOf,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -309,7 +309,8 @@ function Day({
                 <span className="tabular shrink-0 text-[13px] text-ink-3">{r.minutes} min</span>
                 {live && r.kind === "slot" && !r.done && at && (
                   <SlotTimer
-                    end={at.end}
+                    date={day.date ?? today()}
+                    ends={at.ends}
                     running={timer === r.id}
                     onToggle={() => setTimer(timer === r.id ? null : r.id)}
                   />
@@ -359,11 +360,13 @@ function Day({
 
 /** A countdown to the slot's end, today: the producer's eye on the clock. */
 function SlotTimer({
-  end,
+  date,
+  ends,
   running,
   onToggle,
 }: {
-  end: string;
+  date: string;
+  ends: number;
   running: boolean;
   onToggle: () => void;
 }) {
@@ -373,8 +376,8 @@ function SlotTimer({
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, [running]);
-  const nowSeconds = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
-  const left = Math.max(0, minutesOf(end) * 60 - nowSeconds);
+  // To the slot's end on its day, so one running past midnight counts down through it.
+  const left = secondsLeft(date, ends, now);
   const shown = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
   return (
     <Button variant={running ? "primary" : "ghost"} size="sm" onClick={onToggle}>

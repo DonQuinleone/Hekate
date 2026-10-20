@@ -5,6 +5,7 @@ import {
   type ScheduleDay,
   type ScheduleRow,
   scheduleRowInput,
+  secondsLeft,
   slotTracks,
   timeOfDay,
   timesOf,
@@ -91,5 +92,20 @@ describe("the schedule", () => {
     expect(scheduleRowInput.safeParse({ kind: "slot", minutes: 20, start: "9:30" }).success).toBe(
       false,
     );
+  });
+
+  it("runs past midnight, and counts down to an end after it", () => {
+    const day = {
+      start: "22:00",
+      rows: [row({ minutes: 90 }), row({ minutes: 90 }), row({ start: "01:30", minutes: 30 })],
+    };
+    expect(timesOf(day).map((t) => [t.start, t.end, t.ends])).toEqual([
+      ["22:00", "23:30", 1410],
+      ["23:30", "01:00", 1500],
+      ["01:30", "02:00", 1560],
+    ]);
+    // At 23:45 on the day, a slot ending at 01:00 has an hour and a quarter left.
+    expect(secondsLeft("2026-09-12", 1500, new Date(2026, 8, 12, 23, 45))).toBe(75 * 60);
+    expect(secondsLeft("2026-09-12", 1500, new Date(2026, 8, 13, 1, 30))).toBe(0);
   });
 });
