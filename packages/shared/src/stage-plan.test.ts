@@ -12,6 +12,7 @@ import {
   stageEditInput,
   stageItemChange,
   stageItemInput,
+  standsFor,
 } from "./stage-plan.ts";
 
 const id = (n: number) => `0192f3a0-0000-7000-8000-00000000000${n}`;
@@ -26,6 +27,7 @@ const item = (n: number, over: Partial<StageItem> = {}): StageItem => ({
   h: 1,
   rotation: 0,
   patchRowId: null,
+  personnelId: null,
   group: "",
   ...over,
 });
@@ -131,6 +133,16 @@ describe("aligning", () => {
   });
 });
 
+describe("who stands where", () => {
+  it("puts an ensemble in a block and anyone else in a performer, and no one in a wall", () => {
+    expect(standsFor("ensemble", "ensemble")).toBe(true);
+    expect(standsFor("ensemble", "artist")).toBe(false);
+    expect(standsFor("performer", "staff")).toBe(true);
+    expect(standsFor("performer", "ensemble")).toBe(false);
+    expect(standsFor("wall", "artist")).toBe(false);
+  });
+});
+
 describe("what is sent", () => {
   it("takes an item with defaults, sized unless it is a cable", () => {
     expect(stageItemInput.parse({ id: id(1), kind: "mic", x: 1, y: 2, w: 0.3, h: 0.3 })).toEqual({
@@ -143,6 +155,7 @@ describe("what is sent", () => {
       h: 0.3,
       rotation: 0,
       patchRowId: null,
+      personnelId: null,
       group: "",
     });
     expect(
@@ -173,5 +186,10 @@ describe("what is sent", () => {
     expect(shownLabel({ kind: "mic", label: "Spot" })).toBe("Spot");
     expect(shownLabel({ kind: "mic", label: "" })).toBe("Microphone");
     expect(shownLabel({ kind: "lectern", label: "" })).toBe("lectern");
+    expect(
+      shownLabel({ kind: "ensemble", label: "Strings" }, undefined, {
+        name: "Endless Hall Strings",
+      }),
+    ).toBe("Endless Hall Strings");
   });
 });

@@ -109,6 +109,7 @@ import {
   type StageBox,
   type StageEdit,
   type StageItem,
+  type StagePerson,
   type StagePlan,
   type StagePlanInput,
   type StandingGrant,
@@ -2302,7 +2303,7 @@ export const stagePlansQuery = (projectId: string) =>
   queryOptions({
     queryKey: ["projects", projectId, "stage-plans"],
     queryFn: async () =>
-      json<{ plans: StagePlan[]; channels: PatchedChannel[] }>(
+      json<{ plans: StagePlan[]; channels: PatchedChannel[]; people: StagePerson[] }>(
         await api.projects[":id"]["stage-plans"].$get({ param: { id: projectId } }),
       ),
   });

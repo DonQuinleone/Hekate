@@ -10290,6 +10290,80 @@ describe.runIf(url)("api", () => {
             [riser, 7.5],
           ]);
 
+          // An ensemble block stands for an ensemble on this project's personnel, and is named by it.
+          const strings = (
+            (await (
+              await send("POST", `/api/projects/${s.projectId}/personnel`, {
+                name: "Endless Hall Strings",
+                kind: "ensemble",
+                sections: [
+                  { name: "Violin I", count: 4 },
+                  { name: "Cello", count: 2 },
+                ],
+              })
+            ).json()) as { entry: { id: string } }
+          ).entry;
+          const block = uuidv7();
+          expect(
+            (
+              await edit({
+                add: [
+                  {
+                    id: block,
+                    kind: "ensemble",
+                    x: 1,
+                    y: 1,
+                    w: 3,
+                    h: 2.4,
+                    personnelId: strings.id,
+                  },
+                ],
+              })
+            ).status,
+          ).toBe(200);
+          const peopled = (await (
+            await getAs(`/api/projects/${s.projectId}/stage-plans`, s.engineer)
+          ).json()) as { people: { id: string; players: number }[] };
+          expect(peopled.people).toEqual([
+            { id: strings.id, name: "Endless Hall Strings", kind: "ensemble", players: 6 },
+          ]);
+          const [theirEntry] = await db
+            .insert(schema.personnel)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              projectId: theirProject?.id ?? "",
+              name: "Theirs",
+              kind: "ensemble",
+            })
+            .returning();
+          const stranger = await edit({ change: [{ id: block, personnelId: theirEntry?.id }] });
+          expect(stranger.status).toBe(400);
+          expect(await stranger.text()).toContain("not on this project's personnel");
+          // A block stands for an ensemble, a performer for anyone else, a microphone for no one.
+          const misfit = await edit({ change: [{ id: block, kind: "performer" }] });
+          expect(misfit.status).toBe(400);
+          expect(await misfit.text()).toContain("An ensemble stands in an ensemble block");
+          expect((await edit({ change: [{ id: mic, personnelId: strings.id }] })).status).toBe(400);
+          // An ensemble that becomes an artist leaves its block, which stays.
+          expect(
+            (
+              await send("PUT", `/api/personnel/${strings.id}`, {
+                name: "Endless Hall Strings",
+                kind: "artist",
+              })
+            ).status,
+          ).toBe(200);
+          expect((await list()).plans[0]?.items.find((i) => i.id === block)).toMatchObject({
+            personnelId: null,
+          });
+          await edit({ change: [{ id: block, personnelId: null }] });
+          // Taken off the personnel, the block stays, unlinked.
+          expect((await send("DELETE", `/api/personnel/${strings.id}`, {})).status).toBe(204);
+          expect((await list()).plans[0]?.items.find((i) => i.id === block)).toMatchObject({
+            personnelId: null,
+          });
+          await edit({ remove: [block] });
+
           expect((await send("DELETE", `/api/patch-rows/${channel.id}`, {})).status).toBe(204);
           expect((await list()).plans[0]?.items[0]).toMatchObject({ id: mic, patchRowId: null });
 

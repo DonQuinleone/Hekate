@@ -1,11 +1,14 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  headCount,
   type PatchedChannel,
   type StageItem,
+  type StagePerson,
   type StagePlan,
   stageEditInput,
   stagePlanChangeInput,
   stagePlanInput,
+  standsFor,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { asc, eq, inArray, max, type SQL } from "drizzle-orm";
@@ -18,8 +21,10 @@ import { textPdfOf } from "../media/pdf.ts";
 import { stagePlanPage } from "../stage-pdf.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { attachment } from "./comments.ts";
+import { personnelOf } from "./personnel.ts";
 
-const { filePages, files, patchRows, projects, stageBoxes, stageItems, stagePlans } = schema;
+const { filePages, files, patchRows, personnel, projects, stageBoxes, stageItems, stagePlans } =
+  schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
@@ -96,6 +101,7 @@ const itemShape = {
   h: stageItems.h,
   rotation: stageItems.rotation,
   patchRowId: stageItems.patchRowId,
+  personnelId: stageItems.personnelId,
   group: stageItems.group,
 };
 
@@ -168,6 +174,20 @@ export async function channelsOf(
   );
 }
 
+/** The production's personnel as a plan names and sizes them (#49). */
+async function peopleOf(
+  db: Database,
+  organisationId: string,
+  projectId: string,
+): Promise<StagePerson[]> {
+  return (await personnelOf(db, organisationId, projectId)).map((p) => ({
+    id: p.id,
+    name: p.name,
+    kind: p.kind,
+    players: headCount(p),
+  }));
+}
+
 /**
  * `/api/projects/:id/stage-plans` (#53): a project's stage plans with the patch channels they
  * may link to, for those who see the production tools, and a new plan, for those who use them.
@@ -185,6 +205,7 @@ export const projectStagePlanRoutes = (db: Database) =>
       return c.json({
         plans: await stagePlansOf(db, organisationId, projectId),
         channels: await channelsOf(db, organisationId, projectId),
+        people: await peopleOf(db, organisationId, projectId),
       });
     })
     .post("/:id/stage-plans", idParam, zValidator("json", stagePlanInput), async (c) => {
@@ -276,6 +297,7 @@ export const stagePlanRoutes = (db: Database) =>
           await channelsOf(db, organisationId, projectId),
           paper,
           hide === undefined ? [] : [hide].flat(),
+          await peopleOf(db, organisationId, projectId),
         ),
       ]);
       return c.body(new Uint8Array(pdf), 200, {
@@ -395,6 +417,26 @@ export const stagePlanRoutes = (db: Database) =>
                 message: "That channel is not in this project's patch list",
               });
           }
+          const peopled = [
+            ...new Set([...add, ...change].flatMap((i) => (i.personnelId ? [i.personnelId] : []))),
+          ];
+          if (peopled.length > 0) {
+            const found = await tx
+              .select({ id: personnel.id })
+              .from(personnel)
+              .where(
+                inOrg(
+                  personnel,
+                  organisationId,
+                  eq(personnel.projectId, plan.projectId),
+                  inArray(personnel.id, peopled),
+                ),
+              );
+            if (found.length !== peopled.length)
+              throw new HTTPException(400, {
+                message: "That person is not on this project's personnel",
+              });
+          }
           const onPlan = (more: SQL) =>
             inOrg(stageItems, organisationId, eq(stageItems.stagePlanId, plan.id), more);
           if (remove.length > 0)
@@ -411,7 +453,33 @@ export const stagePlanRoutes = (db: Database) =>
               .insert(stageItems)
               .values(add.map((i) => ({ ...i, organisationId, stagePlanId: plan.id })))
               .onConflictDoNothing({ target: stageItems.id });
-          return (await itemsOf(tx, organisationId, [plan.id])).map(bare);
+          const held = (await itemsOf(tx, organisationId, [plan.id])).map(bare);
+          // Each item stands only for someone it can: a block for an ensemble, a performer for
+          // anyone else. Checked on what the step leaves, so a change of kind counts too.
+          const standing = held.filter((i) => i.personnelId);
+          if (standing.length > 0) {
+            const kinds = await tx
+              .select({ id: personnel.id, kind: personnel.kind })
+              .from(personnel)
+              .where(
+                inOrg(
+                  personnel,
+                  organisationId,
+                  inArray(
+                    personnel.id,
+                    standing.map((i) => i.personnelId ?? ""),
+                  ),
+                ),
+              );
+            const misfit = standing.find(
+              (i) => !standsFor(i.kind, kinds.find((k) => k.id === i.personnelId)?.kind ?? ""),
+            );
+            if (misfit)
+              throw new HTTPException(400, {
+                message: "An ensemble stands in an ensemble block, anyone else as a performer",
+              });
+          }
+          return held;
         })
         .catch((error: unknown) => {
           // A change that leaves something other than a cable without a size, all of it undone.

@@ -590,6 +590,8 @@ test("settings-delivery-profile", async ({ page }) => {
 test("stage-plan", async ({ page }) => {
   await page.goto(`/projects/${seeded().musicProjectId}/stage`);
   await settle(page, "main >> text=Spot piano L");
+  // The pianist named by the personnel.
+  await expect(page.getByRole("button", { name: "Ines Arlow Performer" })).toBeVisible();
   // The floor plan drawn under the stage, before anything is picked out.
   await expect(page.locator("section[aria-label='The stage'] image")).toBeVisible();
   await page.getByRole("button", { name: /^Main L/ }).click();
@@ -633,6 +635,12 @@ test("stage-plan", async ({ page }) => {
   await expect(page.getByText("2 items")).toBeVisible();
   await page.getByRole("button", { name: "Align" }).click();
   await saveScreen(page, "stage-plan-selection");
+  await checkScreen(page);
+  // The pianist picked out: who she is on the personnel.
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Ines Arlow Performer" }).click();
+  await expect(page.getByRole("button", { name: "Who" })).toHaveText(/Ines Arlow/);
+  await saveScreen(page, "stage-plan-person");
   await checkScreen(page);
 });
 

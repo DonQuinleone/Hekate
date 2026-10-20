@@ -3,6 +3,7 @@ import {
   align,
   applyEdit,
   boundsOf,
+  ensembleBlock,
   inMarquee,
   inverseOf,
   isEmptyEdit,
@@ -10,10 +11,12 @@ import {
   type PatchedChannel,
   patchableKinds,
   patchedName,
+  peopledKinds,
   roundKinds,
   type StageEdit,
   type StageItem,
   type StageKind,
+  type StagePerson,
   type StagePlan,
   shownLabel,
   snapTo,
@@ -127,6 +130,7 @@ export function StagePlanPage({ projectId }: { projectId: string }) {
                 plan={plan}
                 plans={data.plans}
                 channels={data.channels}
+                people={data.people}
                 canEdit={canEdit}
                 onChoose={setChosen}
                 onEdit={setEditing}
@@ -169,6 +173,7 @@ function Editor({
   plan,
   plans,
   channels,
+  people,
   canEdit,
   onChoose,
   onEdit,
@@ -177,6 +182,7 @@ function Editor({
   plan: StagePlan;
   plans: StagePlan[];
   channels: PatchedChannel[];
+  people: StagePerson[];
   canEdit: boolean;
   onChoose: (id: string) => void;
   onEdit: (editing: "new" | StagePlan) => void;
@@ -300,6 +306,8 @@ function Editor({
   };
 
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+  const personOf = (i: StageItem) =>
+    i.personnelId ? people.find((p) => p.id === i.personnelId) : undefined;
   const channelOf = (i: StageItem) =>
     i.patchRowId ? channels.find((c) => c.id === i.patchRowId) : undefined;
   const chosen = selected.flatMap((id) => byId.get(id) ?? []);
@@ -320,6 +328,7 @@ function Editor({
       h: size.h,
       rotation: 0,
       patchRowId: null,
+      personnelId: null,
       group: "",
     };
     take({ add: [item], change: [], remove: [] });
@@ -623,7 +632,7 @@ function Editor({
                   key={i.id}
                   item={shown(i)}
                   scale={scale}
-                  label={hidden.includes(i.group) ? null : shownLabel(i, channelOf(i))}
+                  label={hidden.includes(i.group) ? null : shownLabel(i, channelOf(i), personOf(i))}
                   selected={selected.includes(i.id)}
                   onPress={(e) => pressItem(e, i)}
                 />
@@ -671,6 +680,8 @@ function Editor({
               item={chosen[0]}
               channel={channelOf(chosen[0])}
               channels={channels}
+              person={personOf(chosen[0])}
+              people={people}
               canEdit={canEdit}
               onChange={(change) => take({ add: [], change: [change], remove: [] })}
               onDuplicate={duplicate}
@@ -732,7 +743,9 @@ function Editor({
                     }
                     className="flex min-h-7 w-full items-center gap-2 rounded-panel px-2 text-left text-[13px] text-ink-2 transition-colors hover:bg-raised aria-pressed:bg-raised aria-pressed:text-ink"
                   >
-                    <span className="min-w-0 flex-1 truncate">{shownLabel(i, channelOf(i))}</span>
+                    <span className="min-w-0 flex-1 truncate">
+                      {shownLabel(i, channelOf(i), personOf(i))}
+                    </span>
                     <span className="shrink-0 text-[12px] text-ink-3">
                       {stageKindDefaults[i.kind as StageKind]?.name ?? i.kind}
                     </span>
@@ -1062,11 +1075,13 @@ const numberOf = (typed: string) => {
   return typed.trim() !== "" && Number.isFinite(v) ? v : undefined;
 };
 
-/** The one selected item: its label, place, size, turn, group and patch channel. */
+/** The one selected item: its label, place, size, turn, group, patch channel and who it is. */
 function ItemPanel({
   item,
   channel,
   channels,
+  person,
+  people,
   canEdit,
   onChange,
   onDuplicate,
@@ -1075,12 +1090,16 @@ function ItemPanel({
   item: StageItem;
   channel?: PatchedChannel;
   channels: PatchedChannel[];
+  person?: StagePerson;
+  people: StagePerson[];
   canEdit: boolean;
   onChange: (change: Partial<StageItem> & { id: string }) => void;
   onDuplicate: () => void;
   onRemove: () => void;
 }) {
   const kindName = stageKindDefaults[item.kind as StageKind]?.name ?? item.kind;
+  // An ensemble block stands for an ensemble; a performer for anyone else.
+  const choices = people.filter((p) => (item.kind === "ensemble") === (p.kind === "ensemble"));
   const commit = (field: keyof StageItem, value: string | number | null) => {
     if (item[field] !== value) onChange({ id: item.id, [field]: value });
   };
@@ -1089,7 +1108,7 @@ function ItemPanel({
     return (
       <div className="mt-2 flex flex-col gap-1 text-[13px]">
         <span className="text-[14px] font-medium text-ink">
-          {kindName}: {shownLabel(item, channel)}
+          {kindName}: {shownLabel(item, channel, person)}
         </span>
         <span className="tabular text-ink-3">
           {box.left.toFixed(2)} m, {box.top.toFixed(2)} m · {Math.abs(item.w)} × {Math.abs(item.h)}{" "}
@@ -1119,11 +1138,16 @@ function ItemPanel({
   return (
     <form className="mt-2 flex flex-col gap-2.5" onSubmit={(e: FormEvent) => e.preventDefault()}>
       <span className="text-[14px] font-medium text-ink">{kindName}</span>
-      <Field label="Label" hint={channel?.source ? "Follows the patch list" : undefined}>
+      <Field
+        label="Label"
+        hint={
+          channel?.source ? "Follows the patch list" : person ? "Follows the personnel" : undefined
+        }
+      >
         <Input
           defaultValue={item.label}
           maxLength={60}
-          placeholder={channel?.source || kindName}
+          placeholder={channel?.source || person?.name || kindName}
           onBlur={(e) => commit("label", e.target.value.trim())}
           onKeyDown={(e) => {
             if (e.key === "Enter") e.currentTarget.blur();
@@ -1146,6 +1170,51 @@ function ItemPanel({
         )}
         {item.kind !== "cable" && item.kind !== "mic" && measure("rotation", "Turned, °")}
       </div>
+      {peopledKinds.includes(item.kind) && (
+        <Field
+          label="Who"
+          hint={
+            item.kind === "ensemble" && person
+              ? `${person.players} players; sized from the personnel`
+              : undefined
+          }
+        >
+          <Dropdown
+            variant="field"
+            value={person?.name ?? "Not on the personnel"}
+            actions={[
+              {
+                label: "Not on the personnel",
+                checked: !person,
+                onSelect: () => commit("personnelId", null),
+              },
+              ...(choices.length > 0 ? ["divider" as const] : []),
+              ...choices.map((p) => ({
+                label: p.name,
+                checked: p.id === person?.id,
+                // An ensemble takes the room its players need, in the same step.
+                onSelect: () =>
+                  onChange({
+                    id: item.id,
+                    personnelId: p.id,
+                    ...(item.kind === "ensemble" ? ensembleBlock(p.players) : {}),
+                  }),
+              })),
+            ]}
+          />
+        </Field>
+      )}
+      {item.kind === "ensemble" && person && (
+        <div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onChange({ id: item.id, ...ensembleBlock(person.players) })}
+          >
+            Size from the head-count
+          </Button>
+        </div>
+      )}
       {patchableKinds.includes(item.kind) && (
         <Field label="Patch">
           <Dropdown

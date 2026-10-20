@@ -20,6 +20,7 @@ const item = (over: Partial<StageItem>): StageItem => ({
   h: 1,
   rotation: 0,
   patchRowId: null,
+  personnelId: null,
   group: "",
   ...over,
 });
@@ -72,6 +73,19 @@ describe("the stage plan as a PDF", () => {
     const hidden = stagePlanPage("Joplin Rags", plan, channels, "a3", ["Main pair"]).content;
     expect(hidden).not.toContain("(Main L) Tj");
     expect(hidden).toContain("(Violin) Tj");
+  });
+
+  it("names an ensemble by who it is on the personnel", () => {
+    const strings = item({ kind: "ensemble", label: "Strings", personnelId: "pe" });
+    const page = stagePlanPage(
+      "Joplin Rags",
+      { ...plan, items: [strings] },
+      [],
+      "a3",
+      [],
+      [{ id: "pe", name: "Endless Hall Strings", kind: "ensemble", players: 12 }],
+    ).content;
+    expect(page).toContain("(Endless Hall Strings) Tj");
   });
 
   it.runIf(hasPoppler || process.env.CI)("writes a PDF a reader finds the plan in", async () => {

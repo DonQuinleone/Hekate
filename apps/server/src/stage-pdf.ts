@@ -2,6 +2,7 @@ import {
   type PatchedChannel,
   roundKinds,
   type StageItem,
+  type StagePerson,
   type StagePlan,
   shownLabel,
 } from "@hekate/shared";
@@ -78,6 +79,7 @@ export function stagePlanPage(
   channels: PatchedChannel[],
   paper: StagePaper,
   hidden: string[] = [],
+  people: StagePerson[] = [],
 ): { points: { width: number; height: number }; content: string } {
   const page = STAGE_PAPER[paper];
   const room = {
@@ -137,7 +139,8 @@ export function stagePlanPage(
   const channelOf = (i: StageItem) =>
     i.patchRowId ? channels.find((c) => c.id === i.patchRowId) : undefined;
   for (const item of plan.items) {
-    const label = hidden.includes(item.group) ? null : shownLabel(item, channelOf(item));
+    const person = item.personnelId ? people.find((p) => p.id === item.personnelId) : undefined;
+    const label = hidden.includes(item.group) ? null : shownLabel(item, channelOf(item), person);
     ops.push(drawn(item, label, channelOf(item), X, Y, s));
   }
 
