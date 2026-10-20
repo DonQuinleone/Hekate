@@ -1384,12 +1384,18 @@ export const downloadsQuery = (fileId: string) =>
       json<DownloadChoices>(await api.files[":id"].downloads.$get({ param: { id: fileId } })),
   });
 
-/** Ask for a download: a link that works once, in this session, for five minutes. */
+/**
+ * Ask for a download: a link that works once, in this session, for five minutes. A track's
+ * score may be asked for with the track's score marks drawn over it (#52).
+ */
 export function useRequestDownload(fileId: string) {
   return useMutation({
-    mutationFn: async (kind: DownloadKind) =>
+    mutationFn: async ({ kind, marks }: { kind: DownloadKind; marks?: string }) =>
       json<{ url: string }>(
-        await api.files[":id"].downloads.$post({ param: { id: fileId }, json: { kind } }),
+        await api.files[":id"].downloads.$post({
+          param: { id: fileId },
+          json: marks ? { kind, marks } : { kind },
+        }),
       ),
   });
 }

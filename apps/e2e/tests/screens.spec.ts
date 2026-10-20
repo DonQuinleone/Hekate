@@ -648,6 +648,36 @@ test("score-marking", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The annotated score (#52): the score with its marks over it, made for you and logged.
+test("score-marking-export", async ({ page }) => {
+  await page.goto(`/projects/${seeded().musicProjectId}/score-marking`);
+  await settle(page, "main section >> text=17T3 into T4");
+  await page.getByRole("button", { name: "Export" }).click();
+  await page.getByRole("menuitem", { name: "Annotated PDF" }).click();
+  const dialog = page.getByRole("dialog", { name: "Download" });
+  await expect(dialog).toContainText("with its marks");
+  await expect(dialog.getByText(/as reviewed, as a PDF/)).toBeVisible();
+  await saveScreen(page, "score-marking-export");
+  await checkScreen(page);
+  await dialog.getByText("Proxy").click();
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    dialog.getByRole("button", { name: "Download" }).click(),
+  ]);
+  expect(download.suggestedFilename()).toMatch(/ \(annotated\)\.pdf$/);
+  const bytes = await new Promise<Buffer>((resolve, reject) => {
+    void download.createReadStream().then((stream) => {
+      const chunks: Buffer[] = [];
+      stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+      stream.on("end", () => resolve(Buffer.concat(chunks)));
+      stream.on("error", reject);
+    });
+  });
+  expect(bytes.toString("latin1", 0, 5)).toBe("%PDF-");
+  // The marks are drawn in the page's own text, not baked into the picture.
+  expect(bytes.toString("latin1")).toContain("(3T4) Tj");
+});
+
 // Sharing (#138): the Share dialog, from the project's Reviews, a track and someone chosen.
 test("share-dialog", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);

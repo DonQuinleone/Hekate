@@ -4934,6 +4934,90 @@ describe.runIf(url)("api", () => {
                 (await send("POST", `/api/files/${score}/downloads`, { kind }, viewer)).status,
               ).toBe(403);
             }
+
+            // A track's score with its marks drawn over it (#52), for those who see them.
+            const [track] = await db
+              .insert(schema.tracks)
+              .values({ organisationId, projectId, name: "Maple Leaf Rag", scoreFileId: score })
+              .returning();
+            const [other] = await db
+              .insert(schema.tracks)
+              .values({ organisationId, projectId, name: "The Entertainer" })
+              .returning();
+            await db.insert(schema.scoreMarks).values([
+              {
+                organisationId,
+                trackId: track?.id ?? "",
+                kind: "issue",
+                page: 2,
+                x: 0.2,
+                y: 0.3,
+                text: "Left hand rushes",
+                fixedBy: 2,
+              },
+              {
+                organisationId,
+                trackId: track?.id ?? "",
+                kind: "edit",
+                page: 1,
+                x: 0.5,
+                y: 0.5,
+                fromTake: 3,
+                toTake: 4,
+              },
+            ]);
+            const annotated = async (body: Record<string, unknown>, cookie = owner) =>
+              send("POST", `/api/files/${score}/downloads`, body, cookie);
+            const asked = await annotated({ kind: "proxy", marks: track?.id });
+            expect(asked.status).toBe(201);
+            const got = await getAs(((await asked.json()) as { url: string }).url, owner);
+            expect(got.status).toBe(200);
+            expect(got.headers.get("content-disposition")).toContain(
+              'filename="Score (annotated).pdf"',
+            );
+            const path = join(dir, "annotated.pdf");
+            writeFileSync(path, Buffer.from(await got.arrayBuffer()));
+            const pages = (await run("pdftotext", ["-layout", path, "-"])).stdout.split("\f");
+            expect(pages[0]).toContain("3T4");
+            expect(pages[1]).toContain("Left hand rushes, fixed in T2");
+            const [recorded] = (await audit.query(organisationId, { action: "download", limit: 1 }))
+              .events;
+            expect(recorded?.details).toEqual({ kind: "proxy", scoreMarksOf: track?.id });
+            // Not another track's file, nor a track from nowhere.
+            expect((await annotated({ kind: "proxy", marks: other?.id })).status).toBe(422);
+            expect(
+              (await annotated({ kind: "proxy", marks: "0199f000-0000-7000-8000-000000000001" }))
+                .status,
+            ).toBe(404);
+            // A role that downloads but does not see the production tools takes the score
+            // without the marks only.
+            const levels = {
+              files: "view",
+              comments: "none",
+              reviews: "none",
+              downloads: "proxy",
+              takes: "none",
+              production: "none",
+              workflow: "none",
+              people: "none",
+              project: "none",
+            };
+            expect(
+              (
+                await send(
+                  "POST",
+                  `/api/projects/${projectId}/roles`,
+                  { name: "Copyist", levels },
+                  owner,
+                )
+              ).status,
+            ).toBe(201);
+            const copyist = await joinAs(owner, "copyist@example.test");
+            await grantRole(owner, projectId, copyist, "Copyist");
+            expect((await annotated({ kind: "proxy" }, copyist)).status).toBe(201);
+            expect((await annotated({ kind: "proxy", marks: track?.id }, copyist)).status).toBe(
+              403,
+            );
           } finally {
             rmSync(dir, { recursive: true, force: true });
           }

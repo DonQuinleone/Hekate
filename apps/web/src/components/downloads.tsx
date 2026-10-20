@@ -14,10 +14,13 @@ import { Dialog } from "./ui/dialog";
 export function DownloadDialog({
   fileId,
   name,
+  marks,
   onClose,
 }: {
   fileId: string;
   name: string;
+  /** For a track's score: the track whose score marks are drawn over its pages (#52). */
+  marks?: string;
   onClose: () => void;
 }) {
   const { data } = useQuery(downloadsQuery(fileId));
@@ -30,13 +33,16 @@ export function DownloadDialog({
     picked ?? (usable("original") ? "original" : usable("proxy") ? "proxy" : null);
   const start = () => {
     if (!which) return;
-    request.mutate(which, {
-      // The browser saves it from the response; the page stays where it is.
-      onSuccess: ({ url }) => {
-        window.location.assign(url);
-        onClose();
+    request.mutate(
+      { kind: which, marks },
+      {
+        // The browser saves it from the response; the page stays where it is.
+        onSuccess: ({ url }) => {
+          window.location.assign(url);
+          onClose();
+        },
       },
-    });
+    );
   };
   return (
     <Dialog
@@ -89,7 +95,9 @@ export function DownloadDialog({
       <p className="m-0 mt-3 text-[12px] text-ink-3">
         {data && !data.marked
           ? "Audio carries no mark yet. The download is written to the access log."
-          : "Made for you, with your name drawn across it, and written to the access log."}
+          : marks
+            ? "The score marks drawn over every page, made for you with your name across it, and written to the access log."
+            : "Made for you, with your name drawn across it, and written to the access log."}
       </p>
     </Dialog>
   );

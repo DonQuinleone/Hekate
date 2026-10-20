@@ -1,0 +1,2 @@
+ALTER TABLE "download_tickets" ADD COLUMN "track_id" uuid;--> statement-breakpoint
+ALTER TABLE "download_tickets" ADD CONSTRAINT "download_tickets_track_id_tracks_id_fk" FOREIGN KEY ("track_id") REFERENCES "public"."tracks"("id") ON DELETE cascade ON UPDATE no action;
