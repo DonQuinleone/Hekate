@@ -916,6 +916,15 @@ export const stagePlans = pgTable(
     width: doublePrecision("width").notNull(),
     depth: doublePrecision("depth").notNull(),
     grid: doublePrecision("grid").notNull().default(0.5),
+    /** A floor plan drawn under the stage: a page of a document or picture in the project. */
+    underlayFileId: uuid("underlay_file_id").references(() => files.id, { onDelete: "set null" }),
+    underlayPage: integer("underlay_page").notNull().default(1),
+    /** Where the page's top-left corner falls, in metres from the stage's back-left corner. */
+    underlayX: doublePrecision("underlay_x").notNull().default(0),
+    underlayY: doublePrecision("underlay_y").notNull().default(0),
+    /** How many metres the page spans across. */
+    underlayWidth: doublePrecision("underlay_width"),
+    underlayOpacity: doublePrecision("underlay_opacity").notNull().default(0.5),
     position: integer("position").notNull().default(0),
     ...timestamps,
   },
@@ -923,6 +932,10 @@ export const stagePlans = pgTable(
     index("stage_plans_project_idx").on(t.organisationId, t.projectId),
     uniqueIndex("stage_plans_name_idx").on(t.projectId, t.name),
     check("stage_plans_size", sql`${t.width} > 0 and ${t.depth} > 0 and ${t.grid} > 0`),
+    check(
+      "stage_plans_underlay",
+      sql`${t.underlayOpacity} between 0 and 1 and ${t.underlayPage} >= 1 and (${t.underlayWidth} is null or ${t.underlayWidth} > 0)`,
+    ),
   ],
 );
 

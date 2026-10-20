@@ -9938,7 +9938,14 @@ describe.runIf(url)("api", () => {
             x: number;
             patchRowId: string | null;
           };
-          type Plan = { id: string; name: string; width: number; grid: number; items: Item[] };
+          type Plan = {
+            id: string;
+            name: string;
+            width: number;
+            grid: number;
+            items: Item[];
+            underlay: { fileId: string } | null;
+          };
           type Listed = { plans: Plan[]; channels: { id: string; box: string; source: string }[] };
           const list = async (cookie = s.owner) =>
             (await (
@@ -10127,6 +10134,57 @@ describe.runIf(url)("api", () => {
           expect((await send("DELETE", `/api/patch-rows/${channel.id}`, {})).status).toBe(204);
           expect((await list()).plans[0]?.items[0]).toMatchObject({ id: mic, patchRowId: null });
 
+          // A floor plan under the stage: a page of this project's own documents or pictures.
+          const [project] = await db
+            .select()
+            .from(schema.projects)
+            .where(eq(schema.projects.id, s.projectId));
+          const stored = async (kind: "document" | "audio", projectId: string, org: string) => {
+            const blob = await storage.put(org, Buffer.from(kind));
+            const [row] = await db
+              .insert(schema.files)
+              .values({
+                organisationId: org,
+                projectId,
+                name: `${kind}.pdf`,
+                kind,
+                blobId: blob.id,
+                contentType: kind === "document" ? "application/pdf" : "audio/wav",
+                byteSize: blob.byteSize,
+              })
+              .returning();
+            return row?.id ?? "";
+          };
+          const floor = await stored("document", s.projectId, project?.organisationId ?? "");
+          const sound = await stored("audio", s.projectId, project?.organisationId ?? "");
+          const theirs = await stored("document", theirProject?.id ?? "", elsewhere?.id ?? "");
+          const underlay = { fileId: floor, x: -1, y: -0.5, width: 14, opacity: 0.4 };
+          const laid = await send("PATCH", `/api/stage-plans/${plan.id}`, { underlay });
+          expect(laid.status).toBe(200);
+          expect(((await laid.json()) as { plan: { underlay: unknown } }).plan.underlay).toEqual({
+            ...underlay,
+            page: 1,
+          });
+          for (const fileId of [sound, theirs])
+            expect(
+              (
+                await send("PATCH", `/api/stage-plans/${plan.id}`, {
+                  underlay: { ...underlay, fileId },
+                })
+              ).status,
+            ).toBe(400);
+          expect(
+            (
+              await send("PATCH", `/api/stage-plans/${plan.id}`, {
+                underlay: { ...underlay, opacity: 2 },
+              })
+            ).status,
+          ).toBe(400);
+          expect((await list(s.engineer)).plans[0]).toMatchObject({ underlay: { fileId: floor } });
+          expect(
+            (await send("PATCH", `/api/stage-plans/${plan.id}`, { underlay: null })).status,
+          ).toBe(200);
+          expect((await list()).plans[0]?.underlay).toBeNull();
           expect(
             (await send("PATCH", `/api/stage-plans/${plan.id}`, { name: "Studio 2" })).status,
           ).toBe(409);

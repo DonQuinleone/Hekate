@@ -221,6 +221,8 @@ function drawn(
   ops.push(
     `q ${fill} 0.2 G 0.7 w ${dash}1 0 0 1 ${num(cx)} ${num(cy)} cm ${turned(item.rotation)}${num(-w / 2)} ${num(-h / 2)} ${num(w)} ${num(h)} re ${paint} Q`,
   );
-  if (item.kind !== "wall") words(cx, cy - 2.5);
+  // A riser's name in its corner, clear of whoever stands on it, as the plan puts it.
+  if (item.kind === "riser") words(X(item.x) + 4, Y(item.y) - 9, false);
+  else if (item.kind !== "wall") words(cx, cy - 2.5);
   return ops.join("\n");
 }

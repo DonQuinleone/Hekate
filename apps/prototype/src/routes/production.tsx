@@ -1363,6 +1363,7 @@ function StagePlan() {
               "divider",
               { label: "New stage plan", onSelect: () => {} },
               { label: "Size and grid", onSelect: () => {} },
+              { label: "Floor plan", onSelect: () => {} },
               { label: "Remove this plan", danger: true, onSelect: () => {} },
             ]}
           />

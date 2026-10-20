@@ -26,6 +26,7 @@ const item = (over: Partial<StageItem>): StageItem => ({
 const plan: StagePlan = {
   id: "p",
   name: "Endless Hall",
+  underlay: null,
   width: 12,
   depth: 8,
   grid: 0.5,

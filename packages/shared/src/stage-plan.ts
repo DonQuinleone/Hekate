@@ -56,12 +56,29 @@ export const stagePlanInput = z.object({
 });
 export type StagePlanInput = z.input<typeof stagePlanInput>;
 
-export const stagePlanChangeInput = stagePlanInput
-  .partial()
-  .refine((c) => Object.keys(c).length > 0, { message: "Nothing to change" });
-
 /** Somewhere on or near the stage: mics stand in the hall, walls run past the stage's edge. */
 const place = z.number().min(-100).max(300);
+
+/**
+ * A floor plan under the stage (#53): a page of one of the project's documents or pictures,
+ * drawn from (x, y) in metres and `width` metres across, faded to `opacity`.
+ */
+export const underlayInput = z.object({
+  fileId: z.uuid(),
+  page: z.number().int().min(1).max(10_000).default(1),
+  x: place.default(0),
+  y: place.default(0),
+  width: z.number().gt(0).max(500),
+  opacity: z.number().min(0.05).max(1).default(0.5),
+});
+export type UnderlayInput = z.input<typeof underlayInput>;
+export type Underlay = z.infer<typeof underlayInput>;
+
+export const stagePlanChangeInput = stagePlanInput
+  .partial()
+  /** A floor plan to draw under the stage, or null to take it away. */
+  .extend({ underlay: underlayInput.nullable().optional() })
+  .refine((c) => Object.keys(c).length > 0, { message: "Nothing to change" });
 
 const itemFields = {
   /** Lowercase words joined by hyphens: one of `stageKinds`, or any other kind. */
@@ -146,6 +163,7 @@ export interface StageEdit {
 export interface StagePlan {
   id: string;
   name: string;
+  underlay: Underlay | null;
   width: number;
   depth: number;
   grid: number;
