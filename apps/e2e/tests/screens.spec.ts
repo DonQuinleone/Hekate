@@ -636,6 +636,25 @@ test("stage-plan", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Personnel (#49): artists, the strings in sections, staff and others, with their flags, the
+// ensemble's breakdown open, and the strings being edited.
+test("personnel", async ({ page }) => {
+  await page.goto(`/projects/${seeded().musicProjectId}/personnel`);
+  await settle(page, "main >> text=Endless Hall Strings");
+  await page.getByRole("button", { name: "Breakdown" }).click();
+  await expect(page.getByText("Tomas Varga")).toBeVisible();
+  await saveScreen(page, "personnel");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Actions for Endless Hall Strings" }).click();
+  await page.getByRole("menuitem", { name: "Edit" }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit Endless Hall Strings" });
+  await expect(dialog.getByRole("textbox", { name: "Player 1 of Violin I" })).toHaveValue(
+    "Tomas Varga",
+  );
+  await saveScreen(page, "personnel-ensemble");
+  await checkScreen(page);
+});
+
 // The patch list (#54): the project's stage box with its inputs and outputs, and a channel
 // being changed.
 test("patch-list", async ({ page }) => {

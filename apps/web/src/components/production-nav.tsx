@@ -26,6 +26,12 @@ const sections = [
     to: "/projects/$projectId/patch",
     needs: "view_production",
   },
+  {
+    id: "personnel",
+    label: "Personnel",
+    to: "/projects/$projectId/personnel",
+    needs: "view_production",
+  },
 ] as const;
 
 /**

@@ -52,6 +52,7 @@ import {
   type InstanceWorkspaceSettings,
   type InstanceWorkspaceStorage,
   itemWords,
+  type LinkablePerson,
   type LoudnessSummary,
   type Mark,
   type MarkInput,
@@ -66,6 +67,8 @@ import {
   type PatchedChannel,
   type PatchRowChange,
   type PatchRowInput,
+  type Personnel,
+  type PersonnelInput,
   type PlayerTool,
   type Preferences,
   type PrintedBar,
@@ -2251,6 +2254,42 @@ export function usePatchList(projectId: string) {
     removeRow: useMutation({
       mutationFn: async (id: string) => {
         const res = await api["patch-rows"][":id"].$delete({ param: { id } });
+        if (!res.ok) await json(res);
+      },
+      onSettled: refresh,
+    }),
+  };
+}
+
+/** A project's personnel (#49), and the members and guests an entry may be linked to. */
+export const personnelQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "personnel"],
+    queryFn: async () =>
+      json<{ personnel: Personnel[]; people: LinkablePerson[] }>(
+        await api.projects[":id"].personnel.$get({ param: { id: projectId } }),
+      ),
+  });
+
+/** Adding, changing and removing someone on the production. */
+export function usePersonnel(projectId: string) {
+  const client = useQueryClient();
+  const refresh = () =>
+    void client.invalidateQueries({ queryKey: personnelQuery(projectId).queryKey });
+  return {
+    add: useMutation({
+      mutationFn: async (input: PersonnelInput) =>
+        json(await api.projects[":id"].personnel.$post({ param: { id: projectId }, json: input })),
+      onSettled: refresh,
+    }),
+    change: useMutation({
+      mutationFn: async ({ id, ...input }: PersonnelInput & { id: string }) =>
+        json(await api.personnel[":id"].$put({ param: { id }, json: input })),
+      onSettled: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api.personnel[":id"].$delete({ param: { id } });
         if (!res.ok) await json(res);
       },
       onSettled: refresh,

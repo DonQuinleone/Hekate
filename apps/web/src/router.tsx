@@ -50,6 +50,7 @@ import { InstancePage } from "~/routes/instance";
 import { InvitePage } from "~/routes/invite";
 import { NotificationsPage } from "~/routes/notifications";
 import { PatchListPage } from "~/routes/patch-list";
+import { PersonnelPage } from "~/routes/personnel";
 import {
   ProjectFilesPage,
   ProjectOverviewPage,
@@ -533,6 +534,15 @@ const projectScoreMarking = createRoute({
     return <ScoreMarkingPage projectId={projectId} trackId={track} />;
   },
 });
+// Personnel (#49): everyone on the production, in Production.
+const projectPersonnel = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/personnel",
+  component: function ProjectPersonnelRoute() {
+    const { projectId } = projectPersonnel.useParams();
+    return <PersonnelPage projectId={projectId} />;
+  },
+});
 // Stage plans (#53): a venue's stage to scale and what stands on it, in Production.
 const projectStage = createRoute({
   getParentRoute: () => app,
@@ -819,6 +829,7 @@ export const router = createRouter({
       projectScoreMarking,
       projectStage,
       projectPatch,
+      projectPersonnel,
       session,
       takeLog,
       projectSettings,

@@ -973,6 +973,73 @@ export const stageItems = pgTable(
 );
 
 /**
+ * Someone on a production (#49, docs/domain.md): an artist, an ensemble, staff or another, with
+ * whether the session agreement is signed and whether they need headphones. It may be linked to
+ * a member of the workspace or a guest, so the conductor on the stage plan is the one who reviews.
+ */
+export const personnel = pgTable(
+  "personnel",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: projectId(),
+    name: text("name").notNull(),
+    kind: text("kind").$type<"artist" | "ensemble" | "staff" | "other">().notNull(),
+    role: text("role").notNull().default(""),
+    agreement: boolean("agreement").notNull().default(false),
+    headphones: boolean("headphones").notNull().default(false),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    guestId: uuid("guest_id").references(() => guests.id, { onDelete: "set null" }),
+    /** An ensemble's seating and forces. */
+    seating: text("seating").notNull().default(""),
+    position: integer("position").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [
+    index("personnel_project_idx").on(t.organisationId, t.projectId),
+    check("personnel_kind", sql`${t.kind} in ('artist', 'ensemble', 'staff', 'other')`),
+    check("personnel_link", sql`${t.userId} is null or ${t.guestId} is null`),
+  ],
+);
+
+/** A section of an ensemble: a head-count, how it divides, and its players as they are named. */
+export const personnelSections = pgTable(
+  "personnel_sections",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    personnelId: uuid("personnel_id")
+      .notNull()
+      .references(() => personnel.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    count: integer("count").notNull(),
+    divisi: text("divisi").notNull().default(""),
+    position: integer("position").notNull().default(0),
+  },
+  (t) => [
+    index("personnel_sections_idx").on(t.organisationId, t.personnelId),
+    check("personnel_sections_count", sql`${t.count} >= 0`),
+  ],
+);
+
+/** A named player in an ensemble's section, with their own agreement and headphones. */
+export const sectionMembers = pgTable(
+  "section_members",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    sectionId: uuid("section_id")
+      .notNull()
+      .references(() => personnelSections.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    agreement: boolean("agreement").notNull().default(false),
+    headphones: boolean("headphones").notNull().default(false),
+    position: integer("position").notNull().default(0),
+  },
+  (t) => [index("section_members_idx").on(t.organisationId, t.sectionId)],
+);
+
+/**
  * What changed on a take, a field at a time (#51), so the take log can be written offline and
  * synced later: two people changing different fields both stand; the same field, the later write
  * stands and the value it replaced stays here, flagged when it was someone else's.
