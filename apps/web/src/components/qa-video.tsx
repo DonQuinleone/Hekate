@@ -360,7 +360,6 @@ export function VideoQa({
                       <button
                         type="button"
                         onClick={() => seek(at)}
-                        aria-label={`${qaCheckNames[f.check]} at ${label}`}
                         className="group relative block w-full cursor-pointer overflow-hidden rounded-control border border-hairline bg-transparent p-0 hover:border-edge focus-visible:border-edge"
                       >
                         <FilmstripFrame

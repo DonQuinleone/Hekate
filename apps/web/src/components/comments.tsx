@@ -527,11 +527,11 @@ function CommentBody({
                 size="sm"
                 variant="secondary"
                 className="h-7 max-w-full gap-1.5 text-[12px]"
-                aria-label={`Download ${a.name}`}
                 onClick={() => onDownload(a.id)}
               >
                 <Icon name="download" size={12} />
-                <span className="max-w-48 truncate">{a.name}</span>
+                <span className="sr-only">Download </span>
+                <span className="max-w-48 truncate">{a.name}</span>{" "}
                 <span className="text-ink-3">{formatBytes(a.byteSize)}</span>
               </Button>
               {own && (
@@ -814,8 +814,7 @@ function ThreadView({
               )}
               aria-label={`Show ${marker ? `thread ${marker.n}, ` : ""}${label(anchor)}`}
             >
-              {marker && <span className="text-signal">{marker.n}</span>}
-              {label(anchor)}
+              {marker && <span className="text-signal">{marker.n}</span>} {label(anchor)}
             </button>
           ) : anchor.kind === "region" && anchor.at !== undefined ? (
             // A drawing on a video's frame (#146): back to its frame, as the prototype does.
@@ -823,7 +822,7 @@ function ThreadView({
               type="button"
               onClick={() => onSeek(anchor.at ?? 0)}
               className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 text-[11px] text-ink hover:border-signal"
-              aria-label={`Show the drawing at ${label({ kind: "time", start: anchor.at, end: anchor.at })}`}
+              aria-label={`Show the drawing, ${label(anchor)}`}
             >
               {label(anchor)}
             </button>

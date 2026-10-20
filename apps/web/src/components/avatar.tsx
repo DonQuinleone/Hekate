@@ -12,7 +12,11 @@ export const initials = (name: string) =>
     .slice(0, 2)
     .toUpperCase();
 
-/** A person's initials on a colour of their own, for people and guests alike. */
+/**
+ * A person's initials on a colour of their own, for people and guests alike. The initials are
+ * drawn from an attribute rather than written as text, so a control that holds an avatar is
+ * named by the person's name alone, never by their initials as well (WCAG 2.5.3, label in name).
+ */
 export function Avatar({
   id,
   name,
@@ -31,17 +35,17 @@ export function Avatar({
       aria-hidden="true"
       className={cn(
         "inline-flex shrink-0 items-center justify-center rounded-full font-medium text-ink shadow-1",
+        "before:content-[attr(data-initials)]",
         className,
       )}
+      data-initials={initials(name)}
       style={{
         width: size,
         height: size,
         fontSize: Math.max(9, Math.round(size * 0.4)),
         background: `linear-gradient(145deg, oklch(0.42 0.06 ${hue}), oklch(0.28 0.05 ${hue + 30}))`,
       }}
-    >
-      {initials(name)}
-    </span>
+    />
   );
 }
 

@@ -288,7 +288,14 @@ function WorkspaceMenu({ collapsed, tab = false }: { collapsed: boolean; tab?: b
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`${me.user.name}, ${workspace?.name ?? "workspace"}`}
+        // Named by the name and workspace it shows; with only the avatar or "You" left, by them in words.
+        aria-label={
+          tab
+            ? `You: ${me.user.name}, ${workspace?.name ?? "workspace"}`
+            : collapsed
+              ? `${me.user.name}, ${workspace?.name ?? "workspace"}`
+              : undefined
+        }
         onClick={() => setOpen(!open)}
         className={cn(
           tab
@@ -755,7 +762,8 @@ export function Shell({ children }: { children: ReactNode }) {
           <button
             type="button"
             onClick={() => setCollapsed(!collapsed)}
-            aria-label={collapsed ? "Show labels" : "Show icons only"}
+            // Named by its word while it shows one; by what it does once only the icon is left.
+            aria-label={collapsed ? "Show labels" : undefined}
             title={`${collapsed ? "Show labels" : "Show icons only"} ([)`}
             className={cn(
               "flex h-7 items-center gap-2.5 rounded-control px-2.5 text-[12px] text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink",
