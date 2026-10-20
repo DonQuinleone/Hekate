@@ -177,12 +177,13 @@ export function createApi(deps: AppDeps) {
   reviewDeps.onSettled = (review, by) => reviewSettled(runner, review, by);
   return (
     new Hono()
+      // Before anything that reads the database: liveness must answer while it stalls (#156).
+      .route("/health", health(deps.db, { backends: deps.storage.backends, mailer: deps.mailer }))
       // Read as each request starts (from memory, mostly), for the checks that answer at once.
       .use("*", async (_c, next) => {
         await settings.get();
         await next();
       })
-      .route("/health", health(deps.db, { backends: deps.storage.backends, mailer: deps.mailer }))
       // What everyone is told, signed in or not: maintenance mode's notice (#154).
       .get("/notice", async (c) =>
         c.json({ maintenance: (await settings.get()).maintenance } satisfies InstanceNotice),

@@ -9,13 +9,27 @@ import { version } from "../version.ts";
 /** How long a readiness answer is kept: probes come every few seconds, a storage check writes. */
 const READY_MS = 10_000;
 
-/** A check's state: ok, or failed for any error; never a message, as the answer is public. */
-const state = async (check: () => Promise<unknown>): Promise<CheckState> => {
+/** How long a check may take: a probe that waits longer has failed anyway. */
+const CHECK_MS = 3_000;
+
+/**
+ * A check's state: ok, or failed for any error or for taking too long (a mail server that
+ * never answers must not hold up the answer); never a message, as the answer is public.
+ */
+const state = async (check: () => Promise<unknown>, limitMs: number): Promise<CheckState> => {
+  let timer: NodeJS.Timeout | undefined;
   try {
-    await check();
+    await Promise.race([
+      check(),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("timed out")), limitMs);
+      }),
+    ]);
     return "ok";
   } catch {
     return "failed";
+  } finally {
+    clearTimeout(timer);
   }
 };
 
@@ -25,25 +39,30 @@ const state = async (check: () => Promise<unknown>): Promise<CheckState> => {
  */
 export const health = (
   db: Database,
-  deps: { backends?: Backends; mailer?: Mailer; now?: () => number } = {},
+  deps: { backends?: Backends; mailer?: Mailer; now?: () => number; checkMs?: number } = {},
 ) => {
   const now = deps.now ?? Date.now;
+  const limit = deps.checkMs ?? CHECK_MS;
   const verify = deps.mailer?.verify?.bind(deps.mailer);
   let kept: { at: number; checks: HealthChecks } | null = null;
   const checks = async (): Promise<HealthChecks> => {
     if (kept && now() - kept.at < READY_MS) return kept.checks;
     const [database, storage, worker, mail] = await Promise.all([
-      state(() => db.execute(sql`select 1`)),
-      deps.backends ? state(() => (deps.backends as Backends).checkAll()) : "off",
+      state(() => db.execute(sql`select 1`), limit),
+      deps.backends ? state(() => (deps.backends as Backends).checkAll(), limit) : "off",
       // A worker finishes a scheduled job every minute; none for ten means none is running.
-      db
-        .execute<{ recent: boolean }>(
-          sql`select exists (select 1 from pgboss.job where state = 'completed'
-                and completed_on > now() - interval '10 minutes') as recent`,
-        )
-        .then(([row]): CheckState => (row?.recent ? "ok" : "stale"))
-        .catch((): CheckState => "failed"),
-      verify ? state(verify) : "off",
+      (async (): Promise<CheckState> => {
+        let recent = false;
+        const read = await state(async () => {
+          const [row] = await db.execute<{ recent: boolean }>(
+            sql`select exists (select 1 from pgboss.job where state = 'completed'
+                  and completed_on > now() - interval '10 minutes') as recent`,
+          );
+          recent = row?.recent ?? false;
+        }, limit);
+        return read === "failed" ? "failed" : recent ? "ok" : "stale";
+      })(),
+      verify ? state(verify, limit) : "off",
     ] as const);
     kept = { at: now(), checks: { database, storage, worker, mail } };
     return kept.checks;
