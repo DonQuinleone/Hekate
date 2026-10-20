@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Kbd } from "~/components/kbd";
 import { Rating } from "~/components/takes";
 import { Button } from "~/components/ui/button";
@@ -41,6 +42,10 @@ export function TakeOverview({
   // Focus on the panel, not a button, so Space reaches the take log rather than a control.
   useEffect(() => {
     const node = panel.current;
+    // The page it covers is out of reach while it shows: Tab stays here, and screen readers
+    // read only this. The keys still reach the take log, which listens on the window.
+    const app = document.getElementById("root");
+    if (app) app.inert = true;
     node?.focus();
     let full = false;
     const left = () => {
@@ -50,6 +55,7 @@ export function TakeOverview({
     document.addEventListener("fullscreenchange", left);
     node?.requestFullscreen?.().catch(() => undefined);
     return () => {
+      if (app) app.inert = false;
       document.removeEventListener("fullscreenchange", left);
       if (document.fullscreenElement === node)
         void document.exitFullscreen().catch(() => undefined);
@@ -57,7 +63,8 @@ export function TakeOverview({
   }, []);
 
   const recording = live === "recording";
-  return (
+  const state = recording ? "Recording" : live === "armed" ? "Armed" : "Next take";
+  return createPortal(
     <section
       ref={panel}
       tabIndex={-1}
@@ -87,10 +94,11 @@ export function TakeOverview({
         </Button>
       </header>
 
-      <div
-        role="status"
-        className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 text-center"
-      >
+      {/* Announced when the take or its state changes; the running time is not, every second. */}
+      <span role="status" className="sr-only">
+        {number != null ? `Take ${number}, ${state.toLowerCase()}` : state}
+      </span>
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 text-center">
         <span
           className={cn(
             // The size before the line height: merged the other way, the line height is dropped.
@@ -109,7 +117,7 @@ export function TakeOverview({
           {recording && (
             <span aria-hidden="true" className="breathe size-[0.4em] rounded-full bg-signal" />
           )}
-          {recording ? "Recording" : live === "armed" ? "Armed" : "Next take"}
+          {state}
           {live && <span className="tabular text-ink">{clock(seconds)}</span>}
         </span>
       </div>
@@ -141,6 +149,7 @@ export function TakeOverview({
           </span>
         )}
       </footer>
-    </section>
+    </section>,
+    document.body,
   );
 }
