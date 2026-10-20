@@ -100,9 +100,11 @@ export async function systemHealth(
 ): Promise<SystemHealth> {
   const at = deps.now?.() ?? new Date();
   const span = range === "1h" ? HOUR : 24 * HOUR;
+  // From a minute's turn, as the chart's points are: the range's first minute is in it.
+  const minute = Math.floor(at.getTime() / 60_000) * 60_000;
   const s = schema.healthSamples;
   const [minutes, database, disk, checks, tools, [replicas]] = await Promise.all([
-    minutesSince(db, new Date(at.getTime() - span)),
+    minutesSince(db, new Date(minute - span)),
     databaseOf(db),
     diskOf(deps.diskPath),
     deps.checks(),
@@ -113,7 +115,7 @@ export async function systemHealth(
       .from(s)
       .where(gte(s.at, new Date(at.getTime() - 3 * 60_000))),
   ]);
-  const lastHour = minutes.filter((m) => new Date(m.at).getTime() >= at.getTime() - HOUR);
+  const lastHour = minutes.filter((m) => new Date(m.at).getTime() >= minute - HOUR);
   const p95s = lastHour.flatMap((m) => (m.p95Seconds === null ? [] : [m.p95Seconds]));
   const lanes = {
     used: metrics.workerLanesBusy.total(),

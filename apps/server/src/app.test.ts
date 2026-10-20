@@ -61,6 +61,7 @@ import { health } from "./routes/health.ts";
 import { rehomePending } from "./score-swap.ts";
 import { createSetupGate, SETUP_CODE_HEADER } from "./setup-code.ts";
 import { createStorage } from "./storage.ts";
+import { systemHealth } from "./system-health.ts";
 import { remindTasksDue } from "./tasks.ts";
 import { expireUploads } from "./uploads.ts";
 import { clockElapsed, fileMeasured, sweepRuns, workflowsFor } from "./workflow-runner.ts";
@@ -1485,6 +1486,30 @@ describe.runIf(url)("api", () => {
         expect(health.services.find((service) => service.name === "database")?.state).toBe("ok");
         expect(health.metrics.map((m) => m.name)).toContain("hekate_worker_lanes_busy");
         expect((await read("7d")).status).toBe(400);
+
+        // Asked half a minute past the turn, the hour's first minute is still its first point.
+        const turn = Math.floor(Date.now() / 60_000) * 60_000;
+        await db.delete(schema.healthSamples);
+        await db.insert(schema.healthSamples).values({
+          replica: sampler.replica,
+          at: new Date(turn - 60 * 60_000),
+          requests: 7,
+          errors: 0,
+          jobsWaiting: 0,
+          lanes: 0,
+          lanesBusy: 0,
+          uploadBytes: 0,
+          cpu: 0,
+          cores: 1,
+          memoryUsed: 0,
+          memoryTotal: 1,
+        });
+        const asked = await systemHealth(db, "1h", {
+          checks: async () => ({ database: "ok", storage: "ok", worker: "ok", mail: "off" }),
+          diskPath: tmpdir(),
+          now: () => new Date(turn + 30_000),
+        });
+        expect(asked.series.requestsPerMinute[0]).toBe(7);
         const theirOwner = await join(operator, "label@example.test", "owner");
         expect((await read("24h", theirOwner)).status).toBe(403);
       });
