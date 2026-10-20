@@ -282,3 +282,15 @@ export function scoreMarksCsv(
   ]);
   return `${[header, ...rows].map((r) => r.map((c) => csvCell(c)).join(",")).join("\r\n")}\r\n`;
 }
+
+/**
+ * A take or bar typed in a field, read whole: a number ("12", or "T12" for a take), null when
+ * the field is empty, and undefined when it is not a number at all ("12abc", "3.5").
+ */
+export function typedNumber(typed: string, take = false): number | null | undefined {
+  const trimmed = typed.trim();
+  if (trimmed === "") return null;
+  const n = (take ? /^t?(\d{1,6})$/i : /^(\d{1,6})$/).exec(trimmed)?.[1];
+  if (n === undefined) return undefined;
+  return take && Number(n) < 1 ? undefined : Number(n);
+}

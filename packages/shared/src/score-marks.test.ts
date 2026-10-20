@@ -6,6 +6,7 @@ import {
   scoreMarkInput,
   scoreMarksCsv,
   takeList,
+  typedNumber,
 } from "./score-marks.ts";
 
 const edit = (id: string, page: number, y: number, from: number | null, to: number, more = {}) => ({
@@ -173,5 +174,19 @@ describe("scoreMarksCsv", () => {
       "1,17,Edit point,,17T12 into T7,,,",
       "",
     ]);
+  });
+});
+
+describe("typedNumber", () => {
+  it("reads a take or a bar whole, and refuses half a number", () => {
+    expect(typedNumber("T12", true)).toBe(12);
+    expect(typedNumber(" 7 ", true)).toBe(7);
+    expect(typedNumber("", true)).toBeNull();
+    expect(typedNumber("T12abc", true)).toBeUndefined();
+    expect(typedNumber("3.5")).toBeUndefined();
+    expect(typedNumber("17bars")).toBeUndefined();
+    expect(typedNumber("T0", true)).toBeUndefined();
+    expect(typedNumber("T3")).toBeUndefined();
+    expect(typedNumber("0")).toBe(0);
   });
 });

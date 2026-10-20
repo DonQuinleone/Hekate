@@ -11,6 +11,7 @@ import {
   scoreMarksCsv,
   scoreMarkTools,
   takeList,
+  typedNumber,
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -106,7 +107,7 @@ export function ScoreMarkingPage({ projectId, trackId }: { projectId: string; tr
     <ProjectFrame projectId={projectId} title="Score marking">
       {(project) => (
         <div className="fade-in mx-auto flex w-full max-w-[1360px] flex-col gap-4 px-5 py-6 @3xl/app:px-10">
-          <ProductionNav projectId={projectId} current="score" />
+          <ProductionNav projectId={projectId} current="score" can={can} />
           {!can("view_production") ? (
             <Empty
               title="Not among what your role shows"
@@ -163,7 +164,7 @@ function Marking({
 }) {
   const client = useQueryClient();
   const { data, error } = useQuery(scoreMarksQuery(trackId));
-  const { data: view } = useQuery(viewQuery(scoreFileId));
+  const { data: view, error: viewError, refetch: drawAgain } = useQuery(viewQuery(scoreFileId));
   const { add, change, remove } = useScoreMarks(trackId);
   const [page, setPage] = useState(1);
   const [layout, setLayout] = useState<Layout>("single");
@@ -176,7 +177,8 @@ function Marking({
 
   const marks = data?.marks ?? [];
   const categories = data?.categories ?? [];
-  const pageCount = view?.pageCount ?? 1;
+  // Only the pages drawn can be marked; a score past the renderer's limit says so below.
+  const pageCount = Math.max(1, view?.pages.length ?? 1);
   const current = marks.find((m) => m.id === selected) ?? null;
   const edits = readingOrder(marks.filter((m) => m.kind === "edit"));
   const issueCategory = category ?? categories[0]?.id ?? null;
@@ -370,14 +372,21 @@ function Marking({
           </span>
         </div>
         <div className="scroll-quiet flex max-h-[78vh] flex-wrap justify-center gap-4 overflow-auto rounded-panel bg-sunken p-4">
-          {!view ? (
+          {viewError ? (
+            <p className="m-auto flex flex-col items-center gap-2 text-center text-[13px] text-ink-2">
+              {viewError.message}
+              <Button variant="secondary" size="sm" onClick={() => void drawAgain()}>
+                Try again
+              </Button>
+            </p>
+          ) : !view ? (
             <p className="m-auto text-[13px] text-ink-3">Drawing the score</p>
           ) : (
             shownPages.map((p) => (
               <ScorePage
                 key={p}
                 page={p}
-                url={view.pages.find((v) => v.page === p)?.url}
+                drawn={view.pages.find((v) => v.page === p)}
                 width={layout === "single" ? 720 : 480}
                 filter={filters[filter].css}
                 marks={marks.filter((m) => m.page === p)}
@@ -406,6 +415,12 @@ function Marking({
             ))
           )}
         </div>
+        {view && view.pageCount > view.pages.length && (
+          <p className="m-0 text-center text-[13px] text-ink-3">
+            The first {view.pages.length} of {view.pageCount} pages are drawn; the rest cannot be
+            marked yet.
+          </p>
+        )}
         {marks.length === 0 && data && (
           <p className="m-0 text-center text-[13px] text-ink-3">
             {canMark
@@ -477,7 +492,7 @@ function Marking({
 /** One page of the score with its marks over it; a click places, a drag inks. */
 function ScorePage({
   page,
-  url,
+  drawn,
   width,
   filter,
   marks,
@@ -490,7 +505,8 @@ function ScorePage({
   onLapsed,
 }: {
   page: number;
-  url: string | undefined;
+  /** The page as drawn: its link, and its size so it holds its place while it loads. */
+  drawn: { url: string; width: number; height: number } | undefined;
   width: number;
   filter: string;
   marks: ScoreMark[];
@@ -518,13 +534,15 @@ function ScorePage({
       style={{ width }}
       aria-label={`Page ${page}`}
     >
-      {url ? (
+      {drawn ? (
         <img
-          src={url}
+          src={drawn.url}
           alt={`Page ${page} of the score`}
+          width={drawn.width}
+          height={drawn.height}
           onError={onLapsed}
           className="block h-auto w-full select-none"
-          style={{ filter: filter || undefined }}
+          style={{ filter: filter || undefined, aspectRatio: `${drawn.width} / ${drawn.height}` }}
           draggable={false}
         />
       ) : (
@@ -654,12 +672,11 @@ function NewMark({
   const [text, setText] = useState("");
   const [overdub, setOverdub] = useState(false);
   const kind = placing.kind;
-  const number = (typed: string) => {
-    const n = Number.parseInt(typed.replace(/^t/i, ""), 10);
-    return n >= 1 ? n : null;
-  };
   const wantsTake = kind !== "dynamic" && kind !== "note";
-  const ready = wantsTake ? number(to) !== null : text.trim() !== "";
+  // Each read whole: "T12abc" or "3.5" is no take or bar, not 12 or 3.
+  const read = { from: typedNumber(from, true), to: typedNumber(to, true), bar: typedNumber(bar) };
+  const wrong = Object.values(read).some((v) => v === undefined);
+  const ready = !wrong && (wantsTake ? read.to != null : text.trim() !== "");
   return (
     <Dialog
       title={scoreMarkTools[kind].name}
@@ -680,11 +697,11 @@ function NewMark({
             disabled={!ready || pending}
             onClick={() =>
               onMake({
-                barFrom: number(bar),
+                barFrom: read.bar ?? null,
                 ...(wantsTake
                   ? {
-                      to: number(to),
-                      ...(kind === "edit" ? { from: number(from), overdub } : {}),
+                      to: read.to ?? null,
+                      ...(kind === "edit" ? { from: read.from ?? null, overdub } : {}),
                     }
                   : { text: text.trim() }),
               })
@@ -697,12 +714,19 @@ function NewMark({
     >
       <div className="flex flex-col gap-3">
         {kind === "edit" && (
-          <Field label="From take" hint="Empty for the lead-in">
+          <Field
+            label="From take"
+            hint="Empty for the lead-in"
+            error={read.from === undefined ? "A take, as 12 or T12" : undefined}
+          >
             <Input inputMode="numeric" value={from} onChange={(e) => setFrom(e.target.value)} />
           </Field>
         )}
         {wantsTake && (
-          <Field label={kind === "edit" ? "Into take" : "Take"}>
+          <Field
+            label={kind === "edit" ? "Into take" : "Take"}
+            error={read.to === undefined ? "A take, as 12 or T12" : undefined}
+          >
             <Input
               inputMode="numeric"
               value={to}
@@ -722,7 +746,11 @@ function NewMark({
             />
           </Field>
         )}
-        <Field label="Bar" hint="Where known">
+        <Field
+          label="Bar"
+          hint="Where known"
+          error={read.bar === undefined ? "A bar, as a number" : undefined}
+        >
           <Input inputMode="numeric" value={bar} onChange={(e) => setBar(e.target.value)} />
         </Field>
         {kind === "edit" && (
@@ -801,9 +829,12 @@ function MarkFields({
   const [from, setFrom] = useState(mark.from ? String(mark.from) : "");
   const [to, setTo] = useState(mark.to ? String(mark.to) : "");
   const [problem, setProblem] = useState<string | null>(null);
-  const number = (typed: string) => {
-    const n = Number.parseInt(typed.replace(/^t/i, ""), 10);
-    return n >= 1 ? n : null;
+  /** A take typed in a field, saved only when it is one: "T12abc" is told, not saved as 12. */
+  const saveTake = (typed: string, save: (n: number | null) => void, required = false) => {
+    const n = typedNumber(typed, true);
+    if (n === undefined || (required && n === null)) return setProblem("A take, as 12 or T12");
+    setProblem(null);
+    save(n);
   };
   const saveBars = () => {
     const found = /^\s*(\d+)\s*(?:[-–]\s*(\d+))?\s*$/.exec(bars);
@@ -827,6 +858,34 @@ function MarkFields({
         {mark.barFrom != null ? ` · ${barsOf(mark)}` : ""}
         {mark.by ? ` · ${mark.by.name}` : ""}
       </span>
+      {!canMark && (
+        <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-ink-2">
+          {mark.text && mark.kind !== "edit" && (
+            <>
+              <dt className="text-ink-3">Says</dt>
+              <dd className="m-0">{mark.text}</dd>
+            </>
+          )}
+          {mark.takes.length > 0 && (
+            <>
+              <dt className="text-ink-3">Takes</dt>
+              <dd className="tabular m-0">{mark.takes.map((t) => `T${t}`).join(", ")}</dd>
+            </>
+          )}
+          {mark.fixedBy != null && (
+            <>
+              <dt className="text-ink-3">Fixed by</dt>
+              <dd className="tabular m-0">T{mark.fixedBy}</dd>
+            </>
+          )}
+          {mark.kind === "issue" && (
+            <>
+              <dt className="text-ink-3">Status</dt>
+              <dd className="m-0">{mark.resolved ? "Resolved" : "Open"}</dd>
+            </>
+          )}
+        </dl>
+      )}
       {canMark && (
         <>
           <Field label="Bars" error={problem}>
@@ -863,7 +922,7 @@ function MarkFields({
                   value={from}
                   placeholder="Lead-in"
                   onChange={(e) => setFrom(e.target.value)}
-                  onBlur={() => onChange({ from: number(from) })}
+                  onBlur={() => saveTake(from, (n) => onChange({ from: n }))}
                 />
               </Field>
               <Field label="Into take">
@@ -872,7 +931,7 @@ function MarkFields({
                   inputMode="numeric"
                   value={to}
                   onChange={(e) => setTo(e.target.value)}
-                  onBlur={() => number(to) !== null && onChange({ to: number(to) })}
+                  onBlur={() => saveTake(to, (n) => onChange({ to: n }), true)}
                 />
               </Field>
             </div>
@@ -910,7 +969,7 @@ function MarkFields({
                   value={fixedBy}
                   placeholder="T12"
                   onChange={(e) => setFixedBy(e.target.value)}
-                  onBlur={() => onChange({ fixedBy: number(fixedBy) })}
+                  onBlur={() => saveTake(fixedBy, (n) => onChange({ fixedBy: n }))}
                 />
               </Field>
               <label className="flex items-center gap-2 text-ink-2">

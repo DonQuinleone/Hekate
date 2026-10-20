@@ -78,7 +78,7 @@ export function SessionsPage({ projectId }: { projectId: string }) {
     >
       {(project) => (
         <div className={body}>
-          <ProductionNav projectId={projectId} current="sessions" />
+          <ProductionNav projectId={projectId} current="sessions" can={can} />
           {!can("view_takes") ? (
             <Empty
               title="Not among what your role shows"
