@@ -53,7 +53,7 @@ function SubscribeDialog({
   return (
     <Dialog
       title="Add to your calendar"
-      description={`A feed of ${projectName}: review due dates, task deadlines and sessions. It updates itself; the link is yours alone.`}
+      description={`A feed of ${projectName}: review due dates, task deadlines, sessions and schedule days. It updates itself; the link is yours alone.`}
       onClose={onClose}
       width="sm"
       footer={
@@ -119,8 +119,8 @@ function SubscribeDialog({
 }
 
 /**
- * A month of a project's calendar (#141), as the prototype has it: reviews and tasks due, and
- * sessions recorded, each opening where it is; late ones marked. The feed takes it elsewhere.
+ * A month of a project's calendar (#141), as the prototype has it: reviews and tasks due,
+ * sessions recorded and schedule days (#50), each opening where it is; late ones marked. The feed takes it elsewhere.
  */
 export function ProjectCalendar({
   projectId,
@@ -279,7 +279,7 @@ export function ProjectCalendar({
         )}
       </ol>
       <p className="m-0 text-[12px] text-ink-3">
-        Review due dates, task deadlines and recording sessions.
+        Review due dates, task deadlines, recording sessions and schedule days.
       </p>
       {subscribing && (
         <SubscribeDialog
