@@ -3,6 +3,8 @@ import {
   addTakesInput,
   canMoveTake,
   fieldChanges,
+  marksAtBar,
+  type ScoreMarkKind,
   type SharedTake,
   shareTakesInput,
   type TakeHistoryEntry,
@@ -13,6 +15,7 @@ import {
   takeLifecycleNames,
   takeProblem,
   takesCovering,
+  takesForBar,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, eq, inArray, max } from "drizzle-orm";
@@ -139,10 +142,21 @@ export const trackTakeRoutes = (db: Database) =>
       async (c) => {
         const organisationId = c.var.organisationId;
         const track = await trackOf(db, organisationId, c.req.valid("param").id);
-        await can(db, actorOf(c.var), "view_takes", track.projectId);
+        const access = await can(db, actorOf(c.var), "view_takes", track.projectId);
         const all = await takesOf(db, organisationId, track.id);
         const { bar } = c.req.valid("query");
-        return c.json({ takes: bar === undefined ? all : takesCovering(all, bar) });
+        if (bar === undefined) return c.json({ takes: all });
+        // The score marks (#52) add the takes that fixed the bar, for those who may see them;
+        // without them, the takes whose bars cover it.
+        if (!access.permissions.has("view_production")) {
+          return c.json({ takes: takesCovering(all, bar) });
+        }
+        const rows = await db
+          .select()
+          .from(schema.scoreMarks)
+          .where(inOrg(schema.scoreMarks, organisationId, eq(schema.scoreMarks.trackId, track.id)));
+        const marks = rows.map((m) => ({ ...m, kind: m.kind as ScoreMarkKind }));
+        return c.json({ takes: takesForBar(all, bar, marksAtBar(marks, bar)) });
       },
     )
     .post("/:id/takes", idParam, zValidator("json", addTakesInput), async (c) => {

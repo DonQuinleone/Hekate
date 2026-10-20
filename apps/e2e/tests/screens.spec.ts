@@ -1454,6 +1454,9 @@ test("file-comment-other-takes", async ({ page }) => {
   const panel = page.getByRole("region", { name: "Other takes for bar 9" });
   await expect(panel.getByRole("listitem")).toHaveCount(2);
   await expect(panel).toContainText("Good opening");
+  // The score marks say take 2 fixed the left hand there, and take 1 is where it rushed (#52).
+  await expect(panel.getByRole("listitem").first()).toContainText("Fixed Left hand rushes");
+  await expect(panel).toContainText("Left hand rushes here");
   // V2's edit decision list uses take 2 at bar 9 (#56).
   await expect(panel.getByRole("listitem").filter({ hasText: "in V2" })).toHaveCount(1);
   // Those who triage choose which to share (#133); the one already shared says so.

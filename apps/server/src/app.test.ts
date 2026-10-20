@@ -8907,6 +8907,31 @@ describe.runIf(url)("api", () => {
           ).json()) as Listed;
           expect(none.takes).toEqual([]);
 
+          // A score mark (#52) saying take 1 fixed bar 95 offers it there, first, to those who
+          // see the production tools; a reviewer, who does not, still sees the takes by bars.
+          await db.insert(schema.scoreMarks).values({
+            organisationId: s.organisationId,
+            trackId: s.trackId,
+            kind: "issue",
+            page: 1,
+            x: 0.5,
+            y: 0.5,
+            barFrom: 94,
+            barTo: 96,
+            text: "Late entry",
+            takes: [2],
+            fixedBy: 1,
+          });
+          const atBar = async (bar: number, cookie: string) =>
+            (
+              (await (
+                await getAs(`/api/tracks/${s.trackId}/takes?bar=${bar}`, cookie)
+              ).json()) as Listed
+            ).takes.map((t) => t.number);
+          expect(await atBar(95, s.engineer)).toEqual([1]);
+          expect(await atBar(95, s.composer)).toEqual([]);
+          expect(await atBar(72, s.engineer)).toEqual([3, 2, 1]);
+
           // The file page says which take a file is.
           const details = (await (await getAs(`/api/files/${t3}/details`, s.composer)).json()) as {
             usedIn: { take: { number: number; track: string } | null };

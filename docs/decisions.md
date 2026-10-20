@@ -890,3 +890,11 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Reading the score.** Single, two-up and continuous layouts; paper, invert, sepia, amber, cyan and grey displays for a dark room; the arrow keys turn the page, and full stop steps through the edit points in reading order.
 - **Beside it.** The inspector for the chosen mark (its bars, words, category, the takes it occurred in, the take that fixed it, resolved; an edit point's takes), the edit plot check with the chain it follows, and the marks on the pages shown.
 - **Exports.** The marks as CSV now; the annotated score PDF, going to a bar by the score's printed numbers, and swapping the score follow.
+
+## 159. Score marks answer "other options for this bar?"
+
+#52, third part: "marks feed take coverage (#46)".
+
+- **Which take fixed it.** An issue marked on the score covers its bars, or the bar it was marked at. Asked for the takes of a bar (the thread's Other takes, or the track's takes filtered by bar), the take an issue there was fixed by comes first and says what it fixed ("Fixed Left hand rushes"). It is offered even when its own bars were never set, since the producer's mark says it holds the bar.
+- **Where it went wrong.** The takes an issue there occurred in say so, in the signal colour ("Left hand rushes here"), so nobody picks the one the producer marked down.
+- **Otherwise as before.** Starred takes, then by rating, then in order. A role that does not see the production tools sees the takes as before, without what the marks say.
