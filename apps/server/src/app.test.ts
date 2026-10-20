@@ -9881,9 +9881,28 @@ describe.runIf(url)("api", () => {
             404,
           );
 
+          // Two channels added at once to a box are numbered one after the other, both kept.
+          const pair = (
+            (await (
+              await send("POST", `/api/projects/${s.projectId}/stage-boxes`, { name: "Box C" })
+            ).json()) as { box: Box }
+          ).box;
+          const together = await Promise.all(
+            ["Harp", "Celesta"].map((source) =>
+              send("POST", `/api/stage-boxes/${pair.id}/rows`, { direction: "input", source }),
+            ),
+          );
+          expect(together.map((r) => r.status)).toEqual([201, 201]);
+          const numbered = await Promise.all(
+            together.map(
+              async (r) => ((await r.json()) as { row: { channel: number } }).row.channel,
+            ),
+          );
+          expect(numbered.sort()).toEqual([1, 2]);
+
           // Removing a box takes its channels with it.
           expect((await send("DELETE", `/api/stage-boxes/${box.id}`, {})).status).toBe(204);
-          expect((await list()).map((b) => b.name)).toEqual(["Stage box B"]);
+          expect((await list()).map((b) => b.name)).toEqual(["Stage box B", "Box C"]);
         });
 
         it("keeps the producer's score marks on the track, and checks the edit plot (#52)", async () => {

@@ -300,8 +300,10 @@ function RowDialog({
   const [cable, setCable] = useState(row?.cable ?? "");
   const [notes, setNotes] = useState(row?.notes ?? "");
   const saving = row ? changeRow : addRow;
-  const number = channel.trim() === "" ? undefined : Number.parseInt(channel, 10);
-  const valid = number === undefined || (Number.isInteger(number) && number >= 1 && number <= 999);
+  // Whole digits only: "3abc" or "1.5" is not channel 3 or 1.
+  const typed = channel.trim();
+  const number = /^\d{1,3}$/.test(typed) ? Number(typed) : undefined;
+  const valid = typed === "" || (number !== undefined && number >= 1);
   const save = (e: FormEvent) => {
     e.preventDefault();
     if (!valid) return;

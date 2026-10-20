@@ -172,6 +172,12 @@ export const stageBoxRoutes = (db: Database) =>
       try {
         const made = await db.transaction(async (tx) => {
           await lockLiveProject(tx, organisationId, box.projectId);
+          // The box locked, so two channels added at once are numbered one after the other.
+          await tx
+            .select({ id: stageBoxes.id })
+            .from(stageBoxes)
+            .where(inOrg(stageBoxes, organisationId, eq(stageBoxes.id, box.id)))
+            .for("update");
           if (given === undefined) {
             const taken = await tx
               .select({ channel: patchRows.channel })
@@ -210,7 +216,15 @@ export const patchRowRoutes = (db: Database) => {
       })
       .from(patchRows)
       .innerJoin(stageBoxes, eq(stageBoxes.id, patchRows.stageBoxId))
-      .where(inOrg(patchRows, vars.organisationId, eq(patchRows.id, id)));
+      // Both tables in the workspace: the box's project decides who may change the channel.
+      .where(
+        inOrg(
+          patchRows,
+          vars.organisationId,
+          eq(patchRows.id, id),
+          eq(stageBoxes.organisationId, vars.organisationId),
+        ),
+      );
     if (!row) throw new NotFound("Channel");
     await can(db, actorOf(vars), "edit_production", row.projectId);
     return row;
