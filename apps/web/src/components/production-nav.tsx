@@ -14,6 +14,12 @@ const sections = [
     to: "/projects/$projectId/score-marking",
     needs: "view_production",
   },
+  {
+    id: "patch",
+    label: "Patch list",
+    to: "/projects/$projectId/patch",
+    needs: "view_production",
+  },
 ] as const;
 
 /**

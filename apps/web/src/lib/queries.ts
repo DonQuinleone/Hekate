@@ -63,6 +63,8 @@ import {
   narrowed,
   type OperatorRow,
   type OverviewSection,
+  type PatchRowChange,
+  type PatchRowInput,
   type PlayerTool,
   type Preferences,
   type PrintedBar,
@@ -100,6 +102,7 @@ import {
   type SsoServiceProvider,
   type SsoSettings,
   type SsoSettingsInput,
+  type StageBox,
   type StandingGrant,
   type StartTake,
   searchResponse,
@@ -2187,6 +2190,65 @@ export function useTakeOutbox(sessionId: string) {
         body: { ...rolledAt(take, change, at), base: baseOf(take, change), at },
       });
     },
+  };
+}
+
+/** A project's patch list (#54): its stage boxes, each with its inputs and outputs. */
+export const patchQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "patch"],
+    queryFn: async () =>
+      (
+        await json<{ boxes: StageBox[] }>(
+          await api.projects[":id"].patch.$get({ param: { id: projectId } }),
+        )
+      ).boxes,
+  });
+
+/** Adding, renaming and removing stage boxes, and patching their channels. */
+export function usePatchList(projectId: string) {
+  const client = useQueryClient();
+  const refresh = () => void client.invalidateQueries({ queryKey: patchQuery(projectId).queryKey });
+  return {
+    addBox: useMutation({
+      mutationFn: async (name: string) =>
+        json(
+          await api.projects[":id"]["stage-boxes"].$post({
+            param: { id: projectId },
+            json: { name },
+          }),
+        ),
+      onSettled: refresh,
+    }),
+    renameBox: useMutation({
+      mutationFn: async ({ id, name }: { id: string; name: string }) =>
+        json(await api["stage-boxes"][":id"].$patch({ param: { id }, json: { name } })),
+      onSettled: refresh,
+    }),
+    removeBox: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api["stage-boxes"][":id"].$delete({ param: { id } });
+        if (!res.ok) await json(res);
+      },
+      onSettled: refresh,
+    }),
+    addRow: useMutation({
+      mutationFn: async ({ boxId, ...row }: PatchRowInput & { boxId: string }) =>
+        json(await api["stage-boxes"][":id"].rows.$post({ param: { id: boxId }, json: row })),
+      onSettled: refresh,
+    }),
+    changeRow: useMutation({
+      mutationFn: async ({ id, ...change }: PatchRowChange & { id: string }) =>
+        json(await api["patch-rows"][":id"].$patch({ param: { id }, json: change })),
+      onSettled: refresh,
+    }),
+    removeRow: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api["patch-rows"][":id"].$delete({ param: { id } });
+        if (!res.ok) await json(res);
+      },
+      onSettled: refresh,
+    }),
   };
 }
 

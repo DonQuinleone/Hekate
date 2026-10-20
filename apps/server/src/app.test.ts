@@ -9762,6 +9762,130 @@ describe.runIf(url)("api", () => {
           expect((await getAs(`/api/takes/${id}/history`, listener)).status).toBe(403);
         });
 
+        it("keeps a project's patch list: stage boxes and their channels (#54)", async () => {
+          const s = await studio();
+          const send = (method: string, url: string, body: unknown, cookie = s.owner) =>
+            app.request(url, { ...json(body, cookie), method });
+          type Box = {
+            id: string;
+            name: string;
+            inputs: { id: string; channel: number; source: string; cable: string }[];
+            outputs: { id: string; channel: number; source: string }[];
+          };
+          const list = async (cookie = s.owner) =>
+            (
+              (await (await getAs(`/api/projects/${s.projectId}/patch`, cookie)).json()) as {
+                boxes: Box[];
+              }
+            ).boxes;
+          expect(await list()).toEqual([]);
+
+          const made = await send("POST", `/api/projects/${s.projectId}/stage-boxes`, {
+            name: "Stage box A",
+          });
+          expect(made.status).toBe(201);
+          const box = ((await made.json()) as { box: Box }).box;
+          expect(
+            (
+              await send("POST", `/api/projects/${s.projectId}/stage-boxes`, {
+                name: "Stage box A",
+              })
+            ).status,
+          ).toBe(409);
+          await send("POST", `/api/projects/${s.projectId}/stage-boxes`, { name: "Stage box B" });
+
+          const row = (body: Record<string, unknown>, cookie = s.owner) =>
+            send("POST", `/api/stage-boxes/${box.id}/rows`, body, cookie);
+          // Numbered on from the highest when no channel is given; a channel used is refused.
+          expect((await row({ direction: "input", source: "Main L", cable: "A1" })).status).toBe(
+            201,
+          );
+          expect(
+            (await row({ direction: "input", channel: 3, source: "Spot piano L" })).status,
+          ).toBe(201);
+          const fourth = (await (await row({ direction: "input", source: "Room L" })).json()) as {
+            row: { id: string; channel: number };
+          };
+          expect(fourth.row.channel).toBe(4);
+          const taken = await row({ direction: "input", channel: 3, source: "Again" });
+          expect(taken.status).toBe(409);
+          expect(await taken.text()).toContain("Input 3 of this box is already patched");
+          expect((await row({ direction: "output", source: "Talkback" })).status).toBe(201);
+
+          const [first] = await list();
+          expect(first?.inputs.map((r) => [r.channel, r.source])).toEqual([
+            [1, "Main L"],
+            [3, "Spot piano L"],
+            [4, "Room L"],
+          ]);
+          expect(first?.outputs.map((r) => [r.channel, r.source])).toEqual([[1, "Talkback"]]);
+
+          // Changed, moved to a free channel, refused onto a used one, unpatched.
+          expect(
+            (await send("PATCH", `/api/patch-rows/${fourth.row.id}`, { channel: 2, cable: "A2" }))
+              .status,
+          ).toBe(200);
+          expect(
+            (await send("PATCH", `/api/patch-rows/${fourth.row.id}`, { channel: 1 })).status,
+          ).toBe(409);
+          expect((await send("PATCH", `/api/patch-rows/${fourth.row.id}`, {})).status).toBe(400);
+          expect((await send("DELETE", `/api/patch-rows/${fourth.row.id}`, {})).status).toBe(204);
+          expect((await list())[0]?.inputs.map((r) => r.channel)).toEqual([1, 3]);
+          expect(
+            (await send("PATCH", `/api/stage-boxes/${box.id}`, { name: "Stage box B" })).status,
+          ).toBe(409);
+          expect(
+            (await send("PATCH", `/api/stage-boxes/${box.id}`, { name: "Piano box" })).status,
+          ).toBe(200);
+
+          // The engineer sees it but may not change it; a reviewer sees none of it.
+          expect((await list(s.engineer)).map((b) => b.name)).toEqual(["Piano box", "Stage box B"]);
+          expect((await row({ direction: "input", source: "Mine" }, s.engineer)).status).toBe(403);
+          expect((await getAs(`/api/projects/${s.projectId}/patch`, s.composer)).status).toBe(403);
+
+          // Another workspace's box, and its channels, are not this one's to touch.
+          const [elsewhere] = await db
+            .insert(schema.organisations)
+            .values({ name: "Elsewhere", slug: "elsewhere-patch" })
+            .returning();
+          const [theirProject] = await db
+            .insert(schema.projects)
+            .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+            .returning();
+          const [theirBox] = await db
+            .insert(schema.stageBoxes)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              projectId: theirProject?.id ?? "",
+              name: "Theirs",
+            })
+            .returning();
+          const [theirRow] = await db
+            .insert(schema.patchRows)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              stageBoxId: theirBox?.id ?? "",
+              direction: "input",
+              channel: 1,
+            })
+            .returning();
+          expect(
+            (await send("PATCH", `/api/stage-boxes/${theirBox?.id}`, { name: "Mine" })).status,
+          ).toBe(404);
+          expect(
+            (await send("POST", `/api/stage-boxes/${theirBox?.id}/rows`, { direction: "input" }))
+              .status,
+          ).toBe(404);
+          expect((await send("DELETE", `/api/patch-rows/${theirRow?.id}`, {})).status).toBe(404);
+          expect((await getAs(`/api/projects/${theirProject?.id}/patch`, s.owner)).status).toBe(
+            404,
+          );
+
+          // Removing a box takes its channels with it.
+          expect((await send("DELETE", `/api/stage-boxes/${box.id}`, {})).status).toBe(204);
+          expect((await list()).map((b) => b.name)).toEqual(["Stage box B"]);
+        });
+
         it("keeps the producer's score marks on the track, and checks the edit plot (#52)", async () => {
           const s = await studio();
           const send = (method: string, url: string, body: unknown, cookie = s.owner) =>

@@ -49,6 +49,7 @@ import { InstallerPage } from "~/routes/install";
 import { InstancePage } from "~/routes/instance";
 import { InvitePage } from "~/routes/invite";
 import { NotificationsPage } from "~/routes/notifications";
+import { PatchListPage } from "~/routes/patch-list";
 import {
   ProjectFilesPage,
   ProjectOverviewPage,
@@ -531,6 +532,15 @@ const projectScoreMarking = createRoute({
     return <ScoreMarkingPage projectId={projectId} trackId={track} />;
   },
 });
+// The patch list (#54): the project's stage boxes and their channels, in Production.
+const projectPatch = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/patch",
+  component: function ProjectPatchRoute() {
+    const { projectId } = projectPatch.useParams();
+    return <PatchListPage projectId={projectId} />;
+  },
+});
 const session = createRoute({
   getParentRoute: () => app,
   path: "/sessions/$sessionId",
@@ -797,6 +807,7 @@ export const router = createRouter({
       projectTasks,
       projectSessions,
       projectScoreMarking,
+      projectPatch,
       session,
       takeLog,
       projectSettings,

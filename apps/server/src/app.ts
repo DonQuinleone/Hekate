@@ -40,6 +40,7 @@ import { accountRoutes, meRoutes } from "./routes/me.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
 import { organisationRoutes } from "./routes/organisation.ts";
 import { projectOverviewRoutes } from "./routes/overview.ts";
+import { patchRowRoutes, projectPatchRoutes, stageBoxRoutes } from "./routes/patch.ts";
 import { fileRoutes, playRoutes } from "./routes/playback.ts";
 import { projectAccessRoutes } from "./routes/project-access.ts";
 import { projectDeletionRoutes } from "./routes/project-deletion.ts";
@@ -251,6 +252,7 @@ export function createApi(deps: AppDeps) {
       .route("/projects", projectMarkRoutes(deps.db))
       .route("/projects", projectCategoryRoutes(deps.db))
       .route("/projects", projectScoreCategoryRoutes(deps.db))
+      .route("/projects", projectPatchRoutes(deps.db))
       .route("/projects", projectSessionRoutes(deps.db))
       .route("/projects", projectWorkflowRoutes(deps.db))
       .route("/projects", projectTemplateRoutes(deps.db))
@@ -282,6 +284,10 @@ export function createApi(deps: AppDeps) {
       .route("/tracks", trackWorkflowRunRoutes(runner))
       .use("/score-categories/*", ...member)
       .route("/score-categories", scoreCategoryRoutes(deps.db))
+      .use("/stage-boxes/*", ...member)
+      .route("/stage-boxes", stageBoxRoutes(deps.db))
+      .use("/patch-rows/*", ...member)
+      .route("/patch-rows", patchRowRoutes(deps.db))
       .use("/score-marks/*", ...member)
       .route("/score-marks", scoreMarkRoutes(deps.db))
       .use("/takes/*", ...member)

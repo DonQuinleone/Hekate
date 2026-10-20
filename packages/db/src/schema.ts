@@ -855,6 +855,53 @@ export const scoreMarks = pgTable(
 );
 
 /**
+ * A stage box (#54, docs/domain.md): a box on the stage with numbered inputs and outputs, in
+ * the project's patch list, in the order the engineer put them.
+ */
+export const stageBoxes = pgTable(
+  "stage_boxes",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    position: integer("position").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [
+    index("stage_boxes_project_idx").on(t.organisationId, t.projectId),
+    uniqueIndex("stage_boxes_name_idx").on(t.projectId, t.name),
+  ],
+);
+
+/** One channel of a stage box, in or out: what is plugged in, through what, on which cable. */
+export const patchRows = pgTable(
+  "patch_rows",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    stageBoxId: uuid("stage_box_id")
+      .notNull()
+      .references(() => stageBoxes.id, { onDelete: "cascade" }),
+    direction: text("direction").$type<"input" | "output">().notNull(),
+    channel: integer("channel").notNull(),
+    source: text("source").notNull().default(""),
+    device: text("device").notNull().default(""),
+    cable: text("cable").notNull().default(""),
+    notes: text("notes").notNull().default(""),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("patch_rows_channel_idx").on(t.stageBoxId, t.direction, t.channel),
+    index("patch_rows_box_idx").on(t.organisationId, t.stageBoxId),
+    check("patch_rows_direction", sql`${t.direction} in ('input', 'output')`),
+    check("patch_rows_channel", sql`${t.channel} >= 1`),
+  ],
+);
+
+/**
  * What changed on a take, a field at a time (#51), so the take log can be written offline and
  * synced later: two people changing different fields both stand; the same field, the later write
  * stands and the value it replaced stays here, flagged when it was someone else's.

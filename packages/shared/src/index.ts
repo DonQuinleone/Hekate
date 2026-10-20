@@ -32,6 +32,7 @@ export * from "./normalisation.ts";
 export * from "./notifications.ts";
 export * from "./organisation.ts";
 export * from "./overview.ts";
+export * from "./patch.ts";
 export * from "./peaks.ts";
 export * from "./player-view.ts";
 export * from "./profile.ts";
