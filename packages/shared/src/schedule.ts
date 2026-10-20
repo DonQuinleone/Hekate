@@ -9,6 +9,15 @@ import { z } from "zod";
 export const scheduleRowKinds = ["slot", "break", "get-in", "venue", "custom"] as const;
 export type ScheduleRowKind = (typeof scheduleRowKinds)[number];
 
+/** Each kind of row, as the schedule and its exports name it. */
+export const scheduleKindWords: Record<ScheduleRowKind, string> = {
+  slot: "Repertoire slot",
+  break: "Break",
+  "get-in": "Get-in",
+  venue: "Venue change",
+  custom: "Other",
+};
+
 const text = (max: number) => z.string().trim().max(max);
 /** A time of day, 24-hour: "09:30". */
 const clock = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "A time such as 09:30");
@@ -153,4 +162,19 @@ export function coverage(
     });
   }
   return slots;
+}
+
+/** What a row says: a slot's works (by abbreviation) and tracks, or the row's own words. */
+export function rowWords(
+  row: Pick<ScheduleRow, "kind" | "label" | "allRepertoire" | "workIds" | "trackIds">,
+  works: { id: string; title: string; abbreviation: string }[],
+  tracks: { id: string; name: string }[],
+): string {
+  if (row.kind !== "slot") return row.label || scheduleKindWords[row.kind];
+  if (row.allRepertoire) return "All repertoire";
+  const words = [
+    ...works.filter((w) => row.workIds.includes(w.id)).map((w) => w.abbreviation || w.title),
+    ...tracks.filter((t) => row.trackIds.includes(t.id)).map((t) => t.name),
+  ];
+  return words.join(", ") || row.label || "Nothing chosen yet";
 }

@@ -1041,3 +1041,13 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Coverage.** Every track with its slots across the days and their minutes; a track with none shows *No slot*.
 - **Who may.** Those who see the production tools see the schedule; those who use them change it and tick it off.
 - **Follows.** The PDF and XLSX exports (front page, per-day tables, the ensemble breakdown) and the schedule driving the workflow (#50, later parts); schedule order for the repertoire.
+
+## 175. The schedule's exports
+
+#50, second part: "exports: a typeset PDF (front page with public session information, per-day tables, an ensemble breakdown page) and an XLSX workbook".
+
+- **PDF.** A4, made on the server like the patch list (#54). A front page with what may go beyond the team: the project, the dates it spans, the venues used with their addresses, the repertoire with composer and forces, and each day with its venue and hours; no notes and no personnel. Then each day as a table (time, what, personnel, minutes, notes), carried over pages with *(cont.)*, slots in bold. Then the ensemble breakdown: each ensemble with its head-count and its sections' players, and the artists and staff by role.
+- **Workbook.** Three sheets: every row with its day, date, venue, times, kind, what it holds, minutes, personnel, notes and whether it is done; the coverage of every track; and the ensembles' sections.
+- **Words.** What a row says (`rowWords` in packages/shared) is the same on the page, in the PDF and in the workbook.
+- **Who may.** Those who see the production tools; the files are not kept between them and the server (`no-store`).
+- **Follows.** The schedule driving the workflow, and the repertoire's schedule order (#50, last part).

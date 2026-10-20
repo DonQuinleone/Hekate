@@ -1,8 +1,10 @@
 import {
   coverage,
+  rowWords,
   type ScheduleDay,
   type ScheduleRow,
   type ScheduleRowKind,
+  scheduleKindWords,
   scheduleRowKinds,
   secondsLeft,
   timesOf,
@@ -34,13 +36,7 @@ const dayFormat = formatDates({
   timeZone: "UTC",
 });
 
-const kindWords: Record<ScheduleRowKind, string> = {
-  slot: "Repertoire slot",
-  break: "Break",
-  "get-in": "Get-in",
-  venue: "Venue change",
-  custom: "Other",
-};
+const kindWords = scheduleKindWords;
 
 const kindIcon: Record<ScheduleRowKind, IconName> = {
   slot: "track",
@@ -136,17 +132,31 @@ function Schedule({
               ]}
               onChange={setView}
             />
-            {canEdit && (
-              <Button
-                variant="secondary"
-                size="md"
-                className="ml-auto"
-                onClick={() => setEditing({ what: "day" })}
-              >
-                <Icon name="plus" size={14} />
-                Day
-              </Button>
-            )}
+            <span className="ml-auto flex items-center gap-1">
+              {/* To send out, and as a workbook: made on the server, for this person. */}
+              <Dropdown
+                value="Export"
+                align="right"
+                actions={[
+                  {
+                    label: "PDF, with front page and ensemble breakdown",
+                    onSelect: () =>
+                      window.location.assign(`/api/projects/${projectId}/schedule/pdf`),
+                  },
+                  {
+                    label: "XLSX",
+                    onSelect: () =>
+                      window.location.assign(`/api/projects/${projectId}/schedule/xlsx`),
+                  },
+                ]}
+              />
+              {canEdit && (
+                <Button variant="secondary" size="md" onClick={() => setEditing({ what: "day" })}>
+                  <Icon name="plus" size={14} />
+                  Day
+                </Button>
+              )}
+            </span>
           </div>
           {view === "coverage" ? (
             <Coverage data={data} />
@@ -183,17 +193,6 @@ function Schedule({
       )}
     </>
   );
-}
-
-/** What a row says: a slot's repertoire, or the row's own words. */
-function rowWords(row: ScheduleRow, data: Data): string {
-  if (row.kind !== "slot") return row.label || kindWords[row.kind];
-  if (row.allRepertoire) return "All repertoire";
-  const words = [
-    ...data.works.filter((w) => row.workIds.includes(w.id)).map((w) => w.abbreviation || w.title),
-    ...data.tracks.filter((t) => row.trackIds.includes(t.id)).map((t) => t.name),
-  ];
-  return words.join(", ") || row.label || "Nothing chosen yet";
 }
 
 function Day({
@@ -258,7 +257,7 @@ function Day({
       ) : (
         <ul className="m-0 flex list-none flex-col divide-y divide-line rounded-panel-lg border border-line bg-raised/25 p-0">
           {day.rows.map((r, i) => {
-            const words = rowWords(r, data);
+            const words = rowWords(r, data.works, data.tracks);
             const at = times[i];
             return (
               <li
