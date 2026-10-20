@@ -2031,61 +2031,30 @@ export function useSessionMutations(projectId: string) {
   };
 }
 
-/**
- * The take log's writes (#51): the next take started in the session, and a take changed. A
- * change shows at once and is put right by the server's answer, so keys in the control room
- * never wait on the network; the session and its tracks' takes are read again after either.
- */
-export function useTakeLog(sessionId: string) {
-  const client = useQueryClient();
-  const key = sessionQuery(sessionId).queryKey;
-  const refresh = () => {
-    void client.invalidateQueries({ queryKey: key });
-    void client.invalidateQueries({ queryKey: ["tracks"] });
-  };
-  return {
-    /** The room's notes and the producer's quick reference. */
-    notes: useMutation({
-      mutationFn: async (change: Pick<SessionChange, "notes" | "reference">) =>
-        json(await api.sessions[":id"].$patch({ param: { id: sessionId }, json: change })),
-      onSettled: refresh,
-    }),
-    addTodo: useMutation({
-      mutationFn: async (text: string) =>
-        json(await api.sessions[":id"].todos.$post({ param: { id: sessionId }, json: { text } })),
-      onSettled: refresh,
-    }),
-    changeTodo: useMutation({
-      mutationFn: async ({ id, ...change }: SessionTodoChange & { id: string }) =>
-        json(
-          await api.sessions[":id"].todos[":todoId"].$patch({
-            param: { id: sessionId, todoId: id },
-            json: change,
-          }),
-        ),
-      onMutate: async ({ id, ...change }) => {
-        await client.cancelQueries({ queryKey: key });
-        client.setQueryData<SessionDetail>(key, (session) =>
-          session
-            ? {
-                ...session,
-                todos: session.todos.map((t) => (t.id === id ? { ...t, ...change } : t)),
-              }
-            : session,
-        );
-      },
-      onSettled: refresh,
-    }),
-    removeTodo: useMutation({
-      mutationFn: async (id: string) => {
-        const res = await api.sessions[":id"].todos[":todoId"].$delete({
-          param: { id: sessionId, todoId: id },
-        });
-        if (!res.ok) await json(res);
-      },
-      onSettled: refresh,
-    }),
-  };
+/** One write from the take log's outbox, to the server. */
+function sendWrite(sessionId: string, write: PendingWrite) {
+  switch (write.kind) {
+    case "start":
+      return api.sessions[":id"].takes.$post({ param: { id: sessionId }, json: write.body });
+    case "change":
+      return api.takes[":id"].$patch({ param: { id: write.takeId }, json: write.body });
+    case "notes":
+      return api.sessions[":id"].$patch({ param: { id: sessionId }, json: write.body });
+    case "todo-add":
+      return api.sessions[":id"].todos.$post({
+        param: { id: sessionId },
+        json: { id: write.todoId, ...write.body },
+      });
+    case "todo-change":
+      return api.sessions[":id"].todos[":todoId"].$patch({
+        param: { id: sessionId, todoId: write.todoId },
+        json: write.body,
+      });
+    case "todo-remove":
+      return api.sessions[":id"].todos[":todoId"].$delete({
+        param: { id: sessionId, todoId: write.todoId },
+      });
+  }
 }
 
 /**
@@ -2111,14 +2080,9 @@ export function useTakeOutbox(sessionId: string) {
         let status: number | "offline";
         let refusal: string | null = null;
         try {
-          const res =
-            write.kind === "start"
-              ? await api.sessions[":id"].takes.$post({
-                  param: { id: sessionId },
-                  json: write.body,
-                })
-              : await api.takes[":id"].$patch({ param: { id: write.takeId }, json: write.body });
-          status = res.status;
+          const res = await sendWrite(sessionId, write);
+          // Someone else already removed it: what this write asked for is so.
+          status = write.kind === "todo-remove" && res.status === 404 ? 204 : res.status;
           if (outcomeOf(status) === "refused")
             refusal = await json(res).then(
               () => null,
@@ -2204,6 +2168,15 @@ export function useTakeOutbox(sessionId: string) {
         body: { ...input, id: takeId, at },
       });
     },
+    /** The session's notes, or the producer's quick reference: kept here, then sent. */
+    notes: (body: Pick<SessionChange, "notes" | "reference">) =>
+      write({ kind: "notes", sessionId, body }),
+    /** Something to do, named here so that, sent twice, it is made once. */
+    addTodo: (text: string) =>
+      write({ kind: "todo-add", sessionId, todoId: uuidv7(), body: { text } }),
+    changeTodo: (todoId: string, body: SessionTodoChange) =>
+      write({ kind: "todo-change", sessionId, todoId, body }),
+    removeTodo: (todoId: string) => write({ kind: "todo-remove", sessionId, todoId }),
     /** A change to a take, with what the log last saw of the fields it sets. */
     change: (take: SessionDetail["takeRows"][number], change: TakeChange) => {
       const at = new Date().toISOString();

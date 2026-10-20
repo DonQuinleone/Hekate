@@ -932,3 +932,11 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **One PDF, through the download path.** Every track's score in a project with its marks over it, in the tracks' order, as one PDF: proxy (the pages as reviewed) or original (drawn again at print resolution). From the score marking page's Export menu ("Every score, annotated"), once a project has more than one track with a score.
 - **Checked for each score.** Asking needs the production tools in the project and, for every score, the download permission for that kind and a score ready to give it; the first that fails refuses the whole download and says which. The link works once, in the asking session, for five minutes, and is checked again as it is used. Each score is written to the access log (`scoreMarksOf`, `everyScore`) before anything leaves, and each page is marked for whoever asked.
 - **A ticket names a file or a project.** A download link now names either one file or a project's scores, never both (a check constraint); moving a project to another workspace drops its links as it drops its files' links.
+
+## 164. The take log's notes and to-do list, written offline too
+
+#51: what decision 155 left out. Beside the take log, the session's notes, the producer's quick reference and the room's to-do list are written through the same outbox as the takes: kept in this browser, shown at once, and sent in order when the server can be reached.
+
+- **Notes.** The last written stands, as before; a note typed offline is sent when the connection returns.
+- **To-dos made once.** A new item is named here (a UUIDv7), so one sent again, because the log could not tell whether the first arrived, is the item it made rather than a second. An id another session or workspace holds is refused.
+- **Already gone.** Removing an item someone else removed meanwhile is done, not refused. Ticking one someone removed is refused, and the log says so.

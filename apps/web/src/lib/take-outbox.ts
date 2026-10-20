@@ -1,4 +1,10 @@
-import type { SessionDetail, StartTake, TakeChange } from "@hekate/shared";
+import type {
+  SessionChange,
+  SessionDetail,
+  SessionTodoChange,
+  StartTake,
+  TakeChange,
+} from "@hekate/shared";
 
 /**
  * The take log's outbox (#51): what the log has written and the server has not yet confirmed.
@@ -21,7 +27,24 @@ export type PendingWrite =
       sessionId: string;
       takeId: string;
       body: TakeChange & { at: string };
-    };
+    }
+  /** The session's notes or the producer's quick reference: the last written stands. */
+  | {
+      seq?: number;
+      kind: "notes";
+      sessionId: string;
+      body: Pick<SessionChange, "notes" | "reference">;
+    }
+  /** The room's to-do list, an item at a time; a new one named here, so it is made once. */
+  | { seq?: number; kind: "todo-add"; sessionId: string; todoId: string; body: { text: string } }
+  | {
+      seq?: number;
+      kind: "todo-change";
+      sessionId: string;
+      todoId: string;
+      body: SessionTodoChange;
+    }
+  | { seq?: number; kind: "todo-remove"; sessionId: string; todoId: string };
 
 type Row = SessionDetail["takeRows"][number];
 
@@ -56,7 +79,7 @@ function startedRow(session: SessionDetail, write: Extract<PendingWrite, { kind:
 }
 
 /** A change laid over a take, timing its roll and stop as the server would. */
-function changedRow(row: Row, body: PendingWrite["body"] & { at: string }): Row {
+function changedRow(row: Row, body: TakeChange & { at: string }): Row {
   const { base: _base, at, ...change } = body as TakeChange & { at: string };
   const next = { ...row, ...change } as Row;
   if (change.lifecycle === "recording" && !row.wallIn && change.wallIn === undefined)
@@ -79,8 +102,19 @@ export function withPending(
   if (mine.length === 0) return session;
   let rows = [...session.takeRows];
   const nextNumbers = { ...session.nextNumbers };
+  let { notes, reference, todos } = session;
   for (const write of mine) {
-    if (write.kind === "start") {
+    if (write.kind === "notes") {
+      if (write.body.notes !== undefined) notes = write.body.notes;
+      if (write.body.reference !== undefined) reference = write.body.reference;
+    } else if (write.kind === "todo-add") {
+      if (!todos.some((t) => t.id === write.todoId))
+        todos = [...todos, { id: write.todoId, text: write.body.text, done: false }];
+    } else if (write.kind === "todo-change") {
+      todos = todos.map((t) => (t.id === write.todoId ? { ...t, ...write.body } : t));
+    } else if (write.kind === "todo-remove") {
+      todos = todos.filter((t) => t.id !== write.todoId);
+    } else if (write.kind === "start") {
       if (rows.some((r) => r.id === write.takeId)) continue;
       rows.push(startedRow(session, write));
       // The next number moves on, for the track or, numbered continuously, for every track.
@@ -93,7 +127,7 @@ export function withPending(
       rows = rows.map((r) => (r.id === write.takeId ? changedRow(r, write.body) : r));
     }
   }
-  return { ...session, takeRows: rows, nextNumbers };
+  return { ...session, takeRows: rows, nextNumbers, notes, reference, todos };
 }
 
 /**

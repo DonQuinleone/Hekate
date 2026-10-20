@@ -22,14 +22,7 @@ import { Segmented } from "~/components/ui/segmented";
 import { Switch } from "~/components/ui/toggle";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
-import {
-  projectQuery,
-  sessionQuery,
-  useProjectCan,
-  useTakeLog,
-  useTakeOutbox,
-  viewQuery,
-} from "~/lib/queries";
+import { projectQuery, sessionQuery, useProjectCan, useTakeOutbox, viewQuery } from "~/lib/queries";
 import { TEMPO_MAX, TEMPO_MIN, TONES, tempoOf, useReferenceAudio } from "~/lib/reference-audio";
 import { useShortcuts } from "~/lib/shortcuts";
 import {
@@ -588,6 +581,7 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
               )}
             </div>
             <TakeLogAside
+              outbox={outbox}
               session={session}
               view={view}
               target={target}
@@ -808,22 +802,24 @@ function ToneAndMetronome() {
 
 /**
  * Beside the log (#51): for the producer, the score where the take starts, the room's to-do
- * list and the quick reference; for everyone, the session's notes.
+ * list and the quick reference; for everyone, the session's notes. Written here first, as the
+ * log is, and sent when the server can be reached.
  */
 function TakeLogAside({
+  outbox,
   session,
   view,
   target,
   trackId,
   canLog,
 }: {
+  outbox: ReturnType<typeof useTakeOutbox>;
   session: SessionDetail;
   view: View;
   target: LoggedTake | null;
   trackId: string | null;
   canLog: boolean;
 }) {
-  const { notes, addTodo, changeTodo, removeTodo } = useTakeLog(session.id);
   const [todo, setTodo] = useState("");
   const scoreFileId = session.tracks.find(
     (t) => t.id === (target?.track.id ?? trackId),
@@ -832,7 +828,8 @@ function TakeLogAside({
   const add = (e: FormEvent) => {
     e.preventDefault();
     if (!todo.trim()) return;
-    addTodo.mutate(todo.trim(), { onSuccess: () => setTodo("") });
+    void outbox.addTodo(todo.trim());
+    setTodo("");
   };
   return (
     <aside aria-label="Beside the log" className="flex min-w-0 flex-col gap-5">
@@ -859,7 +856,7 @@ function TakeLogAside({
                       <Checkbox
                         checked={t.done}
                         disabled={!canLog}
-                        onChange={(e) => changeTodo.mutate({ id: t.id, done: e.target.checked })}
+                        onChange={(e) => void outbox.changeTodo(t.id, { done: e.target.checked })}
                       />
                       <span
                         className={cn("min-w-0", t.done ? "text-ink-3 line-through" : "text-ink")}
@@ -872,7 +869,7 @@ function TakeLogAside({
                         variant="quiet"
                         size="iconSm"
                         aria-label={`Remove ${t.text}`}
-                        onClick={() => removeTodo.mutate(t.id)}
+                        onClick={() => void outbox.removeTodo(t.id)}
                         className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                       >
                         <Icon name="close" size={12} />
@@ -906,7 +903,7 @@ function TakeLogAside({
             rows={2}
             maxLength={2000}
             placeholder="Trio from bar 65; coda at 89"
-            onSave={(reference) => notes.mutateAsync({ reference })}
+            onSave={(reference) => outbox.notes({ reference })}
           />
         </>
       )}
@@ -917,7 +914,7 @@ function TakeLogAside({
         disabled={!canLog}
         maxLength={4000}
         placeholder="Piano a touch bright after lunch"
-        onSave={(text) => notes.mutateAsync({ notes: text })}
+        onSave={(text) => outbox.notes({ notes: text })}
       />
     </aside>
   );

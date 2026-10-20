@@ -9598,6 +9598,21 @@ describe.runIf(url)("api", () => {
             (await send("PATCH", `/api/sessions/${perTrack.id}/todos/${item.id}`, { done: false }))
               .status,
           ).toBe(404);
+          // Named by a log written offline (#51): sent twice, made once; never another session's.
+          const named = { id: "01920000-0000-7000-8000-0000000000aa", text: "Check the page turn" };
+          expect((await todo(named)).status).toBe(201);
+          const again = await todo(named);
+          expect(again.status).toBe(200);
+          expect(((await again.json()) as { todo: { id: string } }).todo.id).toBe(named.id);
+          expect((await send("POST", `/api/sessions/${perTrack.id}/todos`, named)).status).toBe(
+            409,
+          );
+          const kept = (
+            (await (await getAs(`/api/sessions/${session.id}`, s.composer)).json()) as {
+              session: { todos: { text: string }[] };
+            }
+          ).session.todos.filter((t) => t.text === "Check the page turn");
+          expect(kept).toHaveLength(1);
           const gone = await app.request(`/api/sessions/${session.id}/todos/${item.id}`, {
             method: "DELETE",
             headers: { cookie: s.engineer, origin: "http://localhost:3000" },
