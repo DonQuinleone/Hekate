@@ -75,6 +75,7 @@ describe("tenancy", () => {
       "review_reviewers",
       "reviews",
       "saved_searches",
+      "session_todos",
       "session_tracks",
       "sessions",
       "spectrograms",

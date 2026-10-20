@@ -591,6 +591,10 @@ export const sessions = pgTable(
     /** The booked slot the take log counts down to. */
     slotStart: timestamp("slot_start", { withTimezone: true }),
     slotEnd: timestamp("slot_end", { withTimezone: true }),
+    /** The room's notes on the day, shared in the take log (#51). */
+    notes: text("notes"),
+    /** The producer's quick reference: where the repeats are, which take to keep. */
+    reference: text("reference"),
     ...timestamps,
   },
   (t) => [
@@ -706,6 +710,22 @@ export const workflowSteps = pgTable(
     index("workflow_steps_org_idx").on(t.organisationId),
     index("workflow_steps_run_idx").on(t.runId, t.createdAt),
   ],
+);
+
+/** The take log's to-do list for a session (#51), an item a row so two people never overwrite each other. */
+export const sessionTodos = pgTable(
+  "session_todos",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+    done: boolean("done").notNull().default(false),
+    ...timestamps,
+  },
+  (t) => [index("session_todos_session_idx").on(t.organisationId, t.sessionId, t.createdAt)],
 );
 
 /**

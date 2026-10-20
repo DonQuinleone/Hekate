@@ -137,6 +137,9 @@ export const sessionInput = z.object({
   /** The booked slot, which the take log counts down to. */
   slotStart: moment.nullable().optional(),
   slotEnd: moment.nullable().optional(),
+  /** The room's notes on the day, and the producer's quick reference (#51). */
+  notes: z.string().trim().max(4000).nullable().optional(),
+  reference: z.string().trim().max(2000).nullable().optional(),
 });
 export type SessionInput = z.infer<typeof sessionInput>;
 export const sessionChangeInput = sessionInput.partial();
@@ -152,7 +155,10 @@ export interface SessionSummary {
   numbering: TakeNumbering;
   slotStart: string | null;
   slotEnd: string | null;
-  tracks: { id: string; name: string }[];
+  notes: string | null;
+  reference: string | null;
+  /** The tracks it recorded, each with the score it follows, if any. */
+  tracks: { id: string; name: string; scoreFileId: string | null }[];
   /** The takes recorded in it, how many are starred, and how long they run together. */
   takes: number;
   starred: number;
@@ -164,7 +170,23 @@ export interface SessionDetail extends SessionSummary {
   takeRows: (TakeRow & { track: { id: string; name: string } })[];
   /** The number the next take of each of its tracks would get, as the session numbers them (#51). */
   nextNumbers: Record<string, number>;
+  /** The take log's to-do list, oldest first. */
+  todos: SessionTodo[];
 }
+
+/** One thing to do in a session (#51). */
+export interface SessionTodo {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
+/** A new thing to do, and a change to one. */
+export const sessionTodoInput = z.object({ text: z.string().trim().min(1).max(200) });
+export const sessionTodoChangeInput = z
+  .object({ text: z.string().trim().min(1).max(200).optional(), done: z.boolean().optional() })
+  .refine((c) => c.text !== undefined || c.done !== undefined, { message: "Nothing to change" });
+export type SessionTodoChange = z.infer<typeof sessionTodoChangeInput>;
 
 /** A take's place, as it would be once a change is made. */
 export interface TakePlace {
