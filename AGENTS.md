@@ -74,7 +74,7 @@ pnpm --filter @hekate/e2e e2e   # the visual suite: needs E2E_DATABASE_URL (an e
 - **Punctuation:** never use em-dashes. Use commas, colons, semicolons or parentheses.
 - **Branches:** the default branch is `master`, which is protected: every change lands through a pull request with green CI. Include screenshots in pull requests for visual work.
 - **Order:** build from the ground up; finish and test each layer before building on it.
-- **Commits:** Conventional Commits (`feat(web): …`, `fix(server): …`, `chore: …`). Small and focused.
+- **Commits:** Conventional Commits (`feat(web): …`, `fix(server): …`, `chore: …`). Small and focused. A change an operator must act on when upgrading (a migration that drops or rewrites data, a setting renamed or newly required) carries a `BREAKING CHANGE:` footer saying what to do: Release Please lists it under the release, and the docs site's Upgrade notes page gathers it.
 - **Types:** strict TypeScript. No `any` without a comment explaining why. Validate every request body with the shared zod schemas.
 - **Tenancy:** never write a query against a tenant-owned table without an `organisation_id` condition.
 - **Identifiers:** UUIDv7 primary keys, generated in the application.

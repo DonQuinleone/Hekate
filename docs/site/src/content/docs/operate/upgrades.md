@@ -3,7 +3,7 @@ title: Upgrades
 description: Moving to a new release.
 ---
 
-Each release's notes say what changed and anything to do before or after upgrading. Read them first, and take a [backup](../backup/) before every upgrade.
+Each release's notes say what changed, and the [upgrade notes](../upgrade-notes/) gather everything to do before or after upgrading to each release. Read them first, and take a [backup](../backup/) before every upgrade.
 
 ```sh
 git pull                                   # the Compose file names the new release
