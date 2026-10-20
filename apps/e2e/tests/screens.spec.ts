@@ -664,6 +664,26 @@ test("repertoire", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The schedule (#50): two days with their rows chained in time, the first ticked off in part,
+// a row being edited, and the coverage of every track.
+test("schedule", async ({ page }) => {
+  await page.goto(`/projects/${seeded().musicProjectId}/schedule`);
+  await settle(page, "main >> text=Get-in and rig");
+  await expect(page.getByText("11:30–11:50")).toBeVisible();
+  await saveScreen(page, "schedule");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Actions for Lunch" }).click();
+  await page.getByRole("menuitem", { name: "Edit" }).click();
+  await expect(page.getByRole("dialog", { name: "Edit the row" })).toBeVisible();
+  await saveScreen(page, "schedule-row");
+  await checkScreen(page);
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Coverage" }).click();
+  await expect(page.getByText(/Day 1 10:00/)).toBeVisible();
+  await saveScreen(page, "schedule-coverage");
+  await checkScreen(page);
+});
+
 // Personnel (#49): artists, the strings in sections, staff and others, with their flags, the
 // ensemble's breakdown open, and the strings being edited.
 test("personnel", async ({ page }) => {

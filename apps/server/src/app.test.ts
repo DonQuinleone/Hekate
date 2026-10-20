@@ -10181,6 +10181,161 @@ describe.runIf(url)("api", () => {
           expect((await list()).venues).toEqual([]);
         });
 
+        it("keeps a project's schedule: days, rows in order, slots and ticks (#50)", async () => {
+          const s = await studio();
+          const send = (method: string, url: string, body: unknown, cookie = s.owner) =>
+            app.request(url, { ...json(body, cookie), method });
+          type Row = {
+            id: string;
+            kind: string;
+            label: string;
+            minutes: number;
+            done: boolean;
+            workIds: string[];
+            trackIds: string[];
+          };
+          type Listed = {
+            days: { id: string; label: string; venueId: string | null; rows: Row[] }[];
+            works: { id: string; trackIds: string[] }[];
+            tracks: { id: string }[];
+            venues: { id: string; name: string }[];
+          };
+          const list = async (cookie = s.owner) =>
+            (await (await getAs(`/api/projects/${s.projectId}/schedule`, cookie)).json()) as Listed;
+          expect((await list()).days).toEqual([]);
+
+          const hall = (await (
+            await send("POST", `/api/projects/${s.projectId}/venues`, { name: "Endless Hall" })
+          ).json()) as { venue: { id: string } };
+          const rags = (await (
+            await send("POST", `/api/projects/${s.projectId}/works`, {
+              title: "Rags",
+              tracks: [{ trackId: s.trackId }],
+            })
+          ).json()) as { work: { id: string } };
+
+          // A day at a venue, its rows added in order and one inserted after another.
+          const made = await send("POST", `/api/projects/${s.projectId}/schedule-days`, {
+            label: "Day 1",
+            date: "2026-09-12",
+            venueId: hall.venue.id,
+            start: "09:00",
+          });
+          expect(made.status).toBe(201);
+          const day = ((await made.json()) as { day: { id: string } }).day;
+          const addRow = (body: unknown, after?: string, cookie = s.owner) =>
+            send(
+              "POST",
+              `/api/schedule-days/${day.id}/rows${after ? `?after=${after}` : ""}`,
+              body,
+              cookie,
+            );
+          const slot = (
+            (await (
+              await addRow({ kind: "slot", minutes: 90, workIds: [rags.work.id] })
+            ).json()) as { row: Row }
+          ).row;
+          expect(slot.workIds).toEqual([rags.work.id]);
+          const lunch = await addRow({ kind: "break", minutes: 60, label: "Lunch" });
+          expect(lunch.status).toBe(201);
+          const coffee = await addRow({ kind: "break", minutes: 20, label: "Coffee" }, slot.id);
+          expect(coffee.status).toBe(201);
+          const labels = async () => (await list()).days[0]?.rows.map((r) => r.label);
+          expect(await labels()).toEqual(["", "Coffee", "Lunch"]);
+
+          // Only a slot holds repertoire, and only this project's.
+          expect((await addRow({ kind: "break", minutes: 10, trackIds: [s.trackId] })).status).toBe(
+            400,
+          );
+          expect((await addRow({ kind: "slot", minutes: 10, trackIds: [uuidv7()] })).status).toBe(
+            400,
+          );
+          expect((await addRow({ kind: "slot", minutes: 10 }, uuidv7())).status).toBe(400);
+
+          // Moved, changed and ticked off.
+          const lunchRow = ((await lunch.json()) as { row: Row }).row;
+          expect(
+            (await send("POST", `/api/schedule-rows/${lunchRow.id}/move`, { direction: "up" }))
+              .status,
+          ).toBe(204);
+          expect(await labels()).toEqual(["", "Lunch", "Coffee"]);
+          const changed = await send("PUT", `/api/schedule-rows/${slot.id}`, {
+            kind: "slot",
+            minutes: 120,
+            trackIds: [s.trackId],
+          });
+          expect(changed.status).toBe(200);
+          expect(((await changed.json()) as { row: Row }).row).toMatchObject({
+            minutes: 120,
+            workIds: [],
+            trackIds: [s.trackId],
+          });
+          expect(
+            (await send("PATCH", `/api/schedule-rows/${slot.id}/done`, { done: true })).status,
+          ).toBe(200);
+          expect((await list()).days[0]?.rows[0]?.done).toBe(true);
+
+          // The engineer sees it but changes none of it; a reviewer sees none of it.
+          expect((await list(s.engineer)).days.map((d) => d.label)).toEqual(["Day 1"]);
+          expect(
+            (await send("PATCH", `/api/schedule-rows/${slot.id}/done`, { done: false }, s.engineer))
+              .status,
+          ).toBe(403);
+          expect((await getAs(`/api/projects/${s.projectId}/schedule`, s.composer)).status).toBe(
+            403,
+          );
+
+          // Another workspace's venues are not this one's, nor its days and rows.
+          const [elsewhere] = await db
+            .insert(schema.organisations)
+            .values({ name: "Elsewhere", slug: "elsewhere-schedule" })
+            .returning();
+          const [theirProject] = await db
+            .insert(schema.projects)
+            .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+            .returning();
+          const [theirVenue] = await db
+            .insert(schema.venues)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              projectId: theirProject?.id ?? "",
+              name: "Theirs",
+            })
+            .returning();
+          const [theirDay] = await db
+            .insert(schema.scheduleDays)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              projectId: theirProject?.id ?? "",
+              label: "Theirs",
+            })
+            .returning();
+          expect(
+            (
+              await send("PUT", `/api/schedule-days/${day.id}`, {
+                label: "Day 1",
+                venueId: theirVenue?.id,
+              })
+            ).status,
+          ).toBe(400);
+          expect((await send("DELETE", `/api/schedule-days/${theirDay?.id}`, {})).status).toBe(404);
+
+          // Removing a venue leaves the day without one.
+          expect((await send("DELETE", `/api/venues/${hall.venue.id}`, {})).status).toBe(204);
+          expect((await list()).days[0]?.venueId).toBeNull();
+          expect((await send("DELETE", `/api/schedule-rows/${slot.id}`, {})).status).toBe(204);
+          expect(await labels()).toEqual(["Lunch", "Coffee"]);
+          // A row added as its day goes is refused, never half-written.
+          const [added, gone] = await Promise.all([
+            addRow({ kind: "break", minutes: 10 }),
+            send("DELETE", `/api/schedule-days/${day.id}`, {}),
+          ]);
+          expect(gone.status).toBe(204);
+          expect([201, 404]).toContain(added.status);
+          expect((await list()).days).toEqual([]);
+          expect((await addRow({ kind: "break", minutes: 10 })).status).toBe(404);
+        });
+
         it("keeps a project's personnel, ensembles in sections, linked to members and guests (#49)", async () => {
           const s = await studio();
           const send = (method: string, url: string, body: unknown, cookie = s.owner) =>

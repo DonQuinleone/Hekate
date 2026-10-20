@@ -52,6 +52,7 @@ import { fileQaRoutes } from "./routes/qa.ts";
 import { projectRepertoireRoutes, venueRoutes, workRoutes } from "./routes/repertoire.ts";
 import { fileRetryRoutes } from "./routes/retry.ts";
 import { projectReviewRoutes, type ReviewDeps, reviewRoutes } from "./routes/reviews.ts";
+import { projectScheduleRoutes, scheduleDayRoutes, scheduleRowRoutes } from "./routes/schedule.ts";
 import {
   projectScoreCategoryRoutes,
   scoreCategoryRoutes,
@@ -259,6 +260,7 @@ export function createApi(deps: AppDeps) {
       .route("/projects", projectStagePlanRoutes(deps.db))
       .route("/projects", projectPersonnelRoutes(deps.db))
       .route("/projects", projectRepertoireRoutes(deps.db))
+      .route("/projects", projectScheduleRoutes(deps.db))
       .route("/projects", projectSessionRoutes(deps.db))
       .route("/projects", projectWorkflowRoutes(deps.db))
       .route("/projects", projectTemplateRoutes(deps.db))
@@ -298,6 +300,10 @@ export function createApi(deps: AppDeps) {
       .route("/works", workRoutes(deps.db))
       .use("/venues/*", ...member)
       .route("/venues", venueRoutes(deps.db))
+      .use("/schedule-days/*", ...member)
+      .route("/schedule-days", scheduleDayRoutes(deps.db))
+      .use("/schedule-rows/*", ...member)
+      .route("/schedule-rows", scheduleRowRoutes(deps.db))
       .use("/personnel/*", ...member)
       .route("/personnel", personnelRoutes(deps.db))
       .use("/stage-plans/*", ...member)

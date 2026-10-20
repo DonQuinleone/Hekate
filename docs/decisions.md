@@ -1029,3 +1029,15 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Printed pages.** Each of the work's tracks may have the printed pages it runs over ("pp. 8–14", or one page). A printed page is the number on the page, not the PDF's; the work's page offset is added to find the PDF's page (2 when a cover and a contents page come before printed page 1).
 - **Opening at its pages.** Score marking opens a track at its first page in the work's score (`pdfPages` in packages/shared), so a track inside one long PDF starts where it starts.
 - **Swap.** *Swap the score, keeping marks* on a work chooses another edition; the page ranges stay as typed, for the new edition's offset to place.
+
+## 174. The schedule
+
+#50, first part. The schedule is in Production after the repertoire, as the prototype has it: days, their rows in time, ticked off as the day goes, and the coverage of every track.
+
+- **Days.** A label, a date, a venue (removing the venue leaves the day without one) and when its first row starts. Days run in the order they were added.
+- **Rows.** A repertoire slot, a break, a get-in, a venue change or anything else, each with its minutes, personnel and notes. A row starts where the row before ends unless it sets its own start (a lunch at 13:00 whatever runs late before it); `timesOf` in packages/shared works the times out, past midnight too. Rows move up and down, and *Insert a break after* puts one straight after a row.
+- **Slots.** A slot holds any mix of works and tracks of the project, or the whole repertoire; only a slot holds repertoire. Removing a work or a track takes it out of its slots.
+- **Ticking off.** Those who use the production tools tick rows off on any day, after the fact too; a ticked row fades. On a day dated today the schedule refreshes every few seconds for everyone, and each unfinished slot can run a timer to its end.
+- **Coverage.** Every track with its slots across the days and their minutes; a track with none shows *No slot*.
+- **Who may.** Those who see the production tools see the schedule; those who use them change it and tick it off.
+- **Follows.** The PDF and XLSX exports (front page, per-day tables, the ensemble breakdown) and the schedule driving the workflow (#50, later parts); schedule order for the repertoire.

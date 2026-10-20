@@ -44,6 +44,7 @@ import {
   type SessionFactor,
   type SsoProtocol,
   type StandingGrant,
+  scheduleRowKinds,
   type TaskEventDetail,
   type TaskEventKind,
   type TemplateContent,
@@ -116,6 +117,7 @@ export const auditActionEnum = pgEnum("audit_action", auditActions);
 export const reviewKindEnum = pgEnum("review_kind", reviewKinds);
 export const reviewOrderEnum = pgEnum("review_order", reviewOrders);
 export const approvalRuleEnum = pgEnum("approval_rule", approvalRules);
+export const scheduleRowKindEnum = pgEnum("schedule_row_kind", scheduleRowKinds);
 export const reviewStatusEnum = pgEnum("review_status", reviewStatuses);
 export const reviewDecisionEnum = pgEnum("review_decision", reviewDecisions);
 export const carryStatusEnum = pgEnum("carry_status", carryStatuses);
@@ -1111,6 +1113,75 @@ export const venues = pgTable(
   (t) => [
     index("venues_project_idx").on(t.organisationId, t.projectId),
     uniqueIndex("venues_name_idx").on(t.projectId, t.name),
+  ],
+);
+
+/**
+ * A day of a project's schedule (#50): its label, date, venue and when its first row starts.
+ * Its rows run in order beneath it.
+ */
+export const scheduleDays = pgTable(
+  "schedule_days",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: projectId(),
+    label: text("label").notNull(),
+    date: date("date"),
+    venueId: uuid("venue_id").references(() => venues.id, { onDelete: "set null" }),
+    /** "HH:MM", 24-hour. */
+    start: text("start").notNull().default("10:00"),
+    position: integer("position").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [index("schedule_days_project_idx").on(t.organisationId, t.projectId)],
+);
+
+/**
+ * A row of a schedule day: a slot of repertoire, a break, a get-in, a move between venues or
+ * anything else. Its start chains from the row before unless set; it is ticked off when done.
+ */
+export const scheduleRows = pgTable(
+  "schedule_rows",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    dayId: uuid("day_id")
+      .notNull()
+      .references(() => scheduleDays.id, { onDelete: "cascade" }),
+    kind: scheduleRowKindEnum("kind").notNull(),
+    start: text("start"),
+    minutes: integer("minutes").notNull(),
+    label: text("label").notNull().default(""),
+    allRepertoire: boolean("all_repertoire").notNull().default(false),
+    personnel: text("personnel").notNull().default(""),
+    notes: text("notes").notNull().default(""),
+    done: boolean("done").notNull().default(false),
+    position: integer("position").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [
+    check("schedule_rows_minutes", sql`${t.minutes} between 0 and 1440`),
+    index("schedule_rows_day_idx").on(t.organisationId, t.dayId),
+  ],
+);
+
+/** What a slot covers: works and tracks, any mix. One of the two is set. */
+export const scheduleSlotItems = pgTable(
+  "schedule_slot_items",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    rowId: uuid("row_id")
+      .notNull()
+      .references(() => scheduleRows.id, { onDelete: "cascade" }),
+    workId: uuid("work_id").references(() => works.id, { onDelete: "cascade" }),
+    trackId: uuid("track_id").references(() => tracks.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+  },
+  (t) => [
+    check("schedule_slot_items_one", sql`(${t.workId} is null) <> (${t.trackId} is null)`),
+    index("schedule_slot_items_row_idx").on(t.organisationId, t.rowId),
   ],
 );
 

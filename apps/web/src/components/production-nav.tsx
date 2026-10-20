@@ -9,6 +9,12 @@ const sections = [
     needs: "view_production",
   },
   {
+    id: "schedule",
+    label: "Schedule",
+    to: "/projects/$projectId/schedule",
+    needs: "view_production",
+  },
+  {
     id: "sessions",
     label: "Sessions",
     to: "/projects/$projectId/sessions",

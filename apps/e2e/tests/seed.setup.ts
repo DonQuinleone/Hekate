@@ -769,6 +769,7 @@ setup("seed", async ({ page, browser }) => {
       { trackId: entertainer.id, number: "2", pageFrom: 3 },
     ],
   });
+  const venueIds: string[] = [];
   for (const venue of [
     {
       name: "Endless Hall",
@@ -777,7 +778,76 @@ setup("seed", async ({ page, browser }) => {
     },
     { name: "Endless Hall Studio 2", address: "Unit 4, Mill Lane\nBristol", notes: "" },
   ])
-    await api(page, "POST", `/api/projects/${music.id}/venues`, venue);
+    venueIds.push(
+      (
+        await api<{ venue: { id: string } }>(
+          page,
+          "POST",
+          `/api/projects/${music.id}/venues`,
+          venue,
+        )
+      ).venue.id,
+    );
+
+  // The schedule (#50): two days, the first worked through and ticked off, the second ahead.
+  for (const [day, rows] of [
+    [
+      { label: "Day 1", date: "2026-09-12", venueId: venueIds[0], start: "09:00" },
+      [
+        {
+          kind: "get-in",
+          minutes: 60,
+          label: "Get-in and rig",
+          personnel: "Engineer, producer",
+          done: true,
+        },
+        {
+          kind: "slot",
+          minutes: 90,
+          trackIds: [track.id],
+          personnel: "Trio",
+          notes: "Sections A and B first.",
+          done: true,
+        },
+        { kind: "break", minutes: 20, label: "Coffee", done: true },
+        { kind: "slot", minutes: 70, trackIds: [entertainer.id], personnel: "Trio" },
+        { kind: "break", start: "13:00", minutes: 60, label: "Lunch" },
+        {
+          kind: "slot",
+          minutes: 120,
+          allRepertoire: true,
+          personnel: "Trio",
+          notes: "Pick-ups at the end if time.",
+        },
+      ],
+    ],
+    [
+      { label: "Day 2", date: "2026-09-13", venueId: venueIds[1], start: "10:00" },
+      [
+        { kind: "venue", minutes: 30, label: "Move to Studio 2" },
+        { kind: "slot", minutes: 150, workIds: [], trackIds: [entertainer.id], personnel: "Trio" },
+      ],
+    ],
+  ] as const) {
+    const made = await api<{ day: { id: string } }>(
+      page,
+      "POST",
+      `/api/projects/${music.id}/schedule-days`,
+      day,
+    );
+    for (const { done, ...row } of rows as readonly ({ done?: boolean } & Record<
+      string,
+      unknown
+    >)[]) {
+      const added = await api<{ row: { id: string } }>(
+        page,
+        "POST",
+        `/api/schedule-days/${made.day.id}/rows`,
+        row,
+      );
+      if (done) await api(page, "PATCH", `/api/schedule-rows/${added.row.id}/done`, { done: true });
+    }
+  }
 
   // Personnel (#49), as the prototype lists it: linked to the project's members and guests.
   const { people } = await api<{ people: { kind: string; id: string; name: string }[] }>(

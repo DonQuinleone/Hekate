@@ -47,6 +47,7 @@ export * from "./repertoire.ts";
 export * from "./reviewer-permissions.ts";
 export * from "./reviews.ts";
 export * from "./roles.ts";
+export * from "./schedule.ts";
 export * from "./score-bars.ts";
 export * from "./score-marks.ts";
 export * from "./search.ts";

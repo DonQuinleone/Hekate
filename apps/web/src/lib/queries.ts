@@ -91,6 +91,9 @@ import {
   type ReviewInspection,
   type ReviewKind,
   type SavedSearchInput,
+  type ScheduleDay,
+  type ScheduleDayInput,
+  type ScheduleRowInput,
   type ScoreMark,
   type ScoreMarkCategory,
   type ScoreMarkChange,
@@ -2333,6 +2336,104 @@ export function useRepertoire(projectId: string) {
     }),
     removeVenue: useMutation({
       mutationFn: async (id: string) => removed(await api.venues[":id"].$delete({ param: { id } })),
+      onSettled: refresh,
+    }),
+  };
+}
+
+/** A project's schedule (#50), with the works, tracks and venues it refers to. */
+export const scheduleQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "schedule"],
+    queryFn: async () =>
+      json<{
+        days: ScheduleDay[];
+        works: { id: string; title: string; abbreviation: string; trackIds: string[] }[];
+        tracks: { id: string; name: string }[];
+        venues: { id: string; name: string }[];
+      }>(await api.projects[":id"].schedule.$get({ param: { id: projectId } })),
+  });
+
+/** Adding, changing, moving, ticking off and removing days and rows. */
+export function useSchedule(projectId: string) {
+  const client = useQueryClient();
+  const refresh = () =>
+    void client.invalidateQueries({ queryKey: scheduleQuery(projectId).queryKey });
+  const removed = async (res: Response) => {
+    if (!res.ok) await json(res);
+  };
+  return {
+    addDay: useMutation({
+      mutationFn: async (input: ScheduleDayInput) =>
+        json(
+          await api.projects[":id"]["schedule-days"].$post({
+            param: { id: projectId },
+            json: input,
+          }),
+        ),
+      onSettled: refresh,
+    }),
+    changeDay: useMutation({
+      mutationFn: async ({ id, ...input }: ScheduleDayInput & { id: string }) =>
+        json(await api["schedule-days"][":id"].$put({ param: { id }, json: input })),
+      onSettled: refresh,
+    }),
+    removeDay: useMutation({
+      mutationFn: async (id: string) =>
+        removed(await api["schedule-days"][":id"].$delete({ param: { id } })),
+      onSettled: refresh,
+    }),
+    addRow: useMutation({
+      mutationFn: async ({
+        dayId,
+        after,
+        ...input
+      }: ScheduleRowInput & { dayId: string; after?: string }) =>
+        json(
+          await api["schedule-days"][":id"].rows.$post({
+            param: { id: dayId },
+            query: after ? { after } : {},
+            json: input,
+          }),
+        ),
+      onSettled: refresh,
+    }),
+    changeRow: useMutation({
+      mutationFn: async ({ id, ...input }: ScheduleRowInput & { id: string }) =>
+        json(await api["schedule-rows"][":id"].$put({ param: { id }, json: input })),
+      onSettled: refresh,
+    }),
+    /** Ticked at once on screen, and back if it was not saved. */
+    tick: useMutation({
+      mutationFn: async ({ id, done }: { id: string; done: boolean }) =>
+        json(await api["schedule-rows"][":id"].done.$patch({ param: { id }, json: { done } })),
+      onMutate: async ({ id, done }) => {
+        const key = scheduleQuery(projectId).queryKey;
+        await client.cancelQueries({ queryKey: key });
+        client.setQueryData(key, (data) =>
+          data
+            ? {
+                ...data,
+                days: data.days.map((d) => ({
+                  ...d,
+                  rows: d.rows.map((r) => (r.id === id ? { ...r, done } : r)),
+                })),
+              }
+            : data,
+        );
+      },
+      onSettled: refresh,
+    }),
+    moveRow: useMutation({
+      mutationFn: async ({ id, direction }: { id: string; direction: "up" | "down" }) =>
+        removed(
+          await api["schedule-rows"][":id"].move.$post({ param: { id }, json: { direction } }),
+        ),
+      onSettled: refresh,
+    }),
+    removeRow: useMutation({
+      mutationFn: async (id: string) =>
+        removed(await api["schedule-rows"][":id"].$delete({ param: { id } })),
       onSettled: refresh,
     }),
   };
