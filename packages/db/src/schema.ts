@@ -955,10 +955,7 @@ export const stageItems = pgTable(
     index("stage_items_plan_idx").on(t.organisationId, t.stagePlanId),
     index("stage_items_patch_idx").on(t.patchRowId),
     // A cable runs either way from its point; everything else has a size.
-    check(
-      "stage_items_size",
-      sql`${t.kind} = 'cable' or (${t.w} > 0 and ${t.h} > 0)`,
-    ),
+    check("stage_items_size", sql`${t.kind} = 'cable' or (${t.w} > 0 and ${t.h} > 0)`),
   ],
 );
 
