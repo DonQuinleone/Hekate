@@ -115,6 +115,9 @@ describe("the schedule as a PDF", () => {
     // The front page shares no notes.
     expect(pages[0]).not.toContain("Sections A and B");
     expect(pages[1]).toContain("(RAGS) Tj");
+    // Its words as the page and the workbook have them.
+    expect(pages[1]).toContain("(Lunch) Tj");
+    expect(pages[1]).not.toContain("Break:");
     expect(pages[1]).toContain("(13:00\\22614:00) Tj");
     expect(pages[3]).toContain("(Endless Hall Strings \\267 4) Tj");
     const long = schedulePages(sample(80));

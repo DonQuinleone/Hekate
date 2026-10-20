@@ -194,9 +194,7 @@ export function schedulePages(s: ScheduleExport): string[] {
       const at = times[i];
       const cells = [
         `${at?.start ?? ""}–${at?.end ?? ""}`,
-        r.kind === "slot"
-          ? rowWords(r, s.works, s.tracks)
-          : `${scheduleKindWords[r.kind]}${r.label ? `: ${r.label}` : ""}`,
+        rowWords(r, s.works, s.tracks),
         r.personnel,
         String(r.minutes),
         r.notes,
