@@ -1,5 +1,6 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  loggedNumber,
   nextTakeNumber,
   type SessionDetail,
   type SessionSummary,
@@ -13,7 +14,7 @@ import {
   takeImportInput,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, asc, desc, eq, inArray, max, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, max, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -308,8 +309,41 @@ export const projectSessionRoutes = (db: Database) =>
           ).map((r) => [r.trackId, r.n ?? 0]),
         );
         let imported = 0;
+        let matched = 0;
         for (const entry of wanted) {
           if (already.has(entry.fileId)) continue;
+          // A take logged in the session under this number, still waiting for its file (#51).
+          const written = loggedNumber(entry.take);
+          if (entry.sessionId && written !== null) {
+            const [logged] = await tx
+              .select({ id: takes.id })
+              .from(takes)
+              .leftJoin(
+                files,
+                and(eq(files.takeId, takes.id), eq(files.organisationId, organisationId)),
+              )
+              .where(
+                inOrg(
+                  takes,
+                  organisationId,
+                  eq(takes.trackId, entry.trackId),
+                  eq(takes.sessionId, entry.sessionId),
+                  eq(takes.number, written),
+                  isNull(files.id),
+                ),
+              )
+              .limit(1)
+              .for("update", { of: takes });
+            if (logged) {
+              await tx
+                .update(files)
+                .set({ takeId: logged.id, isTakeMix: true, updatedAt: new Date() })
+                .where(inOrg(files, organisationId, eq(files.id, entry.fileId)));
+              imported += 1;
+              matched += 1;
+              continue;
+            }
+          }
           const number = (numbers.get(entry.trackId) ?? 0) + 1;
           numbers.set(entry.trackId, number);
           const [take] = await tx
@@ -341,7 +375,7 @@ export const projectSessionRoutes = (db: Database) =>
               })),
             )
             .onConflictDoNothing();
-        return { imported, skipped: already.size };
+        return { imported, matched, skipped: already.size };
       });
       return c.json(result, 201);
     });

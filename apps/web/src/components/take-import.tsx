@@ -327,6 +327,8 @@ export function TakeImportDialog({
             trackId: b.take.trackId as string,
             sessionId: b.sessionId,
             label: b.take.label,
+            // The number it was recorded as, so a take already logged is given its file (#51).
+            take: b.take.take,
           })),
         });
         setMade((m) => new Set([...m, ...batch.map((b) => b.take.key)]));

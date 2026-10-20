@@ -8,6 +8,7 @@ import {
   covers,
   fieldChanges,
   gapsLabel,
+  loggedNumber,
   nextTakeNumber,
   parseClock,
   slotProblem,
@@ -271,5 +272,15 @@ describe("startTakeInput", () => {
     expect(
       startTakeInput.safeParse({ trackId, id: "8f14e45f-ceea-467a-9575-0123456789ab" }).success,
     ).toBe(false);
+  });
+});
+
+describe("loggedNumber", () => {
+  it("reads the take a file was recorded as, when it can name a logged take", () => {
+    expect(loggedNumber("27")).toBe(27);
+    expect(loggedNumber(" 003 ")).toBe(3);
+    expect(loggedNumber("12A")).toBeNull();
+    expect(loggedNumber("")).toBeNull();
+    expect(loggedNumber(null)).toBeNull();
   });
 });

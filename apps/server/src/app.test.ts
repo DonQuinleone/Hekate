@@ -9481,7 +9481,7 @@ describe.runIf(url)("api", () => {
 
           const done = await send(both);
           expect(done.status).toBe(201);
-          expect(await done.json()).toEqual({ imported: 2, skipped: 0 });
+          expect(await done.json()).toEqual({ imported: 2, matched: 0, skipped: 0 });
           const takes = (await (
             await getAs(`/api/tracks/${s.trackId}/takes`, s.engineer)
           ).json()) as {
@@ -9500,7 +9500,44 @@ describe.runIf(url)("api", () => {
           expect(session.session).toMatchObject({ tracks: [{ id: s.trackId }], takes: 2 });
 
           // Sent again, as an import carrying on after a break would: nothing made twice.
-          expect(await (await send(both)).json()).toEqual({ imported: 0, skipped: 2 });
+          expect(await (await send(both)).json()).toEqual({ imported: 0, matched: 0, skipped: 2 });
+
+          // A take logged live in the session (#51) is given the file recorded as its number,
+          // rather than a second take of that number; a number with a file already, or one
+          // that is not a whole number, makes a new take as before.
+          const logged = (
+            (await (
+              await app.request(
+                `/api/sessions/${sessionId}/takes`,
+                json({ trackId: s.trackId }, s.engineer),
+              )
+            ).json()) as { take: { id: string; number: number } }
+          ).take;
+          expect(logged.number).toBe(3);
+          await app.request(`/api/takes/${logged.id}`, {
+            ...json({ lifecycle: "recorded" }, s.engineer),
+            method: "PATCH",
+          });
+          const [t3, again, twelve] = [
+            await file("T03_Mix.wav"),
+            await file("T03_Mix again.wav"),
+            await file("T12A_Mix.wav"),
+          ];
+          const third = await send({
+            takes: [
+              { fileId: t3, trackId: s.trackId, sessionId, label: "T03", take: "03" },
+              { fileId: again, trackId: s.trackId, sessionId, label: "T03", take: "3" },
+              { fileId: twelve, trackId: s.trackId, sessionId, label: "T12A", take: "12A" },
+            ],
+          });
+          expect(await third.json()).toEqual({ imported: 3, matched: 1, skipped: 0 });
+          const after = (await (
+            await getAs(`/api/tracks/${s.trackId}/takes`, s.engineer)
+          ).json()) as {
+            takes: { id: string; number: number; file: { id: string } | null }[];
+          };
+          expect(after.takes.find((t) => t.id === logged.id)?.file?.id).toBe(t3);
+          expect(after.takes.map((t) => t.number)).toEqual([1, 2, 3, 4, 5]);
 
           // Another workspace's file is not found from here.
           const [elsewhere] = await db
