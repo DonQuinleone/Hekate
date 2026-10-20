@@ -1,7 +1,8 @@
 // Copies the operator pages that live in docs/ into the site, with the frontmatter Starlight
 // needs, so each has one source. The copies are generated and not committed.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { upgradeNotesPage } from "./upgrade-notes.ts";
 
 const root = join(import.meta.dirname, "../../..");
 const pages = [
@@ -45,4 +46,10 @@ for (const page of pages) {
     `---\ntitle: ${JSON.stringify(title)}\ndescription: ${JSON.stringify(page.description)}\neditUrl: https://github.com/DonQuinleone/Hekate/edit/master/${page.from}\n---\n\n<!-- Copied from ${page.from} at build time; edit it there. -->\n\n${body}`,
   );
 }
-console.log(`docs: ${pages.length} pages copied in`);
+// The upgrade notes, gathered from the changelog Release Please writes (#154).
+const changelog = join(root, "CHANGELOG.md");
+writeFileSync(
+  join(import.meta.dirname, "../src/content/docs/operate/upgrade-notes.md"),
+  `---\ntitle: "Upgrade notes"\ndescription: "What to do before or after upgrading to each release."\n---\n\n<!-- Gathered from CHANGELOG.md at build time. -->\n\n${upgradeNotesPage(existsSync(changelog) ? readFileSync(changelog, "utf8") : null)}`,
+);
+console.log(`docs: ${pages.length} pages copied in, and the upgrade notes`);

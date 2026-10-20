@@ -179,6 +179,13 @@ const schema = z.object({
       description: "Run pending migrations at start-up. On in the app image.",
     }),
   ),
+  MIGRATE_ALLOW_DESTRUCTIVE: flag("false").meta(
+    info({
+      group: "Database",
+      description:
+        "Let an upgrade apply a migration that drops or rewrites data. Hekate refuses one until this is set: take a backup and read the upgrade notes first, then start once with it and unset it again.",
+    }),
+  ),
   AUTH_SECRET: z
     .string({ error: "required: at least 32 random characters (openssl rand -hex 32)" })
     .min(32, "must be at least 32 characters (openssl rand -hex 32)")

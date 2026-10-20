@@ -74,7 +74,7 @@ pnpm --filter @hekate/e2e e2e   # the visual suite: needs E2E_DATABASE_URL (an e
 - **Punctuation:** never use em-dashes. Use commas, colons, semicolons or parentheses.
 - **Branches:** the default branch is `master`, which is protected: every change lands through a pull request with green CI. Include screenshots in pull requests for visual work.
 - **Order:** build from the ground up; finish and test each layer before building on it.
-- **Commits:** Conventional Commits (`feat(web): …`, `fix(server): …`, `chore: …`). Small and focused.
+- **Commits:** Conventional Commits (`feat(web): …`, `fix(server): …`, `chore: …`). Small and focused. A change an operator must act on when upgrading (a migration that drops or rewrites data, a setting renamed or newly required) carries a `BREAKING CHANGE:` footer saying what to do: Release Please lists it under the release, and the docs site's Upgrade notes page gathers it.
 - **Types:** strict TypeScript. No `any` without a comment explaining why. Validate every request body with the shared zod schemas.
 - **Tenancy:** never write a query against a tenant-owned table without an `organisation_id` condition.
 - **Identifiers:** UUIDv7 primary keys, generated in the application.
@@ -117,7 +117,7 @@ For anyone reviewing a pull request, human or agent. Review against this file an
 - **Media security** (`docs/security.md`). A route or URL that returns a stored file or original media; presigned or public storage URLs reaching a browser; plaintext written to storage once encryption at rest exists; keys or segment URLs that are long-lived or not bound to the session; key issues, page renders or downloads not written to the access log.
 - **Secrets and personal data.** Credentials, tokens or keys in code, tests, fixtures, logs or error messages. Real names, email addresses or other personal details of contributors anywhere in the repository. Tokens stored in the database without hashing where a hash would do.
 - **Input validation.** A request body, query or parameter used without a zod schema. Shared shapes defined twice instead of in `packages/shared`.
-- **Data safety.** A migration that drops or rewrites data without saying so in the pull request; schema changes without a generated migration; a migration edited after it has merged.
+- **Data safety.** A migration that drops or rewrites data without saying so in the pull request and the changelog's upgrade notes (it must also be listed in `packages/db/src/migrate.test.ts`, and operators apply it with `MIGRATE_ALLOW_DESTRUCTIVE`); schema changes without a generated migration; a migration edited after it has merged.
 - **Supply chain.** New dependencies that are unmaintained, duplicate an existing one, or need install scripts (only `allowBuilds` packages may run them). Actions not pinned to a commit SHA. Anything that weakens `minimumReleaseAge`, Trivy or the CI checks. Build tools or package managers added to the runtime image.
 - **Correctness.** Races in check-then-act code (claims, invitations, approvals) that should be atomic or transactional; unhandled promise rejections; streams not closed or errors swallowed.
 

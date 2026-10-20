@@ -1,4 +1,11 @@
-import { createDb, runMigrations, schema } from "@hekate/db";
+import {
+  createDb,
+  DatabaseAheadError,
+  DestructiveMigrationError,
+  migrationState,
+  runMigrations,
+  schema,
+} from "@hekate/db";
 import { createBackends, StorageConfigError } from "@hekate/storage";
 import { count } from "drizzle-orm";
 import { createApp } from "./app.ts";
@@ -19,7 +26,7 @@ import { remindDue } from "./reminders.ts";
 import { purgeDownloadTickets } from "./routes/downloads.ts";
 import type { SetupGate } from "./setup-code.ts";
 import { purgeAttempts } from "./sign-in.ts";
-import { settingsOrExit } from "./startup.ts";
+import { schemaProblem, settingsOrExit } from "./startup.ts";
 import { serveWeb } from "./static.ts";
 import { createStorage } from "./storage.ts";
 import { recordedReconciliation } from "./storage-usage.ts";
@@ -27,6 +34,43 @@ import { remindTasksDue } from "./tasks.ts";
 import { clockElapsed, fileMeasured, sweepRuns } from "./workflow-runner.ts";
 import { rewrapBehind, rewrapOrganisation } from "./workspace-keys.ts";
 import { purgeDueWorkspaces } from "./workspace-purge.ts";
+
+/**
+ * Brings the database to this code's schema, or explains why it will not and exits (#154):
+ * migrations run only when asked to, one replica at a time, never losing data unasked; without
+ * them, a database behind or ahead of the code is named before anything misreads it.
+ */
+async function migrateOrExit(config: {
+  DATABASE_URL: string;
+  MIGRATE_ON_START: boolean;
+  MIGRATE_ALLOW_DESTRUCTIVE: boolean;
+}) {
+  try {
+    if (config.MIGRATE_ON_START) {
+      const { applied } = await runMigrations(config.DATABASE_URL, undefined, {
+        allowDestructive: config.MIGRATE_ALLOW_DESTRUCTIVE,
+      });
+      if (applied.length > 0) console.log(`Migrated: ${applied.join(", ")}.`);
+      return;
+    }
+    const { db, close } = createDb(config.DATABASE_URL, { max: 1 });
+    try {
+      const state = await migrationState(db);
+      const problem = schemaProblem(state);
+      if (problem) {
+        console.error(problem);
+        process.exit(1);
+      }
+    } finally {
+      await close();
+    }
+  } catch (error) {
+    if (!(error instanceof DestructiveMigrationError || error instanceof DatabaseAheadError))
+      throw error;
+    console.error(error.message);
+    process.exit(1);
+  }
+}
 
 /**
  * Starts everything a configured server runs: migrations, storage, keys, the job workers and the
@@ -44,7 +88,7 @@ export async function boot(
   stop: () => Promise<void>;
 }> {
   const { config, storageConfig } = settingsOrExit(env);
-  if (config.MIGRATE_ON_START) await runMigrations(config.DATABASE_URL);
+  await migrateOrExit(config);
 
   // Refuse to start with storage that is unreachable or read-only.
   const backends = await (async () => {
