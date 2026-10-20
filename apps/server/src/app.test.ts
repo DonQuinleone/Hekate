@@ -10043,6 +10043,25 @@ describe.runIf(url)("api", () => {
             403,
           );
 
+          // Printed for whoever sees it, to scale, without the label groups they hid.
+          const printed = await getAs(`/api/stage-plans/${plan.id}/pdf/a3`, s.engineer);
+          expect(printed.status).toBe(200);
+          expect(printed.headers.get("content-type")).toBe("application/pdf");
+          expect(printed.headers.get("cache-control")).toContain("no-store");
+          expect(printed.headers.get("content-disposition")).toContain(
+            "Endless Hall stage plan.pdf",
+          );
+          const page = Buffer.from(await printed.arrayBuffer()).toString("latin1");
+          expect(page).toContain("1:50 on A3");
+          expect(page).toContain("(Main L) Tj");
+          await edit({ change: [{ id: mic, group: "Main pair" }] });
+          const quiet = await getAs(`/api/stage-plans/${plan.id}/pdf/a4?hide=Main%20pair`, s.owner);
+          expect(Buffer.from(await quiet.arrayBuffer()).toString("latin1")).not.toContain(
+            "(Main L) Tj",
+          );
+          expect((await getAs(`/api/stage-plans/${plan.id}/pdf/a5`, s.owner)).status).toBe(404);
+          expect((await getAs(`/api/stage-plans/${plan.id}/pdf/a3`, s.composer)).status).toBe(403);
+
           // Only this project's channels link; unpatching one leaves the mic, unlinked.
           const [elsewhere] = await db
             .insert(schema.organisations)
@@ -10083,6 +10102,9 @@ describe.runIf(url)("api", () => {
           expect(linked.status).toBe(400);
           expect(await linked.text()).toContain("not in this project's patch list");
           expect((await edit({ remove: [mic] }, s.owner, theirPlan?.id)).status).toBe(404);
+          expect((await getAs(`/api/stage-plans/${theirPlan?.id}/pdf/a3`, s.owner)).status).toBe(
+            404,
+          );
           expect(
             (await send("PATCH", `/api/stage-plans/${theirPlan?.id}`, { name: "Mine" })).status,
           ).toBe(404);

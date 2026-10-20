@@ -14,9 +14,12 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, can, lockLiveProject } from "../access.ts";
 import { NotFound } from "../errors.ts";
+import { textPdfOf } from "../media/pdf.ts";
+import { stagePlanPage } from "../stage-pdf.ts";
 import type { TenantVariables } from "../tenancy.ts";
+import { attachment } from "./comments.ts";
 
-const { patchRows, stageBoxes, stageItems, stagePlans } = schema;
+const { patchRows, projects, stageBoxes, stageItems, stagePlans } = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
@@ -171,15 +174,30 @@ export const projectStagePlanRoutes = (db: Database) =>
     });
 
 /** The plan, and the project it belongs to, for someone who may change it. */
-async function planFor(db: Database, vars: TenantVariables, id: string) {
+async function planFor(
+  db: Database,
+  vars: TenantVariables,
+  id: string,
+  needs: "edit_production" | "view_production" = "edit_production",
+) {
   const [plan] = await db
     .select({ id: stagePlans.id, projectId: stagePlans.projectId })
     .from(stagePlans)
     .where(inOrg(stagePlans, vars.organisationId, eq(stagePlans.id, id)));
   if (!plan) throw new NotFound("Stage plan");
-  await can(db, actorOf(vars), "edit_production", plan.projectId);
+  await can(db, actorOf(vars), needs, plan.projectId);
   return plan;
 }
+
+const group = z.string().max(40);
+/** The label groups left off a print, as the plan has them hidden: `?hide=Main pair&hide=…`. */
+const hideQuery = zValidator(
+  "query",
+  z.object({ hide: z.union([group, z.array(group).max(100)]).optional() }),
+);
+
+/** An export is for whoever asked: nothing between them and it keeps a copy. */
+const PRIVATE = { "cache-control": "no-store, private", "x-content-type-options": "nosniff" };
 
 /**
  * `/api/stage-plans/:id`: resizing or renaming a plan, removing it, and editing what is on it,
@@ -187,6 +205,40 @@ async function planFor(db: Database, vars: TenantVariables, id: string) {
  */
 export const stagePlanRoutes = (db: Database) =>
   new Hono<{ Variables: TenantVariables }>()
+    /** The plan as it is printed (#53): A3 or A4 landscape, to scale, for those who see it. */
+    .get("/:id/pdf/:paper{a3|a4}", idParam, hideQuery, async (c) => {
+      const organisationId = c.var.organisationId;
+      const { projectId, id } = await planFor(
+        db,
+        c.var,
+        c.req.valid("param").id,
+        "view_production",
+      );
+      const [project] = await db
+        .select({ name: projects.name })
+        .from(projects)
+        .where(inOrg(projects, organisationId, eq(projects.id, projectId)));
+      const plan = (await stagePlansOf(db, organisationId, projectId)).find((p) => p.id === id);
+      if (!plan) throw new NotFound("Stage plan");
+      const { hide } = c.req.valid("query");
+      const paper = c.req.param("paper") === "a3" ? "a3" : "a4";
+      const pdf = textPdfOf([
+        stagePlanPage(
+          project?.name ?? "Project",
+          plan,
+          await channelsOf(db, organisationId, projectId),
+          paper,
+          hide === undefined ? [] : [hide].flat(),
+        ),
+      ]);
+      return c.body(new Uint8Array(pdf), 200, {
+        ...PRIVATE,
+        "content-type": "application/pdf",
+        "content-disposition": attachment(
+          `${project?.name ?? "Project"} ${plan.name} stage plan.pdf`,
+        ),
+      });
+    })
     .patch("/:id", idParam, zValidator("json", stagePlanChangeInput), async (c) => {
       const organisationId = c.var.organisationId;
       const plan = await planFor(db, c.var, c.req.valid("param").id);

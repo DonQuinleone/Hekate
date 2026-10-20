@@ -973,3 +973,12 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Label groups.** Items given a group show or hide their labels together.
 - **Who may.** Those who see the production tools see the plans; those who use them change them.
 - **Follows.** The vector PDF export (A3 or A4 landscape, rulers and scale bar), the floor-plan underlay, and ensemble blocks sized from personnel (#49).
+
+## 168. The stage plan as a PDF
+
+#53, second part: "export vector PDF, A3 or A4 landscape, with rulers and a scale bar".
+
+- **From Export PDF** on the stage plan, as the prototype has it, for those who see the production tools; made on the server each time, sent `no-store`, and named after the project and the plan ("Joplin Rags Endless Hall stage plan.pdf").
+- **To a standard scale.** The stage is drawn at the largest of 1:20, 1:25, 1:50, 1:75, 1:100, 1:200, 1:250 and 1:500 that fits the paper, so it can be measured with a scale rule; the page says which ("1:50 on A3"). A stage too big for 1:500 is drawn to fit and says it is not to a standard scale.
+- **On the page.** The project and plan at the top; the grid, the stage's edge and metre rulers along the back and the side; each item drawn as the plan draws it, in vectors, greys and Helvetica, turned as it is turned; microphones with their patch channel under their label; the audience at the foot; a scale bar.
+- **As shown.** Label groups hidden on the plan are left off the print too.
