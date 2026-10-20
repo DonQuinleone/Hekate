@@ -1,5 +1,5 @@
 import type { PatchRow, StageBox } from "@hekate/shared";
-import { pdfString, widthOf } from "./media/score-overlay.ts";
+import { pdfString, widthOf } from "./media/helvetica.ts";
 
 /**
  * The patch list as an engineer prints it (#54): A4, each stage box's inputs then outputs as a
@@ -24,11 +24,12 @@ const text = (font: "H" | "HB", size: number, x: number, y: number, words: strin
   `BT /${font} ${num(size)} Tf ${grey} g ${num(x)} ${num(y)} Td ${pdfString(words)} Tj ET`;
 
 /** Words cut to a width, ending in an ellipsis where they were cut. */
-export function fitted(words: string, width: number, size = SIZE): string {
-  if (widthOf(words, size) <= width) return words;
-  let cut = words;
-  while (cut.length > 0 && widthOf(`${cut}…`, size) > width) cut = cut.slice(0, -1);
-  return cut ? `${cut.trimEnd()}…` : "";
+export function fitted(words: string, width: number, size = SIZE, bold = false): string {
+  if (widthOf(words, size, bold) <= width) return words;
+  const chars = [...words];
+  while (chars.length > 0 && widthOf(`${chars.join("")}…`, size, bold) > width) chars.pop();
+  const cut = chars.join("").trimEnd();
+  return cut ? `${cut}…` : "";
 }
 
 /** The pages' drawings, A4 portrait, for a project's patch list. */
@@ -60,7 +61,7 @@ export function patchListPages(project: string, boxes: StageBox[]): string[] {
   if (boxes.length === 0) ops.push(text("H", 11, MARGIN, y, "No stage boxes yet.", 0.4));
   for (const box of boxes) {
     need(28 + ROW * 3);
-    ops.push(text("HB", 13, MARGIN, y - 14, fitted(box.name, A4.width - 2 * MARGIN, 13)));
+    ops.push(text("HB", 13, MARGIN, y - 14, fitted(box.name, A4.width - 2 * MARGIN, 13, true)));
     y -= 26;
     for (const [rows, label] of [
       [box.inputs, "In"],
@@ -106,7 +107,7 @@ export function patchListPages(project: string, boxes: StageBox[]): string[] {
         15,
         MARGIN,
         A4.height - MARGIN - 12,
-        fitted(`${project} · Patch list`, A4.width - 2 * MARGIN - 80, 15),
+        fitted(`${project} · Patch list`, A4.width - 2 * MARGIN - 80, 15, true),
       ),
       text(
         "H",

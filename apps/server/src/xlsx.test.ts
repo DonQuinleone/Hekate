@@ -23,6 +23,12 @@ describe("spreadsheets", () => {
       "Sheet 4",
       "x".repeat(31),
     ]);
+    // No apostrophe at either end, nor a sheet left with nothing else.
+    expect(sheetNames(["'Piano' box", "Ines' box'", "''"])).toEqual([
+      "Piano' box",
+      "Ines' box",
+      "Sheet 3",
+    ]);
   });
 
   it.runIf(hasPython || process.env.CI)(

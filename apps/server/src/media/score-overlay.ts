@@ -1,4 +1,5 @@
 import type { DrawingColour, ScoreMark } from "@hekate/shared";
+import { pdfString, widthOf } from "./helvetica.ts";
 
 /**
  * The score marks drawn over a page of the score (#52), for the annotated score PDF: PDF
@@ -45,43 +46,6 @@ const paler = ([r, g, b]: Rgb): Rgb => [r / 2 + 0.5, g / 2 + 0.5, b / 2 + 0.5];
 const num = (n: number) => String(Math.round(n * 100) / 100);
 const fill = (c: Rgb) => `${c.map(num).join(" ")} rg`;
 const stroke = (c: Rgb) => `${c.map(num).join(" ")} RG`;
-
-/** WinAnsi codes for the characters past Latin-1 that marks are likely to carry. */
-const WIN_ANSI: Record<string, number> = {
-  "€": 0x80,
-  "…": 0x85,
-  "‘": 0x91,
-  "’": 0x92,
-  "“": 0x93,
-  "”": 0x94,
-  "•": 0x95,
-  "–": 0x96,
-  "—": 0x97,
-};
-
-/**
- * Words as a PDF string in WinAnsi, all in ASCII: brackets and backslashes escaped, anything
- * else outside ASCII as an octal code, and what WinAnsi cannot hold as a question mark.
- */
-export function pdfString(words: string): string {
-  let out = "";
-  for (const ch of words) {
-    const code = ch.codePointAt(0) ?? 63;
-    if (ch === "\\" || ch === "(" || ch === ")") out += `\\${ch}`;
-    else if (code >= 32 && code < 127) out += ch;
-    else {
-      const ansi = WIN_ANSI[ch] ?? (code >= 0xa0 && code <= 0xff ? code : 63);
-      out += ansi === 63 ? "?" : `\\${ansi.toString(8).padStart(3, "0")}`;
-    }
-  }
-  return `(${out})`;
-}
-
-/** Helvetica's advance widths, in thousandths of the size, for the characters pills carry. */
-const WIDTHS: Record<string, number> = { " ": 278, "!": 278, "[": 278, "]": 278, T: 611, P: 667 };
-/** How wide words set in Helvetica are, near enough to centre a pill's label. */
-export const widthOf = (words: string, size: number) =>
-  ([...words].reduce((sum, ch) => sum + (WIDTHS[ch] ?? 556), 0) / 1000) * size;
 
 /** A circle of radius r about (x, y), in four curves. */
 function circle(x: number, y: number, r: number): string {

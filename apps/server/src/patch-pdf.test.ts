@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { StageBox } from "@hekate/shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { run } from "./media/ffmpeg.ts";
+import { widthOf } from "./media/helvetica.ts";
 import { textPdfOf } from "./media/pdf.ts";
 import { fitted, PATCH_PAGE, patchListPages } from "./patch-pdf.ts";
 
@@ -34,6 +35,11 @@ describe("the patch list as a PDF", () => {
     const cut = fitted("A very long note about the lid of the piano", 60);
     expect(cut.endsWith("…")).toBe(true);
     expect(cut.length).toBeLessThan(20);
+    // Wide letters take their real room: twenty Ws are far wider than twenty Is.
+    const ws = fitted("W".repeat(20), 134);
+    expect(ws.endsWith("…")).toBe(true);
+    expect(widthOf(ws, 9)).toBeLessThanOrEqual(134);
+    expect(fitted("I".repeat(20), 134)).toBe("I".repeat(20));
   });
 
   it("carries a long box over pages, numbering each", () => {

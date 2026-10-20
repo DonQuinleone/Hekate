@@ -80,8 +80,8 @@ export function columnOf(index: number): string {
 }
 
 /**
- * Sheet names as a workbook allows them: at most 31 characters, none of `[]:*?/\`, not blank,
- * and no two the same (ignoring case).
+ * Sheet names as a workbook allows them: at most 31 characters, none of `[]:*?/\`, no
+ * apostrophe at either end, not blank, and no two the same (ignoring case).
  */
 export function sheetNames(names: string[]): string[] {
   const used = new Set<string>();
@@ -89,8 +89,8 @@ export function sheetNames(names: string[]): string[] {
     const base =
       name
         .replace(/[[\]:*?/\\]/g, " ")
-        .trim()
-        .slice(0, 31) || `Sheet ${i + 1}`;
+        .slice(0, 31)
+        .replace(/^[\s']+|[\s']+$/g, "") || `Sheet ${i + 1}`;
     let candidate = base;
     for (let n = 2; used.has(candidate.toLowerCase()); n++) {
       const suffix = ` (${n})`;
