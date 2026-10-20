@@ -1376,6 +1376,8 @@ export interface ScoreRehomed {
   marks: number;
   takes: number;
   stayed: number;
+  /** The new score is still being drawn: its marks follow their bars once it is. */
+  waiting?: boolean;
 }
 
 /** What someone may download of a file, and what each kind would be (#136). */

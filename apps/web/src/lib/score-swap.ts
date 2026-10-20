@@ -6,7 +6,8 @@ const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : 
  * What swapping a track's score did (#52), in a line: what followed its bars into the new
  * score, and what stayed where it was. Nothing when nothing was placed on the old one.
  */
-export function swappedSummary({ marks, takes, stayed }: ScoreRehomed): string | null {
+export function swappedSummary({ marks, takes, stayed, waiting }: ScoreRehomed): string | null {
+  if (waiting) return "The marks follow their bars once the new score is drawn.";
   const moved = [
     marks > 0 ? count(marks, "mark", "marks") : null,
     takes > 0 ? count(takes, "take", "takes") : null,

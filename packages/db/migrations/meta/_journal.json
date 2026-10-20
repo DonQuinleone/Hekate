@@ -694,6 +694,13 @@
       "when": 1792484316784,
       "tag": "0098_printed_bars",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1792488134210,
+      "tag": "0099_score_rehome",
+      "breakpoints": true
     }
   ]
 }

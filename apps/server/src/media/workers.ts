@@ -20,6 +20,7 @@ import { remapCarries } from "../carry.ts";
 import { type JobHandler, type Jobs, jobDefinitions } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
 import { tellProcessingFailed } from "../notifications.ts";
+import { rehomePending } from "../score-swap.ts";
 import type { Storage } from "../storage.ts";
 import { expireUploads } from "../uploads.ts";
 import { hasObjects, renderAdm, renderedInfo } from "./adm-render.ts";
@@ -55,6 +56,7 @@ const {
   loudness,
   qaFindings,
   spectrograms,
+  tracks,
 } = schema;
 
 export interface MediaWorkerDeps {
@@ -486,7 +488,14 @@ export function renderHandler(deps: MediaWorkerDeps): JobHandler<"document-rende
         .update(files)
         .set({ streamStatus: status, pageCount })
         .where(inOrg(files, organisationId, eq(files.id, fileId)));
-      if (status === "failed") await tellProcessingFailed(deps.db, organisationId, fileId);
+      if (status === "failed") {
+        await tellProcessingFailed(deps.db, organisationId, fileId);
+        // Never drawn, so it has no bars to move marks to: they stay where they are (#52).
+        await deps.db
+          .update(tracks)
+          .set({ rehomeFrom: null, rehomeById: null })
+          .where(inOrg(tracks, organisationId, eq(tracks.scoreFileId, fileId)));
+      }
     };
     if (!source) {
       await done("failed");
@@ -498,7 +507,11 @@ export function renderHandler(deps: MediaWorkerDeps): JobHandler<"document-rende
       .from(filePages)
       .where(inOrg(filePages, organisationId, eq(filePages.fileId, fileId)))
       .limit(1);
-    if (existing) return;
+    if (existing) {
+      // Drawn, but stopped before a track that took it moved its marks (#52).
+      await rehomePending(deps.db, organisationId, fileId);
+      return;
+    }
 
     const stored: string[] = [];
     try {
@@ -545,6 +558,8 @@ export function renderHandler(deps: MediaWorkerDeps): JobHandler<"document-rende
           .set({ streamStatus: "ready", pageCount: drawn.total, printedBars: drawn.bars })
           .where(inOrg(files, organisationId, eq(files.id, fileId)));
       });
+      // A track that took this score before it was drawn: its marks follow the bars now read.
+      await rehomePending(deps.db, organisationId, fileId);
     } catch (error) {
       await discard(deps.storage, organisationId, stored, `pages of file ${fileId}`);
       if (error instanceof InvalidMediaError) {

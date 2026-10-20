@@ -1003,6 +1003,12 @@ export const tracks = pgTable(
     name: text("name").notNull(),
     /** The score this track follows, for bar anchors and the score view. */
     scoreFileId: uuid("score_file_id").references(() => files.id, { onDelete: "set null" }),
+    /**
+     * A score swapped for one not yet drawn (#52): the edition its marks still sit on, and who
+     * swapped it, until the new one's bars are read and the marks follow them.
+     */
+    rehomeFrom: uuid("rehome_from").references(() => files.id, { onDelete: "set null" }),
+    rehomeById: text("rehome_by_id").references(() => users.id, { onDelete: "set null" }),
     /** What its versions are measured against, over the project's (#144). */
     deliveryProfile: text("delivery_profile").$type<ProfileRef>(),
     /** The references its comments may name, over the project's; null keeps the project's (#240). */

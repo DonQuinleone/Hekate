@@ -17,4 +17,10 @@ describe("swappedSummary", () => {
     );
     expect(swappedSummary({ marks: 0, takes: 0, stayed: 0 })).toBeNull();
   });
+
+  it("says the marks wait for a score still being drawn", () => {
+    expect(swappedSummary({ marks: 0, takes: 0, stayed: 0, waiting: true })).toBe(
+      "The marks follow their bars once the new score is drawn.",
+    );
+  });
 });
