@@ -27,28 +27,32 @@ export function journalOf(folder = migrationsFolder): JournalEntry[] {
 /**
  * The statements in a migration that drop or rewrite data: tables, columns or types dropped,
  * a column's type changed, rows truncated or deleted. A backfill (`UPDATE`) fills in new data
- * and is not counted. Comments are not statements.
+ * and is not counted. Comments, line or block, are not statements.
  */
 export function destructiveStatements(text: string): string[] {
-  return text
-    .split(/--> statement-breakpoint|;/)
-    .map((statement) =>
-      statement
-        .split("\n")
-        .filter((line) => !line.trim().startsWith("--"))
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim(),
-    )
-    .filter((statement) =>
-      [
-        /^DROP (TABLE|TYPE)\b/i,
-        /^ALTER TABLE .* DROP COLUMN\b/i,
-        /^ALTER TABLE .* ALTER COLUMN .* (SET DATA )?TYPE\b/i,
-        /^TRUNCATE\b/i,
-        /^DELETE FROM\b/i,
-      ].some((pattern) => pattern.test(statement)),
-    );
+  return (
+    text
+      // Block comments go first: one may hold a semicolon, or stand before a statement.
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .split(/--> statement-breakpoint|;/)
+      .map((statement) =>
+        statement
+          .split("\n")
+          .filter((line) => !line.trim().startsWith("--"))
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim(),
+      )
+      .filter((statement) =>
+        [
+          /^DROP (TABLE|TYPE)\b/i,
+          /^ALTER TABLE .* DROP COLUMN\b/i,
+          /^ALTER TABLE .* ALTER COLUMN .* (SET DATA )?TYPE\b/i,
+          /^TRUNCATE\b/i,
+          /^DELETE FROM\b/i,
+        ].some((pattern) => pattern.test(statement)),
+      )
+  );
 }
 
 export interface MigrationState {

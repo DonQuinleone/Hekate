@@ -27,6 +27,8 @@ describe("destructive statements", () => {
         'DELETE FROM "takes";',
         'DROP TABLE "old";',
         'TRUNCATE "old";',
+        '/* a note; with a semicolon */ ALTER TABLE "venues" DROP COLUMN "notes";',
+        "/* a note */",
       ].join("\n"),
     );
     expect(found).toEqual([
@@ -35,6 +37,7 @@ describe("destructive statements", () => {
       'DELETE FROM "takes"',
       'DROP TABLE "old"',
       'TRUNCATE "old"',
+      'ALTER TABLE "venues" DROP COLUMN "notes"',
     ]);
   });
 
