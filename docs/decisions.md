@@ -868,3 +868,13 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **By the number it was recorded as.** The import sends each take's number as the files give it (iXML, or the file name's pattern). Where that is a whole number, and the session it goes to holds a take of the same track logged under that number that has no file yet, the file becomes that take's: its rating, notes, times and history stay, and no second take of that number is made.
 - **Otherwise as before.** A number that names no such take, one whose take has its file already, or one that is not a whole number ("12A") makes a new take, numbered next on its track, as decision 115 has it.
 - **Told.** The import answers how many files it matched to logged takes, beside how many it made and skipped.
+
+## 157. Score marks belong to the track
+
+#52, first part: the score marks and the edit plot check, on the server. The score marking page follows.
+
+- **On the track, not the file.** A score mark (docs/domain.md) is kept on its track and placed by page, by a point on the page (0 to 1 across and down, a region's corner and size for an issue) and by bar where known. Swapping the score for a new edition keeps every mark where it was.
+- **The kinds.** An issue (in a category, with the takes it occurred in, the take that fixed it, and open or resolved), an edit point, a take start or end, a punch-in, a wrong-note cross, a circled dynamic, a sticky note, and freehand ink. Each needs what it says: an edit point the take it goes into, a dynamic or note its words, ink its stroke.
+- **Edit points and the plot.** An edit point hands over from one take into another (written "3T12 into T7": bar 3 of take 12 into take 7); without a take to hand over from it is the lead-in ("T3"); an overdub lays a take over the chain without cutting to it. The edit plot check reads the track's edit points in reading order and says where the chain breaks: a hand-over from a take the plot is not in, a second lead-in, no lead-in, or a take never recorded for the track.
+- **Categories.** Each project has its categories of issue, each with a colour and a key from 1 to 9; it starts with Intonation, Ensemble, Noise and Balance.
+- **Who may.** Those who see the production tools see the marks; those who use them make, change and rub them out.

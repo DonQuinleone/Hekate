@@ -9427,6 +9427,145 @@ describe.runIf(url)("api", () => {
           expect((await getAs(`/api/takes/${id}/history`, listener)).status).toBe(403);
         });
 
+        it("keeps the producer's score marks on the track, and checks the edit plot (#52)", async () => {
+          const s = await studio();
+          const send = (method: string, url: string, body: unknown, cookie = s.owner) =>
+            app.request(url, { ...json(body, cookie), method });
+          type Listed = {
+            marks: { id: string; kind: string; from: number | null; to: number | null }[];
+            categories: { id: string; name: string; key: string | null }[];
+            plot: { chain: number[]; problems: { markId: string | null; text: string }[] };
+          };
+          const list = async (cookie = s.owner) =>
+            (await (await getAs(`/api/tracks/${s.trackId}/score-marks`, cookie)).json()) as Listed;
+          // Three takes recorded for the track.
+          for (const number of [3, 7, 12])
+            await db
+              .insert(schema.takes)
+              .values({ organisationId: s.organisationId, trackId: s.trackId, number });
+          const mark = (body: Record<string, unknown>, cookie = s.owner) =>
+            send(
+              "POST",
+              `/api/tracks/${s.trackId}/score-marks`,
+              { page: 1, x: 0.5, ...body },
+              cookie,
+            );
+
+          // A project starts with its categories of issue, keyed 1 to 4.
+          const first = await list();
+          expect(first.categories.map((c) => [c.name, c.key])).toEqual([
+            ["Intonation", "1"],
+            ["Ensemble", "2"],
+            ["Noise", "3"],
+            ["Balance", "4"],
+          ]);
+          expect(first.plot).toEqual({ chain: [], problems: [] });
+
+          // The edit plot: lead-in T3, then 3 into 12, then 12 into 7.
+          expect((await mark({ kind: "edit", y: 0.1, to: 3, barFrom: 1 })).status).toBe(201);
+          await mark({ kind: "edit", y: 0.4, from: 3, to: 12, barFrom: 9 });
+          const last = await mark({ kind: "edit", y: 0.8, from: 12, to: 7, barFrom: 17 });
+          const lastId = ((await last.json()) as { mark: { id: string } }).mark.id;
+          expect((await list()).plot).toEqual({ chain: [3, 12, 7], problems: [] });
+          // A hand-over from the wrong take, into one never recorded, is told.
+          await send("PATCH", `/api/score-marks/${lastId}`, { from: 3, to: 40 });
+          expect((await list()).plot.problems.map((p) => p.text)).toEqual([
+            "bar 17: take 40 was not recorded",
+            "bar 17: hands over from T3, but the plot is in T12",
+          ]);
+
+          // An issue in its category, with the takes it occurred in and the take that fixed it.
+          const noise = first.categories.find((c) => c.name === "Noise")?.id;
+          const issue = await mark({
+            kind: "issue",
+            y: 0.3,
+            width: 0.2,
+            height: 0.05,
+            barFrom: 5,
+            text: "Pedal noise",
+            categoryId: noise,
+            takes: [3, 7],
+            fixedBy: 12,
+          });
+          expect(issue.status).toBe(201);
+          const made = ((await issue.json()) as { mark: { id: string; resolved: boolean } }).mark;
+          expect(made.resolved).toBe(false);
+          const resolved = await send("PATCH", `/api/score-marks/${made.id}`, { resolved: true });
+          expect(((await resolved.json()) as { mark: { resolved: boolean } }).mark.resolved).toBe(
+            true,
+          );
+          // Each kind needs what it says; the bars run forwards.
+          expect((await mark({ kind: "dynamic", y: 0.5 })).status).toBe(400);
+          expect((await send("PATCH", `/api/score-marks/${made.id}`, { barTo: 2 })).status).toBe(
+            422,
+          );
+
+          // The engineer sees the marks but may not make them; a reviewer sees none.
+          expect((await list(s.engineer)).marks).toHaveLength(4);
+          expect((await mark({ kind: "note", y: 0.2, text: "Breath" }, s.engineer)).status).toBe(
+            403,
+          );
+          expect((await getAs(`/api/tracks/${s.trackId}/score-marks`, s.composer)).status).toBe(
+            403,
+          );
+
+          // Another workspace's category is not one to file under, nor its marks to change.
+          const [elsewhere] = await db
+            .insert(schema.organisations)
+            .values({ name: "Elsewhere", slug: "elsewhere-score-marks" })
+            .returning();
+          const [theirProject] = await db
+            .insert(schema.projects)
+            .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+            .returning();
+          const [theirCategory] = await db
+            .insert(schema.scoreMarkCategories)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              projectId: theirProject?.id ?? "",
+              name: "Theirs",
+              colour: "blue",
+            })
+            .returning();
+          expect(
+            (await mark({ kind: "issue", y: 0.6, categoryId: theirCategory?.id })).status,
+          ).toBe(404);
+          const [theirTrack] = await db
+            .insert(schema.tracks)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              projectId: theirProject?.id ?? "",
+              name: "Theirs",
+            })
+            .returning();
+          const [theirMark] = await db
+            .insert(schema.scoreMarks)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              trackId: theirTrack?.id ?? "",
+              kind: "note",
+              page: 1,
+              x: 0.5,
+              y: 0.5,
+              text: "Theirs",
+            })
+            .returning();
+          expect(
+            (await send("PATCH", `/api/score-marks/${theirMark?.id}`, { text: "Mine" })).status,
+          ).toBe(404);
+          expect((await getAs(`/api/tracks/${theirTrack?.id}/score-marks`, s.owner)).status).toBe(
+            404,
+          );
+
+          // Rubbed out, it is gone.
+          const gone = await app.request(`/api/score-marks/${made.id}`, {
+            method: "DELETE",
+            headers: { cookie: s.owner, origin: "http://localhost:3000" },
+          });
+          expect(gone.status).toBe(204);
+          expect((await list()).marks).toHaveLength(3);
+        });
+
         it("imports takes: each file the next take of its track, in its session, once (#45)", async () => {
           const s = await studio();
           const file = async (name: string, kind: "audio" | "document" = "audio") => {

@@ -673,6 +673,13 @@
       "when": 1792465335452,
       "tag": "0095_take_changes",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1792471473049,
+      "tag": "0096_score_marks",
+      "breakpoints": true
     }
   ]
 }
