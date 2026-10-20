@@ -10058,6 +10058,30 @@ describe.runIf(url)("api", () => {
             await getAs(`/api/tracks/${second?.id}/score-marks`, s.engineer)
           ).json()) as { pages: { from: number; to: number } | null };
           expect(marking.pages).toEqual({ from: 10, to: 10 });
+          // A track given another score since has none of the work's pages.
+          const [other] = await db
+            .insert(schema.files)
+            .values({
+              organisationId: org,
+              projectId: s.projectId,
+              name: "Entertainer - Part.pdf",
+              kind: "document",
+              blobId: pdfBlob.id,
+              contentType: "application/pdf",
+              byteSize: pdfBlob.byteSize,
+            })
+            .returning();
+          await db
+            .update(schema.tracks)
+            .set({ scoreFileId: other?.id })
+            .where(eq(schema.tracks.id, second?.id ?? ""));
+          expect(
+            (
+              (await (await getAs(`/api/tracks/${second?.id}/score-marks`, s.engineer)).json()) as {
+                pages: unknown;
+              }
+            ).pages,
+          ).toBeNull();
           const backwards = await send("PUT", `/api/works/${rags.id}`, {
             title: "Rags",
             tracks: [{ trackId: s.trackId, pageFrom: 7, pageTo: 1 }],

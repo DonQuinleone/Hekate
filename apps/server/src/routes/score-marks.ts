@@ -155,7 +155,8 @@ export const trackScoreMarkRoutes = (db: Database) =>
             eq(takes.lifecycle, "recorded"),
           ),
         );
-      // Where the track starts in its work's score (#48), for the score to open at its pages.
+      // Where the track starts in its work's score (#48), for the score to open at its pages:
+      // only while the track follows that score, as one given it since has other pages.
       const [placed] = await db
         .select({
           pageFrom: workTracks.pageFrom,
@@ -164,12 +165,15 @@ export const trackScoreMarkRoutes = (db: Database) =>
         })
         .from(workTracks)
         .innerJoin(works, eq(works.id, workTracks.workId))
+        .innerJoin(tracks, eq(tracks.id, workTracks.trackId))
         .where(
           inOrg(
             workTracks,
             organisationId,
             eq(workTracks.trackId, track.id),
             eq(works.organisationId, organisationId),
+            eq(tracks.organisationId, organisationId),
+            eq(tracks.scoreFileId, works.scoreFileId),
           ),
         );
       return c.json({

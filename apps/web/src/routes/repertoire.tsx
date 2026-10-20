@@ -318,15 +318,17 @@ function WorkDialog({
     return v === "" ? null : /^-?\d{1,4}$/.test(v) ? Number(v) : Number.NaN;
   };
   const offset = pageOf(pageOffset);
+  // Without a score the page fields are hidden and not saved, so they cannot hold it back.
   const pagesValid =
-    offset !== null &&
-    !Number.isNaN(offset) &&
-    chosen.every((c) => {
-      const from = pageOf(c.pageFrom);
-      const to = pageOf(c.pageTo);
-      if (Number.isNaN(from) || Number.isNaN(to)) return false;
-      return to === null || (from !== null && to >= from);
-    });
+    scoreFileId === null ||
+    (offset !== null &&
+      !Number.isNaN(offset) &&
+      chosen.every((c) => {
+        const from = pageOf(c.pageFrom);
+        const to = pageOf(c.pageTo);
+        if (Number.isNaN(from) || Number.isNaN(to)) return false;
+        return to === null || (from !== null && to >= from);
+      }));
   const saving = work ? changeWork : addWork;
   const nameOf = (id: string) => tracks.find((t) => t.id === id)?.name ?? "A track";
   const free = tracks.filter((t) => !taken.has(t.id) && !chosen.some((c) => c.trackId === t.id));
