@@ -9927,6 +9927,165 @@ describe.runIf(url)("api", () => {
           expect((await list()).map((b) => b.name)).toEqual(["Stage box B", "Box C"]);
         });
 
+        it("keeps a project's personnel, ensembles in sections, linked to members and guests (#49)", async () => {
+          const s = await studio();
+          const send = (method: string, url: string, body: unknown, cookie = s.owner) =>
+            app.request(url, { ...json(body, cookie), method });
+          type Entry = {
+            id: string;
+            name: string;
+            kind: string;
+            agreement: boolean;
+            link: { kind: string; name: string } | null;
+            sections: { name: string; count: number; members: { name: string }[] }[];
+          };
+          type Listed = {
+            personnel: Entry[];
+            people: { kind: string; id: string; name: string }[];
+          };
+          const list = async (cookie = s.owner) =>
+            (await (
+              await getAs(`/api/projects/${s.projectId}/personnel`, cookie)
+            ).json()) as Listed;
+          const add = (body: unknown, cookie = s.owner) =>
+            send("POST", `/api/projects/${s.projectId}/personnel`, body, cookie);
+          expect((await list()).personnel).toEqual([]);
+
+          // The project's members may be linked; a guest only once the project knows them.
+          const [project] = await db
+            .select()
+            .from(schema.projects)
+            .where(eq(schema.projects.id, s.projectId));
+          const org = project?.organisationId ?? "";
+          const [guest] = await db
+            .insert(schema.guests)
+            .values({ organisationId: org, name: "Mira Solberg", email: "mira@example.test" })
+            .returning();
+          const conductor = { name: "Mira Solberg", kind: "artist", role: "Conductor" };
+          const unknown = await add({ ...conductor, link: { kind: "guest", guestId: guest?.id } });
+          expect(unknown.status).toBe(400);
+          const [group] = await db
+            .insert(schema.groups)
+            .values({ organisationId: org, projectId: s.projectId, name: "Conductors" })
+            .returning();
+          await db.insert(schema.groupMembers).values({
+            organisationId: org,
+            groupId: group?.id ?? "",
+            guestId: guest?.id,
+            position: 0,
+          });
+          const { people } = await list();
+          expect(people.filter((p) => p.kind === "guest").map((p) => p.name)).toEqual([
+            "Mira Solberg",
+          ]);
+          const member = people.find((p) => p.kind === "member");
+          expect(member).toBeDefined();
+          expect(
+            (await add({ ...conductor, link: { kind: "guest", guestId: guest?.id } })).status,
+          ).toBe(201);
+          expect(
+            (
+              await add({
+                name: "Producer",
+                kind: "staff",
+                agreement: true,
+                link: { kind: "member", userId: member?.id },
+              })
+            ).status,
+          ).toBe(201);
+          expect(
+            (
+              await add({
+                name: "Stranger",
+                kind: "staff",
+                link: { kind: "member", userId: "nobody" },
+              })
+            ).status,
+          ).toBe(400);
+
+          // An ensemble in sections: a head-count, then players as they are named.
+          const made = await add({
+            name: "Endless Hall Strings",
+            kind: "ensemble",
+            sections: [
+              { name: "Violin I", count: 4, divisi: "2 + 2", members: [{ name: "Tomas Varga" }] },
+              { name: "Cello", count: 2 },
+            ],
+            seating: "Antiphonal violins",
+          });
+          expect(made.status).toBe(201);
+          const strings = ((await made.json()) as { entry: Entry }).entry;
+          expect(strings.sections.map((x) => [x.name, x.count, x.members.length])).toEqual([
+            ["Violin I", 4, 1],
+            ["Cello", 2, 0],
+          ]);
+          // Replaced whole: its sections and players with it.
+          const changed = await send("PUT", `/api/personnel/${strings.id}`, {
+            name: "Endless Hall Strings",
+            kind: "ensemble",
+            agreement: true,
+            sections: [
+              { name: "Viola", count: 2, members: [{ name: "Ines Arlow", headphones: true }] },
+            ],
+          });
+          expect(changed.status).toBe(200);
+          expect(
+            ((await changed.json()) as { entry: Entry }).entry.sections.map((x) => x.name),
+          ).toEqual(["Viola"]);
+          const seen = await list(s.engineer);
+          expect(seen.personnel.map((p) => [p.name, p.link?.kind ?? null])).toEqual([
+            ["Mira Solberg", "guest"],
+            ["Producer", "member"],
+            ["Endless Hall Strings", null],
+          ]);
+          expect(await db.select().from(schema.sectionMembers)).toHaveLength(1);
+
+          // The engineer sees it but may not change it; a reviewer sees none of it.
+          expect((await add({ name: "Mine", kind: "other" }, s.engineer)).status).toBe(403);
+          expect((await getAs(`/api/projects/${s.projectId}/personnel`, s.composer)).status).toBe(
+            403,
+          );
+
+          // Another workspace's entry is not this one's to touch.
+          const [elsewhere] = await db
+            .insert(schema.organisations)
+            .values({ name: "Elsewhere", slug: "elsewhere-personnel" })
+            .returning();
+          const [theirProject] = await db
+            .insert(schema.projects)
+            .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+            .returning();
+          const [theirs] = await db
+            .insert(schema.personnel)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              projectId: theirProject?.id ?? "",
+              name: "Theirs",
+              kind: "artist",
+            })
+            .returning();
+          expect(
+            (await send("PUT", `/api/personnel/${theirs?.id}`, { name: "Mine", kind: "artist" }))
+              .status,
+          ).toBe(404);
+          expect((await send("DELETE", `/api/personnel/${theirs?.id}`, {})).status).toBe(404);
+
+          // A guest the project no longer asks is shown unlinked, and the entry still saves.
+          await db
+            .delete(schema.groupMembers)
+            .where(eq(schema.groupMembers.groupId, group?.id ?? ""));
+          const left = (await list()).personnel.find((p) => p.name === "Mira Solberg");
+          expect(left?.link).toBeNull();
+          expect(
+            (await send("PUT", `/api/personnel/${left?.id}`, { ...conductor, link: null })).status,
+          ).toBe(200);
+
+          // Removing an ensemble takes its sections and players with it.
+          expect((await send("DELETE", `/api/personnel/${strings.id}`, {})).status).toBe(204);
+          expect(await db.select().from(schema.sectionMembers)).toHaveLength(0);
+          expect((await list()).personnel).toHaveLength(2);
+        });
+
         it("keeps a project's stage plans, a step at a time, linked to the patch (#53)", async () => {
           const s = await studio();
           const send = (method: string, url: string, body: unknown, cookie = s.owner) =>

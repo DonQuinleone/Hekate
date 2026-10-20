@@ -52,6 +52,9 @@ export const transferTables = {
     "patch_rows",
     "stage_plans",
     "stage_items",
+    "personnel",
+    "personnel_sections",
+    "section_members",
     "comments",
     "comment_attachments",
     "comment_takes",
@@ -528,6 +531,11 @@ async function moveRows(tx: Tx, projectId: string, from: string, to: string) {
     ["session_todos", sql`session_id in ${of("sessions", byProject)}`],
     ["patch_rows", sql`stage_box_id in ${of("stage_boxes", byProject)}`],
     ["stage_items", sql`stage_plan_id in ${of("stage_plans", byProject)}`],
+    [
+      "section_members",
+      sql`section_id in ${of("personnel_sections", sql`personnel_id in ${of("personnel", byProject)}`)}`,
+    ],
+    ["personnel_sections", sql`personnel_id in ${of("personnel", byProject)}`],
     ["group_members", sql`group_id in ${of("groups", byProject)}`],
     ["task_events", sql`task_id in ${of("tasks", byProject)}`],
     ["review_items", sql`review_id in ${reviews}`],
@@ -563,6 +571,7 @@ async function moveRows(tx: Tx, projectId: string, from: string, to: string) {
       "score_mark_categories",
       "stage_boxes",
       "stage_plans",
+      "personnel",
       "groups",
       "reviews",
       "tasks",
@@ -576,6 +585,9 @@ async function moveRows(tx: Tx, projectId: string, from: string, to: string) {
   for (const [table, scope] of scopes)
     await tx.execute(sql`update ${sql.identifier(table)} set organisation_id = ${to}
       where organisation_id = ${from} and (${scope})`);
+  // Who it lists stays listed, but not as a member or guest of the workspace it left.
+  await tx.execute(sql`update personnel set user_id = null, guest_id = null
+    where organisation_id = ${to} and project_id = ${P}`);
   // A template made from it in the losing workspace no longer points at it.
   await tx.execute(sql`update project_templates set from_project_id = null
     where organisation_id = ${from} and from_project_id = ${P}`);

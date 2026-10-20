@@ -754,6 +754,65 @@ setup("seed", async ({ page, browser }) => {
     ],
   });
 
+  // Personnel (#49), as the prototype lists it: linked to the project's members and guests.
+  const { people } = await api<{ people: { kind: string; id: string; name: string }[] }>(
+    page,
+    "GET",
+    `/api/projects/${music.id}/personnel`,
+  );
+  const known = (name: string) => {
+    const p = people.find((x) => x.name === name);
+    if (!p) return null;
+    return p.kind === "member"
+      ? { kind: "member", userId: p.id }
+      : { kind: "guest", guestId: p.id };
+  };
+  for (const entry of [
+    {
+      name: "Mira Solberg",
+      kind: "artist",
+      role: "Conductor",
+      agreement: true,
+      link: known("Mira Solberg"),
+    },
+    {
+      name: "Ines Arlow",
+      kind: "artist",
+      role: "Piano",
+      agreement: true,
+      headphones: true,
+      link: known("Ines Arlow"),
+    },
+    {
+      name: "Alex Rivera",
+      kind: "staff",
+      role: "Producer",
+      agreement: true,
+      headphones: true,
+      link: known("Alex Rivera"),
+    },
+    {
+      name: "Endless Hall Strings",
+      kind: "ensemble",
+      role: "Strings",
+      sections: [
+        {
+          name: "Violin I",
+          count: 4,
+          divisi: "2 + 2",
+          members: [{ name: "Tomas Varga", agreement: true, headphones: true }],
+        },
+        { name: "Violin II", count: 3 },
+        { name: "Viola", count: 2 },
+        { name: "Cello", count: 2 },
+        { name: "Bass", count: 1 },
+      ],
+      seating: "Antiphonal violins; basses behind the cellos.",
+    },
+    { name: "Piano technician", kind: "other", role: "Tuning" },
+  ])
+    await api(page, "POST", `/api/projects/${music.id}/personnel`, entry);
+
   // Alex hears when a guest opens a review they asked for.
   await api(page, "PUT", "/api/notifications/preferences", {
     mailMode: "instant",

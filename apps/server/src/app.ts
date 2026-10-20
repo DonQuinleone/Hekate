@@ -41,6 +41,7 @@ import { notificationRoutes } from "./routes/notifications.ts";
 import { organisationRoutes } from "./routes/organisation.ts";
 import { projectOverviewRoutes } from "./routes/overview.ts";
 import { patchRowRoutes, projectPatchRoutes, stageBoxRoutes } from "./routes/patch.ts";
+import { personnelRoutes, projectPersonnelRoutes } from "./routes/personnel.ts";
 import { fileRoutes, playRoutes } from "./routes/playback.ts";
 import { projectAccessRoutes } from "./routes/project-access.ts";
 import { projectDeletionRoutes } from "./routes/project-deletion.ts";
@@ -255,6 +256,7 @@ export function createApi(deps: AppDeps) {
       .route("/projects", projectScoreCategoryRoutes(deps.db))
       .route("/projects", projectPatchRoutes(deps.db))
       .route("/projects", projectStagePlanRoutes(deps.db))
+      .route("/projects", projectPersonnelRoutes(deps.db))
       .route("/projects", projectSessionRoutes(deps.db))
       .route("/projects", projectWorkflowRoutes(deps.db))
       .route("/projects", projectTemplateRoutes(deps.db))
@@ -290,6 +292,8 @@ export function createApi(deps: AppDeps) {
       .route("/stage-boxes", stageBoxRoutes(deps.db))
       .use("/patch-rows/*", ...member)
       .route("/patch-rows", patchRowRoutes(deps.db))
+      .use("/personnel/*", ...member)
+      .route("/personnel", personnelRoutes(deps.db))
       .use("/stage-plans/*", ...member)
       .route("/stage-plans", stagePlanRoutes(deps.db))
       .use("/score-marks/*", ...member)

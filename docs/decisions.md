@@ -992,3 +992,14 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Drawn light.** A floor plan is drawn dark on white paper; on the dark stage its colours are inverted and screened, so the lines read light and the paper drops away.
 - **Shown or not.** The underlay switch hides it for this person, as the prototype has it; removing it is in the same dialog. A file removed from the project takes the underlay with it.
 - **Not printed.** The PDF export draws the stage and what stands on it; the floor plan stays on screen until printing pages of stored files has its own path through the download permission.
+
+## 170. Personnel
+
+#49, first part. Personnel is in Production after the patch list, as the prototype has it: everyone on the production, grouped as artists, ensembles, staff and others.
+
+- **An entry.** A name, a kind, a role ("Conductor", "Strings"), and whether the session agreement is signed and whether they need headphones.
+- **Ensembles.** An ensemble is set out in sections, in order: a head-count from the start, how it divides ("2 + 2"), and its players as they are named, each with their own agreement and headphones. A section never names more players than it counts, and only an ensemble has sections. Seating and forces are a note on the ensemble. Once players are being named, the list counts them ("agreement 1/12"; those not yet named have not signed).
+- **Who they are in Hekate.** An entry may be linked to a member of the project or a guest its reviews and groups ask, so the conductor on the stage plan is the one who reviews. Only those are offered or accepted, by name alone. A project moved to another workspace keeps its personnel and loses the links, as its members and guests stay behind.
+- **Written whole.** An entry is added or changed with its sections and players at once, in one transaction.
+- **Who may.** Those who see the production tools see personnel; those who use them change it.
+- **Follows.** Ensemble blocks and performers on the stage plan linked to personnel and sized from the head-count (#53), and the breakdown in schedule exports (#50).
