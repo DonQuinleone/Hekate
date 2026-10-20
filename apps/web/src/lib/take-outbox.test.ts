@@ -25,6 +25,9 @@ const session = {
     },
   ],
   nextNumbers: { maple: 4, trio: 4 },
+  notes: "Piano a touch bright",
+  reference: null,
+  todos: [{ id: "d1", text: "Tell the tuner about the A", done: false }],
 } as unknown as SessionDetail;
 
 const start = (takeId: string, at: string, number = 4): PendingWrite => ({
@@ -47,6 +50,23 @@ describe("withPending", () => {
     });
     // Numbered continuously, every track's next number moves on.
     expect(shown.nextNumbers).toEqual({ maple: 5, trio: 5 });
+  });
+
+  it("shows the room's notes and to-do list as written here, before they are sent", () => {
+    const shown = withPending(session, [
+      { kind: "notes", sessionId: "s1", body: { reference: "Trio from bar 65" } },
+      {
+        kind: "todo-add",
+        sessionId: "s1",
+        todoId: "d2",
+        body: { text: "Pick-ups, bars 17 to 19" },
+      },
+      { kind: "todo-change", sessionId: "s1", todoId: "d2", body: { done: true } },
+      { kind: "todo-remove", sessionId: "s1", todoId: "d1" },
+      { kind: "notes", sessionId: "s1", body: { notes: null } },
+    ]);
+    expect(shown).toMatchObject({ notes: null, reference: "Trio from bar 65" });
+    expect(shown.todos).toEqual([{ id: "d2", text: "Pick-ups, bars 17 to 19", done: true }]);
   });
 
   it("lays changes over the takes, timing a stop as the server would", () => {
@@ -103,7 +123,10 @@ describe("memoryStore", () => {
     const a = await store.add(start("a", "x"));
     await store.add({ ...start("b", "x"), sessionId: "other" });
     const c = await store.add(start("c", "x", 5));
-    expect((await store.list("s1")).map((w) => w.takeId)).toEqual(["a", "c"]);
+    expect((await store.list("s1")).map((w) => ("takeId" in w ? w.takeId : null))).toEqual([
+      "a",
+      "c",
+    ]);
     await store.remove(a.seq ?? 0);
     expect((await store.list("s1")).map((w) => w.seq)).toEqual([c.seq]);
   });
@@ -163,6 +186,6 @@ describe("fallingBack", () => {
     const kept = await store.add(start("a", "x"));
     expect(kept.seq).toBeDefined();
     expect(store.durable()).toBe(false);
-    expect((await store.list("s1")).map((w) => w.takeId)).toEqual(["a"]);
+    expect((await store.list("s1")).map((w) => ("takeId" in w ? w.takeId : null))).toEqual(["a"]);
   });
 });

@@ -558,15 +558,38 @@ export const sessionRoutes = (db: Database) =>
       const organisationId = c.var.organisationId;
       const row = await sessionOf(db, organisationId, c.req.valid("param").id);
       await can(db, actorOf(c.var), "edit_takes", row.projectId);
-      const todo = await db.transaction(async (tx) => {
+      const input = c.req.valid("json");
+      const shape = { id: sessionTodos.id, text: sessionTodos.text, done: sessionTodos.done };
+      const result = await db.transaction(async (tx) => {
         await lockLiveProject(tx, organisationId, row.projectId);
+        // Sent again, by a log that could not tell whether the first arrived: the one it made.
+        if (input.id) {
+          const [already] = await tx
+            .select({ ...shape, sessionId: sessionTodos.sessionId })
+            .from(sessionTodos)
+            .where(inOrg(sessionTodos, organisationId, eq(sessionTodos.id, input.id)));
+          if (already?.sessionId === row.id)
+            return {
+              todo: { id: already.id, text: already.text, done: already.done },
+              made: false,
+            };
+          if (already) throw new HTTPException(409, { message: "That to-do is already kept" });
+        }
         const [made] = await tx
           .insert(sessionTodos)
-          .values({ organisationId, sessionId: row.id, text: c.req.valid("json").text })
-          .returning({ id: sessionTodos.id, text: sessionTodos.text, done: sessionTodos.done });
-        return made;
+          .values({
+            ...(input.id ? { id: input.id } : {}),
+            organisationId,
+            sessionId: row.id,
+            text: input.text,
+          })
+          .onConflictDoNothing()
+          .returning(shape);
+        // Another workspace holds that id.
+        if (!made) throw new HTTPException(409, { message: "That to-do is already kept" });
+        return { todo: made, made: true };
       });
-      return c.json({ todo }, 201);
+      return c.json({ todo: result.todo }, result.made ? 201 : 200);
     })
     .patch(
       "/:id/todos/:todoId",

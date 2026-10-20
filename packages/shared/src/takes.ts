@@ -273,7 +273,11 @@ export interface SessionTodo {
 }
 
 /** A new thing to do, and a change to one. */
-export const sessionTodoInput = z.object({ text: z.string().trim().min(1).max(200) });
+export const sessionTodoInput = z.object({
+  /** Named by the take log (a UUIDv7), so one sent twice, written offline, is made once. */
+  id: z.uuid({ version: "v7" }).optional(),
+  text: z.string().trim().min(1).max(200),
+});
 export const sessionTodoChangeInput = z
   .object({ text: z.string().trim().min(1).max(200).optional(), done: z.boolean().optional() })
   .refine((c) => c.text !== undefined || c.done !== undefined, { message: "Nothing to change" });
