@@ -650,6 +650,7 @@ test("repertoire", async ({ page }) => {
   await page.goto(`/projects/${seeded().musicProjectId}/repertoire`);
   await settle(page, "main >> text=Scott Joplin");
   await expect(page.getByRole("textbox", { name: "Number of The Entertainer" })).toHaveValue("2");
+  await expect(page.getByText("pp. 1–2")).toBeVisible();
   await saveScreen(page, "repertoire");
   await checkScreen(page);
   await page.getByRole("button", { name: "Actions for Rags" }).click();

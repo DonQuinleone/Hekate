@@ -1057,6 +1057,10 @@ export const works = pgTable(
     forces: text("forces").notNull().default(""),
     abbreviation: text("abbreviation").notNull().default(""),
     notes: text("notes").notNull().default(""),
+    /** The score its tracks follow: one PDF for the whole work. */
+    scoreFileId: uuid("score_file_id").references(() => files.id, { onDelete: "set null" }),
+    /** Added to a printed page number for the PDF's page (a cover and contents make it 2). */
+    pageOffset: integer("page_offset").notNull().default(0),
     position: integer("position").notNull().default(0),
     ...timestamps,
   },
@@ -1076,9 +1080,16 @@ export const workTracks = pgTable(
       .notNull()
       .references(() => tracks.id, { onDelete: "cascade" }),
     number: text("number").notNull().default(""),
+    /** The printed pages it runs over in the work's score. */
+    pageFrom: integer("page_from"),
+    pageTo: integer("page_to"),
     position: integer("position").notNull().default(0),
   },
   (t) => [
+    check(
+      "work_tracks_pages",
+      sql`${t.pageTo} is null or (${t.pageFrom} is not null and ${t.pageTo} >= ${t.pageFrom})`,
+    ),
     index("work_tracks_work_idx").on(t.organisationId, t.workId),
     uniqueIndex("work_tracks_track_idx").on(t.trackId),
   ],

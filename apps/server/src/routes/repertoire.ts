@@ -1,5 +1,12 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { type Venue, venueInput, type Work, workInput, workTrackNumberInput } from "@hekate/shared";
+import {
+  isPdf,
+  type Venue,
+  venueInput,
+  type Work,
+  workInput,
+  workTrackNumberInput,
+} from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { asc, eq, inArray, max } from "drizzle-orm";
 import { Hono } from "hono";
@@ -7,9 +14,11 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, can, lockLiveProject } from "../access.ts";
 import { NotFound } from "../errors.ts";
+import { swapScore } from "../score-swap.ts";
 import type { TenantVariables } from "../tenancy.ts";
+import { assertScore } from "./tracks.ts";
 
-const { tracks, venues, workTracks, works } = schema;
+const { files, tracks, venues, workTracks, works } = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
@@ -47,6 +56,8 @@ export async function worksOf(
       forces: works.forces,
       abbreviation: works.abbreviation,
       notes: works.notes,
+      scoreFileId: works.scoreFileId,
+      pageOffset: works.pageOffset,
     })
     .from(works)
     .where(inOrg(works, organisationId, eq(works.projectId, projectId)))
@@ -57,6 +68,8 @@ export async function worksOf(
       workId: workTracks.workId,
       trackId: workTracks.trackId,
       number: workTracks.number,
+      pageFrom: workTracks.pageFrom,
+      pageTo: workTracks.pageTo,
       name: tracks.name,
     })
     .from(workTracks)
@@ -129,6 +142,32 @@ async function writeTracks(
 }
 
 /**
+ * A work's score on each of its tracks (#48): the tracks follow the work's one PDF, and what
+ * was marked on a track's old edition follows its bars, as any swap of a score does (#52).
+ */
+async function scoreTracks(
+  tx: Tx,
+  organisationId: string,
+  scoreFileId: string | null,
+  trackIds: string[],
+  by: string | null,
+) {
+  if (!scoreFileId || trackIds.length === 0) return;
+  const held = await tx
+    .select({ id: tracks.id, scoreFileId: tracks.scoreFileId })
+    .from(tracks)
+    .where(inOrg(tracks, organisationId, inArray(tracks.id, trackIds)));
+  for (const t of held) {
+    if (t.scoreFileId === scoreFileId) continue;
+    await swapScore(tx, organisationId, t.id, scoreFileId, by);
+    await tx
+      .update(tracks)
+      .set({ scoreFileId, updatedAt: new Date() })
+      .where(inOrg(tracks, organisationId, eq(tracks.id, t.id)));
+  }
+}
+
+/**
  * `/api/projects/:id/repertoire`, `/works` and `/venues` (#48): the works and venues, with the
  * project's tracks a work may hold, for those who see the production tools; adding one, for
  * those who use them.
@@ -151,6 +190,23 @@ export const projectRepertoireRoutes = (db: Database) =>
           .from(tracks)
           .where(inOrg(tracks, organisationId, eq(tracks.projectId, projectId)))
           .orderBy(asc(tracks.name)),
+        // The project's PDFs, a work's score among them: names only.
+        scores: (
+          await db
+            .select({ id: files.id, name: files.name, contentType: files.contentType })
+            .from(files)
+            .where(
+              inOrg(
+                files,
+                organisationId,
+                eq(files.projectId, projectId),
+                eq(files.kind, "document"),
+              ),
+            )
+            .orderBy(asc(files.name))
+        )
+          .filter((f) => isPdf(f.name, f.contentType))
+          .map(({ id, name }) => ({ id, name })),
       });
     })
     .post("/:id/works", idParam, zValidator("json", workInput), async (c) => {
@@ -162,6 +218,7 @@ export const projectRepertoireRoutes = (db: Database) =>
         c.req.valid("param").id,
       );
       const { tracks: given, ...work } = c.req.valid("json");
+      if (work.scoreFileId) await assertScore(db, organisationId, projectId, work.scoreFileId);
       try {
         const id = await db.transaction(async (tx) => {
           await lockLiveProject(tx, organisationId, projectId);
@@ -175,6 +232,13 @@ export const projectRepertoireRoutes = (db: Database) =>
             .returning({ id: works.id });
           if (!made) throw new Error("The work was not written");
           await writeTracks(tx, organisationId, projectId, made.id, given);
+          await scoreTracks(
+            tx,
+            organisationId,
+            work.scoreFileId,
+            given.map((t) => t.trackId),
+            c.var.userId,
+          );
           return made.id;
         });
         const [listed] = (await worksOf(db, organisationId, projectId)).filter((w) => w.id === id);
@@ -241,6 +305,8 @@ export const workRoutes = (db: Database) =>
       const organisationId = c.var.organisationId;
       const work = await ownedBy(db, c.var, works, c.req.valid("param").id, "Work");
       const { tracks: given, ...fields } = c.req.valid("json");
+      if (fields.scoreFileId)
+        await assertScore(db, organisationId, work.projectId, fields.scoreFileId);
       try {
         await db.transaction(async (tx) => {
           await lockLiveProject(tx, organisationId, work.projectId);
@@ -249,6 +315,13 @@ export const workRoutes = (db: Database) =>
             .set({ ...fields, updatedAt: new Date() })
             .where(inOrg(works, organisationId, eq(works.id, work.id)));
           await writeTracks(tx, organisationId, work.projectId, work.id, given);
+          await scoreTracks(
+            tx,
+            organisationId,
+            fields.scoreFileId,
+            given.map((t) => t.trackId),
+            c.var.userId,
+          );
         });
       } catch (error) {
         if (violates(error, "work_tracks_track_idx")) throw trackTaken();
