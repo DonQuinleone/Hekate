@@ -860,3 +860,11 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Refused.** A write the server refuses for what it is (another take already rolling, a stop someone else made first) is let go, and the log says why. A change that replaces someone else's change to the same field stands, and the take's history keeps both (decision 154).
 - **Storage that fails.** Where the browser will not keep the outbox (storage turned off, full or broken), it is kept in memory instead: still shown and sent, but the log says to keep the page open until it is.
 - **What it does not do yet.** The session's notes and to-do list are not written offline; the take log must have been open when the connection went, as the session itself is not kept in the browser.
+
+## 156. Imported files find the takes the log made
+
+#51, eighth part: "logged takes are the take manager's takes; import (#45) matches files to them".
+
+- **By the number it was recorded as.** The import sends each take's number as the files give it (iXML, or the file name's pattern). Where that is a whole number, and the session it goes to holds a take of the same track logged under that number that has no file yet, the file becomes that take's: its rating, notes, times and history stay, and no second take of that number is made.
+- **Otherwise as before.** A number that names no such take, one whose take has its file already, or one that is not a whole number ("12A") makes a new take, numbered next on its track, as decision 115 has it.
+- **Told.** The import answers how many files it matched to logged takes, beside how many it made and skipped.

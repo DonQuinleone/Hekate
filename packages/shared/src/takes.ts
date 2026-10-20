@@ -30,11 +30,23 @@ export const takeImportInput = z.object({
         trackId: z.uuid(),
         sessionId: z.uuid().nullable(),
         label: z.string().trim().max(120).nullable().optional(),
+        /**
+         * The take number the file was recorded as ("27", "12A"), where known. A whole number
+         * that names a take logged in the session (#51) and still without a file gives it this
+         * file, rather than making another take.
+         */
+        take: z.string().trim().max(20).nullable().optional(),
       }),
     )
     .min(1)
     .max(100),
 });
+
+/** The take a written number names in the take log: a whole number, else none ("12A"). */
+export function loggedNumber(written: string | null | undefined): number | null {
+  const n = /^0*(\d{1,6})$/.exec(written?.trim() ?? "")?.[1];
+  return n === undefined ? null : Number(n);
+}
 export type TakeImport = z.infer<typeof takeImportInput>;
 
 /** Takes of the thread's track shared on it (#133), for everyone who sees the thread to hear. */
