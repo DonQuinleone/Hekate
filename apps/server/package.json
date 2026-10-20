@@ -16,20 +16,20 @@
     "cli": "node src/cli.ts"
   },
   "dependencies": {
-    "@better-auth/passkey": "1.7.7",
-    "@better-auth/sso": "1.7.7",
+    "@better-auth/passkey": "1.7.10",
+    "@better-auth/sso": "1.7.10",
     "@hekate/db": "workspace:*",
     "@hekate/shared": "workspace:*",
     "@hekate/storage": "workspace:*",
-    "@hono/node-server": "2.1.4",
+    "@hono/node-server": "2.1.5",
     "@hono/zod-validator": "^0.9.1",
-    "better-auth": "^1.7.7",
+    "better-auth": "^1.7.10",
     "drizzle-orm": "^0.45.4",
     "hono": "^4.13.13",
-    "kysely": "0.29.6",
+    "kysely": "0.29.7",
     "ldapts": "9.2.0",
-    "nodemailer": "^10.1.0",
-    "pg-boss": "^12.37.1",
+    "nodemailer": "^10.1.7",
+    "pg-boss": "^12.38.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
