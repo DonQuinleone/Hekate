@@ -49,6 +49,12 @@ export const scheduleRowInput = z
   );
 export type ScheduleRowInput = z.input<typeof scheduleRowInput>;
 
+/** Ticking a row off, or back on. */
+export const scheduleDoneInput = z.object({ done: z.boolean() });
+
+/** Moving a row one place up or down its day. */
+export const scheduleMoveInput = z.object({ direction: z.enum(["up", "down"]) });
+
 export interface ScheduleRow {
   id: string;
   kind: ScheduleRowKind;

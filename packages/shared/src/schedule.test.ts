@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  timeOfDay,
   coverage,
   minutesOf,
   type ScheduleDay,
   type ScheduleRow,
   scheduleRowInput,
   slotTracks,
+  timeOfDay,
   timesOf,
 } from "./schedule.ts";
 
