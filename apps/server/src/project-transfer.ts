@@ -42,6 +42,7 @@ export const transferTables = {
     "files",
     "tracks",
     "takes",
+    "take_changes",
     "versions",
     "variations",
     "comment_categories",
@@ -526,6 +527,7 @@ async function moveRows(tx: Tx, projectId: string, from: string, to: string) {
     ["review_decisions", sql`review_id in ${reviews}`],
     ["follows", sql`track_id in ${tracks} or review_id in ${reviews}`],
     ["takes", sql`track_id in ${tracks}`],
+    ["take_changes", sql`take_id in ${of("takes", sql`track_id in ${tracks}`)}`],
     ["versions", sql`track_id in ${tracks}`],
     ...[
       "comments",

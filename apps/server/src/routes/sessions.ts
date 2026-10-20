@@ -420,8 +420,21 @@ export const sessionRoutes = (db: Database) =>
       await can(db, actorOf(c.var), "edit_takes", row.projectId);
       const input = c.req.valid("json");
       const numbering = row.numbering as TakeNumbering;
+      // A take logged offline started when the log says, never later than now.
+      const startedAt = input.at
+        ? new Date(Math.min(Date.parse(input.at), Date.now()))
+        : new Date();
       const id = await db.transaction(async (tx) => {
         await lockLiveProject(tx, organisationId, row.projectId);
+        if (input.id) {
+          // Sent again (the log was offline and could not tell it arrived): the take it made.
+          const [already] = await tx
+            .select({ id: takes.id, sessionId: takes.sessionId })
+            .from(takes)
+            .where(inOrg(takes, organisationId, eq(takes.id, input.id)));
+          if (already?.sessionId === row.id) return already.id;
+          if (already) throw new HTTPException(409, { message: "That take is already logged" });
+        }
         // A track of the session's project, locked so two takes started at once number in turn.
         const [track] = await tx
           .select({ id: tracks.id })
@@ -479,13 +492,14 @@ export const sessionRoutes = (db: Database) =>
         const [made] = await tx
           .insert(takes)
           .values({
+            ...(input.id ? { id: input.id } : {}),
             organisationId,
             trackId: track.id,
             sessionId: row.id,
             number,
             lifecycle: input.lifecycle,
             timecodeIn: input.timecodeIn ?? null,
-            wallIn: rolling ? new Date() : null,
+            wallIn: rolling ? startedAt : null,
           })
           .onConflictDoNothing()
           .returning({ id: takes.id });

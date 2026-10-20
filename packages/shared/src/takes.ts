@@ -94,6 +94,13 @@ export const startTakeInput = z.object({
   /** The recorder's number, for a session numbered by the recorder. */
   number: z.number().int().min(1).max(100_000).optional(),
   timecodeIn: timecode.optional(),
+  /**
+   * Made by the take log (UUIDv7), so a start written offline and sent again when the
+   * connection returns makes the one take, not two.
+   */
+  id: z.uuid({ version: "v7" }).optional(),
+  /** When it started, by the log's clock: earlier than now for a take logged offline. */
+  at: moment.optional(),
 });
 export type StartTake = z.infer<typeof startTakeInput>;
 
@@ -119,8 +126,80 @@ export const takeChangeInput = z.object({
   wallOut: moment.nullable().optional(),
   /** The page the take ends on, where it turns one. */
   pageTo: z.number().int().min(1).max(10_000).nullable().optional(),
+  /**
+   * What the writer last saw of the fields it changes. Where the take holds something else,
+   * someone changed it meanwhile: the write still stands, and the history says it overwrote.
+   */
+  base: z.record(z.string(), z.unknown()).optional(),
+  /** When it was written, by the writer's clock: earlier than now for a change made offline. */
+  at: moment.optional(),
 });
 export type TakeChange = z.infer<typeof takeChangeInput>;
+
+/** A field of a take that the history records (everything a change can set). */
+export const takeHistoryFields = [
+  "label",
+  "notes",
+  "rating",
+  "starred",
+  "page",
+  "barFrom",
+  "barTo",
+  "inPoint",
+  "outPoint",
+  "sessionId",
+  "lifecycle",
+  "falseStarts",
+  "timecodeIn",
+  "timecodeOut",
+  "wallIn",
+  "wallOut",
+  "pageTo",
+] as const;
+export type TakeHistoryField = (typeof takeHistoryFields)[number];
+
+/** One field's change on a take, as the history shows it. */
+export interface TakeHistoryEntry {
+  id: string;
+  field: TakeHistoryField;
+  before: unknown;
+  after: unknown;
+  by: { id: string; name: string } | null;
+  writtenAt: string;
+  savedAt: string;
+  overwrote: boolean;
+}
+
+/**
+ * The fields a change sets, each with the value it replaces and whether that was someone
+ * else's: the take held something other than the writer's `base`. Fields that do not change
+ * are left out. Values compare as JSON, so a date and its ISO string are the same value.
+ */
+export function fieldChanges(
+  current: Partial<Record<TakeHistoryField, unknown>>,
+  change: Partial<Record<TakeHistoryField, unknown>>,
+  base?: Record<string, unknown>,
+): { field: TakeHistoryField; before: unknown; after: unknown; overwrote: boolean }[] {
+  // A moment in one form, whether it came as a date or as an ISO string with any offset.
+  const plain = (field: string, v: unknown): unknown =>
+    v instanceof Date
+      ? v.toISOString()
+      : (field === "wallIn" || field === "wallOut") && typeof v === "string"
+        ? new Date(v).toISOString()
+        : (v ?? null);
+  const same = (field: string, a: unknown, b: unknown) =>
+    JSON.stringify(plain(field, a)) === JSON.stringify(plain(field, b));
+  const out = [];
+  for (const field of takeHistoryFields) {
+    if (!(field in change) || change[field] === undefined) continue;
+    const before = plain(field, current[field]);
+    const after = plain(field, change[field]);
+    if (same(field, before, after)) continue;
+    const overwrote = base !== undefined && field in base && !same(field, base[field], before);
+    out.push({ field, before, after, overwrote });
+  }
+  return out;
+}
 
 /**
  * A recording session (#21, #45): a day or a sitting, where it was, and the tracks it

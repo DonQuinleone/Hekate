@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { buffer } from "node:stream/consumers";
-import { createDb, runMigrations, schema, withAuditPurge } from "@hekate/db";
+import { createDb, runMigrations, schema, uuidv7, withAuditPurge } from "@hekate/db";
 import {
   decodeLoudness,
   decodePeaks,
@@ -9283,6 +9283,148 @@ describe.runIf(url)("api", () => {
             headers: { cookie: s.engineer, origin: "http://localhost:3000" },
           });
           expect(gone.status).toBe(204);
+        });
+
+        it("logs takes written offline once, at their own times, keeping each field's history (#51)", async () => {
+          const s = await studio();
+          const send = (method: string, url: string, body: unknown, cookie = s.engineer) =>
+            app.request(url, { ...json(body, cookie), method });
+          type Take = { id: string; number: number; wallIn: string | null; notes: string | null };
+          const session = (
+            (await (
+              await send("POST", `/api/projects/${s.projectId}/sessions`, { name: "Day 4" })
+            ).json()) as { session: { id: string } }
+          ).session;
+          const start = (body: Record<string, unknown>) =>
+            send("POST", `/api/sessions/${session.id}/takes`, body);
+
+          // Started offline ten minutes ago with the log's own id, then sent twice: one take,
+          // rolling since the log said.
+          const id = uuidv7();
+          const at = new Date(Date.now() - 10 * 60_000).toISOString();
+          const first = await start({ trackId: s.trackId, id, at });
+          expect(first.status).toBe(201);
+          const take = ((await first.json()) as { take: Take }).take;
+          expect(take).toMatchObject({ id, number: 1 });
+          expect(Date.parse(take.wallIn ?? "")).toBe(Date.parse(at));
+          const again = await start({ trackId: s.trackId, id, at });
+          expect(((await again.json()) as { take: Take }).take.id).toBe(id);
+          const [{ n } = { n: 0 }] = await db
+            .select({ n: count() })
+            .from(schema.takes)
+            .where(eq(schema.takes.sessionId, session.id));
+          expect(n).toBe(1);
+          // A start from the future is taken as now.
+          await send("PATCH", `/api/takes/${id}`, { lifecycle: "recorded" });
+          const later = await start({
+            trackId: s.trackId,
+            at: new Date(Date.now() + 3_600_000).toISOString(),
+          });
+          const next = ((await later.json()) as { take: Take }).take;
+          expect(Date.parse(next.wallIn ?? "")).toBeLessThanOrEqual(Date.now());
+          await send("PATCH", `/api/takes/${next.id}`, { lifecycle: "recorded" });
+          // Only a UUIDv7 is taken as an id.
+          expect(
+            (await start({ trackId: s.trackId, id: "8f14e45f-ceea-467a-9575-0123456789ab" }))
+              .status,
+          ).toBe(400);
+
+          // Two people change the note: the producer online, the engineer offline from what they
+          // last saw. The later write stands; the history keeps both and says which overwrote.
+          await send("PATCH", `/api/takes/${id}`, { notes: "Lovely rubato" });
+          await send("PATCH", `/api/takes/${id}`, { notes: "Keeper into the trio" }, s.owner);
+          const written = new Date(Date.now() - 60_000).toISOString();
+          const offline = await send("PATCH", `/api/takes/${id}`, {
+            notes: "Lovely rubato, a touch fast",
+            rating: 4,
+            base: { notes: "Lovely rubato", rating: 0 },
+            at: written,
+          });
+          expect(((await offline.json()) as { take: Take }).take.notes).toBe(
+            "Lovely rubato, a touch fast",
+          );
+          const history = (await (await getAs(`/api/takes/${id}/history`, s.composer)).json()) as {
+            history: {
+              field: string;
+              before: unknown;
+              after: unknown;
+              overwrote: boolean;
+              writtenAt: string;
+              by: { name: string } | null;
+            }[];
+          };
+          const notes = history.history.filter((h) => h.field === "notes");
+          expect(notes.map((h) => [h.before, h.after, h.overwrote])).toEqual([
+            [null, "Lovely rubato", false],
+            ["Lovely rubato", "Keeper into the trio", false],
+            ["Keeper into the trio", "Lovely rubato, a touch fast", true],
+          ]);
+          expect(notes.at(-1)?.writtenAt).toBe(written);
+          expect(notes.at(-1)?.by?.name).toBeTruthy();
+          // Its rating had not changed meanwhile, so setting it overwrote nobody.
+          expect(history.history.find((h) => h.field === "rating")).toMatchObject({
+            before: 0,
+            after: 4,
+            overwrote: false,
+          });
+          // The stop is in it too, with its time.
+          expect(history.history.some((h) => h.field === "wallOut")).toBe(true);
+
+          // Another workspace's take: no history for anyone here, and its id cannot be taken.
+          const [elsewhere] = await db
+            .insert(schema.organisations)
+            .values({ name: "Elsewhere", slug: "elsewhere-offline-takes" })
+            .returning();
+          const [theirProject] = await db
+            .insert(schema.projects)
+            .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+            .returning();
+          const [theirTrack] = await db
+            .insert(schema.tracks)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              projectId: theirProject?.id ?? "",
+              name: "Theirs",
+            })
+            .returning();
+          const [theirTake] = await db
+            .insert(schema.takes)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              trackId: theirTrack?.id ?? "",
+              number: 1,
+            })
+            .returning();
+          expect((await getAs(`/api/takes/${theirTake?.id}/history`, s.owner)).status).toBe(404);
+          expect((await start({ trackId: s.trackId, id: theirTake?.id })).status).toBe(409);
+          // Nor may someone without the project read this one's, nor a member whose role keeps
+          // the takes from them.
+          const newcomer = await joinAs(s.owner, "newcomer@example.test");
+          expect((await getAs(`/api/takes/${id}/history`, newcomer)).status).toBe(404);
+          const levels = {
+            files: "view",
+            comments: "none",
+            reviews: "none",
+            downloads: "none",
+            takes: "none",
+            production: "none",
+            workflow: "none",
+            people: "none",
+            project: "none",
+          };
+          expect(
+            (
+              await send(
+                "POST",
+                `/api/projects/${s.projectId}/roles`,
+                { name: "Listener", levels },
+                s.owner,
+              )
+            ).status,
+          ).toBe(201);
+          const listener = await joinAs(s.owner, "listener@example.test");
+          await grantRole(s.owner, s.projectId, listener, "Listener");
+          expect((await getAs(`/api/takes/${id}/history`, listener)).status).toBe(403);
         });
 
         it("imports takes: each file the next take of its track, in its session, once (#45)", async () => {

@@ -795,6 +795,32 @@ export const takes = pgTable(
 );
 
 /**
+ * What changed on a take, a field at a time (#51), so the take log can be written offline and
+ * synced later: two people changing different fields both stand; the same field, the later write
+ * stands and the value it replaced stays here, flagged when it was someone else's.
+ */
+export const takeChanges = pgTable(
+  "take_changes",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    takeId: uuid("take_id")
+      .notNull()
+      .references(() => takes.id, { onDelete: "cascade" }),
+    field: text("field").notNull(),
+    before: jsonb("before"),
+    after: jsonb("after"),
+    changedById: text("changed_by_id").references(() => users.id, { onDelete: "set null" }),
+    /** When it was written, by the writer's clock: earlier than now for a change made offline. */
+    writtenAt: timestamp("written_at", { withTimezone: true }).notNull(),
+    /** The writer had not seen the value it replaced: someone else's change, overwritten. */
+    overwrote: boolean("overwrote").notNull().default(false),
+    ...timestamps,
+  },
+  (t) => [index("take_changes_take_idx").on(t.organisationId, t.takeId, t.createdAt)],
+);
+
+/**
  * One uploaded, immutable object. A file may be a variation of a version, part of a take,
  * or neither (cover artwork, a score PDF, a loose document).
  */

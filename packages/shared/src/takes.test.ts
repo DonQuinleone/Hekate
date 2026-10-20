@@ -6,6 +6,7 @@ import {
   clockOf,
   coverageGaps,
   covers,
+  fieldChanges,
   gapsLabel,
   nextTakeNumber,
   parseClock,
@@ -214,5 +215,61 @@ describe("the take log (#51)", () => {
       "The last page comes before the first",
     );
     expect(takeProblem({ ...place, page: null, pageTo: 3 })).toBe("Give the first page too");
+  });
+});
+
+describe("fieldChanges", () => {
+  const take = {
+    notes: "Lovely rubato",
+    rating: 4,
+    starred: false,
+    wallIn: new Date("2026-10-14T14:00:00Z"),
+  };
+
+  it("records only the fields that change, with the value each replaces", () => {
+    expect(fieldChanges(take, { rating: 5, starred: false, notes: "Lovely rubato" })).toEqual([
+      { field: "rating", before: 4, after: 5, overwrote: false },
+    ]);
+  });
+
+  it("says when a change replaces a value its writer never saw", () => {
+    // Written offline against "Lovely rubato"; someone has since changed the note.
+    const now = { ...take, notes: "Keeper into the trio" };
+    expect(
+      fieldChanges(now, { notes: "Lovely rubato, a touch fast" }, { notes: "Lovely rubato" }),
+    ).toEqual([
+      {
+        field: "notes",
+        before: "Keeper into the trio",
+        after: "Lovely rubato, a touch fast",
+        overwrote: true,
+      },
+    ]);
+    // A field nobody else touched is no conflict.
+    expect(fieldChanges(now, { rating: 5 }, { rating: 4 })[0]?.overwrote).toBe(false);
+  });
+
+  it("takes a moment in any offset as the same moment", () => {
+    expect(fieldChanges(take, { wallIn: "2026-10-14T15:00:00+01:00" })).toEqual([]);
+    expect(fieldChanges(take, { wallIn: "2026-10-14T14:00:05Z" })).toEqual([
+      {
+        field: "wallIn",
+        before: "2026-10-14T14:00:00.000Z",
+        after: "2026-10-14T14:00:05.000Z",
+        overwrote: false,
+      },
+    ]);
+  });
+});
+
+describe("startTakeInput", () => {
+  it("takes the log's own UUIDv7 for a take, and nothing else", () => {
+    const trackId = "01a156e3-0d1a-7737-9546-0047ef13165d";
+    expect(
+      startTakeInput.safeParse({ trackId, id: "01a156e3-cf0b-754f-865f-24a5d296da03" }).success,
+    ).toBe(true);
+    expect(
+      startTakeInput.safeParse({ trackId, id: "8f14e45f-ceea-467a-9575-0123456789ab" }).success,
+    ).toBe(false);
   });
 });
