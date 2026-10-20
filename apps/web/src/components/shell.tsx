@@ -46,6 +46,7 @@ const instanceIcons: Record<InstanceSection, IconName> = {
   overview: "dashboard",
   workspaces: "building",
   operators: "fingerprint",
+  settings: "settings",
   debug: "sliders",
 };
 

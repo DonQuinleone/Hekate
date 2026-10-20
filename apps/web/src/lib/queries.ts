@@ -42,10 +42,13 @@ import {
   type ImportMarkersInput,
   type InspectKind,
   type InstanceAccess,
+  type InstanceEnvironment,
   type InstanceFlag,
   type InstanceMemberRow,
+  type InstanceNotice,
   type InstanceOverview,
   type InstanceProjectRow,
+  type InstanceSettings,
   type InstanceWorkspaceDetail,
   type InstanceWorkspaceKeys,
   type InstanceWorkspacePage,
@@ -4147,6 +4150,24 @@ export const instanceErrorQuery = (reference: string) =>
       return json<ErrorReport>(res);
     },
   });
+
+/** The instance's settings (#160), and what the environment sets beside them. */
+export const instanceOwnSettingsQuery = queryOptions({
+  queryKey: ["instance", "own-settings"],
+  queryFn: async () =>
+    json<{ settings: InstanceSettings; environment: InstanceEnvironment }>(
+      await api.instance.settings.$get(),
+    ),
+});
+
+/** What everyone is told about the instance: maintenance mode's notice (#154). */
+export const noticeQuery = queryOptions({
+  queryKey: ["notice"],
+  queryFn: async () => json<InstanceNotice>(await api.notice.$get()),
+  // Read again every minute, so a notice turned on or off reaches someone already here.
+  refetchInterval: 60_000,
+  staleTime: 30_000,
+});
 
 /** The instance's flags (#159). */
 export const instanceFlagsQuery = queryOptions({

@@ -16,6 +16,7 @@ import {
 } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { z } from "zod";
+import { MaintenanceNotice } from "~/components/maintenance-notice";
 import { Shell } from "~/components/shell";
 import { type BrowserFilters, filtersFrom, filtersTo } from "~/lib/browser";
 import { formatLoop, parseLoop } from "~/lib/loop";
@@ -178,10 +179,20 @@ const fileSearch = (
   comment?: string;
 } => fileSearchSchema.parse(search);
 
-/** Every page: follows the device's dark or light while the theme is "system". */
+/**
+ * Every page: follows the device's dark or light while the theme is "system", under maintenance
+ * mode's notice while it is on.
+ */
 function Root() {
   useFollowSystemTheme();
-  return <Outlet />;
+  return (
+    <div className="flex h-full flex-col">
+      <MaintenanceNotice />
+      <div className="relative min-h-0 flex-1">
+        <Outlet />
+      </div>
+    </div>
+  );
 }
 
 const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({

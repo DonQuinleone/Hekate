@@ -1070,3 +1070,14 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Pre-flight.** Without `MIGRATE_ON_START`, start-up compares the database with the code: behind, it names the pending migrations and how to apply them; ahead (migrated by a newer release), it refuses whatever the setting, as running would misread the data. Each stops the app before anything is served.
 - **Upgrade notes.** A change an operator must act on carries a `BREAKING CHANGE:` footer, which Release Please writes under the release's "⚠ BREAKING CHANGES"; a release pull request may add an "Upgrade notes" section by hand. The docs site's build gathers both from `CHANGELOG.md` into one Upgrade notes page, newest first, and says so when none were needed.
 - **Follows.** Maintenance mode, with instance settings (#160).
+
+## 178. Instance settings and maintenance mode
+
+#160, first part, with #154's maintenance mode: "settings live in an `instance_settings` table (global) with a zod schema, and every change is an audit event".
+
+- **One row.** `instance_settings` is global: a setting is the instance's, not a workspace's. Its one row holds the settings as JSON, checked by `instanceSettingsInput` in packages/shared and read over the defaults, so a row written before a setting existed still reads. Every process reads it again within 15 seconds, so a change needs no restart.
+- **Every change an event.** Saving records one instance event for each thing that changed (a second factor required or not, maintenance on, off, or a new notice), shown on the Overview's Recently.
+- **A second factor for every account.** The switch joins `REQUIRE_SECOND_FACTOR`: either asks it of every account. When the environment sets it, the switch shows on and cannot be turned off.
+- **Maintenance mode.** While it is on, every page, signed in or not, shows a notice under which the operator may add a line. Uploads (starting one, its chunks, finishing it, a comment's attachment) are refused with 503 and the files they would send stay with the sender. The job workers stop taking jobs and finish those under way, and the queue keeps the rest until it is over. Nothing is lost.
+- **What the environment sets.** Shown beside them, read-only: operators' security keys, session length, password rules, the address and instance mail.
+- **Follows.** Defaults for new workspaces (storage, members, guest links, forensic marking) with quotas (#175) and marking (#32); workspace subdomains (#176); mail channels and a test (#161); telemetry (#162); modules with billing (#178) and support (#181).

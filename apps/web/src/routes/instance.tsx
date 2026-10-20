@@ -3,9 +3,11 @@ import {
   errorReportText,
   formatBytes,
   type InstanceAccess,
+  type InstanceEnvironment,
   type InstanceFlag,
   type InstanceMemberRow,
   type InstanceSection,
+  type InstanceSettings,
   type InstanceWorkspace,
   type InstanceWorkspaceDetail,
   instanceActions,
@@ -49,12 +51,14 @@ import {
   instanceMembersQuery,
   instanceOperatorsQuery,
   instanceOverviewQuery,
+  instanceOwnSettingsQuery,
   instanceProjectsQuery,
   instanceSettingsQuery,
   instanceStorageQuery,
   instanceWorkspaceQuery,
   instanceWorkspacesQuery,
   json,
+  noticeQuery,
   useOperatorMove,
 } from "~/lib/queries";
 
@@ -100,6 +104,7 @@ export function InstancePage({ section }: { section: InstanceSection }) {
         <>
           {current === "overview" && operatorView && <Overview />}
           {current === "operators" && operatorView && <Operators />}
+          {current === "settings" && operatorView && <Settings />}
           {current === "debug" && operatorView && <Debug />}
         </>
       )}
@@ -460,6 +465,146 @@ function Flags() {
       ))}
       {turn.isError && <Row name="Not changed" hint={turn.error.message} />}
     </Section>
+  );
+}
+
+/**
+ * The instance's settings (#160), as the prototype has them: what an operator decides for every
+ * workspace, each change recorded, beside what the environment sets, read-only.
+ */
+function Settings() {
+  const client = useQueryClient();
+  const { data, error } = useQuery(instanceOwnSettingsQuery);
+  const [message, setMessage] = useState<string | null>(null);
+  const save = useMutation({
+    mutationFn: async (next: InstanceSettings) =>
+      json<{ settings: InstanceSettings; environment: InstanceEnvironment }>(
+        await api.instance.settings.$put({ json: next }),
+      ),
+    onSuccess: (next) => {
+      client.setQueryData(instanceOwnSettingsQuery.queryKey, next);
+      void client.invalidateQueries({ queryKey: noticeQuery.queryKey });
+    },
+  });
+  if (error) return <p className="m-0 text-signal">{error.message}</p>;
+  if (!data) return null;
+  const { settings, environment: env } = data;
+  const maintenance = settings.maintenance;
+  const words = message ?? maintenance.message;
+  return (
+    <>
+      <Section
+        title="Security"
+        intro="What every workspace must do, whatever its own settings say."
+      >
+        <SwitchRow
+          name="Require a second factor for every account"
+          hint={
+            env.requireSecondFactor
+              ? "On for the whole instance by REQUIRE_SECOND_FACTOR in the environment."
+              : "A passkey, a security key or a code app. People without one are asked at their next sign-in."
+          }
+          checked={env.requireSecondFactor || settings.security.requireSecondFactor}
+          disabled={env.requireSecondFactor || save.isPending}
+          onChange={(on) =>
+            save.mutate({
+              ...settings,
+              security: { ...settings.security, requireSecondFactor: on },
+            })
+          }
+        />
+        <Row
+          name="Operators sign in with a passkey or security key"
+          hint="OPERATOR_SECURITY_KEY in the environment."
+          inline
+        >
+          <span className="text-[13px] text-ink-2">{env.operatorSecurityKey ? "On" : "Off"}</span>
+        </Row>
+        <Row name="Sessions end after" hint="Unused for that long, a session signs out." inline>
+          <span className="tabular text-[13px] text-ink-2">{env.sessionDays} days</span>
+        </Row>
+        <Row
+          name="Password rules"
+          hint={
+            env.passwordLeakCheck
+              ? "Twelve characters or more, checked against known leaks."
+              : "Twelve characters or more. PASSWORD_LEAK_CHECK turns on the check against known leaks."
+          }
+          inline
+        >
+          <span className="text-[13px] text-ink-2">
+            12+{env.passwordLeakCheck ? " · leak check" : ""}
+          </span>
+        </Row>
+      </Section>
+      <Section title="Address and mail" intro="Set in the environment at start.">
+        <Row name="Address" hint="PUBLIC_URL" inline>
+          <span className="truncate text-[13px] text-ink-2">{env.publicUrl}</span>
+        </Row>
+        <Row
+          name="Instance mail"
+          hint={
+            env.mail === "smtp"
+              ? "Sent over SMTP (SMTP_URL)."
+              : "Written to the server's log: set SMTP_URL to send it."
+          }
+          inline
+        >
+          <span className="text-[13px] text-ink-2">
+            {env.mail === "smtp" ? "SMTP" : "Log only"}
+          </span>
+        </Row>
+      </Section>
+      <Danger>
+        <Row
+          name="Maintenance mode"
+          hint={
+            maintenance.on
+              ? "On: everyone sees the notice, and uploads and jobs wait. Nothing is lost."
+              : "Everyone sees a notice; uploads and jobs wait until it is over. Nothing is lost."
+          }
+        >
+          <Button
+            variant={maintenance.on ? "primary" : "secondary"}
+            size="md"
+            disabled={save.isPending}
+            onClick={() =>
+              save.mutate({
+                ...settings,
+                maintenance: { on: !maintenance.on, message: words.trim() },
+              })
+            }
+          >
+            {maintenance.on ? "Turn off" : "Turn on"}
+          </Button>
+        </Row>
+        <Row name="Notice" hint="Shown to everyone while it is on, beside that it is." stacked>
+          <div className="flex w-full flex-col gap-2 @xl/app:flex-row">
+            <Input
+              aria-label="Maintenance notice"
+              value={words}
+              maxLength={280}
+              placeholder="Back by 18:00"
+              className="min-w-0 flex-1"
+              onChange={(e) => setMessage(e.target.value)}
+            />
+            {maintenance.on && (
+              <Button
+                variant="secondary"
+                size="md"
+                disabled={save.isPending || words.trim() === maintenance.message}
+                onClick={() =>
+                  save.mutate({ ...settings, maintenance: { on: true, message: words.trim() } })
+                }
+              >
+                Save notice
+              </Button>
+            )}
+          </div>
+        </Row>
+        {save.isError && <Row name="Not changed" hint={save.error.message} />}
+      </Danger>
+    </>
   );
 }
 

@@ -30,7 +30,7 @@ describe("instance settings", () => {
         security: { requireSecondFactor: true },
         maintenance: { on: false, message: "" },
       }).map((c) => c.action),
-    ).toEqual(["settings.second_factor", "maintenance.off"]);
+    ).toEqual(["settings.second_factor_on", "maintenance.off"]);
     expect(settingsChanges(on, on)).toEqual([]);
   });
 });

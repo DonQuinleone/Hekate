@@ -1386,7 +1386,9 @@ export function instanceRoutes(options: InstanceOptions) {
             await recordInstanceEvent(tx, {
               actorId: c.var.userId,
               action: change.action,
-              target: change.action.startsWith("maintenance.") ? "Maintenance mode" : "Security",
+              target: change.action.startsWith("maintenance.")
+                ? "Maintenance mode"
+                : "A second factor",
               details: change.details,
               ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
             });

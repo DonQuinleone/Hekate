@@ -44,8 +44,10 @@ export function settingsChanges(
   const changes: { action: string; details: Record<string, unknown> }[] = [];
   if (before.security.requireSecondFactor !== after.security.requireSecondFactor)
     changes.push({
-      action: "settings.second_factor",
-      details: { required: after.security.requireSecondFactor },
+      action: after.security.requireSecondFactor
+        ? "settings.second_factor_on"
+        : "settings.second_factor_off",
+      details: {},
     });
   if (before.maintenance.on !== after.maintenance.on)
     changes.push({

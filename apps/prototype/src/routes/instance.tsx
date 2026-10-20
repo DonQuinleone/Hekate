@@ -2427,10 +2427,16 @@ export function InstancePage({ section }: { section: string }) {
             </Row>
           </Section>
           <Danger>
-            <Row name="Maintenance mode" hint="Everyone sees a notice; nothing is lost.">
+            <Row
+              name="Maintenance mode"
+              hint="Everyone sees a notice; uploads and jobs wait until it is over. Nothing is lost."
+            >
               <Button variant="secondary" size="md">
                 Turn on
               </Button>
+            </Row>
+            <Row name="Notice" hint="Shown to everyone while it is on, beside that it is.">
+              <Input placeholder="Back by 18:00" className="w-full @3xl/app:w-96" />
             </Row>
           </Danger>
         </>

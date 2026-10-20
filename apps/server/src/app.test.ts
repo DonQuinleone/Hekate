@@ -1339,9 +1339,9 @@ describe.runIf(url)("api", () => {
         ).toBe(200);
         expect(events).toEqual([
           { action: "maintenance.on", target: "Maintenance mode" },
-          { action: "settings.second_factor", target: "Security" },
+          { action: "settings.second_factor_on", target: "A second factor" },
           { action: "maintenance.off", target: "Maintenance mode" },
-          { action: "settings.second_factor", target: "Security" },
+          { action: "settings.second_factor_off", target: "A second factor" },
         ]);
 
         // Only operators, and only settings that fit.
