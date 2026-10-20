@@ -28,9 +28,10 @@ describe("instance settings", () => {
     expect(
       settingsChanges(on, {
         security: { requireSecondFactor: true },
+        updates: { channel: "beta" },
         maintenance: { on: false, message: "" },
       }).map((c) => c.action),
-    ).toEqual(["settings.second_factor_on", "maintenance.off"]);
+    ).toEqual(["settings.second_factor_on", "updates.channel", "maintenance.off"]);
     expect(settingsChanges(on, on)).toEqual([]);
   });
 });

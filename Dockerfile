@@ -45,6 +45,9 @@ RUN apt-get update \
   && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
     /usr/local/lib/node_modules/corepack /usr/local/bin/corepack
 WORKDIR /app
+# The commit the image was built from, shown in System information (#158).
+ARG HEKATE_BUILD=dev
+ENV HEKATE_BUILD=$HEKATE_BUILD
 ENV NODE_ENV=production PORT=3000 WEB_DIST=/app/apps/web/dist MIGRATE_ON_START=true \
   STORAGE_LOCAL_PATH=/data/storage HEKATE_SETTINGS_FILE=/config/hekate.env \
   ADM_RENDERER_PATH=/opt/ear

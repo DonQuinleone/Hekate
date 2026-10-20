@@ -1081,3 +1081,13 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Maintenance mode.** While it is on, every page, signed in or not, shows a notice under which the operator may add a line. Uploads (starting one, its chunks, finishing it, a comment's attachment) are refused with 503 and the files they would send stay with the sender. The job workers stop taking jobs and finish those under way, and the queue keeps the rest until it is over. Nothing is lost.
 - **What the environment sets.** Shown beside them, read-only: operators' security keys, session length, password rules, the address and instance mail.
 - **Follows.** Defaults for new workspaces (storage, members, guest links, forensic marking) with quotas (#175) and marking (#32); workspace subdomains (#176); mail channels and a test (#161); telemetry (#162); modules with billing (#178) and support (#181).
+
+## 179. System information
+
+#158, as decided there: "for 1.0 the page shows versions and available releases only; the image stays immutable". Hot patches would be a later, opt-in feature of their own.
+
+- **What runs.** The release (the server package's version, which Release Please sets) and the build: the commit the image was built from, passed in as `HEKATE_BUILD` by the release workflow, or "a development build". Each release the instance starts is noted once, for the History.
+- **Releases.** With `HEKATE_UPDATE_CHECK=true`, a job reads the project's public releases feed once a day (and on *Check now*); nothing about the instance is sent. Off by default, the instance asks nothing of anyone. Drafts and tags that are not versions are left out; a failed check is kept beside the releases the last good one found, so the page says why it is behind.
+- **Channel.** Stable offers releases, Beta their release candidates too (an instance setting, #160). The prototype's Edge channel and instance id are gone: no feed offers every build, and nothing needs to identify the instance.
+- **Available.** The releases newer than the one running on the channel, each with its notes and how to upgrade (the docs' Upgrades page). A newer release is also on the Overview's "Needs an operator".
+- **Environment.** Node.js, PostgreSQL, ffmpeg and Poppler versions, the storage backends, the licence.

@@ -74,6 +74,8 @@ A setting marked as secret may instead name a file that holds it, with `_FILE` a
 | `HEKATE_BILLING` | `off` | Billing for a hosted offering (decision 041). Off for a self-hosted install, which shows none. |
 | `HEKATE_SUPPORT` | `off` | Support: off; app, tickets in the application; link, an external help desk; or mail, tickets sent to an address (decision 041). |
 | `HEKATE_SUPPORT_ADDRESS` | unset | Where support goes: the help desk's address when HEKATE_SUPPORT is link, or the mailbox when it is mail. Example: `support@example.com`. |
+| `HEKATE_UPDATE_CHECK` | `false` | Check the project's public releases once a day, for System information and the Overview. Nothing about the instance is sent. Off by default: the instance asks nothing of anyone. |
+| `HEKATE_BUILD` | `dev` | The commit the image was built from. Set by the image; leave it alone. |
 | `HEKATE_DOCS_URL` | `https://docs.hekate.studio` | Where the help menu's documentation link goes. |
 | `HEKATE_STATUS_URL` | unset | A status page for the help menu to link to; none when unset. |
 

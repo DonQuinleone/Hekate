@@ -2232,25 +2232,21 @@ export function InstancePage({ section }: { section: string }) {
             </Row>
             <Row
               name="Update channel"
-              hint="Stable gets releases; Beta gets release candidates; Edge gets every build that passes."
+              hint="Stable offers releases; Beta offers their release candidates too."
             >
               <Select value={channel} onChange={(e) => setChannel(e.target.value)} className="w-36">
                 <option value="stable">Stable</option>
                 <option value="beta">Beta</option>
-                <option value="edge">Edge</option>
               </Select>
             </Row>
             <Row
               name="Last check"
-              hint="Checks every six hours; nothing is sent but the version and the channel."
+              hint="Once a day, from the project's public releases, when HEKATE_UPDATE_CHECK is on. Nothing about the instance is sent."
             >
               <span className="text-[13px] text-ink-2">14 minutes ago</span>
               <Button variant="secondary" size="md">
                 Check now
               </Button>
-            </Row>
-            <Row name="Instance id" hint="For support; it identifies nothing else.">
-              <span className="tabular text-[13px] text-ink-2">inst_7a3e…c91</span>
             </Row>
           </Section>
           <Section

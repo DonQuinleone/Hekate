@@ -26,6 +26,7 @@ import {
   instanceSettingsInput,
   instanceWorkspacesQuery,
   nameMatches,
+  newerReleases,
   newWorkspaceInput,
   type OperatorRow,
   operatorInput,
@@ -72,6 +73,7 @@ import { INVITATION_LIFETIME_MS, newInvitationToken } from "../invitation-token.
 import { type JobName, type Jobs, jobDefinitions } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
+import { HEKATE_VERSION, systemInformation } from "../system-info.ts";
 import { factorStanding, type SecondFactorRule } from "../tenancy.ts";
 import { pendingRewrap } from "../workspace-keys.ts";
 import { operatorMove } from "./project-transfers.ts";
@@ -97,6 +99,8 @@ export interface InstanceOptions {
   audit: Audit;
   /** The instance's settings (#160), shared with the rest of the server. */
   settings: InstanceSettingsStore;
+  /** The build running and whether releases are checked (#158). */
+  system: { build: string; checkOn: boolean };
   /** What the environment sets, shown beside the settings. */
   environment: InstanceEnvironment;
 }
@@ -1083,6 +1087,18 @@ export function instanceRoutes(options: InstanceOptions) {
             title: `${o.name} has no passkey or security key`,
             detail: "Operators sign in with one; until they add one they cannot act here.",
           });
+        // A newer release on the operator's channel (#158), when the check is on.
+        if (options.system.checkOn) {
+          const { channel } = (await options.settings.get()).updates;
+          const [checked] = await db.select().from(schema.releaseChecks);
+          const [newest] = newerReleases(HEKATE_VERSION, checked?.releases ?? [], channel);
+          if (newest)
+            needs.push({
+              kind: "release_available",
+              title: `Release ${newest.version} is out`,
+              detail: `This instance runs ${HEKATE_VERSION}. System information has its notes and how to upgrade.`,
+            });
+        }
         const overview: InstanceOverview = {
           workspaces: workspaces?.n ?? 0,
           people: people?.n ?? 0,
@@ -1368,6 +1384,27 @@ export function instanceRoutes(options: InstanceOptions) {
         });
         return c.json({ jobs: queued }, 202);
       })
+      // System information (#158): what runs, what is newer, and what it runs on.
+      .use("/system", operatorsOnly)
+      .use("/system/*", operatorsOnly)
+      .get("/system", async (c) =>
+        c.json(
+          await systemInformation(db, {
+            backends: options.backends,
+            build: options.system.build,
+            checkOn: options.system.checkOn,
+            channel: (await options.settings.get()).updates.channel,
+          }),
+        ),
+      )
+      .post("/system/check", async (c) => {
+        if (!options.system.checkOn)
+          throw new HTTPException(409, {
+            message: "Release checks are off: set HEKATE_UPDATE_CHECK=true to turn them on.",
+          });
+        await options.jobs.send("release-check", {}, { singletonKey: "release-check" });
+        return c.body(null, 202);
+      })
       // The instance's settings (#160), and what the environment sets beside them.
       .use("/settings", operatorsOnly)
       .get("/settings", async (c) => {
@@ -1388,7 +1425,9 @@ export function instanceRoutes(options: InstanceOptions) {
               action: change.action,
               target: change.action.startsWith("maintenance.")
                 ? "Maintenance mode"
-                : "A second factor",
+                : change.action.startsWith("updates.")
+                  ? "The update channel"
+                  : "A second factor",
               details: change.details,
               ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
             });

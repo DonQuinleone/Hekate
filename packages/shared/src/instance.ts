@@ -10,6 +10,7 @@ export const instanceSectionIds = [
   "workspaces",
   "operators",
   "settings",
+  "system",
   "debug",
 ] as const;
 export type InstanceSection = (typeof instanceSectionIds)[number];
@@ -21,6 +22,10 @@ export const instanceSections: Record<InstanceSection, { label: string; hint: st
     hint: "Every tenant, with its people, projects and storage",
   },
   operators: { label: "Operators", hint: "The accounts that may manage the instance" },
+  system: {
+    label: "System information",
+    hint: "Version, build, channel, releases and the environment",
+  },
   settings: {
     label: "Settings",
     hint: "Security for every account, maintenance mode, and what the environment sets",
@@ -76,7 +81,12 @@ export interface InstanceOverview {
   queue: { waiting: number; active: number; failedToday: number } | null;
   /** What needs an operator, most pressing first. */
   needs: {
-    kind: "failed_jobs" | "missing_objects" | "key_missing" | "queue_unreadable";
+    kind:
+      | "failed_jobs"
+      | "missing_objects"
+      | "key_missing"
+      | "queue_unreadable"
+      | "release_available";
     title: string;
     detail: string;
   }[];
@@ -229,6 +239,7 @@ export const instanceActions: Record<string, string> = {
   "flag.off": "turned off",
   "settings.second_factor_on": "required of every account",
   "settings.second_factor_off": "no longer required of every account",
+  "updates.channel": "changed",
   "maintenance.on": "turned on",
   "maintenance.off": "turned off",
   "maintenance.message": "given a new notice",

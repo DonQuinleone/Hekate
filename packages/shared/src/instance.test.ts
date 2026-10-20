@@ -22,6 +22,7 @@ describe("the instance side", () => {
       "workspaces",
       "operators",
       "settings",
+      "system",
       "debug",
     ]);
     expect(instanceSectionsFor({ operator: false })).toEqual(["workspaces"]);

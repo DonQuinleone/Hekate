@@ -44,6 +44,7 @@ export * from "./qa.ts";
 export * from "./qa-changes.ts";
 export * from "./qa-rules.ts";
 export * from "./references.ts";
+export * from "./releases.ts";
 export * from "./repertoire.ts";
 export * from "./reviewer-permissions.ts";
 export * from "./reviews.ts";

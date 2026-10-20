@@ -31,6 +31,7 @@ import { schemaProblem, settingsOrExit } from "./startup.ts";
 import { serveWeb } from "./static.ts";
 import { createStorage } from "./storage.ts";
 import { recordedReconciliation } from "./storage-usage.ts";
+import { checkReleases, recordVersionRun } from "./system-info.ts";
 import { remindTasksDue } from "./tasks.ts";
 import { clockElapsed, fileMeasured, sweepRuns } from "./workflow-runner.ts";
 import { rewrapBehind, rewrapOrganisation } from "./workspace-keys.ts";
@@ -198,6 +199,10 @@ export async function boot(
         );
       }
     });
+    await jobs.work("release-check", async () => {
+      // Off, the instance asks nothing of anyone: the job finds nothing to do.
+      if (config.HEKATE_UPDATE_CHECK) await checkReleases(db);
+    });
     await jobs.work("notifications-mail", async () => {
       await deliverInstant(db, mailer, config.PUBLIC_URL);
     });
@@ -246,9 +251,16 @@ export async function boot(
     });
   }
 
+  // The release this process runs joins the instance's history (#158).
+  await recordVersionRun(db).catch((error: unknown) =>
+    console.error("Could not record the release running:", error),
+  );
+
   const app = createApp({
     db,
     settings,
+    build: config.HEKATE_BUILD,
+    updateCheck: config.HEKATE_UPDATE_CHECK,
     smtp: Boolean(config.SMTP_URL),
     auth,
     mailer,

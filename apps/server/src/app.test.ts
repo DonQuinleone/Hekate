@@ -1278,6 +1278,7 @@ describe.runIf(url)("api", () => {
         const first = await read();
         expect(first.settings).toEqual({
           security: { requireSecondFactor: false },
+          updates: { channel: "stable" },
           maintenance: { on: false, message: "" },
         });
         expect(first.environment.sessionDays).toBe(14);
@@ -1305,6 +1306,7 @@ describe.runIf(url)("api", () => {
           (
             await save({
               security: { requireSecondFactor: true },
+              updates: { channel: "stable" },
               maintenance: { on: false, message: "" },
             })
           ).status,
@@ -1320,6 +1322,7 @@ describe.runIf(url)("api", () => {
           (
             await save({
               security: { requireSecondFactor: false },
+              updates: { channel: "stable" },
               maintenance: { on: false, message: "" },
             })
           ).status,
@@ -1349,6 +1352,38 @@ describe.runIf(url)("api", () => {
         const theirOwner = await join(operator, "label@example.test", "owner");
         expect((await save(on, theirOwner)).status).toBe(403);
         expect((await notice()).maintenance.on).toBe(false);
+      });
+
+      it("shows what the instance runs, and checks releases only when asked to (#158)", async () => {
+        const operator = cookieOf(await setup());
+        const system = await asOperator.request("/api/instance/system", {
+          headers: { cookie: operator },
+        });
+        expect(system.status).toBe(200);
+        const info = (await system.json()) as {
+          version: string;
+          channel: string;
+          check: { on: boolean };
+          available: unknown[];
+          environment: { name: string; value: string }[];
+        };
+        expect(info.version).toMatch(/^\d+\.\d+\.\d+/);
+        expect(info.channel).toBe("stable");
+        // Off by default: nothing is asked of anyone, nothing offered, no check to start.
+        expect(info.check.on).toBe(false);
+        expect(info.available).toEqual([]);
+        expect(info.environment.map((e) => e.name)).toContain("Node.js");
+        const check = await asOperator.request("/api/instance/system/check", {
+          ...json({}, operator),
+          method: "POST",
+        });
+        expect(check.status).toBe(409);
+        expect(await check.text()).toContain("HEKATE_UPDATE_CHECK");
+        const theirOwner = await join(operator, "label@example.test", "owner");
+        expect(
+          (await asOperator.request("/api/instance/system", { headers: { cookie: theirOwner } }))
+            .status,
+        ).toBe(403);
       });
 
       it("keeps a report when the workspace it names does not exist", async () => {
