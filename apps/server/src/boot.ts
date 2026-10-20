@@ -13,6 +13,7 @@ import { createAudit } from "./audit.ts";
 import { createAuth } from "./auth.ts";
 import { failureOfJob, purgeErrorReports, recordFailure } from "./error-reports.ts";
 import { createFlags } from "./flags.ts";
+import { createInstanceSettings } from "./instance-settings.ts";
 import { createJobs, jobDefinitions } from "./jobs.ts";
 import { createKeyring, UnknownMasterKeyError } from "./keyring.ts";
 import { createMailer } from "./mail.ts";
@@ -151,6 +152,21 @@ export async function boot(
     verbose: () => flags.isOn("worker.verbose"),
   });
   await jobs.start();
+  // Maintenance mode (#154): this process's workers stop taking jobs while it is on, and take
+  // them up again when it is over; the queue keeps every job meanwhile.
+  const settings = createInstanceSettings(db);
+  const holdJobs = async () => {
+    try {
+      await jobs.hold((await settings.get()).maintenance.on);
+    } catch (error) {
+      console.error("Could not hold or resume the job workers:", error);
+    }
+  };
+  // Held before any worker is registered, so one starting during maintenance takes nothing.
+  await holdJobs();
+  const holding = setInterval(holdJobs, 15_000);
+  holding.unref();
+
   if (config.WORKER) {
     await startWorkers(
       jobs,
@@ -232,6 +248,8 @@ export async function boot(
 
   const app = createApp({
     db,
+    settings,
+    smtp: Boolean(config.SMTP_URL),
     auth,
     mailer,
     storage,
@@ -262,8 +280,8 @@ export async function boot(
     needsOwner: (owners?.n ?? 0) === 0,
     // Let running jobs finish (or give up at the timeout) before closing the database.
     stop: () =>
-      jobs
-        .stop()
+      Promise.resolve(clearInterval(holding))
+        .then(() => jobs.stop())
         .catch((error: unknown) => console.error("Stopping the job queue failed:", error))
         .then(() => close()),
   };

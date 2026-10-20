@@ -23,6 +23,7 @@ export * from "./format.ts";
 export * from "./inspect.ts";
 export * from "./install.ts";
 export * from "./instance.ts";
+export * from "./instance-settings.ts";
 export * from "./item-words.ts";
 export * from "./layouts.ts";
 export * from "./loudness.ts";

@@ -16,6 +16,7 @@ import {
   type DownloadKind,
   defaultReviewerPermissions,
   type FileColumnLayout,
+  type InstanceSettings,
   type LoudnessSummary,
   type MailMode,
   type MediaInfo,
@@ -2584,6 +2585,22 @@ export const instanceFlags = pgTable("instance_flags", {
   updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Instance settings (#160): one row, the instance's own (`instanceSettingsInput` in
+ * packages/shared). Global: a setting is the instance's, not a workspace's.
+ */
+export const instanceSettings = pgTable(
+  "instance_settings",
+  {
+    /** Always "instance": there is one row. */
+    id: text("id").primaryKey().default("instance"),
+    settings: jsonb("settings").$type<InstanceSettings>().notNull(),
+    updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("instance_settings_one", sql`${t.id} = 'instance'`)],
+);
 
 export const taskStatusEnum = pgEnum("task_status", taskStatuses);
 export const taskPriorityEnum = pgEnum("task_priority", taskPriorities);

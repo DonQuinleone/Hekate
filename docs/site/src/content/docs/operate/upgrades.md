@@ -31,4 +31,8 @@ Replicas that start together migrate one at a time: the first takes a lock in Po
 
 With `MIGRATE_ON_START` off, the app checks the database before it starts. If the database is behind (migrations not yet applied), it stops and names them: start once with `MIGRATE_ON_START=true`, or run `pnpm db:migrate`. If the database is ahead, because a newer release has already migrated it, the app stops whatever the setting: run that newer release again, or restore the backup taken before upgrading.
 
+## Maintenance mode
+
+Before an upgrade that takes a while, or any work on the database or storage, an operator can turn on maintenance mode (Instance, Settings, Danger zone). Everyone sees a notice, with a line of the operator's own if they add one. Uploads wait, and the job workers stop taking jobs; queued jobs stay in the queue. Turn it off when the work is done: everything waiting carries on, and nothing is lost.
+
 To stay on a release while pulling other changes, set `HEKATE_VERSION` in `.env`.

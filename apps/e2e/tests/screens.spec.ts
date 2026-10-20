@@ -368,6 +368,11 @@ const screens: Screen[] = [
     ready: "main >> text=producer@example.test",
   },
   {
+    name: "instance-settings",
+    path: () => "/instance/settings",
+    ready: "main >> text=Maintenance mode",
+  },
+  {
     name: "instance-debug",
     path: () => "/instance/debug",
     ready: "main >> text=HK-7F3A-2C",
@@ -1088,6 +1093,18 @@ test("instance-debug-report", async ({ page }) => {
   await page.getByRole("button", { name: "Open HK-7F3A-2C" }).click();
   await settle(page, "main >> text=Copy the report");
   await saveScreen(page, "instance-debug-report");
+  await checkScreen(page);
+});
+
+// Maintenance mode's notice (#154), above every page while it is on. The notice is answered
+// here rather than turned on, so no other screen taken meanwhile carries it.
+test("maintenance-notice", async ({ page }) => {
+  await page.route("**/api/notice", (route) =>
+    route.fulfill({ json: { maintenance: { on: true, message: "Back by 18:00." } } }),
+  );
+  await page.goto(`/projects/${seeded().musicProjectId}`);
+  await settle(page, "text=Hekate is under maintenance");
+  await saveScreen(page, "maintenance-notice");
   await checkScreen(page);
 });
 

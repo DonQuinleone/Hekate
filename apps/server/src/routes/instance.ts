@@ -9,6 +9,7 @@ import {
   flagParam,
   type InspectKind,
   type InstanceAccess,
+  type InstanceEnvironment,
   type InstanceMemberRow,
   type InstanceOverview,
   type InstanceProjectRow,
@@ -22,6 +23,7 @@ import {
   inspectReviewParam,
   inspectSessionParam,
   instanceFlags,
+  instanceSettingsInput,
   instanceWorkspacesQuery,
   nameMatches,
   newWorkspaceInput,
@@ -29,6 +31,7 @@ import {
   operatorInput,
   operatorMoveInput,
   operatorParam as operatorParamSchema,
+  settingsChanges,
   suspendWorkspaceInput,
   WORKSPACE_DELETE_GRACE_DAYS,
   workspaceSettingsOf,
@@ -64,6 +67,7 @@ import { workspaceEmail } from "../email/templates.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import { createFlags } from "../flags.ts";
 import { inspectFile, inspectReview, inspectSession } from "../inspect.ts";
+import type { InstanceSettingsStore } from "../instance-settings.ts";
 import { INVITATION_LIFETIME_MS, newInvitationToken } from "../invitation-token.ts";
 import { type JobName, type Jobs, jobDefinitions } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
@@ -91,6 +95,10 @@ export interface InstanceOptions {
   jobs: Pick<Jobs, "send">;
   backends: Backends;
   audit: Audit;
+  /** The instance's settings (#160), shared with the rest of the server. */
+  settings: InstanceSettingsStore;
+  /** What the environment sets, shown beside the settings. */
+  environment: InstanceEnvironment;
 }
 
 interface InstanceVariables {
@@ -1359,6 +1367,35 @@ export function instanceRoutes(options: InstanceOptions) {
           ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
         });
         return c.json({ jobs: queued }, 202);
+      })
+      // The instance's settings (#160), and what the environment sets beside them.
+      .use("/settings", operatorsOnly)
+      .get("/settings", async (c) => {
+        options.settings.forget();
+        return c.json({
+          settings: await options.settings.get(),
+          environment: options.environment,
+        });
+      })
+      .put("/settings", zValidator("json", instanceSettingsInput), async (c) => {
+        const next = c.req.valid("json");
+        await db.transaction(async (tx) => {
+          const before = await options.settings.write(tx, next, c.var.userId);
+          // Every change an instance event, each thing that changed its own.
+          for (const change of settingsChanges(before, next))
+            await recordInstanceEvent(tx, {
+              actorId: c.var.userId,
+              action: change.action,
+              target: change.action.startsWith("maintenance.")
+                ? "Maintenance mode"
+                : "A second factor",
+              details: change.details,
+              ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+            });
+        });
+        // Committed: every read from now on is the new settings.
+        options.settings.forget();
+        return c.json({ settings: await options.settings.get(), environment: options.environment });
       })
       // The instance's flags (#159): read as the server runs, so turning one needs no restart.
       .use("/flags", operatorsOnly)

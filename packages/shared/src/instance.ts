@@ -5,7 +5,13 @@ import { z } from "zod";
  * everything; a workspace's owner who is not an operator sees their own workspaces only.
  */
 
-export const instanceSectionIds = ["overview", "workspaces", "operators", "debug"] as const;
+export const instanceSectionIds = [
+  "overview",
+  "workspaces",
+  "operators",
+  "settings",
+  "debug",
+] as const;
 export type InstanceSection = (typeof instanceSectionIds)[number];
 
 export const instanceSections: Record<InstanceSection, { label: string; hint: string }> = {
@@ -15,6 +21,10 @@ export const instanceSections: Record<InstanceSection, { label: string; hint: st
     hint: "Every tenant, with its people, projects and storage",
   },
   operators: { label: "Operators", hint: "The accounts that may manage the instance" },
+  settings: {
+    label: "Settings",
+    hint: "Security for every account, maintenance mode, and what the environment sets",
+  },
   debug: {
     label: "Debug tools",
     hint: "Look up an error reference, see what failed, inspect what is not working",
@@ -217,6 +227,11 @@ export const instanceActions: Record<string, string> = {
   "debug.job_retried": "run again from Debug tools",
   "flag.on": "turned on",
   "flag.off": "turned off",
+  "settings.second_factor_on": "required of every account",
+  "settings.second_factor_off": "no longer required of every account",
+  "maintenance.on": "turned on",
+  "maintenance.off": "turned off",
+  "maintenance.message": "given a new notice",
 };
 
 /** Where a workspace stands, from its record. */

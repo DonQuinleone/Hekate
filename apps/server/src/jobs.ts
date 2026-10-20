@@ -167,6 +167,11 @@ export interface Jobs {
   ): Promise<void>;
   /** Look up a job's state, for tests and diagnostics. */
   state(name: JobName, id: string): Promise<string | undefined>;
+  /**
+   * Stop taking jobs, letting those under way finish, or take them up again (maintenance mode,
+   * #154). Queued jobs wait in the queue meanwhile: none is lost or failed.
+   */
+  hold(held: boolean): Promise<void>;
 }
 
 /** A job that failed for the last time: no retry follows. */
@@ -234,6 +239,12 @@ export function createJobs(options: {
     max: 4,
   });
   boss.on("error", (error) => console.error("Job queue error:", error));
+  // Each kind of job this process works, to stop and take up again as maintenance comes and goes.
+  const workers = new Map<string, () => Promise<unknown>>();
+  let held = false;
+  // The kinds of job this process is taking now.
+  const taking = new Set<string>();
+  let holding = Promise.resolve();
 
   return {
     async start() {
@@ -259,14 +270,41 @@ export function createJobs(options: {
     },
 
     async work(name, handler, workOptions) {
-      await boss.work(
-        name,
-        { localConcurrency: workOptions?.concurrency ?? 1, batchSize: 1 },
-        async ([job]: Job<unknown>[]) => {
-          if (!job) return;
-          await runJob(name, job, handler, options.onFailure, options.verbose);
-        },
-      );
+      const take = () =>
+        boss.work(
+          name,
+          { localConcurrency: workOptions?.concurrency ?? 1, batchSize: 1 },
+          async ([job]: Job<unknown>[]) => {
+            if (!job) return;
+            await runJob(name, job, handler, options.onFailure, options.verbose);
+          },
+        );
+      workers.set(name, take);
+      if (!held) {
+        await take();
+        taking.add(name);
+      }
+    },
+
+    hold(next) {
+      // One after another: turned on and off again quickly, each change finishes first.
+      holding = holding
+        .catch(() => {})
+        .then(async () => {
+          // Queue by queue, each only if not already so: one that failed is tried again next
+          // time, and the state is the new one only once every queue has followed.
+          for (const [name, take] of workers) {
+            if (next && taking.has(name)) {
+              await boss.offWork(name, { wait: true });
+              taking.delete(name);
+            } else if (!next && !taking.has(name)) {
+              await take();
+              taking.add(name);
+            }
+          }
+          held = next;
+        });
+      return holding;
     },
 
     async state(name, id) {

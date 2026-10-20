@@ -83,6 +83,9 @@ const ssoProviderIn = (ctx: { path: string; params?: unknown; body?: unknown }) 
 /** The base of the app's own links, for those in emails. */
 const appBase = (baseURL: string) => baseURL.replace(/\/$/, "");
 
+/** How long a session lasts without use, in days. */
+export const SESSION_DAYS = 14;
+
 /**
  * Better Auth with email and password. Public sign-up is closed: the first account is created by
  * first-run setup, later accounts by invitation. A code app or a passkey is the second factor,
@@ -412,7 +415,7 @@ export function createAuth(options: AuthOptions) {
       },
     },
     session: {
-      expiresIn: 60 * 60 * 24 * 14,
+      expiresIn: 60 * 60 * 24 * SESSION_DAYS,
       updateAge: 60 * 60 * 24,
       additionalFields: {
         activeOrganisationId: { type: "string", required: false, input: false },
