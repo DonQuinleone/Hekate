@@ -9397,9 +9397,34 @@ describe.runIf(url)("api", () => {
             .returning();
           expect((await getAs(`/api/takes/${theirTake?.id}/history`, s.owner)).status).toBe(404);
           expect((await start({ trackId: s.trackId, id: theirTake?.id })).status).toBe(409);
-          // Nor may someone without the project read this one's.
+          // Nor may someone without the project read this one's, nor a member whose role keeps
+          // the takes from them.
           const newcomer = await joinAs(s.owner, "newcomer@example.test");
           expect((await getAs(`/api/takes/${id}/history`, newcomer)).status).toBe(404);
+          const levels = {
+            files: "view",
+            comments: "none",
+            reviews: "none",
+            downloads: "none",
+            takes: "none",
+            production: "none",
+            workflow: "none",
+            people: "none",
+            project: "none",
+          };
+          expect(
+            (
+              await send(
+                "POST",
+                `/api/projects/${s.projectId}/roles`,
+                { name: "Listener", levels },
+                s.owner,
+              )
+            ).status,
+          ).toBe(201);
+          const listener = await joinAs(s.owner, "listener@example.test");
+          await grantRole(s.owner, s.projectId, listener, "Listener");
+          expect((await getAs(`/api/takes/${id}/history`, listener)).status).toBe(403);
         });
 
         it("imports takes: each file the next take of its track, in its session, once (#45)", async () => {

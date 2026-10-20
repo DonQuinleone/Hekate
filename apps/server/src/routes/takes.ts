@@ -257,6 +257,13 @@ export const takeRoutes = (db: Database) =>
       await db.transaction(async (tx) => {
         // An archived project is read-only, even if it was archived a moment ago.
         await lockLiveProject(tx, organisationId, take.projectId);
+        // The take as it stands, held until this change is written.
+        const [current] = await tx
+          .select()
+          .from(takes)
+          .where(inOrg(takes, organisationId, eq(takes.id, id)))
+          .for("update");
+        if (!current) throw new NotFound("Take");
         if (change.sessionId) {
           // A session of the same project; it recorded the take's track, if it did not say so.
           const [session] = await tx
@@ -292,8 +299,9 @@ export const takeRoutes = (db: Database) =>
           .returning({ id: takes.id });
         if (!changed)
           throw new HTTPException(409, { message: "The take changed meanwhile; look again" });
-        // Each field it changed, with the value it replaced, for the take's history.
-        const history = fieldChanges(take.take, { ...rest, ...times }, base);
+        // Each field it changed, with the value it replaced, for the take's history: read from
+        // the take as locked above, so two changes at once each record what they replaced.
+        const history = fieldChanges(current, { ...rest, ...times }, base);
         if (history.length > 0)
           await tx.insert(takeChanges).values(
             history.map((h) => ({
@@ -326,7 +334,8 @@ export const takeRoutes = (db: Database) =>
         )
         .where(inOrg(takes, organisationId, eq(takes.id, id)));
       if (!take) throw new NotFound("Take");
-      await can(db, actorOf(c.var), "view", take.projectId);
+      // As the takes themselves: its notes, ratings and who wrote them are the takes' to show.
+      await can(db, actorOf(c.var), "view_takes", take.projectId);
       const rows = await db
         .select({ change: takeChanges, name: users.name })
         .from(takeChanges)
