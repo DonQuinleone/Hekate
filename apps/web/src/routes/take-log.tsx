@@ -18,9 +18,11 @@ import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/choice";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { Segmented } from "~/components/ui/segmented";
+import { Switch } from "~/components/ui/toggle";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
 import { projectQuery, sessionQuery, useProjectCan, useTakeLog, viewQuery } from "~/lib/queries";
+import { TEMPO_MAX, TEMPO_MIN, TONES, tempoOf, useReferenceAudio } from "~/lib/reference-audio";
 import { useShortcuts } from "~/lib/shortcuts";
 import {
   clock,
@@ -680,6 +682,78 @@ function ScorePage({
   );
 }
 
+/** A tuning tone and a metronome for whoever has this page open, heard on their device only. */
+function ToneAndMetronome() {
+  const audio = useReferenceAudio();
+  const id = useId();
+  const [typed, setTyped] = useState(String(audio.tempo));
+  return (
+    <section aria-labelledby={id} className="flex flex-col gap-2">
+      <h2 id={id} className="label m-0">
+        Tone and metronome
+      </h2>
+      <div className="grid grid-cols-4 gap-1">
+        {TONES.map((hz) => (
+          <Button
+            key={hz}
+            size="sm"
+            variant="secondary"
+            aria-pressed={audio.tone === hz}
+            onClick={() => audio.setTone(audio.tone === hz ? null : hz)}
+            className="tabular px-0 aria-pressed:border-signal/60 aria-pressed:bg-signal/10"
+          >
+            {hz} Hz
+          </Button>
+        ))}
+      </div>
+      <div className="flex items-center gap-2 text-[13px] text-ink">
+        <span className="flex flex-1 items-center gap-2">
+          Metronome
+          <Input
+            aria-label="Tempo, beats a minute"
+            size="sm"
+            type="number"
+            inputMode="numeric"
+            min={TEMPO_MIN}
+            max={TEMPO_MAX}
+            value={typed}
+            onChange={(e) => {
+              setTyped(e.target.value);
+              const bpm = tempoOf(e.target.valueAsNumber);
+              if (bpm != null && bpm === e.target.valueAsNumber) audio.setTempo(bpm);
+            }}
+            onBlur={() => {
+              const bpm = tempoOf(Number.parseFloat(typed)) ?? audio.tempo;
+              audio.setTempo(bpm);
+              setTyped(String(bpm));
+            }}
+            className="tabular w-16"
+          />
+          <span aria-hidden="true" className="text-ink-3">
+            bpm
+          </span>
+        </span>
+        <Switch label="Metronome" checked={audio.metronome} onChange={audio.setMetronome} />
+      </div>
+      {audio.outputs.length > 1 && (
+        <Select
+          size="sm"
+          aria-label="Play through"
+          value={audio.output}
+          onChange={(e) => audio.setOutput(e.target.value)}
+        >
+          <option value="">This device's default output</option>
+          {audio.outputs.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
+      )}
+    </section>
+  );
+}
+
 /**
  * Beside the log (#51): for the producer, the score where the take starts, the room's to-do
  * list and the quick reference; for everyone, the session's notes.
@@ -784,6 +858,7 @@ function TakeLogAside({
           />
         </>
       )}
+      <ToneAndMetronome />
       <SharedText
         label="Notes"
         value={session.notes}
