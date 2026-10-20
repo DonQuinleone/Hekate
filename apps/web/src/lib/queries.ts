@@ -1371,6 +1371,15 @@ export function useCategoryMutations(projectId: string) {
   };
 }
 
+/** What swapping a track's score carried to the new one (#52), and what stayed. */
+export interface ScoreRehomed {
+  marks: number;
+  takes: number;
+  stayed: number;
+  /** The new score is still being drawn: its marks follow their bars once it is. */
+  waiting?: boolean;
+}
+
 /** What someone may download of a file, and what each kind would be (#136). */
 export interface DownloadChoices {
   level: DownloadLevel;
@@ -2302,6 +2311,20 @@ export function useTrackMutations(projectId: string) {
     void client.invalidateQueries({ queryKey: ["files"] });
   };
   return {
+    /**
+     * Link the track's score, or swap it for another edition (#52): what was placed on the old
+     * one follows its bars, and the answer says how much did.
+     */
+    chooseScore: useMutation({
+      mutationFn: async ({ id, scoreFileId }: { id: string; scoreFileId: string | null }) =>
+        json<{ track: Track; rehomed?: ScoreRehomed }>(
+          await api.tracks[":id"].$patch({ param: { id }, json: { scoreFileId } }),
+        ),
+      onSuccess: ({ track }) => {
+        refresh(track);
+        void client.invalidateQueries({ queryKey: ["tracks", track.id] });
+      },
+    }),
     createTrack: useMutation({
       mutationFn: async (input: { name: string; folderId?: string | null }) =>
         (

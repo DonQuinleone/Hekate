@@ -34,6 +34,7 @@ import type { Jobs } from "../jobs.ts";
 import type { Mailer } from "../mail.ts";
 import { metrics } from "../metrics/index.ts";
 import { follow, followersOf, notifyNow } from "../notifications.ts";
+import { swapScore } from "../score-swap.ts";
 import type { Storage } from "../storage.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { trackStandings } from "../track-standing.ts";
@@ -152,7 +153,8 @@ async function tracksOf(db: Database, organisationId: string, projectId: string)
             ),
           )
           .orderBy(asc(variations.position), asc(variations.id));
-  return trackRows.map((track) => ({
+  // A score swap still waiting for its bars (#52) is the server's own business.
+  return trackRows.map(({ rehomeFrom: _from, rehomeById: _by, ...track }) => ({
     ...track,
     versions: versionRows
       .filter((v) => v.trackId === track.id)
@@ -279,17 +281,24 @@ export const trackRoutes = (
       if (input.scoreFileId) {
         await assertScore(db, organisationId, track.projectId, input.scoreFileId);
       }
-      await db.transaction(async (tx) => {
+      const rehomed = await db.transaction(async (tx) => {
         if (input.folderId !== undefined) {
           await lockProject(tx, organisationId, track.projectId);
           if (input.folderId) await folderIn(tx, organisationId, track.projectId, input.folderId);
         }
+        // Another edition of the score (#52): what was placed on the old one follows its bars.
+        // Read under the track's lock before the score is written, so two swaps never cross.
+        const rehomed =
+          input.scoreFileId !== undefined
+            ? await swapScore(tx, organisationId, id, input.scoreFileId, c.var.userId)
+            : undefined;
         await tx
           .update(tracks)
           .set({ ...input, updatedAt: new Date() })
           .where(inOrg(tracks, organisationId, eq(tracks.id, id)));
+        return rehomed;
       });
-      return c.json({ track: await oneTrack(db, organisationId, id) });
+      return c.json({ track: await oneTrack(db, organisationId, id), rehomed });
     })
     // What this track's versions are measured against (#144), over the project's; for whoever
     // edits the project's workflow, as the project's own profile is.
