@@ -127,6 +127,10 @@ export interface AppDeps {
   settings?: InstanceSettingsStore;
   /** Instance mail goes out over SMTP (SMTP_URL), rather than to the log. */
   smtp?: boolean;
+  /** The commit the image was built from (HEKATE_BUILD). */
+  build?: string;
+  /** The daily release check is on (HEKATE_UPDATE_CHECK). */
+  updateCheck?: boolean;
 }
 
 export function createApi(deps: AppDeps) {
@@ -203,6 +207,7 @@ export function createApi(deps: AppDeps) {
           backends: deps.storage.backends,
           audit: deps.audit,
           settings,
+          system: { build: deps.build ?? "dev", checkOn: deps.updateCheck ?? false },
           environment: {
             publicUrl: deps.publicUrl,
             requireSecondFactor: deps.requireSecondFactor ?? false,

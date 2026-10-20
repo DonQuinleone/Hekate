@@ -121,6 +121,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: HEKATE_BUILD=${{ github.sha }}
           cache-from: |
             type=gha,scope=amd64
             type=gha,scope=arm64

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { updateChannels } from "./releases.ts";
 
 /**
  * Instance settings (#160): what an operator decides for the whole instance, kept in one row
@@ -11,6 +12,8 @@ export const instanceSettingsInput = z.object({
     /** Every account needs a second factor, whatever a workspace's own setting says. */
     requireSecondFactor: z.boolean(),
   }),
+  /** Which releases System information offers (#158): releases, or their candidates too. */
+  updates: z.object({ channel: z.enum(updateChannels) }),
   /** Maintenance mode (#154): everyone sees a notice; uploads and jobs wait; nothing is lost. */
   maintenance: z.object({
     on: z.boolean(),
@@ -22,6 +25,7 @@ export type InstanceSettings = z.infer<typeof instanceSettingsInput>;
 
 export const defaultInstanceSettings: InstanceSettings = {
   security: { requireSecondFactor: false },
+  updates: { channel: "stable" },
   maintenance: { on: false, message: "" },
 };
 
@@ -30,6 +34,7 @@ export function instanceSettingsOf(stored: unknown): InstanceSettings {
   const value = (stored ?? {}) as Partial<Record<keyof InstanceSettings, object>>;
   const merged = {
     security: { ...defaultInstanceSettings.security, ...value.security },
+    updates: { ...defaultInstanceSettings.updates, ...value.updates },
     maintenance: { ...defaultInstanceSettings.maintenance, ...value.maintenance },
   };
   const parsed = instanceSettingsInput.safeParse(merged);
@@ -49,6 +54,8 @@ export function settingsChanges(
         : "settings.second_factor_off",
       details: {},
     });
+  if (before.updates.channel !== after.updates.channel)
+    changes.push({ action: "updates.channel", details: { channel: after.updates.channel } });
   if (before.maintenance.on !== after.maintenance.on)
     changes.push({
       action: after.maintenance.on ? "maintenance.on" : "maintenance.off",

@@ -35,6 +35,7 @@ import {
   type QaFinding,
   type QaSettings,
   type QaSeverity,
+  type Release,
   type ReviewerPermissions,
   type ReviewOutcome,
   reviewDecisions,
@@ -2601,6 +2602,28 @@ export const instanceSettings = pgTable(
   },
   (t) => [check("instance_settings_one", sql`${t.id} = 'instance'`)],
 );
+
+/**
+ * The last release check (#158): one row, what the releases feed said and when. Global: the
+ * releases are the project's, not a workspace's.
+ */
+export const releaseChecks = pgTable(
+  "release_checks",
+  {
+    id: text("id").primaryKey().default("instance"),
+    checkedAt: timestamp("checked_at", { withTimezone: true }).notNull(),
+    releases: jsonb("releases").$type<Release[]>().notNull(),
+    /** Why the last attempt failed; the releases kept are from the last that worked. */
+    failed: text("failed"),
+  },
+  (t) => [check("release_checks_one", sql`${t.id} = 'instance'`)],
+);
+
+/** Every release this instance has started (#158), with when it first did. Global. */
+export const versionsRun = pgTable("versions_run", {
+  version: text("version").primaryKey(),
+  firstStartedAt: timestamp("first_started_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const taskStatusEnum = pgEnum("task_status", taskStatuses);
 export const taskPriorityEnum = pgEnum("task_priority", taskPriorities);

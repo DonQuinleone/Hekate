@@ -64,6 +64,12 @@ export const jobDefinitions = {
     schedule: "*/15 * * * *",
   },
   /** Send notifications by mail as they happen. Every minute; each run sends what is waiting. */
+  /** The releases feed, read once a day when HEKATE_UPDATE_CHECK is on (#158). */
+  "release-check": {
+    data: z.object({}),
+    options: { retryLimit: 2, retryDelay: 600, expireInSeconds: 5 * 60 },
+    schedule: "17 5 * * *",
+  },
   "notifications-mail": {
     data: z.object({}),
     options: { retryLimit: 1, expireInSeconds: 5 * 60 },

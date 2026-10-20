@@ -448,6 +448,24 @@ const schema = z.object({
         example: "support@example.com",
       }),
     ),
+  HEKATE_UPDATE_CHECK: flag("false").meta(
+    info({
+      group: "Modules",
+      description:
+        "Check the project's public releases once a day, for System information and the Overview. Nothing about the instance is sent. Off by default: the instance asks nothing of anyone.",
+    }),
+  ),
+  HEKATE_BUILD: z
+    .string()
+    .trim()
+    .max(64)
+    .default("dev")
+    .meta(
+      info({
+        group: "Modules",
+        description: "The commit the image was built from. Set by the image; leave it alone.",
+      }),
+    ),
   HEKATE_DOCS_URL: z
     .url({ error: "must be a web address" })
     .default("https://docs.hekate.studio")
