@@ -18,6 +18,7 @@ import {
   isPdf,
   type MediaInfo,
   type ScoreMarkKind,
+  scoresDownloadInput,
   type WatermarkSettings,
   watermarkOf,
   watermarkText,
@@ -25,10 +26,10 @@ import {
 import { unwrapKey } from "@hekate/storage";
 import { zValidator } from "@hono/zod-validator";
 import { asc, desc, eq, gt, isNotNull, isNull, lt } from "drizzle-orm";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { type Actor, can, fileAccess, guestReach } from "../access.ts";
+import { type Actor, actorOf, can, fileAccess, guestReach } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
@@ -60,6 +61,7 @@ import {
 import { streamInWorkspace } from "../media/workspace.ts";
 import { admit, tooMany } from "../rate-limit.ts";
 import type { Storage } from "../storage.ts";
+import type { TenantVariables } from "../tenancy.ts";
 import { sendAttachment } from "./attachments.ts";
 import { attachment } from "./comments.ts";
 
@@ -410,6 +412,50 @@ async function overlayOf(
     );
 }
 
+/** A project's tracks that have a score, in the project's order. */
+async function scoredTracks(db: Database, organisationId: string, projectId: string) {
+  const rows = await db
+    .select({
+      id: tracks.id,
+      name: tracks.name,
+      projectId: tracks.projectId,
+      scoreFileId: tracks.scoreFileId,
+    })
+    .from(tracks)
+    .where(
+      inOrg(tracks, organisationId, eq(tracks.projectId, projectId), isNotNull(tracks.scoreFileId)),
+    )
+    .orderBy(asc(tracks.position), asc(tracks.createdAt), asc(tracks.id));
+  return rows.flatMap((r) => (r.scoreFileId ? [{ ...r, scoreFileId: r.scoreFileId }] : []));
+}
+
+/**
+ * Every track's score in a project, for one download of them all with their marks (#52):
+ * for someone who sees the production tools and may take each score in this form. Checked as
+ * the link is made and again as it is used.
+ */
+async function everyScore(db: Database, actor: Actor, projectId: string, kind: DownloadKind) {
+  await can(db, actor, "view_production", projectId);
+  const scored = await scoredTracks(db, actor.organisationId, projectId);
+  if (scored.length === 0)
+    throw new HTTPException(422, { message: "No track in this project has a score" });
+  const out: { track: (typeof scored)[number]; file: FileRow }[] = [];
+  for (const track of scored) {
+    const { level } = await levelFor(db, actor, track.scoreFileId);
+    if (!allowsDownload(level, kind))
+      throw new HTTPException(403, {
+        message: `Your access to the score of ${track.name} does not allow that`,
+      });
+    const file = await fileOf(db, actor.organisationId, track.scoreFileId);
+    if (!(await choices(db, actor.organisationId, file))[kind].available)
+      throw new HTTPException(422, {
+        message: `The score of ${track.name} cannot be downloaded that way yet`,
+      });
+    out.push({ track, file });
+  }
+  return out;
+}
+
 /** A document's pages as reviewed, each marked, ready to become a PDF's pages. */
 async function* reviewedPages(
   deps: DownloadDeps,
@@ -600,6 +646,93 @@ export const fileDownloadRoutes = (deps: DownloadDeps) =>
     });
 
 /**
+ * `/api/projects/:id/score-downloads`: every track's score with its marks, as one PDF (#52).
+ * Asking gives a link as a file's download does: once, in this session, for five minutes.
+ */
+export const projectScoreDownloadRoutes = (deps: DownloadDeps) =>
+  new Hono<{ Variables: TenantVariables }>().post(
+    "/:id/score-downloads",
+    fileParam,
+    zValidator("json", scoresDownloadInput),
+    async (c) => {
+      const projectId = c.req.valid("param").id;
+      const { kind } = c.req.valid("json");
+      const actor = actorOf(c.var);
+      await everyScore(deps.db, actor, projectId, kind);
+      const { allowed, retryAfter } = await admit(deps.db, `download:member:${c.var.userId}`, {
+        max: PER_HOUR,
+        windowMs: 60 * 60_000,
+      });
+      if (!allowed) return tooMany(c, retryAfter, "Too many downloads this hour; try again later");
+      const token = randomBytes(32).toString("base64url");
+      await deps.db.insert(downloadTickets).values({
+        organisationId: c.var.organisationId,
+        projectId,
+        kind,
+        tokenHash: hashOf(token),
+        sessionId: c.var.sessionId,
+        userId: c.var.userId,
+        expiresAt: new Date(Date.now() + DOWNLOAD_LINK_SECONDS * 1000),
+      });
+      return c.json({ url: `/api/downloads/${token}` }, 201);
+    },
+  );
+
+/**
+ * Every score of a project, each with its track's marks over its pages, as one PDF: each in
+ * the access log before anything leaves, and each page marked for whoever asked.
+ */
+async function sendEveryScore(
+  deps: DownloadDeps,
+  c: Context<{ Variables: ViewerVariables }>,
+  projectId: string,
+  kind: DownloadKind,
+) {
+  const organisationId = c.var.organisationId;
+  const actor = c.var.actor;
+  const scores = await everyScore(deps.db, actor, projectId, kind);
+  for (const { track, file } of scores) {
+    await deps.audit.record(
+      organisationId,
+      await deps.audit.actor(actor),
+      {
+        action: "download",
+        projectId,
+        fileId: file.id,
+        details: { kind, scoreMarksOf: track.id, everyScore: true },
+      },
+      requestInfo(c, deps.trustProxy),
+    );
+  }
+  const who = await recipientOf(deps.db, actor);
+  const [project] = await deps.db
+    .select({ name: projects.name, watermark: projects.watermark })
+    .from(projects)
+    .where(inOrg(projects, organisationId, eq(projects.id, projectId)));
+  const mark: Mark = {
+    text: watermarkText(who, who.organisation, new Date()),
+    style: watermarkOf(project?.watermark),
+    signal: c.req.raw.signal,
+  };
+  async function* pages() {
+    for (const { track, file } of scores) {
+      const marked = { ...mark, overlay: await overlayOf(deps.db, organisationId, track) };
+      yield* kind === "proxy"
+        ? reviewedPages(deps, organisationId, file.id, marked)
+        : printPages(deps, organisationId, file, marked);
+    }
+  }
+  const stream = await primed(pdfOf(pages()));
+  return new Response(stream as unknown as ReadableStream, {
+    headers: {
+      ...PRIVATE,
+      "content-type": "application/pdf",
+      "content-disposition": attachment(`${project?.name ?? "Project"} scores (annotated).pdf`),
+    },
+  });
+}
+
+/**
  * `/api/downloads/:token`: the download itself, made for its recipient. The link works once,
  * in the session that asked for it, within five minutes; the permission is checked again, and
  * the access log has the download before the first byte leaves.
@@ -628,20 +761,27 @@ export const downloadRoutes = (deps: DownloadDeps) =>
         throw new HTTPException(410, {
           message: "That download link has been used or has expired",
         });
+      if (ticket.kind === "attachment" && !ticket.attachmentId)
+        throw new HTTPException(410, { message: "That download link no longer works" });
+      // Every score of a project (#52): its own checks, a record for each score.
+      if (ticket.projectId) {
+        if (ticket.kind === "attachment")
+          throw new HTTPException(410, { message: "That download link no longer works" });
+        return sendEveryScore(deps, c, ticket.projectId, ticket.kind);
+      }
+      const fileId = ticket.fileId;
+      if (!fileId) throw new HTTPException(410, { message: "That download link no longer works" });
       // A comment's attachment (#133): its own checks, its own record.
       if (ticket.attachmentId)
-        return sendAttachment(deps, c, {
-          fileId: ticket.fileId,
-          attachmentId: ticket.attachmentId,
-        });
+        return sendAttachment(deps, c, { fileId, attachmentId: ticket.attachmentId });
       const actor = c.var.actor;
-      const { level } = await levelFor(deps.db, actor, ticket.fileId);
+      const { level } = await levelFor(deps.db, actor, fileId);
       if (ticket.kind === "attachment")
         throw new HTTPException(410, { message: "That download link no longer works" });
       const kind: DownloadKind = ticket.kind;
       if (!allowsDownload(level, kind))
         throw new HTTPException(403, { message: "Your access to this file does not allow that" });
-      const file = await fileOf(deps.db, organisationId, ticket.fileId);
+      const file = await fileOf(deps.db, organisationId, fileId);
       // Asked with the score marks: still the track's score, still theirs to see.
       const track = ticket.trackId
         ? await markedTrack(deps.db, actor, file.id, ticket.trackId)

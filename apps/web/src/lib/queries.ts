@@ -1412,6 +1412,19 @@ export function useRequestDownload(fileId: string) {
   });
 }
 
+/** Ask for every track's score in a project with its marks, as one PDF (#52). */
+export function useRequestScoresDownload(projectId: string) {
+  return useMutation({
+    mutationFn: async (kind: DownloadKind) =>
+      json<{ url: string }>(
+        await api.projects[":id"]["score-downloads"].$post({
+          param: { id: projectId },
+          json: { kind },
+        }),
+      ),
+  });
+}
+
 /** A file's comments, oldest first; kept fresh so colleagues' notes appear while reviewing. */
 export const commentsQuery = (fileId: string) =>
   queryOptions({

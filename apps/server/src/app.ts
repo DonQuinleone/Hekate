@@ -20,7 +20,11 @@ import { captionRoutes } from "./routes/captions.ts";
 import { categoryRoutes, projectCategoryRoutes } from "./routes/categories.ts";
 import { carryRoutes, commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
 import { directoryRoutes } from "./routes/directory.ts";
-import { downloadRoutes, fileDownloadRoutes } from "./routes/downloads.ts";
+import {
+  downloadRoutes,
+  fileDownloadRoutes,
+  projectScoreDownloadRoutes,
+} from "./routes/downloads.ts";
 import { editDecisionRoutes } from "./routes/edit-decisions.ts";
 import { fileDetailRoutes } from "./routes/file-details.ts";
 import { fileManageRoutes, folderRoutes, projectFolderRoutes } from "./routes/folders.ts";
@@ -237,6 +241,7 @@ export function createApi(deps: AppDeps) {
       .route("/projects", projectRoutes(deps.db, deps.audit, deps.trustProxy ?? false))
       .route("/projects", projectDeletionRoutes(reviewDeps))
       .route("/projects", projectStorageRoutes({ db: deps.db, storage: deps.storage }))
+      .route("/projects", projectScoreDownloadRoutes(downloads))
       .route("/projects", projectTrackRoutes(deps.db))
       .route("/projects", projectAccessRoutes(deps.db))
       .route("/projects", projectReviewRoutes(reviewDeps))

@@ -1181,6 +1181,7 @@ function ScoreMarking() {
               align="right"
               actions={[
                 { label: "Annotated PDF", onSelect: () => {} },
+                { label: "Every score, annotated", onSelect: () => {} },
                 { label: "Marks as CSV", onSelect: () => {} },
               ]}
             />

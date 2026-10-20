@@ -18,7 +18,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type PointerEvent, useEffect, useId, useRef, useState } from "react";
-import { DownloadDialog } from "~/components/downloads";
+import { DownloadDialog, ScoresDownloadDialog } from "~/components/downloads";
 import { drawingColour } from "~/components/drawings";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
@@ -126,10 +126,14 @@ export function ScoreMarkingPage({ projectId, trackId }: { projectId: string; tr
           ) : (
             <Marking
               key={track.id}
+              projectId={projectId}
               trackId={track.id}
               scoreFileId={track.scoreFileId}
               canMark={can("edit_production") && !project.archivedAt}
-              canDownload={can("download_proxy") || can("download_original")}
+              canDownload={{
+                proxy: can("download_proxy") || can("download_original"),
+                original: can("download_original"),
+              }}
               tracks={scored.map((t) => ({ id: t.id, name: t.name }))}
               onTrack={(id) =>
                 void navigate({
@@ -154,6 +158,7 @@ interface Placing {
 }
 
 function Marking({
+  projectId,
   trackId,
   scoreFileId,
   canMark,
@@ -161,11 +166,12 @@ function Marking({
   tracks,
   onTrack,
 }: {
+  projectId: string;
   trackId: string;
   scoreFileId: string;
   canMark: boolean;
-  /** Whether the role may download the score; the original needs more, the dialog says. */
-  canDownload: boolean;
+  /** Which downloads the role allows: the score as reviewed, or its original. */
+  canDownload: { proxy: boolean; original: boolean };
   tracks: { id: string; name: string }[];
   onTrack: (id: string) => void;
 }) {
@@ -180,7 +186,7 @@ function Marking({
   const [category, setCategory] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [placing, setPlacing] = useState<Placing | null>(null);
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useState<"one" | "every" | null>(null);
   const [goTo, setGoTo] = useState("");
   const [goToBar, setGoToBar] = useState("");
   /** Where the bar asked for was found, marked for a moment; and what to say of it. */
@@ -428,8 +434,18 @@ function Marking({
                 value="Export"
                 align="right"
                 actions={[
-                  ...(canDownload
-                    ? [{ label: "Annotated PDF", onSelect: () => setExporting(true) }]
+                  ...(canDownload.proxy
+                    ? [
+                        { label: "Annotated PDF", onSelect: () => setExporting("one") },
+                        ...(tracks.length > 1
+                          ? [
+                              {
+                                label: "Every score, annotated",
+                                onSelect: () => setExporting("every"),
+                              },
+                            ]
+                          : []),
+                      ]
                     : []),
                   { label: "Marks as CSV", onSelect: exportCsv },
                 ]}
@@ -560,12 +576,20 @@ function Marking({
           error={add.error?.message}
         />
       )}
-      {exporting && (
+      {exporting === "one" && (
         <DownloadDialog
           fileId={scoreFileId}
           name={`${tracks.find((t) => t.id === trackId)?.name ?? "The score"}, with its marks`}
           marks={trackId}
-          onClose={() => setExporting(false)}
+          onClose={() => setExporting(null)}
+        />
+      )}
+      {exporting === "every" && (
+        <ScoresDownloadDialog
+          projectId={projectId}
+          count={tracks.length}
+          can={canDownload}
+          onClose={() => setExporting(null)}
         />
       )}
     </div>

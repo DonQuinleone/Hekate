@@ -5152,6 +5152,61 @@ describe.runIf(url)("api", () => {
             expect((await annotated({ kind: "proxy", marks: track?.id }, copyist)).status).toBe(
               403,
             );
+
+            // Every score at once (#52): each track's score with its marks, as one PDF.
+            const second = await addFile(
+              { name: "Entertainer.pdf", kind: "document", contentType: "application/pdf" },
+              samplePdf(2),
+              2,
+            );
+            await db
+              .update(schema.tracks)
+              .set({ scoreFileId: second })
+              .where(eq(schema.tracks.id, other?.id ?? ""));
+            await db.insert(schema.scoreMarks).values({
+              organisationId,
+              trackId: other?.id ?? "",
+              kind: "note",
+              page: 1,
+              x: 0.3,
+              y: 0.4,
+              text: "Not too fast",
+            });
+            const every = (body: unknown, cookie = owner, id = projectId) =>
+              send("POST", `/api/projects/${id}/score-downloads`, body, cookie);
+            const everyAsked = await every({ kind: "proxy" });
+            expect(everyAsked.status).toBe(201);
+            const everyGot = await getAs(((await everyAsked.json()) as { url: string }).url, owner);
+            expect(everyGot.status).toBe(200);
+            expect(everyGot.headers.get("content-disposition")).toContain("scores (annotated).pdf");
+            const all = join(dir, "every.pdf");
+            writeFileSync(all, Buffer.from(await everyGot.arrayBuffer()));
+            expect((await run("pdfinfo", [all])).stdout).toMatch(/^Pages:\s+4$/m);
+            const text = (await run("pdftotext", [all, "-"])).stdout;
+            expect(text).toContain("3T4");
+            expect(text).toContain("Not too fast");
+            // A record for each score, before anything left.
+            const everyLogged = (
+              await audit.query(organisationId, { action: "download", limit: 2 })
+            ).events.map((e) => e.details);
+            expect(everyLogged).toEqual(
+              expect.arrayContaining([
+                { kind: "proxy", scoreMarksOf: track?.id, everyScore: true },
+                { kind: "proxy", scoreMarksOf: other?.id, everyScore: true },
+              ]),
+            );
+            // Not for a role without the production tools, nor a project from nowhere.
+            expect((await every({ kind: "proxy" }, copyist)).status).toBe(403);
+            expect(
+              (await every({ kind: "proxy" }, owner, "0199f000-0000-7000-8000-000000000001"))
+                .status,
+            ).toBe(404);
+            // Nor the original, which a score that is not a PDF cannot give.
+            await db
+              .update(schema.files)
+              .set({ name: "Entertainer.tiff", contentType: "image/tiff" })
+              .where(eq(schema.files.id, second));
+            expect((await every({ kind: "original" })).status).toBe(422);
           } finally {
             rmSync(dir, { recursive: true, force: true });
           }

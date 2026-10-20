@@ -387,7 +387,7 @@ async function leavePeople(tx: Tx, projectId: string, from: string, to: string) 
   await tx.execute(sql`update comments set assignee_id = null where organisation_id = ${from}
     and file_id in ${files} and assignee_id not in ${kept}`);
   await tx.execute(sql`delete from download_tickets where organisation_id = ${from}
-    and file_id in ${files}`);
+    and (file_id in ${files} or project_id = ${projectId})`);
   await tx.execute(sql`delete from calendar_feeds where organisation_id = ${from}
     and project_id = ${projectId}`);
   return leaving;

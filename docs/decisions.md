@@ -924,3 +924,11 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **A score still being drawn.** A score chosen straight after upload has no bars read yet. The track then remembers which edition its marks sit on, and the marks follow once the new score is drawn; a swap meanwhile starts from that same edition, and a score that cannot be drawn leaves them where they are.
 - **What cannot follow, stays.** A mark that names no bar, or a swap to or from a score without printed bars (a scan), leaves things where they were. The track page says what moved and what stayed ("Moved to their bars in the new score: 12 marks and 2 takes. 3 marks stayed where they were, with no bar to find them by.").
 - **Links.** Comments on the old score stay on it, as comments belong to their file; bar comments on recordings name bars, not a score, and need nothing.
+
+## 163. Every score at once, as one download
+
+#52, last part: "exports: annotated score PDF (per track or every score)".
+
+- **One PDF, through the download path.** Every track's score in a project with its marks over it, in the tracks' order, as one PDF: proxy (the pages as reviewed) or original (drawn again at print resolution). From the score marking page's Export menu ("Every score, annotated"), once a project has more than one track with a score.
+- **Checked for each score.** Asking needs the production tools in the project and, for every score, the download permission for that kind and a score ready to give it; the first that fails refuses the whole download and says which. The link works once, in the asking session, for five minutes, and is checked again as it is used. Each score is written to the access log (`scoreMarksOf`, `everyScore`) before anything leaves, and each page is marked for whoever asked.
+- **A ticket names a file or a project.** A download link now names either one file or a project's scores, never both (a check constraint); moving a project to another workspace drops its links as it drops its files' links.

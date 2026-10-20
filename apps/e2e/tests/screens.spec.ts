@@ -696,6 +696,51 @@ test("score-marking-export", async ({ page }) => {
   expect(bytes.toString("latin1")).toContain("(3T4) Tj");
 });
 
+// Every score at once (#52): each track's score with its marks, as one PDF. A second track is
+// given the score for the screen, and has it taken away after, as the other screens expect.
+test("score-marking-export-every", async ({ page }) => {
+  const projectId = seeded().musicProjectId;
+  await page.goto(`/projects/${projectId}/score-marking`);
+  const { tracks } = (await (
+    await page.request.get(`/api/projects/${projectId}/tracks`)
+  ).json()) as {
+    tracks: { id: string; name: string }[];
+  };
+  const other = tracks.find((t) => t.name === "The Entertainer");
+  expect(other).toBeTruthy();
+  const link = (scoreFileId: string | null) =>
+    page.request.fetch(`/api/tracks/${other?.id}`, { method: "PATCH", data: { scoreFileId } });
+  expect((await link(seeded().scoreFileId)).status()).toBe(200);
+  try {
+    await page.reload();
+    await settle(page, "main section >> text=17T3 into T4");
+    await page.getByRole("button", { name: "Export" }).click();
+    await page.getByRole("menuitem", { name: "Every score, annotated" }).click();
+    const dialog = page.getByRole("dialog", { name: "Download" });
+    await expect(dialog).toContainText("Every score, 2 tracks, with their marks");
+    await saveScreen(page, "score-marking-export-every");
+    await checkScreen(page);
+    await dialog.getByText("Proxy").click();
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      dialog.getByRole("button", { name: "Download" }).click(),
+    ]);
+    expect(download.suggestedFilename()).toMatch(/ scores \(annotated\)\.pdf$/);
+    const bytes = await new Promise<Buffer>((resolve, reject) => {
+      void download.createReadStream().then((stream) => {
+        const chunks: Buffer[] = [];
+        stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+        stream.on("end", () => resolve(Buffer.concat(chunks)));
+        stream.on("error", reject);
+      });
+    });
+    // Both tracks' scores: the seeded one's three pages, twice over.
+    expect(bytes.toString("latin1")).toContain("/Count 6");
+  } finally {
+    expect((await link(null)).status()).toBe(200);
+  }
+});
+
 // Sharing (#138): the Share dialog, from the project's Reviews, a track and someone chosen.
 test("share-dialog", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
