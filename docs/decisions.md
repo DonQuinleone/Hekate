@@ -849,3 +849,14 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **At its own time.** A start, or a change, may say when it happened by the log's clock, so a take logged offline rolled when the room rolled it, not when the connection came back. A time still to come is taken as now.
 - **Conflicts per field, with history.** A change sets only the fields it names, so two people changing different fields both stand. On the same field the later write stands. Every field a change sets is kept in the take's history (`take_changes`): what it replaced, what it became, who wrote it and when, by their clock and by the server's. A change that carries what its writer last saw of a field, and finds something else there, is marked as having overwritten someone else's change, so the history shows the conflict and the overwritten value can be put back.
 - **Who may.** Those who may change takes write them; those who may see takes read their history.
+
+## 155. The take log, written offline
+
+#51, seventh part: the browser half of decision 154. The take log is written here first and sent when it can be.
+
+- **Every write through the outbox.** Starting a take, stopping it, a rating, a star, a false start, a note: each is kept in this browser (IndexedDB, so it survives a reload or a laptop closed mid-session) and shown at once, then sent in the order it was made. The take log names the takes it starts (UUIDv7) and says when each write happened, so a take logged offline is made once, at its own time, whatever the connection did.
+- **While offline.** The log carries on: the room keeps logging, and the log says "Offline: written here, synced when back" with how many writes wait. When the connection returns (the browser says so, or a retry every few seconds finds it), they are sent. Signed out, they wait for signing in again.
+- **Numbers.** A take started offline shows the number it would get; the server numbers it when it arrives, as it numbers every take.
+- **Refused.** A write the server refuses for what it is (another take already rolling, a stop someone else made first) is let go, and the log says why. A change that replaces someone else's change to the same field stands, and the take's history keeps both (decision 154).
+- **Storage that fails.** Where the browser will not keep the outbox (storage turned off, full or broken), it is kept in memory instead: still shown and sent, but the log says to keep the page open until it is.
+- **What it does not do yet.** The session's notes and to-do list are not written offline; the take log must have been open when the connection went, as the session itself is not kept in the browser.
