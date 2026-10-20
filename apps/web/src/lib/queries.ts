@@ -123,6 +123,7 @@ import {
   type TransferDestination,
   type TransferRequestInput,
   type TriageInput,
+  type UnderlayInput,
   type UpdateCarryInput,
   type UpdateProjectInput,
   type UpdateVariationInput,
@@ -2286,7 +2287,10 @@ export function useStagePlans(projectId: string) {
       onSettled: refresh,
     }),
     changePlan: useMutation({
-      mutationFn: async ({ id, ...change }: Partial<StagePlanInput> & { id: string }) =>
+      mutationFn: async ({
+        id,
+        ...change
+      }: Partial<StagePlanInput> & { id: string; underlay?: UnderlayInput | null }) =>
         json(await api["stage-plans"][":id"].$patch({ param: { id }, json: change })),
       onSettled: refresh,
     }),

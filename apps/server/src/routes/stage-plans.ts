@@ -19,7 +19,7 @@ import { stagePlanPage } from "../stage-pdf.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { attachment } from "./comments.ts";
 
-const { patchRows, projects, stageBoxes, stageItems, stagePlans } = schema;
+const { filePages, files, patchRows, projects, stageBoxes, stageItems, stagePlans } = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
@@ -37,7 +37,54 @@ const planShape = {
   width: stagePlans.width,
   depth: stagePlans.depth,
   grid: stagePlans.grid,
+  underlayFileId: stagePlans.underlayFileId,
+  underlayPage: stagePlans.underlayPage,
+  underlayX: stagePlans.underlayX,
+  underlayY: stagePlans.underlayY,
+  underlayWidth: stagePlans.underlayWidth,
+  underlayOpacity: stagePlans.underlayOpacity,
 };
+
+interface PlanRow {
+  id: string;
+  name: string;
+  width: number;
+  depth: number;
+  grid: number;
+  underlayFileId: string | null;
+  underlayPage: number;
+  underlayX: number;
+  underlayY: number;
+  underlayWidth: number | null;
+  underlayOpacity: number;
+}
+
+/** A plan as the API gives it: its floor plan, when it has one, as one field. */
+function planOf(row: PlanRow): Omit<StagePlan, "items"> {
+  const {
+    underlayFileId,
+    underlayPage,
+    underlayX,
+    underlayY,
+    underlayWidth,
+    underlayOpacity,
+    ...plan
+  } = row;
+  return {
+    ...plan,
+    underlay:
+      underlayFileId && underlayWidth
+        ? {
+            fileId: underlayFileId,
+            page: underlayPage,
+            x: underlayX,
+            y: underlayY,
+            width: underlayWidth,
+            opacity: underlayOpacity,
+          }
+        : null,
+  };
+}
 
 const itemShape = {
   id: stageItems.id,
@@ -83,7 +130,7 @@ export async function stagePlansOf(
     plans.map((p) => p.id),
   );
   return plans.map((p) => ({
-    ...p,
+    ...planOf(p),
     items: items.filter((i) => i.stagePlanId === p.id).map(bare),
   }));
 }
@@ -166,7 +213,7 @@ export const projectStagePlanRoutes = (db: Database) =>
             .returning(planShape);
           return made;
         });
-        return c.json({ plan: { ...plan, items: [] } }, 201);
+        return c.json({ plan: { ...planOf(plan as PlanRow), items: [] } }, 201);
       } catch (error) {
         if (violates(error, "stage_plans_name_idx")) throw nameTaken();
         throw error;
@@ -242,17 +289,68 @@ export const stagePlanRoutes = (db: Database) =>
     .patch("/:id", idParam, zValidator("json", stagePlanChangeInput), async (c) => {
       const organisationId = c.var.organisationId;
       const plan = await planFor(db, c.var, c.req.valid("param").id);
+      const { underlay, ...change } = c.req.valid("json");
       try {
         const changed = await db.transaction(async (tx) => {
           await lockLiveProject(tx, organisationId, plan.projectId);
+          if (underlay) {
+            // A page of this project's own documents or pictures, in this workspace.
+            const [file] = await tx
+              .select({ id: files.id })
+              .from(files)
+              .where(
+                inOrg(
+                  files,
+                  organisationId,
+                  eq(files.id, underlay.fileId),
+                  eq(files.projectId, plan.projectId),
+                  inArray(files.kind, ["document", "image"]),
+                ),
+              );
+            if (!file)
+              throw new HTTPException(400, {
+                message: "A floor plan is a document or picture in this project",
+              });
+            // A page the server has drawn, so there is something to lay under the stage.
+            const [drawn] = await tx
+              .select({ page: filePages.page })
+              .from(filePages)
+              .where(
+                inOrg(
+                  filePages,
+                  organisationId,
+                  eq(filePages.fileId, underlay.fileId),
+                  eq(filePages.page, underlay.page),
+                ),
+              );
+            if (!drawn)
+              throw new HTTPException(400, {
+                message: `Page ${underlay.page} of that file is not drawn yet`,
+              });
+          }
           const [updated] = await tx
             .update(stagePlans)
-            .set({ ...c.req.valid("json"), updatedAt: new Date() })
+            .set({
+              ...change,
+              ...(underlay === undefined
+                ? {}
+                : underlay === null
+                  ? { underlayFileId: null, underlayWidth: null }
+                  : {
+                      underlayFileId: underlay.fileId,
+                      underlayPage: underlay.page,
+                      underlayX: underlay.x,
+                      underlayY: underlay.y,
+                      underlayWidth: underlay.width,
+                      underlayOpacity: underlay.opacity,
+                    }),
+              updatedAt: new Date(),
+            })
             .where(inOrg(stagePlans, organisationId, eq(stagePlans.id, plan.id)))
             .returning(planShape);
           return updated;
         });
-        return c.json({ plan: changed });
+        return c.json({ plan: changed ? planOf(changed) : null });
       } catch (error) {
         if (violates(error, "stage_plans_name_idx")) throw nameTaken();
         throw error;

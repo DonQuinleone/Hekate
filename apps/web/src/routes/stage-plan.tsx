@@ -18,6 +18,7 @@ import {
   shownLabel,
   snapTo,
   stageKindDefaults,
+  type Underlay,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -37,8 +38,16 @@ import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { Dropdown } from "~/components/ui/menu";
+import { Slider } from "~/components/ui/slider";
 import { Switch } from "~/components/ui/toggle";
-import { stagePlansQuery, useProjectCan, useStagePlans } from "~/lib/queries";
+import {
+  projectFilesQuery,
+  stagePlansQuery,
+  useProjectCan,
+  useStagePlans,
+  type ViewPage,
+  viewQuery,
+} from "~/lib/queries";
 import { uuidv7 } from "~/lib/uuidv7";
 import { ProjectFrame } from "./project";
 
@@ -177,6 +186,8 @@ function Editor({
   const [items, setItems] = useState(plan.items);
   const [selected, setSelected] = useState<string[]>([]);
   const [snap, setSnap] = useState(true);
+  const [showUnderlay, setShowUnderlay] = useState(true);
+  const [laying, setLaying] = useState(false);
   const [hidden, setHidden] = useState<string[]>([]);
   const [gesture, setGesture] = useState<Drag | Marquee | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -189,19 +200,42 @@ function Editor({
   const svg = useRef<SVGSVGElement>(null);
   const panel = useRef<HTMLElement>(null);
   const [scale, setScale] = useState(SCALES.fallback);
-  // The whole stage across the panel where it fits; a stage too wide for it scrolls.
+  // The floor plan's page, as the server drew it, for those who show it.
+  const underlay = showUnderlay ? plan.underlay : null;
+  const { data: underView } = useQuery({
+    ...viewQuery(underlay?.fileId ?? ""),
+    enabled: underlay !== null,
+  });
+  const underPage = underlay ? underView?.pages.find((p) => p.page === underlay.page) : undefined;
+  // What is drawn, in metres: the stage, and the floor plan where it reaches past the stage.
+  const extent =
+    underlay && underPage
+      ? {
+          left: Math.min(0, underlay.x),
+          top: Math.min(0, underlay.y),
+          right: Math.max(plan.width, underlay.x + underlay.width),
+          bottom: Math.max(
+            plan.depth,
+            underlay.y + (underlay.width * underPage.height) / underPage.width,
+          ),
+        }
+      : { left: 0, top: 0, right: plan.width, bottom: plan.depth };
+  const across = extent.right - extent.left;
+  // The whole drawing across the panel where it fits; one too wide for it scrolls.
   useEffect(() => {
     const el = panel.current;
     if (!el) return;
     const fitStage = () => {
       const room = el.clientWidth - 32 - PAD.left - PAD.right;
-      setScale(Math.min(SCALES.most, Math.max(SCALES.least, Math.floor(room / plan.width))));
+      setScale(Math.min(SCALES.most, Math.max(SCALES.least, Math.floor(room / across))));
     };
     fitStage();
     const watch = new ResizeObserver(fitStage);
     watch.observe(el);
     return () => watch.disconnect();
-  }, [plan.width]);
+  }, [across]);
+  /** Where the stage's back-left corner falls in the drawing, in pixels. */
+  const origin = { x: PAD.left - extent.left * scale, y: PAD.top - extent.top * scale };
 
   // The server's copy, once nothing this person did is still on its way.
   useEffect(() => {
@@ -305,8 +339,8 @@ function Editor({
   const metresAt = (e: { clientX: number; clientY: number }) => {
     const box = svg.current?.getBoundingClientRect();
     return {
-      x: (e.clientX - (box?.left ?? 0) - PAD.left) / scale,
-      y: (e.clientY - (box?.top ?? 0) - PAD.top) / scale,
+      x: (e.clientX - (box?.left ?? 0) - origin.x) / scale,
+      y: (e.clientY - (box?.top ?? 0) - origin.y) / scale,
     };
   };
   const pressItem = (e: PointerEvent, item: StageItem) => {
@@ -422,6 +456,7 @@ function Editor({
                     "divider" as const,
                     { label: "New stage plan", onSelect: () => onEdit("new") },
                     { label: "Size and grid", onSelect: () => onEdit(plan) },
+                    { label: "Floor plan", onSelect: () => setLaying(true) },
                     {
                       label: "Remove this plan",
                       danger: true,
@@ -435,6 +470,16 @@ function Editor({
             {plan.width} × {plan.depth} m
           </span>
           <span className="ml-auto flex items-center gap-2 text-[12px] text-ink-3">
+            {plan.underlay && (
+              <span className="flex items-center gap-1.5">
+                underlay
+                <Switch
+                  label="Floor plan underlay"
+                  checked={showUnderlay}
+                  onChange={setShowUnderlay}
+                />
+              </span>
+            )}
             {canEdit && (
               <span className="flex items-center gap-1.5">
                 snap
@@ -512,8 +557,9 @@ function Editor({
           <svg
             ref={svg}
             data-scale={scale}
-            width={plan.width * scale + PAD.left + PAD.right}
-            height={plan.depth * scale + PAD.top + PAD.bottom}
+            data-origin={`${origin.x} ${origin.y}`}
+            width={across * scale + PAD.left + PAD.right}
+            height={(extent.bottom - extent.top) * scale + PAD.top + PAD.bottom}
             className="touch-pan-x touch-pan-y select-none"
             aria-hidden="true"
             onPointerDown={pressStage}
@@ -536,7 +582,10 @@ function Editor({
                 />
               </pattern>
             </defs>
-            <g transform={`translate(${PAD.left}, ${PAD.top})`}>
+            <g transform={`translate(${origin.x}, ${origin.y})`}>
+              {underlay && underPage && (
+                <UnderlayImage underlay={underlay} page={underPage} scale={scale} />
+              )}
               <rect
                 width={plan.width * scale}
                 height={plan.depth * scale}
@@ -719,7 +768,181 @@ function Editor({
           )}
         </section>
       </aside>
+      {laying && (
+        <UnderlayDialog projectId={projectId} plan={plan} onClose={() => setLaying(false)} />
+      )}
     </div>
+  );
+}
+
+/**
+ * The floor plan under the stage: the page as the server drew it, behind its session-bound
+ * link, placed and scaled in metres and faded so the plan reads over it.
+ */
+function UnderlayImage({
+  underlay,
+  page,
+  scale,
+}: {
+  underlay: Underlay;
+  page: ViewPage;
+  scale: number;
+}) {
+  const width = underlay.width * scale;
+  return (
+    <image
+      href={page.url}
+      x={underlay.x * scale}
+      y={underlay.y * scale}
+      width={width}
+      height={(width * page.height) / page.width}
+      opacity={underlay.opacity}
+      preserveAspectRatio="none"
+      // A plan drawn dark on white paper, turned light on the dark stage: its paper drops away.
+      className="pointer-events-none invert mix-blend-screen"
+    />
+  );
+}
+
+/** Choosing a floor plan from the project's documents and pictures, and where it lies. */
+function UnderlayDialog({
+  projectId,
+  plan,
+  onClose,
+}: {
+  projectId: string;
+  plan: StagePlan;
+  onClose: () => void;
+}) {
+  const { changePlan } = useStagePlans(projectId);
+  const { data: files } = useQuery(projectFilesQuery(projectId));
+  const usable = (files ?? []).filter((f) => f.kind === "document" || f.kind === "image");
+  const was = plan.underlay;
+  const [fileId, setFileId] = useState(was?.fileId ?? "");
+  const [page, setPage] = useState(String(was?.page ?? 1));
+  const [x, setX] = useState(String(was?.x ?? 0));
+  const [y, setY] = useState(String(was?.y ?? 0));
+  const [width, setWidth] = useState(String(was?.width ?? plan.width));
+  const [opacity, setOpacity] = useState(Math.round((was?.opacity ?? 0.5) * 100));
+  const chosen = usable.find((f) => f.id === fileId);
+  const numbers = { page: numberOf(page), x: numberOf(x), y: numberOf(y), width: numberOf(width) };
+  const pages = chosen?.pageCount ?? 1;
+  const valid =
+    chosen !== undefined &&
+    numbers.page !== undefined &&
+    Number.isInteger(numbers.page) &&
+    numbers.page >= 1 &&
+    numbers.page <= Math.max(1, pages) &&
+    numbers.x !== undefined &&
+    numbers.x >= -100 &&
+    numbers.x <= 300 &&
+    numbers.y !== undefined &&
+    numbers.y >= -100 &&
+    numbers.y <= 300 &&
+    numbers.width !== undefined &&
+    numbers.width > 0 &&
+    numbers.width <= 500;
+  const save = (e: FormEvent) => {
+    e.preventDefault();
+    if (!valid) return;
+    changePlan.mutate(
+      {
+        id: plan.id,
+        underlay: {
+          fileId,
+          page: numbers.page ?? 1,
+          x: numbers.x ?? 0,
+          y: numbers.y ?? 0,
+          width: numbers.width ?? plan.width,
+          opacity: opacity / 100,
+        },
+      },
+      { onSuccess: onClose },
+    );
+  };
+  return (
+    <Dialog
+      title="Floor plan"
+      description="A page of one of the project's documents or pictures, drawn under the stage."
+      onClose={onClose}
+      footer={
+        <>
+          {was && (
+            <Button
+              variant="ghost"
+              className="mr-auto"
+              onClick={() =>
+                changePlan.mutate({ id: plan.id, underlay: null }, { onSuccess: onClose })
+              }
+            >
+              Remove it
+            </Button>
+          )}
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            type="submit"
+            form="stage-underlay"
+            disabled={!valid || changePlan.isPending}
+          >
+            Save
+          </Button>
+        </>
+      }
+    >
+      {files && usable.length === 0 ? (
+        <p className="m-0 text-[13px] text-ink-3">
+          Upload the venue's floor plan to the project as a PDF or picture, then choose it here.
+        </p>
+      ) : (
+        <form id="stage-underlay" onSubmit={save} className="grid grid-cols-2 gap-3">
+          <Field label="File" className="col-span-2" error={changePlan.error?.message}>
+            <Dropdown
+              variant="field"
+              value={chosen?.name ?? "Choose a file"}
+              actions={usable.map((f) => ({
+                label: f.name,
+                checked: f.id === fileId,
+                onSelect: () => {
+                  setFileId(f.id);
+                  setPage("1");
+                },
+              }))}
+            />
+          </Field>
+          <Field label="Left edge at, m">
+            <Input inputMode="decimal" value={x} onChange={(e) => setX(e.target.value)} />
+          </Field>
+          <Field label="Top edge at, m">
+            <Input inputMode="decimal" value={y} onChange={(e) => setY(e.target.value)} />
+          </Field>
+          <Field
+            label="Spans across, m"
+            hint="How wide the page is at the stage's scale"
+            className={pages > 1 ? undefined : "col-span-2"}
+          >
+            <Input inputMode="decimal" value={width} onChange={(e) => setWidth(e.target.value)} />
+          </Field>
+          {pages > 1 && (
+            <Field label="Page" hint={`Of ${pages}`}>
+              <Input inputMode="numeric" value={page} onChange={(e) => setPage(e.target.value)} />
+            </Field>
+          )}
+          <Field label={`Opacity, ${opacity}%`} className="col-span-2">
+            <Slider
+              min={5}
+              max={100}
+              step={5}
+              value={opacity}
+              aria-label="Opacity"
+              onChange={(e) => setOpacity(Number(e.target.value))}
+            />
+          </Field>
+        </form>
+      )}
+    </Dialog>
   );
 }
 
@@ -800,7 +1023,10 @@ function Shape({
           fill={fill}
           stroke={selected ? "var(--hk-signal)" : "var(--hk-ink-3)"}
         />
-        {item.kind === "performer" ? text(0, 4) : text(0, h / 2 + 12)}
+        {/* A name inside a performer's circle where it fits there, else under it. */}
+        {item.kind === "performer" && (label ?? "").length * 5.6 <= w - 4
+          ? text(0, 4)
+          : text(0, h / 2 + 12)}
       </g>
     );
   return (
@@ -815,7 +1041,10 @@ function Shape({
         stroke={item.kind === "label" && !selected ? "none" : stroke}
         strokeDasharray={item.kind === "riser" || item.kind === "label" ? "4 3" : undefined}
       />
-      {item.kind !== "wall" && text(w / 2, h / 2 + 4)}
+      {/* A riser's name in its corner, clear of whoever stands on it. */}
+      {item.kind === "riser"
+        ? text(6, 13, "start")
+        : item.kind !== "wall" && text(w / 2, h / 2 + 4)}
     </g>
   );
 }

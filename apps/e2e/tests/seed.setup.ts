@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, type Page, test as setup } from "@playwright/test";
 import postgres from "postgres";
+import { textPdfOf } from "../../server/src/media/pdf.ts";
 import { samplePdf } from "../../server/src/media/sample-pdf.ts";
 import { SETUP_CODE } from "../constants.ts";
 import { checkScreen } from "./checks.ts";
@@ -516,6 +517,40 @@ setup("seed", async ({ page, browser }) => {
       mic(12, "Room R", 10, 7, "Room pair"),
       { id: itemId(13), kind: "label", label: "Audience", x: 5.2, y: 7.4, w: 1.6, h: 0.4 },
     ],
+  });
+  // The hall's floor plan, drawn under the stage plan (#53): 16 m across, the stage's back wall
+  // a metre in from the top.
+  const m = 841.89 / 16;
+  const hall = [
+    "0.2 G 2 w 8 8 825.89 579.28 re S",
+    `0.4 G 1 w ${2 * m} ${595.28 - m - 8 * m} ${12 * m} ${8 * m} re S`,
+    "0.5 G 0.6 w",
+    ...Array.from({ length: 2 }, (_, row) =>
+      Array.from(
+        { length: 14 },
+        (_, seat) =>
+          `${1.2 * m + seat * m} ${595.28 - 9.6 * m - row * 0.9 * m} ${0.7 * m} ${0.6 * m} re S`,
+      ).join("\n"),
+    ),
+    `0.3 g 0 ${595.28 - 4 * m} 8 ${1.2 * m} re f ${841.89 - 8} ${595.28 - 4 * m} 8 ${1.2 * m} re f`,
+    "BT /H 14 Tf 0.35 g 24 570 Td (Endless Hall, ground floor) Tj ET",
+  ].join("\n");
+  writeFileSync(
+    file("Endless Hall - Floor plan.pdf"),
+    textPdfOf([{ points: { width: 841.89, height: 595.28 }, content: hall }]),
+  );
+  const { folder: venueFolder } = await api<{ folder: { id: string } }>(
+    page,
+    "POST",
+    `/api/projects/${music.id}/folders`,
+    { name: "Venue" },
+  );
+  await upload(page, music.id, [file("Endless Hall - Floor plan.pdf")], venueFolder.id);
+  const floorPlan = (await settled(page, music.id)).find(
+    (f) => f.name === "Endless Hall - Floor plan.pdf",
+  );
+  await api(page, "PATCH", `/api/stage-plans/${plan.id}`, {
+    underlay: { fileId: floorPlan?.id, x: -2, y: -1, width: 16, opacity: 0.35 },
   });
   // V2's edit decision list, given after it was made (#56): takes 2, 3 and 4, and a
   // pick-up recorded apart, which is no take of the track.

@@ -590,6 +590,8 @@ test("settings-delivery-profile", async ({ page }) => {
 test("stage-plan", async ({ page }) => {
   await page.goto(`/projects/${seeded().musicProjectId}/stage`);
   await settle(page, "main >> text=Spot piano L");
+  // The floor plan drawn under the stage, before anything is picked out.
+  await expect(page.locator("section[aria-label='The stage'] image")).toBeVisible();
   await page.getByRole("button", { name: /^Main L/ }).click();
   await expect(page.getByRole("button", { name: "Patch" })).toHaveText(/Stage box A, in 1, Main L/);
   await saveScreen(page, "stage-plan");
@@ -603,6 +605,16 @@ test("stage-plan", async ({ page }) => {
     page.getByRole("menuitem", { name: "A3, with rulers and scale bar" }).click(),
   ]);
   expect(pdf.suggestedFilename()).toBe("Joplin Rags Endless Hall stage plan.pdf");
+  // The hall's floor plan under the stage, chosen from the project's documents.
+  await page.getByRole("button", { name: "Stage plan" }).click();
+  await page.getByRole("menuitem", { name: "Floor plan" }).click();
+  const floor = page.getByRole("dialog", { name: "Floor plan" });
+  await expect(floor.getByRole("button", { name: "File" })).toHaveText(
+    /Endless Hall - Floor plan\.pdf/,
+  );
+  await saveScreen(page, "stage-plan-underlay");
+  await checkScreen(page);
+  await floor.getByRole("button", { name: "Cancel" }).click();
 
   // A marquee around the room pair's left microphone and the label: two selected. On a phone
   // the plan scrolls under the finger, so the marquee is a desktop gesture.
@@ -611,7 +623,9 @@ test("stage-plan", async ({ page }) => {
   const box = await stage.boundingBox();
   if (!box) throw new Error("No stage drawn");
   const scale = Number(await stage.getAttribute("data-scale"));
-  const at = (x: number, y: number) => [box.x + 30 + x * scale, box.y + 20 + y * scale] as const;
+  // Where the stage's back-left corner falls in the drawing, past any floor plan around it.
+  const [ox = 0, oy = 0] = ((await stage.getAttribute("data-origin")) ?? "").split(" ").map(Number);
+  const at = (x: number, y: number) => [box.x + ox + x * scale, box.y + oy + y * scale] as const;
   await page.mouse.move(...at(1.5, 6.6));
   await page.mouse.down();
   await page.mouse.move(...at(7, 7.9), { steps: 5 });

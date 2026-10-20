@@ -972,7 +972,7 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Patch.** A microphone, stage box or cable run may be linked to one of the project's patch channels. Its label is then the channel's source, so renaming it in the patch list renames it on the plan; unpatching the channel leaves the item unlinked.
 - **Label groups.** Items given a group show or hide their labels together.
 - **Who may.** Those who see the production tools see the plans; those who use them change them.
-- **Follows.** The vector PDF export (A3 or A4 landscape, rulers and scale bar), the floor-plan underlay, and ensemble blocks sized from personnel (#49).
+- **Follows.** The vector PDF export (A3 or A4 landscape, rulers and scale bar, decision 168), the floor-plan underlay (decision 169), and ensemble blocks sized from personnel (#49).
 
 ## 168. The stage plan as a PDF
 
@@ -982,3 +982,13 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **To a standard scale.** The stage is drawn at the largest of 1:20, 1:25, 1:50, 1:75, 1:100, 1:200, 1:250 and 1:500 that fits the paper, so it can be measured with a scale rule; the page says which ("1:50 on A3"). A stage too big for 1:500 is drawn to fit and says it is not to a standard scale.
 - **On the page.** The project and plan at the top; the grid, the stage's edge and metre rulers along the back and the side; each item drawn as the plan draws it, in vectors, greys and Helvetica, turned as it is turned; microphones with their patch channel under their label; the audience at the foot; a scale bar.
 - **As shown.** Label groups hidden on the plan are left off the print too.
+
+## 169. A floor plan under the stage
+
+#53, third part: "optional floor-plan underlay (offset, scale, opacity)".
+
+- **A page of the project's own files.** The underlay is a page of one of the project's documents or pictures, chosen under *Floor plan* in the plan's menu: no upload of its own and no new way for a stored file to leave the server. The editor shows the page as every page is shown (decision 032): drawn by the server, behind a short-lived link bound to the session, its render logged.
+- **Placed in metres.** Where its top-left corner falls (left and top edges, from the stage's back-left corner), how many metres it spans across (its height follows the page), and its opacity. The plan widens to take in what of the floor plan reaches past the stage.
+- **Drawn light.** A floor plan is drawn dark on white paper; on the dark stage its colours are inverted and screened, so the lines read light and the paper drops away.
+- **Shown or not.** The underlay switch hides it for this person, as the prototype has it; removing it is in the same dialog. A file removed from the project takes the underlay with it.
+- **Not printed.** The PDF export draws the stage and what stands on it; the floor plan stays on screen until printing pages of stored files has its own path through the download permission.
