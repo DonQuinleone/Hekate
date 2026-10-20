@@ -26,6 +26,7 @@ const item = (n: number, over: Partial<StageItem> = {}): StageItem => ({
   h: 1,
   rotation: 0,
   patchRowId: null,
+  personnelId: null,
   group: "",
   ...over,
 });
@@ -143,6 +144,7 @@ describe("what is sent", () => {
       h: 0.3,
       rotation: 0,
       patchRowId: null,
+      personnelId: null,
       group: "",
     });
     expect(
@@ -173,5 +175,10 @@ describe("what is sent", () => {
     expect(shownLabel({ kind: "mic", label: "Spot" })).toBe("Spot");
     expect(shownLabel({ kind: "mic", label: "" })).toBe("Microphone");
     expect(shownLabel({ kind: "lectern", label: "" })).toBe("lectern");
+    expect(
+      shownLabel({ kind: "ensemble", label: "Strings" }, undefined, {
+        name: "Endless Hall Strings",
+      }),
+    ).toBe("Endless Hall Strings");
   });
 });

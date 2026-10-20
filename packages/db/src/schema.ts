@@ -960,6 +960,8 @@ export const stageItems = pgTable(
     h: doublePrecision("h").notNull(),
     rotation: doublePrecision("rotation").notNull().default(0),
     patchRowId: uuid("patch_row_id").references(() => patchRows.id, { onDelete: "set null" }),
+    /** Who stands there: a performer or an ensemble on the production's personnel (#49). */
+    personnelId: uuid("personnel_id").references(() => personnel.id, { onDelete: "set null" }),
     /** A label group: the labels of a group are shown or hidden together. */
     group: text("label_group").notNull().default(""),
     ...timestamps,
@@ -967,6 +969,7 @@ export const stageItems = pgTable(
   (t) => [
     index("stage_items_plan_idx").on(t.organisationId, t.stagePlanId),
     index("stage_items_patch_idx").on(t.patchRowId),
+    index("stage_items_personnel_idx").on(t.personnelId),
     // A cable runs either way from its point; everything else has a size.
     check("stage_items_size", sql`${t.kind} = 'cable' or (${t.w} > 0 and ${t.h} > 0)`),
   ],

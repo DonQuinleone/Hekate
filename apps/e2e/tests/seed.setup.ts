@@ -486,8 +486,10 @@ setup("seed", async ({ page, browser }) => {
     { name: "Endless Hall", width: 12, depth: 8 },
   );
   // Time-ordered ids, as the app makes them, so the plan draws in the order things were put down.
+  // One moment for all of them, so an item is named the same each time it is asked for.
+  const putDown = Date.now();
   const itemId = (n: number) =>
-    `${(Date.now() + n)
+    `${(putDown + n)
       .toString(16)
       .padStart(12, "0")
       .replace(/^(.{8})(.{4})$/, "$1-$2")}-7000-8000-${n.toString(16).padStart(12, "0")}`;
@@ -812,6 +814,15 @@ setup("seed", async ({ page, browser }) => {
     { name: "Piano technician", kind: "other", role: "Tuning" },
   ])
     await api(page, "POST", `/api/projects/${music.id}/personnel`, entry);
+  // The pianist on the stage plan is Ines Arlow on the personnel, and named by it.
+  const { personnel: listed } = await api<{ personnel: { id: string; name: string }[] }>(
+    page,
+    "GET",
+    `/api/projects/${music.id}/personnel`,
+  );
+  await api(page, "POST", `/api/stage-plans/${plan.id}/edits`, {
+    change: [{ id: itemId(4), personnelId: listed.find((p) => p.name === "Ines Arlow")?.id }],
+  });
 
   // Alex hears when a guest opens a review they asked for.
   await api(page, "PUT", "/api/notifications/preferences", {

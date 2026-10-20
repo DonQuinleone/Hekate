@@ -46,6 +46,18 @@ export const roundKinds: readonly string[] = ["performer", "mic", "ellipse", "ti
 /** The kinds a patch list channel can be linked to (#54): its label then follows the patch. */
 export const patchableKinds: readonly string[] = ["mic", "stage-box", "cable"];
 
+/** The kinds that stand for someone on the production's personnel (#49): its name labels them. */
+export const peopledKinds: readonly string[] = ["performer", "ensemble"];
+
+/** Someone on the production as a plan names and sizes them. */
+export interface StagePerson {
+  id: string;
+  name: string;
+  kind: string;
+  /** Players in an ensemble; one for anyone else. */
+  players: number;
+}
+
 export const stagePlanInput = z.object({
   /** The venue, or the layout at it: "Endless Hall, recital layout". */
   name: z.string().trim().min(1, "Name the stage plan").max(80),
@@ -91,6 +103,8 @@ const itemFields = {
   h: z.number().min(-200).max(200),
   rotation: z.number().min(-360).max(360),
   patchRowId: z.uuid().nullable(),
+  /** Who stands there (#49): a performer or an ensemble on the production's personnel. */
+  personnelId: z.uuid().nullable(),
   /** A label group (#53): the labels of a group are shown or hidden together. */
   group: z.string().trim().max(40),
 };
@@ -106,6 +120,7 @@ export const stageItemInput = z
     label: itemFields.label.default(""),
     rotation: itemFields.rotation.default(0),
     patchRowId: itemFields.patchRowId.default(null),
+    personnelId: itemFields.personnelId.default(null),
     group: itemFields.group.default(""),
   })
   .refine(sized, { message: "Give it a width and a depth", path: ["w"] });
@@ -121,6 +136,7 @@ export const stageItemChange = z
     h: true,
     rotation: true,
     patchRowId: true,
+    personnelId: true,
     group: true,
   })
   .refine((c) => Object.keys(c).length > 1, { message: "Nothing to change" });
@@ -151,6 +167,7 @@ export interface StageItem {
   h: number;
   rotation: number;
   patchRowId: string | null;
+  personnelId: string | null;
   group: string;
 }
 
@@ -325,10 +342,15 @@ export interface PatchedChannel {
 
 /**
  * The label an item shows: a linked channel's source (so renaming it in the patch list renames
- * it here), else its own label, else what its kind is called.
+ * it here), else the name of who stands there, else its own label, else what its kind is called.
  */
-export function shownLabel(item: Pick<StageItem, "kind" | "label">, patched?: PatchedChannel) {
+export function shownLabel(
+  item: Pick<StageItem, "kind" | "label">,
+  patched?: PatchedChannel,
+  person?: Pick<StagePerson, "name">,
+) {
   if (patched?.source) return patched.source;
+  if (person?.name) return person.name;
   if (item.label) return item.label;
   return stageKindDefaults[item.kind as StageKind]?.name ?? item.kind;
 }

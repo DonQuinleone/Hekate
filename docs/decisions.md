@@ -1003,3 +1003,10 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Written whole.** An entry is added or changed with its sections and players at once, in one transaction.
 - **Who may.** Those who see the production tools see personnel; those who use them change it.
 - **Follows.** Ensemble blocks and performers on the stage plan linked to personnel and sized from the head-count (#53), and the breakdown in schedule exports (#50).
+
+## 171. Who stands on the stage
+
+#53, last part, with #49: "performers and blocks linked to personnel, ensemble blocks sized from the real head-count".
+
+- **Who.** A performer or an ensemble block on a stage plan may stand for someone on the project's personnel: a performer for an artist, staff or other, a block for an ensemble. It is then labelled with their name, so renaming them in personnel renames them on the plan and in its PDF. Only this project's personnel is accepted; taking someone off the personnel leaves the item, unlinked.
+- **Sized from the head-count.** Linking a block to an ensemble sizes it in the same step from its players (a metre across and 1.2 m deep each, in rows a little wider than deep: `ensembleBlock` in packages/shared). *Size from the head-count* does it again after the ensemble grows or shrinks; the block may be resized by hand as before.

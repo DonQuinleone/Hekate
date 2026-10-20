@@ -1,7 +1,9 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  headCount,
   type PatchedChannel,
   type StageItem,
+  type StagePerson,
   type StagePlan,
   stageEditInput,
   stagePlanChangeInput,
@@ -18,8 +20,10 @@ import { textPdfOf } from "../media/pdf.ts";
 import { stagePlanPage } from "../stage-pdf.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { attachment } from "./comments.ts";
+import { personnelOf } from "./personnel.ts";
 
-const { filePages, files, patchRows, projects, stageBoxes, stageItems, stagePlans } = schema;
+const { filePages, files, patchRows, personnel, projects, stageBoxes, stageItems, stagePlans } =
+  schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
@@ -96,6 +100,7 @@ const itemShape = {
   h: stageItems.h,
   rotation: stageItems.rotation,
   patchRowId: stageItems.patchRowId,
+  personnelId: stageItems.personnelId,
   group: stageItems.group,
 };
 
@@ -168,6 +173,20 @@ export async function channelsOf(
   );
 }
 
+/** The production's personnel as a plan names and sizes them (#49). */
+async function peopleOf(
+  db: Database,
+  organisationId: string,
+  projectId: string,
+): Promise<StagePerson[]> {
+  return (await personnelOf(db, organisationId, projectId)).map((p) => ({
+    id: p.id,
+    name: p.name,
+    kind: p.kind,
+    players: headCount(p),
+  }));
+}
+
 /**
  * `/api/projects/:id/stage-plans` (#53): a project's stage plans with the patch channels they
  * may link to, for those who see the production tools, and a new plan, for those who use them.
@@ -185,6 +204,7 @@ export const projectStagePlanRoutes = (db: Database) =>
       return c.json({
         plans: await stagePlansOf(db, organisationId, projectId),
         channels: await channelsOf(db, organisationId, projectId),
+        people: await peopleOf(db, organisationId, projectId),
       });
     })
     .post("/:id/stage-plans", idParam, zValidator("json", stagePlanInput), async (c) => {
@@ -276,6 +296,7 @@ export const stagePlanRoutes = (db: Database) =>
           await channelsOf(db, organisationId, projectId),
           paper,
           hide === undefined ? [] : [hide].flat(),
+          await peopleOf(db, organisationId, projectId),
         ),
       ]);
       return c.body(new Uint8Array(pdf), 200, {
@@ -393,6 +414,26 @@ export const stagePlanRoutes = (db: Database) =>
             if (found.length !== linked.length)
               throw new HTTPException(400, {
                 message: "That channel is not in this project's patch list",
+              });
+          }
+          const peopled = [
+            ...new Set([...add, ...change].flatMap((i) => (i.personnelId ? [i.personnelId] : []))),
+          ];
+          if (peopled.length > 0) {
+            const found = await tx
+              .select({ id: personnel.id })
+              .from(personnel)
+              .where(
+                inOrg(
+                  personnel,
+                  organisationId,
+                  eq(personnel.projectId, plan.projectId),
+                  inArray(personnel.id, peopled),
+                ),
+              );
+            if (found.length !== peopled.length)
+              throw new HTTPException(400, {
+                message: "That person is not on this project's personnel",
               });
           }
           const onPlan = (more: SQL) =>
