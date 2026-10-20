@@ -10070,6 +10070,16 @@ describe.runIf(url)("api", () => {
           ).toBe(404);
           expect((await send("DELETE", `/api/personnel/${theirs?.id}`, {})).status).toBe(404);
 
+          // A guest the project no longer asks is shown unlinked, and the entry still saves.
+          await db
+            .delete(schema.groupMembers)
+            .where(eq(schema.groupMembers.groupId, group?.id ?? ""));
+          const left = (await list()).personnel.find((p) => p.name === "Mira Solberg");
+          expect(left?.link).toBeNull();
+          expect(
+            (await send("PUT", `/api/personnel/${left?.id}`, { ...conductor, link: null })).status,
+          ).toBe(200);
+
           // Removing an ensemble takes its sections and players with it.
           expect((await send("DELETE", `/api/personnel/${strings.id}`, {})).status).toBe(204);
           expect(await db.select().from(schema.sectionMembers)).toHaveLength(0);

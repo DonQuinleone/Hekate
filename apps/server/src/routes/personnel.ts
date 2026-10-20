@@ -105,12 +105,17 @@ export async function personnelOf(
             ),
           )
           .orderBy(asc(sectionMembers.position));
+  // A link counts while its person is still one the project knows: someone who has left it is
+  // shown unlinked while they are away, and saving the entry then clears the link.
+  const linkable = new Set(
+    (await linkableOf(db, organisationId, projectId)).map((p) => `${p.kind}:${p.id}`),
+  );
   return entries.map(({ userId, userName, guestId, guestName, ...e }) => ({
     ...e,
     link:
-      userId && userName
+      userId && userName && linkable.has(`member:${userId}`)
         ? { kind: "member" as const, userId, name: userName }
-        : guestId && guestName
+        : guestId && guestName && linkable.has(`guest:${guestId}`)
           ? { kind: "guest" as const, guestId, name: guestName }
           : null,
     sections: sections
