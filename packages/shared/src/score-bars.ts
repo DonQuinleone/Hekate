@@ -96,3 +96,24 @@ export function placeOfBar(
   }
   return { page: at.page, y: at.y, from: at.bar };
 }
+
+/** How far from its system's number a mark may be carried; past it, it sits on the system. */
+const REACH = 0.25;
+
+/**
+ * Where something placed at a bar on one edition of a score goes on another (#52), when the
+ * score is swapped: to that bar in the new edition, as far below or above its system's number
+ * as it was in the old. Nothing when either edition has no bars to go by.
+ */
+export function movedToBar(
+  from: PrintedBar[],
+  to: PrintedBar[],
+  bar: number,
+  at: { page: number; y: number },
+): { page: number; y: number } | null {
+  const was = placeOfBar(from, bar);
+  const now = placeOfBar(to, bar);
+  if (!was || !now) return null;
+  const offset = was.page === at.page ? Math.min(REACH, Math.max(-REACH, at.y - was.y)) : 0;
+  return { page: now.page, y: Math.min(1, Math.max(0, now.y + offset)) };
+}

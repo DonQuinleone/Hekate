@@ -4045,6 +4045,96 @@ describe.runIf(url)("api", () => {
         app.request(path, { ...json(body, cookie), method });
       const trackFrom = async (res: Response) => ((await res.json()) as { track: TrackView }).track;
 
+      it("carries the score marks and takes to their bars when the score is swapped (#52)", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const projectId = await newProject(organisationId);
+        const [first = "", second = "", third = ""] = await Promise.all(
+          ["Score 1899.pdf", "Score 1903.pdf", "Score scan.pdf"].map((n) =>
+            addFile(organisationId, projectId, n),
+          ),
+        );
+        const bars = (page: number, y: number, bar: number) => ({ page, x: 0.05, y, bar });
+        // The first edition prints four bars a system, the second six; the scan prints none.
+        await db
+          .update(schema.files)
+          .set({
+            printedBars: [bars(1, 0.3, 5), bars(1, 0.55, 9), bars(2, 0.1, 17), bars(2, 0.35, 21)],
+          })
+          .where(eq(schema.files.id, first));
+        await db
+          .update(schema.files)
+          .set({
+            printedBars: [bars(1, 0.2, 7), bars(1, 0.45, 13), bars(1, 0.7, 19), bars(2, 0.1, 25)],
+          })
+          .where(eq(schema.files.id, second));
+        const track = await trackFrom(
+          await app.request(
+            `/api/projects/${projectId}/tracks`,
+            json({ name: "Maple Leaf Rag", scoreFileId: first }, owner),
+          ),
+        );
+        const mark = (values: Partial<typeof schema.scoreMarks.$inferInsert>) =>
+          db
+            .insert(schema.scoreMarks)
+            .values({
+              organisationId,
+              trackId: track.id,
+              kind: "note",
+              page: 1,
+              x: 0.5,
+              y: 0.5,
+              text: "Breath",
+              ...values,
+            })
+            .returning()
+            .then(([m]) => m?.id ?? "");
+        const atBar = await mark({ page: 2, y: 0.4, barFrom: 21 });
+        const ink = await mark({
+          kind: "ink",
+          text: null,
+          page: 2,
+          y: 0.4,
+          barFrom: 21,
+          points: [
+            [0.2, 0.4],
+            [0.3, 0.45],
+          ],
+        });
+        const noBar = await mark({ page: 2, y: 0.8 });
+        await db
+          .insert(schema.takes)
+          .values({ organisationId, trackId: track.id, number: 1, page: 2, barFrom: 21 });
+
+        const swap = async (scoreFileId: string) => {
+          const res = await send("PATCH", `/api/tracks/${track.id}`, { scoreFileId }, owner);
+          expect(res.status).toBe(200);
+          return ((await res.json()) as { rehomed?: unknown }).rehomed;
+        };
+        expect(await swap(second)).toEqual({ marks: 2, takes: 1, stayed: 1 });
+        const where = async (id: string) => {
+          const [m] = await db.select().from(schema.scoreMarks).where(eq(schema.scoreMarks.id, id));
+          return m;
+        };
+        // Bar 21 is on page 1 of the second edition, in the system from bar 19.
+        expect(await where(atBar)).toMatchObject({ page: 1, y: 0.75 });
+        const moved = await where(ink);
+        expect(moved?.page).toBe(1);
+        expect(moved?.points?.[1]?.[1]).toBeCloseTo(0.8, 9);
+        expect(await where(noBar)).toMatchObject({ page: 2, y: 0.8 });
+        const [take] = await db
+          .select()
+          .from(schema.takes)
+          .where(eq(schema.takes.trackId, track.id));
+        expect(take?.page).toBe(1);
+
+        // A scan prints no bars: everything stays where it was, and nothing is said to move.
+        expect(await swap(third)).toEqual({ marks: 0, takes: 0, stayed: 3 });
+        expect(await where(atBar)).toMatchObject({ page: 1, y: 0.75 });
+        // Linking the score again, or unlinking it, moves nothing.
+        expect(await swap(third)).toBeUndefined();
+      });
+
       it("builds a track from numbered versions, each with one primary variation", async () => {
         const owner = cookieOf(await setup());
         const organisationId = await organisationOf(owner);

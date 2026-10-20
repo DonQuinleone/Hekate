@@ -34,6 +34,7 @@ import type { Jobs } from "../jobs.ts";
 import type { Mailer } from "../mail.ts";
 import { metrics } from "../metrics/index.ts";
 import { follow, followersOf, notifyNow } from "../notifications.ts";
+import { rehomeOnSwap } from "../score-swap.ts";
 import type { Storage } from "../storage.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { trackStandings } from "../track-standing.ts";
@@ -279,17 +280,28 @@ export const trackRoutes = (
       if (input.scoreFileId) {
         await assertScore(db, organisationId, track.projectId, input.scoreFileId);
       }
-      await db.transaction(async (tx) => {
+      const rehomed = await db.transaction(async (tx) => {
         if (input.folderId !== undefined) {
           await lockProject(tx, organisationId, track.projectId);
           if (input.folderId) await folderIn(tx, organisationId, track.projectId, input.folderId);
         }
+        // The score as it is now, under the track's lock, so two swaps never cross.
+        const [was] = await tx
+          .select({ scoreFileId: tracks.scoreFileId })
+          .from(tracks)
+          .where(inOrg(tracks, organisationId, eq(tracks.id, id)))
+          .for("update");
         await tx
           .update(tracks)
           .set({ ...input, updatedAt: new Date() })
           .where(inOrg(tracks, organisationId, eq(tracks.id, id)));
+        // Another edition of the score (#52): what was placed on the old one follows its bars.
+        const from = was?.scoreFileId;
+        return input.scoreFileId && from && from !== input.scoreFileId
+          ? await rehomeOnSwap(tx, organisationId, id, from, input.scoreFileId)
+          : undefined;
       });
-      return c.json({ track: await oneTrack(db, organisationId, id) });
+      return c.json({ track: await oneTrack(db, organisationId, id), rehomed });
     })
     // What this track's versions are measured against (#144), over the project's; for whoever
     // edits the project's workflow, as the project's own profile is.

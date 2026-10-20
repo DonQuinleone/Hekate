@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { barNumbersOf, type PrintedBar, placeOfBar } from "./score-bars.ts";
+import { barNumbersOf, movedToBar, type PrintedBar, placeOfBar } from "./score-bars.ts";
 
 const at = (page: number, y: number, x: number, bar: number): PrintedBar => ({ page, x, y, bar });
 
@@ -64,5 +64,37 @@ describe("placeOfBar", () => {
 
   it("knows nothing without bars", () => {
     expect(placeOfBar([], 12)).toBeNull();
+  });
+});
+
+describe("movedToBar", () => {
+  // The old edition: four bars a system. The new: six, so bar 21 moves to page 1.
+  const old = [
+    at(1, 0.3, 0.05, 5),
+    at(1, 0.55, 0.05, 9),
+    at(2, 0.1, 0.05, 17),
+    at(2, 0.35, 0.05, 21),
+  ];
+  const engraved = [
+    at(1, 0.2, 0.05, 7),
+    at(1, 0.45, 0.05, 13),
+    at(1, 0.7, 0.05, 19),
+    at(2, 0.1, 0.05, 25),
+  ];
+
+  it("carries a mark to its bar, as far from its system's number as it was", () => {
+    // Bar 21's system starts at 0.35 on page 2; the mark sat 0.05 below it.
+    expect(movedToBar(old, engraved, 21, { page: 2, y: 0.4 })).toEqual({ page: 1, y: 0.75 });
+  });
+
+  it("puts a mark on its system when it was far from it, or on another page", () => {
+    expect(movedToBar(old, engraved, 9, { page: 2, y: 0.9 })).toEqual({ page: 1, y: 0.2 });
+    const far = movedToBar(old, engraved, 5, { page: 1, y: 0.95 });
+    expect(far?.y).toBeCloseTo(0.25, 9);
+  });
+
+  it("moves nothing when either edition has no bars to go by", () => {
+    expect(movedToBar([], engraved, 9, { page: 1, y: 0.5 })).toBeNull();
+    expect(movedToBar(old, [], 9, { page: 1, y: 0.5 })).toBeNull();
   });
 });

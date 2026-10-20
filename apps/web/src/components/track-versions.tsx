@@ -31,6 +31,7 @@ import {
   type Version,
   workspaceSettingsQuery,
 } from "~/lib/queries";
+import { swappedSummary } from "~/lib/score-swap";
 import { uploadFile } from "~/lib/upload";
 import { Avatar } from "./avatar";
 import { Empty } from "./empty";
@@ -1097,13 +1098,14 @@ function VersionRow({
 /** The score beside the track's recordings: a link to it, or choosing one for those who may. */
 function ScoreChoice({ track, canEdit }: { track: Track; canEdit: boolean }) {
   const { data: files = [] } = useQuery(projectFilesQuery(track.projectId));
-  const { updateTrack } = useTrackMutations(track.projectId);
+  const { chooseScore } = useTrackMutations(track.projectId);
   const scores = files.filter((f) => isPdf(f.name, f.contentType));
   const linked = scores.find((f) => f.id === track.scoreFileId);
-  const choose = (id: string | null) => updateTrack.mutate({ id: track.id, scoreFileId: id });
+  const choose = (id: string | null) => chooseScore.mutate({ id: track.id, scoreFileId: id });
+  const moved = chooseScore.data?.rehomed;
   if (linked) {
     return (
-      <span className="flex items-center gap-1">
+      <span className="flex flex-wrap items-center gap-1">
         <Link
           to="/files/$fileId"
           params={{ fileId: linked.id }}
@@ -1124,6 +1126,9 @@ function ScoreChoice({ track, canEdit }: { track: Track; canEdit: boolean }) {
             ]}
           />
         )}
+        <span role="status" className={cn("text-ink-3", !moved && "sr-only")}>
+          {moved && swappedSummary(moved)}
+        </span>
       </span>
     );
   }
