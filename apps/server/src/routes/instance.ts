@@ -1393,6 +1393,8 @@ export function instanceRoutes(options: InstanceOptions) {
               ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
             });
         });
+        // Committed: every read from now on is the new settings.
+        options.settings.forget();
         return c.json({ settings: await options.settings.get(), environment: options.environment });
       })
       // The instance's flags (#159): read as the server runs, so turning one needs no restart.

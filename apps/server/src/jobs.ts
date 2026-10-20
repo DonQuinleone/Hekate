@@ -242,6 +242,8 @@ export function createJobs(options: {
   // Each kind of job this process works, to stop and take up again as maintenance comes and goes.
   const workers = new Map<string, () => Promise<unknown>>();
   let held = false;
+  // The kinds of job this process is taking now.
+  const taking = new Set<string>();
   let holding = Promise.resolve();
 
   return {
@@ -278,7 +280,10 @@ export function createJobs(options: {
           },
         );
       workers.set(name, take);
-      if (!held) await take();
+      if (!held) {
+        await take();
+        taking.add(name);
+      }
     },
 
     hold(next) {
@@ -286,12 +291,18 @@ export function createJobs(options: {
       holding = holding
         .catch(() => {})
         .then(async () => {
-          if (next === held) return;
-          held = next;
+          // Queue by queue, each only if not already so: one that failed is tried again next
+          // time, and the state is the new one only once every queue has followed.
           for (const [name, take] of workers) {
-            if (next) await boss.offWork(name, { wait: true });
-            else await take();
+            if (next && taking.has(name)) {
+              await boss.offWork(name, { wait: true });
+              taking.delete(name);
+            } else if (!next && !taking.has(name)) {
+              await take();
+              taking.add(name);
+            }
           }
+          held = next;
         });
       return holding;
     },

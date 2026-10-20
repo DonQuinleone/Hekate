@@ -152,6 +152,21 @@ export async function boot(
     verbose: () => flags.isOn("worker.verbose"),
   });
   await jobs.start();
+  // Maintenance mode (#154): this process's workers stop taking jobs while it is on, and take
+  // them up again when it is over; the queue keeps every job meanwhile.
+  const settings = createInstanceSettings(db);
+  const holdJobs = async () => {
+    try {
+      await jobs.hold((await settings.get()).maintenance.on);
+    } catch (error) {
+      console.error("Could not hold or resume the job workers:", error);
+    }
+  };
+  // Held before any worker is registered, so one starting during maintenance takes nothing.
+  await holdJobs();
+  const holding = setInterval(holdJobs, 15_000);
+  holding.unref();
+
   if (config.WORKER) {
     await startWorkers(
       jobs,
@@ -230,20 +245,6 @@ export async function boot(
       await sweepRuns(runner);
     });
   }
-
-  // Maintenance mode (#154): this process's workers stop taking jobs while it is on, and take
-  // them up again when it is over; the queue keeps every job meanwhile.
-  const settings = createInstanceSettings(db);
-  const holdJobs = async () => {
-    try {
-      await jobs.hold((await settings.get()).maintenance.on);
-    } catch (error) {
-      console.error("Could not hold or resume the job workers:", error);
-    }
-  };
-  await holdJobs();
-  const holding = setInterval(holdJobs, 15_000);
-  holding.unref();
 
   const app = createApp({
     db,
