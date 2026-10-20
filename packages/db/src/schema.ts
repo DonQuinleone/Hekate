@@ -461,6 +461,8 @@ export const projects = pgTable(
      * one made before categories existed the first time its categories are read.
      */
     categoriesSeeded: boolean("categories_seeded").notNull().default(false),
+    /** Whether the project has had its default score mark categories (#52). */
+    scoreCategoriesSeeded: boolean("score_categories_seeded").notNull().default(false),
     /** How many tasks it has numbered (#140): the next is one more, so a key is never reused. */
     tasksNumbered: integer("tasks_numbered").notNull().default(0),
     /** Its status set (#26): what its workflows set, in order, each read as to do, under way or done. */
@@ -792,6 +794,63 @@ export const takes = pgTable(
       sql`${t.barFrom} is null or ${t.barTo} is null or ${t.barFrom} <= ${t.barTo}`,
     ),
   ],
+);
+
+/** A project's categories of score issue (#52): a name, a colour and the key that picks it. */
+export const scoreMarkCategories = pgTable(
+  "score_mark_categories",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    colour: text("colour").notNull(),
+    key: text("key"),
+    position: integer("position").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [index("score_mark_categories_project_idx").on(t.organisationId, t.projectId)],
+);
+
+/**
+ * A score mark (#52, docs/domain.md): the producer's pencil on a track's score. It belongs to
+ * the track, placed by page, point and bar, so a score swapped mid-project keeps it.
+ */
+export const scoreMarks = pgTable(
+  "score_marks",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    trackId: uuid("track_id")
+      .notNull()
+      .references(() => tracks.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    page: integer("page").notNull(),
+    x: doublePrecision("x").notNull(),
+    y: doublePrecision("y").notNull(),
+    width: doublePrecision("width"),
+    height: doublePrecision("height"),
+    points: jsonb("points").$type<[number, number][]>(),
+    barFrom: integer("bar_from"),
+    barTo: integer("bar_to"),
+    text: text("text"),
+    categoryId: uuid("category_id").references(() => scoreMarkCategories.id, {
+      onDelete: "set null",
+    }),
+    /** The takes an issue occurred in, by number; and the take that fixed it. */
+    takes: jsonb("takes").$type<number[]>().notNull().default([]),
+    fixedBy: integer("fixed_by"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    /** An edit point's hand-over, or the take a start, end or punch-in names. */
+    fromTake: integer("from_take"),
+    toTake: integer("to_take"),
+    overdub: boolean("overdub").notNull().default(false),
+    createdById: text("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [index("score_marks_track_idx").on(t.organisationId, t.trackId, t.page)],
 );
 
 /**

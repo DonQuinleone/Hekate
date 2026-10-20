@@ -44,6 +44,7 @@ export * from "./references.ts";
 export * from "./reviewer-permissions.ts";
 export * from "./reviews.ts";
 export * from "./roles.ts";
+export * from "./score-marks.ts";
 export * from "./search.ts";
 export * from "./spectrogram.ts";
 export * from "./sso.ts";
