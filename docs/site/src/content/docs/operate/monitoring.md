@@ -1,9 +1,30 @@
 ---
 title: Monitoring
-description: Prometheus metrics at /metrics, what each one says, and a Grafana dashboard.
+description: Liveness and readiness probes, Prometheus metrics at /metrics, what each one says, and a Grafana dashboard.
 ---
 
 Hekate tells Prometheus how it is doing at `/metrics`, in the text exposition format. It is off until you give it a token.
+
+## Probes
+
+Three endpoints answer without signing in, for Compose, Kubernetes, a load balancer or the image's own `HEALTHCHECK`. Each names a state and no more: no host, bucket or address.
+
+| Endpoint | Answers | Use it for |
+| --- | --- | --- |
+| `/api/health/live` | 200 while the process answers at all. | A liveness probe: restart the container when it stops answering. |
+| `/api/health/ready` | 200 when the database and every storage backend can be used; 503 when either cannot, or while the installer runs. | A readiness probe: send no requests to a replica until it is ready. |
+| `/api/health` | 200 with the release when the database answers; 503 when it does not. | The image's `HEALTHCHECK`. |
+
+`/api/health/ready` also says how the job worker and mail are (`ok`, `stale`, `failed` or `off`), in `checks`. Neither makes a replica unready: a load balancer taking every replica out for want of mail would only make things worse. A worker is `stale` when none has finished a job in ten minutes, which usually means none is running. Mail is `off` when it goes to the log rather than SMTP. The answer is kept for ten seconds, so probes every few seconds do not each write to storage.
+
+```yaml
+# Kubernetes
+livenessProbe:
+  httpGet: { path: /api/health/live, port: 3000 }
+readinessProbe:
+  httpGet: { path: /api/health/ready, port: 3000 }
+  periodSeconds: 10
+```
 
 ## Turn it on
 

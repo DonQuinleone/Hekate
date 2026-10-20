@@ -54,6 +54,7 @@ import { moveProject } from "./project-transfer.ts";
 import { admit } from "./rate-limit.ts";
 import { reconcileStorage } from "./reconcile.ts";
 import { remindDue } from "./reminders.ts";
+import { health } from "./routes/health.ts";
 import { rehomePending } from "./score-swap.ts";
 import { createSetupGate, SETUP_CODE_HEADER } from "./setup-code.ts";
 import { createStorage } from "./storage.ts";
@@ -204,6 +205,54 @@ describe.runIf(url)("api", () => {
     const res = await app.request("/api/health");
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ status: "ok", database: "ok" });
+  });
+
+  it("answers liveness and readiness probes, naming no host (#156)", async () => {
+    const live = await app.request("/api/health/live");
+    expect(live.status).toBe(200);
+    expect(await live.json()).toMatchObject({ status: "ok" });
+    const ready = await app.request("/api/health/ready");
+    expect(ready.status).toBe(200);
+    const body = (await ready.json()) as {
+      status: string;
+      checks: Record<string, string>;
+    };
+    // Ready on the database and storage; mail goes to the log here, and no worker runs.
+    expect(body.status).toBe("ready");
+    expect(body.checks).toMatchObject({ database: "ok", storage: "ok", mail: "off" });
+    expect(["stale", "failed"]).toContain(body.checks.worker);
+    // States only: nothing in the answer but the release and the words for each.
+    expect(
+      Object.values(body.checks).every((v) => ["ok", "failed", "stale", "off"].includes(v)),
+    ).toBe(true);
+  });
+
+  it("answers liveness while the database stalls, and readiness without waiting on mail (#156)", async () => {
+    // Settings that are never read back: everything behind them waits, but not the probes.
+    const stalled = { ...createInstanceSettings(db), get: () => new Promise<never>(() => {}) };
+    const probed = createApp({
+      db,
+      auth,
+      mailer,
+      storage,
+      audit,
+      jobs,
+      keyring,
+      settings: stalled,
+      playbackSecret: playbackSecret("test-secret-test-secret-test-secret-0"),
+      publicUrl: "http://localhost:3000",
+      log: false,
+    });
+    expect((await probed.request("/api/health/live")).status).toBe(200);
+    // A mail server that never answers fails its check in time; readiness does not wait.
+    const silent = { send: async () => {}, verify: () => new Promise<never>(() => {}) };
+    const ready = await health(db, {
+      backends: storage.backends,
+      mailer: silent,
+      checkMs: 50,
+    }).request("/ready");
+    expect(ready.status).toBe(200);
+    expect(await ready.json()).toMatchObject({ status: "ready", checks: { mail: "failed" } });
   });
 
   it("tells Prometheus how it is doing, only with the token (#70)", async () => {

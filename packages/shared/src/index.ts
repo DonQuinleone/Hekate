@@ -20,6 +20,7 @@ export * from "./files.ts";
 export * from "./flags.ts";
 export * from "./folders.ts";
 export * from "./format.ts";
+export * from "./health.ts";
 export * from "./inspect.ts";
 export * from "./install.ts";
 export * from "./instance.ts";

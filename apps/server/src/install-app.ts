@@ -30,6 +30,9 @@ export function createInstallApp(
   // The page asks these before anything else: it is setting up, and the server is alive.
   app.get("/api/setup", (c) => c.json({ needed: true }));
   app.get("/api/health", (c) => c.json({ status: "installing", version } as const));
+  // Alive, but not ready to serve until it is installed (#156).
+  app.get("/api/health/live", (c) => c.json({ status: "ok", version } as const));
+  app.get("/api/health/ready", (c) => c.json({ status: "installing", version } as const, 503));
   app.all("/api/*", () => {
     throw new CodedException(409, "installing", "Hekate is still being installed");
   });

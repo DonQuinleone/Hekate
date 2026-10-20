@@ -11,6 +11,8 @@ export interface Message {
 
 export interface Mailer {
   send(message: Message): Promise<void>;
+  /** Whether the mail server answers (#156); none when mail goes to the log. */
+  verify?(): Promise<unknown>;
 }
 
 /** SMTP when configured; otherwise messages go to the log so development needs no mail server. */
@@ -27,6 +29,7 @@ export function createMailer(options: { smtpUrl?: string | undefined; from: stri
     async send(message) {
       await transport.sendMail({ from: options.from, ...message });
     },
+    verify: () => transport.verify(),
   };
 }
 

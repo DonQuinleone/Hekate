@@ -1091,3 +1091,14 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Channel.** Stable offers releases, Beta their release candidates too (an instance setting, #160). The prototype's Edge channel and instance id are gone: no feed offers every build, and nothing needs to identify the instance.
 - **Available.** The releases newer than the one running on the channel, each with its notes and how to upgrade (the docs' Upgrades page). A newer release is also on the Overview's "Needs an operator".
 - **Environment.** Node.js, PostgreSQL, ffmpeg and Poppler versions, the storage backends, the licence.
+
+## 180. Liveness and readiness
+
+#156, first part: "`/api/health/live` (the process answers) and `/api/health/ready` (database, storage backends, worker, mail reachable), for Compose, Kubernetes and the Dockerfile's HEALTHCHECK".
+
+- **Live.** The process answers: nothing more is checked, so a slow database never gets a healthy process restarted.
+- **Ready.** Ready to serve when the database answers and every storage backend can be written to; not ready otherwise, and while the installer runs. The worker (a job finished in the last ten minutes) and mail (the SMTP server answers) are reported beside them but never make a replica unready: taking every replica out of a load balancer for want of mail would only make things worse (`readiness` in packages/shared).
+- **Public, so states only.** The answers name no host, bucket or address, only `ok`, `failed`, `stale` or `off` for each part.
+- **Kept ten seconds.** A storage check writes a probe, so a readiness answer is kept that long rather than written for every probe.
+- **`/api/health`** stays as it was for the image's `HEALTHCHECK`.
+- **Follows.** The System health page: gauges, the last 24 hours, services and storage (#156, later parts).
