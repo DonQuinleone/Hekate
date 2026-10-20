@@ -441,6 +441,25 @@ function Editor({
                 <Switch label="Snap to the grid" checked={snap} onChange={setSnap} />
               </span>
             )}
+            {/* Printed as it is shown: the label groups hidden here are left off the page too. */}
+            <Dropdown
+              value="Export PDF"
+              align="right"
+              actions={(
+                [
+                  ["a3", "A3, with rulers and scale bar"],
+                  ["a4", "A4"],
+                ] as const
+              ).map(([paper, label]) => ({
+                label,
+                onSelect: () => {
+                  const query = new URLSearchParams(hidden.map((g) => ["hide", g]));
+                  window.location.assign(
+                    `/api/stage-plans/${plan.id}/pdf/${paper}${hidden.length ? `?${query}` : ""}`,
+                  );
+                },
+              }))}
+            />
           </span>
         </div>
         {canEdit && (

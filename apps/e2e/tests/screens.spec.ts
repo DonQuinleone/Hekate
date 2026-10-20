@@ -594,6 +594,15 @@ test("stage-plan", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Patch" })).toHaveText(/Stage box A, in 1, Main L/);
   await saveScreen(page, "stage-plan");
   await checkScreen(page);
+  // Printed for the get-in, to scale.
+  await page.getByRole("button", { name: "Export PDF" }).click();
+  await saveScreen(page, "stage-plan-export");
+  await checkScreen(page);
+  const [pdf] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("menuitem", { name: "A3, with rulers and scale bar" }).click(),
+  ]);
+  expect(pdf.suggestedFilename()).toBe("Joplin Rags Endless Hall stage plan.pdf");
 
   // A marquee around the room pair's left microphone and the label: two selected. On a phone
   // the plan scrolls under the finger, so the marquee is a desktop gesture.
