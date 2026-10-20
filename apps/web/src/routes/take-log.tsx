@@ -735,7 +735,7 @@ function ToneAndMetronome() {
         </span>
         <Switch label="Metronome" checked={audio.metronome} onChange={audio.setMetronome} />
       </div>
-      {audio.outputs.length > 1 && (
+      {audio.outputs.length > 0 && (
         <Select
           size="sm"
           aria-label="Play through"
@@ -749,6 +749,11 @@ function ToneAndMetronome() {
             </option>
           ))}
         </Select>
+      )}
+      {audio.pick && (
+        <Button size="sm" variant="ghost" onClick={audio.pick} className="self-start">
+          Choose an output
+        </Button>
       )}
     </section>
   );

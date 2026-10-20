@@ -17,15 +17,18 @@ export function tempoOf(input: number): number | null {
 /**
  * The clicks to schedule now: every beat from `next` up to `until` (seconds on the audio clock),
  * and where the beat after them falls. The audio clock keeps time; the timer only looks ahead.
+ * Beats already gone by `now` (the page was busy, or the timer slowed in the background) are
+ * skipped, never played late in a burst, and the beat stays on its grid.
  */
 export function beatsDue(
   next: number,
   bpm: number,
+  now: number,
   until: number,
 ): { times: number[]; next: number } {
   const step = 60 / bpm;
   const times: number[] = [];
-  let at = next;
+  let at = next < now ? next + Math.ceil((now - next) / step) * step : next;
   while (at < until) {
     times.push(at);
     at += step;
@@ -41,6 +44,11 @@ const CLICK_LEVEL = 0.4;
 const STORED = "hekate.metronome.tempo";
 
 type SinkContext = AudioContext & { setSinkId?: (id: string) => Promise<void> };
+/** Asking for an output by name, where the browser has it (Firefox does; Chrome lists them). */
+type Picker = MediaDevices & { selectAudioOutput?: () => Promise<MediaDeviceInfo> };
+
+const sinkSupported = () =>
+  typeof AudioContext !== "undefined" && "setSinkId" in AudioContext.prototype;
 
 /** An output a browser lets a page choose (Chrome and Edge do; others play through the default). */
 export interface AudioOutput {
@@ -130,7 +138,7 @@ export function useReferenceAudio() {
       oscillator.stop(at + 0.04);
     };
     const wake = () => {
-      const due = beatsDue(next, tempo, ctx.currentTime + AHEAD);
+      const due = beatsDue(next, tempo, ctx.currentTime, ctx.currentTime + AHEAD);
       for (const at of due.times) click(at);
       next = due.next;
     };
@@ -141,7 +149,7 @@ export function useReferenceAudio() {
 
   useEffect(() => {
     const devices = navigator.mediaDevices;
-    if (typeof AudioContext === "undefined" || !("setSinkId" in AudioContext.prototype)) return;
+    if (!sinkSupported()) return;
     if (!devices?.enumerateDevices) return;
     const list = () =>
       devices
@@ -168,7 +176,28 @@ export function useReferenceAudio() {
     [],
   );
 
+  const picker = typeof navigator === "undefined" ? undefined : (navigator.mediaDevices as Picker);
+  /** Where a browser asks the person for an output, the output they chose; nothing if they did not. */
+  const pick =
+    sinkSupported() && picker?.selectAudioOutput
+      ? async () => {
+          try {
+            const device = await picker.selectAudioOutput?.();
+            if (!device) return;
+            setOutputs((all) =>
+              all.some((o) => o.id === device.deviceId)
+                ? all
+                : [...all, { id: device.deviceId, label: device.label || "Chosen output" }],
+            );
+            setOutput(device.deviceId);
+          } catch {
+            // Dismissed, or refused: the tone and click stay on the output they were on.
+          }
+        }
+      : null;
+
   return {
+    pick,
     tone,
     setTone,
     metronome,
