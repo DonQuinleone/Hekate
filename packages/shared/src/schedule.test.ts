@@ -5,11 +5,13 @@ import {
   rowWords,
   type ScheduleDay,
   type ScheduleRow,
+  scheduleOrder,
   scheduleRowInput,
   secondsLeft,
   slotTracks,
   timeOfDay,
   timesOf,
+  tracksFinished,
 } from "./schedule.ts";
 
 const row = (over: Partial<ScheduleRow>): ScheduleRow => ({
@@ -119,5 +121,40 @@ describe("the schedule", () => {
     expect(rowWords(row({ allRepertoire: true }), works, tracks)).toBe("All repertoire");
     expect(rowWords(row({ kind: "break" }), works, tracks)).toBe("Break");
     expect(rowWords(row({ kind: "break", label: "Lunch" }), works, tracks)).toBe("Lunch");
+  });
+
+  it("orders works by their first slot, the unscheduled after", () => {
+    const work = (id: string, ...tracks: string[]) => ({
+      id,
+      tracks: tracks.map((trackId) => ({ trackId })),
+    });
+    const works = [work("a", "t1"), work("b", "t2"), work("c", "t3"), work("d")];
+    const days = [
+      { rows: [row({ kind: "break" }), row({ trackIds: ["t3"] })] },
+      { rows: [row({ workIds: ["b"] })] },
+    ];
+    expect(scheduleOrder(works, days).map((w) => w.id)).toEqual(["c", "b", "a", "d"]);
+    expect(
+      scheduleOrder(works, [{ rows: [row({ allRepertoire: true })] }]).map((w) => w.id),
+    ).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("finds the tracks whose last slot a tick finished", () => {
+    const works = [{ id: "w", trackIds: ["a", "b"] }];
+    const days = [
+      {
+        rows: [
+          row({ id: "1", trackIds: ["a"], done: true }),
+          row({ id: "2", workIds: ["w"], done: true }),
+          row({ id: "3", trackIds: ["b"] }),
+        ],
+      },
+    ];
+    // a has no slot left; b still has one.
+    expect(tracksFinished("2", days, works, ["a", "b"])).toEqual(["a"]);
+    expect(tracksFinished("3", days, works, ["a", "b"])).toEqual([]);
+    const all = [{ rows: [row({ id: "4", allRepertoire: true, done: true })] }];
+    expect(tracksFinished("4", all, works, ["a", "b"])).toEqual(["a", "b"]);
+    expect(tracksFinished("x", all, works, ["a"])).toEqual([]);
   });
 });

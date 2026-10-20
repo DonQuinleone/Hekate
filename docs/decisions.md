@@ -1016,7 +1016,7 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 #48, first part. The repertoire and venues are in Production, first and last of its sections, as the prototype has them; the sections scroll sideways on a phone rather than wrapping.
 
 - **Works.** A title, composer, forces, the abbreviation a schedule shows, notes, and the work's tracks in order, each numbered as the score prints it ("1", "I", "2a"; typed in place). A track is in one work at most; a single-track work is just one track. A work holds tracks; it never replaces them, so removing a work leaves its tracks, and removing a track takes it out of its work.
-- **Order.** Schedule order, or alphabetical by title past a leading article, numbers in order ("No. 2" before "No. 10"). Until the schedule exists (#50), schedule order is the order works were added.
+- **Order.** Schedule order, or alphabetical by title past a leading article, numbers in order ("No. 2" before "No. 10"). Schedule order is the order the schedule first reaches each work, through the work, one of its tracks or a slot of all repertoire; works with no slot follow in the order they were added (#50, `scheduleOrder` in packages/shared).
 - **Venues.** A name (one per project), a multi-line address, and notes for the get-in.
 - **Who may.** Those who see the production tools see them; those who use them change them.
 - **Follows.** A work's score with each track's printed page range and the page offset (#48, second part); a stage plan for a venue, and the schedule's days at venues (#50).
@@ -1051,3 +1051,11 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Words.** What a row says (`rowWords` in packages/shared) is the same on the page, in the PDF and in the workbook.
 - **Who may.** Those who see the production tools; the files are not kept between them and the server (`no-store`).
 - **Follows.** The schedule driving the workflow, and the repertoire's schedule order (#50, last part).
+
+## 176. The schedule drives the rest
+
+#50, last part: "the schedule can drive the workflow (for example, a track's first review starts the day after its last slot)".
+
+- **Recorded.** A workflow may start from a new trigger, *A track's last slot is done*. Ticking off a slot fires it for each track the slot holds that has no slot left to do (`tracksFinished` in packages/shared): the track's own, its work's, or all repertoire. A run under way that waits for it carries on. A wait after it gives "the day after its last slot". Ticking a row that was already done fires nothing again, and a workflow already under way on the track is not started twice.
+- **Schedule order.** The repertoire's schedule order follows the schedule (decision 172).
+- **Calendar.** Each dated day of the schedule is on the project's calendar and its feed, as "Day 1 schedule", for those who see the production tools, linking to the schedule.

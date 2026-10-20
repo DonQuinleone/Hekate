@@ -3,10 +3,10 @@
  * feed for whichever calendar someone keeps (RFC 5545).
  */
 
-export const calendarKinds = ["review", "task", "session"] as const;
+export const calendarKinds = ["review", "task", "session", "schedule"] as const;
 export type CalendarKind = (typeof calendarKinds)[number];
 
-/** Something on a day: a review or task due, a recording session. */
+/** Something on a day: a review or task due, a recording session, a day of the schedule. */
 export interface CalendarEvent {
   /** Its kind and id, unique within a project's calendar. */
   id: string;

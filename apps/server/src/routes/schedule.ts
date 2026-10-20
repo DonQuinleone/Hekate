@@ -5,6 +5,7 @@ import {
   scheduleDoneInput,
   scheduleMoveInput,
   scheduleRowInput,
+  tracksFinished,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { asc, eq, inArray, max } from "drizzle-orm";
@@ -21,6 +22,7 @@ import {
   scheduleSheets,
 } from "../schedule-pdf.ts";
 import type { TenantVariables } from "../tenancy.ts";
+import { type RunnerDeps, trackRecorded } from "../workflow-runner.ts";
 import { xlsxOf } from "../xlsx.ts";
 import { attachment } from "./comments.ts";
 import { personnelOf } from "./personnel.ts";
@@ -436,7 +438,7 @@ export const scheduleDayRoutes = (db: Database) =>
     );
 
 /** `/api/schedule-rows/:id`: changing a row, ticking it off, moving it, or removing it. */
-export const scheduleRowRoutes = (db: Database) =>
+export const scheduleRowRoutes = (db: Database, runner: RunnerDeps) =>
   new Hono<{ Variables: TenantVariables }>()
     .put("/:id", idParam, zValidator("json", scheduleRowInput), async (c) => {
       const organisationId = c.var.organisationId;
@@ -461,14 +463,46 @@ export const scheduleRowRoutes = (db: Database) =>
       const organisationId = c.var.organisationId;
       const row = await rowFor(db, c.var, c.req.valid("param").id);
       const { done } = c.req.valid("json");
-      await db.transaction(async (tx) => {
+      const changed = await db.transaction(async (tx) => {
         await lockLiveProject(tx, organisationId, row.projectId);
         await holdRow(tx, organisationId, row.id);
-        await tx
+        return tx
           .update(scheduleRows)
           .set({ done, updatedAt: new Date() })
-          .where(inOrg(scheduleRows, organisationId, eq(scheduleRows.id, row.id)));
+          .where(
+            inOrg(
+              scheduleRows,
+              organisationId,
+              eq(scheduleRows.id, row.id),
+              eq(scheduleRows.done, !done),
+            ),
+          )
+          .returning({ id: scheduleRows.id });
       });
+      // Ticked off just now: a track with no slot left is recorded, for its workflows.
+      if (done && changed.length > 0) {
+        const days = await daysOf(db, organisationId, row.projectId);
+        const works = (await worksOf(db, organisationId, row.projectId)).map((w) => ({
+          id: w.id,
+          trackIds: w.tracks.map((t) => t.trackId),
+        }));
+        const all = await db
+          .select({ id: tracks.id })
+          .from(tracks)
+          .where(inOrg(tracks, organisationId, eq(tracks.projectId, row.projectId)));
+        for (const trackId of tracksFinished(
+          row.id,
+          days,
+          works,
+          all.map((t) => t.id),
+        ))
+          await trackRecorded(runner, {
+            organisationId,
+            projectId: row.projectId,
+            trackId,
+            userId: c.var.userId,
+          });
+      }
       return c.json({ done });
     })
     .post("/:id/move", idParam, zValidator("json", scheduleMoveInput), async (c) => {

@@ -14,6 +14,7 @@ const kindIcon: Record<CalendarKind, IconName> = {
   review: "review",
   task: "task",
   session: "mic",
+  schedule: "calendar",
 };
 
 const monthFormat = formatDates({ month: "long", year: "numeric", timeZone: "UTC" });

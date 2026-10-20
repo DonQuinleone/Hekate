@@ -28,7 +28,8 @@ export type EventType =
   | "due"
   | "opened"
   | "download"
-  | "mention";
+  | "mention"
+  | "recorded";
 
 export type ActionType =
   | "approval"
@@ -214,6 +215,14 @@ export const eventTypes: Record<EventType, TypeMeta> = {
     label: "Someone is mentioned",
     hint: "In a comment",
     icon: "user",
+    outcomes: happened,
+    fields: [],
+  },
+  recorded: {
+    kind: "event",
+    label: "A track's last slot is done",
+    hint: "Every slot it has on the schedule ticked off",
+    icon: "mic",
     outcomes: happened,
     fields: [],
   },

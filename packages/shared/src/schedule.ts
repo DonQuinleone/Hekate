@@ -178,3 +178,45 @@ export function rowWords(
   ];
   return words.join(", ") || row.label || "Nothing chosen yet";
 }
+
+/**
+ * Works in schedule order: by the first slot that holds them (the work itself, one of its
+ * tracks, or all repertoire), day by day and row by row; works with no slot follow, as given.
+ */
+export function scheduleOrder<W extends { id: string; tracks: { trackId: string }[] }>(
+  works: W[],
+  days: Pick<ScheduleDay, "rows">[],
+): W[] {
+  const slots = days.flatMap((d) => d.rows.filter((r) => r.kind === "slot"));
+  const first = (w: W) => {
+    const at = slots.findIndex(
+      (r) =>
+        r.allRepertoire ||
+        r.workIds.includes(w.id) ||
+        w.tracks.some((t) => r.trackIds.includes(t.trackId)),
+    );
+    return at < 0 ? Number.POSITIVE_INFINITY : at;
+  };
+  return works
+    .map((w, i) => ({ w, i, at: first(w) }))
+    .sort((a, b) => a.at - b.at || a.i - b.i)
+    .map((x) => x.w);
+}
+
+/**
+ * The tracks a row's tick finished (#50): those the row holds whose every slot is now done,
+ * for their workflows' "recorded" trigger. None for a row not done, or not a slot.
+ */
+export function tracksFinished(
+  rowId: string,
+  days: Pick<ScheduleDay, "rows">[],
+  works: { id: string; trackIds: string[] }[],
+  allTracks: string[],
+): string[] {
+  const rows = days.flatMap((d) => d.rows);
+  const row = rows.find((r) => r.id === rowId);
+  if (!row?.done || row.kind !== "slot") return [];
+  return slotTracks(row, works, allTracks).filter((track) =>
+    rows.every((r) => r.done || !slotTracks(r, works, allTracks).includes(track)),
+  );
+}
