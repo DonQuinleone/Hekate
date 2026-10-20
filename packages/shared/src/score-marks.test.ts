@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   editLabel,
   editPlot,
+  marksAtBar,
   readingOrder,
   scoreMarkInput,
   scoreMarksCsv,
   takeList,
+  takesForBar,
   typedNumber,
 } from "./score-marks.ts";
 
@@ -188,5 +190,55 @@ describe("typedNumber", () => {
     expect(typedNumber("T0", true)).toBeUndefined();
     expect(typedNumber("T3")).toBeUndefined();
     expect(typedNumber("0")).toBe(0);
+  });
+});
+
+describe("marksAtBar and takesForBar", () => {
+  const issue = (
+    barFrom: number,
+    barTo: number | null,
+    takes: number[],
+    fixedBy: number | null,
+    text: string,
+  ) => ({
+    kind: "issue" as const,
+    barFrom,
+    barTo,
+    takes,
+    fixedBy,
+    text,
+  });
+  const marks = [
+    issue(70, 74, [3, 5], 7, "Pedal noise"),
+    issue(72, null, [5], null, "LH F sharp"),
+    issue(90, 92, [3], 9, "Tempo"),
+    { ...issue(72, null, [], 4, "Not an issue"), kind: "note" as const },
+  ];
+  const take = (
+    number: number,
+    barFrom: number | null,
+    barTo: number | null,
+    starred = false,
+    rating = 0,
+  ) => ({
+    number,
+    barFrom,
+    barTo,
+    starred,
+    rating,
+  });
+
+  it("says which takes fixed a bar and which went wrong there", () => {
+    const notes = marksAtBar(marks, 72);
+    expect(notes.get(7)).toEqual({ fixed: ["Pedal noise"], troubled: [] });
+    expect(notes.get(5)).toEqual({ fixed: [], troubled: ["Pedal noise", "LH F sharp"] });
+    expect(notes.get(3)).toEqual({ fixed: [], troubled: ["Pedal noise"] });
+    expect(notes.has(9)).toBe(false);
+    expect(notes.has(4)).toBe(false);
+  });
+
+  it("offers the take that fixed a bar first, even when its bars were never set", () => {
+    const takes = [take(3, 1, 80, true, 5), take(5, 60, 80), take(7, null, null), take(8, 85, 99)];
+    expect(takesForBar(takes, 72, marksAtBar(marks, 72)).map((t) => t.number)).toEqual([7, 3, 5]);
   });
 });

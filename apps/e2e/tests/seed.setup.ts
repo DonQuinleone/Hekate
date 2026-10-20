@@ -416,6 +416,18 @@ setup("seed", async ({ page, browser }) => {
       fixedBy: 3,
     },
     { kind: "wrong-note", page: 1, x: 0.7, y: 0.55, barFrom: 9, text: "LH F sharp" },
+    {
+      kind: "issue",
+      page: 1,
+      x: 0.45,
+      y: 0.5,
+      barFrom: 9,
+      barTo: 12,
+      text: "Left hand rushes",
+      categoryId: marking.categories.find((c) => c.name === "Ensemble")?.id,
+      takes: [1],
+      fixedBy: 2,
+    },
     { kind: "dynamic", page: 1, x: 0.85, y: 0.7, barFrom: 13, text: "mp, not mf" },
     {
       kind: "note",

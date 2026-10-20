@@ -9,13 +9,15 @@ import {
   edlRates,
   formatDuration,
   gapsLabel,
+  marksAtBar,
   parseClock,
   type SharedTake,
   TAKE_RATING_MAX,
+  type TakeAtBar,
   type TakeChange,
   type TakeRow,
   takeProblem,
-  takesCovering,
+  takesForBar,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -33,6 +35,7 @@ import { formatLoop } from "~/lib/loop";
 import {
   editDecisionsQuery,
   projectSessionsQuery,
+  scoreMarksQuery,
   type Track,
   trackTakesQuery,
   useProjectCan,
@@ -94,6 +97,12 @@ export function TakeManager({ track }: { track: Track }) {
   // Adding takes uploads their files first, which needs the project's upload permission too.
   const canAdd = canEdit && can("upload");
   const { data: takes, error } = useQuery(trackTakesQuery(track.id));
+  // What the score marks say of each take at a bar (#52): which fixed it, which went wrong.
+  const { data: marking } = useQuery({
+    ...scoreMarksQuery(track.id),
+    enabled: can("view_production"),
+    retry: false,
+  });
   const { add, change, remove } = useTakeMutations(track.id);
   const [filter, setFilter] = useState<"all" | "best" | "used">("all");
   const [bar, setBar] = useState("");
@@ -162,7 +171,7 @@ export function TakeManager({ track }: { track: Track }) {
   const wanted = Number.parseInt(bar, 10);
   const asked = bar.trim() !== "" && Number.isInteger(wanted) && wanted >= 0;
   const ordered = asked
-    ? takesCovering(takes, wanted)
+    ? takesForBar(takes, wanted, marksAtBar(marking?.marks ?? [], wanted))
     : [...takes].sort(
         (a, b) =>
           (a.barFrom ?? Number.POSITIVE_INFINITY) - (b.barFrom ?? Number.POSITIVE_INFINITY) ||
@@ -813,7 +822,11 @@ export function OtherTakes({
   const { data: takes, error } = useQuery(trackTakesQuery(trackId));
   // Which of them the latest version's edit decision list uses here (#56).
   const { data: decisions } = useQuery(editDecisionsQuery(trackId));
-  const list = takes ? takesCovering(takes, bar) : [];
+  // What the producer's score marks say of them at this bar (#52): a role that does not see
+  // the production tools is refused them, and sees the takes without.
+  const { data: marking } = useQuery({ ...scoreMarksQuery(trackId), retry: false });
+  const notes = marksAtBar(marking?.marks ?? [], bar);
+  const list = takes ? takesForBar(takes, bar, notes) : [];
   const [mode, setMode] = useState<"ticked" | "all" | "except">("ticked");
   /** The take being auditioned, to say so and to press its button. */
   const [auditioning, setAuditioning] = useState<string | null>(null);
@@ -901,6 +914,7 @@ export function OtherTakes({
                       take={t}
                       shared={share?.shared.includes(t.id)}
                       usedIn={usedAtBar(decisions, t.id, bar)}
+                      note={notes.get(t.number)}
                     />
                   </Link>
                 ) : (
@@ -909,6 +923,7 @@ export function OtherTakes({
                       take={t}
                       shared={share?.shared.includes(t.id)}
                       usedIn={usedAtBar(decisions, t.id, bar)}
+                      note={notes.get(t.number)}
                     />
                   </span>
                 )}
@@ -991,11 +1006,14 @@ function OtherTake({
   take,
   shared = false,
   usedIn = null,
+  note,
 }: {
   take: SharedTake;
   shared?: boolean;
   /** The version whose edit decision list uses it at this bar ("V2"), or null (#56). */
   usedIn?: string | null;
+  /** What the score marks say of it at this bar (#52). */
+  note?: TakeAtBar;
 }) {
   return (
     <>
@@ -1021,6 +1039,19 @@ function OtherTake({
         <span className="block truncate text-[12px] text-ink-3">
           {[barsLabel(take), take.label, take.notes].filter(Boolean).join(" · ")}
         </span>
+        {note && (note.fixed.length > 0 || note.troubled.length > 0) && (
+          <span className="block truncate text-[12px]">
+            {note.fixed.length > 0 && (
+              <span className="text-ink-2">Fixed {note.fixed.join(", ")}</span>
+            )}
+            {note.fixed.length > 0 && note.troubled.length > 0 && (
+              <span className="text-ink-3"> · </span>
+            )}
+            {note.troubled.length > 0 && (
+              <span className="text-signal">{note.troubled.join(", ")} here</span>
+            )}
+          </span>
+        )}
       </span>
       {take.file?.duration != null && (
         <span className="tabular text-[12px] text-ink-3">{formatDuration(take.file.duration)}</span>

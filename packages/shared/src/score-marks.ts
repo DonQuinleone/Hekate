@@ -294,3 +294,66 @@ export function typedNumber(typed: string, take = false): number | null | undefi
   if (n === undefined) return undefined;
   return take && Number(n) < 1 ? undefined : Number(n);
 }
+
+/** What the score marks say of a take at one bar (#52, #46): what it fixed, what went wrong. */
+export interface TakeAtBar {
+  fixed: string[];
+  troubled: string[];
+}
+
+/**
+ * The issues marked at a bar, by take: the takes that fixed one ("take 7 fixed bar 72") and
+ * those it occurred in. An issue covers its bars, or the one bar it was marked at.
+ */
+export function marksAtBar(
+  marks: Pick<ScoreMark, "kind" | "barFrom" | "barTo" | "takes" | "fixedBy" | "text">[],
+  bar: number,
+): Map<number, TakeAtBar> {
+  const notes = new Map<number, TakeAtBar>();
+  const of = (take: number) => {
+    let note = notes.get(take);
+    if (!note) {
+      note = { fixed: [], troubled: [] };
+      notes.set(take, note);
+    }
+    return note;
+  };
+  for (const m of marks) {
+    if (m.kind !== "issue" || m.barFrom == null) continue;
+    if (bar < m.barFrom || bar > (m.barTo ?? m.barFrom)) continue;
+    const what = m.text || "an issue";
+    if (m.fixedBy != null) of(m.fixedBy).fixed.push(what);
+    for (const take of m.takes) if (take !== m.fixedBy) of(take).troubled.push(what);
+  }
+  return notes;
+}
+
+/**
+ * The takes to offer for a bar: those whose bars cover it, and those the score marks say fixed
+ * it, whatever bars they were given. Takes that fixed it come first, then starred, then by
+ * rating, then in order.
+ */
+export function takesForBar<
+  T extends {
+    number: number;
+    starred: boolean;
+    rating: number;
+    barFrom: number | null;
+    barTo: number | null;
+  },
+>(all: T[], bar: number, notes: Map<number, TakeAtBar>): T[] {
+  const covering = (t: T) => {
+    if (t.barFrom == null) return false;
+    return t.barFrom <= bar && bar <= (t.barTo ?? t.barFrom);
+  };
+  const fixed = (t: T) => (notes.get(t.number)?.fixed.length ?? 0) > 0;
+  return all
+    .filter((t) => covering(t) || fixed(t))
+    .sort(
+      (a, b) =>
+        Number(fixed(b)) - Number(fixed(a)) ||
+        Number(b.starred) - Number(a.starred) ||
+        b.rating - a.rating ||
+        a.number - b.number,
+    );
+}
