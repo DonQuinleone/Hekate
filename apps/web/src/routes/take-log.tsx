@@ -300,7 +300,10 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
                 ? "Syncing"
                 : "Live for everyone in the room"}
             {outbox.pending.length > 0 && (
-              <span className="tabular text-ink-3">· {outbox.pending.length} waiting to send</span>
+              <span className="tabular text-ink-3">
+                · {outbox.pending.length} waiting to send
+                {outbox.durable ? "" : "; keep this page open until they are"}
+              </span>
             )}
           </span>
         </div>

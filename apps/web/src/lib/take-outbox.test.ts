@@ -1,7 +1,7 @@
 import type { SessionDetail } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
-import { memoryStore } from "./outbox-store";
-import { baseOf, outcomeOf, type PendingWrite, withPending } from "./take-outbox";
+import { fallingBack, memoryStore, type OutboxStore } from "./outbox-store";
+import { baseOf, outcomeOf, type PendingWrite, rolledAt, withPending } from "./take-outbox";
 import { uuidv7 } from "./uuidv7";
 
 const session = {
@@ -115,5 +115,54 @@ describe("uuidv7", () => {
     for (const id of ids)
       expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect([...ids].sort()).toEqual(ids);
+  });
+});
+
+describe("rolledAt", () => {
+  const armed = {
+    ...session.takeRows[0],
+    lifecycle: "armed",
+    wallIn: null,
+    wallOut: null,
+  } as SessionDetail["takeRows"][number];
+  it("sends the moment a take rolled or stopped, so a late send keeps the room's time", () => {
+    expect(rolledAt(armed, { lifecycle: "recording" }, "T1")).toEqual({
+      lifecycle: "recording",
+      wallIn: "T1",
+    });
+    const rolling = { ...armed, lifecycle: "recording", wallIn: "T1" } as typeof armed;
+    expect(rolledAt(rolling, { lifecycle: "recorded" }, "T2")).toEqual({
+      lifecycle: "recorded",
+      wallOut: "T2",
+    });
+    // Anything else, or a time already given, is left as it is.
+    expect(rolledAt(rolling, { rating: 4 }, "T2")).toEqual({ rating: 4 });
+    expect(rolledAt(rolling, { lifecycle: "aborted", wallOut: "T3" }, "T2")).toEqual({
+      lifecycle: "aborted",
+      wallOut: "T3",
+    });
+  });
+});
+
+describe("fallingBack", () => {
+  it("keeps writing in memory once the browser's storage fails, and says it will not last", async () => {
+    const broken: OutboxStore = {
+      list: async () => {
+        throw new Error("QuotaExceededError");
+      },
+      add: async () => {
+        throw new Error("QuotaExceededError");
+      },
+      remove: async () => {
+        throw new Error("QuotaExceededError");
+      },
+      durable: () => true,
+    };
+    const store = fallingBack(broken);
+    expect(store.durable()).toBe(true);
+    const kept = await store.add(start("a", "x"));
+    expect(kept.seq).toBeDefined();
+    expect(store.durable()).toBe(false);
+    expect((await store.list("s1")).map((w) => w.takeId)).toEqual(["a"]);
   });
 });

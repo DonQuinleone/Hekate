@@ -134,7 +134,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { outboxStore } from "./outbox-store";
-import { baseOf, outcomeOf, type PendingWrite } from "./take-outbox";
+import { baseOf, outcomeOf, type PendingWrite, rolledAt } from "./take-outbox";
 import { uuidv7 } from "./uuidv7";
 
 /** The member's session is gone: it ran out, or was ended elsewhere. */
@@ -2136,8 +2136,15 @@ export function useTakeOutbox(sessionId: string) {
   const write = async (made: PendingWrite) => {
     setProblem(null);
     setPending((all) => [...all, made]);
-    const kept = await store.add(made);
-    setPending((all) => all.map((w) => (w === made ? kept : w)));
+    try {
+      const kept = await store.add(made);
+      setPending((all) => all.map((w) => (w === made ? kept : w)));
+    } catch {
+      // Not even memory took it: it is not shown as waiting when nothing holds it.
+      setPending((all) => all.filter((w) => w !== made));
+      setProblem("That was not saved; try again");
+      return;
+    }
     void flush();
   };
 
@@ -2147,6 +2154,8 @@ export function useTakeOutbox(sessionId: string) {
     /** Whether writes are waiting for the server to be reached again. */
     waiting,
     problem,
+    /** Whether waiting writes outlive the page; not once this browser's storage has failed. */
+    durable: store.durable(),
     /** The next take, numbered as the log shows it until the server numbers it. */
     start: (input: StartTake, number: number) => {
       const at = new Date().toISOString();
@@ -2160,13 +2169,15 @@ export function useTakeOutbox(sessionId: string) {
       });
     },
     /** A change to a take, with what the log last saw of the fields it sets. */
-    change: (take: SessionDetail["takeRows"][number], change: TakeChange) =>
-      write({
+    change: (take: SessionDetail["takeRows"][number], change: TakeChange) => {
+      const at = new Date().toISOString();
+      return write({
         kind: "change",
         sessionId,
         takeId: take.id,
-        body: { ...change, base: baseOf(take, change), at: new Date().toISOString() },
-      }),
+        body: { ...rolledAt(take, change, at), base: baseOf(take, change), at },
+      });
+    },
   };
 }
 

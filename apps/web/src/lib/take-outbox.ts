@@ -97,6 +97,22 @@ export function withPending(
 }
 
 /**
+ * A change that rolls or stops a take, with the moment it did, so a change sent late keeps the
+ * room's time rather than taking the server's when it arrives.
+ */
+export function rolledAt(row: Row, change: TakeChange, at: string): TakeChange {
+  if (change.lifecycle === "recording" && !row.wallIn && change.wallIn === undefined)
+    return { ...change, wallIn: at };
+  if (
+    (change.lifecycle === "recorded" || change.lifecycle === "aborted") &&
+    !row.wallOut &&
+    change.wallOut === undefined
+  )
+    return { ...change, wallOut: at };
+  return change;
+}
+
+/**
  * What the writer last saw of the fields a change sets, sent with it so the server can tell
  * when it replaces someone else's change.
  */
