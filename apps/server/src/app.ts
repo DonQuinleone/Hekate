@@ -1,13 +1,14 @@
 import type { Database } from "@hekate/db";
-import { COMMENT_ATTACHMENT_MAX_BYTES } from "@hekate/shared";
+import { COMMENT_ATTACHMENT_MAX_BYTES, type InstanceNotice } from "@hekate/shared";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { logger } from "hono/logger";
 import type { Audit } from "./audit.ts";
-import type { Auth } from "./auth.ts";
+import { type Auth, SESSION_DAYS } from "./auth.ts";
 import { errorHandler, requestId } from "./errors.ts";
 import { requirePlaySession, requireViewer } from "./guests.ts";
+import { createInstanceSettings, type InstanceSettingsStore } from "./instance-settings.ts";
 import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
 import type { Mailer } from "./mail.ts";
@@ -122,10 +123,20 @@ export interface AppDeps {
   workDir?: string;
   /** The bearer token a Prometheus scraper sends to read `/metrics`; none turns it off. */
   metricsToken?: string;
+  /** The instance's settings (#160), shared with the workers; read from the database if unset. */
+  settings?: InstanceSettingsStore;
+  /** Instance mail goes out over SMTP (SMTP_URL), rather than to the log. */
+  smtp?: boolean;
 }
 
 export function createApi(deps: AppDeps) {
-  const rule = { instance: deps.requireSecondFactor ?? false };
+  const settings = deps.settings ?? createInstanceSettings(deps.db);
+  // The environment asks it, or an operator does in Settings (#160), read as the server runs.
+  const rule = {
+    get instance() {
+      return (deps.requireSecondFactor ?? false) || settings.current().security.requireSecondFactor;
+    },
+  };
   const member = [requireSession(deps.auth), requireOrganisation(deps.db, rule)] as const;
   // Someone who still owes a second factor may read who they are, to be sent to add one, and
   // switch to a workspace that does not ask for it; nothing else.
@@ -162,7 +173,16 @@ export function createApi(deps: AppDeps) {
   reviewDeps.onSettled = (review, by) => reviewSettled(runner, review, by);
   return (
     new Hono()
+      // Read as each request starts (from memory, mostly), for the checks that answer at once.
+      .use("*", async (_c, next) => {
+        await settings.get();
+        await next();
+      })
       .route("/health", health(deps.db))
+      // What everyone is told, signed in or not: maintenance mode's notice (#154).
+      .get("/notice", async (c) =>
+        c.json({ maintenance: (await settings.get()).maintenance } satisfies InstanceNotice),
+      )
       .route(
         "/setup",
         setupRoutes(deps.db, deps.auth, deps.passwordLeakCheck ?? false, deps.setupGate),
@@ -182,6 +202,15 @@ export function createApi(deps: AppDeps) {
           jobs: deps.jobs,
           backends: deps.storage.backends,
           audit: deps.audit,
+          settings,
+          environment: {
+            publicUrl: deps.publicUrl,
+            requireSecondFactor: deps.requireSecondFactor ?? false,
+            operatorSecurityKey: deps.operatorSecurityKey ?? true,
+            mail: deps.smtp ? "smtp" : "log",
+            passwordLeakCheck: deps.passwordLeakCheck ?? false,
+            sessionDays: SESSION_DAYS,
+          },
         }),
       )
       .route("/sign-in-methods", signInMethodRoutes(deps.db))
@@ -437,7 +466,14 @@ const ATTACHMENT_PATH = /^\/api\/files\/[^/]+\/comments\/[^/]+\/attachments$/;
 /** The largest request body outside the upload chunks, which carry their own limit. */
 export const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
-export function createApp(deps: AppDeps) {
+/** What an upload sends: starting one, its chunks, finishing it, or a comment's attachment. */
+const uploading = (method: string, path: string) =>
+  (method === "POST" || method === "PUT") &&
+  (/^\/api\/uploads(\/|$)/.test(path) || ATTACHMENT_PATH.test(path));
+
+export function createApp(given: AppDeps) {
+  const deps = { ...given, settings: given.settings ?? createInstanceSettings(given.db) };
+  const settings = deps.settings;
   const app = new Hono();
   app.use("*", securityHeaders({ https: deps.publicUrl.startsWith("https://") }));
   // For Prometheus (#70): only with a token, and never through the API's own middleware.
@@ -464,6 +500,20 @@ export function createApp(deps: AppDeps) {
               c.json({ error: { code: "too_large", message: "That request is too large." } }, 413),
           })(c, next),
   );
+  // Maintenance mode (#154): uploads wait until it is over, the files they would send kept.
+  app.use("/api/*", async (c, next) => {
+    if (uploading(c.req.method, c.req.path) && (await settings.get()).maintenance.on)
+      return c.json(
+        {
+          error: {
+            code: "maintenance",
+            message: "The instance is under maintenance: uploads wait until it is over.",
+          },
+        },
+        503,
+      );
+    await next();
+  });
   // Public sign-up is closed: accounts come from setup and, later, invitations.
   app.all("/api/auth/sign-up/*", () => {
     throw new HTTPException(403, { message: "Sign-up is by invitation" });

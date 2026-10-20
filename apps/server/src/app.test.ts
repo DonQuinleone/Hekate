@@ -17,7 +17,7 @@ import {
   mapTime,
 } from "@hekate/shared";
 import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
-import { and, count, desc, eq, inArray, isNotNull, like, ne, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, like, ne, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, MAX_BODY_BYTES } from "./app.ts";
@@ -30,6 +30,7 @@ import { failureOfJob, purgeErrorReports, recordFailure } from "./error-reports.
 import { errorHandler, requestId } from "./errors.ts";
 import { createFlags } from "./flags.ts";
 import { issueGuestLink } from "./guests.ts";
+import { createInstanceSettings } from "./instance-settings.ts";
 import { type JobFailure, runJob } from "./jobs.ts";
 import { createKeyring } from "./keyring.ts";
 import { memoryMailer } from "./mail.ts";
@@ -1255,6 +1256,99 @@ describe.runIf(url)("api", () => {
         const theirOwner = await join(operator, "label@example.test", "owner");
         expect((await turn(true, theirOwner)).status).toBe(403);
         expect((await get("/api/instance/flags", theirOwner)).status).toBe(403);
+      });
+
+      it("keeps the instance's settings, maintenance mode among them, each change an event (#160, #154)", async () => {
+        const operator = cookieOf(await setup());
+        type Read = {
+          settings: {
+            security: { requireSecondFactor: boolean };
+            maintenance: { on: boolean; message: string };
+          };
+          environment: { publicUrl: string; sessionDays: number };
+        };
+        const read = async () =>
+          (await (
+            await asOperator.request("/api/instance/settings", {
+              headers: { cookie: operator },
+            })
+          ).json()) as Read;
+        const save = (body: unknown, cookie = operator) =>
+          asOperator.request("/api/instance/settings", { ...json(body, cookie), method: "PUT" });
+        const first = await read();
+        expect(first.settings).toEqual({
+          security: { requireSecondFactor: false },
+          maintenance: { on: false, message: "" },
+        });
+        expect(first.environment.sessionDays).toBe(14);
+        const notice = async () =>
+          (await (await asOperator.request("/api/notice")).json()) as {
+            maintenance: { on: boolean; message: string };
+          };
+        expect((await notice()).maintenance.on).toBe(false);
+
+        // Maintenance on: everyone is told, signed in or not, and uploads wait.
+        const on = { ...first.settings, maintenance: { on: true, message: "Back by six" } };
+        expect((await save(on)).status).toBe(200);
+        expect(await notice()).toEqual({ maintenance: { on: true, message: "Back by six" } });
+        const upload = await asOperator.request("/api/uploads", {
+          ...json({ name: "x.wav" }, operator),
+          method: "POST",
+        });
+        expect(upload.status).toBe(503);
+        expect(await upload.text()).toContain("maintenance");
+        // Another process reads it within moments.
+        expect((await createInstanceSettings(db).get()).maintenance.on).toBe(true);
+
+        // Off again, and the second factor asked of everyone: each change its own event.
+        expect(
+          (
+            await save({
+              security: { requireSecondFactor: true },
+              maintenance: { on: false, message: "" },
+            })
+          ).status,
+        ).toBe(200);
+        expect((await notice()).maintenance.on).toBe(false);
+        // Asked of every account: one without a second factor is held back until it has one.
+        const held = await asOperator.request("/api/projects", { headers: { cookie: operator } });
+        expect(held.status).toBe(403);
+        expect(((await held.json()) as { error: { code: string } }).error.code).toBe(
+          "second_factor_required",
+        );
+        expect(
+          (
+            await save({
+              security: { requireSecondFactor: false },
+              maintenance: { on: false, message: "" },
+            })
+          ).status,
+        ).toBe(200);
+        const events = await db
+          .select({ action: schema.instanceEvents.action, target: schema.instanceEvents.target })
+          .from(schema.instanceEvents)
+          .where(
+            or(
+              like(schema.instanceEvents.action, "maintenance.%"),
+              like(schema.instanceEvents.action, "settings.%"),
+            ),
+          )
+          .orderBy(asc(schema.instanceEvents.createdAt));
+        expect(
+          (await asOperator.request("/api/projects", { headers: { cookie: operator } })).status,
+        ).toBe(200);
+        expect(events).toEqual([
+          { action: "maintenance.on", target: "Maintenance mode" },
+          { action: "settings.second_factor", target: "Security" },
+          { action: "maintenance.off", target: "Maintenance mode" },
+          { action: "settings.second_factor", target: "Security" },
+        ]);
+
+        // Only operators, and only settings that fit.
+        expect((await save({ maintenance: { on: "yes" } })).status).toBe(400);
+        const theirOwner = await join(operator, "label@example.test", "owner");
+        expect((await save(on, theirOwner)).status).toBe(403);
+        expect((await notice()).maintenance.on).toBe(false);
       });
 
       it("keeps a report when the workspace it names does not exist", async () => {

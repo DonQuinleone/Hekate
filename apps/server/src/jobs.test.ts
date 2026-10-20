@@ -431,3 +431,32 @@ describe.runIf(url && (hasFfmpeg || process.env.CI))("media jobs", () => {
     expect(await statusOf()).toBe("failed");
   });
 });
+
+describe.runIf(url)("holding jobs (maintenance mode)", () => {
+  // A schema of its own, so this never takes another test's jobs.
+  const jobs = createJobs({ connectionString: url ?? "", schema: "pgboss_hold_test" });
+  const { db, close } = createDb(url ?? "", { max: 1 });
+  afterAll(async () => {
+    await jobs.stop(5_000);
+    await db.execute(sql`drop schema if exists pgboss_hold_test cascade`);
+    await close();
+  });
+
+  it("keeps queued jobs while held, and works them once let go", async () => {
+    await jobs.start();
+    let worked = 0;
+    await jobs.work("sign-in-attempts-purge", async () => {
+      worked += 1;
+    });
+    await jobs.hold(true);
+    const id = await jobs.send("sign-in-attempts-purge", {});
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    expect(worked).toBe(0);
+    expect(await jobs.state("sign-in-attempts-purge", id ?? "")).toBe("created");
+    await jobs.hold(false);
+    const deadline = Date.now() + 20_000;
+    while (worked === 0 && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(worked).toBe(1);
+  }, 40_000);
+});
