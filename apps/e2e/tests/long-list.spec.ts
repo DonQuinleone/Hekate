@@ -34,6 +34,8 @@ test.describe("a long file list", () => {
 
     // The first row is the deliverable, as a folder is (#16), then the cut itself; the shots
     // follow in name order.
+    // The shots are in the list before the keys are tried: the first row alone may arrive first.
+    await expect(page.getByText(`${prefix}0001.mov`)).toBeVisible();
     await page.locator("main ul[aria-label=Contents] [data-name]").first().focus();
     for (let i = 0; i < 151; i++) await page.keyboard.press("ArrowDown");
     await expect(page.locator(":focus")).toContainText(`${prefix}0150.mov`);
