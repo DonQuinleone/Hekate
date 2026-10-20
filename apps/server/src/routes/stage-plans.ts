@@ -226,41 +226,49 @@ export const stagePlanRoutes = (db: Database) =>
       const organisationId = c.var.organisationId;
       const plan = await planFor(db, c.var, c.req.valid("param").id);
       const { add, change, remove } = c.req.valid("json");
-      const items = await db.transaction(async (tx) => {
-        await lockLiveProject(tx, organisationId, plan.projectId);
-        // One step at a time on a plan, so two people's steps do not interleave.
-        await tx
-          .select({ id: stagePlans.id })
-          .from(stagePlans)
-          .where(inOrg(stagePlans, organisationId, eq(stagePlans.id, plan.id)))
-          .for("update");
-        const linked = [
-          ...new Set([...add, ...change].flatMap((i) => (i.patchRowId ? [i.patchRowId] : []))),
-        ];
-        if (linked.length > 0) {
-          const found = await channelsOf(tx, organisationId, plan.projectId, linked);
-          if (found.length !== linked.length)
-            throw new HTTPException(400, {
-              message: "That channel is not in this project's patch list",
-            });
-        }
-        const onPlan = (more: SQL) =>
-          inOrg(stageItems, organisationId, eq(stageItems.stagePlanId, plan.id), more);
-        if (remove.length > 0)
-          await tx.delete(stageItems).where(onPlan(inArray(stageItems.id, remove)));
-        const now = new Date();
-        for (const { id, ...fields } of change) {
+      const items = await db
+        .transaction(async (tx) => {
+          await lockLiveProject(tx, organisationId, plan.projectId);
+          // One step at a time on a plan, so two people's steps do not interleave.
           await tx
-            .update(stageItems)
-            .set({ ...fields, updatedAt: now })
-            .where(onPlan(eq(stageItems.id, id)));
-        }
-        if (add.length > 0)
-          await tx
-            .insert(stageItems)
-            .values(add.map((i) => ({ ...i, organisationId, stagePlanId: plan.id })))
-            .onConflictDoNothing({ target: stageItems.id });
-        return (await itemsOf(tx, organisationId, [plan.id])).map(bare);
-      });
+            .select({ id: stagePlans.id })
+            .from(stagePlans)
+            .where(inOrg(stagePlans, organisationId, eq(stagePlans.id, plan.id)))
+            .for("update");
+          const linked = [
+            ...new Set([...add, ...change].flatMap((i) => (i.patchRowId ? [i.patchRowId] : []))),
+          ];
+          if (linked.length > 0) {
+            const found = await channelsOf(tx, organisationId, plan.projectId, linked);
+            if (found.length !== linked.length)
+              throw new HTTPException(400, {
+                message: "That channel is not in this project's patch list",
+              });
+          }
+          const onPlan = (more: SQL) =>
+            inOrg(stageItems, organisationId, eq(stageItems.stagePlanId, plan.id), more);
+          if (remove.length > 0)
+            await tx.delete(stageItems).where(onPlan(inArray(stageItems.id, remove)));
+          const now = new Date();
+          for (const { id, ...fields } of change) {
+            await tx
+              .update(stageItems)
+              .set({ ...fields, updatedAt: now })
+              .where(onPlan(eq(stageItems.id, id)));
+          }
+          if (add.length > 0)
+            await tx
+              .insert(stageItems)
+              .values(add.map((i) => ({ ...i, organisationId, stagePlanId: plan.id })))
+              .onConflictDoNothing({ target: stageItems.id });
+          return (await itemsOf(tx, organisationId, [plan.id])).map(bare);
+        })
+        .catch((error: unknown) => {
+          // A change that leaves something other than a cable without a size, all of it undone.
+          const cause = (error as { cause?: { code?: string; constraint_name?: string } }).cause;
+          if (cause?.code === "23514" && cause.constraint_name === "stage_items_size")
+            throw new HTTPException(400, { message: "Only a cable run goes without a size" });
+          throw error;
+        });
       return c.json({ items });
     });

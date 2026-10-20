@@ -1,5 +1,5 @@
 {
-  "id": "d1874a18-b112-4da4-91c6-3736191c18bf",
+  "id": "cf6c07d9-1991-4945-98d2-b518ec16d9f1",
   "prevId": "6d660f90-8158-4f1f-9d39-4275f61d34d0",
   "version": "7",
   "dialect": "postgresql",
@@ -10388,7 +10388,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "stage_items_size": {
+          "name": "stage_items_size",
+          "value": "\"stage_items\".\"kind\" = 'cable' or (\"stage_items\".\"w\" > 0 and \"stage_items\".\"h\" > 0)"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.stage_plans": {

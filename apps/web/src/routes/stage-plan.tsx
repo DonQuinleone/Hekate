@@ -172,7 +172,7 @@ function Editor({
   onChoose: (id: string) => void;
   onEdit: (editing: "new" | StagePlan) => void;
 }) {
-  const { sendStep, refresh, removePlan } = useStagePlans(projectId);
+  const { sendStep, reload, removePlan } = useStagePlans(projectId);
   // What the editor shows: the server's items with this person's steps on top.
   const [items, setItems] = useState(plan.items);
   const [selected, setSelected] = useState<string[]>([]);
@@ -184,6 +184,7 @@ function Editor({
   const redo = useRef<{ step: StageEdit; back: StageEdit }[]>([]);
   const [, setDepth] = useState(0);
   const pending = useRef(0);
+  const refused = useRef(false);
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const svg = useRef<SVGSVGElement>(null);
   const panel = useRef<HTMLElement>(null);
@@ -214,17 +215,26 @@ function Editor({
       .then(
         (held) => {
           pending.current--;
-          if (pending.current === 0) setItems(held);
+          if (pending.current === 0 && !refused.current) setItems(held);
         },
         (e: unknown) => {
           pending.current--;
-          // What the server holds wins; what was undone or redone is no longer to hand.
+          refused.current = true;
           setFailure(e instanceof Error ? e.message : "That change was not saved");
-          undo.current = [];
-          redo.current = [];
-          refresh();
         },
-      );
+      )
+      .then(async () => {
+        if (pending.current > 0 || !refused.current) return;
+        // A step refused: what the server holds wins, fetched afresh rather than trusted to a
+        // refetch that may hand back the same list, and what was undone or redone is let go.
+        refused.current = false;
+        undo.current = [];
+        redo.current = [];
+        setDepth((d) => d + 1);
+        const plans = await reload().catch(() => undefined);
+        const held = plans?.find((p) => p.id === plan.id);
+        if (held && pending.current === 0) setItems(held.items);
+      });
   };
 
   /** Take a step: shown at once, sent in order, and undoable as one. */
@@ -314,6 +324,8 @@ function Editor({
     setGesture({ kind: "move", ids, from: metresAt(e), anchor: item, dx: 0, dy: 0 });
   };
   const pressStage = (e: PointerEvent) => {
+    // A finger on the stage pans it, as a map pans; a marquee is for a mouse or a pen.
+    if (e.pointerType === "touch") return;
     svg.current?.setPointerCapture(e.pointerId);
     const at = metresAt(e);
     setGesture({ kind: "marquee", from: at, to: at, adding: e.shiftKey });
@@ -483,7 +495,7 @@ function Editor({
             data-scale={scale}
             width={plan.width * scale + PAD.left + PAD.right}
             height={plan.depth * scale + PAD.top + PAD.bottom}
-            className="touch-none select-none"
+            className="touch-pan-x touch-pan-y select-none"
             aria-hidden="true"
             onPointerDown={pressStage}
             onPointerMove={movePointer}
@@ -727,7 +739,12 @@ function Shape({
   const at = `translate(${item.x * scale}, ${item.y * scale})`;
   const w = item.w * scale;
   const h = item.h * scale;
-  const common = { onPointerDown: onPress, className: "cursor-pointer", "data-item": item.id };
+  // An item takes the finger for itself, to be dragged; the stage around it pans.
+  const common = {
+    onPointerDown: onPress,
+    className: "cursor-pointer touch-none",
+    "data-item": item.id,
+  };
   if (item.kind === "mic")
     return (
       <g transform={at} {...common}>
@@ -784,6 +801,13 @@ function Shape({
   );
 }
 
+/** What the server takes for a field: a place near the stage, a size, a turn. */
+function allowed(kind: string, field: "x" | "y" | "w" | "h" | "rotation", v: number): boolean {
+  if (field === "x" || field === "y") return v >= -100 && v <= 300;
+  if (field === "rotation") return v >= -360 && v <= 360;
+  return kind === "cable" ? v >= -200 && v <= 200 : v > 0 && v <= 200;
+}
+
 /** A number typed in metres or degrees: what it reads as, or nothing while it is not one. */
 const numberOf = (typed: string) => {
   const v = Number(typed.replace(",", "."));
@@ -834,7 +858,8 @@ function ItemPanel({
         key={`${field}-${item[field]}`}
         onBlur={(e) => {
           const v = numberOf(e.target.value);
-          if (v === undefined) e.target.value = String(item[field]);
+          if (v === undefined || !allowed(item.kind, field, v))
+            e.target.value = String(item[field]);
           else commit(field, Math.round(v * 100) / 100);
         }}
         onKeyDown={(e) => {

@@ -10015,6 +10015,21 @@ describe.runIf(url)("api", () => {
             [riser, 7.5, "Choir riser"],
           ]);
           expect((await edit({})).status).toBe(400);
+          // Only a cable goes without a size, and a step that breaks that leaves nothing changed.
+          const shrunk = await edit({
+            change: [
+              { id: mic, x: 1 },
+              { id: riser, w: 0 },
+            ],
+          });
+          expect(shrunk.status).toBe(400);
+          expect(await shrunk.text()).toContain("Only a cable run goes without a size");
+          expect((await edit({ change: [{ id: riser, kind: "cable", w: -2, h: 0 }] })).status).toBe(
+            200,
+          );
+          expect(
+            (await edit({ change: [{ id: riser, kind: "riser", w: 2.4, h: 2.4 }] })).status,
+          ).toBe(200);
           expect(
             (await edit({ add: [{ id: uuidv7(), kind: "rect", x: 0, y: 0, w: 0, h: 1 }] })).status,
           ).toBe(400);

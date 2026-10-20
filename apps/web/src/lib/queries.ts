@@ -2297,6 +2297,9 @@ export function useStagePlans(projectId: string) {
       },
       onSettled: refresh,
     }),
+    /** What the server holds now, fetched afresh: after a step it refused, the editor starts again from it. */
+    reload: async (): Promise<StagePlan[]> =>
+      (await client.fetchQuery({ ...stagePlansQuery(projectId), staleTime: 0 })).plans,
     /** One step, as the editor already shows it: what the server holds after it. */
     sendStep: async (planId: string, step: StageEdit): Promise<StageItem[]> =>
       (

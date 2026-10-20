@@ -12,7 +12,8 @@ CREATE TABLE "stage_items" (
 	"patch_row_id" uuid,
 	"label_group" text DEFAULT '' NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "stage_items_size" CHECK ("stage_items"."kind" = 'cable' or ("stage_items"."w" > 0 and "stage_items"."h" > 0))
 );
 --> statement-breakpoint
 CREATE TABLE "stage_plans" (
