@@ -1,4 +1,4 @@
-import { formatDuration, type SessionSummary } from "@hekate/shared";
+import { formatDuration, type SessionSummary, type TakeNumbering } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
@@ -11,7 +11,7 @@ import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/choice";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
-import { Input } from "~/components/ui/input";
+import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { formatDates } from "~/lib/locale";
 import {
@@ -22,6 +22,7 @@ import {
   useProjectCan,
   useSessionMutations,
 } from "~/lib/queries";
+import { slotMoment, slotTime } from "~/lib/take-log";
 import { ProjectFrame } from "~/routes/project";
 
 const body =
@@ -169,6 +170,9 @@ function SessionDialog({
   const [name, setName] = useState(session?.name ?? "");
   const [recordedOn, setRecordedOn] = useState(session?.recordedOn ?? "");
   const [venue, setVenue] = useState(session?.venue ?? "");
+  const [numbering, setNumbering] = useState<TakeNumbering>(session?.numbering ?? "per-track");
+  const [slotFrom, setSlotFrom] = useState(slotTime(session?.slotStart ?? null));
+  const [slotTo, setSlotTo] = useState(slotTime(session?.slotEnd ?? null));
   const [chosen, setChosen] = useState<Set<string>>(
     new Set(session?.tracks.map((t) => t.id) ?? []),
   );
@@ -181,6 +185,9 @@ function SessionDialog({
       recordedOn: recordedOn || null,
       venue: venue.trim() || null,
       trackIds: [...chosen],
+      numbering,
+      slotStart: slotMoment(recordedOn || null, slotFrom),
+      slotEnd: slotMoment(recordedOn || null, slotTo),
     };
     if (session) change.mutate({ id: session.id, ...input }, { onSuccess: onClose });
     else
@@ -237,6 +244,24 @@ function SessionDialog({
               placeholder="Endless Hall, studio 2"
               maxLength={200}
             />
+          </Field>
+        </div>
+        <div className="grid gap-4 @md/app:grid-cols-3">
+          <Field label="Slot from">
+            <Input type="time" value={slotFrom} onChange={(e) => setSlotFrom(e.target.value)} />
+          </Field>
+          <Field label="To">
+            <Input type="time" value={slotTo} onChange={(e) => setSlotTo(e.target.value)} />
+          </Field>
+          <Field label="Takes numbered">
+            <Select
+              value={numbering}
+              onChange={(e) => setNumbering(e.target.value as TakeNumbering)}
+            >
+              <option value="per-track">Per track</option>
+              <option value="continuous">On through the project</option>
+              <option value="recorder">By the recorder</option>
+            </Select>
           </Field>
         </div>
         {tracks.length > 0 && (
@@ -304,20 +329,32 @@ export function SessionPage({ sessionId }: { sessionId: string }) {
         ]}
         title={session.name}
         actions={
-          canEdit ? (
-            <>
-              <Button variant="secondary" size="sm" onClick={() => setEditing(true)}>
-                Edit
-              </Button>
-              <ActionMenu
-                always
-                label="session"
-                actions={[
-                  { label: "Delete session…", danger: true, onSelect: () => setDeleting(true) },
-                ]}
-              />
-            </>
-          ) : undefined
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() =>
+                void navigate({ to: "/sessions/$sessionId/log", params: { sessionId: session.id } })
+              }
+            >
+              <Icon name="take" size={14} />
+              Take log
+            </Button>
+            {canEdit && (
+              <>
+                <Button variant="secondary" size="sm" onClick={() => setEditing(true)}>
+                  Edit
+                </Button>
+                <ActionMenu
+                  always
+                  label="session"
+                  actions={[
+                    { label: "Delete session…", danger: true, onSelect: () => setDeleting(true) },
+                  ]}
+                />
+              </>
+            )}
+          </>
         }
       />
       <div className={body}>

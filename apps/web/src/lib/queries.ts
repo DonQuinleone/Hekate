@@ -94,6 +94,7 @@ import {
   type SsoSettings,
   type SsoSettingsInput,
   type StandingGrant,
+  type StartTake,
   searchResponse,
   type TakeChange,
   type TakeImport,
@@ -1985,6 +1986,58 @@ export function useSessionMutations(projectId: string) {
         refresh();
         void client.invalidateQueries({ queryKey: ["tracks"] });
       },
+    }),
+  };
+}
+
+/**
+ * The take log's writes (#51): the next take started in the session, and a take changed. A
+ * change shows at once and is put right by the server's answer, so keys in the control room
+ * never wait on the network; the session and its tracks' takes are read again after either.
+ */
+export function useTakeLog(sessionId: string) {
+  const client = useQueryClient();
+  const key = sessionQuery(sessionId).queryKey;
+  const refresh = () => {
+    void client.invalidateQueries({ queryKey: key });
+    void client.invalidateQueries({ queryKey: ["tracks"] });
+  };
+  return {
+    start: useMutation({
+      mutationFn: async (input: StartTake) =>
+        (
+          await json<{ take: TakeRow }>(
+            await api.sessions[":id"].takes.$post({ param: { id: sessionId }, json: input }),
+          )
+        ).take,
+      onSettled: refresh,
+    }),
+    change: useMutation({
+      mutationFn: async ({ id, ...change }: TakeChange & { id: string }) =>
+        (
+          await json<{ take: TakeRow }>(
+            await api.takes[":id"].$patch({ param: { id }, json: change }),
+          )
+        ).take,
+      onMutate: async ({ id, ...change }) => {
+        await client.cancelQueries({ queryKey: key });
+        const before = client.getQueryData<SessionDetail>(key);
+        client.setQueryData<SessionDetail>(key, (session) =>
+          session
+            ? {
+                ...session,
+                takeRows: session.takeRows.map((t) =>
+                  t.id === id ? ({ ...t, ...change } as typeof t) : t,
+                ),
+              }
+            : session,
+        );
+        return { before };
+      },
+      onError: (_error, _change, context) => {
+        if (context?.before) client.setQueryData(key, context.before);
+      },
+      onSettled: refresh,
     }),
   };
 }

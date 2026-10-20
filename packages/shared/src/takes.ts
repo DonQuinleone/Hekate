@@ -162,6 +162,8 @@ export interface SessionSummary {
 /** A session in full: its takes, each with the track it belongs to. */
 export interface SessionDetail extends SessionSummary {
   takeRows: (TakeRow & { track: { id: string; name: string } })[];
+  /** The number the next take of each of its tracks would get, as the session numbers them (#51). */
+  nextNumbers: Record<string, number>;
 }
 
 /** A take's place, as it would be once a change is made. */

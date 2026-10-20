@@ -11,9 +11,13 @@ const heights: Record<ControlSize, string> = { sm: "h-7 px-2 text-[12px]", md: "
 export function Input({
   className,
   size = "md",
+  ref,
   ...props
-}: Omit<InputHTMLAttributes<HTMLInputElement>, "size"> & { size?: ControlSize }) {
-  return <input className={cn(fieldClass, heights[size], className)} {...props} />;
+}: Omit<InputHTMLAttributes<HTMLInputElement>, "size"> & {
+  size?: ControlSize;
+  ref?: Ref<HTMLInputElement>;
+}) {
+  return <input ref={ref} className={cn(fieldClass, heights[size], className)} {...props} />;
 }
 
 export function Textarea({

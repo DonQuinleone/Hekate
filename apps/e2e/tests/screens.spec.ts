@@ -585,6 +585,19 @@ test("settings-delivery-profile", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The live take log (#51): the producer's view of Day 2, and the logger's.
+test("take-log", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/sessions/${seeded().sessionId}/log`);
+  await settle(page, "main ul[aria-label=Takes] >> text=T3");
+  await saveScreen(page, "take-log");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Logger" }).click();
+  await settle(page, "main table >> text=T3");
+  await saveScreen(page, "take-log-logger");
+  await checkScreen(page);
+});
+
 // Sharing (#138): the Share dialog, from the project's Reviews, a track and someone chosen.
 test("share-dialog", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
