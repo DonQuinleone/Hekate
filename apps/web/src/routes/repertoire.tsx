@@ -1,10 +1,4 @@
-import {
-  alphabetical,
-  type RepertoireOrder,
-  type Venue,
-  type Work,
-  type WorkInput,
-} from "@hekate/shared";
+import { alphabetical, type RepertoireOrder, type Venue, type Work } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useState } from "react";
@@ -97,18 +91,11 @@ function Works({
   tracks: { id: string; name: string }[];
   canEdit: boolean;
 }) {
-  const { changeWork, removeWork } = useRepertoire(projectId);
+  const { numberTrack, removeWork } = useRepertoire(projectId);
+  const [numberError, setNumberError] = useState<{ workId: string; message: string } | null>(null);
   const [order, setOrder] = useState<RepertoireOrder>("schedule");
   const [editing, setEditing] = useState<"new" | Work | null>(null);
   const shown = order === "alphabetical" ? alphabetical(works) : works;
-  const asInput = (w: Work): WorkInput => ({
-    title: w.title,
-    composer: w.composer,
-    forces: w.forces,
-    abbreviation: w.abbreviation,
-    notes: w.notes,
-    tracks: w.tracks.map(({ trackId, number }) => ({ trackId, number })),
-  });
   return (
     <>
       {works.length === 0 ? (
@@ -179,13 +166,18 @@ function Works({
                 )}
               </div>
               {w.notes && <p className="m-0 px-4 pt-3 text-[13px] text-ink-2">{w.notes}</p>}
+              {numberError?.workId === w.id && (
+                <p role="alert" className="m-0 px-4 pt-3 text-[13px] text-signal">
+                  The number was not saved: {numberError.message}
+                </p>
+              )}
               {w.tracks.length === 0 ? (
                 <p className="m-0 px-4 py-3 text-[13px] text-ink-3">
                   No tracks yet.{canEdit ? " Edit the work to add them in order." : ""}
                 </p>
               ) : (
                 <ol className="m-0 flex list-none flex-col divide-y divide-line px-2 py-2">
-                  {w.tracks.map((t, i) => (
+                  {w.tracks.map((t) => (
                     <li
                       key={t.trackId}
                       className="grid grid-cols-[40px_minmax(0,1fr)] items-center gap-3 px-2 py-1.5 text-[14px]"
@@ -199,14 +191,20 @@ function Works({
                           maxLength={12}
                           className="h-7 w-10 px-0 text-center text-[13px]"
                           onBlur={(e) => {
-                            const number = e.target.value.trim();
+                            const field = e.currentTarget;
+                            const number = field.value.trim();
                             if (number === t.number) return;
-                            const input = asInput(w);
-                            changeWork.mutate({
-                              id: w.id,
-                              ...input,
-                              tracks: input.tracks?.map((x, j) => (j === i ? { ...x, number } : x)),
-                            });
+                            setNumberError(null);
+                            numberTrack.mutate(
+                              { workId: w.id, trackId: t.trackId, number },
+                              {
+                                // Not saved: the number it had comes back, and the list says why.
+                                onError: (error) => {
+                                  field.value = t.number;
+                                  setNumberError({ workId: w.id, message: error.message });
+                                },
+                              },
+                            );
                           }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") e.currentTarget.blur();

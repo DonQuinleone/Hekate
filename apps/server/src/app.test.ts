@@ -9994,6 +9994,36 @@ describe.runIf(url)("api", () => {
             ),
           ).toEqual(["1"]);
 
+          // A number typed in place changes alone, so two typed at once both stand.
+          const both = await send("PUT", `/api/works/${rags.id}`, {
+            title: "Rags",
+            tracks: [
+              { trackId: s.trackId, number: "1" },
+              { trackId: second?.id, number: "2" },
+            ],
+          });
+          expect(both.status).toBe(200);
+          const numbered = await Promise.all([
+            send("PATCH", `/api/works/${rags.id}/tracks/${s.trackId}`, { number: "I" }),
+            send("PATCH", `/api/works/${rags.id}/tracks/${second?.id}`, { number: "II" }),
+          ]);
+          expect(numbered.map((r) => r.status)).toEqual([200, 200]);
+          expect((await list()).works[0]?.tracks.map((t) => t.number)).toEqual(["I", "II"]);
+          expect(
+            (await send("PATCH", `/api/works/${rags.id}/tracks/${uuidv7()}`, { number: "III" }))
+              .status,
+          ).toBe(404);
+          expect(
+            (
+              await send(
+                "PATCH",
+                `/api/works/${rags.id}/tracks/${s.trackId}`,
+                { number: "1" },
+                s.engineer,
+              )
+            ).status,
+          ).toBe(403);
+
           // Venues, by name, once each.
           const hall = await send("POST", `/api/projects/${s.projectId}/venues`, {
             name: "Endless Hall",

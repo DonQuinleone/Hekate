@@ -13,6 +13,9 @@ export const workTrackInput = z.object({
   number: text(12).default(""),
 });
 
+/** One track's number in its work, typed in place: changed alone, so two edits do not cross. */
+export const workTrackNumberInput = z.object({ number: text(12) });
+
 export const workInput = z
   .object({
     title: text(160).min(1, "Give the work a title"),

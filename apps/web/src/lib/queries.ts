@@ -2295,6 +2295,25 @@ export function useRepertoire(projectId: string) {
         json(await api.works[":id"].$put({ param: { id }, json: input })),
       onSettled: refresh,
     }),
+    /** One track's number alone, as typed in place. */
+    numberTrack: useMutation({
+      mutationFn: async ({
+        workId,
+        trackId,
+        number,
+      }: {
+        workId: string;
+        trackId: string;
+        number: string;
+      }) =>
+        json(
+          await api.works[":id"].tracks[":trackId"].$patch({
+            param: { id: workId, trackId },
+            json: { number },
+          }),
+        ),
+      onSettled: refresh,
+    }),
     removeWork: useMutation({
       mutationFn: async (id: string) => removed(await api.works[":id"].$delete({ param: { id } })),
       onSettled: refresh,

@@ -1,5 +1,5 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { type Venue, venueInput, type Work, workInput } from "@hekate/shared";
+import { type Venue, venueInput, type Work, workInput, workTrackNumberInput } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { asc, eq, inArray, max } from "drizzle-orm";
 import { Hono } from "hono";
@@ -259,6 +259,34 @@ export const workRoutes = (db: Database) =>
       );
       return c.json({ work: listed });
     })
+    /** One track's number alone, as typed in place in the list. */
+    .patch(
+      "/:id/tracks/:trackId",
+      zValidator("param", z.object({ id: z.uuid(), trackId: z.uuid() })),
+      zValidator("json", workTrackNumberInput),
+      async (c) => {
+        const organisationId = c.var.organisationId;
+        const { id, trackId } = c.req.valid("param");
+        const work = await ownedBy(db, c.var, works, id, "Work");
+        const changed = await db.transaction(async (tx) => {
+          await lockLiveProject(tx, organisationId, work.projectId);
+          return tx
+            .update(workTracks)
+            .set({ number: c.req.valid("json").number })
+            .where(
+              inOrg(
+                workTracks,
+                organisationId,
+                eq(workTracks.workId, work.id),
+                eq(workTracks.trackId, trackId),
+              ),
+            )
+            .returning({ number: workTracks.number });
+        });
+        if (changed.length === 0) throw new NotFound("Track in this work");
+        return c.json({ number: changed[0]?.number ?? "" });
+      },
+    )
     .delete("/:id", idParam, async (c) => {
       const organisationId = c.var.organisationId;
       const work = await ownedBy(db, c.var, works, c.req.valid("param").id, "Work");
