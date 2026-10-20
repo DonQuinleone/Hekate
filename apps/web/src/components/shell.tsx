@@ -164,8 +164,14 @@ const projectSections = [
   { id: "reviews", label: "Reviews", icon: "review", to: "/projects/$projectId/reviews" },
   { id: "tasks", label: "Tasks", icon: "task", to: "/projects/$projectId/tasks" },
   { id: "people", label: "People", icon: "users", to: "/projects/$projectId/people" },
-  // The production tools (#21, #45, #47), as in the prototype; its sessions for now.
-  { id: "sessions", label: "Production", icon: "mic", to: "/projects/$projectId/sessions" },
+  // The production tools (#21, #45, #47), as in the prototype: sessions and score marking.
+  {
+    id: "sessions",
+    label: "Production",
+    icon: "mic",
+    to: "/projects/$projectId/sessions",
+    also: ["score-marking"],
+  },
   {
     id: "settings",
     label: "Settings",

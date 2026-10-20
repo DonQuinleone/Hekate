@@ -28,6 +28,7 @@ import {
   decodeSpectrogram,
   defaultPreferences,
   type EditDecisions,
+  type EditPlot,
   type EdlRate,
   type EmailTemplateId,
   type ErrorReport,
@@ -83,6 +84,10 @@ import {
   type ReviewInspection,
   type ReviewKind,
   type SavedSearchInput,
+  type ScoreMark,
+  type ScoreMarkCategory,
+  type ScoreMarkChange,
+  type ScoreMarkInput,
   type SearchRequest,
   type SessionChange,
   type SessionDetail,
@@ -2178,6 +2183,57 @@ export function useTakeOutbox(sessionId: string) {
         body: { ...rolledAt(take, change, at), base: baseOf(take, change), at },
       });
     },
+  };
+}
+
+/** A track's score marks (#52): the marks, the project's categories and the edit plot. */
+export const scoreMarksQuery = (trackId: string) =>
+  queryOptions({
+    queryKey: ["tracks", trackId, "score-marks"],
+    queryFn: async () =>
+      json<{ marks: ScoreMark[]; categories: ScoreMarkCategory[]; plot: EditPlot }>(
+        await api.tracks[":id"]["score-marks"].$get({ param: { id: trackId } }),
+      ),
+  });
+
+/** Making, changing and rubbing out a track's score marks. */
+export function useScoreMarks(trackId: string) {
+  const client = useQueryClient();
+  const key = scoreMarksQuery(trackId).queryKey;
+  const refresh = () => void client.invalidateQueries({ queryKey: key });
+  return {
+    add: useMutation({
+      mutationFn: async (input: ScoreMarkInput) =>
+        (
+          await json<{ mark: ScoreMark }>(
+            await api.tracks[":id"]["score-marks"].$post({ param: { id: trackId }, json: input }),
+          )
+        ).mark,
+      onSettled: refresh,
+    }),
+    change: useMutation({
+      mutationFn: async ({ id, ...change }: ScoreMarkChange & { id: string }) =>
+        json(await api["score-marks"][":id"].$patch({ param: { id }, json: change })),
+      onMutate: async ({ id, ...change }) => {
+        await client.cancelQueries({ queryKey: key });
+        client.setQueryData(key, (data) =>
+          data
+            ? {
+                ...data,
+                marks: data.marks.map((m) => (m.id === id ? { ...m, ...change } : m)),
+              }
+            : data,
+        );
+      },
+      onSettled: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api["score-marks"][":id"].$delete({ param: { id } });
+        if (!res.ok) await json(res);
+      },
+      onSettled: refresh,
+    }),
   };
 }
 

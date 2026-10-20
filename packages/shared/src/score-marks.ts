@@ -236,3 +236,61 @@ export function editPlot(
   }
   return { chain, problems };
 }
+
+/** Takes typed as a list ("T3, 7 12"), as numbers in order without repeats; null if one is not a take. */
+export function takeList(typed: string): number[] | null {
+  const parts = typed.split(/[\s,;]+/).filter(Boolean);
+  const numbers: number[] = [];
+  for (const part of parts) {
+    const n = /^t?(\d{1,6})$/i.exec(part)?.[1];
+    if (n === undefined || Number(n) < 1) return null;
+    if (!numbers.includes(Number(n))) numbers.push(Number(n));
+  }
+  return numbers;
+}
+
+const csvCell = (value: string | number | null) => {
+  const text = value === null ? "" : String(value);
+  // A cell a spreadsheet would run as a formula is written as text (CWE-1236).
+  const safe = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+  return /[",\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
+};
+
+/** A track's marks as CSV, in reading order: one row a mark. */
+export function scoreMarksCsv(
+  marks: ScoreMark[],
+  categories: Pick<ScoreMarkCategory, "id" | "name">[],
+): string {
+  const header = ["Page", "Bars", "Kind", "Category", "Text", "Takes", "Fixed by", "Status"];
+  const rows = readingOrder(marks).map((m) => [
+    m.page,
+    m.barFrom === null
+      ? ""
+      : m.barTo && m.barTo !== m.barFrom
+        ? `${m.barFrom}–${m.barTo}`
+        : m.barFrom,
+    scoreMarkTools[m.kind].name,
+    categories.find((c) => c.id === m.categoryId)?.name ?? "",
+    m.kind === "edit"
+      ? editLabel(m)
+      : m.to != null && m.kind !== "issue"
+        ? `T${m.to}`
+        : (m.text ?? ""),
+    m.takes.map((t) => `T${t}`).join(" "),
+    m.fixedBy === null ? "" : `T${m.fixedBy}`,
+    m.kind === "issue" ? (m.resolved ? "Resolved" : "Open") : "",
+  ]);
+  return `${[header, ...rows].map((r) => r.map((c) => csvCell(c)).join(",")).join("\r\n")}\r\n`;
+}
+
+/**
+ * A take or bar typed in a field, read whole: a number ("12", or "T12" for a take), null when
+ * the field is empty, and undefined when it is not a number at all ("12abc", "3.5").
+ */
+export function typedNumber(typed: string, take = false): number | null | undefined {
+  const trimmed = typed.trim();
+  if (trimmed === "") return null;
+  const n = (take ? /^t?(\d{1,6})$/i : /^(\d{1,6})$/).exec(trimmed)?.[1];
+  if (n === undefined) return undefined;
+  return take && Number(n) < 1 ? undefined : Number(n);
+}

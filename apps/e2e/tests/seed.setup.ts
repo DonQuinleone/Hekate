@@ -390,6 +390,43 @@ setup("seed", async ({ page, browser }) => {
   await api(page, "POST", `/api/sessions/${dayTwo.id}/todos`, {
     text: "Pick-ups for bars 17 to 19",
   });
+  // The producer's marks on its score (#52): an edit plot through takes 2, 3 and 4, an issue
+  // fixed by take 3, a wrong note, a dynamic and a note.
+  const marking = await api<{ categories: { id: string; name: string }[] }>(
+    page,
+    "GET",
+    `/api/tracks/${track.id}/score-marks`,
+  );
+  const noise = marking.categories.find((c) => c.name === "Noise")?.id;
+  for (const mark of [
+    { kind: "edit", page: 1, x: 0.12, y: 0.16, barFrom: 1, to: 2 },
+    { kind: "edit", page: 1, x: 0.3, y: 0.52, barFrom: 9, from: 2, to: 3 },
+    { kind: "edit", page: 1, x: 0.16, y: 0.86, barFrom: 17, from: 3, to: 4 },
+    {
+      kind: "issue",
+      page: 1,
+      x: 0.62,
+      y: 0.3,
+      width: 0.2,
+      height: 0.06,
+      barFrom: 5,
+      text: "Pedal noise",
+      categoryId: noise,
+      takes: [1, 2],
+      fixedBy: 3,
+    },
+    { kind: "wrong-note", page: 1, x: 0.7, y: 0.55, barFrom: 9, text: "LH F sharp" },
+    { kind: "dynamic", page: 1, x: 0.85, y: 0.7, barFrom: 13, text: "mp, not mf" },
+    {
+      kind: "note",
+      page: 1,
+      x: 0.9,
+      y: 0.12,
+      barFrom: 1,
+      text: "Tempo settles by bar 3; keep T2's opening.",
+    },
+  ])
+    await api(page, "POST", `/api/tracks/${track.id}/score-marks`, mark);
   // V2's edit decision list, given after it was made (#56): takes 2, 3 and 4, and a
   // pick-up recorded apart, which is no take of the track.
   const edlPath = file("Maple Leaf Rag - V2.edl");

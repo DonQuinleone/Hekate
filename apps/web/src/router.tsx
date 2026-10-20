@@ -63,6 +63,7 @@ import {
 import { ProjectsPage } from "~/routes/projects";
 import { RequestReviewPage } from "~/routes/request-review";
 import { ReviewPage } from "~/routes/review";
+import { ScoreMarkingPage } from "~/routes/score-marking";
 import { SearchPage } from "~/routes/search";
 import { SessionPage, SessionsPage } from "~/routes/sessions";
 import { TakeLogPage } from "~/routes/take-log";
@@ -519,6 +520,17 @@ const projectSessions = createRoute({
     return <SessionsPage projectId={projectId} />;
   },
 });
+// Score marking (#52): a track's score with the producer's marks, in Production.
+const projectScoreMarking = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/score-marking",
+  validateSearch: z.object({ track: z.uuid().optional().catch(undefined) }),
+  component: function ProjectScoreMarkingRoute() {
+    const { projectId } = projectScoreMarking.useParams();
+    const { track } = projectScoreMarking.useSearch();
+    return <ScoreMarkingPage projectId={projectId} trackId={track} />;
+  },
+});
 const session = createRoute({
   getParentRoute: () => app,
   path: "/sessions/$sessionId",
@@ -784,6 +796,7 @@ export const router = createRouter({
       projectBoard,
       projectTasks,
       projectSessions,
+      projectScoreMarking,
       session,
       takeLog,
       projectSettings,
