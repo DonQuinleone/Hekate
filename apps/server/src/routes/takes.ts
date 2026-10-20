@@ -2,8 +2,11 @@ import { type Database, inOrg, schema } from "@hekate/db";
 import {
   addTakesInput,
   canMoveTake,
+  fieldChanges,
   type SharedTake,
   shareTakesInput,
+  type TakeHistoryEntry,
+  type TakeHistoryField,
   type TakeLifecycle,
   type TakeRow,
   takeChangeInput,
@@ -21,8 +24,18 @@ import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
-const { comments, commentTakes, files, sessions, sessionTracks, takes, tracks, variations } =
-  schema;
+const {
+  comments,
+  commentTakes,
+  files,
+  sessions,
+  sessionTracks,
+  takeChanges,
+  takes,
+  tracks,
+  users,
+  variations,
+} = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
@@ -211,9 +224,11 @@ export const takeRoutes = (db: Database) =>
         throw new HTTPException(409, {
           message: `A take ${takeLifecycleNames[from].toLowerCase()} cannot be ${takeLifecycleNames[change.lifecycle].toLowerCase()}`,
         });
-      const { wallIn, wallOut, ...rest } = change;
+      const { wallIn, wallOut, base, at, ...rest } = change;
       // Rolling and stopping are timed by the server's clock unless the log says otherwise.
       const now = new Date();
+      // A change written offline keeps the moment it was written; never one still to come.
+      const writtenAt = at ? new Date(Math.min(Date.parse(at), now.getTime())) : now;
       const moved = change.lifecycle !== undefined && change.lifecycle !== from;
       const times = {
         ...(wallIn !== undefined
@@ -277,11 +292,58 @@ export const takeRoutes = (db: Database) =>
           .returning({ id: takes.id });
         if (!changed)
           throw new HTTPException(409, { message: "The take changed meanwhile; look again" });
+        // Each field it changed, with the value it replaced, for the take's history.
+        const history = fieldChanges(take.take, { ...rest, ...times }, base);
+        if (history.length > 0)
+          await tx.insert(takeChanges).values(
+            history.map((h) => ({
+              organisationId,
+              takeId: id,
+              field: h.field,
+              before: h.before,
+              after: h.after,
+              changedById: c.var.userId,
+              writtenAt,
+              overwrote: h.overwrote,
+            })),
+          );
       });
       const [row] = (await takesOf(db, organisationId, take.take.trackId)).filter(
         (t) => t.id === id,
       );
       return c.json({ take: row });
+    })
+    // What changed on the take, a field at a time, oldest first (#51).
+    .get("/:id/history", idParam, async (c) => {
+      const organisationId = c.var.organisationId;
+      const { id } = c.req.valid("param");
+      const [take] = await db
+        .select({ id: takes.id, projectId: tracks.projectId })
+        .from(takes)
+        .innerJoin(
+          tracks,
+          and(eq(tracks.id, takes.trackId), eq(tracks.organisationId, organisationId)),
+        )
+        .where(inOrg(takes, organisationId, eq(takes.id, id)));
+      if (!take) throw new NotFound("Take");
+      await can(db, actorOf(c.var), "view", take.projectId);
+      const rows = await db
+        .select({ change: takeChanges, name: users.name })
+        .from(takeChanges)
+        .leftJoin(users, eq(users.id, takeChanges.changedById))
+        .where(inOrg(takeChanges, organisationId, eq(takeChanges.takeId, id)))
+        .orderBy(asc(takeChanges.createdAt), asc(takeChanges.id));
+      const history: TakeHistoryEntry[] = rows.map(({ change, name }) => ({
+        id: change.id,
+        field: change.field as TakeHistoryField,
+        before: change.before,
+        after: change.after,
+        by: change.changedById ? { id: change.changedById, name: name ?? "" } : null,
+        writtenAt: change.writtenAt.toISOString(),
+        savedAt: change.createdAt.toISOString(),
+        overwrote: change.overwrote,
+      }));
+      return c.json({ history });
     })
     .delete("/:id", idParam, async (c) => {
       const organisationId = c.var.organisationId;

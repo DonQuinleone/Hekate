@@ -81,6 +81,7 @@ describe("tenancy", () => {
       "spectrograms",
       "sso_providers",
       "tags",
+      "take_changes",
       "takes",
       "task_events",
       "tasks",

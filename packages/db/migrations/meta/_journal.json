@@ -666,6 +666,13 @@
       "when": 1792457213465,
       "tag": "0094_take_log_panels",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1792465335452,
+      "tag": "0095_take_changes",
+      "breakpoints": true
     }
   ]
 }

@@ -840,3 +840,12 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **The session clock by colour.** Plenty of the slot left reads plainly; under ten minutes, in the signal colour; past the end, still in the signal colour, it says by how much the slot is over, rather than standing at 0:00. The take log's own countdown does the same.
 - **Keys still work.** The view covers the page without taking its keys, so Space starts and stops takes, and the rating keys rate, while it shows. L opens and closes it, as does the button in the take log's header.
 - **Full screen.** Where the browser allows, it fills the screen; leaving full screen (Escape) closes it.
+
+## 154. The take log, ready to be written offline
+
+#51, sixth part: the server half of writing the take log offline and syncing it later. The browser half (keeping writes while the connection is down and sending them when it returns) follows.
+
+- **A take made once.** The take log may give a take its own id (a UUIDv7, as every id is). A start sent again, because the log could not tell whether the first arrived, returns the take it made rather than a second one. An id another session or workspace already holds is refused.
+- **At its own time.** A start, or a change, may say when it happened by the log's clock, so a take logged offline rolled when the room rolled it, not when the connection came back. A time still to come is taken as now.
+- **Conflicts per field, with history.** A change sets only the fields it names, so two people changing different fields both stand. On the same field the later write stands. Every field a change sets is kept in the take's history (`take_changes`): what it replaced, what it became, who wrote it and when, by their clock and by the server's. A change that carries what its writer last saw of a field, and finds something else there, is marked as having overwritten someone else's change, so the history shows the conflict and the overwritten value can be put back.
+- **Who may.** Those who may change takes write them; anyone who sees the take reads its history.
