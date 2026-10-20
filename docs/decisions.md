@@ -1059,3 +1059,13 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Recorded.** A workflow may start from a new trigger, *A track's last slot is done*. Ticking off a slot fires it for each track the slot holds that has no slot left to do (`tracksFinished` in packages/shared): the track's own, its work's, or all repertoire. A run under way that waits for it carries on. A wait after it gives "the day after its last slot". Ticking a row that was already done fires nothing again. Ticks on one project's schedule take turns (a transaction lock), each working out inside its turn which tracks it finished, so two people ticking a track's last two slots at once record it once.
 - **Schedule order.** The repertoire's schedule order follows the schedule (decision 172).
 - **Calendar.** Each dated day of the schedule is on the project's calendar and its feed, as "Day 1 schedule", for those who see the production tools, linking to the schedule. The feed's description says it holds schedule days, as anyone with its link sees them.
+
+## 177. Migrations that lose nothing unasked
+
+#154, first part: "`MIGRATE_ON_START` takes an advisory lock so two replicas cannot migrate at once; a migration that would drop or rewrite data refuses to run without `MIGRATE_ALLOW_DESTRUCTIVE`; a pre-flight at start-up compares the schema version with the code".
+
+- **One at a time.** Migrating takes a session advisory lock in PostgreSQL on its one connection and reads what is pending under it, so replicas starting together migrate once: the first applies, the rest wait and find nothing left.
+- **Losing data.** A pending migration that drops a table, a column or a type, changes a column's type, truncates or deletes rows is refused, naming each statement, until the operator starts once with `MIGRATE_ALLOW_DESTRUCTIVE=true`. Nothing is applied when one is refused, the harmless ones before it included. A backfill (`UPDATE`) adds data and is not counted. A new, empty database is never refused, though early migrations dropped columns: there is nothing in it to lose.
+- **Known.** The migrations that lose data are listed in `packages/db/src/migrate.test.ts`. Adding one fails that test until it is listed, which is the reminder to write its upgrade notes.
+- **Pre-flight.** Without `MIGRATE_ON_START`, start-up compares the database with the code: behind, it names the pending migrations and how to apply them; ahead (migrated by a newer release), it refuses whatever the setting, as running would misread the data. Each stops the app before anything is served.
+- **Follows.** Maintenance mode with instance settings (#160), and upgrade notes in `CHANGELOG.md` the docs site picks up (#154, second part).

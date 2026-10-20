@@ -1,3 +1,4 @@
+import { DatabaseAheadError } from "@hekate/db";
 import { type StorageConfig, StorageConfigError, storageConfigFromEnv } from "@hekate/storage";
 import {
   type Config,
@@ -52,4 +53,21 @@ export function settingsOrProblems(
   }
   if (problems.length > 0 || !config || !storageConfig) return { problems };
   return { config, storageConfig };
+}
+
+/** What to do when the database and the code disagree, or nothing when they agree. */
+export function schemaProblem(state: {
+  fresh: boolean;
+  pending: { tag: string }[];
+  ahead: boolean;
+}): string | null {
+  if (state.ahead) return new DatabaseAheadError().message;
+  if (state.pending.length === 0) return null;
+  const which = state.fresh
+    ? "The database is empty"
+    : `The database is ${state.pending.length} migration${state.pending.length === 1 ? "" : "s"} behind this version (${state.pending.map((p) => p.tag).join(", ")})`;
+  return (
+    `${which}. Start with MIGRATE_ON_START=true (the app image's default), or run ` +
+    "pnpm db:migrate, then start again."
+  );
 }
