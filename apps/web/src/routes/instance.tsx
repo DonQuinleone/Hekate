@@ -14,6 +14,8 @@ import {
   instanceSections,
   instanceSectionsFor,
   parseErrorReference,
+  type UpdateChannel,
+  updateChannels,
   WORKSPACE_DELETE_GRACE_DAYS,
   type WorkspaceState,
 } from "@hekate/shared";
@@ -41,6 +43,7 @@ import { api } from "~/lib/api";
 import { authClient } from "~/lib/auth";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
+import { docsUrl } from "~/lib/links";
 import { formatDates } from "~/lib/locale";
 import {
   instanceAccessQuery,
@@ -55,6 +58,7 @@ import {
   instanceProjectsQuery,
   instanceSettingsQuery,
   instanceStorageQuery,
+  instanceSystemQuery,
   instanceWorkspaceQuery,
   instanceWorkspacesQuery,
   json,
@@ -105,6 +109,7 @@ export function InstancePage({ section }: { section: InstanceSection }) {
           {current === "overview" && operatorView && <Overview />}
           {current === "operators" && operatorView && <Operators />}
           {current === "settings" && operatorView && <Settings />}
+          {current === "system" && operatorView && <SystemInformation />}
           {current === "debug" && operatorView && <Debug />}
         </>
       )}
@@ -196,6 +201,13 @@ function Overview() {
                 <Button variant="secondary" size="md" asChild>
                   <Link to="/instance/$section" params={{ section: "debug" }}>
                     Debug tools
+                  </Link>
+                </Button>
+              )}
+              {n.kind === "release_available" && (
+                <Button variant="secondary" size="md" asChild>
+                  <Link to="/instance/$section" params={{ section: "system" }}>
+                    System information
                   </Link>
                 </Button>
               )}
@@ -604,6 +616,162 @@ function Settings() {
         </Row>
         {save.isError && <Row name="Not changed" hint={save.error.message} />}
       </Danger>
+    </>
+  );
+}
+
+/**
+ * System information (#158), as the prototype has it: the release running and its build, the
+ * update channel, releases newer than this one, every release the instance has run, and what it
+ * runs on. Every release is a new image; nothing is patched in place.
+ */
+function SystemInformation() {
+  const client = useQueryClient();
+  const { data, error } = useQuery(instanceSystemQuery);
+  const { data: own } = useQuery(instanceOwnSettingsQuery);
+  const channel = useMutation({
+    mutationFn: async (next: UpdateChannel) => {
+      if (!own) throw new Error("The settings have not loaded yet");
+      return json<{ settings: InstanceSettings; environment: InstanceEnvironment }>(
+        await api.instance.settings.$put({
+          json: { ...own.settings, updates: { channel: next } },
+        }),
+      );
+    },
+    onSuccess: (next) => {
+      client.setQueryData(instanceOwnSettingsQuery.queryKey, next);
+      void client.invalidateQueries({ queryKey: instanceSystemQuery.queryKey });
+    },
+  });
+  const check = useMutation({
+    mutationFn: async () => {
+      const res = await api.instance.system.check.$post();
+      if (!res.ok) await json(res);
+    },
+    // The check runs as a job: read again in a moment for what it found.
+    onSuccess: () =>
+      setTimeout(
+        () => void client.invalidateQueries({ queryKey: instanceSystemQuery.queryKey }),
+        3_000,
+      ),
+  });
+  if (error) return <p className="m-0 text-signal">{error.message}</p>;
+  if (!data) return null;
+  const built = data.build === "dev" ? "A development build" : `Build ${data.build.slice(0, 12)}`;
+  return (
+    <>
+      <Section title="This instance">
+        <Row name="Version" hint={built} inline>
+          <span className="tabular text-[13px] text-ink-2">{data.version}</span>
+        </Row>
+        <Row
+          name="Update channel"
+          hint="Stable offers releases; Beta offers their release candidates too."
+        >
+          <Select
+            aria-label="Update channel"
+            value={own?.settings.updates.channel ?? data.channel}
+            disabled={!own || channel.isPending}
+            onChange={(e) => channel.mutate(e.target.value as UpdateChannel)}
+            className="w-36"
+          >
+            {updateChannels.map((c) => (
+              <option key={c} value={c}>
+                {c === "stable" ? "Stable" : "Beta"}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        <Row
+          name="Last check"
+          hint={
+            !data.check.on
+              ? "Off: set HEKATE_UPDATE_CHECK=true to read the project's releases once a day. Nothing about the instance is sent."
+              : data.check.failed
+                ? `The last check failed: ${data.check.failed}`
+                : "Once a day, from the project's public releases. Nothing about the instance is sent."
+          }
+        >
+          {data.check.on && (
+            <>
+              <span className="text-[13px] text-ink-2">
+                {data.check.checkedAt ? ago(data.check.checkedAt) : "Not yet"}
+              </span>
+              <Button
+                variant="secondary"
+                size="md"
+                disabled={check.isPending}
+                onClick={() => check.mutate()}
+              >
+                Check now
+              </Button>
+            </>
+          )}
+        </Row>
+        {(channel.isError || check.isError) && (
+          <Row name="Not done" hint={(channel.error ?? check.error)?.message} />
+        )}
+      </Section>
+      <Section
+        title="Available"
+        intro="Every release is a new image: pull it and restart, and migrations run on start. Nothing is patched in place."
+      >
+        {data.available.length === 0 ? (
+          <Row
+            name={data.check.on ? "Up to date" : "Not checked"}
+            hint={
+              data.check.on
+                ? `No release on the ${data.channel} channel is newer than ${data.version}.`
+                : "Release checks are off."
+            }
+          />
+        ) : (
+          data.available.map((r) => (
+            <Row
+              key={r.version}
+              name={
+                <span className="flex items-center gap-2">
+                  {r.name}
+                  {r.prerelease && (
+                    <span className="rounded-chip border border-line px-1.5 text-[11px] text-ink-3">
+                      candidate
+                    </span>
+                  )}
+                </span>
+              }
+              hint={`${since.format(new Date(r.publishedAt))}${r.notes ? ` · ${r.notes.split("\n")[0]}` : ""}`}
+            >
+              <Button variant="ghost" size="md" asChild>
+                <a href={r.url} target="_blank" rel="noopener noreferrer">
+                  Release notes
+                </a>
+              </Button>
+              <Button variant="secondary" size="md" asChild>
+                <a href={`${docsUrl}/operate/upgrades/`} target="_blank" rel="noopener noreferrer">
+                  How to upgrade
+                </a>
+              </Button>
+            </Row>
+          ))
+        )}
+      </Section>
+      <Section title="History" intro="Every release this instance has run.">
+        {data.history.map((h) => (
+          <Row
+            key={h.version}
+            name={<span className="tabular">{h.version}</span>}
+            hint={`First started ${since.format(new Date(h.firstStartedAt))}`}
+            inline
+          />
+        ))}
+      </Section>
+      <Section title="Environment">
+        {data.environment.map((e) => (
+          <Row key={e.name} name={e.name} inline>
+            <span className="tabular text-[13px] text-ink-2">{e.value}</span>
+          </Row>
+        ))}
+      </Section>
     </>
   );
 }

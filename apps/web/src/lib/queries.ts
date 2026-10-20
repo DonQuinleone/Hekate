@@ -120,6 +120,7 @@ import {
   type StagePlanInput,
   type StandingGrant,
   type StartTake,
+  type SystemInformation,
   searchResponse,
   type TakeChange,
   type TakeImport,
@@ -4158,6 +4159,12 @@ export const instanceOwnSettingsQuery = queryOptions({
     json<{ settings: InstanceSettings; environment: InstanceEnvironment }>(
       await api.instance.settings.$get(),
     ),
+});
+
+/** System information (#158): the release running, newer releases, the environment. */
+export const instanceSystemQuery = queryOptions({
+  queryKey: ["instance", "system"],
+  queryFn: async () => json<SystemInformation>(await api.instance.system.$get()),
 });
 
 /** What everyone is told about the instance: maintenance mode's notice (#154). */
