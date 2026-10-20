@@ -592,6 +592,12 @@ test("take-log", async ({ page }) => {
   await settle(page, "main ul[aria-label=Takes] >> text=T3");
   await saveScreen(page, "take-log");
   await checkScreen(page);
+  // The tuning tone sounds on this device while pressed, and stops when pressed again.
+  const tone = page.getByRole("button", { name: "440 Hz" });
+  await tone.click();
+  await expect(tone).toHaveAttribute("aria-pressed", "true");
+  await tone.click();
+  await expect(tone).toHaveAttribute("aria-pressed", "false");
   await page.getByRole("button", { name: "Logger" }).click();
   await settle(page, "main table >> text=T3");
   await saveScreen(page, "take-log-logger");
