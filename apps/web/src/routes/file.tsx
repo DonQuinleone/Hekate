@@ -560,7 +560,11 @@ export function FilePage({
       <Button
         variant="ghost"
         size="sm"
-        aria-label="Show comments"
+        aria-label={
+          commentList
+            ? `Show comments, ${threadsOf(commentList).open.length} open`
+            : "Show comments"
+        }
         title="Show comments"
         // Only a wide screen puts the comments away; a phone always shows them.
         className="hidden lg:inline-flex"

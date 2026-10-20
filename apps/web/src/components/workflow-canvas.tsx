@@ -976,7 +976,7 @@ export function WorkflowCanvas({
             </Button>
             <button
               type="button"
-              aria-label="Zoom to 100%"
+              aria-label={`${Math.round(zoom * 100)}%, zoom to 100%`}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={() => setZoom(1)}
               className="tabular h-7 min-w-11 px-1 text-[12px] text-ink-2 hover:text-ink"
@@ -1281,7 +1281,6 @@ function CanvasNode({
     >
       <button
         type="button"
-        aria-label={`${node.name}, ${info.label}${problem ? `: ${problem.text}` : ""}`}
         aria-pressed={selected}
         // From the keyboard; a pointer selects on letting go without dragging.
         onClick={(e) => {
@@ -1300,6 +1299,12 @@ function CanvasNode({
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] font-medium text-ink">{node.name}</span>
           <span className="block truncate text-[11px] text-ink-3">{subtitle}</span>
+        </span>
+        {/* Named by what it shows, then, for a screen reader, the kind of step where its line
+            does not say, and what is wrong with it. */}
+        <span className="sr-only">
+          {subtitle.includes(info.label) ? "" : `, ${info.label}`}
+          {problem ? `: ${problem.text}` : ""}
         </span>
       </button>
       {problem && (

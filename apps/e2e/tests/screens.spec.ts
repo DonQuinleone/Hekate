@@ -520,11 +520,11 @@ for (const place of ["below", "hidden"] as const) {
       page,
       place === "below" || phone
         ? "section[aria-label=Comments] li"
-        : "button[aria-label='Show comments']",
+        : "button[title='Show comments']",
     );
     if (phone) {
       await expect(page.locator("section[aria-label=Comments]")).toBeVisible();
-      await expect(page.getByRole("button", { name: "Show comments" })).toBeHidden();
+      await expect(page.getByRole("button", { name: /^Show comments/ })).toBeHidden();
     }
     // Below the score, the comments are only seen with the whole page.
     if (place === "below") await showWhole(page);
@@ -615,7 +615,7 @@ test("workflows-inspector", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/projects/${seeded().musicProjectId}/workflow`);
   await settle(page, "main [data-node]:has-text('Label approval')");
-  await page.getByRole("button", { name: "Label approval, Ask for approval" }).focus();
+  await page.getByRole("button", { name: /^Label approval/ }).focus();
   await page.keyboard.press("Enter");
   await settle(page, "aside[aria-label=Inspector] >> text=When all approved");
   await saveScreen(page, "workflows-inspector");
