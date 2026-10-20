@@ -250,6 +250,7 @@ export function Player({
   onDraft,
   cuts = null,
   captions = [],
+  compact = false,
 }: {
   fileId: string;
   kind: "audio" | "video";
@@ -280,6 +281,11 @@ export function Player({
     /** The two cuts' versions on the comparison page, for whoever may open it. */
     compare?: { trackId: string; a: number; b: number } | null;
   } | null;
+  /**
+   * A video's picture small, beside its lanes and transport, where what matters is what was
+   * measured (QA, #42). The same element plays on, so switching views never stops it.
+   */
+  compact?: boolean;
   /** A video's captions from sidecar files (#146), offered in the Frame menu. */
   captions?: readonly CaptionTrack[];
   /** Normalised playback (#240): offered as a switch where it is each person's choice. */
@@ -351,7 +357,9 @@ export function Player({
   // Comparing with the cut before (#147): one over the other with a wipe, or side by side.
   const [cutView, setCutView] = useState<"wipe" | "side" | null>(null);
   const [wipe, setWipe] = useState(0.5);
-  const canCompareCuts = kind === "video" && Boolean(cuts) && (!tools || tools.includes("compare"));
+  // A small picture is for reading measurements beside, not for comparing cuts.
+  const canCompareCuts =
+    kind === "video" && Boolean(cuts) && !compact && (!tools || tools.includes("compare"));
   const comparing = canCompareCuts && cuts ? cutView : null;
   const [safe, setSafe] = useState(false);
   // Drawing on the frame (#146): the tool and colour chosen, kept while drawing is on.
@@ -807,13 +815,17 @@ export function Player({
   return (
     <section
       aria-label="Player"
-      className="flex flex-col overflow-hidden rounded-panel border border-hairline bg-surface outline-none focus-visible:border-edge"
+      className={cn(
+        "flex flex-col overflow-hidden rounded-panel border border-hairline bg-surface outline-none focus-visible:border-edge",
+        compact && kind === "video" && "md:flex-row md:items-end",
+      )}
     >
       {kind === "video" ? (
         <>
           <div
             className={cn(
               comparing === "side" && "grid grid-cols-2 gap-px bg-hairline",
+              compact && "md:w-[300px] md:shrink-0 md:self-start",
               failure && "hidden",
             )}
           >
@@ -997,7 +1009,7 @@ export function Player({
           )}
         </div>
       ) : (
-        <div className="flex flex-col gap-3 px-4 py-4">
+        <div className={cn("flex flex-col gap-3 px-4 py-4", compact && "min-w-0 flex-1")}>
           {kind === "audio" && element && (
             // Scrolls once zoomed in; everything on the surface widens with it.
             <div

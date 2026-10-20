@@ -256,3 +256,128 @@ describe("layouts and Atmos (#74)", () => {
     expect(customProfileInput.safeParse({ ...input, layout: "6.0" }).success).toBe(false);
   });
 });
+
+describe("a video's picture against the profile (#42)", () => {
+  const hd = {
+    codec: "prores",
+    profile: "HQ",
+    width: 1920,
+    height: 1080,
+    fps: 25,
+    scan: "progressive",
+    range: "limited",
+    primaries: "bt709",
+    pixelAspect: "1:1",
+  } as const;
+  const picture = (profile: DeliveryProfile, video: MediaInfo["video"]) =>
+    deliveryFindings(profile, { video }, null).filter((f) => f.check === "picture-format");
+
+  it("passes a picture made for its delivery, and says what it is", () => {
+    const [found] = picture(deliveryProfiles.broadcast, hd);
+    expect(found?.severity).toBe("pass");
+    expect(found?.summary).toBe(
+      "ProRes HQ, 1920 × 1080, 25 fps, progressive, Rec. 709, limited range",
+    );
+  });
+
+  it("names everything the profile asks for that the picture is not", () => {
+    const [found] = picture(deliveryProfiles.broadcast, {
+      ...hd,
+      width: 1280,
+      height: 720,
+      fps: 29.97,
+      primaries: "bt2020",
+      range: "full",
+    });
+    expect(found?.severity).toBe("fail");
+    expect(found?.summary).toBe(
+      "Not as Broadcast (EBU R128) asks: 1280 × 720, not 1920 × 1080, 29.97 fps, not 25, Rec. 2020, not Rec. 709, full range, not limited",
+    );
+    const own: DeliveryProfile = {
+      ...deliveryProfiles.broadcast,
+      label: "Archive",
+      video: {
+        codec: "dnxhd",
+        resolution: { width: 1920, height: 1080 },
+        frameRate: 23.976,
+        scan: "progressive",
+        range: null,
+        primaries: null,
+      },
+    };
+    const [anamorphic] = picture(own, {
+      ...hd,
+      fps: 24000 / 1001,
+      pixelAspect: "4:3",
+      scan: "interlaced",
+    });
+    expect(anamorphic?.summary).toBe(
+      "Not as Archive asks: ProRes, not DNxHD or DNxHR, pixels shaped 4:3, not square, interlaced, not progressive",
+    );
+  });
+
+  it("tells the NTSC rates from the whole ones", () => {
+    const at = (fps: number, asked: number) =>
+      picture(
+        {
+          ...deliveryProfiles.broadcast,
+          video: {
+            codec: null,
+            resolution: null,
+            frameRate: asked,
+            scan: null,
+            range: null,
+            primaries: null,
+          },
+        },
+        { ...hd, fps },
+      )[0]?.severity;
+    expect(at(24000 / 1001, 23.976)).toBe("pass");
+    expect(at(23.976, 24)).toBe("fail");
+    expect(at(24, 23.976)).toBe("fail");
+    expect(at(29.97, 30)).toBe("fail");
+    expect(at(60000 / 1001, 59.94)).toBe("pass");
+    expect(at(59.94, 60)).toBe("fail");
+  });
+
+  it("holds nothing the file does not say against it, and asks nothing of audio profiles", () => {
+    const [found] = picture(deliveryProfiles.broadcast, {
+      codec: "h264",
+      width: 1920,
+      height: 1080,
+    });
+    expect(found).toMatchObject({ severity: "pass", summary: "H.264, 1920 × 1080" });
+    expect(picture(deliveryProfiles.cd, hd)).toEqual([]);
+    expect(deliveryFindings(deliveryProfiles.broadcast, { audio: undefined }, null)).toEqual([]);
+  });
+
+  it("takes a workspace's own picture requirements, and refuses nonsense", () => {
+    const base = {
+      label: "Festival DCP",
+      loudness: null,
+      truePeakMax: -1,
+      sampleRates: { rates: [48_000], atLeast: false },
+      bitDepthMin: 24,
+      channels: null,
+    };
+    const video = {
+      codec: "jpeg2000",
+      resolution: { width: 2048, height: 1080 },
+      frameRate: 24,
+      scan: "progressive",
+      range: null,
+      primaries: null,
+    };
+    expect(customProfileInput.safeParse({ ...base, video }).success).toBe(true);
+    expect(customProfileInput.safeParse(base).success).toBe(true);
+    expect(
+      customProfileInput.safeParse({ ...base, video: { ...video, codec: "cinepak" } }).success,
+    ).toBe(false);
+    expect(
+      customProfileInput.safeParse({
+        ...base,
+        video: { ...video, resolution: { width: 0, height: 1080 } },
+      }).success,
+    ).toBe(false);
+  });
+});

@@ -36,7 +36,7 @@ export function ChannelsButton({
       onClick={onToggle}
       className={cn(open && "bg-raised text-ink")}
     >
-      Channels
+      Channels{heard ? " " : ""}
       {heard && <span className="tabular text-signal">{heard}</span>}
     </Button>
   );

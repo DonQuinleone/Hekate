@@ -32,11 +32,20 @@ export const signalChecks = [
   "phase",
   "lfe",
   "bandwidth",
+  "black-frames",
+  "frozen-frames",
+  "dropped-frames",
+  "interlacing",
+  "broadcast-levels",
+  "letterbox",
+  "flashing",
+  "timecode",
 ] as const satisfies readonly QaCheck[];
 
 /** Read against the delivery profile: one switch for them all, and each can be turned off. */
 export const deliveryChecks = [
   "format",
+  "picture-format",
   "layout",
   "atmos",
   "loudness",
@@ -344,9 +353,21 @@ export function ruleFindings(
 }
 
 const immersiveChecks: readonly BuiltInCheck[] = ["dead-channel", "layout", "atmos", "lfe"];
-/** Where each built-in check sits: the multichannel ones apart, the rest with audio. */
+/** The checks of a video's picture (#42). */
+export const pictureChecks: readonly BuiltInCheck[] = [
+  "black-frames",
+  "frozen-frames",
+  "dropped-frames",
+  "interlacing",
+  "broadcast-levels",
+  "letterbox",
+  "flashing",
+  "timecode",
+  "picture-format",
+];
+/** Where each built-in check sits: the multichannel ones apart, the picture's, the rest with audio. */
 export const categoryOf = (check: BuiltInCheck): QaCategory =>
-  immersiveChecks.includes(check) ? "immersive" : "audio";
+  immersiveChecks.includes(check) ? "immersive" : pictureChecks.includes(check) ? "video" : "audio";
 
 /** Where a rule of your own sits. */
 export const ruleCategory = (rule: Pick<CustomRule, "appliesTo" | "measure">): QaCategory =>

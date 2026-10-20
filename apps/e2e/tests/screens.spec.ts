@@ -520,11 +520,11 @@ for (const place of ["below", "hidden"] as const) {
       page,
       place === "below" || phone
         ? "section[aria-label=Comments] li"
-        : "button[aria-label='Show comments']",
+        : "button[title='Show comments']",
     );
     if (phone) {
       await expect(page.locator("section[aria-label=Comments]")).toBeVisible();
-      await expect(page.getByRole("button", { name: "Show comments" })).toBeHidden();
+      await expect(page.getByRole("button", { name: /^Show comments/ })).toBeHidden();
     }
     // Below the score, the comments are only seen with the whole page.
     if (place === "below") await showWhole(page);
@@ -573,6 +573,31 @@ test("file-qa-report", async ({ page }) => {
   await checkScreen(page);
 });
 
+// A workspace's own delivery profile (#144), with what it asks of a picture (#42).
+test("settings-delivery-profile", async ({ page }) => {
+  await page.goto("/settings/delivery");
+  await settle(page, "main >> text=Built in >> nth=0");
+  await page.getByRole("button", { name: "Profile", exact: true }).click();
+  await settle(page, "[role=dialog] >> text=Frame rate");
+  await page.getByLabel("Size").selectOption("1920x1080");
+  await page.getByLabel("Frame rate").selectOption("25");
+  await saveScreen(page, "settings-delivery-profile");
+  await checkScreen(page);
+});
+
+// The live take log (#51): the producer's view of Day 2, and the logger's.
+test("take-log", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/sessions/${seeded().sessionId}/log`);
+  await settle(page, "main ul[aria-label=Takes] >> text=T3");
+  await saveScreen(page, "take-log");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Logger" }).click();
+  await settle(page, "main table >> text=T3");
+  await saveScreen(page, "take-log-logger");
+  await checkScreen(page);
+});
+
 // Sharing (#138): the Share dialog, from the project's Reviews, a track and someone chosen.
 test("share-dialog", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
@@ -590,7 +615,7 @@ test("workflows-inspector", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/projects/${seeded().musicProjectId}/workflow`);
   await settle(page, "main [data-node]:has-text('Label approval')");
-  await page.getByRole("button", { name: "Label approval, Ask for approval" }).focus();
+  await page.getByRole("button", { name: /^Label approval/ }).focus();
   await page.keyboard.press("Enter");
   await settle(page, "aside[aria-label=Inspector] >> text=When all approved");
   await saveScreen(page, "workflows-inspector");
@@ -1272,6 +1297,47 @@ test("file-qa-atmos", async ({ page }) => {
   await checkScreen(page);
   await page.locator("section[aria-label='Embedded metadata']").scrollIntoViewIfNeeded();
   await saveScreen(page, "file-qa-atmos-metadata");
+  await checkScreen(page);
+});
+
+// A video's picture checks (#42), on its QA view and marked along its timeline. The seeded cut
+// is a clean test pattern, so the report is amended in this page alone to show a few problems.
+test("file-qa-video", async ({ page }) => {
+  const id = seeded().cutFileId;
+  await page.route(`**/api/files/${id}/qa`, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { findings: Record<string, unknown>[] };
+    const at = (start: number, end: number) => ({ channel: null, start, end, details: {} });
+    body.findings = [
+      {
+        check: "black-frames",
+        severity: "warn",
+        summary: "Black for 1.2 s",
+        ...at(4.4, 5.6),
+      },
+      {
+        check: "flashing",
+        severity: "warn",
+        summary: "Screen-wide flashing for 1.4 s, more than 3 flashes a second",
+        ...at(8.2, 9.6),
+      },
+      {
+        check: "black-frames",
+        severity: "info",
+        summary: "Black for 1.0 s at the start",
+        ...at(0, 1),
+      },
+      ...body.findings.filter((f) => f.check !== "black-frames" && f.check !== "flashing"),
+    ];
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto(`/files/${id}?view=qa`);
+  await settle(page, "section[aria-label=Checks] >> text=Screen-wide flashing");
+  await saveScreen(page, "file-qa-video");
+  await checkScreen(page);
+  await page.goto(`/files/${id}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await saveScreen(page, "file-video-findings");
   await checkScreen(page);
 });
 

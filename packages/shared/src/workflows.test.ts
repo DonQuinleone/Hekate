@@ -360,7 +360,11 @@ describe("measuredState", () => {
     expect(file("audio", sound, "ready", "failed")).toBe("unmeasurable");
   });
 
-  it("does not check what has no sound to check", () => {
+  it("checks a silent video's picture (#42), and not what has nothing to check", () => {
+    expect(file("video", picture, "ready", "pending")).toBe("measuring");
+    expect(file("video", picture, "ready", "ready")).toBe("measured");
+    expect(file("video", picture, "ready", "failed")).toBe("unmeasurable");
+    // Probed before the picture was checked.
     expect(file("video", picture)).toBe("unchecked");
     expect(file("document", null, "pending")).toBe("unchecked");
     expect(file("image", null, "none")).toBe("unchecked");

@@ -121,6 +121,21 @@ export const mediaInfo = z.object({
       pixelFormat: z.string().optional(),
       /** The timecode of its first frame, as written: "10:00:00:00", or "01:00:00;00" dropping frames (#146). */
       timecode: z.string().regex(timecodePattern).optional(),
+      /**
+       * Every start timecode the file writes, where they differ: its picture's, a timecode
+       * track's, its container's (#42). Absent where there is one or none.
+       */
+      timecodes: z.array(z.string().regex(timecodePattern)).optional(),
+      /** The codec's profile, as ffprobe names it: "HQ" for ProRes 422 HQ, "High" for H.264. */
+      profile: z.string().optional(),
+      /** How it was scanned, as the stream says (#42); measured interlacing is a finding. */
+      scan: z.enum(["progressive", "interlaced"]).optional(),
+      /** Limited (video) or full range, as the stream says. */
+      range: z.enum(["limited", "full"]).optional(),
+      /** Its colour primaries, as ffprobe names them: "bt709", "bt2020", "smpte170m". */
+      primaries: z.string().optional(),
+      /** Its pixels' shape, as a ratio: "1:1" square, "4:3" for anamorphic HD. */
+      pixelAspect: z.string().optional(),
     })
     .optional(),
   metadata: embeddedMetadata.optional(),

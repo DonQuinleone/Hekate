@@ -22,7 +22,7 @@ import {
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Avatar } from "~/components/avatar";
-import { ProfileEditor, ProfileOptions, profileSummary } from "~/components/delivery-profiles";
+import { deliveryHint, ProfileEditor, ProfileOptions } from "~/components/delivery-profiles";
 import { DirectorySection } from "~/components/directory";
 import { EmailTemplatesSection } from "~/components/email-templates";
 import { Empty } from "~/components/empty";
@@ -409,7 +409,7 @@ function DeliveryProfiles() {
         }
       >
         {customs.map((p) => (
-          <Row key={p.id} name={p.label} hint={profileSummary(p)} inline>
+          <Row key={p.id} name={p.label} hint={deliveryHint(p)} inline>
             <ActionMenu
               always
               label={p.label}
@@ -425,7 +425,7 @@ function DeliveryProfiles() {
           <Row
             key={id}
             name={deliveryProfiles[id].label}
-            hint={profileSummary(deliveryProfiles[id])}
+            hint={deliveryHint(deliveryProfiles[id])}
             inline
           >
             <span className="text-[12px] text-ink-3">Built in</span>

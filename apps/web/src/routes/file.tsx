@@ -36,6 +36,7 @@ import { type Crumb, PageHeader } from "~/components/page-header";
 import { CommentsSplitter, PanelPlacement } from "~/components/panel-placement";
 import { Player } from "~/components/player";
 import { checkNames, findingMarks, QaSummary, QualityChecks } from "~/components/qa";
+import { VideoQa } from "~/components/qa-video";
 import { ScorePane } from "~/components/score";
 import { FileContext } from "~/components/tracks";
 import { TriageView } from "~/components/triage";
@@ -100,8 +101,11 @@ function Playback({
   comparePage,
   draft,
   onDraft,
+  compact = false,
 }: {
   file: FileDetail;
+  /** A video's picture small, beside its lanes, for QA (#42). */
+  compact?: boolean;
   /** Whether the viewer may open the comparison of two cuts' comments and findings (#147). */
   comparePage: boolean;
   /** The drawing waiting to join the next comment on a video (#146). */
@@ -222,6 +226,7 @@ function Playback({
       draft={draft}
       onDraft={file.kind === "video" && canComment ? onDraft : undefined}
       cuts={cuts}
+      compact={compact}
       onExpired={() => client.resetQueries({ queryKey: playbackQuery(file.id).queryKey })}
     />
   );
@@ -400,7 +405,11 @@ export function FilePage({
    * A recording's measurements, checks and details have a view of their own (#41), for a
    * role with either of the tools it holds (#240).
    */
-  const hasQa = Boolean(file.mediaInfo?.audio && (allows("qa") || allows("meters")));
+  // A video's picture is checked too (#42), silent or not.
+  const picture = file.kind === "video" && Boolean(file.mediaInfo?.video);
+  const hasQa =
+    Boolean(file.mediaInfo?.audio && (allows("qa") || allows("meters"))) ||
+    (picture && allows("qa"));
   /** Triage (#132) belongs to members who may triage. */
   const canTriage = !guest && can("triage");
   const shown = view === "triage" ? (canTriage ? "triage" : "review") : hasQa ? view : "review";
@@ -452,6 +461,36 @@ export function FilePage({
             ]
           : []),
       ];
+  // What QA shows beside the checks, for a recording and for a video alike.
+  const loudness = file.mediaInfo?.audio && allows("meters") && preferences.showLoudness && (
+    <Loudness fileId={file.id} media={media} layout={file.mediaInfo.audio.channelLayout} />
+  );
+  const metadata = file.mediaInfo?.metadata && (
+    <section aria-label="Embedded metadata" className="flex flex-col gap-3 pt-2">
+      <h2 className="m-0 text-[15px] font-medium">Embedded metadata</h2>
+      <dl className="m-0 flex flex-col border-t border-hairline">
+        {metadataRows(file.mediaInfo.metadata, file.mediaInfo.audio?.sampleRate).map(
+          ([term, value]) => (
+            <div
+              key={term}
+              className="grid grid-cols-[minmax(0,140px)_1fr] gap-x-6 border-b border-hairline py-2.5"
+            >
+              <dt className="label">{term}</dt>
+              <dd className="tabular m-0 truncate text-[13px] text-ink-2" title={value}>
+                {value}
+              </dd>
+            </div>
+          ),
+        )}
+      </dl>
+      {file.mediaInfo.metadata.adm && (
+        <div className="flex flex-col gap-1 pt-1">
+          <h3 className="label m-0">{admHeading(file.mediaInfo.metadata.adm)}</h3>
+          <p className="m-0 text-[13px] text-ink-2">{admLine(file.mediaInfo.metadata.adm)}</p>
+        </div>
+      )}
+    </section>
+  );
   const playback = (
     <Playback
       file={file}
@@ -463,11 +502,12 @@ export function FilePage({
       canComment={canComment}
       normalised={normalised}
       onNormalised={setChosenNormal}
-      showFindings={Boolean(file.mediaInfo?.audio) && allows("qa")}
+      showFindings={Boolean(file.mediaInfo?.audio || picture) && allows("qa")}
       showEdits={!guest && can("view_takes")}
       comparePage={!guest}
       draft={frameDraft}
       onDraft={setFrameDraft}
+      compact={picture && shown === "qa"}
     />
   );
   if (shown === "triage")
@@ -520,7 +560,11 @@ export function FilePage({
       <Button
         variant="ghost"
         size="sm"
-        aria-label="Show comments"
+        aria-label={
+          commentList
+            ? `Show comments, ${threadsOf(commentList).open.length} open`
+            : "Show comments"
+        }
         title="Show comments"
         // Only a wide screen puts the comments away; a phone always shows them.
         className="hidden lg:inline-flex"
@@ -697,6 +741,21 @@ export function FilePage({
                 </dl>
               )}
             </>
+          ) : picture && file.mediaInfo && allows("qa") ? (
+            <div className="min-w-0 pt-8">
+              <VideoQa
+                fileId={file.id}
+                info={file.mediaInfo}
+                file={file}
+                media={media}
+                canChoose={!guest && can("edit_workflows")}
+                onLoop={allows("loops") ? hear : undefined}
+                onComment={canComment ? commentOn : undefined}
+                aside={metadata}
+              >
+                {loudness}
+              </VideoQa>
+            </div>
           ) : (
             <div className="flex min-w-0 flex-col gap-6 pt-8">
               {allows("qa") && (
@@ -708,42 +767,9 @@ export function FilePage({
                   onComment={canComment ? commentOn : undefined}
                 />
               )}
-              {file.mediaInfo?.audio && allows("meters") && preferences.showLoudness && (
-                <Loudness
-                  fileId={file.id}
-                  media={media}
-                  layout={file.mediaInfo.audio.channelLayout}
-                />
-              )}
+              {loudness}
               <dl className="m-0 flex flex-col border-t border-hairline">{detailRows}</dl>
-              {file.mediaInfo?.metadata && (
-                <section aria-label="Embedded metadata" className="flex flex-col gap-3 pt-2">
-                  <h2 className="m-0 text-[15px] font-medium">Embedded metadata</h2>
-                  <dl className="m-0 flex flex-col border-t border-hairline">
-                    {metadataRows(file.mediaInfo.metadata, file.mediaInfo.audio?.sampleRate).map(
-                      ([term, value]) => (
-                        <div
-                          key={term}
-                          className="grid grid-cols-[minmax(0,140px)_1fr] gap-x-6 border-b border-hairline py-2.5"
-                        >
-                          <dt className="label">{term}</dt>
-                          <dd className="tabular m-0 truncate text-[13px] text-ink-2" title={value}>
-                            {value}
-                          </dd>
-                        </div>
-                      ),
-                    )}
-                  </dl>
-                  {file.mediaInfo.metadata.adm && (
-                    <div className="flex flex-col gap-1 pt-1">
-                      <h3 className="label m-0">{admHeading(file.mediaInfo.metadata.adm)}</h3>
-                      <p className="m-0 text-[13px] text-ink-2">
-                        {admLine(file.mediaInfo.metadata.adm)}
-                      </p>
-                    </div>
-                  )}
-                </section>
-              )}
+              {metadata}
             </div>
           )}
         </div>

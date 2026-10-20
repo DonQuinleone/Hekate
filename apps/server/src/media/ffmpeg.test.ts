@@ -85,6 +85,58 @@ describe("probe output", () => {
     expect(tc([video])).toBeUndefined();
   });
 
+  it("keeps every start timecode a video writes, where they differ (#42)", () => {
+    const video = { codec_type: "video", codec_name: "h264", width: 1920, height: 1080 };
+    const track = (timecode: string) => ({
+      codec_type: "data",
+      codec_name: "tmcd",
+      tags: { timecode },
+    });
+    const of = (streams: object[], format?: Record<string, string>) =>
+      parseProbe({ format: { tags: format }, streams }).video;
+    const agreed = of([{ ...video, tags: { timecode: "10:00:00:00" } }, track("10:00:00:00")]);
+    expect(agreed?.timecode).toBe("10:00:00:00");
+    expect(agreed?.timecodes).toBeUndefined();
+    const differ = of([{ ...video, tags: { timecode: "10:00:00:00" } }, track("09:59:50:00")], {
+      timecode: "10:00:00:00",
+    });
+    expect(differ?.timecodes).toEqual(["10:00:00:00", "09:59:50:00"]);
+  });
+
+  it("reads how a picture was made: profile, scan, range, primaries and pixel shape (#42)", () => {
+    const base = { codec_type: "video", codec_name: "prores", width: 1920, height: 1080 };
+    const of = (extra: object) => parseProbe({ streams: [{ ...base, ...extra }] }).video;
+    expect(
+      of({
+        profile: "HQ",
+        field_order: "tt",
+        color_range: "tv",
+        color_primaries: "bt709",
+        sample_aspect_ratio: "1:1",
+      }),
+    ).toMatchObject({
+      profile: "HQ",
+      scan: "interlaced",
+      range: "limited",
+      primaries: "bt709",
+      pixelAspect: "1:1",
+    });
+    expect(of({ field_order: "progressive", color_range: "pc" })).toMatchObject({
+      scan: "progressive",
+      range: "full",
+    });
+    // What ffprobe does not know is left out rather than guessed at.
+    const unknown = of({
+      profile: "unknown",
+      field_order: "unknown",
+      color_range: "unknown",
+      color_primaries: "unknown",
+      sample_aspect_ratio: "0:1",
+    });
+    for (const key of ["profile", "scan", "range", "primaries", "pixelAspect"])
+      expect(unknown).not.toHaveProperty(key);
+  });
+
   it("reads the common tags by whatever name the container gives them (#41)", () => {
     const info = parseProbe(
       {

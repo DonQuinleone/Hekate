@@ -270,7 +270,7 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
                     <button
                       type="button"
                       aria-pressed={on}
-                      aria-label={`Hear ${label(which)}`}
+                      aria-label={`Hear ${label(which)}, key ${keyFor(which)}`}
                       onClick={() => hear(which)}
                       className={cn(
                         "flex size-7 cursor-pointer items-center justify-center rounded-full border-0",

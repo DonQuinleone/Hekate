@@ -74,6 +74,8 @@ export interface RunOptions {
    * apply). The process waits while the handler runs; a handler that throws stops the run.
    */
   onStdout?: (chunk: Buffer) => void;
+  /** Receive standard error as it arrives too; its end is still kept to explain a failure. */
+  onStderr?: (chunk: Buffer) => void;
   /** Variables added to the process's environment for this tool alone. */
   env?: Record<string, string>;
 }
@@ -125,6 +127,13 @@ export function run(command: string, args: string[], options: RunOptions = {}): 
       else stdout.push(chunk);
     });
     child.stderr.on("data", (chunk: Buffer) => {
+      if (options.onStderr) {
+        try {
+          options.onStderr(chunk);
+        } catch (error) {
+          stop(error instanceof Error ? error : new Error(String(error)));
+        }
+      }
       // Keep the end of stderr: that is where ffmpeg explains a failure.
       stderr = (stderr + chunk.toString()).slice(-8192);
     });
@@ -169,6 +178,11 @@ interface ProbeStream {
   avg_frame_rate?: string;
   r_frame_rate?: string;
   pix_fmt?: string;
+  profile?: string;
+  field_order?: string;
+  color_range?: string;
+  color_primaries?: string;
+  sample_aspect_ratio?: string;
   disposition?: { attached_pic?: number };
   tags?: Record<string, string>;
   duration?: string;
@@ -208,12 +222,21 @@ function bitDepth(stream: ProbeStream): number | undefined {
  * Where a video's timecode starts (#146): its own stream's, a timecode track's (QuickTime's
  * tmcd, a data stream), or the container's, whichever says first and can be read.
  */
-function startTimecode(output: ProbeOutput, video: ProbeStream): string | undefined {
+function startTimecodes(output: ProbeOutput, video: ProbeStream): string[] {
   const tracks = (output.streams ?? []).filter((s) => s.codec_type === "data");
-  return [video.tags, ...tracks.map((t) => t.tags), output.format?.tags]
+  const written = [video.tags, ...tracks.map((t) => t.tags), output.format?.tags]
     .map((tags) => tags?.timecode?.trim())
-    .find((written) => written !== undefined && timecodePattern.test(written));
+    .filter((t): t is string => t !== undefined && timecodePattern.test(t));
+  return [...new Set(written)];
 }
+
+/** What ffprobe says it does not know. */
+const known = (value: string | undefined) =>
+  value && value !== "unknown" && value !== "unspecified" && value !== "N/A" ? value : undefined;
+
+/** How a picture was scanned, from its field order: tt, bb, tb and bt are interlaced. */
+const scanOf = (fieldOrder: string | undefined) =>
+  !known(fieldOrder) ? undefined : fieldOrder === "progressive" ? "progressive" : "interlaced";
 
 /**
  * Turn ffprobe's JSON into Hekate's media info, with the bext and iXML chunks a wave file
@@ -254,8 +277,19 @@ export function parseProbe(
     if (fps) info.video.fps = fps;
     if (rate && fps) info.video.frameRate = rate;
     if (video.pix_fmt) info.video.pixelFormat = video.pix_fmt;
-    const start = startTimecode(output, video);
+    const [start, ...others] = startTimecodes(output, video);
     if (start) info.video.timecode = start;
+    if (start && others.length) info.video.timecodes = [start, ...others];
+    const profile = known(video.profile);
+    if (profile) info.video.profile = profile;
+    const scan = scanOf(video.field_order);
+    if (scan) info.video.scan = scan;
+    if (video.color_range === "tv") info.video.range = "limited";
+    if (video.color_range === "pc") info.video.range = "full";
+    const primaries = known(video.color_primaries);
+    if (primaries) info.video.primaries = primaries;
+    const sar = video.sample_aspect_ratio;
+    if (sar && /^[1-9]\d*:[1-9]\d*$/.test(sar)) info.video.pixelAspect = sar;
   }
   if (info.audio || info.video) {
     const tags = tagsOf(output.format?.tags, audio?.tags, video?.tags);
