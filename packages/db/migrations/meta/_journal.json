@@ -687,6 +687,13 @@
       "when": 1792481459968,
       "tag": "0097_download_score_marks",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1792484316784,
+      "tag": "0098_printed_bars",
+      "breakpoints": true
     }
   ]
 }

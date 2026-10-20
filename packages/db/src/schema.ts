@@ -26,6 +26,7 @@ import {
   notificationKinds,
   type OverviewSection,
   type PlayerTool,
+  type PrintedBar,
   type ProfileRef,
   type ProjectPermission,
   type ProjectProfile,
@@ -957,6 +958,8 @@ export const files = pgTable(
     streamStatus: streamStatusEnum("stream_status").notNull().default("none"),
     /** How many pages the document has, drawn or not; null for anything without pages. */
     pageCount: integer("page_count"),
+    /** The bar numbers a score prints in its text, for going to a bar (#52); null if not read. */
+    printedBars: jsonb("printed_bars").$type<PrintedBar[]>(),
     /** Audio analysis (waveform peaks and loudness): "none" for files without audio. */
     analysisStatus: streamStatusEnum("analysis_status").notNull().default("none"),
     /** Measured by the media worker; null until the file has been probed. */

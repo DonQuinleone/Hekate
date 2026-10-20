@@ -648,6 +648,24 @@ test("score-marking", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Going to a bar (#52) by the numbers the score prints: its page, the system marked for a
+// moment, and what is known of a bar between the numbers.
+test("score-marking-bar", async ({ page }) => {
+  await page.goto(`/projects/${seeded().musicProjectId}/score-marking`);
+  await settle(page, "main section >> text=17T3 into T4");
+  const bar = page.getByRole("textbox", { name: "Go to bar" });
+  await bar.fill("21");
+  await bar.press("Enter");
+  await expect(page.getByRole("figure", { name: "Page 2" })).toBeVisible();
+  await bar.fill("23");
+  await bar.press("Enter");
+  await expect(page.getByRole("status").filter({ hasText: "Bar 23" })).toHaveText(
+    "Bar 23 is in the system from bar 21.",
+  );
+  await saveScreen(page, "score-marking-bar");
+  await checkScreen(page);
+});
+
 // The annotated score (#52): the score with its marks over it, made for you and logged.
 test("score-marking-export", async ({ page }) => {
   await page.goto(`/projects/${seeded().musicProjectId}/score-marking`);

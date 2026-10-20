@@ -480,6 +480,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
           id: files.id,
           streamStatus: files.streamStatus,
           pageCount: files.pageCount,
+          printedBars: files.printedBars,
           kind: files.kind,
         })
         .from(files)
@@ -516,6 +517,8 @@ export const fileRoutes = (deps: PlaybackDeps) =>
         {
           expiresAt: new Date(expiresAt * 1000),
           pageCount: file.pageCount ?? pages.length,
+          // The bar numbers a score prints, on the pages drawn, for going to a bar (#52).
+          bars: (file.printedBars ?? []).filter((b) => b.page <= pages.length),
           pages: pages.map((p) => ({
             ...p,
             url: `/api/play/${token}/pages/${p.page}/view`,

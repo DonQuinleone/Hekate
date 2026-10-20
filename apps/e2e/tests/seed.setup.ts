@@ -144,7 +144,7 @@ setup("seed", async ({ page, browser }) => {
   recording(file("Maple Leaf Rag - Dry v2.wav"), 40, 0.8, true);
   recording(file("Maple Leaf Rag - Wet v2.wav"), 40, 1);
   recording(file("Maple Leaf Rag - Dry v3.wav"), 40, 0.9);
-  writeFileSync(file("Maple Leaf Rag - Score.pdf"), samplePdf(3));
+  writeFileSync(file("Maple Leaf Rag - Score.pdf"), samplePdf(3, { bars: true }));
   const takeFiles = [1, 2, 3, 4].map((n) => file(`Maple Leaf Rag - T${n}.wav`));
   takeFiles.forEach((path, i) => {
     recording(path, 6 + i * 2, 0.7);

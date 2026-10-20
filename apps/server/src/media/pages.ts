@@ -1,6 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { isPdf } from "@hekate/shared";
+import { barNumbersOf, isPdf, type PrintedBar } from "@hekate/shared";
 import { InvalidMediaError, MediaToolError, run } from "./ffmpeg.ts";
 
 /**
@@ -274,4 +274,47 @@ export async function renderPdfPage(
     ],
     { signal, timeoutMs: 5 * 60_000 },
   );
+}
+
+/** A bar number is printed small; a title's or a heading's number is not one. */
+const TALLEST_NUMBER = 0.03;
+
+/**
+ * The whole numbers printed in a PDF's text, from what `pdftotext -bbox` writes: each placed by
+ * page and by its top left corner, in shares of the page. Words in a large size are left out.
+ */
+export function parsePrintedNumbers(xhtml: string): PrintedBar[] {
+  const out: PrintedBar[] = [];
+  let page = 0;
+  for (const part of xhtml.split("<page ").slice(1)) {
+    page++;
+    const width = Number(/width="([\d.]+)"/.exec(part)?.[1]);
+    const height = Number(/height="([\d.]+)"/.exec(part)?.[1]);
+    if (!(width > 0) || !(height > 0)) continue;
+    for (const w of part.matchAll(
+      /<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="[\d.]+" yMax="([\d.]+)">(\d{1,5})<\/word>/g,
+    )) {
+      const [, x, y, bottom, digits] = w;
+      if ((Number(bottom) - Number(y)) / height > TALLEST_NUMBER) continue;
+      out.push({ page, x: Number(x) / width, y: Number(y) / height, bar: Number(digits) });
+    }
+  }
+  return out;
+}
+
+/**
+ * The bar numbers a score prints, on its first `pages` pages (#52), for going to a bar.
+ * Nothing for a score whose text holds none, as a scanned one does not.
+ */
+export async function printedBars(
+  path: string,
+  pages: number,
+  signal: AbortSignal,
+): Promise<PrintedBar[]> {
+  const { stdout } = await run("pdftotext", ["-bbox", "-f", "1", "-l", String(pages), path, "-"], {
+    signal,
+    timeoutMs: 2 * 60_000,
+    maxOutput: 64 * 1024 * 1024,
+  });
+  return barNumbersOf(parsePrintedNumbers(stdout));
 }

@@ -9,6 +9,7 @@ import {
   layoutsWithLfe,
   lfeChannels,
   type MediaInfo,
+  type PrintedBar,
   type QaCheck,
   type QaFinding,
   usableAlignment,
@@ -25,7 +26,7 @@ import { hasObjects, renderAdm, renderedInfo } from "./adm-render.ts";
 import { alignInThread } from "./align.ts";
 import { analyseAudio, declaredLength } from "./analysis.ts";
 import { InvalidMediaError, probe } from "./ffmpeg.ts";
-import { pageSourceOf, renderPages } from "./pages.ts";
+import { pageSourceOf, printedBars, renderPages } from "./pages.ts";
 import { analysePicture } from "./picture.ts";
 import {
   type PackagedRendition,
@@ -505,7 +506,7 @@ export function renderHandler(deps: MediaWorkerDeps): JobHandler<"document-rende
       const drawn = await withWorkspace(deps.workDir, async (dir) => {
         const path = await materialise(deps.storage, organisationId, file.blobId, dir, job.signal);
         // Each page is stored as it is drawn; only its row is kept until the end.
-        return renderPages(path, source, dir, job.signal, async (page) => {
+        const result = await renderPages(path, source, dir, job.signal, async (page) => {
           const view = await deps.storage.put(organisationId, page.view, {
             projectId: file.projectId,
           });
@@ -524,12 +525,24 @@ export function renderHandler(deps: MediaWorkerDeps): JobHandler<"document-rende
             thumbBlobId: thumb.id,
           });
         });
+        // The bar numbers in a score's text, for going to a bar (#52). A PDF whose text cannot
+        // be read is still drawn: it is gone to by page.
+        let bars: PrintedBar[] | null = null;
+        if (source === "pdf") {
+          try {
+            bars = await printedBars(path, result.drawn, job.signal);
+          } catch (error) {
+            if (job.signal.aborted) throw error;
+            console.warn(`The text of file ${fileId} could not be read for its bar numbers`);
+          }
+        }
+        return { ...result, bars };
       });
       await deps.db.transaction(async (tx) => {
         await tx.insert(filePages).values(rows);
         await tx
           .update(files)
-          .set({ streamStatus: "ready", pageCount: drawn.total })
+          .set({ streamStatus: "ready", pageCount: drawn.total, printedBars: drawn.bars })
           .where(inOrg(files, organisationId, eq(files.id, fileId)));
       });
     } catch (error) {
