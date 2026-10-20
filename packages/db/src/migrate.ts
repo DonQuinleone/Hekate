@@ -24,6 +24,20 @@ export function journalOf(folder = migrationsFolder): JournalEntry[] {
   return journal.entries.map(({ tag, when }) => ({ tag, when }));
 }
 
+/** SQL without its block comments, each a space: one pass over the text. */
+function withoutBlockComments(text: string): string {
+  let out = "";
+  let from = 0;
+  for (;;) {
+    const open = text.indexOf("/*", from);
+    if (open < 0) return out + text.slice(from);
+    out += `${text.slice(from, open)} `;
+    const close = text.indexOf("*/", open + 2);
+    if (close < 0) return out;
+    from = close + 2;
+  }
+}
+
 /**
  * The statements in a migration that drop or rewrite data: tables, columns or types dropped,
  * a column's type changed, rows truncated or deleted. A backfill (`UPDATE`) fills in new data
@@ -31,9 +45,8 @@ export function journalOf(folder = migrationsFolder): JournalEntry[] {
  */
 export function destructiveStatements(text: string): string[] {
   return (
-    text
-      // Block comments go first: one may hold a semicolon, or stand before a statement.
-      .replace(/\/\*[\s\S]*?\*\//g, " ")
+    // Block comments go first: one may hold a semicolon, or stand before a statement.
+    withoutBlockComments(text)
       .split(/--> statement-breakpoint|;/)
       .map((statement) =>
         statement
