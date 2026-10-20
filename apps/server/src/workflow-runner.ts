@@ -649,6 +649,33 @@ export async function versionArrived(
     userId: string;
   },
 ) {
+  await happened(deps, "upload", at);
+}
+
+/**
+ * A track's last slot on the schedule was ticked off (#50): each workflow that runs for it
+ * starts from its "recorded" trigger, or carries on from one a run under way waits for. A wait
+ * after it makes "the day after its last slot".
+ */
+export async function trackRecorded(
+  deps: RunnerDeps,
+  at: { organisationId: string; projectId: string; trackId: string; userId: string | null },
+) {
+  await happened(deps, "recorded", { ...at, versionId: null });
+}
+
+/** An event on a track: runs waiting for it carry on, and workflows it triggers start. */
+async function happened(
+  deps: RunnerDeps,
+  type: "upload" | "recorded",
+  at: {
+    organisationId: string;
+    projectId: string;
+    trackId: string;
+    versionId: string | null;
+    userId: string | null;
+  },
+) {
   // Runs under way carry on from an upload they wait for, whatever has since become of the
   // workflow they started from: a run keeps its definition.
   const running = await deps.db
@@ -672,7 +699,7 @@ export async function versionArrived(
           .for("update");
         if (run?.state !== "running") return [];
         const listening = run.engine.active.find(
-          (node) => run.definition.nodes.find((n) => n.id === node)?.type === "upload",
+          (node) => run.definition.nodes.find((n) => n.id === node)?.type === type,
         );
         if (!listening) return [];
         const ctx = await contextOf(tx, at.organisationId, at.trackId, "member");
@@ -695,10 +722,10 @@ export async function versionArrived(
   for (const flow of flows.filter((f) => !busy.has(f.id))) {
     try {
       const after = await deps.db.transaction(async (tx) => {
-        // Locked, so two versions (or a restart) arriving at once start it once.
+        // Locked, so two events (or a restart) arriving at once start it once.
         await lockWorkflow(tx, at.organisationId, flow.id);
         if (await runningOf(tx, at.organisationId, flow.id, at.trackId)) return [];
-        const trigger = triggersOf(flow.definition).find((t) => t.type === "upload");
+        const trigger = triggersOf(flow.definition).find((t) => t.type === type);
         if (!trigger) return [];
         return (await begin(tx, deps, flow, { ...at, triggerId: trigger.id })).after;
       });

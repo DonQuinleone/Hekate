@@ -10223,6 +10223,17 @@ describe.runIf(url)("api", () => {
           });
           expect(made.status).toBe(201);
           const day = ((await made.json()) as { day: { id: string } }).day;
+          // On the project's calendar for those who see it.
+          const september = async (cookie: string) =>
+            (
+              (await (
+                await getAs(`/api/projects/${s.projectId}/calendar?month=2026-09`, cookie)
+              ).json()) as { events: { kind: string; date: string; title: string }[] }
+            ).events.filter((e) => e.kind === "schedule");
+          expect(await september(s.engineer)).toEqual([
+            expect.objectContaining({ date: "2026-09-12", title: "Day 1 schedule" }),
+          ]);
+          expect(await september(s.composer)).toEqual([]);
           const addRow = (body: unknown, after?: string, cookie = s.owner) =>
             send(
               "POST",
@@ -10274,6 +10285,57 @@ describe.runIf(url)("api", () => {
             (await send("PATCH", `/api/schedule-rows/${slot.id}/done`, { done: true })).status,
           ).toBe(200);
           expect((await list()).days[0]?.rows[0]?.done).toBe(true);
+
+          // A workflow started by a track's last slot starts once that slot is ticked off.
+          const node = (id: string, type: string, x: number, config = {}) => ({
+            id,
+            type,
+            name: id,
+            x,
+            y: 0,
+            config,
+          });
+          const flow = (await (
+            await send("POST", `/api/projects/${s.projectId}/workflows`, {
+              name: "After the sessions",
+              definition: {
+                // Finished at once, so a second start would be a second run.
+                nodes: [node("recorded", "recorded", 0), node("done", "finish", 1)],
+                connectors: [{ id: "1", from: "recorded", outcome: "happened", to: "done" }],
+              },
+            })
+          ).json()) as { workflow: { id: string } };
+          await send("PATCH", `/api/workflows/${flow.workflow.id}`, { active: true });
+          const runsOf = async () =>
+            (
+              (await (await getAs(`/api/tracks/${s.trackId}/workflow-runs`, s.owner)).json()) as {
+                runs: { state: string }[];
+              }
+            ).runs;
+          const second = (
+            (await (await addRow({ kind: "slot", minutes: 30, trackIds: [s.trackId] })).json()) as {
+              row: Row;
+            }
+          ).row;
+          await send("PATCH", `/api/schedule-rows/${slot.id}/done`, { done: false });
+          await send("PATCH", `/api/schedule-rows/${slot.id}/done`, { done: true });
+          // One slot of the track is left: not recorded yet.
+          expect(await runsOf()).toEqual([]);
+          await send("PATCH", `/api/schedule-rows/${second.id}/done`, { done: true });
+          expect((await runsOf()).map((r) => r.state)).toEqual(["finished"]);
+          // Ticked again, it is not recorded twice.
+          await send("PATCH", `/api/schedule-rows/${second.id}/done`, { done: true });
+          expect(await runsOf()).toHaveLength(1);
+          // The last two slots ticked off at once record the track once.
+          for (const id of [slot.id, second.id])
+            await send("PATCH", `/api/schedule-rows/${id}/done`, { done: false });
+          await Promise.all(
+            [slot.id, second.id].map((id) =>
+              send("PATCH", `/api/schedule-rows/${id}/done`, { done: true }),
+            ),
+          );
+          expect(await runsOf()).toHaveLength(2);
+          await send("DELETE", `/api/schedule-rows/${second.id}`, {});
 
           // As a PDF to send out and a workbook, for those who see it; the files name the project.
           const pdf = await getAs(`/api/projects/${s.projectId}/schedule/pdf`, s.engineer);

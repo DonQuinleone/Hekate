@@ -5,9 +5,10 @@ import {
   scheduleDoneInput,
   scheduleMoveInput,
   scheduleRowInput,
+  tracksFinished,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { asc, eq, inArray, max } from "drizzle-orm";
+import { asc, eq, inArray, max, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -21,6 +22,7 @@ import {
   scheduleSheets,
 } from "../schedule-pdf.ts";
 import type { TenantVariables } from "../tenancy.ts";
+import { type RunnerDeps, trackRecorded } from "../workflow-runner.ts";
 import { xlsxOf } from "../xlsx.ts";
 import { attachment } from "./comments.ts";
 import { personnelOf } from "./personnel.ts";
@@ -436,7 +438,7 @@ export const scheduleDayRoutes = (db: Database) =>
     );
 
 /** `/api/schedule-rows/:id`: changing a row, ticking it off, moving it, or removing it. */
-export const scheduleRowRoutes = (db: Database) =>
+export const scheduleRowRoutes = (db: Database, runner: RunnerDeps) =>
   new Hono<{ Variables: TenantVariables }>()
     .put("/:id", idParam, zValidator("json", scheduleRowInput), async (c) => {
       const organisationId = c.var.organisationId;
@@ -461,14 +463,50 @@ export const scheduleRowRoutes = (db: Database) =>
       const organisationId = c.var.organisationId;
       const row = await rowFor(db, c.var, c.req.valid("param").id);
       const { done } = c.req.valid("json");
-      await db.transaction(async (tx) => {
+      // Ticks on one project's schedule take turns, and each works out inside its turn which
+      // tracks it finished: two people ticking a track's last two slots at once record it once.
+      const finished = await db.transaction(async (tx) => {
         await lockLiveProject(tx, organisationId, row.projectId);
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${`schedule:${row.projectId}`}, 0))`,
+        );
         await holdRow(tx, organisationId, row.id);
-        await tx
+        const changed = await tx
           .update(scheduleRows)
           .set({ done, updatedAt: new Date() })
-          .where(inOrg(scheduleRows, organisationId, eq(scheduleRows.id, row.id)));
+          .where(
+            inOrg(
+              scheduleRows,
+              organisationId,
+              eq(scheduleRows.id, row.id),
+              eq(scheduleRows.done, !done),
+            ),
+          )
+          .returning({ id: scheduleRows.id });
+        if (!done || changed.length === 0) return [];
+        const works = (await worksOf(tx, organisationId, row.projectId)).map((w) => ({
+          id: w.id,
+          trackIds: w.tracks.map((t) => t.trackId),
+        }));
+        const all = await tx
+          .select({ id: tracks.id })
+          .from(tracks)
+          .where(inOrg(tracks, organisationId, eq(tracks.projectId, row.projectId)));
+        return tracksFinished(
+          row.id,
+          await daysOf(tx, organisationId, row.projectId),
+          works,
+          all.map((t) => t.id),
+        );
       });
+      // Ticked off just now: a track with no slot left is recorded, for its workflows.
+      for (const trackId of finished)
+        await trackRecorded(runner, {
+          organisationId,
+          projectId: row.projectId,
+          trackId,
+          userId: c.var.userId,
+        });
       return c.json({ done });
     })
     .post("/:id/move", idParam, zValidator("json", scheduleMoveInput), async (c) => {

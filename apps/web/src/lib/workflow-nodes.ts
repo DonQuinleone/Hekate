@@ -50,6 +50,7 @@ export const nodeLooks: Record<NodeType, NodeLook> = {
   opened: { hint: "By anyone it was sent to", icon: "eye", fields: [] },
   download: { hint: "Of the proxy or the original", icon: "download", fields: [] },
   mention: { hint: "In a comment", icon: "user", fields: [] },
+  recorded: { hint: "Every slot it has on the schedule ticked off", icon: "mic", fields: [] },
   approval: {
     hint: "Each reviewer records approved or changes requested",
     icon: "review",

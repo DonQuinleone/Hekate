@@ -30,6 +30,7 @@ export const EVENT_TYPES = [
   "opened",
   "download",
   "mention",
+  "recorded",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -83,6 +84,7 @@ export const nodeTypes: Record<NodeType, NodeTypeInfo> = {
   opened: { kind: "event", label: "A share is opened", outcomes: happened },
   download: { kind: "event", label: "A download happens", outcomes: happened },
   mention: { kind: "event", label: "Someone is mentioned", outcomes: happened },
+  recorded: { kind: "event", label: "A track's last slot is done", outcomes: happened },
   approval: {
     kind: "action",
     label: "Ask for approval",

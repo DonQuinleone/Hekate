@@ -3,7 +3,7 @@ import { Icon } from "~/components/icons";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 
-/** The ICS feed: deadlines, reviews and sessions, into whichever calendar the person keeps. */
+/** The ICS feed: deadlines, reviews, sessions and schedule days, into whichever calendar the person keeps. */
 export function CalendarSubscribeDialog({
   onClose,
   scope,
@@ -16,7 +16,7 @@ export function CalendarSubscribeDialog({
   return (
     <Dialog
       title="Add to your calendar"
-      description={`A feed of ${scope}: review due dates, task deadlines and sessions. It updates itself; the link is yours alone.`}
+      description={`A feed of ${scope}: review due dates, task deadlines, sessions and schedule days. It updates itself; the link is yours alone.`}
       onClose={onClose}
       width="sm"
       footer={

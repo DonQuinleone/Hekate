@@ -15,7 +15,17 @@ import { actorOf, can, projectAccess } from "../access.ts";
 import { NotFound } from "../errors.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
-const { calendarFeeds, members, organisations, projects, reviews, sessions, tasks, users } = schema;
+const {
+  calendarFeeds,
+  members,
+  organisations,
+  projects,
+  reviews,
+  scheduleDays,
+  sessions,
+  tasks,
+  users,
+} = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 const monthQuery = zValidator(
@@ -39,7 +49,8 @@ const DAY = 86_400_000;
 
 /**
  * What is on a project's calendar, between two days (both included) or all of it: reviews and
- * tasks due, and, for those who may see takes, the days sessions were recorded. A review is due
+ * tasks due, for those who may see takes, the days sessions were recorded, and, for those who
+ * see the production tools, the schedule's days (#50). A review is due
  * at a moment, so it goes on the day that moment is where the reader is (`timeZone`).
  */
 export async function calendarEvents(
@@ -55,7 +66,7 @@ export async function calendarEvents(
   // Both days included; none for the whole calendar.
   const within = (column: AnyColumn, from: unknown, to: unknown): SQL | undefined =>
     range ? sql`${column} between ${from} and ${to}` : undefined;
-  const [due, todo, booked] = await Promise.all([
+  const [due, todo, booked, planned] = await Promise.all([
     db
       .select({
         id: reviews.id,
@@ -114,6 +125,21 @@ export async function calendarEvents(
           )
           .orderBy(asc(sessions.recordedOn))
       : [],
+    permissions.has("view_production")
+      ? db
+          .select({ id: scheduleDays.id, label: scheduleDays.label, date: scheduleDays.date })
+          .from(scheduleDays)
+          .where(
+            inOrg(
+              scheduleDays,
+              organisationId,
+              eq(scheduleDays.projectId, projectId),
+              isNotNull(scheduleDays.date),
+              within(scheduleDays.date, range?.from, range?.to),
+            ),
+          )
+          .orderBy(asc(scheduleDays.date), asc(scheduleDays.position))
+      : [],
   ]);
   return [
     ...due.flatMap((r): CalendarEvent[] => {
@@ -154,6 +180,20 @@ export async function calendarEvents(
               date: s.recordedOn,
               title: s.venue ? `${s.name} at ${s.venue}` : s.name,
               link: `/sessions/${s.id}`,
+              overdue: false,
+            },
+          ]
+        : [],
+    ),
+    ...planned.flatMap((d): CalendarEvent[] =>
+      d.date
+        ? [
+            {
+              id: `schedule-${d.id}`,
+              kind: "schedule",
+              date: d.date,
+              title: `${d.label} schedule`,
+              link: `/projects/${projectId}/schedule`,
               overdue: false,
             },
           ]

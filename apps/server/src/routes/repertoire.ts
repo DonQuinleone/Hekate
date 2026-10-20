@@ -1,6 +1,7 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
   isPdf,
+  scheduleOrder,
   type Venue,
   venueInput,
   type Work,
@@ -16,6 +17,7 @@ import { actorOf, can, lockLiveProject } from "../access.ts";
 import { NotFound } from "../errors.ts";
 import { swapScore } from "../score-swap.ts";
 import type { TenantVariables } from "../tenancy.ts";
+import { daysOf } from "./schedule.ts";
 import { assertScore } from "./tracks.ts";
 
 const { files, tracks, venues, workTracks, works } = schema;
@@ -183,7 +185,11 @@ export const projectRepertoireRoutes = (db: Database) =>
         c.req.valid("param").id,
       );
       return c.json({
-        works: await worksOf(db, organisationId, projectId),
+        // In the order the schedule first reaches them; the page may sort them by title.
+        works: scheduleOrder(
+          await worksOf(db, organisationId, projectId),
+          await daysOf(db, organisationId, projectId),
+        ),
         venues: await venuesOf(db, organisationId, projectId),
         tracks: await db
           .select({ id: tracks.id, name: tracks.name })

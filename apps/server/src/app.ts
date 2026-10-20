@@ -303,7 +303,7 @@ export function createApi(deps: AppDeps) {
       .use("/schedule-days/*", ...member)
       .route("/schedule-days", scheduleDayRoutes(deps.db))
       .use("/schedule-rows/*", ...member)
-      .route("/schedule-rows", scheduleRowRoutes(deps.db))
+      .route("/schedule-rows", scheduleRowRoutes(deps.db, runner))
       .use("/personnel/*", ...member)
       .route("/personnel", personnelRoutes(deps.db))
       .use("/stage-plans/*", ...member)
