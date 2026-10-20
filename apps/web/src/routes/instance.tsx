@@ -627,7 +627,16 @@ function Settings() {
  */
 function SystemInformation() {
   const client = useQueryClient();
-  const { data, error } = useQuery(instanceSystemQuery);
+  // A check asked for runs as a job: read again every few seconds until it has been done.
+  const [checking, setChecking] = useState<{ since: string | null; until: number } | null>(null);
+  const { data, error } = useQuery({
+    ...instanceSystemQuery,
+    refetchInterval: checking ? 3_000 : false,
+  });
+  useEffect(() => {
+    if (!checking || !data) return;
+    if (data.check.checkedAt !== checking.since || Date.now() > checking.until) setChecking(null);
+  }, [checking, data]);
   const { data: own } = useQuery(instanceOwnSettingsQuery);
   const channel = useMutation({
     mutationFn: async (next: UpdateChannel) => {
@@ -648,12 +657,9 @@ function SystemInformation() {
       const res = await api.instance.system.check.$post();
       if (!res.ok) await json(res);
     },
-    // The check runs as a job: read again in a moment for what it found.
+    // Until the last check's time changes, or two minutes pass (a held or busy worker).
     onSuccess: () =>
-      setTimeout(
-        () => void client.invalidateQueries({ queryKey: instanceSystemQuery.queryKey }),
-        3_000,
-      ),
+      setChecking({ since: data?.check.checkedAt ?? null, until: Date.now() + 120_000 }),
   });
   if (error) return <p className="m-0 text-signal">{error.message}</p>;
   if (!data) return null;
@@ -700,10 +706,10 @@ function SystemInformation() {
               <Button
                 variant="secondary"
                 size="md"
-                disabled={check.isPending}
+                disabled={check.isPending || checking !== null}
                 onClick={() => check.mutate()}
               >
-                Check now
+                {checking ? "Checking" : "Check now"}
               </Button>
             </>
           )}
