@@ -164,14 +164,14 @@ const projectSections = [
   { id: "reviews", label: "Reviews", icon: "review", to: "/projects/$projectId/reviews" },
   { id: "tasks", label: "Tasks", icon: "task", to: "/projects/$projectId/tasks" },
   { id: "people", label: "People", icon: "users", to: "/projects/$projectId/people" },
-  // The production tools (#21, #45, #47), as in the prototype: sessions, score marking, the
-  // stage plan, the patch list and personnel.
+  // The production tools (#21, #45, #47), as in the prototype: the repertoire, sessions, score
+  // marking, the stage plan, the patch list, personnel and venues.
   {
     id: "sessions",
     label: "Production",
     icon: "mic",
     to: "/projects/$projectId/sessions",
-    also: ["score-marking", "stage", "patch", "personnel"],
+    also: ["repertoire", "score-marking", "stage", "patch", "personnel", "venues"],
   },
   {
     id: "settings",
@@ -568,9 +568,14 @@ export function Shell({ children }: { children: ReactNode }) {
   const sectionsHere = projectSections.filter((item) =>
     item.id === "settings"
       ? mayOpenSettings(can)
-      : // Production is a music project's, for the roles that see its sessions and takes.
-        item.id !== "sessions" || (current?.profile === "music" && can("view_takes")),
+      : // Production is a music project's, for the roles that see its sessions and takes or its
+        // production tools.
+        item.id !== "sessions" ||
+        (current?.profile === "music" && (can("view_takes") || can("view_production"))),
   );
+  // Production opens at its sessions, or at the repertoire for a role that sees no sessions.
+  const destinationOf = (item: (typeof projectSections)[number]) =>
+    item.id === "sessions" && !can("view_takes") ? "/projects/$projectId/repertoire" : item.to;
   const waitingAll = reviews?.filter((r) => r.yourTurn) ?? [];
   const waitingHere = current ? waitingAll.filter((r) => r.projectId === current.id) : waitingAll;
 
@@ -652,7 +657,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 {sectionsHere.map((item) => (
                   <Link
                     key={item.id}
-                    to={item.to}
+                    to={destinationOf(item)}
                     params={{ projectId: current.id }}
                     // The overview's address sits above every other section's.
                     activeOptions={{ exact: item.id === "" }}
@@ -796,7 +801,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 {sectionsHere.map((item) => (
                   <Link
                     key={item.id}
-                    to={item.to}
+                    to={destinationOf(item)}
                     params={{ projectId: current.id }}
                     activeOptions={{ exact: item.id === "" }}
                     aria-current={

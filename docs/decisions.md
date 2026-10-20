@@ -1010,3 +1010,13 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 
 - **Who.** A performer or an ensemble block on a stage plan may stand for someone on the project's personnel: a performer for an artist, staff or other, a block for an ensemble. It is then labelled with their name, so renaming them in personnel renames them on the plan and in its PDF. Only this project's personnel is accepted; taking someone off the personnel leaves the item, unlinked.
 - **Sized from the head-count.** Linking a block to an ensemble sizes it in the same step from its players (a metre across and 1.2 m deep each, in rows a little wider than deep: `ensembleBlock` in packages/shared). *Size from the head-count* does it again after the ensemble grows or shrinks; the block may be resized by hand as before.
+
+## 172. Repertoire and venues
+
+#48, first part. The repertoire and venues are in Production, first and last of its sections, as the prototype has them; the sections scroll sideways on a phone rather than wrapping.
+
+- **Works.** A title, composer, forces, the abbreviation a schedule shows, notes, and the work's tracks in order, each numbered as the score prints it ("1", "I", "2a"; typed in place). A track is in one work at most; a single-track work is just one track. A work holds tracks; it never replaces them, so removing a work leaves its tracks, and removing a track takes it out of its work.
+- **Order.** Schedule order, or alphabetical by title past a leading article, numbers in order ("No. 2" before "No. 10"). Until the schedule exists (#50), schedule order is the order works were added.
+- **Venues.** A name (one per project), a multi-line address, and notes for the get-in.
+- **Who may.** Those who see the production tools see them; those who use them change them.
+- **Follows.** A work's score with each track's printed page range and the page offset (#48, second part); a stage plan for a venue, and the schedule's days at venues (#50).
