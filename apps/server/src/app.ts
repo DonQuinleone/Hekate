@@ -61,6 +61,7 @@ import { projectSessionRoutes, sessionRoutes } from "./routes/sessions.ts";
 import { setupRoutes } from "./routes/setup.ts";
 import { signInMethodRoutes } from "./routes/sign-in-methods.ts";
 import { ssoRoutes } from "./routes/sso.ts";
+import { projectStagePlanRoutes, stagePlanRoutes } from "./routes/stage-plans.ts";
 import { storageSettingsRoutes } from "./routes/storage-settings.ts";
 import { fileTagRoutes, tagRoutes } from "./routes/tags.ts";
 import { sharedTakeRoutes, takeRoutes, trackTakeRoutes } from "./routes/takes.ts";
@@ -253,6 +254,7 @@ export function createApi(deps: AppDeps) {
       .route("/projects", projectCategoryRoutes(deps.db))
       .route("/projects", projectScoreCategoryRoutes(deps.db))
       .route("/projects", projectPatchRoutes(deps.db))
+      .route("/projects", projectStagePlanRoutes(deps.db))
       .route("/projects", projectSessionRoutes(deps.db))
       .route("/projects", projectWorkflowRoutes(deps.db))
       .route("/projects", projectTemplateRoutes(deps.db))
@@ -288,6 +290,8 @@ export function createApi(deps: AppDeps) {
       .route("/stage-boxes", stageBoxRoutes(deps.db))
       .use("/patch-rows/*", ...member)
       .route("/patch-rows", patchRowRoutes(deps.db))
+      .use("/stage-plans/*", ...member)
+      .route("/stage-plans", stagePlanRoutes(deps.db))
       .use("/score-marks/*", ...member)
       .route("/score-marks", scoreMarkRoutes(deps.db))
       .use("/takes/*", ...member)

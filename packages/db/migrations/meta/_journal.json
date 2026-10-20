@@ -715,6 +715,13 @@
       "when": 1792495026474,
       "tag": "0101_patch_lists",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1792499778540,
+      "tag": "0102_stage_plans",
+      "breakpoints": true
     }
   ]
 }

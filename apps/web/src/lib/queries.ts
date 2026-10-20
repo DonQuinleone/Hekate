@@ -63,6 +63,7 @@ import {
   narrowed,
   type OperatorRow,
   type OverviewSection,
+  type PatchedChannel,
   type PatchRowChange,
   type PatchRowInput,
   type PlayerTool,
@@ -103,6 +104,10 @@ import {
   type SsoSettings,
   type SsoSettingsInput,
   type StageBox,
+  type StageEdit,
+  type StageItem,
+  type StagePlan,
+  type StagePlanInput,
   type StandingGrant,
   type StartTake,
   searchResponse,
@@ -2249,6 +2254,57 @@ export function usePatchList(projectId: string) {
       },
       onSettled: refresh,
     }),
+  };
+}
+
+/** A project's stage plans (#53), with the patch channels their items may link to. */
+export const stagePlansQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "stage-plans"],
+    queryFn: async () =>
+      json<{ plans: StagePlan[]; channels: PatchedChannel[] }>(
+        await api.projects[":id"]["stage-plans"].$get({ param: { id: projectId } }),
+      ),
+  });
+
+/** Adding, resizing and removing stage plans, and sending a step on one. */
+export function useStagePlans(projectId: string) {
+  const client = useQueryClient();
+  const key = stagePlansQuery(projectId).queryKey;
+  const refresh = () => void client.invalidateQueries({ queryKey: key });
+  return {
+    addPlan: useMutation({
+      mutationFn: async (input: StagePlanInput) =>
+        (
+          await json<{ plan: StagePlan }>(
+            await api.projects[":id"]["stage-plans"].$post({
+              param: { id: projectId },
+              json: input,
+            }),
+          )
+        ).plan,
+      onSettled: refresh,
+    }),
+    changePlan: useMutation({
+      mutationFn: async ({ id, ...change }: Partial<StagePlanInput> & { id: string }) =>
+        json(await api["stage-plans"][":id"].$patch({ param: { id }, json: change })),
+      onSettled: refresh,
+    }),
+    removePlan: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api["stage-plans"][":id"].$delete({ param: { id } });
+        if (!res.ok) await json(res);
+      },
+      onSettled: refresh,
+    }),
+    /** One step, as the editor already shows it: what the server holds after it. */
+    sendStep: async (planId: string, step: StageEdit): Promise<StageItem[]> =>
+      (
+        await json<{ items: StageItem[] }>(
+          await api["stage-plans"][":id"].edits.$post({ param: { id: planId }, json: step }),
+        )
+      ).items,
+    refresh,
   };
 }
 

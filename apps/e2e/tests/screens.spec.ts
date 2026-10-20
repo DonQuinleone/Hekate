@@ -585,6 +585,34 @@ test("settings-delivery-profile", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The stage plan (#53): the hall's stage with its performers and microphones, the microphones
+// labelled by the patch list, one picked out, and a marquee taking in a pair to align.
+test("stage-plan", async ({ page }) => {
+  await page.goto(`/projects/${seeded().musicProjectId}/stage`);
+  await settle(page, "main >> text=Spot piano L");
+  await page.getByRole("button", { name: /^Main L/ }).click();
+  await expect(page.getByRole("button", { name: "Patch" })).toHaveText(/Stage box A, in 1, Main L/);
+  await saveScreen(page, "stage-plan");
+  await checkScreen(page);
+
+  // A marquee around the room pair's left microphone and the label: two selected. On a phone
+  // the plan scrolls under the finger, so the marquee is a desktop gesture.
+  if (test.info().project.name === "phone") return;
+  const stage = page.locator("section[aria-label='The stage'] svg");
+  const box = await stage.boundingBox();
+  if (!box) throw new Error("No stage drawn");
+  const scale = Number(await stage.getAttribute("data-scale"));
+  const at = (x: number, y: number) => [box.x + 30 + x * scale, box.y + 20 + y * scale] as const;
+  await page.mouse.move(...at(1.5, 6.6));
+  await page.mouse.down();
+  await page.mouse.move(...at(7, 7.9), { steps: 5 });
+  await page.mouse.up();
+  await expect(page.getByText("2 items")).toBeVisible();
+  await page.getByRole("button", { name: "Align" }).click();
+  await saveScreen(page, "stage-plan-selection");
+  await checkScreen(page);
+});
+
 // The patch list (#54): the project's stage box with its inputs and outputs, and a channel
 // being changed.
 test("patch-list", async ({ page }) => {

@@ -902,6 +902,62 @@ export const patchRows = pgTable(
 );
 
 /**
+ * A stage plan (#53, docs/domain.md): a venue's stage drawn to scale, in metres, on a snapping
+ * grid. A project may hold several, one a venue or layout.
+ */
+export const stagePlans = pgTable(
+  "stage_plans",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: projectId(),
+    /** The venue, or the layout at it. */
+    name: text("name").notNull(),
+    width: doublePrecision("width").notNull(),
+    depth: doublePrecision("depth").notNull(),
+    grid: doublePrecision("grid").notNull().default(0.5),
+    position: integer("position").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [
+    index("stage_plans_project_idx").on(t.organisationId, t.projectId),
+    uniqueIndex("stage_plans_name_idx").on(t.projectId, t.name),
+    check("stage_plans_size", sql`${t.width} > 0 and ${t.depth} > 0 and ${t.grid} > 0`),
+  ],
+);
+
+/**
+ * Something on a stage plan, in metres from the stage's back-left corner. The kind is an open
+ * set (`stageKinds` in packages/shared lists the ones offered). A microphone, stage box or cable
+ * may be linked to a patch list channel, whose source it is then labelled with.
+ */
+export const stageItems = pgTable(
+  "stage_items",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    stagePlanId: uuid("stage_plan_id")
+      .notNull()
+      .references(() => stagePlans.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    label: text("label").notNull().default(""),
+    x: doublePrecision("x").notNull(),
+    y: doublePrecision("y").notNull(),
+    w: doublePrecision("w").notNull(),
+    h: doublePrecision("h").notNull(),
+    rotation: doublePrecision("rotation").notNull().default(0),
+    patchRowId: uuid("patch_row_id").references(() => patchRows.id, { onDelete: "set null" }),
+    /** A label group: the labels of a group are shown or hidden together. */
+    group: text("label_group").notNull().default(""),
+    ...timestamps,
+  },
+  (t) => [
+    index("stage_items_plan_idx").on(t.organisationId, t.stagePlanId),
+    index("stage_items_patch_idx").on(t.patchRowId),
+  ],
+);
+
+/**
  * What changed on a take, a field at a time (#51), so the take log can be written offline and
  * synced later: two people changing different fields both stand; the same field, the later write
  * stands and the value it replaced stays here, flagged when it was someone else's.

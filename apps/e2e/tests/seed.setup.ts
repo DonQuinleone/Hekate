@@ -440,6 +440,7 @@ setup("seed", async ({ page, browser }) => {
   ])
     await api(page, "POST", `/api/tracks/${track.id}/score-marks`, mark);
   // The patch list (#54): one stage box, as the prototype has it.
+  const patched: Record<string, string> = {};
   const { box } = await api<{ box: { id: string } }>(
     page,
     "POST",
@@ -467,8 +468,55 @@ setup("seed", async ({ page, browser }) => {
       notes: "To the piano",
     },
     { direction: "output", source: "Cue mix", device: "Headphone amp", cable: "B2" },
-  ])
-    await api(page, "POST", `/api/stage-boxes/${box.id}/rows`, row);
+  ]) {
+    const { row: made } = await api<{ row: { id: string } }>(
+      page,
+      "POST",
+      `/api/stage-boxes/${box.id}/rows`,
+      row,
+    );
+    patched[row.source] = made.id;
+  }
+  // The stage plan (#53), as the prototype draws it: its microphones on the patch above.
+  const { plan } = await api<{ plan: { id: string } }>(
+    page,
+    "POST",
+    `/api/projects/${music.id}/stage-plans`,
+    { name: "Endless Hall", width: 12, depth: 8 },
+  );
+  // Time-ordered ids, as the app makes them, so the plan draws in the order things were put down.
+  const itemId = (n: number) =>
+    `${(Date.now() + n)
+      .toString(16)
+      .padStart(12, "0")
+      .replace(/^(.{8})(.{4})$/, "$1-$2")}-7000-8000-${n.toString(16).padStart(12, "0")}`;
+  const mic = (n: number, source: string, x: number, y: number, group: string) => ({
+    id: itemId(n),
+    kind: "mic",
+    x,
+    y,
+    w: 0.3,
+    h: 0.3,
+    patchRowId: patched[source],
+    group,
+  });
+  await api(page, "POST", `/api/stage-plans/${plan.id}/edits`, {
+    add: [
+      { id: itemId(1), kind: "wall", label: "Rear wall", x: 0, y: 0, w: 12, h: 0.2 },
+      { id: itemId(2), kind: "riser", label: "Riser", x: 7.2, y: 1.8, w: 2.4, h: 2.4 },
+      { id: itemId(3), kind: "piano", label: "Piano", x: 4.5, y: 2, w: 2.7, h: 1.6, rotation: -20 },
+      { id: itemId(4), kind: "performer", label: "Piano", x: 4.4, y: 4, w: 0.6, h: 0.6 },
+      { id: itemId(5), kind: "performer", label: "Violin", x: 7.8, y: 3.4, w: 0.6, h: 0.6 },
+      { id: itemId(6), kind: "performer", label: "Cello", x: 8.8, y: 2.6, w: 0.6, h: 0.6 },
+      mic(7, "Main L", 5.2, 5.6, "Main pair"),
+      mic(8, "Main R", 6.8, 5.6, "Main pair"),
+      mic(9, "Spot piano L", 4.8, 1.6, "Piano spots"),
+      mic(10, "Spot piano R", 6.6, 1.4, "Piano spots"),
+      mic(11, "Room L", 2, 7, "Room pair"),
+      mic(12, "Room R", 10, 7, "Room pair"),
+      { id: itemId(13), kind: "label", label: "Audience", x: 5.2, y: 7.4, w: 1.6, h: 0.4 },
+    ],
+  });
   // V2's edit decision list, given after it was made (#56): takes 2, 3 and 4, and a
   // pick-up recorded apart, which is no take of the track.
   const edlPath = file("Maple Leaf Rag - V2.edl");

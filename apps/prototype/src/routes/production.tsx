@@ -1355,13 +1355,20 @@ function StagePlan() {
     <div className="flex flex-col gap-3 @3xl/app:flex-row">
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         <div className="flex flex-wrap items-center gap-1.5">
-          {(["performer", "ensemble", "mic", "instrument", "riser", "wall", "label"] as const).map(
-            (k) => (
-              <Button key={k} variant="secondary" size="sm" className="capitalize">
-                {k}
-              </Button>
-            ),
-          )}
+          <Dropdown
+            value="Endless Hall"
+            actions={[
+              { label: "Endless Hall", onSelect: () => {} },
+              { label: "Studio 2", onSelect: () => {} },
+              "divider",
+              { label: "New stage plan", onSelect: () => {} },
+              { label: "Size and grid", onSelect: () => {} },
+              { label: "Remove this plan", danger: true, onSelect: () => {} },
+            ]}
+          />
+          <span className="tabular text-[12px] text-ink-3">
+            {stagePlan.width} × {stagePlan.height} m
+          </span>
           <span className="ml-auto flex items-center gap-2 text-[12px] text-ink-3">
             <span className="flex items-center gap-1.5">
               snap
@@ -1379,6 +1386,30 @@ function StagePlan() {
                 { label: "A4", onSelect: () => {} },
               ]}
             />
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {["Performer", "Ensemble", "Mic", "Piano", "Instrument", "Riser", "Wall", "Label"].map(
+            (k) => (
+              <Button key={k} variant="secondary" size="sm">
+                {k}
+              </Button>
+            ),
+          )}
+          <Dropdown
+            value="More"
+            actions={["Timpani", "Stage box", "Cable run", "Box", "Ellipse"].map((k) => ({
+              label: k,
+              onSelect: () => {},
+            }))}
+          />
+          <span className="ml-auto flex items-center gap-1">
+            <Button variant="ghost" size="sm">
+              Undo
+            </Button>
+            <Button variant="ghost" size="sm" disabled>
+              Redo
+            </Button>
           </span>
         </div>
         <div className="scroll-quiet overflow-auto rounded-panel-lg border border-line bg-sunken p-4">
@@ -1569,6 +1600,26 @@ function StagePlan() {
             </p>
           )}
         </section>
+        {items.length > 0 && (
+          <section className="rounded-panel-lg border border-line bg-raised/25 p-3">
+            <Label>On the stage · {items.length}</Label>
+            <ul className="mt-2 flex max-h-[240px] flex-col overflow-auto">
+              {[...items].reverse().map((i) => (
+                <li key={i.id}>
+                  <button
+                    type="button"
+                    aria-pressed={selected === i.id}
+                    onClick={() => setSelected(i.id)}
+                    className="flex min-h-7 w-full items-center gap-2 rounded-panel px-2 text-left text-[13px] text-ink-2 hover:bg-raised aria-pressed:bg-raised aria-pressed:text-ink"
+                  >
+                    <span className="min-w-0 flex-1 truncate">{i.label}</span>
+                    <span className="shrink-0 text-[12px] text-ink-3 capitalize">{i.kind}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         <section className="rounded-panel-lg border border-line bg-raised/25 p-3">
           <Label>Label groups</Label>
           <ul className="mt-2 flex flex-col gap-1 text-[13px] text-ink-2">

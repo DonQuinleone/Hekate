@@ -67,6 +67,7 @@ import { ReviewPage } from "~/routes/review";
 import { ScoreMarkingPage } from "~/routes/score-marking";
 import { SearchPage } from "~/routes/search";
 import { SessionPage, SessionsPage } from "~/routes/sessions";
+import { StagePlanPage } from "~/routes/stage-plan";
 import { TakeLogPage } from "~/routes/take-log";
 import { TasksPage } from "~/routes/tasks";
 import { TrackPage } from "~/routes/track";
@@ -532,6 +533,15 @@ const projectScoreMarking = createRoute({
     return <ScoreMarkingPage projectId={projectId} trackId={track} />;
   },
 });
+// Stage plans (#53): a venue's stage to scale and what stands on it, in Production.
+const projectStage = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/stage",
+  component: function ProjectStageRoute() {
+    const { projectId } = projectStage.useParams();
+    return <StagePlanPage projectId={projectId} />;
+  },
+});
 // The patch list (#54): the project's stage boxes and their channels, in Production.
 const projectPatch = createRoute({
   getParentRoute: () => app,
@@ -807,6 +817,7 @@ export const router = createRouter({
       projectTasks,
       projectSessions,
       projectScoreMarking,
+      projectStage,
       projectPatch,
       session,
       takeLog,

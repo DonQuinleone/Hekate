@@ -958,3 +958,16 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **From the Export menu** on the patch list, as the prototype has it, for those who see the production tools; made on the server each time, sent `no-store`, and named after the project ("Joplin Rags patch list.pdf").
 - **The PDF** is A4 portrait in Helvetica, as an engineer prints it: the project and "Patch list" at the top of every page, each stage box's inputs and then its outputs as a table (channel, source, device, cable, notes), words cut with an ellipsis where a column ends, a long box carried over pages with its header repeated, and the page numbers at the foot.
 - **The workbook** has a sheet for each stage box (named as the box is, within what a workbook allows): a row for each channel, inputs then outputs, with the header row in bold and frozen and channel numbers as numbers. It is written here, as a zip of a few XML parts, rather than by a new dependency.
+
+## 167. Stage plans
+
+#53, first part. Stage plans are in Production between score marking and the patch list, as the prototype has them: a venue's stage drawn to scale in metres on a snapping grid, and what stands on it.
+
+- **Plans.** A project may hold several, one a venue or layout, each named, with its width, depth and grid. No two in a project share a name. A venue's own record (#48) can be linked once venues exist.
+- **Items.** Performers, ensemble blocks, microphones, pianos, timpani, instruments, risers, stage boxes, cable runs, walls, labels and plain shapes. The set is open: a kind the toolbar does not offer is drawn as a box. Positions run from the stage's back-left corner; round kinds sit on their centre, a cable runs from its point by its width and depth.
+- **Steps and undo.** Every edit is one step (what it adds, changes and removes), sent and stored all at once, so moving or aligning a selection is one undo. Undo and redo are the editor's own: it sends the inverse step. Items are named by the client (UUIDv7), so an undone removal puts the same item back, and a step sent twice adds once.
+- **Editing.** Drag to move (the pressed item lands on the grid, the rest keep their places to it), drag on the stage for a marquee, Shift to add to a selection, arrow keys to nudge, align to edges or centres, centre on the stage, duplicate, remove. A list of what is on the stage, as Figma lists layers, reaches every item by keyboard however close they stand.
+- **Patch.** A microphone, stage box or cable run may be linked to one of the project's patch channels. Its label is then the channel's source, so renaming it in the patch list renames it on the plan; unpatching the channel leaves the item unlinked.
+- **Label groups.** Items given a group show or hide their labels together.
+- **Who may.** Those who see the production tools see the plans; those who use them change them.
+- **Follows.** The vector PDF export (A3 or A4 landscape, rulers and scale bar), the floor-plan underlay, and ensemble blocks sized from personnel (#49).

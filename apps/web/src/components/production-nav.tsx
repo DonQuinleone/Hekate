@@ -15,6 +15,12 @@ const sections = [
     needs: "view_production",
   },
   {
+    id: "stage",
+    label: "Stage plan",
+    to: "/projects/$projectId/stage",
+    needs: "view_production",
+  },
+  {
     id: "patch",
     label: "Patch list",
     to: "/projects/$projectId/patch",
