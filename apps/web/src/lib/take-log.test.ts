@@ -7,8 +7,8 @@ import {
   logOrder,
   nextTrack,
   rolled,
-  slotLeft,
   slotMoment,
+  slotStatus,
   slotTime,
 } from "./take-log";
 
@@ -61,11 +61,21 @@ describe("the take log's reckoning (#51)", () => {
     expect(rolled({ wallIn: null, wallOut: null }, start)).toBe(0);
   });
 
-  it("counts the slot down to its end, and not past it", () => {
-    const now = Date.parse("2026-10-14T15:12:00Z");
-    expect(slotLeft({ slotEnd: "2026-10-14T16:00:00Z" }, now)).toBe(48 * 60);
-    expect(slotLeft({ slotEnd: "2026-10-14T15:00:00Z" }, now)).toBe(0);
-    expect(slotLeft({ slotEnd: null }, now)).toBeNull();
+  it("colours the session clock by what is left of the slot, and says when it is over", () => {
+    const now = Date.parse("2026-10-14T15:52:00Z");
+    expect(slotStatus({ slotEnd: "2026-10-14T17:00:00Z" }, now)).toEqual({
+      kind: "plenty",
+      left: 68 * 60,
+    });
+    expect(slotStatus({ slotEnd: "2026-10-14T16:00:00Z" }, now)).toEqual({
+      kind: "short",
+      left: 8 * 60,
+    });
+    expect(slotStatus({ slotEnd: "2026-10-14T15:45:30Z" }, now)).toEqual({
+      kind: "over",
+      over: 6 * 60 + 30,
+    });
+    expect(slotStatus({ slotEnd: null }, now)).toBeNull();
   });
 
   it("writes a clock as people read one", () => {

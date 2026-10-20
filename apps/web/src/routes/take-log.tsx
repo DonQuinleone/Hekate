@@ -13,6 +13,7 @@ import { Icon } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { PageHeader } from "~/components/page-header";
 import { openShortcutMap } from "~/components/shortcut-map";
+import { TakeOverview } from "~/components/take-overview";
 import { Rating } from "~/components/takes";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/choice";
@@ -32,8 +33,7 @@ import {
   logOrder,
   nextTrack,
   rolled,
-  SLOT_WARNING,
-  slotLeft,
+  slotStatus,
 } from "~/lib/take-log";
 
 type View = "engineer" | "producer" | "logger";
@@ -105,6 +105,8 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
   /** The recorder's number for the next take, in a session the recorder numbers. */
   const [recorderNumber, setRecorderNumber] = useState("");
   const noteField = useRef<HTMLInputElement>(null);
+  /** The log in large print, for the far side of the room. */
+  const [large, setLarge] = useState(false);
 
   const rows = session ? logOrder(session.takeRows) : [];
   const current = liveTake(rows);
@@ -202,13 +204,16 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
     ],
     canLog,
   );
+  useShortcuts("take-log-view", "Take log", [
+    { keys: ["l"], label: "Large print, or back", run: () => setLarge((on) => !on) },
+  ]);
 
   if (error && !session) return <p className="p-8 text-signal">{error.message}</p>;
   if (!session || !project) return <p className="p-8 text-ink-3">Loading</p>;
 
   const recording = current?.lifecycle === "recording";
   const armed = current?.lifecycle === "armed";
-  const left = slotLeft(session, now);
+  const slotNow = slotStatus(session, now);
   const slot =
     session.slotStart && session.slotEnd
       ? `${timeOfDay.format(new Date(session.slotStart))}–${timeOfDay.format(new Date(session.slotEnd))}`
@@ -240,6 +245,9 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
         title="Take log"
         actions={
           <>
+            <Button variant="ghost" size="sm" onClick={() => setLarge(true)}>
+              Large print
+            </Button>
             <Button variant="ghost" size="sm" onClick={exportCsv} disabled={rows.length === 0}>
               <Icon name="download" size={14} />
               CSV
@@ -370,15 +378,19 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
                   </label>
                 )}
                 <div className="ml-auto flex flex-col items-end">
-                  {left !== null && (
+                  {slotNow && (
                     <span
                       className={cn(
                         "tabular text-[22px] leading-7",
-                        left < SLOT_WARNING ? "text-signal" : "text-ink",
+                        slotNow.kind === "plenty" ? "text-ink" : "text-signal",
                       )}
                     >
-                      {clock(left)}
-                      <span className="text-[13px] text-ink-3"> to slot end</span>
+                      {slotNow.kind === "over"
+                        ? `${clock(slotNow.over)} over`
+                        : clock(slotNow.left)}
+                      <span className="text-[13px] text-ink-3">
+                        {slotNow.kind === "over" ? " the slot" : " to slot end"}
+                      </span>
                     </span>
                   )}
                   <span className="text-[12px] text-ink-3">
@@ -567,6 +579,19 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
           </div>
         )}
       </div>
+      {large && (
+        <TakeOverview
+          session={session.name}
+          track={trackName(current?.track.id ?? trackId)}
+          number={current?.number ?? ((recorded ? recorderValue : next) || null)}
+          live={recording ? "recording" : armed ? "armed" : null}
+          seconds={current ? rolled(current, now) : 0}
+          slot={slotNow}
+          wallClock={timeOfDay.format(new Date(now))}
+          last={rows.filter((t) => t.id !== current?.id).at(-1) ?? null}
+          onClose={() => setLarge(false)}
+        />
+      )}
     </>
   );
 }

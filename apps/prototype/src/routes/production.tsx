@@ -551,6 +551,7 @@ function TakeLog() {
   const [help, setHelp] = useState(false);
   const [tone, setTone] = useState<number | null>(null);
   const [metronome, setMetronome] = useState(false);
+  const [large, setLarge] = useState(false);
   const state = useScreenState();
   const offline = state === "failed";
   const synced = state !== "processing";
@@ -598,6 +599,7 @@ function TakeLog() {
         e.preventDefault();
         start();
       } else if (e.key === "?") setHelp((h) => !h);
+      else if (e.key === "l") setLarge((on) => !on);
       else if (e.key === "a") setArmed((a) => !a);
       else if (e.key === "f")
         setList((l) =>
@@ -656,6 +658,13 @@ function TakeLog() {
             <Dot state={synced ? "approved" : "invited"} />
             {synced ? "Synced to the recorder" : "Recorder not connected"}
           </span>
+          <button
+            type="button"
+            onClick={() => setLarge(true)}
+            className="h-7 rounded-control px-2 text-[13px] text-ink-2 hover:bg-raised hover:text-ink"
+          >
+            Large print
+          </button>
           <Dropdown
             value="Export"
             align="right"
@@ -933,6 +942,62 @@ function TakeLog() {
           </div>
         </aside>
       </div>
+      {large && (
+        // The take log in large print, for the far side of the room; the keys still work.
+        <section
+          aria-label="Take log in large print"
+          className={cn(
+            "fixed inset-0 z-50 flex flex-col gap-6 p-10",
+            recording
+              ? "bg-[color-mix(in_srgb,var(--color-signal)_7%,var(--color-ground))]"
+              : "bg-ground",
+          )}
+        >
+          <header className="flex items-start gap-4">
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span className="text-[32px] leading-[1.25] text-ink">Maple Leaf Rag</span>
+              <span className="text-[20px] leading-[1.4] text-ink-3">Day 2</span>
+            </div>
+            <span className="tabular text-[32px] leading-[1.25] text-ink-2">15:12</span>
+            <button
+              type="button"
+              onClick={() => setLarge(false)}
+              className="flex h-7 items-center gap-2 rounded-control px-2 text-[13px] text-ink-2 hover:bg-raised"
+            >
+              Close <Kbd>L</Kbd>
+            </button>
+          </header>
+          <div className="flex flex-1 flex-col items-center justify-center gap-2">
+            <span
+              className={cn(
+                "tabular text-[clamp(96px,22vmin,320px)] font-medium leading-[1.2] tracking-tight",
+                recording ? "text-signal" : "text-ink",
+              )}
+            >
+              T{recording ? current?.number : nextNumber}
+            </span>
+            <span className="flex items-center gap-4 text-[clamp(28px,6vmin,72px)] leading-[1.2] text-ink-2">
+              {recording && <span className="breathe size-[0.4em] rounded-full bg-signal" />}
+              {recording ? "Recording" : armed ? "Armed" : "Next take"}
+              {recording && <span className="tabular text-ink">{fmt(clock)}</span>}
+            </span>
+          </div>
+          <footer className="flex items-end gap-8">
+            <span className="flex-1 text-[24px] leading-[1.4] text-ink-2">
+              Last, T{(recording ? list.at(-2) : current)?.number}
+            </span>
+            <span
+              className={cn(
+                "tabular text-[64px] leading-[1.15]",
+                left < 10 ? "text-signal" : "text-ink",
+              )}
+            >
+              {fmt((Math.max(0, left * 60) / 60) | 0)}
+              <span className="text-[0.4em] text-ink-3"> to slot end</span>
+            </span>
+          </footer>
+        </section>
+      )}
       {help && (
         <Dialog title="Keys" onClose={() => setHelp(false)} width="sm">
           <ul className="flex flex-col gap-1.5 text-[14px]">
@@ -944,6 +1009,7 @@ function TakeLog() {
               ["1 to 5", "Rate the last take"],
               ["S", "Star the last take"],
               ["N", "Note on the last take"],
+              ["L", "Large print, or back"],
               ["?", "This map"],
             ].map(([k, what]) => (
               <li key={String(k)} className="flex items-center gap-3">

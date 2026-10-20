@@ -831,3 +831,12 @@ The engineer's patch list waits for patch lists (#54); tone, metronome and the r
 - **Steady under load.** Beats the scheduler missed (a busy page, a tab in the background) are skipped rather than played late, so the click never bursts and stays on the beat.
 
 The recorder's numbers and timecode wait for the session tools; local-first writes and the large-print overview follow.
+
+## 153. The take log in large print
+
+#51, fifth part. The take log has a large-print view for the far side of the room: the musicians on the floor, a producer across the desk. The prototype draws it too.
+
+- **What it shows.** The take very large: the one rolling or armed, else the next. Under it, its state and, while it rolls, its running time. Above, the track and the session, and the wall clock. Below, the last take logged (rating, star, note) and the session clock.
+- **The session clock by colour.** Plenty of the slot left reads plainly; under ten minutes, in the signal colour; past the end, still in the signal colour, it says by how much the slot is over, rather than standing at 0:00. The take log's own countdown does the same.
+- **Keys still work.** The view covers the page without taking its keys, so Space starts and stops takes, and the rating keys rate, while it shows. L opens and closes it, as does the button in the take log's header.
+- **Full screen.** Where the browser allows, it fills the screen; leaving full screen (Escape) closes it.
