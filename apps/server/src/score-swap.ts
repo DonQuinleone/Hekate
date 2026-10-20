@@ -138,9 +138,16 @@ async function rehome(
     moved++;
   }
 
-  // A take sits on one page of the score, the page its first bar is on.
+  // A take runs from the page its first bar is on to the page its last bar is on: each end
+  // follows its own bar, and the last never comes before the first.
   const placed = await tx
-    .select({ id: takes.id, page: takes.page, barFrom: takes.barFrom })
+    .select({
+      id: takes.id,
+      page: takes.page,
+      pageTo: takes.pageTo,
+      barFrom: takes.barFrom,
+      barTo: takes.barTo,
+    })
     .from(takes)
     .where(inOrg(takes, organisationId, and(eq(takes.trackId, trackId), isNotNull(takes.page))))
     .for("update");
@@ -148,22 +155,37 @@ async function rehome(
   const now = new Date();
   for (const t of placed) {
     if (t.barFrom == null || t.page == null) continue;
-    const place = movedToBar(old, engraved, t.barFrom, { page: t.page, y: 0 });
-    if (!place || place.page === t.page) continue;
+    const first = movedToBar(old, engraved, t.barFrom, { page: t.page, y: 0 });
+    if (!first) continue;
+    const last =
+      t.pageTo == null
+        ? null
+        : Math.max(
+            first.page,
+            movedToBar(old, engraved, t.barTo ?? t.barFrom, { page: t.pageTo, y: 0 })?.page ??
+              t.pageTo,
+          );
+    const changes = [
+      { field: "page", before: t.page, after: first.page },
+      { field: "pageTo", before: t.pageTo, after: last },
+    ].filter((c) => c.before !== c.after);
+    if (changes.length === 0) continue;
     await tx
       .update(takes)
-      .set({ page: place.page, updatedAt: now })
+      .set({ page: first.page, pageTo: last, updatedAt: now })
       .where(inOrg(takes, organisationId, eq(takes.id, t.id)));
     // In the take's history as whoever swapped the score, as any change to it is.
-    await tx.insert(takeChanges).values({
-      organisationId,
-      takeId: t.id,
-      field: "page",
-      before: t.page,
-      after: place.page,
-      changedById: by,
-      writtenAt: now,
-    });
+    await tx.insert(takeChanges).values(
+      changes.map((c) => ({
+        organisationId,
+        takeId: t.id,
+        field: c.field,
+        before: c.before,
+        after: c.after,
+        changedById: by,
+        writtenAt: now,
+      })),
+    );
     movedTakes++;
   }
   return { marks: moved, takes: movedTakes, stayed: marks.length - moved };
