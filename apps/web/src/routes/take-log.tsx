@@ -5,7 +5,7 @@ import {
   takeLifecycleNames,
   takeLogCsv,
 } from "@hekate/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { Empty } from "~/components/empty";
@@ -584,7 +584,7 @@ function SharedText({
 }: {
   label: string;
   value: string | null;
-  onSave: (text: string | null) => void;
+  onSave: (text: string | null) => Promise<unknown>;
   disabled: boolean;
   rows?: number;
   maxLength: number;
@@ -592,10 +592,28 @@ function SharedText({
 }) {
   const [text, setText] = useState(value ?? "");
   const [dirty, setDirty] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const latest = useRef(text);
+  latest.current = text;
   useEffect(() => {
     if (!dirty) setText(value ?? "");
   }, [value, dirty]);
   const id = useId();
+  // The draft stays until the server has it: a failed save keeps it, and says so.
+  const save = () => {
+    const sent = text.trim();
+    if (sent === (value ?? "")) {
+      setDirty(false);
+      return;
+    }
+    setFailed(false);
+    onSave(sent || null).then(
+      () => {
+        if (latest.current.trim() === sent) setDirty(false);
+      },
+      () => setFailed(true),
+    );
+  };
   return (
     <section aria-labelledby={id} className="flex flex-col gap-2">
       <h2 id={id} className="label m-0">
@@ -613,11 +631,18 @@ function SharedText({
           setDirty(true);
         }}
         onBlur={() => {
-          setDirty(false);
-          if (text.trim() !== (value ?? "")) onSave(text.trim() || null);
+          if (dirty) save();
         }}
         className="text-[13px]"
       />
+      {failed && (
+        <p role="alert" className="m-0 flex items-center gap-2 text-[13px] text-signal">
+          Not saved.
+          <Button variant="quiet" size="sm" onClick={save}>
+            Try again
+          </Button>
+        </p>
+      )}
     </section>
   );
 }
@@ -632,9 +657,14 @@ function ScorePage({
   page: number;
   title: string;
 }) {
+  const client = useQueryClient();
   const { data } = useQuery({ ...viewQuery(scoreFileId), retry: false });
-  const shown = data?.pages.find((p) => p.page === page) ?? data?.pages[0];
+  // Only the page asked for: another page under this heading would send the room to the wrong bars.
+  const shown = data?.pages.find((p) => p.page === page);
   if (!shown) return null;
+  // Links lapse after a few hours: when one fails, ask for fresh ones.
+  const refresh = () =>
+    void client.invalidateQueries({ queryKey: viewQuery(scoreFileId).queryKey });
   return (
     <section aria-label="Score" className="flex flex-col gap-2">
       <h2 className="label m-0">{title}</h2>
@@ -643,6 +673,7 @@ function ScorePage({
         alt={`Page ${shown.page} of the score`}
         width={shown.width}
         height={shown.height}
+        onError={refresh}
         className="h-auto w-full rounded-[4px] bg-ground"
       />
     </section>
@@ -749,7 +780,7 @@ function TakeLogAside({
             rows={2}
             maxLength={2000}
             placeholder="Trio from bar 65; coda at 89"
-            onSave={(reference) => notes.mutate({ reference })}
+            onSave={(reference) => notes.mutateAsync({ reference })}
           />
         </>
       )}
@@ -759,7 +790,7 @@ function TakeLogAside({
         disabled={!canLog}
         maxLength={4000}
         placeholder="Piano a touch bright after lunch"
-        onSave={(text) => notes.mutate({ notes: text })}
+        onSave={(text) => notes.mutateAsync({ notes: text })}
       />
     </aside>
   );
