@@ -398,6 +398,7 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
           mediaInfo: files.mediaInfo,
           streamStatus: files.streamStatus,
           analysisStatus: files.analysisStatus,
+          pageCount: files.pageCount,
           uploadedBy: users.name,
           uploadedById: users.id,
           createdAt: files.createdAt,

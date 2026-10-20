@@ -19,7 +19,7 @@ import { stagePlanPage } from "../stage-pdf.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { attachment } from "./comments.ts";
 
-const { files, patchRows, projects, stageBoxes, stageItems, stagePlans } = schema;
+const { filePages, files, patchRows, projects, stageBoxes, stageItems, stagePlans } = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
@@ -310,6 +310,22 @@ export const stagePlanRoutes = (db: Database) =>
             if (!file)
               throw new HTTPException(400, {
                 message: "A floor plan is a document or picture in this project",
+              });
+            // A page the server has drawn, so there is something to lay under the stage.
+            const [drawn] = await tx
+              .select({ page: filePages.page })
+              .from(filePages)
+              .where(
+                inOrg(
+                  filePages,
+                  organisationId,
+                  eq(filePages.fileId, underlay.fileId),
+                  eq(filePages.page, underlay.page),
+                ),
+              );
+            if (!drawn)
+              throw new HTTPException(400, {
+                message: `Page ${underlay.page} of that file is not drawn yet`,
               });
           }
           const [updated] = await tx

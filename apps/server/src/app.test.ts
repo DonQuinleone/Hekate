@@ -10156,6 +10156,17 @@ describe.runIf(url)("api", () => {
             return row?.id ?? "";
           };
           const floor = await stored("document", s.projectId, project?.organisationId ?? "");
+          // Page 1 is drawn; page 2 is not, yet.
+          const drawn = await storage.put(project?.organisationId ?? "", Buffer.from("page"));
+          await db.insert(schema.filePages).values({
+            organisationId: project?.organisationId ?? "",
+            fileId: floor,
+            page: 1,
+            width: 1600,
+            height: 1131,
+            blobId: drawn.id,
+            thumbBlobId: drawn.id,
+          });
           const sound = await stored("audio", s.projectId, project?.organisationId ?? "");
           const theirs = await stored("document", theirProject?.id ?? "", elsewhere?.id ?? "");
           const underlay = { fileId: floor, x: -1, y: -0.5, width: 14, opacity: 0.4 };
@@ -10165,6 +10176,11 @@ describe.runIf(url)("api", () => {
             ...underlay,
             page: 1,
           });
+          const undrawn = await send("PATCH", `/api/stage-plans/${plan.id}`, {
+            underlay: { ...underlay, page: 2 },
+          });
+          expect(undrawn.status).toBe(400);
+          expect(await undrawn.text()).toContain("Page 2 of that file is not drawn yet");
           for (const fileId of [sound, theirs])
             expect(
               (
