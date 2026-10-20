@@ -1,7 +1,8 @@
 /**
  * A PDF made of pictures, one a page, written as the pages come so that a long document is
  * never held at once (#136): how a marked document leaves as a download. Each page is a JPEG
- * drawn to fill it; nothing else is in the file (no text, no scripts, no metadata).
+ * drawn to fill it, with the score marks drawn over it where asked (#52); nothing else is in
+ * the file (no text layer, no scripts, no metadata).
  */
 
 export interface PdfPage {
@@ -12,7 +13,17 @@ export interface PdfPage {
   height: number;
   /** The page's size in points; a picture fills it. */
   points: { width: number; height: number };
+  /**
+   * Drawn over the picture: PDF drawing operators in the page's points, in ASCII, that may
+   * set text in /H (Helvetica) or /HO (Helvetica Oblique). See score-overlay.ts.
+   */
+  overlay?: string;
 }
+
+/** The standard fonts an overlay may use: every PDF reader has them, so none is embedded. */
+const FONTS =
+  "/Font << /H << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>" +
+  " /HO << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique /Encoding /WinAnsiEncoding >> >>";
 
 const CATALOG = 1;
 const PAGES = 2;
@@ -47,7 +58,9 @@ export async function* pdfOf(pages: AsyncIterable<PdfPage>): AsyncGenerator<Buff
   for await (const page of pages) {
     const image = firstObjectOf(count);
     const { width, height } = page.points;
-    const draw = `q ${num(width)} 0 0 ${num(height)} 0 0 cm /P Do Q`;
+    const draw =
+      `q ${num(width)} 0 0 ${num(height)} 0 0 cm /P Do Q` +
+      (page.overlay ? `\n${page.overlay}` : "");
     const picture = object(
       image,
       `<< /Type /XObject /Subtype /Image /Width ${page.width} /Height ${page.height}` +
@@ -60,7 +73,8 @@ export async function* pdfOf(pages: AsyncIterable<PdfPage>): AsyncGenerator<Buff
     yield object(
       image + 2,
       `<< /Type /Page /Parent ${PAGES} 0 R /MediaBox [0 0 ${num(width)} ${num(height)}]` +
-        ` /Resources << /XObject << /P ${image} 0 R >> >> /Contents ${image + 1} 0 R >>`,
+        ` /Resources << /XObject << /P ${image} 0 R >>${page.overlay ? ` ${FONTS}` : ""} >>` +
+        ` /Contents ${image + 1} 0 R >>`,
     );
     count++;
   }

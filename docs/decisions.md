@@ -898,3 +898,11 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Which take fixed it.** An issue marked on the score covers its bars, or the bar it was marked at. Asked for the takes of a bar (the thread's Other takes, or the track's takes filtered by bar), the take an issue there was fixed by comes first and says what it fixed ("Fixed Left hand rushes"). It is offered even when its own bars were never set, since the producer's mark says it holds the bar.
 - **Where it went wrong.** The takes an issue there occurred in say so, in the signal colour ("Left hand rushes here"), so nobody picks the one the producer marked down.
 - **Otherwise as before.** Starred takes, then by rating, then in order. A role that does not see the production tools sees the takes as before, without what the marks say.
+
+## 160. The annotated score is a download
+
+#52, fourth part: "exports: annotated score PDF".
+
+- **Through the download path.** The annotated score is the track's score as a document download, proxy or original, with the track's score marks drawn over its pages. It needs the download permission as any other, is watermarked for whoever asks, and is in the access log with the track it was drawn for (`scoreMarksOf`). Asking for it also needs the production tools (`view_production`), checked as the one-time link is made and again as it is used, and the file must be the track's score.
+- **Marks as vectors.** The marks are drawn in the PDF itself, over each page's picture, in vectors and the standard Helvetica: they print sharp at any size, and a PDF reader can find their words. The page beneath is unchanged, mark and all. Each kind looks as the score marking page shows it; on paper, the screen's blue and green print darker, and its paper colour prints as graphite.
+- **Every score at once follows.** One track's score at a time for now, from the score marking page's Export menu, as the prototype has it.

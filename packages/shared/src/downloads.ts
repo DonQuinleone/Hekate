@@ -12,7 +12,13 @@ export type DownloadLevel = (typeof downloadLevels)[number];
 export const downloadKinds = ["proxy", "original"] as const;
 export type DownloadKind = (typeof downloadKinds)[number];
 
-export const downloadInput = z.object({ kind: z.enum(downloadKinds) }).strict();
+export const downloadInput = z
+  .object({
+    kind: z.enum(downloadKinds),
+    /** For a track's score: the track whose score marks to draw over its pages (#52). */
+    marks: z.uuid().optional(),
+  })
+  .strict();
 export type DownloadInput = z.infer<typeof downloadInput>;
 
 const rank: Record<DownloadLevel, number> = { none: 0, proxy: 1, original: 2 };

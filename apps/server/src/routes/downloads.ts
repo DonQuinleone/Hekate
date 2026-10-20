@@ -10,11 +10,14 @@ import {
   DOWNLOAD_LINK_SECONDS,
   type DownloadKind,
   type DownloadLevel,
+  type DrawingColour,
   downloadInput,
   downloadLevelOf,
+  drawingColours,
   formatBytes,
   isPdf,
   type MediaInfo,
+  type ScoreMarkKind,
   type WatermarkSettings,
   watermarkOf,
   watermarkText,
@@ -25,7 +28,7 @@ import { asc, desc, eq, gt, isNotNull, isNull, lt } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { type Actor, fileAccess, guestReach } from "../access.ts";
+import { type Actor, can, fileAccess, guestReach } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
@@ -46,6 +49,7 @@ import {
   renderPdfPage,
 } from "../media/pages.ts";
 import { jpegSize, type PdfPage, pdfOf, pointsOf } from "../media/pdf.ts";
+import { scoreOverlay } from "../media/score-overlay.ts";
 import {
   extensionOf,
   type MarkedFormat,
@@ -68,6 +72,9 @@ const {
   projects,
   renditionSegments,
   renditions,
+  scoreMarkCategories,
+  scoreMarks,
+  tracks,
   users,
 } = schema;
 
@@ -333,6 +340,74 @@ interface Mark {
   text: string;
   style: Pick<WatermarkSettings, "position" | "opacity">;
   signal: AbortSignal;
+  /** For a score: the track's score marks to draw over a page, by its number (#52). */
+  overlay?: (page: number, points: PdfPage["points"]) => string;
+}
+
+/**
+ * The track a score is downloaded with its marks for (#52): one in this workspace whose score
+ * this file is, in a project where the asker may see the production tools.
+ */
+async function markedTrack(db: Database, actor: Actor, fileId: string, trackId: string) {
+  const [track] = await db
+    .select({ id: tracks.id, projectId: tracks.projectId, scoreFileId: tracks.scoreFileId })
+    .from(tracks)
+    .where(inOrg(tracks, actor.organisationId, eq(tracks.id, trackId)));
+  if (!track) throw new NotFound("Track");
+  await can(db, actor, "view_production", track.projectId);
+  if (track.scoreFileId !== fileId)
+    throw new HTTPException(422, { message: "That file is not the track's score" });
+  return track;
+}
+
+/** How a track's score marks are drawn over each page of its score. */
+async function overlayOf(
+  db: Database,
+  organisationId: string,
+  track: { id: string; projectId: string },
+) {
+  const marks = await db
+    .select()
+    .from(scoreMarks)
+    .where(inOrg(scoreMarks, organisationId, eq(scoreMarks.trackId, track.id)));
+  const categories = await db
+    .select({ id: scoreMarkCategories.id, colour: scoreMarkCategories.colour })
+    .from(scoreMarkCategories)
+    .where(
+      inOrg(
+        scoreMarkCategories,
+        organisationId,
+        eq(scoreMarkCategories.projectId, track.projectId),
+      ),
+    );
+  const colours = new Map(
+    categories.flatMap((c) =>
+      (drawingColours as readonly string[]).includes(c.colour)
+        ? [[c.id, c.colour as DrawingColour] as const]
+        : [],
+    ),
+  );
+  return (page: number, points: PdfPage["points"]) =>
+    scoreOverlay(
+      marks
+        .filter((m) => m.page === page)
+        .map((m) => ({
+          kind: m.kind as ScoreMarkKind,
+          x: m.x,
+          y: m.y,
+          width: m.width,
+          height: m.height,
+          points: m.points,
+          text: m.text,
+          categoryId: m.categoryId,
+          fixedBy: m.fixedBy,
+          resolved: m.resolvedAt != null,
+          from: m.fromTake,
+          to: m.toTake,
+        })),
+      (id) => (id ? colours.get(id) : undefined) ?? "signal",
+      points,
+    );
 }
 
 /** A document's pages as reviewed, each marked, ready to become a PDF's pages. */
@@ -343,7 +418,7 @@ async function* reviewedPages(
   mark: Mark,
 ): AsyncGenerator<PdfPage> {
   const pages = await deps.db
-    .select({ blobId: filePages.blobId })
+    .select({ page: filePages.page, blobId: filePages.blobId })
     .from(filePages)
     .where(inOrg(filePages, organisationId, eq(filePages.fileId, fileId)))
     .orderBy(asc(filePages.page));
@@ -359,7 +434,8 @@ async function* reviewedPages(
       deps.workDir,
     );
     const size = jpegSize(jpeg);
-    yield { jpeg, ...size, points: pointsOf(size.width, size.height) };
+    const points = pointsOf(size.width, size.height);
+    yield { jpeg, ...size, points, overlay: mark.overlay?.(page.page, points) };
   }
 }
 
@@ -397,7 +473,7 @@ function printPages(
       await renderPdfPage(path, i + 1, printDpi(points), png, mark.signal);
       await markPicture(png, jpg, { ...mark, demuxers: "png_pipe", format: "jpeg" });
       const jpeg = await readFile(jpg);
-      yield { jpeg, ...jpegSize(jpeg), points };
+      yield { jpeg, ...jpegSize(jpeg), points, overlay: mark.overlay?.(i + 1, points) };
     }
   });
 }
@@ -493,7 +569,7 @@ export const fileDownloadRoutes = (deps: DownloadDeps) =>
     })
     .post("/:id/downloads", fileParam, zValidator("json", downloadInput), async (c) => {
       const fileId = c.req.valid("param").id;
-      const { kind } = c.req.valid("json");
+      const { kind, marks } = c.req.valid("json");
       const actor = c.var.actor;
       const { level } = await levelFor(deps.db, actor, fileId);
       if (!allowsDownload(level, kind))
@@ -501,6 +577,7 @@ export const fileDownloadRoutes = (deps: DownloadDeps) =>
       const file = await fileOf(deps.db, c.var.organisationId, fileId);
       if (!(await choices(deps.db, c.var.organisationId, file))[kind].available)
         throw new HTTPException(422, { message: "That download is not offered for this file" });
+      if (marks !== undefined) await markedTrack(deps.db, actor, fileId, marks);
       const who = actor.kind === "guest" ? `guest:${actor.guestId}` : `member:${actor.userId}`;
       const { allowed, retryAfter } = await admit(deps.db, `download:${who}`, {
         max: PER_HOUR,
@@ -512,6 +589,7 @@ export const fileDownloadRoutes = (deps: DownloadDeps) =>
         organisationId: c.var.organisationId,
         fileId,
         kind,
+        trackId: marks ?? null,
         tokenHash: hashOf(token),
         sessionId: c.var.sessionId,
         userId: actor.kind === "guest" ? null : actor.userId,
@@ -564,6 +642,10 @@ export const downloadRoutes = (deps: DownloadDeps) =>
       if (!allowsDownload(level, kind))
         throw new HTTPException(403, { message: "Your access to this file does not allow that" });
       const file = await fileOf(deps.db, organisationId, ticket.fileId);
+      // Asked with the score marks: still the track's score, still theirs to see.
+      const track = ticket.trackId
+        ? await markedTrack(deps.db, actor, file.id, ticket.trackId)
+        : null;
       // No record, no download.
       await deps.audit.record(
         organisationId,
@@ -573,7 +655,7 @@ export const downloadRoutes = (deps: DownloadDeps) =>
           projectId: file.projectId,
           fileId: file.id,
           reviewId: (await grantingReview(deps.db, actor, file.id, kind)) ?? undefined,
-          details: { kind },
+          details: track ? { kind, scoreMarksOf: track.id } : { kind },
         },
         requestInfo(c, deps.trustProxy),
       );
@@ -613,6 +695,7 @@ export const downloadRoutes = (deps: DownloadDeps) =>
         text: watermarkText(who, who.organisation, new Date()),
         style: watermarkOf(project?.watermark),
         signal: c.req.raw.signal,
+        overlay: track ? await overlayOf(deps.db, organisationId, track) : undefined,
       };
       if (file.kind === "video") {
         const stream = await primed(markedVideo(deps, organisationId, file, kind, mark));
@@ -637,7 +720,9 @@ export const downloadRoutes = (deps: DownloadDeps) =>
           headers: {
             ...PRIVATE,
             "content-type": "application/pdf",
-            "content-disposition": attachment(`${stem(file.name)}.pdf`),
+            "content-disposition": attachment(
+              `${stem(file.name)}${track ? " (annotated)" : ""}.pdf`,
+            ),
           },
         });
       }

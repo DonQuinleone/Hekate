@@ -1710,6 +1710,8 @@ export const downloadTickets = pgTable(
     attachmentId: uuid("attachment_id").references(() => commentAttachments.id, {
       onDelete: "cascade",
     }),
+    /** For a score: the track whose score marks are drawn over it (#52). */
+    trackId: uuid("track_id").references(() => tracks.id, { onDelete: "cascade" }),
     tokenHash: text("token_hash").notNull(),
     /** The member's sign-in or the guest's session that asked; no other may use it. */
     sessionId: text("session_id").notNull(),
