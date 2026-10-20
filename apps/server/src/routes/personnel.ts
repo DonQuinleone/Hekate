@@ -6,7 +6,7 @@ import {
   personnelInput,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, asc, eq, inArray, max } from "drizzle-orm";
+import { and, asc, eq, inArray, max, ne } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -24,6 +24,7 @@ const {
   reviewReviewers,
   reviews,
   sectionMembers,
+  stageItems,
   users,
 } = schema;
 
@@ -299,6 +300,19 @@ export const personnelRoutes = (db: Database) =>
           .set({ ...fields, ...linked, updatedAt: new Date() })
           .where(inOrg(personnel, organisationId, eq(personnel.id, entry.id)));
         await writeSections(tx, organisationId, entry.id, sections);
+        // On a stage plan they now stand only where their kind can (#53): an ensemble in a
+        // block, anyone else as a performer.
+        await tx
+          .update(stageItems)
+          .set({ personnelId: null, updatedAt: new Date() })
+          .where(
+            inOrg(
+              stageItems,
+              organisationId,
+              eq(stageItems.personnelId, entry.id),
+              ne(stageItems.kind, fields.kind === "ensemble" ? "ensemble" : "performer"),
+            ),
+          );
       });
       const [listed] = (await personnelOf(db, organisationId, entry.projectId)).filter(
         (p) => p.id === entry.id,

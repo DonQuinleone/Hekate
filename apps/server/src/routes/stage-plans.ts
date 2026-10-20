@@ -8,6 +8,7 @@ import {
   stageEditInput,
   stagePlanChangeInput,
   stagePlanInput,
+  standsFor,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { asc, eq, inArray, max, type SQL } from "drizzle-orm";
@@ -452,7 +453,33 @@ export const stagePlanRoutes = (db: Database) =>
               .insert(stageItems)
               .values(add.map((i) => ({ ...i, organisationId, stagePlanId: plan.id })))
               .onConflictDoNothing({ target: stageItems.id });
-          return (await itemsOf(tx, organisationId, [plan.id])).map(bare);
+          const held = (await itemsOf(tx, organisationId, [plan.id])).map(bare);
+          // Each item stands only for someone it can: a block for an ensemble, a performer for
+          // anyone else. Checked on what the step leaves, so a change of kind counts too.
+          const standing = held.filter((i) => i.personnelId);
+          if (standing.length > 0) {
+            const kinds = await tx
+              .select({ id: personnel.id, kind: personnel.kind })
+              .from(personnel)
+              .where(
+                inOrg(
+                  personnel,
+                  organisationId,
+                  inArray(
+                    personnel.id,
+                    standing.map((i) => i.personnelId ?? ""),
+                  ),
+                ),
+              );
+            const misfit = standing.find(
+              (i) => !standsFor(i.kind, kinds.find((k) => k.id === i.personnelId)?.kind ?? ""),
+            );
+            if (misfit)
+              throw new HTTPException(400, {
+                message: "An ensemble stands in an ensemble block, anyone else as a performer",
+              });
+          }
+          return held;
         })
         .catch((error: unknown) => {
           // A change that leaves something other than a cable without a size, all of it undone.

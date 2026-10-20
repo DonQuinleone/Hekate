@@ -49,6 +49,13 @@ export const patchableKinds: readonly string[] = ["mic", "stage-box", "cable"];
 /** The kinds that stand for someone on the production's personnel (#49): its name labels them. */
 export const peopledKinds: readonly string[] = ["performer", "ensemble"];
 
+/** Whether an item may stand for someone: an ensemble block for an ensemble, a performer for anyone else. */
+export function standsFor(itemKind: string, personKind: string): boolean {
+  if (itemKind === "ensemble") return personKind === "ensemble";
+  if (itemKind === "performer") return personKind !== "ensemble";
+  return false;
+}
+
 /** Someone on the production as a plan names and sizes them. */
 export interface StagePerson {
   id: string;

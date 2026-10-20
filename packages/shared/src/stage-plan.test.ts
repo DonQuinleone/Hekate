@@ -12,6 +12,7 @@ import {
   stageEditInput,
   stageItemChange,
   stageItemInput,
+  standsFor,
 } from "./stage-plan.ts";
 
 const id = (n: number) => `0192f3a0-0000-7000-8000-00000000000${n}`;
@@ -129,6 +130,16 @@ describe("aligning", () => {
   it("needs two to line up, but centres even one on the stage", () => {
     expect(align(items, [id(1)], "left", 12).change).toEqual([]);
     expect(align(items, [id(1)], "stage-centre", 12).change).toEqual([{ id: id(1), x: 5.5, y: 1 }]);
+  });
+});
+
+describe("who stands where", () => {
+  it("puts an ensemble in a block and anyone else in a performer, and no one in a wall", () => {
+    expect(standsFor("ensemble", "ensemble")).toBe(true);
+    expect(standsFor("ensemble", "artist")).toBe(false);
+    expect(standsFor("performer", "staff")).toBe(true);
+    expect(standsFor("performer", "ensemble")).toBe(false);
+    expect(standsFor("wall", "artist")).toBe(false);
   });
 });
 

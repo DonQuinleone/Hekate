@@ -10339,6 +10339,24 @@ describe.runIf(url)("api", () => {
           const stranger = await edit({ change: [{ id: block, personnelId: theirEntry?.id }] });
           expect(stranger.status).toBe(400);
           expect(await stranger.text()).toContain("not on this project's personnel");
+          // A block stands for an ensemble, a performer for anyone else, a microphone for no one.
+          const misfit = await edit({ change: [{ id: block, kind: "performer" }] });
+          expect(misfit.status).toBe(400);
+          expect(await misfit.text()).toContain("An ensemble stands in an ensemble block");
+          expect((await edit({ change: [{ id: mic, personnelId: strings.id }] })).status).toBe(400);
+          // An ensemble that becomes an artist leaves its block, which stays.
+          expect(
+            (
+              await send("PUT", `/api/personnel/${strings.id}`, {
+                name: "Endless Hall Strings",
+                kind: "artist",
+              })
+            ).status,
+          ).toBe(200);
+          expect((await list()).plans[0]?.items.find((i) => i.id === block)).toMatchObject({
+            personnelId: null,
+          });
+          await edit({ change: [{ id: block, personnelId: null }] });
           // Taken off the personnel, the block stays, unlinked.
           expect((await send("DELETE", `/api/personnel/${strings.id}`, {})).status).toBe(204);
           expect((await list()).plans[0]?.items.find((i) => i.id === block)).toMatchObject({
