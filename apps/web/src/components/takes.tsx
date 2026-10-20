@@ -823,8 +823,12 @@ export function OtherTakes({
   // Which of them the latest version's edit decision list uses here (#56).
   const { data: decisions } = useQuery(editDecisionsQuery(trackId));
   // What the producer's score marks say of them at this bar (#52): a role that does not see
-  // the production tools is refused them, and sees the takes without.
-  const { data: marking } = useQuery({ ...scoreMarksQuery(trackId), retry: false });
+  // the production tools is refused them, and sees the takes without. The order waits for
+  // them, so rows do not move once they arrive.
+  const { data: marking, isPending: marksPending } = useQuery({
+    ...scoreMarksQuery(trackId),
+    retry: false,
+  });
   const notes = marksAtBar(marking?.marks ?? [], bar);
   const list = takes ? takesForBar(takes, bar, notes) : [];
   const [mode, setMode] = useState<"ticked" | "all" | "except">("ticked");
@@ -866,7 +870,9 @@ export function OtherTakes({
       <div className="flex items-center gap-2 border-b border-line py-1 pr-1 pl-3">
         <Icon name="take" size={14} className="text-ink-3" />
         <span className="text-[13px] font-medium text-ink">Other takes for bar {bar}</span>
-        {takes && <span className="text-[12px] text-ink-3">{list.length} cover it</span>}
+        {takes && !marksPending && (
+          <span className="text-[12px] text-ink-3">{list.length} cover it</span>
+        )}
         <Button
           variant="ghost"
           size="iconSm"
@@ -879,7 +885,7 @@ export function OtherTakes({
       </div>
       {error ? (
         <p className="m-0 px-3 py-2 text-[13px] text-signal">{error.message}</p>
-      ) : !takes ? (
+      ) : !takes || marksPending ? (
         <p className="m-0 px-3 py-2 text-[13px] text-ink-3">Loading</p>
       ) : list.length === 0 ? (
         <p className="m-0 px-3 py-2 text-[13px] text-ink-3">
