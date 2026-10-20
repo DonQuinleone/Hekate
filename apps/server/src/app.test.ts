@@ -4118,13 +4118,26 @@ describe.runIf(url)("api", () => {
         await db
           .insert(schema.takes)
           .values({ organisationId, trackId: track.id, number: 1, page: 2, barFrom: 21 });
+        // A take over two pages of the first edition, bars 9 to 21, all on page 1 of the second.
+        const [spanning] = await db
+          .insert(schema.takes)
+          .values({
+            organisationId,
+            trackId: track.id,
+            number: 2,
+            page: 1,
+            pageTo: 2,
+            barFrom: 9,
+            barTo: 21,
+          })
+          .returning();
 
         const swap = async (scoreFileId: string) => {
           const res = await send("PATCH", `/api/tracks/${track.id}`, { scoreFileId }, owner);
           expect(res.status).toBe(200);
           return ((await res.json()) as { rehomed?: unknown }).rehomed;
         };
-        expect(await swap(second)).toEqual({ marks: 3, takes: 1, stayed: 1 });
+        expect(await swap(second)).toEqual({ marks: 3, takes: 2, stayed: 1 });
         const where = async (id: string) => {
           const [m] = await db.select().from(schema.scoreMarks).where(eq(schema.scoreMarks.id, id));
           return m;
@@ -4139,18 +4152,27 @@ describe.runIf(url)("api", () => {
         const [[, top] = [0, 0], [, foot] = [0, 0]] = lowered?.points ?? [];
         expect(foot - top).toBeCloseTo(0.6, 9);
         expect(foot).toBeLessThanOrEqual(1);
+        const takeOf = async (id: string) => {
+          const [t] = await db.select().from(schema.takes).where(eq(schema.takes.id, id));
+          return t;
+        };
+        const historyOf = (id: string) =>
+          db.select().from(schema.takeChanges).where(eq(schema.takeChanges.takeId, id));
         const [take] = await db
           .select()
           .from(schema.takes)
-          .where(eq(schema.takes.trackId, track.id));
+          .where(eq(schema.takes.trackId, track.id))
+          .orderBy(schema.takes.number);
         expect(take?.page).toBe(1);
         // In the take's history, as the owner's change.
-        const [change] = await db
-          .select()
-          .from(schema.takeChanges)
-          .where(eq(schema.takeChanges.takeId, take?.id ?? ""));
+        const [change] = await historyOf(take?.id ?? "");
         expect(change).toMatchObject({ field: "page", before: 2, after: 1 });
         expect(change?.changedById).toBeTruthy();
+        // Both ends of a take over two pages follow their bars, the last never before the first.
+        expect(await takeOf(spanning?.id ?? "")).toMatchObject({ page: 1, pageTo: 1 });
+        expect(
+          (await historyOf(spanning?.id ?? "")).map((h) => [h.field, h.before, h.after]),
+        ).toEqual([["pageTo", 2, 1]]);
 
         // A score still being drawn: the marks wait for its bars, then follow them.
         const fresh = await addFile(organisationId, projectId, "Score 1910.pdf");
