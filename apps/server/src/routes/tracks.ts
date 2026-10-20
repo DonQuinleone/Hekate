@@ -82,7 +82,7 @@ async function assertProjectFiles(
 }
 
 /** A track's score: a document of the same project, whose pages show beside its recordings. */
-async function assertScore(
+export async function assertScore(
   db: Database,
   organisationId: string,
   projectId: string,

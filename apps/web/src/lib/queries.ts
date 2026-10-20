@@ -2271,9 +2271,12 @@ export const repertoireQuery = (projectId: string) =>
   queryOptions({
     queryKey: ["projects", projectId, "repertoire"],
     queryFn: async () =>
-      json<{ works: Work[]; venues: Venue[]; tracks: { id: string; name: string }[] }>(
-        await api.projects[":id"].repertoire.$get({ param: { id: projectId } }),
-      ),
+      json<{
+        works: Work[];
+        venues: Venue[];
+        tracks: { id: string; name: string }[];
+        scores: { id: string; name: string }[];
+      }>(await api.projects[":id"].repertoire.$get({ param: { id: projectId } })),
   });
 
 /** Adding, changing and removing works and venues. */
@@ -2433,9 +2436,13 @@ export const scoreMarksQuery = (trackId: string) =>
   queryOptions({
     queryKey: ["tracks", trackId, "score-marks"],
     queryFn: async () =>
-      json<{ marks: ScoreMark[]; categories: ScoreMarkCategory[]; plot: EditPlot }>(
-        await api.tracks[":id"]["score-marks"].$get({ param: { id: trackId } }),
-      ),
+      json<{
+        marks: ScoreMark[];
+        categories: ScoreMarkCategory[];
+        plot: EditPlot;
+        /** The PDF pages the track runs over in its work's score (#48), when they are set. */
+        pages: { from: number; to: number } | null;
+      }>(await api.tracks[":id"]["score-marks"].$get({ param: { id: trackId } })),
   });
 
 /** Making, changing and rubbing out a track's score marks. */

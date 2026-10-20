@@ -180,6 +180,11 @@ function Marking({
   const { data: view, error: viewError, refetch: drawAgain } = useQuery(viewQuery(scoreFileId));
   const { add, change, remove } = useScoreMarks(trackId);
   const [page, setPage] = useState(1);
+  // A track inside a long score opens at its own first page (#48), once its marks arrive.
+  const startsAt = data?.pages?.from;
+  useEffect(() => {
+    if (startsAt) setPage(startsAt);
+  }, [startsAt]);
   const [layout, setLayout] = useState<Layout>("single");
   const [filter, setFilter] = useState<Filter>("paper");
   const [tool, setTool] = useState<ScoreMarkKind>("issue");

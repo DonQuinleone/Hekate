@@ -73,6 +73,7 @@ export function RepertoirePage({ projectId }: { projectId: string }) {
           projectId={projectId}
           works={repertoire.works}
           tracks={repertoire.tracks}
+          scores={repertoire.scores}
           canEdit={canEdit}
         />
       )}
@@ -84,11 +85,13 @@ function Works({
   projectId,
   works,
   tracks,
+  scores,
   canEdit,
 }: {
   projectId: string;
   works: Work[];
   tracks: { id: string; name: string }[];
+  scores: { id: string; name: string }[];
   canEdit: boolean;
 }) {
   const { numberTrack, removeWork } = useRepertoire(projectId);
@@ -151,19 +154,36 @@ function Works({
                 <span className="text-[13px] text-ink-3">
                   {[w.composer, w.forces, w.abbreviation].filter(Boolean).join(" · ")}
                 </span>
-                {canEdit && (
-                  <span className="ml-auto">
+                <span className="ml-auto flex items-center gap-3 text-[13px] text-ink-3">
+                  {w.scoreFileId && (
+                    <Link
+                      to="/files/$fileId"
+                      params={{ fileId: w.scoreFileId }}
+                      className="flex items-center gap-1.5 text-ink-2 no-underline hover:text-ink"
+                    >
+                      <Icon name="score" size={14} />
+                      {scores.find((f) => f.id === w.scoreFileId)?.name ?? "Score"}
+                    </Link>
+                  )}
+                  {w.scoreFileId && <span>page offset {w.pageOffset}</span>}
+                  {canEdit && (
                     <ActionMenu
                       always
                       label={w.title}
                       actions={[
                         { label: "Edit", onSelect: () => setEditing(w) },
+                        {
+                          label: w.scoreFileId
+                            ? "Swap the score, keeping marks"
+                            : "Choose the score",
+                          onSelect: () => setEditing(w),
+                        },
                         "divider",
                         { label: "Delete", danger: true, onSelect: () => removeWork.mutate(w.id) },
                       ]}
                     />
-                  </span>
-                )}
+                  )}
+                </span>
               </div>
               {w.notes && <p className="m-0 px-4 pt-3 text-[13px] text-ink-2">{w.notes}</p>}
               {numberError?.workId === w.id && (
@@ -180,7 +200,7 @@ function Works({
                   {w.tracks.map((t) => (
                     <li
                       key={t.trackId}
-                      className="grid grid-cols-[40px_minmax(0,1fr)] items-center gap-3 px-2 py-1.5 text-[14px]"
+                      className="grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 px-2 py-1.5 text-[14px]"
                     >
                       {canEdit ? (
                         // Numbered as the score prints it, typed in place.
@@ -222,6 +242,16 @@ function Works({
                       >
                         {t.name}
                       </Link>
+                      {/* Its printed pages in the work's score, where it has one. */}
+                      <span className="tabular text-[13px] text-ink-3">
+                        {!w.scoreFileId
+                          ? ""
+                          : t.pageFrom === null
+                            ? "pages not set"
+                            : t.pageTo === null || t.pageTo === t.pageFrom
+                              ? `p. ${t.pageFrom}`
+                              : `pp. ${t.pageFrom}–${t.pageTo}`}
+                      </span>
                     </li>
                   ))}
                 </ol>
@@ -235,6 +265,7 @@ function Works({
           projectId={projectId}
           work={editing === "new" ? undefined : editing}
           tracks={tracks}
+          scores={scores}
           taken={
             new Set(
               works
@@ -254,12 +285,14 @@ function WorkDialog({
   projectId,
   work,
   tracks,
+  scores,
   taken,
   onClose,
 }: {
   projectId: string;
   work?: Work;
   tracks: { id: string; name: string }[];
+  scores: { id: string; name: string }[];
   taken: Set<string>;
   onClose: () => void;
 }) {
@@ -269,9 +302,33 @@ function WorkDialog({
   const [forces, setForces] = useState(work?.forces ?? "");
   const [abbreviation, setAbbreviation] = useState(work?.abbreviation ?? "");
   const [notes, setNotes] = useState(work?.notes ?? "");
+  const [scoreFileId, setScoreFileId] = useState(work?.scoreFileId ?? null);
+  const [pageOffset, setPageOffset] = useState(String(work?.pageOffset ?? 0));
+  // Pages as typed; a blank one is not set.
   const [chosen, setChosen] = useState(
-    work?.tracks.map(({ trackId, number }) => ({ trackId, number })) ?? [],
+    work?.tracks.map((t) => ({
+      trackId: t.trackId,
+      number: t.number,
+      pageFrom: t.pageFrom === null ? "" : String(t.pageFrom),
+      pageTo: t.pageTo === null ? "" : String(t.pageTo),
+    })) ?? [],
   );
+  const pageOf = (typed: string) => {
+    const v = typed.trim();
+    return v === "" ? null : /^-?\d{1,4}$/.test(v) ? Number(v) : Number.NaN;
+  };
+  const offset = pageOf(pageOffset);
+  // Without a score the page fields are hidden and not saved, so they cannot hold it back.
+  const pagesValid =
+    scoreFileId === null ||
+    (offset !== null &&
+      !Number.isNaN(offset) &&
+      chosen.every((c) => {
+        const from = pageOf(c.pageFrom);
+        const to = pageOf(c.pageTo);
+        if (Number.isNaN(from) || Number.isNaN(to)) return false;
+        return to === null || (from !== null && to >= from);
+      }));
   const saving = work ? changeWork : addWork;
   const nameOf = (id: string) => tracks.find((t) => t.id === id)?.name ?? "A track";
   const free = tracks.filter((t) => !taken.has(t.id) && !chosen.some((c) => c.trackId === t.id));
@@ -285,7 +342,22 @@ function WorkDialog({
   const save = (e: FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
-    const input = { title, composer, forces, abbreviation, notes, tracks: chosen };
+    if (!pagesValid) return;
+    const input = {
+      title,
+      composer,
+      forces,
+      abbreviation,
+      notes,
+      scoreFileId,
+      pageOffset: scoreFileId ? (offset ?? 0) : 0,
+      tracks: chosen.map((c) => ({
+        trackId: c.trackId,
+        number: c.number,
+        pageFrom: scoreFileId ? pageOf(c.pageFrom) : null,
+        pageTo: scoreFileId ? pageOf(c.pageTo) : null,
+      })),
+    };
     if (work) changeWork.mutate({ id: work.id, ...input }, { onSuccess: onClose });
     else addWork.mutate(input, { onSuccess: onClose });
   };
@@ -302,7 +374,7 @@ function WorkDialog({
             variant="primary"
             type="submit"
             form="work"
-            disabled={!title.trim() || saving.isPending}
+            disabled={!title.trim() || !pagesValid || saving.isPending}
           >
             {work ? "Save" : "Add"}
           </Button>
@@ -351,8 +423,45 @@ function WorkDialog({
             onChange={(e) => setNotes(e.target.value)}
           />
         </Field>
+        <Field
+          label="Score"
+          hint={work?.scoreFileId ? "Swapped, the marks follow their bars" : "One PDF for the work"}
+        >
+          <Dropdown
+            variant="field"
+            value={scores.find((f) => f.id === scoreFileId)?.name ?? "No score"}
+            actions={[
+              {
+                label: "No score",
+                checked: scoreFileId === null,
+                onSelect: () => setScoreFileId(null),
+              },
+              ...(scores.length > 0 ? ["divider" as const] : []),
+              ...scores.map((f) => ({
+                label: f.name,
+                checked: f.id === scoreFileId,
+                onSelect: () => setScoreFileId(f.id),
+              })),
+            ]}
+          />
+        </Field>
+        {scoreFileId && (
+          <Field
+            label="Page offset"
+            hint="Added to a printed page for the PDF's: 2 for a cover and contents"
+            error={offset === null || Number.isNaN(offset) ? "A whole number" : undefined}
+          >
+            <Input
+              inputMode="numeric"
+              value={pageOffset}
+              onChange={(e) => setPageOffset(e.target.value)}
+            />
+          </Field>
+        )}
         <div className="flex flex-col gap-2 @xl/app:col-span-2">
-          <span className="label">Tracks, in order</span>
+          <span className="label">
+            Tracks, in order{scoreFileId ? ", with their printed pages" : ""}
+          </span>
           {chosen.length === 0 && (
             <p className="m-0 text-[13px] text-ink-3">
               None yet. A single-track work is just one track.
@@ -376,6 +485,22 @@ function WorkDialog({
                 <span className="min-w-0 flex-1 truncate text-[14px] text-ink">
                   {nameOf(c.trackId)}
                 </span>
+                {scoreFileId &&
+                  (["pageFrom", "pageTo"] as const).map((end) => (
+                    <Input
+                      key={end}
+                      aria-label={`${end === "pageFrom" ? "First" : "Last"} printed page of ${nameOf(c.trackId)}`}
+                      inputMode="numeric"
+                      value={c[end]}
+                      placeholder={end === "pageFrom" ? "from" : "to"}
+                      className="w-16 text-center"
+                      onChange={(e) =>
+                        setChosen((all) =>
+                          all.map((x, j) => (j === i ? { ...x, [end]: e.target.value } : x)),
+                        )
+                      }
+                    />
+                  ))}
                 <Button
                   variant="ghost"
                   size="sm"
@@ -413,7 +538,10 @@ function WorkDialog({
                 actions={free.map((t) => ({
                   label: t.name,
                   onSelect: () =>
-                    setChosen((all) => [...all, { trackId: t.id, number: String(all.length + 1) }]),
+                    setChosen((all) => [
+                      ...all,
+                      { trackId: t.id, number: String(all.length + 1), pageFrom: "", pageTo: "" },
+                    ]),
                 }))}
               />
             </div>

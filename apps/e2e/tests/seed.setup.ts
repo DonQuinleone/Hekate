@@ -763,9 +763,10 @@ setup("seed", async ({ page, browser }) => {
     forces: "Piano trio",
     abbreviation: "RAGS",
     notes: "Two rags in the trio arrangement; more to follow.",
+    scoreFileId: score,
     tracks: [
-      { trackId: track.id, number: "1" },
-      { trackId: entertainer.id, number: "2" },
+      { trackId: track.id, number: "1", pageFrom: 1, pageTo: 2 },
+      { trackId: entertainer.id, number: "2", pageFrom: 3 },
     ],
   });
   for (const venue of [

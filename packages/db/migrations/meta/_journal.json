@@ -750,6 +750,13 @@
       "when": 1792514610421,
       "tag": "0106_repertoire",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1792517652265,
+      "tag": "0107_work_scores",
+      "breakpoints": true
     }
   ]
 }

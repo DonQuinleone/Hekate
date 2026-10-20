@@ -1020,3 +1020,12 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Venues.** A name (one per project), a multi-line address, and notes for the get-in.
 - **Who may.** Those who see the production tools see them; those who use them change them.
 - **Follows.** A work's score with each track's printed page range and the page offset (#48, second part); a stage plan for a venue, and the schedule's days at venues (#50).
+
+## 173. A work's score and its tracks' pages
+
+#48, second part: "link a work to a score file; each track has its printed page range; a per-file page offset maps printed pages to PDF pages".
+
+- **One score for the work.** A work may name one of the project's PDFs as its score. Its tracks then follow it: each track's score becomes the work's, by the same swap as a track's own (#52), so what was marked on a track's old edition follows its bars. A work without a score leaves its tracks' scores as they are.
+- **Printed pages.** Each of the work's tracks may have the printed pages it runs over ("pp. 8–14", or one page). A printed page is the number on the page, not the PDF's; the work's page offset is added to find the PDF's page (2 when a cover and a contents page come before printed page 1).
+- **Opening at its pages.** Score marking opens a track at its first page in the work's score (`pdfPages` in packages/shared), so a track inside one long PDF starts where it starts.
+- **Swap.** *Swap the score, keeping marks* on a work chooses another edition; the page ranges stay as typed, for the new edition's offset to place.

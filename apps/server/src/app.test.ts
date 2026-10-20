@@ -10024,6 +10024,90 @@ describe.runIf(url)("api", () => {
             ).status,
           ).toBe(403);
 
+          // The work's score reaches its tracks, and a track's score opens at its own pages.
+          const org = project?.organisationId ?? "";
+          const pdfBlob = await storage.put(org, Buffer.from("%PDF-1.4"));
+          const [scoreFile] = await db
+            .insert(schema.files)
+            .values({
+              organisationId: org,
+              projectId: s.projectId,
+              name: "Rags - Score.pdf",
+              kind: "document",
+              blobId: pdfBlob.id,
+              contentType: "application/pdf",
+              byteSize: pdfBlob.byteSize,
+            })
+            .returning();
+          const scored = await send("PUT", `/api/works/${rags.id}`, {
+            title: "Rags",
+            scoreFileId: scoreFile?.id,
+            pageOffset: 2,
+            tracks: [
+              { trackId: s.trackId, number: "1", pageFrom: 1, pageTo: 7 },
+              { trackId: second?.id, number: "2", pageFrom: 8 },
+            ],
+          });
+          expect(scored.status).toBe(200);
+          const [followed] = await db
+            .select({ scoreFileId: schema.tracks.scoreFileId })
+            .from(schema.tracks)
+            .where(eq(schema.tracks.id, second?.id ?? ""));
+          expect(followed?.scoreFileId).toBe(scoreFile?.id);
+          const marking = (await (
+            await getAs(`/api/tracks/${second?.id}/score-marks`, s.engineer)
+          ).json()) as { pages: { from: number; to: number } | null };
+          expect(marking.pages).toEqual({ from: 10, to: 10 });
+          // A track given another score since has none of the work's pages.
+          const [other] = await db
+            .insert(schema.files)
+            .values({
+              organisationId: org,
+              projectId: s.projectId,
+              name: "Entertainer - Part.pdf",
+              kind: "document",
+              blobId: pdfBlob.id,
+              contentType: "application/pdf",
+              byteSize: pdfBlob.byteSize,
+            })
+            .returning();
+          await db
+            .update(schema.tracks)
+            .set({ scoreFileId: other?.id })
+            .where(eq(schema.tracks.id, second?.id ?? ""));
+          expect(
+            (
+              (await (await getAs(`/api/tracks/${second?.id}/score-marks`, s.engineer)).json()) as {
+                pages: unknown;
+              }
+            ).pages,
+          ).toBeNull();
+          const backwards = await send("PUT", `/api/works/${rags.id}`, {
+            title: "Rags",
+            tracks: [{ trackId: s.trackId, pageFrom: 7, pageTo: 1 }],
+          });
+          expect(backwards.status).toBe(400);
+          const [wav] = await db
+            .insert(schema.files)
+            .values({
+              organisationId: org,
+              projectId: s.projectId,
+              name: "Rags.wav",
+              kind: "audio",
+              blobId: pdfBlob.id,
+              contentType: "audio/wav",
+              byteSize: pdfBlob.byteSize,
+            })
+            .returning();
+          expect(
+            (await send("PUT", `/api/works/${rags.id}`, { title: "Rags", scoreFileId: wav?.id }))
+              .status,
+          ).toBe(422);
+          await send("PUT", `/api/works/${rags.id}`, {
+            title: "Rags",
+            tracks: [{ trackId: s.trackId, number: "1" }],
+          });
+
           // Venues, by name, once each.
           const hall = await send("POST", `/api/projects/${s.projectId}/venues`, {
             name: "Endless Hall",

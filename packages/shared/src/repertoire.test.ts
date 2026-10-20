@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { alphabetical, venueInput, workInput, workLine } from "./repertoire.ts";
+import { alphabetical, pdfPages, venueInput, workInput, workLine } from "./repertoire.ts";
 
 const track = (n: number) => `0192f3a0-0000-7000-8000-00000000000${n}`;
 
@@ -31,7 +31,9 @@ describe("repertoire", () => {
       forces: "",
       abbreviation: "",
       notes: "",
-      tracks: [{ trackId: track(1), number: "I" }],
+      scoreFileId: null,
+      pageOffset: 0,
+      tracks: [{ trackId: track(1), number: "I", pageFrom: null, pageTo: null }],
     });
     expect(
       workInput.safeParse({
@@ -40,6 +42,19 @@ describe("repertoire", () => {
       }).success,
     ).toBe(false);
     expect(workInput.safeParse({ title: " " }).success).toBe(false);
+  });
+
+  it("finds a track's PDF pages from its printed ones and the work's offset", () => {
+    expect(pdfPages({ pageFrom: 8, pageTo: 14 }, 2)).toEqual({ from: 10, to: 16 });
+    expect(pdfPages({ pageFrom: 3, pageTo: null }, 0)).toEqual({ from: 3, to: 3 });
+    expect(pdfPages({ pageFrom: 1, pageTo: 2 }, -3)).toEqual({ from: 1, to: 1 });
+    expect(pdfPages({ pageFrom: null, pageTo: null }, 2)).toBeNull();
+    expect(
+      workInput.safeParse({
+        title: "Rags",
+        tracks: [{ trackId: track(1), pageFrom: 9, pageTo: 8 }],
+      }).success,
+    ).toBe(false);
   });
 
   it("takes a venue with its address as lines", () => {
