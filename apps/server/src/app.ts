@@ -49,6 +49,7 @@ import { projectStorageRoutes } from "./routes/project-storage.ts";
 import { projectTransferRoutes } from "./routes/project-transfers.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { fileQaRoutes } from "./routes/qa.ts";
+import { projectRepertoireRoutes, venueRoutes, workRoutes } from "./routes/repertoire.ts";
 import { fileRetryRoutes } from "./routes/retry.ts";
 import { projectReviewRoutes, type ReviewDeps, reviewRoutes } from "./routes/reviews.ts";
 import {
@@ -257,6 +258,7 @@ export function createApi(deps: AppDeps) {
       .route("/projects", projectPatchRoutes(deps.db))
       .route("/projects", projectStagePlanRoutes(deps.db))
       .route("/projects", projectPersonnelRoutes(deps.db))
+      .route("/projects", projectRepertoireRoutes(deps.db))
       .route("/projects", projectSessionRoutes(deps.db))
       .route("/projects", projectWorkflowRoutes(deps.db))
       .route("/projects", projectTemplateRoutes(deps.db))
@@ -292,6 +294,10 @@ export function createApi(deps: AppDeps) {
       .route("/stage-boxes", stageBoxRoutes(deps.db))
       .use("/patch-rows/*", ...member)
       .route("/patch-rows", patchRowRoutes(deps.db))
+      .use("/works/*", ...member)
+      .route("/works", workRoutes(deps.db))
+      .use("/venues/*", ...member)
+      .route("/venues", venueRoutes(deps.db))
       .use("/personnel/*", ...member)
       .route("/personnel", personnelRoutes(deps.db))
       .use("/stage-plans/*", ...member)

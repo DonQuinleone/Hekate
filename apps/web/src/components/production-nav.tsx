@@ -3,6 +3,12 @@ import { cn } from "~/lib/cn";
 
 const sections = [
   {
+    id: "repertoire",
+    label: "Repertoire",
+    to: "/projects/$projectId/repertoire",
+    needs: "view_production",
+  },
+  {
     id: "sessions",
     label: "Sessions",
     to: "/projects/$projectId/sessions",
@@ -32,6 +38,12 @@ const sections = [
     to: "/projects/$projectId/personnel",
     needs: "view_production",
   },
+  {
+    id: "venues",
+    label: "Venues",
+    to: "/projects/$projectId/venues",
+    needs: "view_production",
+  },
 ] as const;
 
 /**
@@ -50,7 +62,11 @@ export function ProductionNav({
   const shown = sections.filter((s) => s.id === current || can(s.needs));
   if (shown.length < 2) return null;
   return (
-    <nav aria-label="Production" className="flex h-9 items-stretch gap-1 border-b border-line">
+    // On a phone the sections scroll sideways, one line of tabs as on a wider screen.
+    <nav
+      aria-label="Production"
+      className="scroll-quiet flex h-9 shrink-0 items-stretch gap-1 overflow-x-auto border-b border-line"
+    >
       {shown.map((s) => (
         <Link
           key={s.id}
@@ -58,7 +74,7 @@ export function ProductionNav({
           params={{ projectId }}
           aria-current={s.id === current ? "page" : undefined}
           className={cn(
-            "-mb-px inline-flex items-center border-b-2 px-2.5 text-[13px] font-medium transition-colors",
+            "inline-flex shrink-0 items-center whitespace-nowrap border-b-2 px-2.5 text-[13px] font-medium transition-colors",
             s.id === current
               ? "border-ink text-ink"
               : "border-transparent text-ink-3 hover:text-ink-2",

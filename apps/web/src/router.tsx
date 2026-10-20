@@ -63,6 +63,7 @@ import {
   projectSettingsSections,
 } from "~/routes/project-settings";
 import { ProjectsPage } from "~/routes/projects";
+import { RepertoirePage, VenuesPage } from "~/routes/repertoire";
 import { RequestReviewPage } from "~/routes/request-review";
 import { ReviewPage } from "~/routes/review";
 import { ScoreMarkingPage } from "~/routes/score-marking";
@@ -534,6 +535,23 @@ const projectScoreMarking = createRoute({
     return <ScoreMarkingPage projectId={projectId} trackId={track} />;
   },
 });
+// The repertoire and venues (#48): the project's works and the places it records in.
+const projectRepertoire = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/repertoire",
+  component: function ProjectRepertoireRoute() {
+    const { projectId } = projectRepertoire.useParams();
+    return <RepertoirePage projectId={projectId} />;
+  },
+});
+const projectVenues = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/venues",
+  component: function ProjectVenuesRoute() {
+    const { projectId } = projectVenues.useParams();
+    return <VenuesPage projectId={projectId} />;
+  },
+});
 // Personnel (#49): everyone on the production, in Production.
 const projectPersonnel = createRoute({
   getParentRoute: () => app,
@@ -830,6 +848,8 @@ export const router = createRouter({
       projectStage,
       projectPatch,
       projectPersonnel,
+      projectRepertoire,
+      projectVenues,
       session,
       takeLog,
       projectSettings,

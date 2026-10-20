@@ -1043,6 +1043,67 @@ export const sectionMembers = pgTable(
 );
 
 /**
+ * A work in a project's repertoire (#48, docs/domain.md): its title, composer, forces and the
+ * abbreviation a schedule uses, with its tracks in order.
+ */
+export const works = pgTable(
+  "works",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: projectId(),
+    title: text("title").notNull(),
+    composer: text("composer").notNull().default(""),
+    forces: text("forces").notNull().default(""),
+    abbreviation: text("abbreviation").notNull().default(""),
+    notes: text("notes").notNull().default(""),
+    position: integer("position").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [index("works_project_idx").on(t.organisationId, t.projectId)],
+);
+
+/** A work's tracks in order, each numbered as the score prints it. A track is in one work. */
+export const workTracks = pgTable(
+  "work_tracks",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    workId: uuid("work_id")
+      .notNull()
+      .references(() => works.id, { onDelete: "cascade" }),
+    trackId: uuid("track_id")
+      .notNull()
+      .references(() => tracks.id, { onDelete: "cascade" }),
+    number: text("number").notNull().default(""),
+    position: integer("position").notNull().default(0),
+  },
+  (t) => [
+    index("work_tracks_work_idx").on(t.organisationId, t.workId),
+    uniqueIndex("work_tracks_track_idx").on(t.trackId),
+  ],
+);
+
+/** A place a project records in (#48), with its address and notes for the get-in. */
+export const venues = pgTable(
+  "venues",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: projectId(),
+    name: text("name").notNull(),
+    address: text("address").notNull().default(""),
+    notes: text("notes").notNull().default(""),
+    position: integer("position").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [
+    index("venues_project_idx").on(t.organisationId, t.projectId),
+    uniqueIndex("venues_name_idx").on(t.projectId, t.name),
+  ],
+);
+
+/**
  * What changed on a take, a field at a time (#51), so the take log can be written offline and
  * synced later: two people changing different fields both stand; the same field, the later write
  * stands and the value it replaced stays here, flagged when it was someone else's.

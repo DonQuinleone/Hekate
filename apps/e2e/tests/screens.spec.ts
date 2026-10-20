@@ -644,6 +644,25 @@ test("stage-plan", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The repertoire and venues (#48): the rags as one work with its tracks numbered, the work
+// being edited, and the venues.
+test("repertoire", async ({ page }) => {
+  await page.goto(`/projects/${seeded().musicProjectId}/repertoire`);
+  await settle(page, "main >> text=Scott Joplin");
+  await expect(page.getByRole("textbox", { name: "Number of The Entertainer" })).toHaveValue("2");
+  await saveScreen(page, "repertoire");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Actions for Rags" }).click();
+  await page.getByRole("menuitem", { name: "Edit" }).click();
+  await expect(page.getByRole("dialog", { name: "Edit Rags" })).toBeVisible();
+  await saveScreen(page, "repertoire-work");
+  await checkScreen(page);
+  await page.goto(`/projects/${seeded().musicProjectId}/venues`);
+  await settle(page, "main >> text=Endless Hall Studio 2");
+  await saveScreen(page, "venues");
+  await checkScreen(page);
+});
+
 // Personnel (#49): artists, the strings in sections, staff and others, with their flags, the
 // ensemble's breakdown open, and the strings being edited.
 test("personnel", async ({ page }) => {

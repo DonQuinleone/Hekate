@@ -131,14 +131,18 @@ import {
   type UpdateCarryInput,
   type UpdateProjectInput,
   type UpdateVariationInput,
+  type Venue,
+  type VenueInput,
   versionLabel,
   type WatermarkPosition,
   type WatermarkSettings,
+  type Work,
   type WorkflowChange,
   type WorkflowInput,
   type WorkflowStanding,
   type WorkflowStatus,
   type WorkflowSummary,
+  type WorkInput,
   type WorkspaceSettings,
   type WorkspaceSettingsInput,
   type WorkspaceState,
@@ -2257,6 +2261,56 @@ export function usePatchList(projectId: string) {
         const res = await api["patch-rows"][":id"].$delete({ param: { id } });
         if (!res.ok) await json(res);
       },
+      onSettled: refresh,
+    }),
+  };
+}
+
+/** A project's repertoire and venues (#48), with the tracks a work may hold. */
+export const repertoireQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "repertoire"],
+    queryFn: async () =>
+      json<{ works: Work[]; venues: Venue[]; tracks: { id: string; name: string }[] }>(
+        await api.projects[":id"].repertoire.$get({ param: { id: projectId } }),
+      ),
+  });
+
+/** Adding, changing and removing works and venues. */
+export function useRepertoire(projectId: string) {
+  const client = useQueryClient();
+  const refresh = () =>
+    void client.invalidateQueries({ queryKey: repertoireQuery(projectId).queryKey });
+  const removed = async (res: Response) => {
+    if (!res.ok) await json(res);
+  };
+  return {
+    addWork: useMutation({
+      mutationFn: async (input: WorkInput) =>
+        json(await api.projects[":id"].works.$post({ param: { id: projectId }, json: input })),
+      onSettled: refresh,
+    }),
+    changeWork: useMutation({
+      mutationFn: async ({ id, ...input }: WorkInput & { id: string }) =>
+        json(await api.works[":id"].$put({ param: { id }, json: input })),
+      onSettled: refresh,
+    }),
+    removeWork: useMutation({
+      mutationFn: async (id: string) => removed(await api.works[":id"].$delete({ param: { id } })),
+      onSettled: refresh,
+    }),
+    addVenue: useMutation({
+      mutationFn: async (input: VenueInput) =>
+        json(await api.projects[":id"].venues.$post({ param: { id: projectId }, json: input })),
+      onSettled: refresh,
+    }),
+    changeVenue: useMutation({
+      mutationFn: async ({ id, ...input }: VenueInput & { id: string }) =>
+        json(await api.venues[":id"].$put({ param: { id }, json: input })),
+      onSettled: refresh,
+    }),
+    removeVenue: useMutation({
+      mutationFn: async (id: string) => removed(await api.venues[":id"].$delete({ param: { id } })),
       onSettled: refresh,
     }),
   };

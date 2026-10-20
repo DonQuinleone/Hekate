@@ -9927,6 +9927,146 @@ describe.runIf(url)("api", () => {
           expect((await list()).map((b) => b.name)).toEqual(["Stage box B", "Box C"]);
         });
 
+        it("keeps a project's repertoire and venues (#48)", async () => {
+          const s = await studio();
+          const send = (method: string, url: string, body: unknown, cookie = s.owner) =>
+            app.request(url, { ...json(body, cookie), method });
+          type Listed = {
+            works: {
+              id: string;
+              title: string;
+              tracks: { trackId: string; number: string; name: string }[];
+            }[];
+            venues: { id: string; name: string; address: string }[];
+            tracks: { id: string; name: string }[];
+          };
+          const list = async (cookie = s.owner) =>
+            (await (
+              await getAs(`/api/projects/${s.projectId}/repertoire`, cookie)
+            ).json()) as Listed;
+          const first = await list();
+          expect(first.works).toEqual([]);
+          expect(first.tracks.map((t) => t.id)).toContain(s.trackId);
+          const [project] = await db
+            .select()
+            .from(schema.projects)
+            .where(eq(schema.projects.id, s.projectId));
+          const [second] = await db
+            .insert(schema.tracks)
+            .values({
+              organisationId: project?.organisationId ?? "",
+              projectId: s.projectId,
+              name: "The Entertainer",
+            })
+            .returning();
+
+          // A work with its tracks numbered as the score prints them, in order.
+          const made = await send("POST", `/api/projects/${s.projectId}/works`, {
+            title: "Rags",
+            composer: "Scott Joplin",
+            abbreviation: "RAGS",
+            tracks: [
+              { trackId: second?.id, number: "II" },
+              { trackId: s.trackId, number: "I" },
+            ],
+          });
+          expect(made.status).toBe(201);
+          const rags = ((await made.json()) as { work: Listed["works"][number] }).work;
+          expect(rags.tracks.map((t) => [t.number, t.name])).toEqual([
+            ["II", "The Entertainer"],
+            ["I", expect.any(String)],
+          ]);
+          // A track is in one work.
+          const again = await send("POST", `/api/projects/${s.projectId}/works`, {
+            title: "Encores",
+            tracks: [{ trackId: s.trackId }],
+          });
+          expect(again.status).toBe(409);
+          expect(await again.text()).toContain("already in another work");
+          const reordered = await send("PUT", `/api/works/${rags.id}`, {
+            title: "Rags",
+            tracks: [{ trackId: s.trackId, number: "1" }],
+          });
+          expect(reordered.status).toBe(200);
+          expect(
+            ((await reordered.json()) as { work: Listed["works"][number] }).work.tracks.map(
+              (t) => t.number,
+            ),
+          ).toEqual(["1"]);
+
+          // Venues, by name, once each.
+          const hall = await send("POST", `/api/projects/${s.projectId}/venues`, {
+            name: "Endless Hall",
+            address: "Mill Lane\nBristol",
+          });
+          expect(hall.status).toBe(201);
+          const venue = ((await hall.json()) as { venue: { id: string } }).venue;
+          expect(
+            (await send("POST", `/api/projects/${s.projectId}/venues`, { name: "Endless Hall" }))
+              .status,
+          ).toBe(409);
+          expect(
+            (await send("PUT", `/api/venues/${venue.id}`, { name: "Endless Hall Studio 2" }))
+              .status,
+          ).toBe(200);
+
+          // The engineer sees it all but changes none of it; a reviewer sees none of it.
+          const seen = await list(s.engineer);
+          expect(seen.works.map((w) => w.title)).toEqual(["Rags"]);
+          expect(seen.venues.map((v) => v.name)).toEqual(["Endless Hall Studio 2"]);
+          expect(
+            (
+              await send(
+                "POST",
+                `/api/projects/${s.projectId}/works`,
+                { title: "Mine" },
+                s.engineer,
+              )
+            ).status,
+          ).toBe(403);
+          expect((await getAs(`/api/projects/${s.projectId}/repertoire`, s.composer)).status).toBe(
+            403,
+          );
+
+          // Another workspace's tracks, works and venues are not this one's.
+          const [elsewhere] = await db
+            .insert(schema.organisations)
+            .values({ name: "Elsewhere", slug: "elsewhere-repertoire" })
+            .returning();
+          const [theirProject] = await db
+            .insert(schema.projects)
+            .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+            .returning();
+          const [theirTrack] = await db
+            .insert(schema.tracks)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              projectId: theirProject?.id ?? "",
+              name: "Theirs",
+            })
+            .returning();
+          const [theirVenue] = await db
+            .insert(schema.venues)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              projectId: theirProject?.id ?? "",
+              name: "Theirs",
+            })
+            .returning();
+          const stolen = await send("POST", `/api/projects/${s.projectId}/works`, {
+            title: "Stolen",
+            tracks: [{ trackId: theirTrack?.id }],
+          });
+          expect(stolen.status).toBe(400);
+          expect((await send("DELETE", `/api/venues/${theirVenue?.id}`, {})).status).toBe(404);
+
+          // Removing a work leaves its tracks; removing a track takes it out of its work.
+          expect((await send("DELETE", `/api/works/${rags.id}`, {})).status).toBe(204);
+          expect((await list()).tracks.map((t) => t.id)).toContain(s.trackId);
+          expect((await send("DELETE", `/api/venues/${venue.id}`, {})).status).toBe(204);
+          expect((await list()).venues).toEqual([]);
+        });
+
         it("keeps a project's personnel, ensembles in sections, linked to members and guests (#49)", async () => {
           const s = await studio();
           const send = (method: string, url: string, body: unknown, cookie = s.owner) =>

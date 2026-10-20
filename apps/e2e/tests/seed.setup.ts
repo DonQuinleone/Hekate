@@ -756,6 +756,28 @@ setup("seed", async ({ page, browser }) => {
     ],
   });
 
+  // The repertoire and venues (#48): the rags as one work, numbered as the score prints them.
+  await api(page, "POST", `/api/projects/${music.id}/works`, {
+    title: "Rags",
+    composer: "Scott Joplin",
+    forces: "Piano trio",
+    abbreviation: "RAGS",
+    notes: "Two rags in the trio arrangement; more to follow.",
+    tracks: [
+      { trackId: track.id, number: "1" },
+      { trackId: entertainer.id, number: "2" },
+    ],
+  });
+  for (const venue of [
+    {
+      name: "Endless Hall",
+      address: "Mill Lane\nBristol",
+      notes: "Get-in by the north door; the piano is tuned on the morning of day 1.",
+    },
+    { name: "Endless Hall Studio 2", address: "Unit 4, Mill Lane\nBristol", notes: "" },
+  ])
+    await api(page, "POST", `/api/projects/${music.id}/venues`, venue);
+
   // Personnel (#49), as the prototype lists it: linked to the project's members and guests.
   const { people } = await api<{ people: { kind: string; id: string; name: string }[] }>(
     page,
