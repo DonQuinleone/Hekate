@@ -66,6 +66,7 @@ import { ProjectsPage } from "~/routes/projects";
 import { RepertoirePage, VenuesPage } from "~/routes/repertoire";
 import { RequestReviewPage } from "~/routes/request-review";
 import { ReviewPage } from "~/routes/review";
+import { SchedulePage } from "~/routes/schedule";
 import { ScoreMarkingPage } from "~/routes/score-marking";
 import { SearchPage } from "~/routes/search";
 import { SessionPage, SessionsPage } from "~/routes/sessions";
@@ -544,6 +545,15 @@ const projectRepertoire = createRoute({
     return <RepertoirePage projectId={projectId} />;
   },
 });
+// The schedule (#50): days, their rows in time, and the coverage of every track.
+const projectSchedule = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/schedule",
+  component: function ProjectScheduleRoute() {
+    const { projectId } = projectSchedule.useParams();
+    return <SchedulePage projectId={projectId} />;
+  },
+});
 const projectVenues = createRoute({
   getParentRoute: () => app,
   path: "/projects/$projectId/venues",
@@ -849,6 +859,7 @@ export const router = createRouter({
       projectPatch,
       projectPersonnel,
       projectRepertoire,
+      projectSchedule,
       projectVenues,
       session,
       takeLog,

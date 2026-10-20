@@ -474,24 +474,21 @@ function Schedule() {
                         r.done && "opacity-50",
                       )}
                     >
-                      {live ? (
-                        <button
-                          type="button"
-                          aria-pressed={Boolean(r.done)}
-                          aria-label="Done"
-                          onClick={() => toggle(day.id, r.id)}
-                          className={cn(
-                            "flex size-5 items-center justify-center rounded-full border transition-colors",
-                            r.done
-                              ? "border-ink bg-ink text-ground"
-                              : "border-line-strong hover:border-edge-strong",
-                          )}
-                        >
-                          {r.done && <Icon name="check" size={11} />}
-                        </button>
-                      ) : (
-                        <span className="size-5" />
-                      )}
+                      {/* Any day's rows tick off, after the fact too; today's are live. */}
+                      <button
+                        type="button"
+                        aria-pressed={Boolean(r.done)}
+                        aria-label="Done"
+                        onClick={() => toggle(day.id, r.id)}
+                        className={cn(
+                          "flex size-5 items-center justify-center rounded-full border transition-colors",
+                          r.done
+                            ? "border-ink bg-ink text-ground"
+                            : "border-line-strong hover:border-edge-strong",
+                        )}
+                      >
+                        {r.done && <Icon name="check" size={11} />}
+                      </button>
                       <span className="tabular w-[92px] shrink-0 text-ink-2">
                         {r.start}–{addMinutes(r.start, r.minutes)}
                       </span>
