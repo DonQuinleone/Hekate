@@ -28,6 +28,21 @@ describe("barNumbersOf", () => {
     expect(barNumbersOf(printed).map((b) => b.bar)).toEqual([5, 7, 9]);
   });
 
+  it("takes system numbers over a run of fingerings that also rises", () => {
+    const printed = [
+      ...[1, 2, 3, 4, 5].map((n, i) => at(1, 0.2, 0.3 + i * 0.05, n)),
+      at(1, 0.4, 0.06, 9),
+      at(1, 0.6, 0.06, 13),
+      at(1, 0.8, 0.06, 17),
+    ];
+    expect(barNumbersOf(printed).map((b) => b.bar)).toEqual([9, 13, 17]);
+  });
+
+  it("reads every number when a score numbers its bars along the systems", () => {
+    const printed = [at(1, 0.2, 0.5, 5), at(1, 0.4, 0.3, 10), at(1, 0.6, 0.7, 15)];
+    expect(barNumbersOf(printed).map((b) => b.bar)).toEqual([5, 10, 15]);
+  });
+
   it("trusts nothing from too few numbers", () => {
     expect(barNumbersOf([at(1, 0.3, 0.05, 5), at(1, 0.6, 0.05, 9)])).toEqual([]);
     expect(barNumbersOf([])).toEqual([]);

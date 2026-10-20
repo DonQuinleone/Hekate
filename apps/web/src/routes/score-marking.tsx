@@ -223,9 +223,10 @@ function Marking({
     }
     go(place.page);
     setFound({ page: place.page, y: place.y });
+    // Said every time, so a screen reader hears where it went, even on the page shown.
     setBarNote(
       place.from === bar
-        ? null
+        ? `Bar ${bar}, page ${place.page}.`
         : place.from == null
           ? `Bar ${bar} is before the first numbered bar.`
           : `Bar ${bar} is in the system from bar ${place.from}.`,

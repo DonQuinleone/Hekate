@@ -15,6 +15,8 @@ const MARGIN = 0.05;
 const FEWEST = 3;
 /** More numbers than any score prints in its text; past these, the rest are not read. */
 const MOST = 4000;
+/** A system's number is printed at its start, before the clef: near the page's left edge. */
+const SYSTEM_START = 0.14;
 
 /** Within a few hundredths down the page, two numbers are on one line: across decides. */
 const line = (y: number) => Math.round(y * 40);
@@ -26,7 +28,9 @@ const before = (a: PrintedBar, b: PrintedBar) =>
  * through the score in reading order, the earliest such where there are several. A score
  * numbers its bars upwards, at each system or every few bars; fingerings, tuplets and rehearsal
  * figures rise and fall, and so drop out, and page numbers are left out with the margins.
- * Nothing when too few are found to trust.
+ * The numbers at the start of each system come first: a run of fingerings (1, 2, 3, 4, 5) also
+ * rises, but sits among the notes. Only a score that numbers its bars along the systems, and
+ * not at their starts, is read from every number. Nothing when too few are found to trust.
  */
 export function barNumbersOf(numbers: PrintedBar[]): PrintedBar[] {
   const words = numbers
@@ -34,6 +38,20 @@ export function barNumbersOf(numbers: PrintedBar[]): PrintedBar[] {
     .filter((n) => n.y >= MARGIN && n.y <= 1 - MARGIN)
     .sort(before)
     .slice(0, MOST);
+  // The first number on each line, where it is at the line's start.
+  const lines = new Set<string>();
+  const starts = words.filter((n) => {
+    const key = `${n.page}:${line(n.y)}`;
+    const first = !lines.has(key);
+    lines.add(key);
+    return first && n.x <= SYSTEM_START;
+  });
+  const atStarts = risingRun(starts);
+  return atStarts.length > 0 ? atStarts : risingRun(words);
+}
+
+/** The longest run that rises, in the order given, the earliest such; nothing if too short. */
+function risingRun(words: PrintedBar[]): PrintedBar[] {
   // From each number, how long a rising run it starts; then the earliest of the longest
   // runs, taking the earliest number at each step, so a fingering just after a bar number
   // never stands in for it.
