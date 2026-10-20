@@ -182,7 +182,7 @@ export function createApi(deps: AppDeps) {
         await settings.get();
         await next();
       })
-      .route("/health", health(deps.db))
+      .route("/health", health(deps.db, { backends: deps.storage.backends, mailer: deps.mailer }))
       // What everyone is told, signed in or not: maintenance mode's notice (#154).
       .get("/notice", async (c) =>
         c.json({ maintenance: (await settings.get()).maintenance } satisfies InstanceNotice),

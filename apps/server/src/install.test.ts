@@ -80,6 +80,9 @@ describe("the installer", () => {
     expect((await app.request("/api/me")).status).toBe(409);
     expect(await (await app.request("/api/setup")).json()).toEqual({ needed: true });
     expect(await (await app.request("/api/health")).json()).toMatchObject({ status: "installing" });
+    // Alive, but not ready to serve until it is installed (#156).
+    expect((await app.request("/api/health/live")).status).toBe(200);
+    expect((await app.request("/api/health/ready")).status).toBe(503);
   });
 
   it("stops at a requirement the server cannot run without", async () => {

@@ -206,6 +206,26 @@ describe.runIf(url)("api", () => {
     expect(await res.json()).toMatchObject({ status: "ok", database: "ok" });
   });
 
+  it("answers liveness and readiness probes, naming no host (#156)", async () => {
+    const live = await app.request("/api/health/live");
+    expect(live.status).toBe(200);
+    expect(await live.json()).toMatchObject({ status: "ok" });
+    const ready = await app.request("/api/health/ready");
+    expect(ready.status).toBe(200);
+    const body = (await ready.json()) as {
+      status: string;
+      checks: Record<string, string>;
+    };
+    // Ready on the database and storage; mail goes to the log here, and no worker runs.
+    expect(body.status).toBe("ready");
+    expect(body.checks).toMatchObject({ database: "ok", storage: "ok", mail: "off" });
+    expect(["stale", "failed"]).toContain(body.checks.worker);
+    // States only: nothing in the answer but the release and the words for each.
+    expect(
+      Object.values(body.checks).every((v) => ["ok", "failed", "stale", "off"].includes(v)),
+    ).toBe(true);
+  });
+
   it("tells Prometheus how it is doing, only with the token (#70)", async () => {
     const token = "metrics-token-metrics-token-metrics-0";
     const scraped = createApp({
