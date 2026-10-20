@@ -34,14 +34,24 @@ export function rolled(take: Pick<LoggedTake, "wallIn" | "wallOut">, now: number
   return Math.max(0, Math.floor((end - Date.parse(take.wallIn)) / 1000));
 }
 
-/** Seconds until the slot ends, never below 0; null without a slot. */
-export function slotLeft(session: Pick<SessionDetail, "slotEnd">, now: number): number | null {
-  if (!session.slotEnd) return null;
-  return Math.max(0, Math.floor((Date.parse(session.slotEnd) - now) / 1000));
-}
-
 /** Under ten minutes left, the countdown turns to the signal colour. */
 export const SLOT_WARNING = 10 * 60;
+
+/**
+ * The session clock's state, for its colour: plenty of time, under ten minutes, or over the slot
+ * (with by how much, since a slot running over is what the room most needs to see).
+ */
+export type SlotStatus =
+  | { kind: "plenty" | "short"; left: number }
+  | { kind: "over"; over: number }
+  | null;
+
+export function slotStatus(session: Pick<SessionDetail, "slotEnd">, now: number): SlotStatus {
+  if (!session.slotEnd) return null;
+  const left = Math.floor((Date.parse(session.slotEnd) - now) / 1000);
+  if (left < 0) return { kind: "over", over: -left };
+  return { kind: left < SLOT_WARNING ? "short" : "plenty", left };
+}
 
 /** "4:07", or "1:04:07" past the hour. */
 export function clock(seconds: number): string {

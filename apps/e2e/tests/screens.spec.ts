@@ -598,6 +598,13 @@ test("take-log", async ({ page }) => {
   await expect(tone).toHaveAttribute("aria-pressed", "true");
   await tone.click();
   await expect(tone).toHaveAttribute("aria-pressed", "false");
+  // Large print, for the far side of the room: L opens it and closes it again.
+  await page.keyboard.press("l");
+  await settle(page, "section[aria-label='Take log in large print'] >> text=T5");
+  await saveScreen(page, "take-log-large");
+  await checkScreen(page);
+  await page.keyboard.press("l");
+  await expect(page.getByRole("region", { name: "Take log in large print" })).toHaveCount(0);
   await page.getByRole("button", { name: "Logger" }).click();
   await settle(page, "main table >> text=T3");
   await saveScreen(page, "take-log-logger");
