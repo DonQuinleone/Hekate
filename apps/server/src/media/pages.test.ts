@@ -9,9 +9,11 @@ import {
   PRINT_LONGEST,
   pageSourceOf,
   parsePageSizes,
+  parsePrintedNumbers,
   pdfPageSizes,
   pngSize,
   printDpi,
+  printedBars,
   type RenderedPage,
   renderPages,
   renderPdfPage,
@@ -62,6 +64,24 @@ describe("pages drawn for print", () => {
   });
 });
 
+describe("the bar numbers a score prints", () => {
+  it("reads whole numbers and where they sit, leaving out large ones", () => {
+    const xhtml = [
+      '<doc><page width="600.000000" height="800.000000">',
+      '<word xMin="72.0" yMin="100.0" xMax="180.0" yMax="148.0">1</word>',
+      '<word xMin="30.0" yMin="200.0" xMax="40.0" yMax="210.0">5</word>',
+      '<word xMin="60.0" yMin="200.0" xMax="90.0" yMax="210.0">Allegro</word>',
+      '</page><page width="600.000000" height="800.000000">',
+      '<word xMin="30.0" yMin="400.0" xMax="42.0" yMax="410.0">17</word>',
+      "</page></doc>",
+    ].join("\n");
+    expect(parsePrintedNumbers(xhtml)).toEqual([
+      { page: 1, x: 0.05, y: 0.25, bar: 5 },
+      { page: 2, x: 0.05, y: 0.5, bar: 17 },
+    ]);
+  });
+});
+
 describe.runIf(hasTools || process.env.CI)("drawing pages", () => {
   const dir = mkdtempSync(join(tmpdir(), "hekate-pages-"));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -74,6 +94,24 @@ describe.runIf(hasTools || process.env.CI)("drawing pages", () => {
     });
     return { pages, ...result };
   };
+
+  it("finds the bar numbers a score prints in its text", async () => {
+    const pdf = join(dir, "bars.pdf");
+    writeFileSync(pdf, samplePdf(2, { bars: true }));
+    const bars = await printedBars(pdf, 2, signal);
+    expect(bars.map((b) => [b.page, b.bar])).toEqual([
+      [1, 5],
+      [1, 9],
+      [1, 13],
+      [2, 17],
+      [2, 21],
+      [2, 25],
+      [2, 29],
+    ]);
+    // A PDF without them has none.
+    writeFileSync(pdf, samplePdf(2));
+    expect(await printedBars(pdf, 2, signal)).toEqual([]);
+  });
 
   it("draws one page of a PDF for print, at its own size", async () => {
     const pdf = join(dir, "print.pdf");

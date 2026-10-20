@@ -1,6 +1,8 @@
 import {
   type EditPlot,
   editLabel,
+  type PrintedBar,
+  placeOfBar,
   readingOrder,
   type ScoreMark,
   type ScoreMarkCategory,
@@ -15,7 +17,7 @@ import {
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { type PointerEvent, useId, useRef, useState } from "react";
+import { type PointerEvent, useEffect, useId, useRef, useState } from "react";
 import { DownloadDialog } from "~/components/downloads";
 import { drawingColour } from "~/components/drawings";
 import { Empty } from "~/components/empty";
@@ -180,6 +182,15 @@ function Marking({
   const [placing, setPlacing] = useState<Placing | null>(null);
   const [exporting, setExporting] = useState(false);
   const [goTo, setGoTo] = useState("");
+  const [goToBar, setGoToBar] = useState("");
+  /** Where the bar asked for was found, marked for a moment; and what to say of it. */
+  const [found, setFound] = useState<{ page: number; y: number } | null>(null);
+  const [barNote, setBarNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (!found) return;
+    const timer = setTimeout(() => setFound(null), 2500);
+    return () => clearTimeout(timer);
+  }, [found]);
 
   const marks = data?.marks ?? [];
   const categories = data?.categories ?? [];
@@ -196,6 +207,30 @@ function Marking({
         : [page];
 
   const go = (p: number) => setPage(Math.min(Math.max(1, p), pageCount));
+  // The bars the score prints; where it prints none (a scan), the bars its marks name.
+  const knownBars: PrintedBar[] = view?.bars.length
+    ? view.bars
+    : marks
+        .flatMap((m) =>
+          m.barFrom == null ? [] : [{ page: m.page, x: m.x, y: m.y, bar: m.barFrom }],
+        )
+        .sort((a, b) => a.bar - b.bar || a.page - b.page);
+  const goToBarNumber = (bar: number) => {
+    const place = placeOfBar(knownBars, bar);
+    if (!place) {
+      setBarNote("This score prints no bar numbers to go by, and no mark names a bar yet.");
+      return;
+    }
+    go(place.page);
+    setFound({ page: place.page, y: place.y });
+    setBarNote(
+      place.from === bar
+        ? null
+        : place.from == null
+          ? `Bar ${bar} is before the first numbered bar.`
+          : `Bar ${bar} is in the system from bar ${place.from}.`,
+    );
+  };
   const nextEdit = () => {
     const at = edits.findIndex((m) => m.id === selected);
     const next = edits[(at + 1) % Math.max(1, edits.length)];
@@ -338,6 +373,25 @@ function Marking({
               className="w-28"
             />
           </form>
+          <form
+            className="flex items-center gap-1.5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const n = Number.parseInt(goToBar, 10);
+              if (n >= 0) goToBarNumber(n);
+              setGoToBar("");
+            }}
+          >
+            <Input
+              size="sm"
+              inputMode="numeric"
+              aria-label="Go to bar"
+              placeholder="Go to bar"
+              value={goToBar}
+              onChange={(e) => setGoToBar(e.target.value)}
+              className="w-28"
+            />
+          </form>
           <span className="ml-auto flex flex-wrap items-center justify-end gap-1">
             {edits.length > 0 && (
               <Button variant="ghost" size="sm" onClick={nextEdit}>
@@ -382,7 +436,15 @@ function Marking({
             )}
           </span>
         </div>
-        <div className="scroll-quiet flex max-h-[78vh] flex-wrap justify-center gap-4 overflow-auto rounded-panel bg-sunken p-4">
+        <p role="status" className={cn("m-0 text-[12px] text-ink-3", !barNote && "sr-only")}>
+          {barNote}
+        </p>
+        <section
+          aria-label="The score"
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region must take focus to scroll by keyboard.
+          tabIndex={0}
+          className="scroll-quiet flex max-h-[78vh] flex-wrap justify-center gap-4 overflow-auto rounded-panel bg-sunken p-4 outline-none focus-visible:ring-2 focus-visible:ring-signal"
+        >
           {viewError ? (
             <p className="m-auto flex flex-col items-center gap-2 text-center text-[13px] text-ink-2">
               {viewError.message}
@@ -401,6 +463,7 @@ function Marking({
                 width={layout === "single" ? 720 : 480}
                 filter={filters[filter].css}
                 marks={marks.filter((m) => m.page === p)}
+                found={found?.page === p ? found.y : null}
                 categories={categories}
                 selected={selected}
                 tool={canMark ? tool : null}
@@ -425,7 +488,7 @@ function Marking({
               />
             ))
           )}
-        </div>
+        </section>
         {view && view.pageCount > view.pages.length && (
           <p className="m-0 text-center text-[13px] text-ink-3">
             The first {view.pages.length} of {view.pageCount} pages are drawn; the rest cannot be
@@ -515,6 +578,7 @@ function ScorePage({
   width,
   filter,
   marks,
+  found,
   categories,
   selected,
   tool,
@@ -529,6 +593,8 @@ function ScorePage({
   width: number;
   filter: string;
   marks: ScoreMark[];
+  /** Where a bar asked for was found on this page, down it, to mark for a moment. */
+  found: number | null;
   categories: ScoreMarkCategory[];
   selected: string | null;
   tool: ScoreMarkKind | null;
@@ -538,6 +604,11 @@ function ScorePage({
   onLapsed: () => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
+  // The bar found is brought into view, wherever the page is scrolled to.
+  const line = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (found != null) line.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [found]);
   const [stroke, setStroke] = useState<[number, number][] | null>(null);
   const at = (e: PointerEvent): [number, number] => {
     const r = box.current?.getBoundingClientRect();
@@ -566,6 +637,15 @@ function ScorePage({
         />
       ) : (
         <div className="aspect-[1/1.414] w-full" />
+      )}
+      {found != null && (
+        <span
+          ref={line}
+          aria-hidden="true"
+          data-e2e-overlap
+          className="fade-in pointer-events-none absolute inset-x-0 h-0.5 bg-signal"
+          style={{ top: `${Math.max(0, found - 0.01) * 100}%` }}
+        />
       )}
       {/* Where the pencil lands: a click places the chosen mark, a drag draws ink. */}
       <div

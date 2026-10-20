@@ -303,7 +303,7 @@ describe.runIf(url && (hasFfmpeg || process.env.CI))("media jobs", () => {
   });
 
   it("draws a PDF as encrypted pages, and fails a fake one at once", async () => {
-    const fileId = await addFile(samplePdf(3), "document", "Score.pdf");
+    const fileId = await addFile(samplePdf(3, { bars: true }), "document", "Score.pdf");
     expect(
       await settle(
         "document-render",
@@ -311,10 +311,28 @@ describe.runIf(url && (hasFfmpeg || process.env.CI))("media jobs", () => {
       ),
     ).toBe("completed");
     const [file] = await db
-      .select({ status: schema.files.streamStatus, pageCount: schema.files.pageCount })
+      .select({
+        status: schema.files.streamStatus,
+        pageCount: schema.files.pageCount,
+        bars: schema.files.printedBars,
+      })
       .from(schema.files)
       .where(eq(schema.files.id, fileId));
-    expect(file).toEqual({ status: "ready", pageCount: 3 });
+    expect(file).toMatchObject({ status: "ready", pageCount: 3 });
+    // The bar numbers the score prints, for going to a bar (#52).
+    expect(file?.bars?.map((b) => [b.page, b.bar])).toEqual([
+      [1, 5],
+      [1, 9],
+      [1, 13],
+      [2, 17],
+      [2, 21],
+      [2, 25],
+      [2, 29],
+      [3, 33],
+      [3, 37],
+      [3, 41],
+      [3, 45],
+    ]);
     const pages = await db
       .select()
       .from(schema.filePages)

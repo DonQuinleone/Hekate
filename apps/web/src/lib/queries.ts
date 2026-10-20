@@ -65,6 +65,7 @@ import {
   type OverviewSection,
   type PlayerTool,
   type Preferences,
+  type PrintedBar,
   type ProfileInput,
   type ProfileRef,
   type ProfileSource,
@@ -1145,6 +1146,8 @@ export interface DocumentView {
   expiresAt: string;
   /** Pages in the document; more than `pages` when only the first ones were drawn. */
   pageCount: number;
+  /** The bar numbers a score prints, in reading order, for going to a bar (#52). */
+  bars: PrintedBar[];
   pages: ViewPage[];
 }
 
