@@ -80,6 +80,7 @@ describe("contracting statements (#421)", () => {
       'ALTER TABLE "files" RENAME COLUMN "peaks_status" TO "analysis_status"',
       'ALTER TABLE "folders" ADD CONSTRAINT "folders_name" UNIQUE("project_id","name")',
       'ALTER TABLE "reviews" ADD CONSTRAINT "reviews_share" CHECK ("reviews"."share" > 0)',
+      'ALTER TABLE "files" ADD CONSTRAINT "files_blob_fk" FOREIGN KEY ("blob_id") REFERENCES "blobs"("id")',
       'CREATE UNIQUE INDEX "takes_number_idx" ON "takes" USING btree ("track_id","number")',
     ]);
   });
@@ -91,6 +92,7 @@ describe("contracting statements (#421)", () => {
           'CREATE TABLE "marks" ("id" uuid PRIMARY KEY NOT NULL, "page" integer NOT NULL);',
           'ALTER TABLE "marks" ADD CONSTRAINT "marks_page" CHECK ("marks"."page" >= 1);',
           'CREATE UNIQUE INDEX "marks_page_idx" ON "marks" USING btree ("page");',
+          'ALTER TABLE "marks" ADD CONSTRAINT "marks_file_fk" FOREIGN KEY ("file_id") REFERENCES "files"("id");',
         ].join("\n"),
       ),
     ).toEqual([]);
@@ -214,6 +216,22 @@ describe.runIf(base)("running migrations", () => {
     await expect(runMigrations(url)).rejects.toBeInstanceOf(DatabaseAheadError);
     const { db, close } = createDb(url, { max: 1 });
     expect(await migrationState(db)).toMatchObject({ ahead: true, newer: false });
+    await close();
+  }, 120_000);
+
+  it("records the stricter cutoff before migrating, so a failed migration never leaves a looser one", async () => {
+    const url = await database();
+    await runMigrations(url);
+    const failing = folderWith([
+      { tag: "9000_phone", sql: 'ALTER TABLE "venues" ADD COLUMN "phone" text;' },
+      { tag: "9001_required", sql: 'ALTER TABLE "venues" ALTER COLUMN "no_such" SET NOT NULL;' },
+    ]);
+    await expect(runMigrations(url, failing)).rejects.toThrow();
+    const { db, close } = createDb(url, { max: 1 });
+    const [row] = await db.execute<{ migration: string }>(
+      sql`select migration from drizzle.hekate_readable_from`,
+    );
+    expect(Number(row?.migration)).toBe(journalOf(failing).at(-1)?.when);
     await close();
   }, 120_000);
 

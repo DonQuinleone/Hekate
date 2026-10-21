@@ -81,8 +81,8 @@ const createdTable = (statement: string) =>
 /**
  * The statements in a migration that the release before it may not run against (#421): those
  * that lose data, and those that tighten or rename what older code reads and writes. A column
- * made required, a required column added without a default, a uniqueness or check constraint
- * or a unique index on a table older code knows, a table or column renamed. Constraints and
+ * made required, a required column added without a default, a uniqueness, check or foreign
+ * key constraint or a unique index on a table older code knows, a table or column renamed. Constraints and
  * indexes on a table the same migration creates are not counted, as older code never touches
  * it. A migration can also say so itself, with a line `-- hekate: contracts`.
  */
@@ -106,7 +106,7 @@ export function contractingStatements(text: string): string[] {
         [
           /^ALTER TABLE .* ALTER COLUMN .* SET NOT NULL\b/i,
           /^ALTER TABLE .* ADD COLUMN (?!.*\bDEFAULT\b).*\bNOT NULL\b/i,
-          /^ALTER TABLE .* ADD CONSTRAINT .* (UNIQUE|CHECK|PRIMARY KEY)\b/i,
+          /^ALTER TABLE .* ADD CONSTRAINT .* (UNIQUE|CHECK|PRIMARY KEY|FOREIGN KEY)\b/i,
           /^CREATE UNIQUE INDEX\b/i,
           /^ALTER TABLE .* RENAME\b/i,
         ].some((pattern) => pattern.test(statement)),
@@ -233,14 +233,18 @@ export async function runMigrations(
               "start once with MIGRATE_ALLOW_DESTRUCTIVE=true.",
           );
       }
-      await migrate(db, { migrationsFolder: folder });
       // Which releases may still run against it: those that know its latest contraction.
+      // Recorded first, so the database never holds a migration with a looser cutoff than
+      // it needs: a release that starts while this one migrates, or after it fails half way,
+      // reads the stricter one (#421).
+      await db.execute(sql`create schema if not exists drizzle`);
       await db.execute(
         sql`create table if not exists ${READABLE_FROM} (id boolean primary key default true check (id), migration bigint not null)`,
       );
       await db.execute(
         sql`insert into ${READABLE_FROM} (migration) values (${readableFrom(folder)}) on conflict (id) do update set migration = excluded.migration`,
       );
+      await migrate(db, { migrationsFolder: folder });
       return { applied: state.pending.map((entry) => entry.tag), newer: false };
     } finally {
       await db.execute(sql`select pg_advisory_unlock(${MIGRATION_LOCK})`);
