@@ -30,6 +30,7 @@ import { remindDue } from "./reminders.ts";
 import { purgeDownloadTickets } from "./routes/downloads.ts";
 import type { SetupGate } from "./setup-code.ts";
 import { purgeAttempts } from "./sign-in.ts";
+import { listenForSignals } from "./signals.ts";
 import { schemaProblem, settingsOrExit } from "./startup.ts";
 import { serveWeb } from "./static.ts";
 import { createStorage } from "./storage.ts";
@@ -108,7 +109,7 @@ export async function boot(
     }
   })();
 
-  const { db, close } = createDb(config.DATABASE_URL);
+  const { db, sql: client, close } = createDb(config.DATABASE_URL);
   // Counted for Prometheus (#70) and written to the mail log (#157).
   const mailer = countedMailer(
     loggedMailer(
@@ -178,6 +179,12 @@ export async function boot(
   await holdJobs();
   const holding = setInterval(holdJobs, 15_000);
   holding.unref();
+  // Another replica's change heard at once (#188); the timers above stay as the fallback.
+  const unlisten = await listenForSignals(client, (what) => {
+    if (what === "flags") return flags.forget();
+    settings.forget();
+    void holdJobs();
+  });
 
   if (config.WORKER) {
     await startWorkers(
@@ -335,6 +342,7 @@ export async function boot(
     // Let running jobs finish (or give up at the timeout) before closing the database.
     stop: () =>
       Promise.resolve(clearInterval(holding))
+        .then(unlisten)
         .then(stopSampling)
         .then(() => jobs.stop())
         .catch((error: unknown) => console.error("Stopping the job queue failed:", error))

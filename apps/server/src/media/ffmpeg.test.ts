@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { InvalidMediaError, MediaToolError, parseProbe, probe, run } from "./ffmpeg.ts";
-import { streamInWorkspace, sweepWorkspaces, withWorkspace } from "./workspace.ts";
+import { hostTag, streamInWorkspace, sweepWorkspaces, withWorkspace } from "./workspace.ts";
 
 const hasFfmpeg = spawnSync("ffprobe", ["-version"]).status === 0;
 
@@ -345,10 +345,21 @@ describe.runIf(hasFfmpeg || process.env.CI)("media tools", () => {
     // A pid far above any real one stands in for a process that has gone.
     await mkdir(join(root, "job-999999999-abc"), { recursive: true });
     await writeFile(join(root, "job-999999999-abc", "decrypted.wav"), "secret");
+    await mkdir(join(root, `job-${hostTag}-999999999-abc`));
     await mkdir(join(root, `job-${process.pid}-live`));
+    await mkdir(join(root, `job-${hostTag}-${process.pid}-live`));
+    // Another host's, sharing the directory (#188): its processes are not this host's to judge.
+    await mkdir(join(root, "job-0badcafe-999999999-abc"));
     await mkdir(join(root, "something-else"));
-    expect(await sweepWorkspaces(root)).toBe(1);
-    expect((await readdir(root)).sort()).toEqual([`job-${process.pid}-live`, "something-else"]);
+    expect(await sweepWorkspaces(root)).toBe(2);
+    expect((await readdir(root)).sort()).toEqual(
+      [
+        `job-${hostTag}-${process.pid}-live`,
+        "job-0badcafe-999999999-abc",
+        `job-${process.pid}-live`,
+        "something-else",
+      ].sort(),
+    );
     await rm(root, { recursive: true, force: true });
   });
 
@@ -375,7 +386,7 @@ describe.runIf(hasFfmpeg || process.env.CI)("media tools", () => {
       yield 2;
     });
     expect((await pieces.next()).value).toBe(1);
-    expect(seen.startsWith(`${root}/job-${process.pid}-`)).toBe(true);
+    expect(seen.startsWith(`${root}/job-${hostTag}-${process.pid}-`)).toBe(true);
     expect(existsSync(join(seen, "decrypted.pdf"))).toBe(true);
     // A browser that goes stops the download early: the workspace goes with it.
     await pieces.return(undefined);

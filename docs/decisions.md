@@ -1161,7 +1161,7 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Guests too:** a link opened (or one that opens nothing), a code right or wrong, each with the guest's workspace.
 - **Global** (`auth_events`, in `globalTables` like error reports): a member's sign-in belongs to their account, not a workspace. Where a workspace is known it is kept, and goes with the workspace.
 - **The address** is read as the access log reads it: X-Forwarded-For's last entry behind Caddy (TRUST_PROXY), none otherwise, as a client could claim any.
-- **Beside, never awaited**: a slow or failed write holds no sign-in up.
+- **Written before the answer goes back**, so deleting the account later finds every row that names it; a write that fails is told to the server's log, and never refuses the person.
 - **Forgetting.** Deleting an account rewrites its address to "A former member" here and in the mail log, as the access log and the instance's events already do.
 
 ## 187. Logs: retention and the live tail
@@ -1173,3 +1173,15 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **A few thousand rows to a transaction**, oldest first by their time-ordered ids, for every log: a long backlog never holds one transaction. The audit log is the operators' instance events and every workspace's access log; the access log goes only through its purge setting (decision 020), one workspace at a time.
 - **What went is recorded even when a run fails part-way:** `logs.purged` counts what each committed batch removed, marked incomplete if a later one failed, and the next day's run carries on.
 - **The live tail** reads the open log again every five seconds while Live is on.
+
+## 188. Several replicas: what each process holds, and how they agree
+
+#188. An audit of every piece of state the server keeps in memory, for running several app processes against one PostgreSQL.
+
+- **Already shared through the database:** sessions, rate limits and sign-in lockouts (decision 051), jobs and their schedules (pg-boss runs each scheduled job once, whichever process starts it), upload records, download tickets, workspace keys and their rotation (each request asks for the current version), migrations (decision 177) and the health samples (decision 181). Playback tokens are signed with a key derived from `AUTH_SECRET`, the same on every replica.
+- **Settings and flags are announced.** An operator's change is announced on one PostgreSQL channel (`NOTIFY hekate_instance`) in the transaction that makes it, so PostgreSQL delivers it on commit and never for a change rolled back. Every process listens and reads the settings or flags again at once, and holds or frees its job workers as maintenance mode says. On each connection a listener reads everything again, as it may have missed something; the fifteen-second rereads (decisions 068 and 178) stay as the fallback. One channel, no message broker.
+- **Scratch directories carry their host.** A job's directory is named for its host and process, so replicas sharing one `WORK_DIR` each sweep only their own leftovers; process ids repeat across containers.
+- **Configured through the environment.** The installer's settings file belongs to one replica, so several are configured through the environment, or a shared file. The setup code's tries are counted per process: with twelve letters and digits to guess, ten tries per replica every ten minutes changes nothing, and the code is used only until the first owner exists.
+- **Local storage needs a shared filesystem** (an upload's parts go to whichever replica takes each request); S3 is the choice for more than one machine.
+- **The master key changes by restarts, in three rounds** (every replica learns the new key as a previous one, then makes it current, then forgets the old), as each process re-wraps the workspace keys at start with its own.
+- **Still per process, to be shared next:** the System health page's current lanes, CPU, memory and disk, and when metrics were last read, show the replica that answered; they move to the health samples every replica already writes.
