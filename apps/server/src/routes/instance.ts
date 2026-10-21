@@ -1481,11 +1481,11 @@ export function instanceRoutes(options: InstanceOptions) {
         });
       })
       .put("/settings", zValidator("json", instanceSettingsInput), async (c) => {
-        const next = c.req.valid("json");
+        const input = c.req.valid("json");
         await db.transaction(async (tx) => {
-          const before = await options.settings.write(tx, next, c.var.userId);
+          const { before, after } = await options.settings.write(tx, input, c.var.userId);
           // Every change an instance event, each thing that changed its own.
-          for (const change of settingsChanges(before, next))
+          for (const change of settingsChanges(before, after))
             await recordInstanceEvent(tx, {
               actorId: c.var.userId,
               action: change.action,

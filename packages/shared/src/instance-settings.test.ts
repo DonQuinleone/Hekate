@@ -3,6 +3,7 @@ import {
   defaultInstanceSettings,
   instanceSettingsOf,
   settingsChanges,
+  withStored,
 } from "./instance-settings.ts";
 
 describe("instance settings", () => {
@@ -44,5 +45,14 @@ describe("instance settings", () => {
       "defaults.guest_link_days",
     ]);
     expect(settingsChanges(on, on)).toEqual([]);
+  });
+
+  it("keeps what a save leaves out as stored, never back to its default", () => {
+    const stored = { ...defaultInstanceSettings, defaults: { guestLinkDays: 30 as const } };
+    const { defaults: _, ...older } = defaultInstanceSettings;
+    expect(withStored(older, stored).defaults).toEqual({ guestLinkDays: 30 });
+    expect(withStored({ ...older, defaults: { guestLinkDays: 14 } }, stored).defaults).toEqual({
+      guestLinkDays: 14,
+    });
   });
 });

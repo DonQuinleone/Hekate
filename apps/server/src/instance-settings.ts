@@ -1,5 +1,11 @@
 import { type Database, schema } from "@hekate/db";
-import { defaultInstanceSettings, type InstanceSettings, instanceSettingsOf } from "@hekate/shared";
+import {
+  defaultInstanceSettings,
+  type InstanceSettings,
+  type InstanceSettingsInput,
+  instanceSettingsOf,
+  withStored,
+} from "@hekate/shared";
 import { eq } from "drizzle-orm";
 
 /** How long a settings read is trusted before it is read again. */
@@ -38,7 +44,11 @@ export function createInstanceSettings(db: Database, now = () => Date.now()) {
      * once each see what the other saved; returns what they were before. The caller forgets
      * the last read once the transaction commits, so nothing reads the old row back meanwhile.
      */
-    async write(tx: Tx, next: InstanceSettings, by: string): Promise<InstanceSettings> {
+    async write(
+      tx: Tx,
+      input: InstanceSettingsInput,
+      by: string,
+    ): Promise<{ before: InstanceSettings; after: InstanceSettings }> {
       // The row made first if it is not there yet, so even the first two saves take turns.
       await tx
         .insert(schema.instanceSettings)
@@ -49,11 +59,14 @@ export function createInstanceSettings(db: Database, now = () => Date.now()) {
         .from(schema.instanceSettings)
         .where(eq(schema.instanceSettings.id, "instance"))
         .for("update");
+      const before = instanceSettingsOf(row?.settings);
+      // Under the lock: what the save leaves out is what is stored now, not a default.
+      const after = withStored(input, before);
       await tx
         .update(schema.instanceSettings)
-        .set({ settings: next, updatedBy: by, updatedAt: new Date() })
+        .set({ settings: after, updatedBy: by, updatedAt: new Date() })
         .where(eq(schema.instanceSettings.id, "instance"));
-      return instanceSettingsOf(row?.settings);
+      return { before, after };
     },
     /** Forget the last read, so the next `get` reads again. */
     forget() {

@@ -1415,9 +1415,6 @@ describe.runIf(url)("api", () => {
         const operator = cookieOf(await setup());
         type Answer = { settings: InstanceSettings; environment: InstanceEnvironment };
         const current = (await (await get("/api/instance/settings", operator)).json()) as Answer;
-        // Older pages send no defaults: they keep what is stored.
-        const { defaults: _, ...older } = current.settings;
-        expect((await send("PUT", "/api/instance/settings", older, operator)).status).toBe(200);
         expect(current.settings.defaults).toEqual({ guestLinkDays: 3 });
         expect(current.environment.modules).toEqual({
           billing: "off",
@@ -1432,6 +1429,10 @@ describe.runIf(url)("api", () => {
           operator,
         );
         expect(((await saved.json()) as Answer).settings.defaults.guestLinkDays).toBe(30);
+        // An older page sends no defaults: saving something else keeps them as stored.
+        const { defaults: _, ...older } = current.settings;
+        const kept = await send("PUT", "/api/instance/settings", older, operator);
+        expect(((await kept.json()) as Answer).settings.defaults).toEqual({ guestLinkDays: 30 });
         expect(
           (
             await send(
@@ -1484,6 +1485,8 @@ describe.runIf(url)("api", () => {
         expect(
           (await send("POST", "/api/instance/settings/mail-test", {}, theirOwner)).status,
         ).toBe(403);
+        // The instance's settings outlive the test: leave them as they were.
+        await send("PUT", "/api/instance/settings", current.settings, operator);
       });
 
       it("shows what the instance runs, and checks releases only when asked to (#158)", async () => {

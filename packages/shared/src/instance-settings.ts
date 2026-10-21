@@ -8,7 +8,7 @@ import { updateChannels } from "./releases.ts";
  * sets is shown beside them, read-only.
  */
 
-export const instanceSettingsInput = z.object({
+const instanceSettingsSchema = z.object({
   security: z.object({
     /** Every account needs a second factor, whatever a workspace's own setting says. */
     requireSecondFactor: z.boolean(),
@@ -21,12 +21,28 @@ export const instanceSettingsInput = z.object({
     /** What the notice says beyond that it is on: "Back by 18:00". */
     message: z.string().trim().max(280),
   }),
-  /** What a new workspace starts with; its owner may change it after. Older clients send none. */
-  defaults: z
-    .object({ guestLinkDays: z.literal(guestLinkDays) })
-    .default({ guestLinkDays: defaultWorkspaceSettings.guestLinkDays }),
+  /** What a new workspace starts with; its owner may change it after. */
+  defaults: z.object({ guestLinkDays: z.literal(guestLinkDays) }),
 });
-export type InstanceSettings = z.infer<typeof instanceSettingsInput>;
+export type InstanceSettings = z.infer<typeof instanceSettingsSchema>;
+
+/**
+ * A save: the settings, where a client older than a part may leave it out. What it leaves out
+ * stays as stored (`withStored`), never back to its default.
+ */
+export const instanceSettingsInput = instanceSettingsSchema.extend({
+  defaults: instanceSettingsSchema.shape.defaults.optional(),
+});
+export type InstanceSettingsInput = z.infer<typeof instanceSettingsInput>;
+
+/** A save over what is stored: the parts it leaves out kept as they are. */
+export const withStored = (
+  input: InstanceSettingsInput,
+  stored: InstanceSettings,
+): InstanceSettings => ({
+  ...input,
+  defaults: input.defaults ?? stored.defaults,
+});
 
 export const defaultInstanceSettings: InstanceSettings = {
   security: { requireSecondFactor: false },
@@ -44,7 +60,7 @@ export function instanceSettingsOf(stored: unknown): InstanceSettings {
     maintenance: { ...defaultInstanceSettings.maintenance, ...value.maintenance },
     defaults: { ...defaultInstanceSettings.defaults, ...value.defaults },
   };
-  const parsed = instanceSettingsInput.safeParse(merged);
+  const parsed = instanceSettingsSchema.safeParse(merged);
   return parsed.success ? parsed.data : defaultInstanceSettings;
 }
 
