@@ -451,7 +451,8 @@ jobs:
           kubectl exec hekate-tools -- psql postgres://hekate:hekate@postgres:5432/postgres \
             -c 'drop database hekate with (force)' -c 'create database hekate'
           kubectl exec hekate-tools -- rm -rf /data/storage
-          kubectl exec hekate-tools -- psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'DROP OWNED BY CURRENT_USER'
+          kubectl exec hekate-tools -- psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -c 'DROP SCHEMA IF EXISTS drizzle, pgboss, public CASCADE' -c 'CREATE SCHEMA public'
           kubectl exec -i hekate-tools -- pg_restore --exit-on-error --no-owner --dbname "$DATABASE_URL" < hekate.dump
           kubectl exec -i hekate-tools -- sh -c \
             'rm -rf /data/storage && tar -xzf - -C /data && chown -R 10001:10001 /data' < hekate-storage.tar.gz
@@ -472,7 +473,8 @@ jobs:
       - name: What happened
         if: ${{ failure() }}
         run: |
-          kubectl get pods,jobs,events --sort-by=.metadata.creationTimestamp
+          kubectl get pods,jobs -o wide
+          kubectl get events --sort-by=.metadata.creationTimestamp
           kubectl logs deployment/hekate-api --all-containers --tail=200 || true
           kubectl logs deployment/hekate-worker --all-containers --tail=200 || true
           kubectl logs job/hekate-migrate --tail=200 || true

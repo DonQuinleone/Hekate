@@ -72,7 +72,7 @@ Every pod runs as an unprivileged user with a read-only filesystem and no capabi
 
 The same three things as anywhere ([Backup and restore](../../operate/backup/)): the database, the media and the master key, the first two as of the same moment. Keep the master key apart from both. With CloudNativePG, its backups to object storage can stand in for the dump; with S3, the bucket's versions as of the dump stand in for the media archive. Otherwise, the steps below do what `deploy/backup.sh` and `deploy/restore.sh` do for Compose; CI runs them, against the chart on kind, on every pull request.
 
-They assume the release is called `hekate`, `DATABASE_URL` is set to the database's address as the cluster sees it, with the user that owns the database, and, for media on a volume, the claim is `hekate-media`. A pod holds PostgreSQL's tools and the media volume until it is deleted:
+They assume the release is called `hekate`, `DATABASE_URL` is set to the database's address as the cluster sees it, with the user that owns Hekate's schemas, and, for media on a volume, the claim is `hekate-media`. A pod holds PostgreSQL's tools and the media volume until it is deleted:
 
 ```sh
 kubectl apply -f - <<'EOF'
@@ -113,10 +113,11 @@ kubectl scale deployment hekate-api --replicas="$api"
 kubectl scale deployment hekate-worker --replicas="$worker"
 ```
 
-**Restore** into the same release, or a new one installed with the same values and master key. The database is emptied first, as the Compose restore makes a new one, so nothing a later release added survives beside the backup:
+**Restore** into the same release, or a new one installed with the same values and master key. Hekate's schemas are emptied first, as the Compose restore makes a new database, so nothing a later release added survives beside the backup:
 
 ```sh
-kubectl exec hekate-tools -- psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'DROP OWNED BY CURRENT_USER'
+kubectl exec hekate-tools -- psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -c 'DROP SCHEMA IF EXISTS drizzle, pgboss, public CASCADE' -c 'CREATE SCHEMA public'
 kubectl exec -i hekate-tools -- pg_restore --exit-on-error --no-owner --dbname "$DATABASE_URL" < hekate.dump
 kubectl exec -i hekate-tools -- sh -c \
   'rm -rf /data/storage && tar -xzf - -C /data && chown -R 10001:10001 /data' < hekate-storage.tar.gz
