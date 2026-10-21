@@ -169,6 +169,57 @@ jobs:
           path: apps/e2e/test-results/screens
           if-no-files-found: ignore
 
+  # The API suite through PgBouncer in transaction mode, at its defaults (#411, decision 190):
+  # a statement prepared for one client must never answer another's query. LISTEN needs a
+  # session of its own, so the replicas' signals are tested in check alone (#412).
+  pooled:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: hekate
+          POSTGRES_PASSWORD: hekate
+          POSTGRES_DB: hekate
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U hekate" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://hekate:hekate@127.0.0.1:6433/hekate
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install ffmpeg, Poppler and PgBouncer
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg poppler-utils fonts-dejavu-core pgbouncer
+      - name: Start PgBouncer in transaction mode
+        run: |
+          mkdir -p "$RUNNER_TEMP/pgbouncer"
+          echo '"hekate" "hekate"' > "$RUNNER_TEMP/pgbouncer/users.txt"
+          cat > "$RUNNER_TEMP/pgbouncer/pgbouncer.ini" <<EOF
+          [databases]
+          * = host=127.0.0.1 port=5432
+          [pgbouncer]
+          listen_addr = 127.0.0.1
+          listen_port = 6433
+          auth_type = plain
+          auth_file = $RUNNER_TEMP/pgbouncer/users.txt
+          pool_mode = transaction
+          max_client_conn = 500
+          ignore_startup_parameters = extra_float_digits,options
+          logfile = $RUNNER_TEMP/pgbouncer/pgbouncer.log
+          pidfile = $RUNNER_TEMP/pgbouncer/pgbouncer.pid
+          EOF
+          pgbouncer -d "$RUNNER_TEMP/pgbouncer/pgbouncer.ini"
+          PGPASSWORD=hekate psql -h 127.0.0.1 -p 6433 -U hekate -d hekate -c "select 1"
+      - run: pnpm --filter @hekate/server exec vitest run --exclude src/signals.test.ts
+
   # The documentation site builds, with the operator pages copied in from docs/.
   docs:
     runs-on: ubuntu-latest

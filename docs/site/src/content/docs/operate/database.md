@@ -20,10 +20,7 @@ Each app process opens up to ten connections, one more to listen for its replica
 
 **Session pooling** works as a direct connection does.
 
-**Transaction pooling** (PgBouncer's `pool_mode = transaction`, and poolers like it) works with two conditions:
-
-- **The pooler must handle prepared statements.** Hekate prepares its queries, and a transaction pooler hands each transaction to whichever server connection is free. Without prepared-statement support, a query can run a statement another client prepared under the same name, and answer with the wrong rows. PgBouncer 1.21 and later handle them when `max_prepared_statements` is above zero; set it to 200 or more. PgBouncer 1.22 leaves it at 0, so check before you rely on it.
-- **Settings and flags reach other replicas within fifteen seconds**, not at once. Replicas tell each other of a change with PostgreSQL's `LISTEN` and `NOTIFY`, and `LISTEN` needs a session of its own, which a transaction pooler does not keep. Each replica still reads the settings and flags again every fifteen seconds, so nothing is lost, only slower.
+**Transaction pooling** (PgBouncer's `pool_mode = transaction`, and poolers like it) works too, at the pooler's defaults. Hekate never prepares statements by name, so a pooler need not track them (`max_prepared_statements` may stay at 0). One thing is slower: replicas tell each other of a change to the settings or flags with PostgreSQL's `LISTEN` and `NOTIFY`, and `LISTEN` needs a session of its own, which a transaction pooler does not keep. Each replica still reads the settings and flags again every fifteen seconds, so nothing is lost, only slower.
 
 Migrations take a lock for their whole run, and every start that migrates takes it, even with nothing to apply, so keep migrating off the pooler. Run them over a direct connection first: one replica (or a one-off `docker compose run`) with `MIGRATE_ON_START=true` and `DATABASE_URL` pointing past the pooler, or `pnpm db:migrate` against the primary. Then start every replica that goes through the pooler with `MIGRATE_ON_START=false`: the image turns it on, and a lock taken through a transaction pooler can be left held on a pooled connection, so the next replica to start waits for it.
 

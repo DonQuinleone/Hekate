@@ -6,6 +6,10 @@ export function createDb(url: string, options: { max?: number; connectTimeout?: 
   const sql = postgres(url, {
     max: options.max ?? 10,
     onnotice: () => {},
+    // Never prepared by name (#411): behind a transaction pooler without prepared-statement
+    // support, a name prepared on one server connection runs another client's statement there,
+    // and answers with the wrong rows. Unnamed statements cost a little time and cannot.
+    prepare: false,
     ...(options.connectTimeout ? { connect_timeout: options.connectTimeout } : {}),
   });
   const db = drizzle(sql, { schema, casing: "snake_case" });
