@@ -1015,15 +1015,20 @@ function SystemHealthPage() {
           <Row
             key={b.name}
             name={b.name}
-            hint={[
-              b.where,
-              b.isDefault && "new objects",
-              `${formatBytes(b.storedBytes)} stored`,
-              b.disk && `disk ${amount(b.disk)}`,
-              b.state !== "ok" && "not answering",
-            ]
-              .filter(Boolean)
-              .join(" · ")}
+            hint={
+              // A path or bucket has no spaces to break at: on a phone it breaks anywhere.
+              <span className="[overflow-wrap:anywhere]">
+                {[
+                  b.where,
+                  b.isDefault && "new objects",
+                  `${formatBytes(b.storedBytes)} stored`,
+                  b.disk && `disk ${amount(b.disk)}`,
+                  b.state !== "ok" && "not answering",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
+            }
           >
             {b.disk && (
               <span className="flex w-56 items-center gap-3">
