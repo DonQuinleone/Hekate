@@ -41,6 +41,10 @@ export function createFlags(db: Database, now = () => new Date()) {
         };
       });
     },
+    /** Forget the last read, so the next asks again: another process changed a flag. */
+    forget() {
+      read = null;
+    },
     /** Turns a flag on (for its time) or off. */
     async set(key: FlagKey, on: boolean, by: string, into: Pick<Database, "insert"> = db) {
       const row = { on, until: on ? flagUntil(key, now()) : null, updatedBy: by, updatedAt: now() };

@@ -27,6 +27,7 @@ export default defineConfig({
           items: [
             "operate/backup",
             "operate/recovery",
+            "operate/replicas",
             "operate/upgrades",
             "operate/upgrade-notes",
             "operate/keys",

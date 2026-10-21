@@ -79,6 +79,7 @@ import type { Keyring } from "../keyring.ts";
 import { escapeLike, logCsv, readLog } from "../logs.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { admit } from "../rate-limit.ts";
+import { signal } from "../signals.ts";
 import { type SystemHealthDeps, systemHealth } from "../system-health.ts";
 import { HEKATE_VERSION, systemInformation } from "../system-info.ts";
 import { factorStanding, type SecondFactorRule } from "../tenancy.ts";
@@ -1534,6 +1535,8 @@ export function instanceRoutes(options: InstanceOptions) {
         const input = c.req.valid("json");
         await db.transaction(async (tx) => {
           const { before, after } = await options.settings.write(tx, input, c.var.userId);
+          // Every other replica reads them again when this commits (#188).
+          await signal(tx, "settings");
           // Every change an instance event, each thing that changed its own.
           for (const change of settingsChanges(before, after))
             await recordInstanceEvent(tx, {
@@ -1569,6 +1572,7 @@ export function instanceRoutes(options: InstanceOptions) {
           const { on } = c.req.valid("json");
           await db.transaction(async (tx) => {
             await flags.set(key, on, c.var.userId, tx);
+            await signal(tx, "flags");
             await recordInstanceEvent(tx, {
               actorId: c.var.userId,
               action: on ? "flag.on" : "flag.off",
