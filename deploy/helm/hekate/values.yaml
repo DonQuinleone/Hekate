@@ -1,0 +1,156 @@
+# Hekate's Helm chart (#190). Every setting the app reads is in docs/configuration.md; the ones
+# below are those the chart decides, and `env` passes any other.
+
+image:
+  repository: ghcr.io/donquinleone/hekate
+  # Left empty, the chart's own appVersion: the release the chart came with.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# The address people open Hekate at, such as https://review.example.com. Required.
+publicUrl: ""
+# The code that creates the first owner: three groups of four letters and digits, the same for
+# every replica, as the browser installer cannot run on Kubernetes. Kept in the Secret, as it
+# opens an instance nobody owns yet. Required, unless secrets.existingSecret holds it.
+setupCode: ""
+
+# The keys. Give them here, and the chart keeps them in a Secret of its own; or name a Secret
+# made another way (External Secrets, Sealed Secrets, by hand) with these keys:
+#   master-key, auth-secret, setup-code, and as needed database-url, database-direct-url,
+#   s3-access-key-id, s3-secret-access-key, smtp-url, metrics-token
+secrets:
+  existingSecret: ""
+  # 32 random bytes, base64: openssl rand -base64 32. Losing it loses every file.
+  masterKey: ""
+  # At least 32 random characters: openssl rand -hex 32.
+  authSecret: ""
+
+database:
+  # An external PostgreSQL 18 (a managed service, or a cluster of your own). Through a
+  # transaction pooler, also give directUrl: a connection to the primary past it.
+  url: ""
+  directUrl: ""
+  # Or a PostgreSQL cluster run by the CloudNativePG operator, which must be installed first.
+  cloudnativepg:
+    enabled: false
+    instances: 2
+    size: 20Gi
+    storageClass: ""
+
+storage:
+  # S3 or an S3-compatible service: the default, as every replica must reach the media.
+  s3:
+    bucket: ""
+    region: ""
+    endpoint: ""
+    # Most S3-compatible services need the bucket in the path.
+    forcePathStyle: false
+    accessKeyId: ""
+    secretAccessKey: ""
+    prefix: ""
+  # Or a volume every replica mounts: ReadWriteMany, unless everything runs on one node.
+  volume:
+    enabled: false
+    existingClaim: ""
+    size: 100Gi
+    storageClass: ""
+    accessMode: ReadWriteMany
+
+mail:
+  from: "Hekate <hekate@localhost>"
+  # smtp://user:pass@mail.example.com:587. Without it, mail is written to the log.
+  smtpUrl: ""
+
+# Turns on /metrics for Prometheus, scraped with this bearer token.
+metricsToken: ""
+
+# Any other setting, by name (docs/configuration.md), into the ConfigMap.
+env: {}
+
+# Requests: as many replicas as the traffic needs.
+api:
+  replicas: 2
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "2", memory: 2Gi }
+  # In memory: watermarked downloads and marked pages are made here.
+  workSize: 4Gi
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    cpu: 70
+  podDisruptionBudget:
+    minAvailable: 1
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Background jobs: media work, mail and the instance's own sweeps (decision 189).
+worker:
+  replicas: 1
+  # The lanes this worker takes, with how many of each kind of job (WORKER_LANES); all by default.
+  lanes: ""
+  concurrency: 2
+  resources:
+    requests: { cpu: "1", memory: 1Gi }
+    limits: { cpu: "4", memory: 4Gi }
+  # In memory: decrypted media while a job runs. Size it for the media transcoded at once.
+  workSize: 8Gi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 5
+    cpu: 80
+    # Also on the jobs waiting (hekate_lane_jobs_waiting), through an external metrics adapter
+    # such as prometheus-adapter or KEDA's.
+    queue:
+      enabled: false
+      metric: hekate_lane_jobs_waiting
+      averageValue: "10"
+  # None by default: a worker's jobs go back to the queue when it is evicted.
+  podDisruptionBudget: {}
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Migrates the database before an upgrade rolls out, with the same lock replicas take (#154),
+# so no new replica waits on it. On install the first API replica migrates as it starts.
+migrations:
+  job: true
+  # Lets an upgrade apply a migration that drops or rewrites data: take a backup first.
+  allowDestructive: false
+
+# Longer than SHUTDOWN_TIMEOUT_SECONDS (30): a replica drains and finishes before it is killed.
+terminationGracePeriodSeconds: 40
+
+# Take client addresses from X-Forwarded-For (TRUST_PROXY). Left empty, it follows
+# ingress.enabled: on behind the Ingress, off when the Service is reached directly, where a
+# client could claim any address. Set it to true behind another proxy that sets the header.
+trustProxy: ""
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  className: ""
+  # An upload's parts are 8 MiB; ingress-nginx refuses bodies over 1 MiB unless told.
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 16m
+  # The host, as in publicUrl.
+  host: ""
+  # Also *.host, for workspace subdomains once they come (#176).
+  wildcard: false
+  tls:
+    enabled: true
+    # A Secret holding the certificate, or one cert-manager makes from the annotations.
+    secretName: ""
+
+serviceAccount:
+  create: true
+  name: ""

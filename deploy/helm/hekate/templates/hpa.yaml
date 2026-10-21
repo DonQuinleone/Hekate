@@ -1,0 +1,38 @@
+{{- range $role := list "api" "worker" }}
+{{- $values := index $.Values $role }}
+{{- if $values.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "hekate.fullname" $ }}-{{ $role }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "hekate.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $role }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "hekate.fullname" $ }}-{{ $role }}
+  minReplicas: {{ $values.autoscaling.minReplicas }}
+  maxReplicas: {{ $values.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $values.autoscaling.cpu }}
+    {{- if and (eq $role "worker") $values.autoscaling.queue.enabled }}
+    # The jobs waiting in every lane, through an external metrics adapter.
+    - type: External
+      external:
+        metric:
+          name: {{ $values.autoscaling.queue.metric }}
+        target:
+          type: AverageValue
+          averageValue: {{ $values.autoscaling.queue.averageValue | quote }}
+    {{- end }}
+{{- end }}
+{{- end }}

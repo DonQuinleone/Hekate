@@ -1,4 +1,10 @@
-import { DatabaseAheadError } from "@hekate/db";
+import {
+  createDb,
+  DatabaseAheadError,
+  DestructiveMigrationError,
+  migrationState,
+  runMigrations,
+} from "@hekate/db";
 import { type StorageConfig, StorageConfigError, storageConfigFromEnv } from "@hekate/storage";
 import {
   type Config,
@@ -70,4 +76,44 @@ export function schemaProblem(state: {
     `${which}. Start with MIGRATE_ON_START=true (the app image's default), or run ` +
     "pnpm db:migrate, then start again."
   );
+}
+
+/**
+ * Brings the database to this code's schema, or explains why it will not and exits (#154):
+ * migrations run only when asked to, one replica at a time, never losing data unasked; without
+ * them, a database behind or ahead of the code is named before anything misreads it.
+ */
+export async function migrateOrExit(config: {
+  DATABASE_URL: string;
+  DATABASE_DIRECT_URL?: string | undefined;
+  MIGRATE_ON_START: boolean;
+  MIGRATE_ALLOW_DESTRUCTIVE: boolean;
+}) {
+  // Past any transaction pooler (#412): the migration lock lasts the session.
+  const sessionUrl = config.DATABASE_DIRECT_URL ?? config.DATABASE_URL;
+  try {
+    if (config.MIGRATE_ON_START) {
+      const { applied } = await runMigrations(sessionUrl, undefined, {
+        allowDestructive: config.MIGRATE_ALLOW_DESTRUCTIVE,
+      });
+      if (applied.length > 0) console.log(`Migrated: ${applied.join(", ")}.`);
+      return;
+    }
+    const { db, close } = createDb(config.DATABASE_URL, { max: 1 });
+    try {
+      const state = await migrationState(db);
+      const problem = schemaProblem(state);
+      if (problem) {
+        console.error(problem);
+        process.exit(1);
+      }
+    } finally {
+      await close();
+    }
+  } catch (error) {
+    if (!(error instanceof DestructiveMigrationError || error instanceof DatabaseAheadError))
+      throw error;
+    console.error(error.message);
+    process.exit(1);
+  }
 }

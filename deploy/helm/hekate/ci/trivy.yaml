@@ -1,0 +1,4 @@
+# Trivy's misconfiguration checks of the rendered chart (CI, the kubernetes job).
+rego:
+  data:
+    - deploy/helm/hekate/ci/trivy

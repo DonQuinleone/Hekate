@@ -1,0 +1,28 @@
+# Values for CI: a chart that renders, lints and installs on kind with no outside service.
+publicUrl: https://hekate.example.test
+setupCode: 7KQ2-M9XD-4HPW
+secrets:
+  masterKey: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+  authSecret: ci-only-auth-secret-not-for-any-real-install
+database:
+  url: postgres://hekate:hekate@postgres:5432/hekate
+storage:
+  volume:
+    enabled: true
+    size: 1Gi
+    accessMode: ReadWriteOnce
+api:
+  replicas: 1
+  workSize: 256Mi
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+worker:
+  workSize: 256Mi
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+ingress:
+  host: hekate.example.test
+env:
+  HEKATE_UPDATE_CHECK: "false"

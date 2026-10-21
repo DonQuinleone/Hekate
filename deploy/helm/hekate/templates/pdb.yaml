@@ -1,0 +1,20 @@
+{{- range $role := list "api" "worker" }}
+{{- $budget := (index $.Values $role).podDisruptionBudget }}
+{{- if $budget }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "hekate.fullname" $ }}-{{ $role }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "hekate.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $role }}
+spec:
+  minAvailable: {{ $budget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "hekate.selector" $ | nindent 6 }}
+      app.kubernetes.io/component: {{ $role }}
+{{- end }}
+{{- end }}

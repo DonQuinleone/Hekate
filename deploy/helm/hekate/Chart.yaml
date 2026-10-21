@@ -1,0 +1,14 @@
+# Hekate on Kubernetes (#190). See docs/site/src/content/docs/install/kubernetes.md.
+apiVersion: v2
+name: hekate
+description: Self-hosted review and approval for sound and picture.
+type: application
+# The chart and the app are released together, at one version.
+version: 0.1.0 # x-release-please-version
+appVersion: "0.1.0" # x-release-please-version
+home: https://github.com/DonQuinleone/Hekate
+sources:
+  - https://github.com/DonQuinleone/Hekate
+annotations:
+  licenses: AGPL-3.0-only
+kubeVersion: ">=1.29.0-0"

@@ -1,0 +1,6 @@
+Hekate is starting at {{ .Values.publicUrl }}.
+
+Open it, and create the first owner with the setup code you gave (setupCode).
+
+Keep the master key apart from the backups, in at least two places: without it, no file
+can be opened again by anyone. Backups: https://donquinleone.github.io/Hekate/operate/backup/
