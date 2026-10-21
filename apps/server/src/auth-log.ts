@@ -2,9 +2,7 @@ import { isIP } from "node:net";
 import { type Database, schema } from "@hekate/db";
 
 /**
- * The authentication log (#157): every sign-in, refusal and lockout, by how it was tried. Written
- * beside the sign-in, never awaited by it: a slow log holds no one up, and a failure to write it
- * is told to the server's log rather than refusing the person.
+ * The authentication log (#157): every sign-in, refusal and lockout, by how it was tried.
  */
 
 export type AuthMethod = (typeof schema.authEvents.$inferInsert)["method"];
@@ -38,10 +36,21 @@ export function requestOf(
   };
 }
 
-/** Write one event beside whatever it records. */
-export function recordAuth(db: Database, event: AuthEvent): void {
-  void db
+/**
+ * Requests whose attempt reached the lock, marked where the attempt was admitted (a password, a
+ * directory), so the refusal that follows is recorded as a lockout.
+ */
+export const lockedAttempts = new WeakSet<Request>();
+
+/**
+ * Write one event, awaited before the answer goes back: deleting the account later then finds
+ * every row that names it, to rewrite. A failure to write is told to the server's log rather
+ * than refusing the person.
+ */
+export function recordAuth(db: Database, event: AuthEvent): Promise<void> {
+  return db
     .insert(schema.authEvents)
     .values({ ...event, account: event.account.slice(0, 320) })
+    .then(() => undefined)
     .catch((cause: unknown) => console.error("Could not write the authentication log:", cause));
 }

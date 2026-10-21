@@ -115,7 +115,7 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
         });
         // One answer for unknown, used, revoked and expired links: nothing to learn from it.
         if (!used) {
-          recordAuth(deps.db, {
+          await recordAuth(deps.db, {
             method: "guest_link",
             result: "refused",
             reason: "unknown, used, revoked or expired link",
@@ -124,7 +124,7 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
           });
           throw gone();
         }
-        recordAuth(deps.db, {
+        await recordAuth(deps.db, {
           method: "guest_link",
           result: "signed_in",
           account: (await deps.audit.guest(used.session.guestId)).label,
@@ -179,7 +179,7 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
                 info,
                 tx,
               );
-              recordAuth(deps.db, {
+              await recordAuth(deps.db, {
                 method: "guest_code",
                 result: "refused",
                 reason: `code ${reason}`,
@@ -190,7 +190,7 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
             },
           });
           if (result.status === "ok") {
-            recordAuth(deps.db, {
+            await recordAuth(deps.db, {
               method: "guest_code",
               result: "signed_in",
               account: (await deps.audit.guest(result.session.guestId)).label,
@@ -206,7 +206,16 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
               201,
             );
           }
-          if (result.status === "gone") throw gone();
+          if (result.status === "gone") {
+            await recordAuth(deps.db, {
+              method: "guest_code",
+              result: "refused",
+              reason: "unknown, used, revoked or expired link",
+              account: "Not known",
+              ...requestOf(c.req.raw, deps.trustProxy),
+            });
+            throw gone();
+          }
           if (result.status === "wrong")
             throw new CodedException(
               400,

@@ -8,7 +8,7 @@ import { APIError, createAuthMiddleware, getSessionFromCtx, isAPIError } from "b
 import { emailOTP, haveIBeenPwned, twoFactor } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import type { Audit } from "./audit.ts";
-import { recordAuth, requestOf, signInMethodOf } from "./auth-log.ts";
+import { lockedAttempts, recordAuth, requestOf, signInMethodOf } from "./auth-log.ts";
 import { directorySignIn } from "./directory-sign-in.ts";
 import type { Keyring } from "./keyring.ts";
 import { waitMessage } from "./lockout.ts";
@@ -263,7 +263,7 @@ export function createAuth(options: AuthOptions) {
           const admitted = await admitAttempt(options.db, ctx.body.email);
           if (admitted.wait > 0) {
             metrics.signInsRefused.inc({ method: "password" });
-            recordAuth(options.db, {
+            await recordAuth(options.db, {
               method: "password",
               result: admitted.locked ? "locked" : "refused",
               reason: "too many attempts",
@@ -293,7 +293,7 @@ export function createAuth(options: AuthOptions) {
         const signedInBy = signInMethodOf(ctx.path);
         const created = ctx.context.newSession;
         if (signedInBy && created)
-          recordAuth(options.db, {
+          await recordAuth(options.db, {
             method: signedInBy,
             result: "signed_in",
             account: created.user.email,
@@ -306,8 +306,11 @@ export function createAuth(options: AuthOptions) {
         else if (signedInBy && !succeeded) {
           const returned = ctx.context.returned as { body?: { message?: unknown } };
           const tried = typeof ctx.body?.email === "string" ? ctx.body.email : null;
-          const locked = signedInBy === "password" && ctx.request && locking.has(ctx.request);
-          recordAuth(options.db, {
+          const locked =
+            ctx.request !== undefined &&
+            ((signedInBy === "password" && locking.has(ctx.request)) ||
+              lockedAttempts.has(ctx.request));
+          await recordAuth(options.db, {
             method: signedInBy,
             result: locked ? "locked" : "refused",
             reason: locked

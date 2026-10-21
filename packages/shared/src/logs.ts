@@ -58,13 +58,17 @@ export const authMethods = [
   "guest_code",
 ] as const;
 export type AuthMethod = (typeof authMethods)[number];
+export const authResults = ["signed_in", "refused", "locked"] as const;
+export type AuthResult = (typeof authResults)[number];
+export const mailResults = ["sent", "failed", "logged"] as const;
+export type MailResult = (typeof mailResults)[number];
 
 /** A sign-in, a refusal or a lockout, by how it was tried. */
 export interface AuthLogRow {
   id: string;
   at: string;
   method: AuthMethod;
-  result: "signed_in" | "refused" | "locked";
+  result: AuthResult;
   reason: string | null;
   /** The address tried, or the guest's label; "Not known" where nothing named one. */
   account: string;
@@ -79,7 +83,7 @@ export interface MailLogRow {
   at: string;
   to: string;
   subject: string;
-  result: "sent" | "failed" | "logged";
+  result: MailResult;
   error: string | null;
 }
 

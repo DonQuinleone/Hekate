@@ -1618,6 +1618,15 @@ describe.runIf(url)("api", () => {
         const { token } = await issueGuestLink(db, organisationId, guest?.id ?? "");
         expect((await app.request("/api/guest/sessions", json({ token }))).status).toBe(201);
         expect((await app.request("/api/guest/sessions", json({ token }))).status).toBe(410);
+        // A code against a link that opens nothing is refused too, not left out.
+        expect(
+          (
+            await app.request(
+              "/api/guest/sessions/verify",
+              json({ token: "no-such-link-for-anyone", code: "123456" }),
+            )
+          ).status,
+        ).toBe(410);
 
         const read = async (query = "") =>
           (
@@ -1625,10 +1634,10 @@ describe.runIf(url)("api", () => {
               rows: AuthLogRow[];
             }
           ).rows;
-        await vi.waitFor(async () => expect(await read()).toHaveLength(4));
         expect(
           (await read()).map((r) => [r.method, r.result, r.account, r.workspace?.id ?? null]),
         ).toEqual([
+          ["guest_code", "refused", "Not known", null],
           ["guest_link", "refused", "Not known", null],
           ["guest_link", "signed_in", "Mira Solberg <mira@example.test> (guest)", organisationId],
           ["password", "signed_in", owner.email, null],
@@ -1647,14 +1656,27 @@ describe.runIf(url)("api", () => {
           json({ email: "leaving@example.test", password: "wrong horse battery" }),
         );
         // Joining signs them in, and the wrong password is refused.
-        await vi.waitFor(async () =>
-          expect((await read("?q=leaving")).map((r) => r.result)).toContain("refused"),
-        );
+        expect((await read("?q=leaving")).map((r) => r.result)).toContain("refused");
         const deleted = await app.request("/api/me", {
           ...json({ email: "leaving@example.test", password: "correct horse battery" }, someone),
           method: "DELETE",
         });
         expect(deleted.status).toBe(204);
+        expect(await read("?q=leaving")).toEqual([]);
+        // A row written for the account as it went names no one either.
+        const [former] = await db
+          .select({ id: schema.users.id })
+          .from(schema.users)
+          .where(sql`${schema.users.deletedAt} is not null`)
+          .orderBy(desc(schema.users.deletedAt))
+          .limit(1);
+        await db.insert(schema.authEvents).values({
+          method: "password",
+          result: "signed_in",
+          account: "leaving@example.test",
+          userId: former?.id ?? null,
+        });
+        expect((await read()).at(0)?.account).toBe("A former member");
         expect(await read("?q=leaving")).toEqual([]);
       });
 
@@ -3071,6 +3093,29 @@ describe.runIf(url)("api", () => {
 
         // Wrong passwords, unknown names and entries without an address are refused.
         expect((await signIn("mira", "wrong")).status).toBe(401);
+        // The wrong password that reaches the lock is logged as the lockout it is.
+        const { attemptKey } = await import("./sign-in.ts");
+        const [studio] = await db
+          .select({ id: schema.organisations.id })
+          .from(schema.organisations)
+          .where(eq(schema.organisations.slug, "studio"));
+        const key = attemptKey(`directory:${studio?.id}:mira`);
+        await db
+          .insert(schema.signInAttempts)
+          .values({ key, failures: 9, lastFailureAt: new Date(Date.now() - 61_000) })
+          .onConflictDoUpdate({
+            target: schema.signInAttempts.key,
+            set: { failures: 9, lastFailureAt: new Date(Date.now() - 61_000), lockedUntil: null },
+          });
+        expect((await signIn("mira", "wrong")).status).toBe(401);
+        const [lockout] = await db
+          .select({ result: schema.authEvents.result })
+          .from(schema.authEvents)
+          .where(eq(schema.authEvents.method, "directory"))
+          .orderBy(desc(schema.authEvents.id))
+          .limit(1);
+        expect(lockout?.result).toBe("locked");
+        await db.delete(schema.signInAttempts).where(eq(schema.signInAttempts.key, key));
         expect((await signIn("nobody", "mira-directory-pass")).status).toBe(401);
         expect((await signIn("ines", "ines-directory-pass")).status).toBe(403);
         // Leaving the bind password out keeps it.

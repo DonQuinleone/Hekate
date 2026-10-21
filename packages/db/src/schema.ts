@@ -4,6 +4,8 @@ import {
   approvalRules,
   auditActions,
   auditActorTypes,
+  authMethods,
+  authResults,
   type CaptionCue,
   type CaptionFormat,
   type CommentMention,
@@ -20,6 +22,7 @@ import {
   type LoudnessSummary,
   type MailMode,
   type MediaInfo,
+  mailResults,
   type NormalisationMode,
   type NotificationChannels,
   type NotificationKind,
@@ -2625,16 +2628,8 @@ export const versionsRun = pgTable("versions_run", {
   firstStartedAt: timestamp("first_started_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const authMethodEnum = pgEnum("auth_method", [
-  "password",
-  "passkey",
-  "second_factor",
-  "directory",
-  "sso",
-  "guest_link",
-  "guest_code",
-]);
-export const authResultEnum = pgEnum("auth_result", ["signed_in", "refused", "locked"]);
+export const authMethodEnum = pgEnum("auth_method", authMethods);
+export const authResultEnum = pgEnum("auth_result", authResults);
 
 /**
  * Every sign-in, refusal and lockout (#157), by password, passkey, second factor, directory,
@@ -2666,7 +2661,7 @@ export const authEvents = pgTable(
   ],
 );
 
-export const mailResultEnum = pgEnum("mail_result", ["sent", "failed", "logged"]);
+export const mailResultEnum = pgEnum("mail_result", mailResults);
 
 /**
  * Every message Hekate handed to instance mail (#157), and what came of it: sent over SMTP,

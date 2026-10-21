@@ -164,7 +164,8 @@ export async function authLog(
   if (filters.q) {
     const like = `%${escapeLike(filters.q)}%`;
     conditions.push(
-      sql`(e.account ilike ${like} or e.method::text ilike ${like} or e.reason ilike ${like}
+      sql`((case when u.deleted_at is not null then 'A former member' else e.account end) ilike ${like}
+           or e.method::text ilike ${like} or e.reason ilike ${like}
            or e.ip_address ilike ${like} or o.name ilike ${like})`,
     );
   }
@@ -180,9 +181,12 @@ export async function authLog(
     ip_address: string | null;
     user_agent: string | null;
   }>(sql`
-    select e.id, e.occurred_at as at, e.method, e.result, e.reason, e.account,
+    select e.id, e.occurred_at as at, e.method, e.result, e.reason,
+           -- An account deleted since is named by no one, whatever its row kept.
+           case when u.deleted_at is not null then 'A former member' else e.account end as account,
            o.id as workspace_id, o.name as workspace_name, e.ip_address, e.user_agent
     from auth_events e
+    left join users u on u.id = e.user_id
     left join organisations o on o.id = e.organisation_id
     where ${all(conditions)}
     order by e.id desc
