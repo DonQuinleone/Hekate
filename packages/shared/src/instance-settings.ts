@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { defaultWorkspaceSettings, guestLinkDays } from "./organisation.ts";
 import { updateChannels } from "./releases.ts";
 
 /**
@@ -20,6 +21,10 @@ export const instanceSettingsInput = z.object({
     /** What the notice says beyond that it is on: "Back by 18:00". */
     message: z.string().trim().max(280),
   }),
+  /** What a new workspace starts with; its owner may change it after. Older clients send none. */
+  defaults: z
+    .object({ guestLinkDays: z.literal(guestLinkDays) })
+    .default({ guestLinkDays: defaultWorkspaceSettings.guestLinkDays }),
 });
 export type InstanceSettings = z.infer<typeof instanceSettingsInput>;
 
@@ -27,6 +32,7 @@ export const defaultInstanceSettings: InstanceSettings = {
   security: { requireSecondFactor: false },
   updates: { channel: "stable" },
   maintenance: { on: false, message: "" },
+  defaults: { guestLinkDays: defaultWorkspaceSettings.guestLinkDays },
 };
 
 /** Stored settings over the defaults, so one written before a setting existed still reads. */
@@ -36,6 +42,7 @@ export function instanceSettingsOf(stored: unknown): InstanceSettings {
     security: { ...defaultInstanceSettings.security, ...value.security },
     updates: { ...defaultInstanceSettings.updates, ...value.updates },
     maintenance: { ...defaultInstanceSettings.maintenance, ...value.maintenance },
+    defaults: { ...defaultInstanceSettings.defaults, ...value.defaults },
   };
   const parsed = instanceSettingsInput.safeParse(merged);
   return parsed.success ? parsed.data : defaultInstanceSettings;
@@ -66,7 +73,19 @@ export function settingsChanges(
       action: "maintenance.message",
       details: { message: after.maintenance.message },
     });
+  if (before.defaults.guestLinkDays !== after.defaults.guestLinkDays)
+    changes.push({
+      action: "defaults.guest_link_days",
+      details: { days: after.defaults.guestLinkDays },
+    });
   return changes;
+}
+
+export interface InstanceModules {
+  billing: "off" | "stripe" | "paddle" | "manual";
+  support: "off" | "app" | "link" | "mail";
+  docsUrl: string;
+  statusUrl: string | null;
 }
 
 /** What everyone is told about the instance, signed in or not. */
@@ -86,4 +105,6 @@ export interface InstanceEnvironment {
   passwordLeakCheck: boolean;
   /** How long a session lasts, in days. */
   sessionDays: number;
+  /** What is switched on at start: HEKATE_BILLING, HEKATE_SUPPORT, HEKATE_DOCS_URL, HEKATE_STATUS_URL. */
+  modules: InstanceModules;
 }

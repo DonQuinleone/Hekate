@@ -2336,6 +2336,9 @@ export function InstancePage({ section }: { section: string }) {
             <Row name="Documentation" hint="HEKATE_DOCS_URL · where Help goes">
               <span className="tabular text-[13px] text-ink-2">{env.docsUrl}</span>
             </Row>
+            <Row name="Status page" hint="HEKATE_STATUS_URL · linked from Help when set">
+              <span className="tabular text-[13px] text-ink-2">None</span>
+            </Row>
           </Section>
           <Section title="Registration">
             <Row name="New workspaces" hint="Who may create one.">

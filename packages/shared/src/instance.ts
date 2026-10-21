@@ -33,7 +33,7 @@ export const instanceSections: Record<InstanceSection, { label: string; hint: st
   },
   settings: {
     label: "Settings",
-    hint: "Security for every account, maintenance mode, and what the environment sets",
+    hint: "Modules, security, defaults for new workspaces, address and mail, and maintenance mode",
   },
   debug: {
     label: "Debug tools",
@@ -249,6 +249,7 @@ export const instanceActions: Record<string, string> = {
   "maintenance.off": "turned off",
   "maintenance.message": "given a new notice",
   "storage.reconcile": "checked against the database by an operator",
+  "defaults.guest_link_days": "given a new lifetime",
 };
 
 /** Where a workspace stands, from its record. */

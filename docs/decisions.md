@@ -1133,3 +1133,12 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Encryption** is the workspace key's version and age, and how much is still being re-wrapped after a rotation. Rotating stays an operator's action (decision 174), so there is no Rotate button. The master key's rotation date is not recorded (decision 182), so it is not shown.
 - **Metrics** say whether Prometheus may read `/metrics`, and when this process was last read.
 - **Backups and upgrades** are the operator's: the page links to the docs, and names the newer release when release checks are on. The prototype's "Connected" went: the page loading says as much. So did its backup time and size, which Hekate does not know: backups are taken outside it.
+
+## 184. Instance settings: defaults, a mail test, modules
+
+#160, second part.
+
+- **Defaults for new workspaces** start with how long guest links last, the one default a workspace already keeps (its owner may change it). New workspaces an operator makes are seeded from it; setup's first workspace takes the plain default, as no setting exists before it. Storage quota and members follow usage limits (#175), forensic marking follows #32. Older clients that send no defaults keep what is stored.
+- **Instance mail has a Test**: a message to the operator's own address, which says whether the mail server took it and shows its refusal when not. A few a quarter of an hour.
+- **Modules** are shown read-only, as the environment set them: billing, the support desk, the documentation and the status page.
+- **Follows.** Telemetry with #162, registration with #184, subdomains with #176.

@@ -447,10 +447,12 @@ export function instanceRoutes(options: InstanceOptions) {
         const { name, slug, ownerEmail } = c.req.valid("json");
         const email = ownerEmail.toLowerCase();
         const { token, hash } = newInvitationToken();
+        // A new workspace starts from the instance's defaults (#160); its owner may change them.
+        const { defaults } = await options.settings.get();
         const made = await db.transaction(async (tx) => {
           const [organisation] = await tx
             .insert(schema.organisations)
-            .values({ name, slug })
+            .values({ name, slug, settings: { guestLinkDays: defaults.guestLinkDays } })
             .onConflictDoNothing({ target: schema.organisations.slug })
             .returning({ id: schema.organisations.id });
           if (!organisation)
@@ -1438,6 +1440,39 @@ export function instanceRoutes(options: InstanceOptions) {
       })
       // The instance's settings (#160), and what the environment sets beside them.
       .use("/settings", operatorsOnly)
+      .use("/settings/*", operatorsOnly)
+      // A test message to the operator's own address, through instance mail (#160): it says
+      // whether the mail server takes it. A few a quarter of an hour.
+      .post("/settings/mail-test", async (c) => {
+        const { allowed } = await admit(db, `mail-test:${c.var.userId}`, {
+          max: 5,
+          windowMs: 15 * 60_000,
+        });
+        if (!allowed)
+          throw new HTTPException(429, {
+            message: "Several were sent moments ago. Try again in a quarter of an hour.",
+          });
+        const [user] = await db
+          .select({ email: schema.users.email })
+          .from(schema.users)
+          .where(eq(schema.users.id, c.var.userId));
+        if (!user) throw new NotFound("account");
+        try {
+          await sendEmail(options.mailer, user.email, {
+            subject: "A test message from Hekate",
+            heading: "Instance mail works",
+            body: [
+              "An operator asked for this from the instance's Settings, to check that the mail server takes Hekate's messages.",
+            ],
+            foot: "Nothing needs doing.",
+          });
+        } catch (error) {
+          throw new HTTPException(502, {
+            message: `The mail server would not take it: ${error instanceof Error ? error.message : String(error)}`,
+          });
+        }
+        return c.json({ to: user.email, mail: options.environment.mail } as const);
+      })
       .get("/settings", async (c) => {
         options.settings.forget();
         return c.json({
@@ -1458,7 +1493,9 @@ export function instanceRoutes(options: InstanceOptions) {
                 ? "Maintenance mode"
                 : change.action.startsWith("updates.")
                   ? "The update channel"
-                  : "A second factor",
+                  : change.action.startsWith("defaults.")
+                    ? "New workspaces' guest links"
+                    : "A second factor",
               details: change.details,
               ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
             });

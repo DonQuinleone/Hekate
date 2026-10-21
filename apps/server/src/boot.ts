@@ -274,6 +274,12 @@ export async function boot(
           : `s3://${b.bucket}${b.prefix ? `/${b.prefix}` : ""}${b.region ? ` · ${b.region}` : ""}`,
     })),
     previousMasterKeys: config.MASTER_KEYS_PREVIOUS.length,
+    modules: {
+      billing: config.HEKATE_BILLING,
+      support: config.HEKATE_SUPPORT,
+      docsUrl: config.HEKATE_DOCS_URL,
+      statusUrl: config.HEKATE_STATUS_URL ?? null,
+    },
     diskPath:
       storageConfig.backends.flatMap((b) => (b.driver === "local" ? [b.root] : []))[0] ??
       config.WORK_DIR ??

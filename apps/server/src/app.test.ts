@@ -11,12 +11,15 @@ import {
   decodeSpectrogram,
   defaultPlayerViewSettings,
   defaultProjectRoles,
+  type InstanceEnvironment,
+  type InstanceSettings,
   type LoudnessSummary,
   levelsOf,
   lookingPermissions,
   mapTime,
   type SystemHealth,
   type WorkspaceOperations,
+  workspaceSettingsOf,
 } from "@hekate/shared";
 import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
 import { and, asc, count, desc, eq, inArray, isNotNull, like, ne, or, sql } from "drizzle-orm";
@@ -1333,6 +1336,7 @@ describe.runIf(url)("api", () => {
           security: { requireSecondFactor: false },
           updates: { channel: "stable" },
           maintenance: { on: false, message: "" },
+          defaults: { guestLinkDays: 3 },
         });
         expect(first.environment.sessionDays).toBe(14);
         const notice = async () =>
@@ -1405,6 +1409,81 @@ describe.runIf(url)("api", () => {
         const theirOwner = await join(operator, "label@example.test", "owner");
         expect((await save(on, theirOwner)).status).toBe(403);
         expect((await notice()).maintenance.on).toBe(false);
+      });
+
+      it("starts new workspaces from the instance's defaults, and tests instance mail (#160)", async () => {
+        const operator = cookieOf(await setup());
+        type Answer = { settings: InstanceSettings; environment: InstanceEnvironment };
+        const current = (await (await get("/api/instance/settings", operator)).json()) as Answer;
+        // Older pages send no defaults: they keep what is stored.
+        const { defaults: _, ...older } = current.settings;
+        expect((await send("PUT", "/api/instance/settings", older, operator)).status).toBe(200);
+        expect(current.settings.defaults).toEqual({ guestLinkDays: 3 });
+        expect(current.environment.modules).toEqual({
+          billing: "off",
+          support: "off",
+          docsUrl: "https://docs.hekate.studio",
+          statusUrl: null,
+        });
+        const saved = await send(
+          "PUT",
+          "/api/instance/settings",
+          { ...current.settings, defaults: { guestLinkDays: 30 } },
+          operator,
+        );
+        expect(((await saved.json()) as Answer).settings.defaults.guestLinkDays).toBe(30);
+        expect(
+          (
+            await send(
+              "PUT",
+              "/api/instance/settings",
+              { ...current.settings, defaults: { guestLinkDays: 9 } },
+              operator,
+            )
+          ).status,
+        ).toBe(400);
+        const [event] = await db
+          .select({ action: schema.instanceEvents.action, details: schema.instanceEvents.details })
+          .from(schema.instanceEvents)
+          .where(eq(schema.instanceEvents.action, "defaults.guest_link_days"));
+        expect(event?.details).toEqual({ days: 30 });
+        const made = await send(
+          "POST",
+          "/api/instance/workspaces",
+          {
+            name: "Lantern Pictures",
+            slug: "lantern-defaults",
+            ownerEmail: "owner@lantern.example",
+          },
+          operator,
+        );
+        const { id } = (await made.json()) as { id: string };
+        const [workspace] = await db
+          .select({ settings: schema.organisations.settings })
+          .from(schema.organisations)
+          .where(eq(schema.organisations.id, id));
+        expect(workspaceSettingsOf(workspace?.settings).guestLinkDays).toBe(30);
+
+        // A test message goes to the operator, through instance mail.
+        mailer.sent.length = 0;
+        const tested = await send("POST", "/api/instance/settings/mail-test", {}, operator);
+        expect(tested.status).toBe(200);
+        const { to } = (await tested.json()) as { to: string };
+        expect(mailer.sent.map((m) => [m.to, m.subject])).toEqual([
+          [to, "A test message from Hekate"],
+        ]);
+        const deliver = mailer.send;
+        mailer.send = async () => {
+          throw new Error("454 4.7.0 Temporary authentication failure");
+        };
+        const failed = await send("POST", "/api/instance/settings/mail-test", {}, operator);
+        mailer.send = deliver;
+        expect(failed.status).toBe(502);
+        expect(await failed.text()).toContain("454 4.7.0");
+        const theirOwner = await join(operator, "label@example.test", "owner");
+        expect(
+          (await send("POST", "/api/instance/settings/mail-test", {}, theirOwner)).status,
+        ).toBe(403);
       });
 
       it("shows what the instance runs, and checks releases only when asked to (#158)", async () => {
