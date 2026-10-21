@@ -851,18 +851,19 @@ function serviceHint(s: HealthService): string {
 }
 
 /** The last instance-wide run, and what runs found that is still open. */
-function reconciliationHint({ last, open }: HealthStorage["reconciliation"]): string {
-  const run = !last
-    ? "Not run yet"
-    : last.finishedAt
-      ? `Last run ${ago(last.finishedAt)}`
-      : `Running since ${ago(last.startedAt)}`;
+function reconciliationHint({ last, runningSince, open }: HealthStorage["reconciliation"]): string {
+  const run = [
+    runningSince && `Running since ${ago(runningSince)}`,
+    last ? `last finished ${ago(last.finishedAt)}` : !runningSince && "not run yet",
+  ]
+    .filter(Boolean)
+    .join("; ");
   const found = [
     open.missingObjects > 0 && `${plural(open.missingObjects, "missing object")}`,
     open.orphanObjects > 0 && `${plural(open.orphanObjects, "object")} nothing claims`,
     open.unreferencedBlobs > 0 && `${plural(open.unreferencedBlobs, "record")} nothing uses`,
   ].filter(Boolean);
-  return `Every backend against the database, each night. ${run}; ${
+  return `Every backend against the database, each night. ${run.charAt(0).toUpperCase()}${run.slice(1)}; ${
     found.length ? found.join(", ") : "nothing found"
   }.`;
 }
@@ -878,11 +879,15 @@ function SystemHealthPage() {
     ...instanceHealthQuery(range),
     placeholderData: keepPreviousData,
   });
+  const client = useQueryClient();
   const reconcile = useMutation({
     mutationFn: async () => {
       const res = await api.instance.health.reconcile.$post();
       if (!res.ok) await json(res);
     },
+    // Read again soon after, so the run shows under way.
+    onSuccess: () =>
+      setTimeout(() => void client.invalidateQueries({ queryKey: ["instance", "health"] }), 3_000),
   });
   const [clock, setClock] = useState(() => Date.now());
   useEffect(() => {
@@ -1058,12 +1063,15 @@ function SystemHealthPage() {
           <Button
             variant="ghost"
             size="md"
-            disabled={reconcile.isPending || reconcile.isSuccess}
+            disabled={reconcile.isPending}
             onClick={() => reconcile.mutate()}
           >
-            {reconcile.isSuccess ? "Asked" : "Run now"}
+            Run now
           </Button>
         </Row>
+        {reconcile.isSuccess && (
+          <Row name="Asked" hint="It runs in the background; this page shows it under way." />
+        )}
         {reconcile.isError && <Row name="Not run" hint={reconcile.error.message} />}
       </Section>
       <Section

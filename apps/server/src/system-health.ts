@@ -13,13 +13,16 @@ import {
   type SystemHealth,
 } from "@hekate/shared";
 import type { Backends } from "@hekate/storage";
-import { count, countDistinct, desc, gte, isNull, max, sql } from "drizzle-orm";
+import { and, count, countDistinct, desc, gte, isNotNull, isNull, max, sql } from "drizzle-orm";
 import { CHECK_MS, stateOf } from "./health-checks.ts";
+import { jobDefinitions } from "./jobs.ts";
 import { metrics, registry } from "./metrics/index.ts";
 import type { Sampler } from "./metrics/sampler.ts";
 import { toolVersions } from "./system-info.ts";
 
 const HOUR = 60 * 60_000;
+/** How long a reconciliation job may run before the queue gives up on it. */
+const RECONCILE_JOB_MS = jobDefinitions["storage-reconcile"].options.expireInSeconds * 1000;
 
 export interface SystemHealthDeps {
   checks: () => Promise<HealthChecks>;
@@ -105,9 +108,11 @@ async function minutesSince(db: Database, since: Date): Promise<HealthMinute[]> 
  * Storage, instance-wide (#156): every backend with what it holds and whether it answers, the
  * master key, and what reconciliation found. Operators only, so it reads across workspaces.
  */
-async function storageOf(db: Database, deps: SystemHealthDeps): Promise<HealthStorage> {
+async function storageOf(db: Database, deps: SystemHealthDeps, at: Date): Promise<HealthStorage> {
   const { blobs, organisationKeys, storageFindings, storageReconciliations } = schema;
-  const [stored, [keys], [last], open] = await Promise.all([
+  const runs = storageReconciliations;
+  const instanceWide = isNull(runs.scopeOrganisationId);
+  const [stored, [keys], [last], [running], open] = await Promise.all([
     db
       .select({
         backend: blobs.backend,
@@ -116,11 +121,25 @@ async function storageOf(db: Database, deps: SystemHealthDeps): Promise<HealthSt
       .from(blobs)
       .groupBy(blobs.backend),
     db.select({ n: count() }).from(organisationKeys),
+    // The last run that finished: one that failed is never finished, so it is not shown as one.
     db
       .select()
-      .from(storageReconciliations)
-      .where(isNull(storageReconciliations.scopeOrganisationId))
-      .orderBy(desc(storageReconciliations.startedAt))
+      .from(runs)
+      .where(and(instanceWide, isNotNull(runs.finishedAt)))
+      .orderBy(desc(runs.startedAt))
+      .limit(1),
+    // A run under way: unfinished, and younger than the job's two hours. An older one failed.
+    db
+      .select({ startedAt: runs.startedAt })
+      .from(runs)
+      .where(
+        and(
+          instanceWide,
+          isNull(runs.finishedAt),
+          gte(runs.startedAt, new Date(at.getTime() - RECONCILE_JOB_MS)),
+        ),
+      )
+      .orderBy(desc(runs.startedAt))
       .limit(1),
     db
       .select({ kind: storageFindings.kind, n: count() })
@@ -150,13 +169,14 @@ async function storageOf(db: Database, deps: SystemHealthDeps): Promise<HealthSt
     backends,
     masterKey: { workspaceKeys: keys?.n ?? 0, previous: deps.previousMasterKeys },
     reconciliation: {
-      last: last
+      last: last?.finishedAt
         ? {
             startedAt: last.startedAt.toISOString(),
-            finishedAt: last.finishedAt?.toISOString() ?? null,
+            finishedAt: last.finishedAt.toISOString(),
             removing: last.removing,
           }
         : null,
+      runningSince: running?.startedAt.toISOString() ?? null,
       open: {
         orphanObjects: found.get("orphan_object") ?? 0,
         unreferencedBlobs: found.get("unreferenced_blob") ?? 0,
@@ -188,7 +208,7 @@ export async function systemHealth(
       .select({ n: countDistinct(s.replica) })
       .from(s)
       .where(gte(s.at, new Date(at.getTime() - 3 * 60_000))),
-    storageOf(db, deps),
+    storageOf(db, deps, at),
   ]);
   const lastHour = minutes.filter((m) => new Date(m.at).getTime() >= minute - HOUR);
   const p95s = lastHour.flatMap((m) => (m.p95Seconds === null ? [] : [m.p95Seconds]));

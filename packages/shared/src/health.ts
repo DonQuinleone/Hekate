@@ -183,8 +183,10 @@ export interface HealthStorage {
     previous: number;
   };
   reconciliation: {
-    /** The last instance-wide run; null before the first. */
-    last: { startedAt: string; finishedAt: string | null; removing: boolean } | null;
+    /** The last instance-wide run that finished; null before the first. */
+    last: { startedAt: string; finishedAt: string; removing: boolean } | null;
+    /** When the run under way started; null when none is. */
+    runningSince: string | null;
     /** What runs found and nothing has settled yet. */
     open: { orphanObjects: number; unreferencedBlobs: number; missingObjects: number };
   };

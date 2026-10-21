@@ -1491,6 +1491,25 @@ describe.runIf(url)("api", () => {
           ["spare", false, "ok"],
         ]);
 
+        // A run that failed three hours ago never finished: it is neither the last run nor running.
+        const hoursAgo = (h: number) => new Date(Date.now() - h * 60 * 60_000);
+        await db.insert(schema.storageReconciliations).values([
+          { startedAt: hoursAgo(30), finishedAt: hoursAgo(29), removing: true },
+          { startedAt: hoursAgo(3), removing: true },
+        ]);
+        const runs = async () =>
+          ((await (await read("1h")).json()) as SystemHealth).storage.reconciliation;
+        const settled = await runs();
+        expect(settled.runningSince).toBeNull();
+        expect(new Date(settled.last?.finishedAt ?? 0).getTime()).toBeLessThan(
+          hoursAgo(28).getTime(),
+        );
+        await db
+          .insert(schema.storageReconciliations)
+          .values({ startedAt: hoursAgo(0.1), removing: true });
+        expect((await runs()).runningSince).not.toBeNull();
+        // Runs are the instance's, kept across tests: leave none for the next.
+        await db.delete(schema.storageReconciliations);
         expect(health.storage.reconciliation.open).toEqual({
           orphanObjects: 0,
           unreferencedBlobs: 0,
