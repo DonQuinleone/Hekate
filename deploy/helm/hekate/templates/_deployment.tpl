@@ -82,7 +82,7 @@ spec:
               value: {{ . | quote }}
             {{- end }}
             {{- end }}
-            {{- include "hekate.env" $root | nindent 12 }}
+            {{- include "hekate.env" (dict "root" $root) | nindent 12 }}
           ports:
             - name: http
               containerPort: 3000

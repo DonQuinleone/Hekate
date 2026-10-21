@@ -54,11 +54,13 @@ app.kubernetes.io/instance: {{ .Release.Name }}
       key: {{ .key }}
 {{- end -}}
 
-{{/* The environment every app container has: the ConfigMap, then the keys. */}}
+{{/* The keys every app container has, from the release's Secret or the one named by `secret`. */}}
 {{- define "hekate.env" -}}
-{{- $secret := include "hekate.secretName" . -}}
+{{- $secret := .secret | default (include "hekate.secretName" .root) -}}
+{{- with .root -}}
 {{- include "hekate.secretEnv" (dict "name" "MASTER_KEY" "secret" $secret "key" "master-key") }}
 {{ include "hekate.secretEnv" (dict "name" "AUTH_SECRET" "secret" $secret "key" "auth-secret") }}
+{{ include "hekate.secretEnv" (dict "name" "HEKATE_SETUP_CODE" "secret" $secret "key" "setup-code") }}
 {{- if .Values.database.cloudnativepg.enabled }}
 {{- $cluster := printf "%s-db-app" (include "hekate.fullname" .) }}
 {{ include "hekate.secretEnv" (dict "name" "DATABASE_URL" "secret" $cluster "key" "uri") }}
@@ -99,6 +101,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
       name: {{ $secret }}
       key: metrics-token
       optional: true
+{{- end -}}
 {{- end -}}
 
 {{/* The pod's security: no root, nothing gained, nothing written but its scratch space. */}}

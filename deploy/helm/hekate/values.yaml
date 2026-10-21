@@ -11,12 +11,13 @@ imagePullSecrets: []
 # The address people open Hekate at, such as https://review.example.com. Required.
 publicUrl: ""
 # The code that creates the first owner: three groups of four letters and digits, the same for
-# every replica, as the browser installer cannot run on Kubernetes. Required.
+# every replica, as the browser installer cannot run on Kubernetes. Kept in the Secret, as it
+# opens an instance nobody owns yet. Required, unless secrets.existingSecret holds it.
 setupCode: ""
 
 # The keys. Give them here, and the chart keeps them in a Secret of its own; or name a Secret
 # made another way (External Secrets, Sealed Secrets, by hand) with these keys:
-#   master-key, auth-secret, and as needed database-url, database-direct-url,
+#   master-key, auth-secret, setup-code, and as needed database-url, database-direct-url,
 #   s3-access-key-id, s3-secret-access-key, smtp-url, metrics-token
 secrets:
   existingSecret: ""
@@ -125,6 +126,11 @@ migrations:
 
 # Longer than SHUTDOWN_TIMEOUT_SECONDS (30): a replica drains and finishes before it is killed.
 terminationGracePeriodSeconds: 40
+
+# Take client addresses from X-Forwarded-For (TRUST_PROXY). Left empty, it follows
+# ingress.enabled: on behind the Ingress, off when the Service is reached directly, where a
+# client could claim any address. Set it to true behind another proxy that sets the header.
+trustProxy: ""
 
 service:
   type: ClusterIP

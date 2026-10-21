@@ -10,14 +10,13 @@ description: The Helm chart, with API and worker deployments, probes, autoscalin
 - **Helm 3.14 or later** (Helm 4 included), and an Ingress controller with a certificate for the domain: cert-manager, say, through `ingress.annotations`.
 - **PostgreSQL 18:** a managed service or a cluster of your own (`database.url`), or the [CloudNativePG](https://cloudnative-pg.io/) operator, installed first, with `database.cloudnativepg.enabled`. Behind a transaction pooler, give `database.directUrl` too ([The database](../../operate/database/)).
 - **S3, or an S3-compatible service,** for the media (`storage.s3`). A `ReadWriteMany` volume works instead (`storage.volume.enabled`), if your cluster has one.
-- **The keys.** Give them as values, and the chart keeps them in a Secret, or make the Secret yourself (External Secrets, Sealed Secrets) and name it in `secrets.existingSecret`, with the keys `master-key`, `auth-secret` and, as needed, `database-url`, `database-direct-url`, `s3-secret-access-key`, `smtp-url` and `metrics-token`. Keep a copy of the master key outside the cluster, as [The master key](../../operate/keys/) says: a cluster lost is a key lost.
+- **The keys.** Give them as values, and the chart keeps them in a Secret, or make the Secret yourself (External Secrets, Sealed Secrets) and name it in `secrets.existingSecret`, with the keys `master-key`, `auth-secret`, `setup-code` and, as needed, `database-url`, `database-direct-url`, `s3-access-key-id`, `s3-secret-access-key`, `smtp-url` and `metrics-token`. The setup code is a key too: until the first owner exists, it is what takes the instance. Keep a copy of the master key outside the cluster, as [The master key](../../operate/keys/) says: a cluster lost is a key lost.
 
 ## Install
 
 ```yaml
 # hekate.yaml
 publicUrl: https://review.example.com
-setupCode: 7KQ2-M9XD-4HPW # your own, three groups of four letters and digits
 secrets:
   existingSecret: hekate-keys
 database:
@@ -27,7 +26,6 @@ storage:
   s3:
     bucket: hekate-media
     region: eu-west-2
-    accessKeyId: AKIA…
 ingress:
   className: nginx
   host: review.example.com
@@ -40,11 +38,13 @@ ingress:
 kubectl create secret generic hekate-keys \
   --from-literal=master-key="$(openssl rand -base64 32)" \
   --from-literal=auth-secret="$(openssl rand -hex 32)" \
+  --from-literal=setup-code=7KQ2-M9XD-4HPW \
+  --from-literal=s3-access-key-id='<the S3 access key>' \
   --from-literal=s3-secret-access-key='<the S3 secret key>'
 helm install hekate deploy/helm/hekate -f hekate.yaml
 ```
 
-Open the address and create the first owner with the setup code. The browser installer is not used on Kubernetes: everything is configured in values, and the setup code is set rather than made by each replica, so every replica accepts it.
+Open the address and create the first owner with the setup code (your own, three groups of four letters and digits). The browser installer is not used on Kubernetes: everything is configured in values, and the setup code is set rather than made by each replica, so every replica accepts it. Behind the Ingress, client addresses come from `X-Forwarded-For`; reached any other way, set `trustProxy` to say whether a proxy you trust sets it.
 
 Every value is described in the chart's `values.yaml`, and any other setting ([Configuration](../configuration/)) goes in `env`, by name.
 
@@ -66,7 +66,7 @@ Every pod runs as an unprivileged user with a read-only filesystem and no capabi
 
 `helm upgrade` with the new chart runs the migration Job first, then replaces the `api` replicas one at a time, each new one ready before an old one stops; each stops gracefully, drained first, within 40 seconds. Workers are replaced one at a time, the old one stopping first: its jobs finish, or go back to the queue for the next. Every release's migrations work with the release before it, so the old and new run side by side while the upgrade rolls; read the [upgrade notes](../../operate/upgrade-notes/) first all the same.
 
-`helm rollback hekate` returns to the previous release, as long as no migration since it has been destructive; one that is needs `migrations.allowDestructive` and a backup first ([Upgrades](../../operate/upgrades/)).
+A release refuses a database that a later release has migrated, so `helm rollback hekate` alone works only when the upgrade migrated nothing. After one that did, going back means restoring the backup taken before it, as with Compose ([Disaster recovery](../../operate/recovery/#a-release-goes-wrong)): take one before every upgrade. A migration that drops or rewrites data needs `migrations.allowDestructive`, set in the same `helm upgrade`.
 
 ## Backups
 
