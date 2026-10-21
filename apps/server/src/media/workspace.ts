@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,8 +12,10 @@ import { join } from "node:path";
  * the default location as a tmpfs, so plaintext never reaches a disk there.
  *
  * Each name carries the host that made it as well as the process (#188): replicas sharing
- * one directory each have their own process ids, the same numbers often, so a sweep leaves
- * every other host's workspaces alone.
+ * one directory each have their own process ids, the same numbers often, so a host judges by
+ * process only its own workspaces. Another host's, or one named before hosts were, is left
+ * until nothing in it has changed for longer than any job may run: by then its job is over,
+ * whoever ran it, and a container that replaced its host under a new name finds it too.
  */
 const baseOf = (root: string | undefined) => root ?? join(tmpdir(), "hekate-work");
 
@@ -66,11 +68,25 @@ const isRunning = (pid: number) => {
   }
 };
 
+/** When anything in a directory last changed, itself included. */
+async function lastChange(dir: string): Promise<number> {
+  let latest = (await stat(dir)).mtimeMs;
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    const changed = entry.isDirectory() ? await lastChange(path) : (await stat(path)).mtimeMs;
+    latest = Math.max(latest, changed);
+  }
+  return latest;
+}
+
 /**
- * Remove this host's workspaces whose process is gone. Returns how many were removed. A name
- * without a host comes from before hosts were named, and is taken as this host's.
+ * Remove workspaces whose job is over: this host's whose process is gone, and any other
+ * untouched for `unclaimedAfterMs`. Returns how many were removed.
  */
-export async function sweepWorkspaces(root: string | undefined): Promise<number> {
+export async function sweepWorkspaces(
+  root: string | undefined,
+  { unclaimedAfterMs, now = Date.now() }: { unclaimedAfterMs: number; now?: number },
+): Promise<number> {
   const base = baseOf(root);
   let entries: string[];
   try {
@@ -82,10 +98,16 @@ export async function sweepWorkspaces(root: string | undefined): Promise<number>
   for (const name of entries) {
     const match = /^job-(?:([0-9a-f]{8})-)?(\d+)-/.exec(name);
     if (!match) continue;
-    if (match[1] !== undefined && match[1] !== hostTag) continue;
-    const pid = Number(match[2]);
-    if (pid === process.pid || isRunning(pid)) continue;
-    await rm(join(base, name), { recursive: true, force: true });
+    const path = join(base, name);
+    if (match[1] === hostTag) {
+      const pid = Number(match[2]);
+      if (pid === process.pid || isRunning(pid)) continue;
+    } else {
+      // Gone already (its own process removed it as this looked), or still in use.
+      const changed = await lastChange(path).catch(() => now);
+      if (now - changed < unclaimedAfterMs) continue;
+    }
+    await rm(path, { recursive: true, force: true });
     removed += 1;
   }
   return removed;

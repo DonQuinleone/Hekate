@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -342,21 +342,30 @@ describe.runIf(hasFfmpeg || process.env.CI)("media tools", () => {
 
   it("sweeps workspaces left by a process that died, and only those", async () => {
     const root = await mkdtemp(join(tmpdir(), "hekate-sweep-"));
-    // A pid far above any real one stands in for a process that has gone.
-    await mkdir(join(root, "job-999999999-abc"), { recursive: true });
-    await writeFile(join(root, "job-999999999-abc", "decrypted.wav"), "secret");
-    await mkdir(join(root, `job-${hostTag}-999999999-abc`));
-    await mkdir(join(root, `job-${process.pid}-live`));
-    await mkdir(join(root, `job-${hostTag}-${process.pid}-live`));
-    // Another host's, sharing the directory (#188): its processes are not this host's to judge.
-    await mkdir(join(root, "job-0badcafe-999999999-abc"));
+    const made = async (name: string, ageMs = 0) => {
+      await mkdir(join(root, name), { recursive: true });
+      await writeFile(join(root, name, "decrypted.wav"), "secret");
+      const at = new Date(Date.now() - ageMs);
+      await utimes(join(root, name, "decrypted.wav"), at, at);
+      await utimes(join(root, name), at, at);
+    };
+    const hour = 60 * 60_000;
+    // This host's: a pid far above any real one stands in for a process that has gone.
+    await made(`job-${hostTag}-999999999-abc`);
+    await made(`job-${hostTag}-${process.pid}-live`);
+    // Another host's, or named before hosts were (#188): their processes are not this host's
+    // to judge, so they go only once untouched for longer than any job may run.
+    await made("job-0badcafe-999999999-busy");
+    await made("job-999999999-busy");
+    await made("job-0badcafe-999999999-over", 6 * hour);
+    await made("job-999999999-over", 6 * hour);
     await mkdir(join(root, "something-else"));
-    expect(await sweepWorkspaces(root)).toBe(2);
+    expect(await sweepWorkspaces(root, { unclaimedAfterMs: 5 * hour })).toBe(3);
     expect((await readdir(root)).sort()).toEqual(
       [
         `job-${hostTag}-${process.pid}-live`,
-        "job-0badcafe-999999999-abc",
-        `job-${process.pid}-live`,
+        "job-0badcafe-999999999-busy",
+        "job-999999999-busy",
         "something-else",
       ].sort(),
     );

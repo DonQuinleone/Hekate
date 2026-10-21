@@ -878,10 +878,24 @@ export async function requeueMissingFindings(db: Database, jobs: Pick<Jobs, "sen
   return queued.size;
 }
 
+/** Past the longest any job may run, and an hour more: a workspace untouched so long is over. */
+const UNCLAIMED_MS =
+  Math.max(...Object.values(jobDefinitions).map((d) => d.options.expireInSeconds)) * 1000 +
+  60 * 60_000;
+
 export async function startWorkers(jobs: Jobs, deps: MediaWorkerDeps, concurrency: number) {
-  // Plaintext left behind by a process that crashed mid-job is removed before any new work.
-  const swept = await sweepWorkspaces(deps.workDir);
-  if (swept > 0) console.log(`Removed ${swept} workspace(s) left by a stopped worker`);
+  // Plaintext left behind by a process that crashed mid-job is removed before any new work,
+  // and every hour after, for what another replica left in a shared directory (#188).
+  const sweep = async () => {
+    try {
+      const swept = await sweepWorkspaces(deps.workDir, { unclaimedAfterMs: UNCLAIMED_MS });
+      if (swept > 0) console.log(`Removed ${swept} workspace(s) left by a stopped worker`);
+    } catch (error) {
+      console.error("Could not sweep the working directory:", error);
+    }
+  };
+  await sweep();
+  setInterval(sweep, 60 * 60_000).unref();
   await jobs.work("media-probe", probeHandler(deps), { concurrency });
   await jobs.work("media-proxy", proxyHandler(deps), {
     concurrency: Math.max(1, Math.floor(concurrency / 2)),

@@ -9,7 +9,7 @@ One app process serves most studios. For more, or to keep serving while one rest
 
 - **The same settings, from the environment.** `AUTH_SECRET`, `MASTER_KEY`, `PUBLIC_URL`, the storage backends and every other setting, identical on each replica. The browser installer writes to one replica's settings file, so with several, configure through the environment (or a shared settings file) instead, and set `HEKATE_SETUP_CODE` if the installer is to run at all.
 - **Storage every replica can reach.** S3, or an S3-compatible service, is the choice for more than one machine. Local storage works only on a filesystem every replica mounts: an upload's parts go to whichever replica takes each request.
-- **Its own scratch directory, ideally.** `WORK_DIR` holds decrypted media only while a job runs, and the Compose file keeps it in memory for each container. Replicas may share one, each cleaning up only after itself.
+- **Its own scratch directory, ideally.** `WORK_DIR` holds decrypted media only while a job runs, and the Compose file keeps it in memory for each container. Replicas may share one: each removes its own leftovers at once, and another's only once it has lain untouched for longer than any job may run.
 
 ## Roles
 
