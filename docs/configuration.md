@@ -58,6 +58,8 @@ A setting marked as secret may instead name a file that holds it, with `_FILE` a
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `WORKER` | `true` | Run background jobs (media processing, mail, reminders) in this process. Turn off for API-only replicas. |
+| `ROLE` | unset | What this process does: all (requests and background jobs), api (requests only) or worker (background jobs, answering only health and metrics). Unset, WORKER decides: all, or api when it is false. Example: `worker`. |
+| `WORKER_LANES` | unset | The lanes of background jobs a worker takes (transcode, analyse, pages, mail, system), each with how many at once if not the default. Unset, it takes every lane. Example: `transcode:4,analyse:2,pages`. |
 | `WORKER_CONCURRENCY` | `2` | Media jobs run at once in this process. ffmpeg is CPU-heavy; about half the cores is a good start. |
 | `WORK_DIR` | unset | Scratch space for decrypted media while a job runs, or a page or download is marked; a tmpfs keeps it off disk. Defaults to hekate-work in the system's temporary directory. Example: `/tmp/hekate-work`. |
 | `ADM_RENDERER_PATH` | unset | Where the EBU ADM Renderer (ear) and its Python packages are installed, to render an ADM master's objects for listening. The image sets it; without it, only an ADM master's bed is heard. Example: `/opt/ear`. |

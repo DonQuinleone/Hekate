@@ -32,6 +32,11 @@ export const metrics = {
   ),
   jobsWaiting: registry.gauge("hekate_jobs_waiting", "Jobs waiting to run, by queue.", ["queue"]),
   jobsActive: registry.gauge("hekate_jobs_active", "Jobs running now, by queue.", ["queue"]),
+  laneJobsWaiting: registry.gauge(
+    "hekate_lane_jobs_waiting",
+    "Jobs waiting to run, by lane: what to scale workers on (#189).",
+    ["lane"],
+  ),
   jobsFailed: registry.counter(
     "hekate_jobs_failed_total",
     "Job attempts that failed in this process, by queue; a job retries before it is marked failed.",
@@ -178,13 +183,16 @@ export const noQueueYet = (error: unknown) =>
  * Queue depths from pg-boss's own table, read at each scrape. Every queue named is there,
  * at zero when it is idle, so a dashboard reads zero rather than no data.
  */
-export function collectQueues(db: Database, queues: readonly string[]) {
+export function collectQueues(db: Database, laneOfQueue: Record<string, string>) {
+  const queues = Object.keys(laneOfQueue);
   registry.onCollect(async () => {
     metrics.jobsWaiting.reset();
     metrics.jobsActive.reset();
+    metrics.laneJobsWaiting.reset();
     for (const queue of queues) {
       metrics.jobsWaiting.set({ queue }, 0);
       metrics.jobsActive.set({ queue }, 0);
+      metrics.laneJobsWaiting.set({ lane: laneOfQueue[queue] ?? "system" }, 0);
     }
     const rows = await db
       .execute<{ queue: string; state: string; n: string }>(
@@ -201,7 +209,13 @@ export function collectQueues(db: Database, queues: readonly string[]) {
       if (row.state === "active") metrics.jobsActive.set({ queue: row.queue }, Number(row.n));
       else waiting.set(row.queue, (waiting.get(row.queue) ?? 0) + Number(row.n));
     }
-    for (const [queue, n] of waiting) metrics.jobsWaiting.set({ queue }, n);
+    const byLane = new Map<string, number>();
+    for (const [queue, n] of waiting) {
+      metrics.jobsWaiting.set({ queue }, n);
+      const lane = laneOfQueue[queue];
+      if (lane) byLane.set(lane, (byLane.get(lane) ?? 0) + n);
+    }
+    for (const [lane, n] of byLane) metrics.laneJobsWaiting.set({ lane }, n);
   });
 }
 

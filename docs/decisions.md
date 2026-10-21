@@ -1185,3 +1185,14 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Local storage needs a shared filesystem** (an upload's parts go to whichever replica takes each request); S3 is the choice for more than one machine.
 - **The master key changes by restarts, in three rounds** (every replica learns the new key as a previous one, then makes it current, then forgets the old), as each process re-wraps the workspace keys at start with its own.
 - **System health is every replica's.** The page's current processors, memory and lanes are the answering replica's own, read as they are, with every other running replica's last minute from the health samples: lanes and memory add up, and the processors' share is weighted by cores (two replicas on one machine leave every share as it was). The disk stays the answering replica's, as it is a local path. Each minute's sample also records when that replica's metrics were last read, so the Operations page shows the latest of any replica's.
+
+## 189. Roles and lanes
+
+#189. How the work divides between processes, so media work scales without adding API replicas.
+
+- **`ROLE`: all, api or worker.** `all` is the default, as one process serves most studios. A worker answers only `/api/health*` and `/metrics`, for probes and Prometheus; every other request is refused there, so it is never a second way in. `WORKER=false` keeps meaning `api`: no setting is renamed, nothing for an operator to change.
+- **Five lanes, fixed:** transcode, analyse, pages, mail and system. Each kind of job belongs to one, written beside its definition (`jobDefinitions`); lanes follow the work's cost (transcoding apart from the lighter analysis) and the jobs that must run somewhere (system and mail), not one per job.
+- **`WORKER_LANES`** names the lanes a worker takes and, optionally, how many of each at once (`transcode:4,analyse`); unset, every lane at the defaults, as before. A lane given no number keeps each job's own concurrency.
+- **Queue depth by lane** (`hekate_lane_jobs_waiting`) beside the per-queue gauges, the one figure an autoscaler needs per worker pool.
+- **Graceful stop** stays pg-boss's: running jobs finish for up to thirty seconds; one that does not is retried once it expires.
+

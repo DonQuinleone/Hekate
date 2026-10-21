@@ -54,6 +54,26 @@ describe("configuration", () => {
     expect(config.HEKATE_BILLING).toBe("off");
     expect(config.HEKATE_SUPPORT).toBe("off");
     expect(config.HEKATE_DOCS_URL).toBe("https://docs.hekate.studio");
+    // Every lane, the role left to WORKER (#189).
+    expect(config.ROLE).toBeUndefined();
+    expect(config.WORKER_LANES).toBeNull();
+  });
+
+  it("reads a worker's role and lanes, and names a lane that is not one (#189)", () => {
+    const secrets = {
+      DATABASE_URL: "postgres://hekate:secret@localhost:5432/hekate",
+      AUTH_SECRET: "x".repeat(32),
+      MASTER_KEY: Buffer.alloc(32, 1).toString("base64"),
+    };
+    const config = loadConfig({ ...secrets, ROLE: "worker", WORKER_LANES: "transcode:4,pages" });
+    expect(config.ROLE).toBe("worker");
+    expect([...(config.WORKER_LANES ?? [])]).toEqual([
+      ["transcode", 4],
+      ["pages", null],
+    ]);
+    expect(() => loadConfig({ ...secrets, ROLE: "both", WORKER_LANES: "render" })).toThrow(
+      /ROLE +must be one of all, api, worker[\s\S]*WORKER_LANES +"render" is not a lane/,
+    );
   });
 
   it("describes every setting, and those that may come from a file are the secret ones", () => {
