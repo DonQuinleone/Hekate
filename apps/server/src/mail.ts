@@ -1,3 +1,4 @@
+import { type Database, schema } from "@hekate/db";
 import { createTransport } from "nodemailer";
 import { type Email, render } from "./email/render.ts";
 
@@ -46,6 +47,46 @@ export function memoryMailer(): Mailer & { sent: Message[] } {
     sent,
     async send(message) {
       sent.push(message);
+    },
+  };
+}
+
+/** The mail server's words are kept, but not all of them: a reply can run long. */
+const ERROR_CHARS = 500;
+
+/**
+ * A mailer that writes every message to the mail log (#157): sent over SMTP, refused with the
+ * server's words, or written to the server's log where there is no SMTP. Writing the log never
+ * stands in the way of the message, nor hides its failure.
+ */
+export function loggedMailer<M extends Mailer>(db: Database, mailer: M, smtp: boolean): M {
+  const record = (
+    message: Message,
+    result: (typeof schema.mailEvents.$inferInsert)["result"],
+    error?: unknown,
+  ) =>
+    db
+      .insert(schema.mailEvents)
+      .values({
+        recipient: message.to,
+        subject: message.subject,
+        result,
+        error:
+          error === undefined
+            ? null
+            : (error instanceof Error ? error.message : String(error)).slice(0, ERROR_CHARS),
+      })
+      .catch((cause: unknown) => console.error("Could not write the mail log:", cause));
+  return {
+    ...mailer,
+    async send(message: Message) {
+      try {
+        await mailer.send(message);
+      } catch (error) {
+        await record(message, "failed", error);
+        throw error;
+      }
+      await record(message, smtp ? "sent" : "logged");
     },
   };
 }

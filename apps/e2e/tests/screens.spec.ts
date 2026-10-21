@@ -378,6 +378,11 @@ const screens: Screen[] = [
     ready: "main >> text=hekate_worker_lanes_busy",
   },
   {
+    name: "instance-logs",
+    path: () => "/instance/logs",
+    ready: "main [data-log-entry] >> nth=0",
+  },
+  {
     name: "instance-system",
     path: () => "/instance/system",
     ready: "main >> text=Every release this instance has run.",
@@ -1099,6 +1104,17 @@ for (const [name, role, open, ready] of [
     await checkScreen(page);
   });
 }
+
+// Logs (#157): the mail the instance sent, the seed's invitations among it.
+test("instance-logs-mail", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto("/instance/logs");
+  await settle(page, "main [data-log-entry] >> nth=0");
+  await page.getByRole("tab", { name: "Email" }).click();
+  await settle(page, "main >> text=Written to the log >> nth=0");
+  await saveScreen(page, "instance-logs-mail");
+  await checkScreen(page);
+});
 
 // Debug tools (#159): the story behind a reference, opened from what failed today.
 test("instance-debug-report", async ({ page }) => {

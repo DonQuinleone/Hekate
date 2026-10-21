@@ -2625,6 +2625,27 @@ export const versionsRun = pgTable("versions_run", {
   firstStartedAt: timestamp("first_started_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const mailResultEnum = pgEnum("mail_result", ["sent", "failed", "logged"]);
+
+/**
+ * Every message Hekate handed to instance mail (#157), and what came of it: sent over SMTP,
+ * refused (with the server's words), or written to the log where there is no SMTP. Global: a
+ * message may concern no workspace, and only operators read it.
+ */
+export const mailEvents = pgTable(
+  "mail_events",
+  {
+    id: id(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    recipient: text("recipient").notNull(),
+    subject: text("subject").notNull(),
+    result: mailResultEnum("result").notNull(),
+    /** What the mail server said when it would not take the message. */
+    error: text("error"),
+  },
+  (t) => [index("mail_events_occurred_idx").on(t.occurredAt)],
+);
+
 /**
  * The machine measured (#156): one row a minute from each running process, kept for a day, for
  * the System health page. A replica is named by an id it picks when it starts, never by its

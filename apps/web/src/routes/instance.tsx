@@ -1,4 +1,5 @@
 import {
+  type AuditLogRow,
   type CheckState,
   ERROR_REPORT_DAYS,
   errorReportText,
@@ -19,6 +20,11 @@ import {
   instanceActions,
   instanceSections,
   instanceSectionsFor,
+  type LogKind,
+  type LogRange,
+  logKinds,
+  logRanges,
+  type MailLogRow,
   parseErrorReference,
   type UpdateChannel,
   updateChannels,
@@ -65,6 +71,7 @@ import {
   instanceFlagsQuery,
   instanceHealthQuery,
   instanceKeysQuery,
+  instanceLogQuery,
   instanceMembersQuery,
   instanceOperatorsQuery,
   instanceOverviewQuery,
@@ -76,6 +83,7 @@ import {
   instanceWorkspaceQuery,
   instanceWorkspacesQuery,
   json,
+  logQueryString,
   noticeQuery,
   useOperatorMove,
 } from "~/lib/queries";
@@ -124,6 +132,7 @@ export function InstancePage({ section }: { section: InstanceSection }) {
           {current === "operators" && operatorView && <Operators />}
           {current === "settings" && operatorView && <Settings />}
           {current === "health" && operatorView && <SystemHealthPage />}
+          {current === "logs" && operatorView && <Logs />}
           {current === "system" && operatorView && <SystemInformation />}
           {current === "debug" && operatorView && <Debug />}
         </>
@@ -869,6 +878,205 @@ function SystemInformation() {
         ))}
       </Section>
     </>
+  );
+}
+
+const logTime = formatDates({
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
+
+const logLabels: Record<LogKind, string> = { audit: "Audit", mail: "Email" };
+const rangeLabels: Record<LogRange, string> = {
+  "1h": "Last hour",
+  "24h": "Last 24 hours",
+  "7d": "Last 7 days",
+  "30d": "Last 30 days",
+};
+const logNotes: Record<LogKind, string> = {
+  audit:
+    "Every action an operator took on the instance, and every change in a workspace with the files people downloaded. Streams and page renders stay in each workspace's access log.",
+  mail: "Every message handed to instance mail, and what came back. Without SMTP, messages are written to the server's log.",
+};
+const mailResults: Record<MailLogRow["result"], string> = {
+  sent: "Sent",
+  failed: "Refused",
+  logged: "Written to the log",
+};
+
+/** What an audit row did, in words: an operator's action, or a workspace's. */
+const auditAction = (r: AuditLogRow) =>
+  r.source === "instance"
+    ? `${r.target ?? ""} ${instanceActions[r.action] ?? r.action}`.trim()
+    : (actionCopy[r.action] ?? r.action);
+
+/**
+ * Logs (#157), as the prototype has them: what people and operators did, and the mail the
+ * instance sent, as tables to search, narrow and export. More kinds arrive with what writes them.
+ */
+function Logs() {
+  const [kind, setKind] = useState<LogKind>("audit");
+  const [q, setQ] = useState("");
+  const search = useDeferredValue(q.trim());
+  const [range, setRange] = useState<LogRange>("24h");
+  const [workspace, setWorkspace] = useState("");
+  const filters = {
+    range,
+    ...(search ? { q: search } : {}),
+    ...(kind === "audit" && workspace ? { workspace } : {}),
+  };
+  const log = useInfiniteQuery(instanceLogQuery(kind, filters));
+  const { data: workspaces } = useInfiniteQuery(instanceWorkspacesQuery({}));
+  const rows: (AuditLogRow | MailLogRow)[] =
+    log.data?.pages.flatMap((p): (AuditLogRow | MailLogRow)[] => p.rows) ?? [];
+  const exportUrl = `/api/instance/logs/${kind}/export?${new URLSearchParams(logQueryString(filters))}`;
+  const body = (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          aria-label="Search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search"
+          className="w-full @xl/app:w-64"
+        />
+        <Select
+          aria-label="Range"
+          value={range}
+          onChange={(e) => setRange(e.target.value as LogRange)}
+          className="w-40"
+        >
+          {logRanges.map((r) => (
+            <option key={r} value={r}>
+              {rangeLabels[r]}
+            </option>
+          ))}
+        </Select>
+        {kind === "audit" && (
+          <Select
+            aria-label="Workspace"
+            value={workspace}
+            onChange={(e) => setWorkspace(e.target.value)}
+            className="w-48"
+          >
+            <option value="">Any workspace</option>
+            {workspaces?.pages
+              .flatMap((p) => p.workspaces)
+              .map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+          </Select>
+        )}
+        <Button variant="secondary" size="md" asChild className="ml-auto">
+          <a href={exportUrl} download>
+            <Icon name="download" size={14} />
+            Export
+          </a>
+        </Button>
+      </div>
+      <div className="flex flex-col divide-y divide-line rounded-panel-lg border border-line bg-raised/25 shadow-1">
+        {log.isPending ? (
+          <p className="m-0 px-4 py-3 text-[13px] text-ink-3">Loading</p>
+        ) : log.isError ? (
+          <p className="m-0 px-4 py-3 text-[13px] text-signal">{log.error.message}</p>
+        ) : rows.length === 0 ? (
+          <div className="p-4">
+            <Empty
+              title="Nothing in this range"
+              text={search ? "Nothing matches the search." : "Try a longer range."}
+            />
+          </div>
+        ) : kind === "audit" ? (
+          (rows as AuditLogRow[]).map((r) => (
+            <div
+              key={r.id}
+              data-log-entry
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-[13px] @3xl/app:grid-cols-[150px_minmax(0,1fr)_170px_minmax(0,1fr)] @6xl/app:grid-cols-[150px_minmax(0,1fr)_170px_minmax(0,1fr)_130px]"
+            >
+              <span className="tabular text-ink-3">{logTime.format(new Date(r.at))}</span>
+              <span className="justify-self-end truncate text-ink-3 @3xl/app:order-3 @3xl/app:justify-self-start">
+                {r.workspace?.name ?? "Instance"}
+              </span>
+              <span className="col-span-2 flex min-w-0 flex-col @3xl/app:order-2 @3xl/app:col-span-1">
+                <span className="truncate text-ink-2">{r.who}</span>
+              </span>
+              <span className="col-span-2 flex min-w-0 flex-col @3xl/app:order-4 @3xl/app:col-span-1">
+                <span className="truncate text-ink">{auditAction(r)}</span>
+                {r.source === "workspace" && r.target && (
+                  <span className="truncate text-[12px] text-ink-3">{r.target}</span>
+                )}
+              </span>
+              <span className="tabular hidden truncate text-ink-3 @6xl/app:order-5 @6xl/app:block">
+                {r.ipAddress ?? ""}
+              </span>
+            </div>
+          ))
+        ) : (
+          (rows as MailLogRow[]).map((r) => (
+            <div
+              key={r.id}
+              data-log-entry
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-[13px] @3xl/app:grid-cols-[150px_minmax(0,1fr)_minmax(0,1.4fr)_150px]"
+            >
+              <span className="tabular text-ink-3">{logTime.format(new Date(r.at))}</span>
+              <span
+                className={cn(
+                  "justify-self-end @3xl/app:order-4 @3xl/app:justify-self-start",
+                  r.result === "failed" ? "text-signal" : "text-ink-3",
+                )}
+              >
+                {mailResults[r.result]}
+              </span>
+              <span className="col-span-2 truncate text-ink-2 @3xl/app:order-2 @3xl/app:col-span-1">
+                {r.to}
+              </span>
+              <span className="col-span-2 flex min-w-0 flex-col @3xl/app:order-3 @3xl/app:col-span-1">
+                <span className="truncate text-ink">{r.subject}</span>
+                {r.error && (
+                  <span className="truncate text-[12px] text-signal" title={r.error}>
+                    {r.error}
+                  </span>
+                )}
+              </span>
+            </div>
+          ))
+        )}
+        {log.hasNextPage && (
+          <div className="px-4 py-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={log.isFetchingNextPage}
+              onClick={() => void log.fetchNextPage()}
+            >
+              Show older
+            </Button>
+          </div>
+        )}
+      </div>
+      <p className="m-0 text-[12px] text-ink-3">{logNotes[kind]}</p>
+    </>
+  );
+  return (
+    <Tabs value={kind} onValueChange={(v) => setKind(v as LogKind)}>
+      <TabsList>
+        {logKinds.map((k) => (
+          <TabsTrigger key={k} value={k}>
+            {logLabels[k]}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+      {logKinds.map((k) => (
+        <TabsContent key={k} value={k} className="mt-4 flex flex-col gap-4">
+          {k === kind && body}
+        </TabsContent>
+      ))}
+    </Tabs>
   );
 }
 

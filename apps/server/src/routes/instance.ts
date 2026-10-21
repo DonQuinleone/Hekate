@@ -26,6 +26,9 @@ import {
   instanceFlags,
   instanceSettingsInput,
   instanceWorkspacesQuery,
+  logExportQuery,
+  logKindParam,
+  logQuery,
   nameMatches,
   newerReleases,
   newWorkspaceInput,
@@ -73,6 +76,7 @@ import type { InstanceSettingsStore } from "../instance-settings.ts";
 import { INVITATION_LIFETIME_MS, newInvitationToken } from "../invitation-token.ts";
 import { type JobName, type Jobs, jobDefinitions } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
+import { escapeLike, logCsv, readLog } from "../logs.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { admit } from "../rate-limit.ts";
 import { type SystemHealthDeps, systemHealth } from "../system-health.ts";
@@ -301,8 +305,6 @@ async function workspaceName(db: Pick<Database, "select">, id: string) {
   if (!row) throw new NotFound("Workspace");
   return row.name;
 }
-
-const escapeLike = (text: string) => text.replace(/[\\%_]/g, (m) => `\\${m}`);
 
 /** Members, projects and stored bytes of some workspaces, counted at once. */
 async function figuresOf(db: Database, ids: string[]) {
@@ -1438,6 +1440,49 @@ export function instanceRoutes(options: InstanceOptions) {
         });
         return c.body(null, 202);
       })
+      // The instance's logs as tables (#157): a page at a time, or the whole as CSV.
+      .use("/logs/*", operatorsOnly)
+      .get(
+        "/logs/:kind",
+        zValidator("param", logKindParam),
+        zValidator("query", logQuery),
+        async (c) => c.json(await readLog(db, c.req.valid("param").kind, c.req.valid("query"))),
+      )
+      .get(
+        "/logs/:kind/export",
+        zValidator("param", logKindParam),
+        zValidator("query", logExportQuery),
+        async (c) => {
+          const { kind } = c.req.valid("param");
+          const filters = c.req.valid("query");
+          // Exporting a log is itself recorded, before any of it leaves.
+          await recordInstanceEvent(db, {
+            actorId: c.var.userId,
+            action: "logs.export",
+            target: kind === "audit" ? "The audit log" : "The mail log",
+            details: { kind, filters },
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+          const lines = logCsv(db, kind, filters);
+          const encoder = new TextEncoder();
+          const body = new ReadableStream<Uint8Array>({
+            async pull(controller) {
+              const next = await lines.next();
+              if (next.done) controller.close();
+              else controller.enqueue(encoder.encode(next.value));
+            },
+            async cancel() {
+              await lines.return(undefined);
+            },
+          });
+          const stamp = new Date().toISOString().slice(0, 10);
+          return c.body(body, 200, {
+            "content-type": "text/csv; charset=utf-8",
+            "content-disposition": `attachment; filename="hekate-${kind}-log-${stamp}.csv"`,
+            "cache-control": "no-store",
+          });
+        },
+      )
       // The instance's settings (#160), and what the environment sets beside them.
       .use("/settings", operatorsOnly)
       .use("/settings/*", operatorsOnly)

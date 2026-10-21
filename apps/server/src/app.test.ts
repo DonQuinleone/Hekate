@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { buffer } from "node:stream/consumers";
 import { createDb, runMigrations, schema, uuidv7, withAuditPurge } from "@hekate/db";
 import {
+  type AuditLogRow,
   decodeLoudness,
   decodePeaks,
   decodeSpectrogram,
@@ -16,6 +17,7 @@ import {
   type LoudnessSummary,
   levelsOf,
   lookingPermissions,
+  type MailLogRow,
   mapTime,
   type SystemHealth,
   type WorkspaceOperations,
@@ -26,7 +28,7 @@ import { and, asc, count, desc, eq, inArray, isNotNull, like, ne, or, sql } from
 import { Hono } from "hono";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, MAX_BODY_BYTES } from "./app.ts";
-import { createAudit, csvCell } from "./audit.ts";
+import { createAudit, csvCell, systemActor } from "./audit.ts";
 import { createAuth } from "./auth.ts";
 import { describeReport, verifyBackup } from "./backup-verify.ts";
 import { createClient } from "./client.ts";
@@ -39,7 +41,7 @@ import { createHealthChecks } from "./health-checks.ts";
 import { createInstanceSettings } from "./instance-settings.ts";
 import { type JobFailure, runJob } from "./jobs.ts";
 import { createKeyring } from "./keyring.ts";
-import { memoryMailer } from "./mail.ts";
+import { loggedMailer, memoryMailer } from "./mail.ts";
 import { probe, run } from "./media/ffmpeg.ts";
 import { webpComplete, webpSize } from "./media/pages.ts";
 import { jpegSize } from "./media/pdf.ts";
@@ -62,6 +64,7 @@ import { admit } from "./rate-limit.ts";
 import { reconcileStorage } from "./reconcile.ts";
 import { remindDue } from "./reminders.ts";
 import { health } from "./routes/health.ts";
+import { recordInstanceEvent } from "./routes/instance.ts";
 import { rehomePending } from "./score-swap.ts";
 import { createSetupGate, SETUP_CODE_HEADER } from "./setup-code.ts";
 import { createStorage } from "./storage.ts";
@@ -1487,6 +1490,98 @@ describe.runIf(url)("api", () => {
         ).toBe(403);
         // The instance's settings outlive the test: leave them as they were.
         await send("PUT", "/api/instance/settings", current.settings, operator);
+      });
+
+      it("reads the audit and mail logs as tables, and records their export (#157)", async () => {
+        const operator = cookieOf(await setup());
+        const [workspace] = await db
+          .select({ id: schema.organisations.id, name: schema.organisations.name })
+          .from(schema.organisations);
+        const organisationId = workspace?.id ?? "";
+        // What a workspace did: a change, and a stream key, which is the access log's alone.
+        await audit.record(organisationId, systemActor, {
+          action: "file.upload",
+          details: { name: "solace-157.wav" },
+        });
+        await audit.record(organisationId, systemActor, { action: "stream.key" });
+        // What an operator did, about that workspace.
+        await recordInstanceEvent(db, {
+          actorId: null,
+          action: "workspace.suspended",
+          target: "logs-157",
+          details: { organisationId },
+        });
+        type Page<R> = { rows: R[]; next: string | null };
+        const read = async <R>(path: string, cookie = operator) => {
+          const res = await get(`/api/instance/logs/${path}`, cookie);
+          expect(res.status).toBe(200);
+          return (await res.json()) as Page<R>;
+        };
+        const audited = await read<AuditLogRow>(`audit?workspace=${organisationId}`);
+        const actions = audited.rows.map((r) => r.action);
+        expect(actions).toContain("file.upload");
+        expect(actions).toContain("workspace.suspended");
+        expect(actions).not.toContain("stream.key");
+        expect(audited.rows.find((r) => r.action === "workspace.suspended")).toMatchObject({
+          source: "instance",
+          who: "Hekate",
+          workspace: { id: organisationId, name: workspace?.name },
+          target: "logs-157",
+        });
+        // Searched, and a page at a time, newest first.
+        const found = await read<AuditLogRow>("audit?q=logs-157");
+        expect(found.rows.map((r) => r.action)).toEqual(["workspace.suspended"]);
+        const first = await read<AuditLogRow>(`audit?workspace=${organisationId}&limit=1`);
+        expect(first.rows).toHaveLength(1);
+        expect(first.next).toBe(first.rows[0]?.id);
+        const second = await read<AuditLogRow>(
+          `audit?workspace=${organisationId}&limit=1&before=${first.next}`,
+        );
+        expect((second.rows[0]?.id ?? "") < (first.rows[0]?.id ?? "")).toBe(true);
+        expect((await get("/api/instance/logs/audit?range=2y", operator)).status).toBe(400);
+        expect((await get("/api/instance/logs/billing", operator)).status).toBe(400);
+
+        // Every message handed to instance mail, and what came of it.
+        await db.delete(schema.mailEvents);
+        const delivered = loggedMailer(db, memoryMailer(), true);
+        await delivered.send({ to: "mira@endlesshall.example", subject: "Sent 157", text: "" });
+        const refusing = loggedMailer(
+          db,
+          {
+            send: async (_message: unknown) => {
+              throw new Error("550 5.1.1 No such mailbox");
+            },
+          },
+          true,
+        );
+        await expect(
+          refusing.send({ to: "nobody@endlesshall.example", subject: "Refused 157", text: "" }),
+        ).rejects.toThrow("550");
+        const mail = await read<MailLogRow>("mail");
+        expect(mail.rows.map((r) => [r.to, r.result, r.error])).toEqual([
+          ["nobody@endlesshall.example", "failed", "550 5.1.1 No such mailbox"],
+          ["mira@endlesshall.example", "sent", null],
+        ]);
+
+        // An export is recorded before any of it leaves, and its cells are neutralised.
+        await recordInstanceEvent(db, { actorId: null, action: "flag.on", target: "=SUM(1)" });
+        const exported = await get("/api/instance/logs/audit/export?q=SUM", operator);
+        expect(exported.headers.get("content-type")).toContain("text/csv");
+        const csv = await exported.text();
+        expect(csv.split("\r\n")[0]).toBe(
+          '"occurred_at","source","who","workspace","action","target","ip_address"',
+        );
+        expect(csv).toContain(`"'=SUM(1)"`);
+        const [recorded] = await db
+          .select({ details: schema.instanceEvents.details })
+          .from(schema.instanceEvents)
+          .where(eq(schema.instanceEvents.action, "logs.export"));
+        expect(recorded?.details).toMatchObject({ kind: "audit", filters: { q: "SUM" } });
+
+        // Operators only.
+        const theirOwner = await join(operator, "label@example.test", "owner");
+        expect((await get("/api/instance/logs/audit", theirOwner)).status).toBe(403);
+        expect((await get("/api/instance/logs/mail/export", theirOwner)).status).toBe(403);
       });
 
       it("shows what the instance runs, and checks releases only when asked to (#158)", async () => {

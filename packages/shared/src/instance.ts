@@ -10,6 +10,7 @@ export const instanceSectionIds = [
   "workspaces",
   "operators",
   "health",
+  "logs",
   "debug",
   "system",
   "settings",
@@ -23,6 +24,10 @@ export const instanceSections: Record<InstanceSection, { label: string; hint: st
     hint: "Every tenant, with its people, projects and storage",
   },
   operators: { label: "Operators", hint: "The accounts that may manage the instance" },
+  logs: {
+    label: "Logs",
+    hint: "What people and operators did, and the mail the instance sent",
+  },
   health: {
     label: "System health",
     hint: "The machine, measured: load, latency, errors, queues and services",
@@ -250,6 +255,7 @@ export const instanceActions: Record<string, string> = {
   "maintenance.message": "given a new notice",
   "storage.reconcile": "checked against the database by an operator",
   "defaults.guest_link_days": "given a new lifetime",
+  "logs.export": "exported",
 };
 
 /** Where a workspace stands, from its record. */

@@ -57,6 +57,9 @@ import {
   type InstanceWorkspaceStorage,
   itemWords,
   type LinkablePerson,
+  type LogKind,
+  type LogPage,
+  type LogRange,
   type LoudnessSummary,
   type Mark,
   type MarkInput,
@@ -4176,6 +4179,30 @@ export const instanceSystemQuery = queryOptions({
   queryKey: ["instance", "system"],
   queryFn: async () => json<SystemInformation>(await api.instance.system.$get()),
 });
+
+/** The instance's filters for a log (#157), as the query string has them. */
+export function logQueryString(filters: { q?: string; range: LogRange; workspace?: string }) {
+  const query: Record<string, string> = { range: filters.range };
+  if (filters.q) query.q = filters.q;
+  if (filters.workspace) query.workspace = filters.workspace;
+  return query;
+}
+
+/** One of the instance's logs (#157), newest first, a page at a time. */
+export const instanceLogQuery = <K extends LogKind>(
+  kind: K,
+  filters: { q?: string; range: LogRange; workspace?: string },
+) =>
+  infiniteQueryOptions({
+    queryKey: ["instance", "logs", kind, filters],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
+      const query: Record<string, string> = { ...logQueryString(filters), limit: "50" };
+      if (pageParam) query.before = pageParam;
+      return json<LogPage<K>>(await api.instance.logs[":kind"].$get({ param: { kind }, query }));
+    },
+    getNextPageParam: (last) => last.next ?? undefined,
+  });
 
 /** System health (#156): the machine now, a range's minutes, services and metrics. */
 export const instanceHealthQuery = (range: HealthRange) =>
