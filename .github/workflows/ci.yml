@@ -389,6 +389,57 @@ jobs:
           kubectl port-forward service/hekate 8080:80 &
           curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 2 \
             http://localhost:8080/api/health/ready
+      # The backup and restore of the Kubernetes install page (#195), as written there.
+      - name: Set it up
+        run: |
+          kubectl port-forward service/hekate 8081:80 &
+          sleep 3
+          password=$(openssl rand -hex 16)
+          curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 2 \
+            -X POST http://localhost:8081/api/setup \
+            -H 'content-type: application/json' -H 'origin: https://hekate.example.test' \
+            -H 'x-hekate-setup-code: 7KQ2-M9XD-4HPW' \
+            -d "{\"name\":\"Alex Rivera\",\"email\":\"producer@example.test\",\"password\":\"$password\",\"organisation\":\"Endless Hall Records\"}"
+      - name: Back it up, lose it, restore it
+        env:
+          DATABASE_URL: postgres://hekate:hekate@postgres:5432/hekate
+        run: |
+          kubectl apply -f - <<'EOF'
+          apiVersion: v1
+          kind: Pod
+          metadata: { name: hekate-tools }
+          spec:
+            restartPolicy: Never
+            containers:
+              - name: tools
+                image: postgres:18-alpine
+                command: [sleep, "3600"]
+                volumeMounts: [{ name: media, mountPath: /data }]
+            volumes:
+              - name: media
+                persistentVolumeClaim: { claimName: hekate-media }
+          EOF
+          kubectl wait --for=condition=Ready pod/hekate-tools --timeout=120s
+          kubectl scale deployment hekate-api hekate-worker --replicas=0
+          kubectl exec hekate-tools -- pg_dump --format=custom "$DATABASE_URL" > hekate.dump
+          kubectl exec hekate-tools -- tar -czf - -C /data . > hekate-storage.tar.gz
+          # Lost: the database and the media.
+          kubectl exec hekate-tools -- psql postgres://hekate:hekate@postgres:5432/postgres \
+            -c 'drop database hekate with (force)' -c 'create database hekate'
+          kubectl exec hekate-tools -- rm -rf /data/storage
+          kubectl exec -i hekate-tools -- pg_restore --clean --if-exists --no-owner --dbname "$DATABASE_URL" < hekate.dump
+          kubectl exec -i hekate-tools -- sh -c \
+            'rm -rf /data/storage && tar -xzf - -C /data && chown -R 10001:10001 /data' < hekate-storage.tar.gz
+          kubectl scale deployment hekate-api --replicas=1 && kubectl rollout status deployment hekate-api --timeout=180s
+          kubectl exec deploy/hekate-api -- node apps/server/src/cli.ts backup verify
+          kubectl scale deployment hekate-worker --replicas=1
+          kubectl delete pod hekate-tools
+      - name: It serves again, set up
+        run: |
+          kubectl port-forward service/hekate 8082:80 &
+          curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 2 \
+            http://localhost:8082/api/health/ready
+          curl --fail --silent --show-error http://localhost:8082/api/setup | grep -q '"needed":false'
       - name: What happened
         if: ${{ failure() }}
         run: |

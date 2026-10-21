@@ -68,15 +68,51 @@ Every pod runs as an unprivileged user with a read-only filesystem and no capabi
 
 `helm rollback hekate` returns to the previous release. It runs against the upgraded database when the upgrade's migrations only added to it, as most do; when they changed what the previous release reads, it refuses the database, and going back means restoring the backup taken before the upgrade, as with Compose ([Disaster recovery](../../operate/recovery/#a-release-goes-wrong)): take one before every upgrade. A migration that drops or rewrites data needs `migrations.allowDestructive`, set in the same `helm upgrade`.
 
-## Backups
+## Backup and restore
 
-The same three things as anywhere ([Backup and restore](../../operate/backup/)): the database, the media and the master key. With CloudNativePG, use its backups to object storage; otherwise, your database service's own, or `pg_dump` from a pod:
+The same three things as anywhere ([Backup and restore](../../operate/backup/)): the database, the media and the master key, the first two as of the same moment. Keep the master key apart from both. With CloudNativePG, its backups to object storage can stand in for the dump; with S3, the bucket's versions as of the dump stand in for the media archive. Otherwise, the steps below do what `deploy/backup.sh` and `deploy/restore.sh` do for Compose; CI runs them, against the chart on kind, on every pull request.
 
-With `DATABASE_URL` set to the database's address:
+They assume the release is called `hekate`, `DATABASE_URL` is set to the database's address as the cluster sees it, and, for media on a volume, the claim is `hekate-media`. A short-lived pod holds PostgreSQL's tools and the media volume:
 
 ```sh
-kubectl run pg-dump --rm -i --image=postgres:18-alpine --restart=Never -- \
-  pg_dump --format=custom "$DATABASE_URL" > hekate.dump
+kubectl apply -f - <<'EOF'
+apiVersion: v1
+kind: Pod
+metadata: { name: hekate-tools }
+spec:
+  restartPolicy: Never
+  containers:
+    - name: tools
+      image: postgres:18-alpine
+      command: [sleep, "3600"]
+      volumeMounts: [{ name: media, mountPath: /data }]   # leave out with S3
+  volumes:                                              # leave out with S3
+    - name: media
+      persistentVolumeClaim: { claimName: hekate-media }
+EOF
+kubectl wait --for=condition=Ready pod/hekate-tools
 ```
 
-Version the S3 bucket, and keep the master key apart from both. To check a restore, run `kubectl exec deploy/hekate-api -- node apps/server/src/cli.ts backup verify`.
+**Back up**, with Hekate stopped so the dump and the media agree (with S3, it can keep running):
+
+```sh
+kubectl scale deployment hekate-api hekate-worker --replicas=0
+kubectl exec hekate-tools -- pg_dump --format=custom "$DATABASE_URL" > hekate.dump
+kubectl exec hekate-tools -- tar -czf - -C /data . > hekate-storage.tar.gz
+kubectl scale deployment hekate-api --replicas=2 && kubectl scale deployment hekate-worker --replicas=1
+```
+
+**Restore** into the same release, or a new one installed with the same values and master key:
+
+```sh
+kubectl scale deployment hekate-api hekate-worker --replicas=0
+kubectl exec -i hekate-tools -- pg_restore --clean --if-exists --no-owner --dbname "$DATABASE_URL" < hekate.dump
+kubectl exec -i hekate-tools -- sh -c \
+  'rm -rf /data/storage && tar -xzf - -C /data && chown -R 10001:10001 /data' < hekate-storage.tar.gz
+kubectl scale deployment hekate-api --replicas=1 && kubectl rollout status deployment hekate-api
+kubectl exec deploy/hekate-api -- node apps/server/src/cli.ts backup verify
+kubectl scale deployment hekate-api --replicas=2 && kubectl scale deployment hekate-worker --replicas=1
+kubectl delete pod hekate-tools
+```
+
+`backup verify` checks that the database, the storage and the master key belong together, as after a Compose restore; only when it passes should people work again. With S3, restore the bucket's versions as of the dump before starting, and skip the archive.
