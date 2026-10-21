@@ -3,6 +3,7 @@ import {
   ERROR_REPORT_DAYS,
   errorReportText,
   formatBytes,
+  guestLinkDays,
   type HealthAmount,
   type HealthRange,
   type HealthService,
@@ -512,13 +513,37 @@ function Settings() {
       void client.invalidateQueries({ queryKey: noticeQuery.queryKey });
     },
   });
+  const mailTest = useMutation({
+    mutationFn: async () =>
+      json<{ to: string; mail: "smtp" | "log" }>(await api.instance.settings["mail-test"].$post()),
+  });
   if (error) return <p className="m-0 text-signal">{error.message}</p>;
   if (!data) return null;
   const { settings, environment: env } = data;
   const maintenance = settings.maintenance;
   const words = message ?? maintenance.message;
+  const modules = env.modules;
   return (
     <>
+      <Section
+        title="Modules"
+        intro="Set in the environment at start; shown here so an operator can see what is on."
+      >
+        <Row name="Billing" hint="HEKATE_BILLING · off, stripe, paddle or manual" inline>
+          <span className="tabular text-[13px] text-ink-2">{modules.billing}</span>
+          <StatusDot state={modules.billing === "off" ? "cancelled" : "approved"} />
+        </Row>
+        <Row name="Support desk" hint="HEKATE_SUPPORT · off, app, link or mail" inline>
+          <span className="tabular text-[13px] text-ink-2">{modules.support}</span>
+          <StatusDot state={modules.support === "off" ? "cancelled" : "approved"} />
+        </Row>
+        <Row name="Documentation" hint="HEKATE_DOCS_URL · where Help goes">
+          <span className="truncate text-[13px] text-ink-2">{modules.docsUrl}</span>
+        </Row>
+        <Row name="Status page" hint="HEKATE_STATUS_URL · linked from Help when set">
+          <span className="truncate text-[13px] text-ink-2">{modules.statusUrl ?? "None"}</span>
+        </Row>
+      </Section>
       <Section
         title="Security"
         intro="What every workspace must do, whatever its own settings say."
@@ -563,6 +588,38 @@ function Settings() {
           </span>
         </Row>
       </Section>
+      <Section
+        title="Defaults for new workspaces"
+        intro="What a workspace starts with when an operator makes it; its owner may change it after."
+      >
+        <Row
+          name="Guest links last"
+          hint="How long a guest's link works before a new one is needed."
+        >
+          <Select
+            aria-label="Guest links last"
+            value={settings.defaults.guestLinkDays}
+            disabled={save.isPending}
+            onChange={(e) =>
+              save.mutate({
+                ...settings,
+                defaults: {
+                  guestLinkDays: Number(
+                    e.target.value,
+                  ) as InstanceSettings["defaults"]["guestLinkDays"],
+                },
+              })
+            }
+            className="w-40"
+          >
+            {guestLinkDays.map((d) => (
+              <option key={d} value={d}>
+                {d} days
+              </option>
+            ))}
+          </Select>
+        </Row>
+      </Section>
       <Section title="Address and mail" intro="Set in the environment at start.">
         <Row name="Address" hint="PUBLIC_URL" inline>
           <span className="truncate text-[13px] text-ink-2">{env.publicUrl}</span>
@@ -579,7 +636,26 @@ function Settings() {
           <span className="text-[13px] text-ink-2">
             {env.mail === "smtp" ? "SMTP" : "Log only"}
           </span>
+          <Button
+            variant="secondary"
+            size="md"
+            disabled={mailTest.isPending}
+            onClick={() => mailTest.mutate()}
+          >
+            Test
+          </Button>
         </Row>
+        {mailTest.isSuccess && (
+          <Row
+            name="Sent"
+            hint={
+              mailTest.data.mail === "smtp"
+                ? `A test message went to ${mailTest.data.to}. If it does not arrive, look in the mail server's log.`
+                : `A test message to ${mailTest.data.to} was written to the server's log.`
+            }
+          />
+        )}
+        {mailTest.isError && <Row name="Not sent" hint={mailTest.error.message} />}
       </Section>
       <Danger>
         <Row

@@ -1,6 +1,10 @@
 import { tmpdir } from "node:os";
 import type { Database } from "@hekate/db";
-import { COMMENT_ATTACHMENT_MAX_BYTES, type InstanceNotice } from "@hekate/shared";
+import {
+  COMMENT_ATTACHMENT_MAX_BYTES,
+  type InstanceModules,
+  type InstanceNotice,
+} from "@hekate/shared";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
@@ -143,6 +147,8 @@ export interface AppDeps {
   storageDescribed?: { name: string; driver: "local" | "s3"; where: string }[];
   /** Earlier master keys still configured (MASTER_KEYS_PREVIOUS). */
   previousMasterKeys?: number;
+  /** The modules switched on at start, shown in the instance's Settings (#160). */
+  modules?: InstanceModules;
 }
 
 export function createApi(deps: AppDeps) {
@@ -240,6 +246,12 @@ export function createApi(deps: AppDeps) {
             mail: deps.smtp ? "smtp" : "log",
             passwordLeakCheck: deps.passwordLeakCheck ?? false,
             sessionDays: SESSION_DAYS,
+            modules: deps.modules ?? {
+              billing: "off",
+              support: "off",
+              docsUrl: "https://docs.hekate.studio",
+              statusUrl: null,
+            },
           },
         }),
       )
