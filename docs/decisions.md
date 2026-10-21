@@ -1196,3 +1196,14 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Queue depth by lane** (`hekate_lane_jobs_waiting`) beside the per-queue gauges, the one figure an autoscaler needs per worker pool.
 - **Graceful stop** stays pg-boss's: running jobs finish for up to thirty seconds; one that does not is retried once it expires.
 
+## 190. PostgreSQL: high availability, poolers and failover
+
+#192, a spike. Hekate was run through PgBouncer 1.22 in transaction mode, its whole server test suite against it.
+
+- **One writable primary; no read replicas.** Requests write, lock and read their own writes. A managed service's writer endpoint, CloudNativePG's read-write service or Patroni's primary address are all the same to Hekate.
+- **Transaction pooling needs the pooler's prepared-statement support.** postgres.js prepares its queries by name. Through PgBouncer with `max_prepared_statements = 0` (1.22's default), 118 of 500 tests failed with wrong answers, not errors: a statement prepared by one client ran for another. With `max_prepared_statements = 200`, or with postgres.js told not to prepare, every test but `LISTEN`'s passed. The docs say to set it; not preparing at all is #411.
+- **`LISTEN` needs a session.** Behind a transaction pooler, replicas' word to each other (decision 188) never arrives, and the fifteen-second rereads carry settings and flags instead. A direct connection for listening and migrating is #412.
+- **Migrations' session lock** wants a direct connection too; the docs say to migrate past the pooler.
+- **Everything else is transaction-scoped** (`set local`, transaction advisory locks, pg-boss's own locks, which also polls rather than listens), so safe behind a transaction pooler.
+- **Failover** costs the requests and jobs under way: requests fail for the moment of the switch, jobs are retried, listeners reconnect and reread. Asynchronous replication can lose committed transactions on failover; storage reconciliation then removes what the database no longer names.
+
