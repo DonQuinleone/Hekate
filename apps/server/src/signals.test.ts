@@ -12,6 +12,8 @@ describe.runIf(url)("word between replicas (#188)", () => {
   // Two replicas: each its own connections, its own settings and flags in memory.
   const one = createDb(url ?? "");
   const two = createDb(url ?? "");
+  // Behind a transaction pooler, listening goes past it (#412), as the server's does.
+  const listener = createDb(process.env.DATABASE_DIRECT_URL ?? url ?? "", { max: 1 });
   // Time stands still, so nothing but a signal makes a replica read again.
   const frozen = new Date();
   const settingsOne = createInstanceSettings(one.db, () => frozen.getTime());
@@ -29,7 +31,7 @@ describe.runIf(url)("word between replicas (#188)", () => {
     await one.db
       .insert(schema.users)
       .values({ id: by, name: "Alex Rivera", email: `${by}@example.test` });
-    unlisten = await listenForSignals(two.sql, (what) => {
+    unlisten = await listenForSignals(listener.sql, (what) => {
       heard.push(what);
       if (what === "flags") flagsTwo.forget();
       else settingsTwo.forget();
@@ -42,6 +44,7 @@ describe.runIf(url)("word between replicas (#188)", () => {
     await one.db.delete(schema.users).where(eq(schema.users.id, by));
     await one.close();
     await two.close();
+    await listener.close();
   });
 
   it("hears everything once on connecting, as anything may have changed meanwhile", () => {

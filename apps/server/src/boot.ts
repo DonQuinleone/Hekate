@@ -49,12 +49,15 @@ import { purgeDueWorkspaces } from "./workspace-purge.ts";
  */
 async function migrateOrExit(config: {
   DATABASE_URL: string;
+  DATABASE_DIRECT_URL?: string | undefined;
   MIGRATE_ON_START: boolean;
   MIGRATE_ALLOW_DESTRUCTIVE: boolean;
 }) {
+  // Past any transaction pooler (#412): the migration lock lasts the session.
+  const sessionUrl = config.DATABASE_DIRECT_URL ?? config.DATABASE_URL;
   try {
     if (config.MIGRATE_ON_START) {
-      const { applied } = await runMigrations(config.DATABASE_URL, undefined, {
+      const { applied } = await runMigrations(sessionUrl, undefined, {
         allowDestructive: config.MIGRATE_ALLOW_DESTRUCTIVE,
       });
       if (applied.length > 0) console.log(`Migrated: ${applied.join(", ")}.`);
@@ -186,7 +189,11 @@ export async function boot(
   const holding = setInterval(holdJobs, 15_000);
   holding.unref();
   // Another replica's change heard at once (#188); the timers above stay as the fallback.
-  const unlisten = await listenForSignals(client, (what) => {
+  // LISTEN needs a session of its own, past any transaction pooler (#412).
+  const listening = config.DATABASE_DIRECT_URL
+    ? createDb(config.DATABASE_DIRECT_URL, { max: 1 })
+    : null;
+  const unlisten = await listenForSignals(listening?.sql ?? client, (what) => {
     if (what === "flags") return flags.forget();
     settings.forget();
     void holdJobs();
@@ -354,6 +361,7 @@ export async function boot(
     stop: () =>
       Promise.resolve(clearInterval(holding))
         .then(unlisten)
+        .then(() => listening?.close())
         .then(stopSampling)
         .then(() => jobs.stop())
         .catch((error: unknown) => console.error("Stopping the job queue failed:", error))

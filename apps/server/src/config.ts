@@ -18,6 +18,7 @@ const masterKey = z
 /** Settings that may instead be read from a file named by `<NAME>_FILE`, for Docker secrets. */
 export const fileSettings = [
   "DATABASE_URL",
+  "DATABASE_DIRECT_URL",
   "AUTH_SECRET",
   "SMTP_URL",
   "MASTER_KEY",
@@ -171,6 +172,20 @@ const schema = z.object({
         group: "Database",
         description: "The PostgreSQL connection URL.",
         example: "postgres://hekate:secret@db:5432/hekate",
+        secret: true,
+      }),
+    ),
+  DATABASE_DIRECT_URL: z
+    .url({
+      error: "must be a PostgreSQL connection URL, such as postgres://hekate:secret@db:5432/hekate",
+    })
+    .optional()
+    .meta(
+      info({
+        group: "Database",
+        description:
+          "A connection to the primary that bypasses a transaction pooler, for what needs a session of its own: migrations, and replicas telling each other of a change. Unset, DATABASE_URL serves for both.",
+        example: "postgres://hekate:secret@primary:5432/hekate",
         secret: true,
       }),
     ),

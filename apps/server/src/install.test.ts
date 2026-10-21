@@ -138,6 +138,18 @@ describe("the installer", () => {
       for (const server of listening) server.close();
     });
 
+    it("migrates past a transaction pooler when the environment gives the way (#412)", async () => {
+      // A direct URL that reaches nothing: the database answers, but its migrations go there.
+      const { call } = installer({
+        DATABASE_URL: url,
+        DATABASE_DIRECT_URL: "postgres://hekate:x@127.0.0.1:1/hekate",
+      });
+      await call("/steps/requirements", {});
+      const database = await call("/steps/database", {});
+      expect(database.status).toBe(422);
+      expect(JSON.stringify(await database.json())).toContain("The migrations failed");
+    });
+
     it("tests each step, saves it, resumes where it was left, and finishes", async () => {
       const { app, call, state, settingsFile, finished } = installer({ DATABASE_URL: url });
       expect((await state()).step).toBe("requirements");

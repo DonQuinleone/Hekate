@@ -25,6 +25,7 @@ A setting marked as secret may instead name a file that holds it, with `_FILE` a
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `DATABASE_URL` | **required** | The PostgreSQL connection URL. Example: `postgres://hekate:secret@db:5432/hekate`. Or `DATABASE_URL_FILE`, naming a file that holds it. |
+| `DATABASE_DIRECT_URL` | unset | A connection to the primary that bypasses a transaction pooler, for what needs a session of its own: migrations, and replicas telling each other of a change. Unset, DATABASE_URL serves for both. Example: `postgres://hekate:secret@primary:5432/hekate`. Or `DATABASE_DIRECT_URL_FILE`, naming a file that holds it. |
 | `MIGRATE_ON_START` | `false` | Run pending migrations at start-up. On in the app image. |
 | `MIGRATE_ALLOW_DESTRUCTIVE` | `false` | Let an upgrade apply a migration that drops or rewrites data. Hekate refuses one until this is set: take a backup and read the upgrade notes first, then start once with it and unset it again. |
 

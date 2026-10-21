@@ -56,6 +56,8 @@ describe("configuration", () => {
     expect(config.HEKATE_DOCS_URL).toBe("https://docs.hekate.studio");
     // Every lane, the role left to WORKER (#189).
     expect(config.ROLE).toBeUndefined();
+    // DATABASE_URL serves for everything, past no pooler (#412).
+    expect(config.DATABASE_DIRECT_URL).toBeUndefined();
     expect(config.WORKER_LANES).toBeNull();
   });
 

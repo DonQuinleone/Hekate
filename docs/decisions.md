@@ -1213,3 +1213,7 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 
 CI runs the API suite through PgBouncer in transaction mode at its defaults (the `pooled` job), so it stays so; the replicas' signals, which need a session (#412), are tested only directly.
 
+## 192. A direct connection for what needs a session
+
+#412. `DATABASE_DIRECT_URL`, optional, reaches the primary past a transaction pooler for the two things that need a session of their own (decision 190): migrations, whose advisory lock lasts the run (at start and in the browser installer alike), and the `LISTEN` by which replicas hear of a change (decision 188). Each replica holds one direct connection to listen on, and opens another only to migrate as it starts; every request and job goes through `DATABASE_URL`. Unset, `DATABASE_URL` serves for both, as before. The `pooled` CI job runs the whole server suite through PgBouncer with it set, the replicas' signals included.
+

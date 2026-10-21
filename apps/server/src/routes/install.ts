@@ -285,7 +285,8 @@ export function installRoutes(installer: InstallerOptions | null) {
         }
         const reached = elapsed(started);
         try {
-          await runMigrations(url);
+          // Past a transaction pooler where the environment says how (#412): the lock lasts the run.
+          await runMigrations(withFileSettings(merged()).resolved.DATABASE_DIRECT_URL || url);
         } catch (error) {
           throw problem(`The migrations failed: ${(error as Error).message}`);
         }
