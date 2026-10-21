@@ -46,7 +46,13 @@ export default defineConfig({
         { label: "Security", items: ["security/model", "security/reporting"] },
         {
           label: "Use",
-          items: ["use/reviews", "use/takes", "use/guests", "use/workflow-files"],
+          items: [
+            "use/reviews",
+            "use/takes",
+            "use/guests",
+            "use/upload-requests",
+            "use/workflow-files",
+          ],
         },
       ],
     }),

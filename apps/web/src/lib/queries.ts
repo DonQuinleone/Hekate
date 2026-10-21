@@ -15,6 +15,7 @@ import {
   type CompareAlignment,
   type CreateProjectInput,
   type CreateReviewInput,
+  type CreateUploadRequestInput,
   type CreateVersionInput,
   type CustomProfile,
   type CustomProfileInput,
@@ -143,6 +144,7 @@ import {
   type UpdateCarryInput,
   type UpdateProjectInput,
   type UpdateVariationInput,
+  type UploadRequestState,
   type Venue,
   type VenueInput,
   versionLabel,
@@ -4538,3 +4540,104 @@ export function useCalendarFeed(projectId: string) {
     }),
   };
 }
+
+/** An upload request as its project's members see it (#139): never its link, which is shown once. */
+export interface UploadRequest {
+  id: string;
+  projectId: string;
+  folderId: string | null;
+  name: string;
+  wanted: string;
+  fileLimit: number;
+  expiresAt: string;
+  closedAt: string | null;
+  hasPassword: boolean;
+  createdAt: string;
+  arrived: number;
+  state: UploadRequestState;
+}
+
+export interface UploadRequestArrival {
+  fileId: string;
+  sender: string;
+  arrivedAt: string;
+  name: string;
+  byteSize: number;
+}
+
+export const uploadRequestsQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "upload-requests"],
+    queryFn: async () =>
+      json<{ requests: UploadRequest[] }>(
+        await api.projects[":projectId"]["upload-requests"].$get({ param: { projectId } }),
+      ),
+  });
+
+export const uploadRequestQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["upload-requests", id],
+    queryFn: async () =>
+      json<{ request: UploadRequest; arrived: UploadRequestArrival[] }>(
+        await api["upload-requests"][":id"].$get({ param: { id } }),
+      ),
+  });
+
+/** Making an upload request, closing one, or giving it a new link (each link shown once). */
+export function useUploadRequests(projectId: string) {
+  const client = useQueryClient();
+  const refresh = () =>
+    Promise.all([
+      client.invalidateQueries({ queryKey: ["projects", projectId, "upload-requests"] }),
+      client.invalidateQueries({ queryKey: ["upload-requests"] }),
+    ]);
+  return {
+    create: useMutation({
+      mutationFn: async (input: CreateUploadRequestInput) =>
+        json<{ request: UploadRequest; link: string }>(
+          await api.projects[":projectId"]["upload-requests"].$post({
+            param: { projectId },
+            json: input,
+          }),
+        ),
+      onSuccess: refresh,
+    }),
+    close: useMutation({
+      mutationFn: async (id: string) =>
+        json<{ request: UploadRequest }>(
+          await api["upload-requests"][":id"].close.$post({ param: { id } }),
+        ),
+      onSuccess: refresh,
+    }),
+    relink: useMutation({
+      mutationFn: async (id: string) =>
+        (
+          await json<{ link: string }>(
+            await api["upload-requests"][":id"].link.$post({ param: { id } }),
+          )
+        ).link,
+    }),
+  };
+}
+
+/** What an upload request's link shows the person sending (#139). */
+export interface UploadLinkRequest {
+  name: string;
+  wanted: string;
+  workspace: string;
+  fileLimit: number;
+  arrived: number;
+  expiresAt: string;
+  needsPassword: boolean;
+  state: UploadRequestState;
+}
+
+export const uploadLinkQuery = (token: string) =>
+  queryOptions({
+    queryKey: ["upload-links", token],
+    queryFn: async () =>
+      json<{ request: UploadLinkRequest }>(
+        await api["upload-links"][":token"].$get({ param: { token } }),
+      ),
+    retry: false,
+  });

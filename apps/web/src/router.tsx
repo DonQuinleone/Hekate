@@ -75,11 +75,12 @@ import { StagePlanPage } from "~/routes/stage-plan";
 import { TakeLogPage } from "~/routes/take-log";
 import { TasksPage } from "~/routes/tasks";
 import { TrackPage } from "~/routes/track";
+import { UploadLinkPage } from "~/routes/upload-link";
 import { WorkflowsPage } from "~/routes/workflows";
 import { WorkspaceSettingsPage } from "~/routes/workspace-settings";
 
 /** Pages that are not a member's, where a session ending means nothing to undo. */
-const outside = /^\/(sign-in|setup|invite|guest|second-factor|suspended|g(\/|$))/;
+const outside = /^\/(sign-in|setup|invite|guest|second-factor|suspended|u\/|g(\/|$))/;
 
 /**
  * A member whose session ends mid-visit (it ran out, or was ended from another device) is
@@ -228,6 +229,16 @@ const invite = createRoute({
   component: function InviteRoute() {
     const { token } = invite.useParams();
     return <InvitePage token={token} />;
+  },
+});
+
+/** An upload request's link (#139): someone with no account sends files into a folder. */
+const uploadLink = createRoute({
+  getParentRoute: () => root,
+  path: "/u/$token",
+  component: function UploadLinkRoute() {
+    const { token } = uploadLink.useParams();
+    return <UploadLinkPage token={token} />;
   },
 });
 
@@ -850,6 +861,7 @@ export const router = createRouter({
     setup,
     signIn,
     invite,
+    uploadLink,
     guestLink,
     guestSignedOut,
     guestApp.addChildren([guestHome, guestReview, guestFile]),

@@ -935,6 +935,20 @@ setup("seed", async ({ page, browser }) => {
     },
   );
 
+  // An upload request (#139) for someone outside to send the string stems, nothing arrived yet.
+  const { link: uploadLink } = await api<{ link: string }>(
+    page,
+    "POST",
+    `/api/projects/${music.id}/upload-requests`,
+    {
+      name: "String stems",
+      wanted: "The string stems of Maple Leaf Rag, 96 kHz, one file per section.",
+      folderId: sessionFolder.id,
+      fileLimit: 5,
+      expiresOn: new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10),
+    },
+  );
+
   // The guest signs in from the link they were sent, which the log holds without a mail server.
   let guestLink: string | undefined;
   for (let tries = 0; tries < 30 && !guestLink; tries++) {
@@ -1232,6 +1246,7 @@ setup("seed", async ({ page, browser }) => {
     shareId: shared,
     taskId: lateTask,
     invitationPath: new URL(invitation).pathname,
+    uploadLinkPath: new URL(uploadLink).pathname,
     usedGuestPath: guestLink,
   };
   writeFileSync(join(state, "seeded.json"), JSON.stringify(seeded, null, 2));

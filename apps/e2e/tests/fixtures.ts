@@ -33,6 +33,8 @@ export interface Seeded {
   taskId: string;
   /** An invitation's page, waiting to be accepted. */
   invitationPath: string;
+  /** An upload request's page (#139), as the person sending sees it. */
+  uploadLinkPath: string;
   /** A guest link already used, which no longer signs anyone in. */
   usedGuestPath: string;
 }

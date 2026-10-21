@@ -101,6 +101,18 @@ const screens: Screen[] = [
     ready: "text=Join Endless Hall Records",
     as: "signed-out",
   },
+  {
+    name: "upload-link",
+    path: (s) => s.uploadLinkPath,
+    ready: "text=String stems",
+    as: "signed-out",
+  },
+  {
+    name: "upload-link-gone",
+    path: () => "/u/not-a-real-upload-request-link",
+    ready: "text=This link does not lead anywhere",
+    as: "signed-out",
+  },
   { name: "guest-signed-out", path: () => "/guest", ready: "h1", as: "signed-out" },
   {
     name: "guest-link-used",
@@ -2299,6 +2311,19 @@ test("project-calendar-subscribe", async ({ page }) => {
   const dialog = page.getByRole("dialog", { name: "Add to your calendar" });
   await expect(dialog.getByRole("button", { name: "Make my link" })).toBeVisible();
   await saveScreen(page, "project-calendar-subscribe");
+  await checkScreen(page);
+});
+
+// Upload requests (#139): the form beside new folders, and the request already made below it.
+test("project-upload-request", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/files`);
+  await settle(page, "main >> text=Session takes");
+  await page.getByRole("button", { name: "Actions for this folder" }).click();
+  await page.getByRole("menuitem", { name: "Upload request…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Upload request" });
+  await expect(dialog.getByText("String stems")).toBeVisible();
+  await saveScreen(page, "project-upload-request");
   await checkScreen(page);
 });
 

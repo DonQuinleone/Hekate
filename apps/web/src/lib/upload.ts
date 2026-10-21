@@ -1,10 +1,12 @@
 import { quoting } from "./queries";
 
 /**
- * Resumable uploads (server: apps/server/src/routes/uploads.ts). A file is sent as
+ * Resumable uploads (server: apps/server/src/upload-engine.ts). A file is sent as
  * 8 MiB chunks, three at a time, each with a SHA-256 digest. Failed chunks are
  * retried with backoff; if the page closes, choosing the same file again in the
- * same project carries on from the chunks the server already has.
+ * same place carries on from the chunks the server already has. Members send
+ * through `/uploads`; someone with an upload request's link through its own
+ * routes (#139), which work the same way.
  */
 
 export interface UploadView {
@@ -62,6 +64,10 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
 const resumeKey = (projectId: string, folderId: string | null | undefined, file: File) =>
   `hekate:upload:${projectId}:${folderId ?? "top"}:${file.name}:${file.size}:${file.lastModified}`;
 
+/** The same for an upload request's link: one upload per file and link. */
+const linkResumeKey = (token: string, file: File) =>
+  `hekate:upload-link:${token}:${file.name}:${file.size}:${file.lastModified}`;
+
 function remember(key: string, id: string | null) {
   try {
     if (id) localStorage.setItem(key, id);
@@ -90,7 +96,7 @@ async function digest(bytes: ArrayBuffer): Promise<string | undefined> {
 
 /** PUT one chunk with XMLHttpRequest, which reports upload progress. */
 function sendChunk(
-  uploadId: string,
+  path: string,
   index: number,
   bytes: ArrayBuffer,
   hash: string | undefined,
@@ -99,7 +105,7 @@ function sendChunk(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("PUT", `/api/uploads/${uploadId}/chunks/${index}`);
+    xhr.open("PUT", `/api${path}/chunks/${index}`);
     xhr.withCredentials = true;
     xhr.setRequestHeader("content-type", "application/octet-stream");
     if (hash) xhr.setRequestHeader("content-digest", `sha-256=:${hash}:`);
@@ -143,28 +149,33 @@ const wait = (ms: number, signal: AbortSignal) =>
     );
   });
 
-export async function uploadFile(
+/**
+ * Sends one file to `base` (the uploads it starts and finishes are `${base}/<id>`), resuming
+ * the upload `key` remembers if the server still has it open. `begin` is what starting one
+ * sends; the answer is what completing it returns.
+ */
+async function send<T>(
   file: File,
   options: {
-    projectId: string;
-    folderId?: string | null;
+    base: string;
+    key: string;
+    begin: Record<string, unknown>;
     signal: AbortSignal;
     onProgress: (progress: UploadProgress) => void;
   },
-): Promise<UploadedFile> {
-  const { projectId, signal, onProgress } = options;
-  const key = resumeKey(projectId, options.folderId, file);
+): Promise<T> {
+  const { base, key, signal, onProgress } = options;
   onProgress({ sent: 0, total: file.size, phase: "starting" });
 
   let upload: UploadView | undefined;
   const previous = recall(key);
   if (previous) {
-    const found = await call<{ upload: UploadView }>(`/uploads/${previous}`)
+    const found = await call<{ upload: UploadView }>(`${base}/${previous}`)
       .then((r) => r.upload)
       .catch(() => undefined);
     if (found?.status === "completed") {
       // Finished on the server, but the answer never arrived: completing again returns the file.
-      const { file: done } = await call<{ file: UploadedFile }>(`/uploads/${found.id}/complete`, {
+      const done = await call<T>(`${base}/${found.id}/complete`, {
         method: "POST",
         body: "{}",
         signal,
@@ -177,11 +188,10 @@ export async function uploadFile(
   }
   if (!upload) {
     upload = (
-      await call<{ upload: UploadView }>("/uploads", {
+      await call<{ upload: UploadView }>(base, {
         method: "POST",
         body: JSON.stringify({
-          projectId,
-          folderId: options.folderId ?? null,
+          ...options.begin,
           name: file.name,
           size: file.size,
           contentType: file.type || undefined,
@@ -213,7 +223,7 @@ export async function uploadFile(
       const hash = await digest(bytes);
       for (let attempt = 0; ; attempt++) {
         try {
-          await sendChunk(id, index, bytes, hash, signal, (loaded) => {
+          await sendChunk(`${base}/${id}`, index, bytes, hash, signal, (loaded) => {
             inFlight.set(index as number, loaded);
             report();
           });
@@ -233,13 +243,55 @@ export async function uploadFile(
   await Promise.all(Array.from({ length: Math.min(PARALLEL, Math.max(queue.length, 1)) }, worker));
 
   onProgress({ sent: file.size, total: file.size, phase: "completing" });
-  const { file: created } = await call<{ file: UploadedFile }>(`/uploads/${id}/complete`, {
+  const created = await call<T>(`${base}/${id}/complete`, {
     method: "POST",
     body: "{}",
     signal,
   });
   remember(key, null);
   return created;
+}
+
+export async function uploadFile(
+  file: File,
+  options: {
+    projectId: string;
+    folderId?: string | null;
+    signal: AbortSignal;
+    onProgress: (progress: UploadProgress) => void;
+  },
+): Promise<UploadedFile> {
+  const { projectId, folderId } = options;
+  const { file: created } = await send<{ file: UploadedFile }>(file, {
+    base: "/uploads",
+    key: resumeKey(projectId, folderId, file),
+    begin: { projectId, folderId: folderId ?? null },
+    signal: options.signal,
+    onProgress: options.onProgress,
+  });
+  return created;
+}
+
+/** Sends one file through an upload request's link (#139): the visitor learns only that it arrived. */
+export async function sendToRequest(
+  file: File,
+  options: {
+    token: string;
+    sender: string;
+    password?: string | undefined;
+    signal: AbortSignal;
+    onProgress: (progress: UploadProgress) => void;
+  },
+): Promise<{ name: string; size: number }> {
+  const { token, sender, password } = options;
+  const { arrived } = await send<{ arrived: { name: string; size: number } }>(file, {
+    base: `/upload-links/${encodeURIComponent(token)}/uploads`,
+    key: linkResumeKey(token, file),
+    begin: { sender, ...(password ? { password } : {}) },
+    signal: options.signal,
+    onProgress: options.onProgress,
+  });
+  return arrived;
 }
 
 /** Cancel an upload the server already knows about, discarding what it stored. */
