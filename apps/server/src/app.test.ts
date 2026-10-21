@@ -284,7 +284,7 @@ describe.runIf(url)("api", () => {
       metricsToken: token,
     });
     collectFromDatabase(db);
-    collectQueues(db, ["media-probe", "media-proxy"]);
+    collectQueues(db, { "media-probe": "analyse", "media-proxy": "transcode" });
     const scrape = (headers: Record<string, string> = {}) =>
       scraped.request("/metrics", { headers });
 
@@ -322,6 +322,8 @@ describe.runIf(url)("api", () => {
     // An idle queue reads zero, not nothing.
     expect(text).toMatch(/^hekate_jobs_waiting\{queue="media-proxy"\} 0$/m);
     expect(text).toMatch(/^hekate_jobs_active\{queue="media-probe"\} 0$/m);
+    // By lane too, for scaling workers on (#189).
+    expect(text).toMatch(/^hekate_lane_jobs_waiting\{lane="transcode"\} 0$/m);
     // The scrape itself is not an API request.
     expect(text).not.toContain('route="/metrics"');
   });

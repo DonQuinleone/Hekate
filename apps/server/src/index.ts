@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { serve } from "@hono/node-server";
 import { boot } from "./boot.ts";
 import { createInstallApp } from "./install-app.ts";
+import { servesPath } from "./lanes.ts";
 import { needsInstall, readSettingsFile, settingsPath, withSettings } from "./settings-file.ts";
 import { createSetupGate, setupMessage } from "./setup-code.ts";
 import { version } from "./version.ts";
@@ -18,7 +19,11 @@ let stop = async () => {};
 /** The configured server: from the start, or once the installer has finished. */
 async function start() {
   const booted = await boot(settings(), { gate });
-  handler = (request) => booted.app.fetch(request);
+  // A worker answers only its health and metrics (#189): requests go to the API replicas.
+  handler = (request) =>
+    servesPath(booted.role, new URL(request.url).pathname)
+      ? booted.app.fetch(request)
+      : new Response("This process runs background jobs only.", { status: 404 });
   stop = booted.stop;
   if (booted.needsOwner) console.log(setupMessage(gate, booted.publicUrl));
   return booted.port;

@@ -15,8 +15,9 @@ import { createAuth } from "./auth.ts";
 import { failureOfJob, purgeErrorReports, recordFailure } from "./error-reports.ts";
 import { createFlags } from "./flags.ts";
 import { createInstanceSettings } from "./instance-settings.ts";
-import { createJobs, jobDefinitions } from "./jobs.ts";
+import { createJobs, inLanes, jobDefinitions } from "./jobs.ts";
 import { createKeyring, UnknownMasterKeyError } from "./keyring.ts";
+import { type Role, roleOf } from "./lanes.ts";
 import { purgeLogs } from "./log-retention.ts";
 import { createMailer, loggedMailer } from "./mail.ts";
 import { startWorkers } from "./media/workers.ts";
@@ -91,6 +92,8 @@ export async function boot(
   publicUrl: string;
   /** No owner yet: the first workspace is still to be made. */
   needsOwner: boolean;
+  /** What this process does (#189). */
+  role: Role;
   stop: () => Promise<void>;
 }> {
   const { config, storageConfig } = settingsOrExit(env);
@@ -120,7 +123,10 @@ export async function boot(
   );
   // Read at each scrape of /metrics (#70).
   collectFromDatabase(db);
-  collectQueues(db, Object.keys(jobDefinitions));
+  collectQueues(
+    db,
+    Object.fromEntries(Object.entries(jobDefinitions).map(([name, d]) => [name, d.lane])),
+  );
   const keyring = createKeyring(db, {
     current: config.MASTER_KEY,
     previous: config.MASTER_KEYS_PREVIOUS,
@@ -186,9 +192,12 @@ export async function boot(
     void holdJobs();
   });
 
-  if (config.WORKER) {
+  // What this process does (#189): requests, background jobs in the lanes it takes, or both.
+  const role = roleOf(config.ROLE, config.WORKER);
+  if (role !== "api") {
+    const taking = inLanes(jobs, config.WORKER_LANES);
     await startWorkers(
-      jobs,
+      taking,
       {
         db,
         storage,
@@ -205,7 +214,7 @@ export async function boot(
       },
       config.WORKER_CONCURRENCY,
     );
-    await jobs.work("storage-reconcile", async () => {
+    await taking.work("storage-reconcile", async () => {
       const reports = await recordedReconciliation(
         { db, storage, audit },
         { remove: config.STORAGE_RECONCILE === "remove" },
@@ -217,35 +226,35 @@ export async function boot(
         );
       }
     });
-    await jobs.work("release-check", async () => {
+    await taking.work("release-check", async () => {
       // Off, the instance asks nothing of anyone: the job finds nothing to do.
       if (config.HEKATE_UPDATE_CHECK) await checkReleases(db);
     });
-    await jobs.work("notifications-mail", async () => {
+    await taking.work("notifications-mail", async () => {
       await deliverInstant(db, mailer, config.PUBLIC_URL);
     });
-    await jobs.work("notifications-digest", async () => {
+    await taking.work("notifications-digest", async () => {
       await deliverDigests(db, mailer, config.PUBLIC_URL);
     });
-    await jobs.work("logs-retention", async () => {
+    await taking.work("logs-retention", async () => {
       const purged = await purgeLogs(db, (await settings.get()).logs);
       if (purged.audit + purged.auth + purged.mail > 0)
         console.log(
           `Logs trimmed: ${purged.audit} audit, ${purged.auth} authentication, ${purged.mail} mail`,
         );
     });
-    await jobs.work("sign-in-attempts-purge", async () => {
+    await taking.work("sign-in-attempts-purge", async () => {
       await purgeAttempts(db);
       await purgeRequestLimits(db);
       await purgeDownloadTickets(db);
       await purgeErrorReports(db);
     });
-    await jobs.work("organisation-rewrap", async ({ organisationId }) => {
+    await taking.work("organisation-rewrap", async ({ organisationId }) => {
       const rewrapped = await rewrapOrganisation(db, keyring, organisationId);
       if (rewrapped > 0)
         console.log(`Rewrapped ${rewrapped} key(s) of workspace ${organisationId}`);
     });
-    await jobs.work("workspaces-purge", async () => {
+    await taking.work("workspaces-purge", async () => {
       const purged = await purgeDueWorkspaces(db, backends);
       if (purged > 0) console.log(`Purged ${purged} deleted workspace(s)`);
       // Projects whose deletion was confirmed seven days ago (#240).
@@ -254,7 +263,7 @@ export async function boot(
       const rewrapped = await rewrapBehind(db, keyring);
       if (rewrapped > 0) console.log(`Rewrapped ${rewrapped} key(s) a rotation left behind`);
     });
-    await jobs.work("reviews-remind", async () => {
+    await taking.work("reviews-remind", async () => {
       await remindDue({ db, mailer, audit, publicUrl: config.PUBLIC_URL });
       // Tasks due today or late (#140), on the same hour.
       await remindTasksDue(db);
@@ -265,13 +274,13 @@ export async function boot(
       jobs,
       reviews: { db, audit, mailer, publicUrl: config.PUBLIC_URL, trustProxy: false },
     };
-    await jobs.work("workflow-wait", async (data) => {
+    await taking.work("workflow-wait", async (data) => {
       await clockElapsed(runner, data);
     });
-    await jobs.work("workflow-checks", async (data) => {
+    await taking.work("workflow-checks", async (data) => {
       await fileMeasured(runner, data);
     });
-    await jobs.work("workflow-waits-sweep", async () => {
+    await taking.work("workflow-waits-sweep", async () => {
       await sweepRuns(runner);
     });
   }
@@ -330,12 +339,14 @@ export async function boot(
     workDir: config.WORK_DIR,
     metricsToken: config.METRICS_TOKEN,
   });
-  if (config.WEB_DIST) serveWeb(app, config.WEB_DIST, { docsUrl: config.HEKATE_DOCS_URL });
+  if (config.WEB_DIST && role !== "worker")
+    serveWeb(app, config.WEB_DIST, { docsUrl: config.HEKATE_DOCS_URL });
 
   const [owners] = await db.select({ n: count() }).from(schema.users);
 
   return {
     app,
+    role,
     port: config.PORT,
     publicUrl: config.PUBLIC_URL,
     needsOwner: (owners?.n ?? 0) === 0,

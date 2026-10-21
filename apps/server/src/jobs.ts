@@ -1,5 +1,6 @@
 import { type Job, PgBoss, type QueueOptions } from "pg-boss";
 import { z } from "zod";
+import { concurrencyIn, type Lane, type LanePlan } from "./lanes.ts";
 import { metrics } from "./metrics/index.ts";
 
 /**
@@ -11,51 +12,60 @@ import { metrics } from "./metrics/index.ts";
 export const jobDefinitions = {
   /** Measure an uploaded audio or video file with ffprobe. */
   "media-probe": {
+    lane: "analyse",
     data: z.object({ organisationId: z.uuid(), fileId: z.uuid() }),
     options: { retryLimit: 4, retryDelay: 15, retryBackoff: true, expireInSeconds: 10 * 60 },
   },
   /** Package and encrypt a measured file's HLS renditions for protected streaming. */
   "media-proxy": {
+    lane: "transcode",
     data: z.object({ organisationId: z.uuid(), fileId: z.uuid() }),
     options: { retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 4 * 60 * 60 },
   },
   /** Analyse a file's audio: waveform peaks, loudness and spectrograms, per channel. */
   "media-analysis": {
+    lane: "analyse",
     data: z.object({ organisationId: z.uuid(), fileId: z.uuid() }),
     options: { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 2 * 60 * 60 },
   },
   /** Draw a document or picture as pages for protected viewing (#29). */
   "document-render": {
+    lane: "pages",
     data: z.object({ organisationId: z.uuid(), fileId: z.uuid() }),
     options: { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 60 * 60 },
   },
   /** Work out where the same music sits in two files, usually successive versions (#33). */
   "media-align": {
+    lane: "analyse",
     data: z.object({ organisationId: z.uuid(), alignmentId: z.uuid() }),
     options: { retryLimit: 2, retryDelay: 60, retryBackoff: true, expireInSeconds: 60 * 60 },
   },
   /** Compute a blob's SHA-256 after an upload, whose chunks arrived in any order. */
   "blob-checksum": {
+    lane: "analyse",
     data: z.object({ organisationId: z.uuid(), blobId: z.uuid() }),
     options: { retryLimit: 4, retryDelay: 30, retryBackoff: true, expireInSeconds: 60 * 60 },
+  },
+  /** Each log kept as long as the instance's settings say, and no longer (#157). Daily. */
+  "logs-retention": {
+    lane: "system",
+    data: z.object({}),
+    options: { retryLimit: 2, expireInSeconds: 60 * 60 },
+    schedule: "23 4 * * *",
   },
   /**
    * Forget sign-in attempts a day old that hold no lock, so they do not pile up, and error
    * reports past their time. Hourly.
    */
-  /** Each log kept as long as the instance's settings say, and no longer (#157). Daily. */
-  "logs-retention": {
-    data: z.object({}),
-    options: { retryLimit: 2, expireInSeconds: 60 * 60 },
-    schedule: "23 4 * * *",
-  },
   "sign-in-attempts-purge": {
+    lane: "system",
     data: z.object({}),
     options: { retryLimit: 1, expireInSeconds: 10 * 60 },
     schedule: "53 * * * *",
   },
   /** Abort uploads that were never completed, so their parts stop taking space. Hourly. */
   "uploads-expire": {
+    lane: "system",
     data: z.object({}),
     options: { retryLimit: 2, expireInSeconds: 30 * 60 },
     schedule: "17 * * * *",
@@ -65,24 +75,28 @@ export const jobDefinitions = {
    * down, or the process stopped, between creating the version and queueing its work.
    */
   "alignments-sweep": {
+    lane: "system",
     data: z.object({}),
     options: { retryLimit: 1, expireInSeconds: 10 * 60 },
     schedule: "*/15 * * * *",
   },
-  /** Send notifications by mail as they happen. Every minute; each run sends what is waiting. */
   /** The releases feed, read once a day when HEKATE_UPDATE_CHECK is on (#158). */
   "release-check": {
+    lane: "system",
     data: z.object({}),
     options: { retryLimit: 2, retryDelay: 600, expireInSeconds: 5 * 60 },
     schedule: "17 5 * * *",
   },
+  /** Send notifications by mail as they happen. Every minute; each run sends what is waiting. */
   "notifications-mail": {
+    lane: "mail",
     data: z.object({}),
     options: { retryLimit: 1, expireInSeconds: 5 * 60 },
     schedule: "* * * * *",
   },
   /** Send each digest that is due: hourly ones every hour, daily ones in the morning. */
   "notifications-digest": {
+    lane: "mail",
     data: z.object({}),
     options: { retryLimit: 1, expireInSeconds: 30 * 60 },
     schedule: "3 * * * *",
@@ -92,6 +106,7 @@ export const jobDefinitions = {
    * date. Its run carries on, if it still waits there.
    */
   "workflow-wait": {
+    lane: "system",
     data: z.object({
       organisationId: z.uuid(),
       runId: z.uuid(),
@@ -105,6 +120,7 @@ export const jobDefinitions = {
    * version it belongs to look again.
    */
   "workflow-checks": {
+    lane: "system",
     data: z.object({ organisationId: z.uuid(), fileId: z.uuid() }),
     options: { retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 10 * 60 },
   },
@@ -113,6 +129,7 @@ export const jobDefinitions = {
    * checks stages whose files have all been measured, where no queued job did (#25). Hourly.
    */
   "workflow-waits-sweep": {
+    lane: "system",
     data: z.object({}),
     options: { retryLimit: 1, expireInSeconds: 30 * 60 },
     schedule: "41 * * * *",
@@ -122,12 +139,14 @@ export const jobDefinitions = {
    * on the day it is due and once it is late (#140). Hourly.
    */
   "reviews-remind": {
+    lane: "mail",
     data: z.object({}),
     options: { retryLimit: 1, expireInSeconds: 30 * 60 },
     schedule: "29 * * * *",
   },
   /** After a workspace's key is rotated, wrap everything it holds with the new key (#174). */
   "organisation-rewrap": {
+    lane: "system",
     data: z.object({ organisationId: z.uuid() }),
     options: { retryLimit: 5, retryDelay: 60, retryBackoff: true, expireInSeconds: 2 * 60 * 60 },
   },
@@ -136,17 +155,25 @@ export const jobDefinitions = {
    * any a key rotation left behind. Hourly.
    */
   "workspaces-purge": {
+    lane: "system",
     data: z.object({}),
     options: { retryLimit: 1, expireInSeconds: 2 * 60 * 60 },
     schedule: "37 * * * *",
   },
   /** Compare storage with the database: remove what nothing uses, report what is missing. Daily. */
   "storage-reconcile": {
+    lane: "system",
     data: z.object({}),
     options: { retryLimit: 1, expireInSeconds: 2 * 60 * 60 },
     schedule: "41 3 * * *",
   },
-} satisfies Record<string, { data: z.ZodType; options: QueueOptions; schedule?: string }>;
+} satisfies Record<
+  string,
+  { lane: Lane; data: z.ZodType; options: QueueOptions; schedule?: string }
+>;
+
+/** Which lane each kind of job runs in. */
+export const laneOf = (name: JobName): Lane => jobDefinitions[name].lane;
 
 export type JobName = keyof typeof jobDefinitions;
 export type JobData<N extends JobName> = z.infer<(typeof jobDefinitions)[N]["data"]>;
@@ -331,6 +358,20 @@ export function createJobs(options: {
 
     async state(name, id) {
       return (await boss.getJobById(name, id))?.state;
+    },
+  };
+}
+
+/**
+ * The same jobs, worked only in the lanes a worker takes (#189), each kind of job as many at
+ * once as the plan says, or as the job asks where it does not say.
+ */
+export function inLanes(jobs: Jobs, plan: LanePlan): Jobs {
+  return {
+    ...jobs,
+    async work(name, handler, options) {
+      const concurrency = concurrencyIn(plan, laneOf(name), options?.concurrency ?? 1);
+      if (concurrency !== null) await jobs.work(name, handler, { concurrency });
     },
   };
 }

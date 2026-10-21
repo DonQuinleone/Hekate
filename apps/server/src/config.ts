@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
+import { type LanePlan, lanes, parseLanes, roles } from "./lanes.ts";
 
 const masterKey = z
   .string({ error: "required: 32 random bytes, base64 encoded (openssl rand -base64 32)" })
@@ -298,6 +299,36 @@ const schema = z.object({
         "Run background jobs (media processing, mail, reminders) in this process. Turn off for API-only replicas.",
     }),
   ),
+  ROLE: z
+    .enum(roles, { error: `must be one of ${roles.join(", ")}` })
+    .optional()
+    .meta(
+      info({
+        group: "Media",
+        description:
+          "What this process does: all (requests and background jobs), api (requests only) or worker (background jobs, answering only health and metrics). Unset, WORKER decides: all, or api when it is false.",
+        example: "worker",
+      }),
+    ),
+  WORKER_LANES: z
+    .string()
+    .optional()
+    .transform((text, ctx): LanePlan => {
+      if (text === undefined || text.trim() === "") return null;
+      const read = parseLanes(text);
+      if ("error" in read) {
+        ctx.addIssue({ code: "custom", message: read.error });
+        return z.NEVER;
+      }
+      return read.plan;
+    })
+    .meta(
+      info({
+        group: "Media",
+        description: `The lanes of background jobs a worker takes (${lanes.join(", ")}), each with how many of each kind of its jobs to run at once if not the default (analyse:2 runs up to two measurements, two analyses, two alignments and two checksums). Unset, it takes every lane.`,
+        example: "transcode:4,analyse:2,pages",
+      }),
+    ),
   WORKER_CONCURRENCY: z.coerce
     .number({ error: "must be a number from 1 to 64" })
     .int()
@@ -308,7 +339,7 @@ const schema = z.object({
       info({
         group: "Media",
         description:
-          "Media jobs run at once in this process. ffmpeg is CPU-heavy; about half the cores is a good start.",
+          "Jobs of each kind of media work run at once in this process (probing, analysing, pages and so on, each up to this many; streaming renditions and alignments half as many). ffmpeg is CPU-heavy; about half the cores is a good start.",
       }),
     ),
   WORK_DIR: z
