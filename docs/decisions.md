@@ -1207,3 +1207,9 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Everything else is transaction-scoped** (`set local`, transaction advisory locks, pg-boss's own locks, which also polls rather than listens), so safe behind a transaction pooler.
 - **Failover** costs the requests and jobs under way: requests fail for the moment of the switch, jobs are retried, listeners reconnect and reread. Asynchronous replication can lose committed transactions on failover; storage reconciliation then removes what the database no longer names.
 
+## 191. No statement prepared by name
+
+#411. postgres.js no longer prepares statements by name (`prepare: false`): behind a transaction pooler without prepared-statement support, which is PgBouncer's default, a name prepared on one server connection ran another client's statement and answered with the wrong rows (decision 190). Unnamed statements are parsed for each query, a small cost, and cannot be confused. One fewer thing for an operator to set, and get wrong silently.
+
+CI runs the API suite through PgBouncer in transaction mode at its defaults (the `pooled` job), so it stays so; the replicas' signals, which need a session (#412), are tested only directly.
+
