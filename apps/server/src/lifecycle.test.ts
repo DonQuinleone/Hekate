@@ -27,7 +27,7 @@ describe("stopping without dropping anyone (#193)", () => {
     expect(seen).toEqual(["drain 5000 ready=false", "serving 12500", "work 21000"]);
   });
 
-  it("never drains past the whole time, and leaves each later step a moment", async () => {
+  it("never drains into the time the later steps need, so the whole stays within it", async () => {
     let clock = 0;
     const given: number[] = [];
     await shutDown(
@@ -47,6 +47,7 @@ describe("stopping without dropping anyone (#193)", () => {
       { drainMs: 60_000, timeoutMs: 10_000 },
       () => clock,
     );
-    expect(given).toEqual([10_000, 1_000, 1_000]);
+    expect(given).toEqual([8_000, 1_000, 1_000]);
+    expect(given.reduce((a, b) => a + b)).toBe(10_000);
   });
 });

@@ -97,6 +97,8 @@ export async function boot(
   needsOwner: boolean;
   /** What this process does (#189). */
   role: Role;
+  /** How it stops (#193), as its settings say. */
+  shutdown: { drainMs: number; timeoutMs: number };
   /** Stop the jobs, giving those running `timeoutMs` to finish, and close the database. */
   stop: (timeoutMs?: number) => Promise<void>;
 }> {
@@ -355,6 +357,10 @@ export async function boot(
   return {
     app,
     role,
+    shutdown: {
+      drainMs: config.SHUTDOWN_DRAIN_SECONDS * 1000,
+      timeoutMs: config.SHUTDOWN_TIMEOUT_SECONDS * 1000,
+    },
     port: config.PORT,
     publicUrl: config.PUBLIC_URL,
     needsOwner: (owners?.n ?? 0) === 0,

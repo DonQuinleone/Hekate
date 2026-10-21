@@ -17,6 +17,8 @@ const gate = createSetupGate({ code: process.env.HEKATE_SETUP_CODE });
 type Handler = (request: Request) => Response | Promise<Response>;
 let handler: Handler;
 let stop = async (_timeoutMs?: number) => {};
+// The settings' own once booted (environment and settings file alike); the defaults before.
+let timings = { drainMs: 5_000, timeoutMs: 30_000 };
 
 /** The configured server: from the start, or once the installer has finished. */
 async function start() {
@@ -27,6 +29,7 @@ async function start() {
       ? booted.app.fetch(request)
       : new Response("This process runs background jobs only.", { status: 404 });
   stop = booted.stop;
+  timings = booted.shutdown;
   if (booted.needsOwner) console.log(setupMessage(gate, booted.publicUrl));
   return booted.port;
 }
@@ -58,15 +61,15 @@ const server = serve({ fetch: (request) => handler(request), port }, (info) => {
 }) as Server;
 
 // Told to stop, drain and finish what is under way before exiting (#193, lifecycle.ts).
-const drainMs = Number(process.env.SHUTDOWN_DRAIN_SECONDS ?? 5) * 1000;
-const timeoutMs = Number(process.env.SHUTDOWN_TIMEOUT_SECONDS ?? 30) * 1000;
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 let stopping = false;
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     if (stopping) return;
     stopping = true;
-    console.log(`Stopping: draining for ${drainMs / 1000} s, then finishing what is under way.`);
+    console.log(
+      `Stopping: draining for up to ${timings.drainMs / 1000} s, then finishing what is under way.`,
+    );
     void shutDown(
       {
         drain: sleep,
@@ -82,7 +85,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
           }),
         stopWork: (ms) => stop(ms),
       },
-      { drainMs, timeoutMs },
+      timings,
     )
       .catch((error: unknown) => console.error("Stopping failed:", error))
       .then(() => process.exit(0));

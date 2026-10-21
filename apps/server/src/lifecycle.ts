@@ -43,7 +43,8 @@ export async function shutDown(
   const left = () => Math.max(FLOOR_MS, deadline - now());
   // Readiness answers no from now on.
   stopping = true;
-  await steps.drain(Math.min(drainMs, timeoutMs));
+  // The drain never eats the time the later steps need: the whole stays within the timeout.
+  await steps.drain(Math.max(0, Math.min(drainMs, timeoutMs - 2 * FLOOR_MS)));
   // Requests get half of what remains, jobs the rest: a job given up is only retried.
   await steps.stopServing(Math.max(FLOOR_MS, Math.floor((deadline - now()) / 2)));
   await steps.stopWork(left());
