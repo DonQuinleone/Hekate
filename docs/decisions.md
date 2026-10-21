@@ -1217,3 +1217,13 @@ CI runs the API suite through PgBouncer in transaction mode at its defaults (the
 
 #412. `DATABASE_DIRECT_URL`, optional, reaches the primary past a transaction pooler for the two things that need a session of their own (decision 190): migrations, whose advisory lock lasts the run (at start and in the browser installer alike), and the `LISTEN` by which replicas hear of a change (decision 188). Each replica holds one direct connection to listen on, and opens another only to migrate as it starts; every request and job goes through `DATABASE_URL`. Unset, `DATABASE_URL` serves for both, as before. The `pooled` CI job runs the whole server suite through PgBouncer with it set, the replicas' signals included.
 
+## 193. Zero-downtime deploys
+
+#193. Replicas upgrade one at a time, so for a while the old release and the new run side by side, against one database.
+
+- **Expand, then contract.** A release's migrations work with the release before it still running: add before using, stop using before removing. A rename, a drop, a tightened constraint or a changed type takes two releases. AGENTS.md says so, and reviews block a migration the previous release cannot run against.
+- **Told to stop (SIGTERM),** a process says it is not ready (`/api/health/ready` answers 503, `stopping`) and keeps serving for `SHUTDOWN_DRAIN_SECONDS` (5) while the load balancer takes it out; then stops taking connections, closes idle ones, and gives the requests under way half of what is left of `SHUTDOWN_TIMEOUT_SECONDS` (30) before closing the rest; then stops its job workers with the remainder, and closes the database. The steps and their timing are one tested function (`lifecycle.ts`).
+- **Jobs are released, not lost.** pg-boss's graceful stop lets running jobs finish within the time; past it, it fails them, which aborts their handlers and queues their retry, so another worker runs them again. Tested by stopping a replica mid-job and finishing the job on another.
+- **Uploads resume.** A chunk cut off mid-way is never recorded, so the browser sends it again, to any replica, and the upload completes whole. Tested across two app instances.
+- **Compose** gives the app 40 seconds to stop (`stop_grace_period`), longer than the timeout; the Helm chart's grace period and rolling update follow when it comes (#190).
+

@@ -7,7 +7,7 @@ import { createDb, runMigrations, schema } from "@hekate/db";
 import { decodePeaks, mapTime } from "@hekate/shared";
 import { createBackends, storageConfigFromEnv, unwrapKey } from "@hekate/storage";
 import { asc, eq, sql } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createJobs, type JobName, jobDefinitions } from "./jobs.ts";
 import { createKeyring } from "./keyring.ts";
 import { run } from "./media/ffmpeg.ts";
@@ -458,5 +458,52 @@ describe.runIf(url)("holding jobs (maintenance mode)", () => {
     while (worked === 0 && Date.now() < deadline)
       await new Promise((resolve) => setTimeout(resolve, 100));
     expect(worked).toBe(1);
+  }, 40_000);
+});
+
+describe.runIf(url)("a replica stopped mid-job (#193)", () => {
+  // Two replicas' queues, in a schema of their own.
+  const one = createJobs({ connectionString: url ?? "", schema: "pgboss_stop_test" });
+  const two = createJobs({ connectionString: url ?? "", schema: "pgboss_stop_test" });
+  const { db, close } = createDb(url ?? "", { max: 1 });
+
+  beforeAll(async () => {
+    await one.start();
+    await two.start();
+  });
+
+  afterAll(async () => {
+    await two.stop(2_000);
+    await db.execute(sql`drop schema if exists pgboss_stop_test cascade`);
+    await close();
+  });
+
+  it("gives the job back to the queue past its grace, and another replica finishes it", async () => {
+    let started = false;
+    let aborted = false;
+    // A job that outlasts the grace, as a long transcode would.
+    await one.work("logs-retention", async (_data, job) => {
+      started = true;
+      await new Promise<void>((resolve) => job.signal.addEventListener("abort", () => resolve()));
+      aborted = true;
+      throw new Error("stopped mid-job");
+    });
+    const id = await one.send("logs-retention", {});
+    if (!id) throw new Error("The job was not queued");
+    await vi.waitFor(() => expect(started).toBe(true), { timeout: 10_000 });
+
+    await one.stop(1_000);
+    expect(aborted).toBe(true);
+    expect(await two.state("logs-retention", id)).toBe("retry");
+
+    let finished = 0;
+    await two.work("logs-retention", async () => {
+      finished += 1;
+    });
+    await vi.waitFor(async () => expect(await two.state("logs-retention", id)).toBe("completed"), {
+      timeout: 20_000,
+      interval: 200,
+    });
+    expect(finished).toBe(1);
   }, 40_000);
 });

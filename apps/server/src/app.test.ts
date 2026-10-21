@@ -4581,6 +4581,82 @@ describe.runIf(url)("api", () => {
           createHash("sha256").update(bytes).digest("base64"),
         );
 
+      it("keeps an upload whole when its replica stops mid-chunk, and another finishes it (#193)", async () => {
+        const owner = cookieOf(await setup());
+        const projectId = await newProject(owner);
+        const content = Buffer.alloc(CHUNK_SIZE + 999, 7);
+        const { upload } = await create(owner, {
+          projectId,
+          name: "Take 5.wav",
+          size: content.length,
+          contentType: "audio/wav",
+        });
+        const id = upload?.id ?? "";
+        const first = content.subarray(0, CHUNK_SIZE);
+        // The first chunk's connection is cut half-way, as a stopping replica closes it.
+        const cut = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array(first.subarray(0, CHUNK_SIZE / 2)));
+            controller.error(new Error("connection closed"));
+          },
+        });
+        const interrupted = await Promise.resolve(
+          app.request(`/api/uploads/${id}/chunks/0`, {
+            method: "PUT",
+            headers: {
+              cookie: owner,
+              origin: "http://localhost:3000",
+              "content-type": "application/octet-stream",
+            },
+            body: cut,
+            duplex: "half",
+          } as RequestInit),
+        )
+          .then((res) => res.status)
+          .catch(() => "closed");
+        expect(interrupted).not.toBe(204);
+
+        // Another replica, over the same database and storage, knows nothing of half a chunk.
+        const other = createApp({
+          db,
+          auth,
+          mailer,
+          storage,
+          audit,
+          jobs,
+          keyring,
+          playbackSecret: playbackSecret("test-secret-test-secret-test-secret-0"),
+          trustProxy: true,
+          publicUrl: "http://localhost:3000",
+          log: false,
+        });
+        const status = (await (
+          await other.request(`/api/uploads/${id}`, { headers: { cookie: owner } })
+        ).json()) as { upload: UploadView };
+        expect(status.upload.receivedChunks).toEqual([]);
+        // The browser sends the chunk again, and the rest, there; the upload completes whole.
+        for (const [index, bytes] of [first, content.subarray(CHUNK_SIZE)].entries()) {
+          const res = await other.request(`/api/uploads/${id}/chunks/${index}`, {
+            method: "PUT",
+            headers: {
+              cookie: owner,
+              origin: "http://localhost:3000",
+              "content-type": "application/octet-stream",
+            },
+            body: new Uint8Array(bytes),
+          });
+          expect(res.status).toBe(204);
+        }
+        const done = await other.request(`/api/uploads/${id}/complete`, json({}, owner));
+        expect(done.status).toBe(201);
+        const { file } = (await done.json()) as { file: { blobId: string } };
+        const [blob] = await db.select().from(schema.blobs).where(sql`id = ${file.blobId}`);
+        const read = await buffer(
+          (await storage.open(blob?.organisationId ?? "", file.blobId)).stream,
+        );
+        expect(read.equals(content)).toBe(true);
+      });
+
       it("uploads in chunks, out of order, and becomes an encrypted file", async () => {
         sent.length = 0;
         const owner = cookieOf(await setup());

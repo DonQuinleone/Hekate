@@ -97,7 +97,8 @@ export async function boot(
   needsOwner: boolean;
   /** What this process does (#189). */
   role: Role;
-  stop: () => Promise<void>;
+  /** Stop the jobs, giving those running `timeoutMs` to finish, and close the database. */
+  stop: (timeoutMs?: number) => Promise<void>;
 }> {
   const { config, storageConfig } = settingsOrExit(env);
   await migrateOrExit(config);
@@ -358,12 +359,12 @@ export async function boot(
     publicUrl: config.PUBLIC_URL,
     needsOwner: (owners?.n ?? 0) === 0,
     // Let running jobs finish (or give up at the timeout) before closing the database.
-    stop: () =>
+    stop: (timeoutMs?: number) =>
       Promise.resolve(clearInterval(holding))
         .then(unlisten)
         .then(() => listening?.close())
         .then(stopSampling)
-        .then(() => jobs.stop())
+        .then(() => jobs.stop(timeoutMs))
         .catch((error: unknown) => console.error("Stopping the job queue failed:", error))
         .then(() => close()),
   };

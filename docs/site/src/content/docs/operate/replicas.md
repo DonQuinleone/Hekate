@@ -28,7 +28,7 @@ A worker told to stop lets the jobs it is running finish for up to thirty second
 
 ## Starting, upgrading and stopping
 
-Replicas that start together migrate the database once, one waiting for the other (see [Upgrades](../upgrades/)). A readiness probe on `/api/health/ready` keeps a replica out of the load balancer until it can serve. Metrics are counted in each process, so scrape every replica ([Monitoring](../monitoring/)).
+Replicas that start together migrate the database once, one waiting for the other (see [Upgrades](../upgrades/)). A readiness probe on `/api/health/ready` keeps a replica out of the load balancer until it can serve, and takes it out as it stops: told to stop, a replica answers `stopping` at once, keeps serving for `SHUTDOWN_DRAIN_SECONDS` while the load balancer notices, then finishes the requests and jobs under way within `SHUTDOWN_TIMEOUT_SECONDS`. Give the orchestrator a longer grace period than that (the Compose file allows 40 seconds). A job still running at the end goes back to the queue for another worker; an upload's part cut off is sent again to another replica. Every release's migrations work with the release before it, so replicas can be upgraded one at a time. Metrics are counted in each process, so scrape every replica ([Monitoring](../monitoring/)).
 
 ## Rotating the master key
 

@@ -314,6 +314,32 @@ const schema = z.object({
         "Run background jobs (media processing, mail, reminders) in this process. Turn off for API-only replicas.",
     }),
   ),
+  SHUTDOWN_DRAIN_SECONDS: z.coerce
+    .number({ error: "must be a number of seconds from 0 to 120" })
+    .int()
+    .min(0)
+    .max(120)
+    .default(5)
+    .meta(
+      info({
+        group: "Server",
+        description:
+          "Told to stop, how long a process says it is not ready while still serving, for the load balancer to take it out of rotation first.",
+      }),
+    ),
+  SHUTDOWN_TIMEOUT_SECONDS: z.coerce
+    .number({ error: "must be a number of seconds from 5 to 3600" })
+    .int()
+    .min(5)
+    .max(3600)
+    .default(30)
+    .meta(
+      info({
+        group: "Server",
+        description:
+          "Told to stop, how long a process has in all to drain, finish the requests and jobs under way and close. Give the orchestrator a longer grace period (the Compose file allows 40 s).",
+      }),
+    ),
   ROLE: z
     .enum(roles, { error: `must be one of ${roles.join(", ")}` })
     .optional()

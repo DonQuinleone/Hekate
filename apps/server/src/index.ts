@@ -1,8 +1,10 @@
 import { randomBytes } from "node:crypto";
+import type { Server } from "node:http";
 import { serve } from "@hono/node-server";
 import { boot } from "./boot.ts";
 import { createInstallApp } from "./install-app.ts";
 import { servesPath } from "./lanes.ts";
+import { shutDown } from "./lifecycle.ts";
 import { needsInstall, readSettingsFile, settingsPath, withSettings } from "./settings-file.ts";
 import { createSetupGate, setupMessage } from "./setup-code.ts";
 import { version } from "./version.ts";
@@ -14,7 +16,7 @@ const gate = createSetupGate({ code: process.env.HEKATE_SETUP_CODE });
 
 type Handler = (request: Request) => Response | Promise<Response>;
 let handler: Handler;
-let stop = async () => {};
+let stop = async (_timeoutMs?: number) => {};
 
 /** The configured server: from the start, or once the installer has finished. */
 async function start() {
@@ -50,16 +52,39 @@ const port = needsInstall(process.env, readSettingsFile(settingsFile))
     })()
   : await start();
 
+// HTTP/1.1, as serve makes it by default.
 const server = serve({ fetch: (request) => handler(request), port }, (info) => {
   console.log(`Hekate ${version} listening on :${info.port}`);
-});
+}) as Server;
 
+// Told to stop, drain and finish what is under way before exiting (#193, lifecycle.ts).
+const drainMs = Number(process.env.SHUTDOWN_DRAIN_SECONDS ?? 5) * 1000;
+const timeoutMs = Number(process.env.SHUTDOWN_TIMEOUT_SECONDS ?? 30) * 1000;
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 let stopping = false;
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     if (stopping) return;
     stopping = true;
-    server.close();
-    void stop().then(() => process.exit(0));
+    console.log(`Stopping: draining for ${drainMs / 1000} s, then finishing what is under way.`);
+    void shutDown(
+      {
+        drain: sleep,
+        stopServing: (ms) =>
+          new Promise<void>((resolve) => {
+            // Connections idle between requests go now; those mid-request at the deadline.
+            const late = setTimeout(() => server.closeAllConnections(), ms);
+            server.close(() => {
+              clearTimeout(late);
+              resolve();
+            });
+            server.closeIdleConnections();
+          }),
+        stopWork: (ms) => stop(ms),
+      },
+      { drainMs, timeoutMs },
+    )
+      .catch((error: unknown) => console.error("Stopping failed:", error))
+      .then(() => process.exit(0));
   });
 }

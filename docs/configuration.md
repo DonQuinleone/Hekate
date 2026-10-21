@@ -19,6 +19,8 @@ A setting marked as secret may instead name a file that holds it, with `_FILE` a
 | `WEB_DIST` | unset | Directory holding the built web app, served with a single-page fallback. Set in the app image. |
 | `HEKATE_SETTINGS_FILE` | unset | The file the installer writes its settings to, read at every start beneath the environment (which wins). Set to /config/hekate.env in the app image; data/hekate.env otherwise. Example: `/config/hekate.env`. |
 | `HEKATE_SETUP_CODE` | unset | The code that opens the installer and creates the first owner, three groups of four letters and digits. Leave unset: the server makes a new one at each start and prints it in its log. |
+| `SHUTDOWN_DRAIN_SECONDS` | `5` | Told to stop, how long a process says it is not ready while still serving, for the load balancer to take it out of rotation first. |
+| `SHUTDOWN_TIMEOUT_SECONDS` | `30` | Told to stop, how long a process has in all to drain, finish the requests and jobs under way and close. Give the orchestrator a longer grace period (the Compose file allows 40 s). |
 
 ## Database
 
