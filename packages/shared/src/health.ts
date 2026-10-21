@@ -134,6 +134,38 @@ export interface HealthNow {
   lanes: HealthAmount;
 }
 
+/** One replica's processors, memory and lanes, as it last measured them. */
+export interface ReplicaReading {
+  cpu: { share: number; cores: number } | null;
+  memory: HealthAmount;
+  lanes: HealthAmount;
+}
+
+/**
+ * Every replica's readings as one (#188): lanes and memory add up; the processors' share is
+ * weighted by each replica's cores. Two replicas on one machine count it twice, which leaves
+ * every share as it was.
+ */
+export function combineReplicas(
+  readings: ReplicaReading[],
+): Pick<HealthNow, "cpu" | "memory" | "lanes"> {
+  const sum = (amounts: HealthAmount[]) =>
+    amounts.reduce((a, b) => ({ used: a.used + b.used, total: a.total + b.total }), {
+      used: 0,
+      total: 0,
+    });
+  const measured = readings.flatMap((r) => (r.cpu ? [r.cpu] : []));
+  const cores = measured.reduce((n, c) => n + c.cores, 0);
+  return {
+    cpu:
+      cores > 0
+        ? { share: measured.reduce((n, c) => n + c.share * c.cores, 0) / cores, cores }
+        : null,
+    memory: readings.length ? sum(readings.map((r) => r.memory)) : null,
+    lanes: sum(readings.map((r) => r.lanes)),
+  };
+}
+
 export type HealthService =
   | {
       name: "api";

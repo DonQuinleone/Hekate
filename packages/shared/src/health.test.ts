@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type HealthMinute, healthSeries, readiness } from "./health.ts";
+import { combineReplicas, type HealthMinute, healthSeries, readiness } from "./health.ts";
 
 describe("readiness", () => {
   const all = { database: "ok", storage: "ok", worker: "ok", mail: "ok" } as const;
@@ -65,5 +65,35 @@ describe("the System health charts", () => {
     expect(series.p95Ms.at(-1)).toBe(400);
     expect(series.jobsWaiting.at(-1)).toBe(3);
     expect(series.requestsPerMinute.filter((p) => p !== null)).toHaveLength(1);
+  });
+});
+
+describe("every replica as one (#188)", () => {
+  const reading = (share: number | null, cores: number, used: number, busy: number) => ({
+    cpu: share === null ? null : { share, cores },
+    memory: { used: used, total: 16 },
+    lanes: { used: busy, total: 2 },
+  });
+
+  it("adds lanes and memory up, and weighs the processors by their cores", () => {
+    expect(combineReplicas([reading(0.5, 2, 4, 1), reading(0.2, 8, 8, 0)])).toEqual({
+      cpu: { share: (0.5 * 2 + 0.2 * 8) / 10, cores: 10 },
+      memory: { used: 12, total: 32 },
+      lanes: { used: 1, total: 4 },
+    });
+  });
+
+  it("leaves a share as it was when one machine is counted twice", () => {
+    const one = combineReplicas([reading(0.3, 4, 6, 1)]);
+    const twice = combineReplicas([reading(0.3, 4, 6, 1), reading(0.3, 4, 6, 1)]);
+    expect(twice.cpu?.share).toBeCloseTo(one.cpu?.share ?? 0);
+    expect((twice.memory?.used ?? 0) / (twice.memory?.total ?? 1)).toBe(
+      (one.memory?.used ?? 0) / (one.memory?.total ?? 1),
+    );
+  });
+
+  it("knows no processors before anything was measured, and nothing with no replica", () => {
+    expect(combineReplicas([reading(null, 4, 6, 0)]).cpu).toBeNull();
+    expect(combineReplicas([])).toEqual({ cpu: null, memory: null, lanes: { used: 0, total: 0 } });
   });
 });

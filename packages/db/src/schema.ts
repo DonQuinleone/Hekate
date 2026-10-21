@@ -2707,6 +2707,8 @@ export const healthSamples = pgTable(
     cores: integer("cores").notNull(),
     memoryUsed: bigint("memory_used", { mode: "number" }).notNull(),
     memoryTotal: bigint("memory_total", { mode: "number" }).notNull(),
+    /** When this replica's metrics were last read, by then; null when never (#188). */
+    metricsReadAt: timestamp("metrics_read_at", { withTimezone: true }),
   },
   (t) => [
     uniqueIndex("health_samples_minute").on(t.replica, t.at),

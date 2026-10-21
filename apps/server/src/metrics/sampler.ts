@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { cpus, freemem, totalmem } from "node:os";
 import { type Database, schema } from "@hekate/db";
 import { lt, sql } from "drizzle-orm";
-import { metrics, noQueueYet } from "./index.ts";
+import { metrics, metricsLastRead, noQueueYet } from "./index.ts";
 import type { HistogramTotals } from "./registry.ts";
 
 /**
@@ -137,6 +137,7 @@ export function createSampler(db: Database, options: { now?: () => number } = {}
           cores: reading.cores,
           memoryUsed: totalmem() - freemem(),
           memoryTotal: totalmem(),
+          metricsReadAt: metricsLastRead(),
         })
         .onConflictDoNothing();
       await db
