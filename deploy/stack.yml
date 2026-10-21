@@ -26,6 +26,9 @@ x-app: &app
   secrets: [hekate_master_key, hekate_auth_secret, hekate_database_url, hekate_s3_secret_key]
   tmpfs:
     - /tmp:size=256m,mode=1777
+    # Decrypted media exists only while it is worked on: in memory, never on disk. Workers
+    # transcode there; API replicas make watermarked downloads and marked pages there.
+    - /tmp/hekate-work:size=${HEKATE_WORK_SIZE:-8g},mode=0700,uid=1000,gid=1000
 
 x-app-environment: &app-environment
   DATABASE_URL_FILE: /run/secrets/hekate_database_url
@@ -42,6 +45,8 @@ x-app-environment: &app-environment
   STORAGE_MEDIA_BUCKET: ${S3_BUCKET:?set S3_BUCKET}
   STORAGE_MEDIA_REGION: ${S3_REGION:-}
   STORAGE_MEDIA_ENDPOINT: ${S3_ENDPOINT:-}
+  # Most S3-compatible services need the bucket in the path: S3_FORCE_PATH_STYLE=true.
+  STORAGE_MEDIA_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
   STORAGE_MEDIA_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID}
   STORAGE_MEDIA_SECRET_ACCESS_KEY_FILE: /run/secrets/hekate_s3_secret_key
   # Mail: add SMTP_URL_FILE: /run/secrets/hekate_smtp_url, with that secret, to send it.
@@ -82,10 +87,6 @@ services:
       MIGRATE_ON_START: "false"
       WORKER_LANES: ${HEKATE_WORKER_LANES:-}
       WORKER_CONCURRENCY: ${HEKATE_WORKER_CONCURRENCY:-2}
-    tmpfs:
-      - /tmp:size=256m,mode=1777
-      # Decrypted media exists only while a job runs: in memory, never on disk.
-      - /tmp/hekate-work:size=${HEKATE_WORK_SIZE:-8g},mode=0700,uid=1000,gid=1000
     deploy:
       replicas: ${HEKATE_WORKER_REPLICAS:-1}
       placement:

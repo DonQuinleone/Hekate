@@ -40,7 +40,7 @@ docker stack deploy -c deploy/stack.yml hekate
 
 Open `https://HEKATE_DOMAIN` and create the first owner with the setup code. With several replicas the installer is not used: everything is configured here, and the setup code is set rather than made by each replica, so every replica accepts it.
 
-Optional settings, each from the environment `docker stack deploy` runs in: `S3_ENDPOINT` for a service other than AWS, `HEKATE_API_REPLICAS` (2), `HEKATE_WORKER_REPLICAS` (1), `HEKATE_WORKER_LANES` and `HEKATE_WORKER_CONCURRENCY` ([Roles and lanes](../../operate/replicas/#roles-and-lanes)), `HEKATE_WORK_SIZE` (8g of memory for each worker's scratch space), and `HEKATE_VERSION`. To send mail, create a `hekate_smtp_url` secret and add `SMTP_URL_FILE: /run/secrets/hekate_smtp_url` and the secret to the app's settings.
+Optional settings, each from the environment `docker stack deploy` runs in: `S3_ENDPOINT` for a service other than AWS (with `S3_FORCE_PATH_STYLE=true` for most such services), `HEKATE_API_REPLICAS` (2), `HEKATE_WORKER_REPLICAS` (1), `HEKATE_WORKER_LANES` and `HEKATE_WORKER_CONCURRENCY` ([Roles and lanes](../../operate/replicas/#roles-and-lanes)), `HEKATE_WORK_SIZE` (8g of memory for each app task's scratch space: workers transcode there, API replicas make watermarked downloads there), and `HEKATE_VERSION`. To send mail, create a `hekate_smtp_url` secret and add `SMTP_URL_FILE: /run/secrets/hekate_smtp_url` and the secret to the app's settings.
 
 ## What it runs
 

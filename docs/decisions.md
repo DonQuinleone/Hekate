@@ -1231,7 +1231,7 @@ CI runs the API suite through PgBouncer in transaction mode at its defaults (the
 
 #191. `deploy/stack.yml`, for `docker stack deploy`, beside the Compose file for one machine.
 
-- **Two app services from one image:** `api` (`ROLE=api`, two replicas by default, anywhere) and `worker` (`ROLE=worker`, on machines labelled `hekate.worker=true`, its scratch space in memory). The API replicas migrate as they start, one at a time (decision 177); workers never do.
+- **Two app services from one image:** `api` (`ROLE=api`, two replicas by default, anywhere) and `worker` (`ROLE=worker`, on machines labelled `hekate.worker=true`); every app task keeps its scratch space in memory, as API replicas make watermarked downloads and marked pages in it too. The API replicas migrate as they start, one at a time (decision 177); workers never do.
 - **Every key a Docker secret**, read through the `_FILE` settings: the master key, `AUTH_SECRET`, the database URL and password, the S3 secret key, and the mail URL if mail is sent. Nothing secret is written in the stack or its environment.
 - **Configured, not installed.** The browser installer writes to one replica's settings file, so the stack gives every setting, and requires `HEKATE_SETUP_CODE`, as replicas each making their own code would refuse each other's.
 - **S3 only.** Local storage would need a filesystem every machine mounts; the stack does not pretend to offer one.
