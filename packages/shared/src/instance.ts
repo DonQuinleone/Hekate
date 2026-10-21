@@ -26,7 +26,7 @@ export const instanceSections: Record<InstanceSection, { label: string; hint: st
   operators: { label: "Operators", hint: "The accounts that may manage the instance" },
   logs: {
     label: "Logs",
-    hint: "What people and operators did, and the mail the instance sent",
+    hint: "What people and operators did, every sign-in, and the mail the instance sent",
   },
   health: {
     label: "System health",

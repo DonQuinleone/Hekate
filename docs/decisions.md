@@ -1152,3 +1152,14 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Reading.** Newest first a page at a time, by id: ids are UUIDv7, so a range is a scan of the primary key. Search, a range of an hour to thirty days, and a workspace (audit).
 - **Export** streams the whole filtered log as CSV, its cells neutralised as the access log's; it is an instance event (`logs.export`) written before any of it leaves.
 - **Follows.** Authentication, with writers for sign-ins, refusals, lockouts, second factors and guest links; then retention per kind as a job, and the live tail. API, webhooks and the billing gateway arrive with their features. The prototype's Email tab loses its Template and Provider columns: a message knows its subject, not its template.
+
+## 186. The authentication log
+
+#157, second part.
+
+- **One writer for every sign-in.** A session made by a sign-in path is the sign-in: password, passkey, a second factor, the workspace's directory or its single sign-on (`signInMethodOf`), recorded from the session Better Auth just made, with its workspace where the session names one. A password that waits for its second factor is not yet a sign-in; the second factor's is. Refusals are recorded with Better Auth's reason, a lockout as locked, and a try made to wait as refused for too many attempts.
+- **Guests too:** a link opened (or one that opens nothing), a code right or wrong, each with the guest's workspace.
+- **Global** (`auth_events`, in `globalTables` like error reports): a member's sign-in belongs to their account, not a workspace. Where a workspace is known it is kept, and goes with the workspace.
+- **The address** is read as the access log reads it: X-Forwarded-For's last entry behind Caddy (TRUST_PROXY), none otherwise, as a client could claim any.
+- **Beside, never awaited**: a slow or failed write holds no sign-in up.
+- **Forgetting.** Deleting an account rewrites its address to "A former member" here and in the mail log, as the access log and the instance's events already do.

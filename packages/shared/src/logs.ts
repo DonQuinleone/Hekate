@@ -5,7 +5,7 @@ import { z } from "zod";
  * on stdout that log shippers read. Each kind arrives with what writes it: authentication next,
  * then API, webhooks and the billing gateway with their features.
  */
-export const logKinds = ["audit", "mail"] as const;
+export const logKinds = ["audit", "auth", "mail"] as const;
 export type LogKind = (typeof logKinds)[number];
 export const logKindParam = z.object({ kind: z.enum(logKinds) });
 
@@ -22,7 +22,7 @@ export const logRangeHours: Record<LogRange, number> = {
 export const logQuery = z.object({
   q: z.string().trim().max(200).optional(),
   range: z.enum(logRanges).default("24h"),
-  /** Audit only: one workspace's events, and the operators' events about it. */
+  /** Audit and authentication: one workspace's events, and the operators' events about it. */
   workspace: z.uuid().optional(),
   before: z.uuid().optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
@@ -48,6 +48,31 @@ export interface AuditLogRow {
   ipAddress: string | null;
 }
 
+export const authMethods = [
+  "password",
+  "passkey",
+  "second_factor",
+  "directory",
+  "sso",
+  "guest_link",
+  "guest_code",
+] as const;
+export type AuthMethod = (typeof authMethods)[number];
+
+/** A sign-in, a refusal or a lockout, by how it was tried. */
+export interface AuthLogRow {
+  id: string;
+  at: string;
+  method: AuthMethod;
+  result: "signed_in" | "refused" | "locked";
+  reason: string | null;
+  /** The address tried, or the guest's label; "Not known" where nothing named one. */
+  account: string;
+  workspace: { id: string; name: string } | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+}
+
 /** A message handed to instance mail, and what came of it. */
 export interface MailLogRow {
   id: string;
@@ -58,7 +83,10 @@ export interface MailLogRow {
   error: string | null;
 }
 
-export type LogPage<K extends LogKind> = {
-  rows: K extends "audit" ? AuditLogRow[] : MailLogRow[];
-  next: string | null;
-};
+export interface LogRows {
+  audit: AuditLogRow;
+  auth: AuthLogRow;
+  mail: MailLogRow;
+}
+
+export type LogPage<K extends LogKind> = { rows: LogRows[K][]; next: string | null };

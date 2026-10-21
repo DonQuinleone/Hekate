@@ -13,6 +13,8 @@ export const globalTables = new Set<PgTable>([
   schema.authVerifications,
   // A failure may belong to no workspace; only operators read them (#159).
   schema.errorReports,
+  // A member's sign-in is their account's, not a workspace's; only operators read them (#157).
+  schema.authEvents,
 ]);
 
 export const tenantTables: TenantTable[] = (Object.values(schema) as unknown[]).filter(

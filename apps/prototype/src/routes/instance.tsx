@@ -2055,7 +2055,7 @@ export function InstancePage({ section }: { section: string }) {
             {logKind === "audit" &&
               "Every action a person or operator took, kept for a year; workspaces see their own in Settings."}
             {logKind === "auth" &&
-              "Every sign-in, refusal and second factor, with the address and the browser. Five refusals in a minute lock the address for ten."}
+              "Every sign-in, refusal and lockout, with the address and the browser. After four wrong passwords each try waits longer, and ten in fifteen minutes lock the account for fifteen."}
             {logKind === "api" &&
               "Every call through a token or an OAuth client, with its status and time. Workspaces see their own."}
             {logKind === "mail" &&

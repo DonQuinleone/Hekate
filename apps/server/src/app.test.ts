@@ -7,6 +7,7 @@ import { buffer } from "node:stream/consumers";
 import { createDb, runMigrations, schema, uuidv7, withAuditPurge } from "@hekate/db";
 import {
   type AuditLogRow,
+  type AuthLogRow,
   decodeLoudness,
   decodePeaks,
   decodeSpectrogram,
@@ -1595,6 +1596,66 @@ describe.runIf(url)("api", () => {
         const theirOwner = await join(operator, "label@example.test", "owner");
         expect((await get("/api/instance/logs/audit", theirOwner)).status).toBe(403);
         expect((await get("/api/instance/logs/mail/export", theirOwner)).status).toBe(403);
+      });
+
+      it("logs every sign-in, refusal and guest link, and forgets a deleted account's address (#157)", async () => {
+        const operator = cookieOf(await setup());
+        await db.delete(schema.authEvents);
+        const signIn = (password: string) =>
+          app.request("/api/auth/sign-in/email", json({ email: owner.email, password }));
+        expect((await signIn("wrong horse battery")).status).toBe(401);
+        expect((await signIn(owner.password)).status).toBe(200);
+        // A guest's link, used, and one that opens nothing.
+        const [studio] = await db
+          .select({ id: schema.organisations.id })
+          .from(schema.organisations)
+          .where(eq(schema.organisations.slug, "studio"));
+        const organisationId = studio?.id ?? "";
+        const [guest] = await db
+          .insert(schema.guests)
+          .values({ organisationId, name: "Mira Solberg", email: "mira@example.test" })
+          .returning();
+        const { token } = await issueGuestLink(db, organisationId, guest?.id ?? "");
+        expect((await app.request("/api/guest/sessions", json({ token }))).status).toBe(201);
+        expect((await app.request("/api/guest/sessions", json({ token }))).status).toBe(410);
+
+        const read = async (query = "") =>
+          (
+            (await (await get(`/api/instance/logs/auth${query}`, operator)).json()) as {
+              rows: AuthLogRow[];
+            }
+          ).rows;
+        await vi.waitFor(async () => expect(await read()).toHaveLength(4));
+        expect(
+          (await read()).map((r) => [r.method, r.result, r.account, r.workspace?.id ?? null]),
+        ).toEqual([
+          ["guest_link", "refused", "Not known", null],
+          ["guest_link", "signed_in", "Mira Solberg <mira@example.test> (guest)", organisationId],
+          ["password", "signed_in", owner.email, null],
+          ["password", "refused", owner.email, null],
+        ]);
+        expect((await read()).at(-1)?.reason).toBeTruthy();
+        // One workspace's: the guest's, as its sign-in names it.
+        expect((await read(`?workspace=${organisationId}`)).map((r) => r.method)).toEqual([
+          "guest_link",
+        ]);
+
+        // A deleted account's address names no one in the log.
+        const someone = await join(operator, "leaving@example.test");
+        await app.request(
+          "/api/auth/sign-in/email",
+          json({ email: "leaving@example.test", password: "wrong horse battery" }),
+        );
+        // Joining signs them in, and the wrong password is refused.
+        await vi.waitFor(async () =>
+          expect((await read("?q=leaving")).map((r) => r.result)).toContain("refused"),
+        );
+        const deleted = await app.request("/api/me", {
+          ...json({ email: "leaving@example.test", password: "correct horse battery" }, someone),
+          method: "DELETE",
+        });
+        expect(deleted.status).toBe(204);
+        expect(await read("?q=leaving")).toEqual([]);
       });
 
       it("shows what the instance runs, and checks releases only when asked to (#158)", async () => {

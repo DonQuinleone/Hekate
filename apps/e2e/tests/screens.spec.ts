@@ -1105,6 +1105,17 @@ for (const [name, role, open, ready] of [
   });
 }
 
+// Logs (#157): every sign-in, the seed's own among them.
+test("instance-logs-auth", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto("/instance/logs");
+  await settle(page, "main [data-log-entry] >> nth=0");
+  await page.getByRole("tab", { name: "Authentication" }).click();
+  await settle(page, "main >> text=Signed in >> nth=0");
+  await saveScreen(page, "instance-logs-auth");
+  await checkScreen(page);
+});
+
 // Logs (#157): the mail the instance sent, the seed's invitations among it.
 test("instance-logs-mail", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);

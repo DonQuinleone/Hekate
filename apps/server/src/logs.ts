@@ -1,6 +1,7 @@
 import type { Database } from "@hekate/db";
 import {
   type AuditLogRow,
+  type AuthLogRow,
   type LogKind,
   type LogQuery,
   logRangeHours,
@@ -151,22 +152,105 @@ export async function mailLog(
   };
 }
 
-/** A log's page of either kind. */
-export const readLog = (db: Database, kind: LogKind, filters: Filters, now?: Date) =>
-  kind === "audit" ? auditLog(db, filters, now) : mailLog(db, filters, now);
+/** Every sign-in, refusal and lockout; one workspace's where filtered. */
+export async function authLog(
+  db: Database,
+  filters: Filters,
+  now = new Date(),
+): Promise<{ rows: AuthLogRow[]; next: string | null }> {
+  const conditions: SQL[] = [sql`e.id >= ${sinceOf(filters, now)}::uuid`];
+  if (filters.before) conditions.push(sql`e.id < ${filters.before}::uuid`);
+  if (filters.workspace) conditions.push(sql`e.organisation_id = ${filters.workspace}::uuid`);
+  if (filters.q) {
+    const like = `%${escapeLike(filters.q)}%`;
+    conditions.push(
+      sql`(e.account ilike ${like} or e.method::text ilike ${like} or e.reason ilike ${like}
+           or e.ip_address ilike ${like} or o.name ilike ${like})`,
+    );
+  }
+  const rows = await db.execute<{
+    id: string;
+    at: Date | string;
+    method: AuthLogRow["method"];
+    result: AuthLogRow["result"];
+    reason: string | null;
+    account: string;
+    workspace_id: string | null;
+    workspace_name: string | null;
+    ip_address: string | null;
+    user_agent: string | null;
+  }>(sql`
+    select e.id, e.occurred_at as at, e.method, e.result, e.reason, e.account,
+           o.id as workspace_id, o.name as workspace_name, e.ip_address, e.user_agent
+    from auth_events e
+    left join organisations o on o.id = e.organisation_id
+    where ${all(conditions)}
+    order by e.id desc
+    limit ${filters.limit + 1}`);
+  const page = rows.slice(0, filters.limit);
+  return {
+    rows: page.map((r) => ({
+      id: r.id,
+      at: new Date(r.at).toISOString(),
+      method: r.method,
+      result: r.result,
+      reason: r.reason,
+      account: r.account,
+      workspace: r.workspace_id ? { id: r.workspace_id, name: r.workspace_name ?? "" } : null,
+      ipAddress: r.ip_address,
+      userAgent: r.user_agent,
+    })),
+    next: rows.length > filters.limit ? (page.at(-1)?.id ?? null) : null,
+  };
+}
+
+/** A log's page, of whichever kind. */
+export function readLog(
+  db: Database,
+  kind: LogKind,
+  filters: Filters,
+  now?: Date,
+): Promise<{ rows: (AuditLogRow | AuthLogRow | MailLogRow)[]; next: string | null }> {
+  if (kind === "audit") return auditLog(db, filters, now);
+  if (kind === "auth") return authLog(db, filters, now);
+  return mailLog(db, filters, now);
+}
 
 const csvColumns: Record<LogKind, string[]> = {
   audit: ["occurred_at", "source", "who", "workspace", "action", "target", "ip_address"],
+  auth: [
+    "occurred_at",
+    "account",
+    "method",
+    "result",
+    "reason",
+    "workspace",
+    "ip_address",
+    "user_agent",
+  ],
   mail: ["occurred_at", "to", "subject", "result", "error"],
 };
 
 const csvLine = (cells: unknown[]) => `${cells.map(csvCell).join(",")}\r\n`;
 
 /** A row as the export writes it, each cell neutralised as the access log's are. */
-function csvOf(kind: LogKind, row: AuditLogRow | MailLogRow): string {
+function csvOf(kind: LogKind, row: AuditLogRow | AuthLogRow | MailLogRow): string {
   if (kind === "audit") {
     const r = row as AuditLogRow;
     return csvLine([r.at, r.source, r.who, r.workspace?.name, r.action, r.target, r.ipAddress]);
+  }
+  if (kind === "auth") {
+    const r = row as AuthLogRow;
+    return csvLine([
+      r.at,
+      r.account,
+      r.method,
+      r.result,
+      r.reason,
+      r.workspace?.name,
+      r.ipAddress,
+      r.userAgent,
+    ]);
   }
   const r = row as MailLogRow;
   return csvLine([r.at, r.to, r.subject, r.result, r.error]);
