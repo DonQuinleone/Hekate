@@ -1,17 +1,20 @@
-import { type Database, schema, withAuditPurge } from "@hekate/db";
+import { type Database, inOrg, schema, withAuditPurge } from "@hekate/db";
 import type { InstanceSettings } from "@hekate/shared";
-import { lt, sql } from "drizzle-orm";
+import { asc, inArray, lt, sql } from "drizzle-orm";
+import type { PgColumn } from "drizzle-orm/pg-core";
 import { idAt } from "./logs.ts";
 import { recordInstanceEvent } from "./routes/instance.ts";
 
 /**
  * Each log kept as long as the instance's settings say (#157), and no longer: a job once a day.
- * The access log goes only through its purge setting (decision 020), a batch at a time so one
- * transaction never holds a year of it; what went is itself an instance event.
+ * Every log goes a batch at a time, oldest first by its time-ordered ids, so no transaction
+ * holds a year of it; the access log only through its purge setting (decision 020), one
+ * workspace at a time. What went is itself an instance event, written even when a later batch
+ * fails, so nothing that was trimmed goes unrecorded.
  */
 
 const DAY = 24 * 60 * 60_000;
-/** Rows of the access log deleted in one transaction. */
+/** Rows deleted in one transaction. */
 const BATCH = 5_000;
 
 const cutoff = (days: number, now: Date) => new Date(now.getTime() - days * DAY);
@@ -22,52 +25,107 @@ export interface Purged {
   mail: number;
 }
 
+/** Delete batches until one comes back short, counting each as it commits. */
+async function inBatches(
+  batch: number,
+  deleteOne: () => Promise<number>,
+  add: (n: number) => void,
+): Promise<void> {
+  for (;;) {
+    const n = await deleteOne();
+    add(n);
+    if (n < batch) return;
+  }
+}
+
+/** A log of the instance's own, trimmed to what came after a moment, oldest first. */
+function trim(
+  db: Database,
+  table: typeof schema.authEvents | typeof schema.mailEvents | typeof schema.instanceEvents,
+  at: PgColumn,
+  before: Date,
+  batch: number,
+  add: (n: number) => void,
+): Promise<void> {
+  return inBatches(
+    batch,
+    async () => {
+      const [gone] = await db.execute<{ n: number }>(sql`
+      with gone as (
+        delete from ${table} where ${table.id} in (
+          select ${table.id} from ${table} where ${at} < ${before.toISOString()}::timestamptz
+          order by ${table.id} limit ${batch})
+        returning 1)
+      select count(*)::int as n from gone`);
+      return gone?.n ?? 0;
+    },
+    add,
+  );
+}
+
 export async function purgeLogs(
   db: Database,
   keep: InstanceSettings["logs"],
   now = new Date(),
+  { batch = BATCH }: { batch?: number } = {},
 ): Promise<Purged> {
   const purged: Purged = { audit: 0, auth: 0, mail: 0 };
-  if (keep.auth !== null) {
-    const gone = await db
-      .delete(schema.authEvents)
-      .where(lt(schema.authEvents.occurredAt, cutoff(keep.auth, now)))
-      .returning({ id: schema.authEvents.id });
-    purged.auth = gone.length;
-  }
-  if (keep.mail !== null) {
-    const gone = await db
-      .delete(schema.mailEvents)
-      .where(lt(schema.mailEvents.occurredAt, cutoff(keep.mail, now)))
-      .returning({ id: schema.mailEvents.id });
-    purged.mail = gone.length;
-  }
-  if (keep.audit !== null) {
-    const before = cutoff(keep.audit, now);
-    const instance = await db
-      .delete(schema.instanceEvents)
-      .where(lt(schema.instanceEvents.createdAt, before))
-      .returning({ id: schema.instanceEvents.id });
-    purged.audit = instance.length;
-    // Every workspace's access log, oldest first, by id: UUIDv7, so the primary key is time.
-    for (;;) {
-      const gone = await withAuditPurge(db, (tx) =>
-        tx.execute<{ id: string }>(sql`
-          delete from access_events where id in (
-            select id from access_events where id < ${idAt(before)}::uuid
-            order by id limit ${BATCH})
-          returning id`),
-      );
-      purged.audit += gone.length;
-      if (gone.length < BATCH) break;
+  let complete = false;
+  try {
+    if (keep.auth !== null) {
+      const t = schema.authEvents;
+      await trim(db, t, t.occurredAt, cutoff(keep.auth, now), batch, (n) => {
+        purged.auth += n;
+      });
     }
+    if (keep.mail !== null) {
+      const t = schema.mailEvents;
+      await trim(db, t, t.occurredAt, cutoff(keep.mail, now), batch, (n) => {
+        purged.mail += n;
+      });
+    }
+    if (keep.audit !== null) {
+      const before = cutoff(keep.audit, now);
+      const t = schema.instanceEvents;
+      const add = (n: number) => {
+        purged.audit += n;
+      };
+      await trim(db, t, t.createdAt, before, batch, add);
+      // Each workspace's access log, in its own scope.
+      const a = schema.accessEvents;
+      const workspaces = await db
+        .select({ id: schema.organisations.id })
+        .from(schema.organisations);
+      for (const { id: organisationId } of workspaces) {
+        await inBatches(
+          batch,
+          () =>
+            withAuditPurge(db, async (tx) => {
+              const oldest = tx
+                .select({ id: a.id })
+                .from(a)
+                .where(inOrg(a, organisationId, lt(a.id, idAt(before))))
+                .orderBy(asc(a.id))
+                .limit(batch);
+              const gone = await tx
+                .delete(a)
+                .where(inOrg(a, organisationId, inArray(a.id, oldest)))
+                .returning({ id: a.id });
+              return gone.length;
+            }),
+          add,
+        );
+      }
+    }
+    complete = true;
+  } finally {
+    if (purged.audit + purged.auth + purged.mail > 0)
+      await recordInstanceEvent(db, {
+        actorId: null,
+        action: "logs.purged",
+        target: "The logs",
+        details: { ...purged, keep, ...(complete ? {} : { incomplete: true }) },
+      });
   }
-  if (purged.audit + purged.auth + purged.mail > 0)
-    await recordInstanceEvent(db, {
-      actorId: null,
-      action: "logs.purged",
-      target: "The logs",
-      details: { ...purged, keep },
-    });
   return purged;
 }

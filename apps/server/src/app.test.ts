@@ -1696,6 +1696,18 @@ describe.runIf(url)("api", () => {
         await db.delete(schema.mailEvents);
         await db.insert(schema.authEvents).values([
           { method: "password", result: "signed_in", account: "old@example.test", occurredAt: old },
+          {
+            method: "password",
+            result: "signed_in",
+            account: "old2@example.test",
+            occurredAt: old,
+          },
+          {
+            method: "password",
+            result: "signed_in",
+            account: "old3@example.test",
+            occurredAt: old,
+          },
           { method: "password", result: "signed_in", account: "new@example.test" },
         ]);
         await db.insert(schema.mailEvents).values([
@@ -1707,26 +1719,62 @@ describe.runIf(url)("api", () => {
           target: "old-157",
           createdAt: old,
         });
-        await db.insert(schema.accessEvents).values({
-          id: oldId(157),
-          organisationId,
-          action: "file.upload",
-          actorType: "system",
-          actorLabel: "Hekate",
-          occurredAt: old,
-        });
+        // Another workspace's old rows go too, each workspace's in its own scope.
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Lantern Pictures", slug: "lantern-157" })
+          .returning({ id: schema.organisations.id });
+        const old157 = [oldId(157), oldId(158), oldId(159)];
+        await db.insert(schema.accessEvents).values(
+          old157.map((id, n) => ({
+            id,
+            organisationId: n === 2 ? (other?.id ?? "") : organisationId,
+            action: "file.upload" as const,
+            actorType: "system" as const,
+            actorLabel: "Hekate",
+            occurredAt: old,
+          })),
+        );
         const accessCount = async () =>
           (
             await db
               .select({ n: count() })
               .from(schema.accessEvents)
-              .where(eq(schema.accessEvents.id, oldId(157)))
+              .where(inArray(schema.accessEvents.id, old157))
           )[0]?.n;
 
-        // Kept for good is kept for good; a year of the others is trimmed.
-        const first = await purgeLogs(db, { audit: null, auth: 365, mail: 365 }, now);
+        // What goes before a failure is still logged, as incomplete.
+        await db.execute(sql`
+          create function refuse_157() returns trigger language plpgsql as
+            $$ begin raise exception 'refused for the test'; end $$;
+          create trigger refuse_157 before delete on instance_events
+            for each statement execute function refuse_157()`);
+        await expect(
+          purgeLogs(db, { audit: 365, auth: 365, mail: null }, now, { batch: 1 }),
+        ).rejects.toThrow();
+        await db.execute(
+          sql`drop trigger refuse_157 on instance_events; drop function refuse_157()`,
+        );
+        const [partial] = await db
+          .select({ details: schema.instanceEvents.details })
+          .from(schema.instanceEvents)
+          .where(eq(schema.instanceEvents.action, "logs.purged"))
+          .orderBy(desc(schema.instanceEvents.createdAt))
+          .limit(1);
+        expect(partial?.details).toMatchObject({ auth: 3, mail: 0, audit: 0, incomplete: true });
+
+        // Kept for good is kept for good; a year of the others is trimmed, a batch at a time.
+        await db.insert(schema.authEvents).values({
+          method: "password",
+          result: "signed_in",
+          account: "old@example.test",
+          occurredAt: old,
+        });
+        const first = await purgeLogs(db, { audit: null, auth: 365, mail: 365 }, now, {
+          batch: 1,
+        });
         expect(first).toEqual({ audit: 0, auth: 1, mail: 1 });
-        expect(await accessCount()).toBe(1);
+        expect(await accessCount()).toBe(3);
         expect(
           (await db.select({ account: schema.authEvents.account }).from(schema.authEvents)).map(
             (r) => r.account,
@@ -1734,9 +1782,12 @@ describe.runIf(url)("api", () => {
         ).toEqual(["new@example.test"]);
 
         // The access log goes only through its purge setting, and what went is itself logged.
-        const second = await purgeLogs(db, { audit: 365, auth: 365, mail: 365 }, now);
-        expect(second.audit).toBeGreaterThanOrEqual(2);
+        const second = await purgeLogs(db, { audit: 365, auth: 365, mail: 365 }, now, {
+          batch: 1,
+        });
+        expect(second.audit).toBeGreaterThanOrEqual(4);
         expect(await accessCount()).toBe(0);
+        await db.delete(schema.organisations).where(eq(schema.organisations.id, other?.id ?? ""));
         const [trimmed] = await db
           .select({ details: schema.instanceEvents.details })
           .from(schema.instanceEvents)

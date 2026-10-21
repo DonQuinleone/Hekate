@@ -1170,5 +1170,6 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 
 - **Retention per kind** is an instance setting: 30 or 90 days, a year, two years, or for good. A job trims each log once a day (`logs-retention`) and writes what it trimmed as an instance event (`logs.purged`), as every change of the setting is one (`logs.retention`).
 - **Defaults:** authentication a year, mail 90 days, and the audit log for good. Nothing already logged goes because the instance was upgraded; an operator who wants the access log trimmed says so.
-- **The audit log** is the operators' instance events and every workspace's access log. The access log goes only through its purge setting (decision 020), a few thousand rows to a transaction, oldest first by its time-ordered ids.
+- **A few thousand rows to a transaction**, oldest first by their time-ordered ids, for every log: a long backlog never holds one transaction. The audit log is the operators' instance events and every workspace's access log; the access log goes only through its purge setting (decision 020), one workspace at a time.
+- **What went is recorded even when a run fails part-way:** `logs.purged` counts what each committed batch removed, marked incomplete if a later one failed, and the next day's run carries on.
 - **The live tail** reads the open log again every five seconds while Live is on.
