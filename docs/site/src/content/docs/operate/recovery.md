@@ -89,7 +89,7 @@ The host is gone, with its volumes.
 A new release fails to start, or misbehaves once it does.
 
 1. If it stopped at start, it says why, having changed nothing ([Upgrades](../upgrades/)): fix the setting, or go back by setting `HEKATE_VERSION` to the previous release.
-2. If it has migrated the database, the previous release refuses to run against it. First set `HEKATE_VERSION` in `.env` to the previous release, as `deploy/restore.sh` starts Hekate when it is done; then restore the backup taken before the upgrade with it. What was done on the new release since is lost.
+2. If it has migrated the database, set `HEKATE_VERSION` back to the previous release and start it: when the new release's migrations only added to the database, the previous release runs against it, and says so. If it refuses the database instead, the migrations changed what it reads, and the backup must come back too: with `HEKATE_VERSION` still set to the previous release (`deploy/restore.sh` starts Hekate when it is done), restore the backup taken before the upgrade. What was done on the new release since is lost.
 3. Report what went wrong, with the server's log, so the next release fixes it.
 
 ## Drills
