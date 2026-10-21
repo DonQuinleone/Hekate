@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createDecipheriv, createHmac } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, totalmem } from "node:os";
 import { dirname, join } from "node:path";
 import { buffer } from "node:stream/consumers";
 import { createDb, runMigrations, schema, uuidv7, withAuditPurge } from "@hekate/db";
@@ -57,7 +57,7 @@ import {
   requeueAlignments,
   requeueMissingFindings,
 } from "./media/workers.ts";
-import { collectFromDatabase, collectQueues } from "./metrics/index.ts";
+import { collectFromDatabase, collectQueues, metrics } from "./metrics/index.ts";
 import { createSampler } from "./metrics/sampler.ts";
 import { deliverDigests, deliverInstant, tellProcessingFailed } from "./notifications.ts";
 import { playbackSecret, signPlayback } from "./playback.ts";
@@ -1964,6 +1964,46 @@ describe.runIf(url)("api", () => {
           now: () => new Date(turn + 30_000),
         });
         expect(atTheTurn.series.requestsPerMinute[0]).toBe(7);
+
+        // Now is every replica (#188): another's last minute counts; this one's own row does
+        // not, as it is read as it is.
+        const sample = {
+          at: new Date(turn - 60_000),
+          requests: 0,
+          errors: 0,
+          jobsWaiting: 0,
+          uploadBytes: 0,
+          cpu: 0.5,
+          cores: 1,
+        };
+        await db.insert(schema.healthSamples).values([
+          { ...sample, replica: uuidv7(), lanes: 4, lanesBusy: 3, memoryUsed: 8, memoryTotal: 16 },
+          {
+            ...sample,
+            replica: sampler.replica,
+            lanes: 100,
+            lanesBusy: 100,
+            memoryUsed: 1,
+            memoryTotal: 1,
+          },
+        ]);
+        const together = await systemHealth(db, "1h", {
+          checks: async () => ({ database: "ok", storage: "ok", worker: "ok", mail: "off" }),
+          sampler,
+          diskPath: tmpdir(),
+          backends: storage.backends,
+          described: [],
+          previousMasterKeys: 0,
+          now: () => new Date(turn + 30_000),
+        });
+        const own = metrics.workerLanes.total();
+        expect(together.now.lanes).toEqual({
+          used: metrics.workerLanesBusy.total() + 3,
+          total: own + 4,
+        });
+        expect(together.now.memory?.total).toBe(totalmem() + 16);
+        expect(together.now.cpu?.cores).toBe((sampler.cpu()?.cores ?? 0) + 1);
+        await db.delete(schema.healthSamples);
         const theirOwner = await join(operator, "label@example.test", "owner");
         expect((await read("24h", theirOwner)).status).toBe(403);
         expect((await reconcile(theirOwner)).status).toBe(403);
@@ -3752,6 +3792,27 @@ describe.runIf(url)("api", () => {
         expect(ops.queue).toEqual({ waiting: 0, running: 0, failed: 0 });
         // When the process was last read is the process's: another test here scrapes it.
         expect(ops.metrics.on).toBe(false);
+        // Or another replica's, whichever was read last (#188).
+        const readElsewhere = new Date(Date.now() + 60_000);
+        await db.insert(schema.healthSamples).values({
+          replica: uuidv7(),
+          at: new Date(Math.floor(Date.now() / 60_000) * 60_000),
+          requests: 0,
+          errors: 0,
+          jobsWaiting: 0,
+          lanes: 0,
+          lanesBusy: 0,
+          uploadBytes: 0,
+          cpu: 0,
+          cores: 1,
+          memoryUsed: 0,
+          memoryTotal: 1,
+          metricsReadAt: readElsewhere,
+        });
+        expect(((await (await read(owner)).json()) as WorkspaceOperations).metrics.lastReadAt).toBe(
+          readElsewhere.toISOString(),
+        );
+        await db.delete(schema.healthSamples);
         expect(ops.release).toEqual({ checkOn: false, newer: null });
         // Owners only: an admin is refused.
         const admin = await joinAs(owner, "admin@example.test", "admin");

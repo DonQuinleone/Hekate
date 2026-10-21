@@ -1,0 +1,1 @@
+ALTER TABLE "health_samples" ADD COLUMN "metrics_read_at" timestamp with time zone;

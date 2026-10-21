@@ -1,6 +1,6 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import { type HealthChecks, newerReleases, type WorkspaceOperations } from "@hekate/shared";
-import { desc, sql } from "drizzle-orm";
+import { desc, max, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import type { InstanceSettingsStore } from "../instance-settings.ts";
 import { metricsLastRead, noQueueYet } from "../metrics/index.ts";
@@ -58,7 +58,14 @@ export const operationsRoutes = (deps: {
       db.select().from(schema.releaseChecks),
       deps.settings.get(),
     ]);
-    const read = metricsLastRead();
+    // Read by whichever replica was scraped (#188): this one's, or the latest any replica measured.
+    const [measured] = await db
+      .select({ at: max(schema.healthSamples.metricsReadAt) })
+      .from(schema.healthSamples);
+    const read = [metricsLastRead(), measured?.at ?? null].reduce<Date | null>(
+      (latest, at) => (at && (!latest || at > latest) ? at : latest),
+      null,
+    );
     return c.json({
       version: HEKATE_VERSION,
       build: deps.build,

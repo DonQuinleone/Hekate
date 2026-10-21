@@ -2,6 +2,7 @@ import { statfs } from "node:fs/promises";
 import { freemem, totalmem } from "node:os";
 import { type Database, schema } from "@hekate/db";
 import {
+  combineReplicas,
   type HealthAmount,
   type HealthBackend,
   type HealthChecks,
@@ -10,6 +11,7 @@ import {
   type HealthService,
   type HealthStorage,
   healthSeries,
+  type ReplicaReading,
   type SystemHealth,
 } from "@hekate/shared";
 import type { Backends } from "@hekate/storage";
@@ -186,6 +188,32 @@ async function storageOf(db: Database, deps: SystemHealthDeps, at: Date): Promis
   };
 }
 
+/** The other replicas running now, each as it last measured a minute. */
+async function othersOf(
+  db: Database,
+  self: string | undefined,
+  at: Date,
+): Promise<ReplicaReading[]> {
+  const rows = await db.execute<{
+    cpu: number;
+    cores: number;
+    memory_used: string;
+    memory_total: string;
+    lanes: number;
+    lanes_busy: number;
+  }>(sql`
+    select distinct on (replica) cpu, cores, memory_used::text, memory_total::text, lanes, lanes_busy
+    from health_samples
+    where at >= ${new Date(at.getTime() - 3 * 60_000).toISOString()}::timestamptz
+      ${self ? sql`and replica <> ${self}::uuid` : sql``}
+    order by replica, at desc`);
+  return rows.map((r) => ({
+    cpu: { share: r.cpu, cores: r.cores },
+    memory: { used: Number(r.memory_used), total: Number(r.memory_total) },
+    lanes: { used: r.lanes_busy, total: r.lanes },
+  }));
+}
+
 /** The System health page (#156): the machine now, a range's minutes, services and metrics. */
 export async function systemHealth(
   db: Database,
@@ -212,10 +240,15 @@ export async function systemHealth(
   ]);
   const lastHour = minutes.filter((m) => new Date(m.at).getTime() >= minute - HOUR);
   const p95s = lastHour.flatMap((m) => (m.p95Seconds === null ? [] : [m.p95Seconds]));
-  const lanes = {
-    used: metrics.workerLanesBusy.total(),
-    total: metrics.workerLanes.total(),
-  };
+  // Every replica now (#188): this one as it is, the others as each last measured a minute.
+  const { cpu, memory, lanes } = combineReplicas([
+    {
+      cpu: deps.sampler?.cpu() ?? null,
+      memory: { used: totalmem() - freemem(), total: totalmem() },
+      lanes: { used: metrics.workerLanesBusy.total(), total: metrics.workerLanes.total() },
+    },
+    ...(await othersOf(db, deps.sampler?.replica, at)),
+  ]);
   const services: HealthService[] = [
     {
       name: "api",
@@ -236,8 +269,8 @@ export async function systemHealth(
   return {
     now: {
       at: at.toISOString(),
-      cpu: deps.sampler?.cpu() ?? null,
-      memory: { used: totalmem() - freemem(), total: totalmem() },
+      cpu,
+      memory,
       disk,
       connections: database?.connections ?? null,
       lanes,
