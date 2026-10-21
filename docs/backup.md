@@ -6,9 +6,13 @@ Three things make a Hekate install, and losing any one of them loses the media:
 - **the storage** (a local directory or an S3 bucket): the files themselves, encrypted;
 - **the master key** (`MASTER_KEY`): it opens the workspace keys, which open the files.
 
-When the installer made the key, it is in the settings file, `/config/hekate.env` on the `settings` volume, with the rest of what the installer was given; it was also shown once, to be stored elsewhere. Back the settings volume up as you would the key itself.
+When the installer made the key, it is in the settings file, `/config/hekate.env` on the `settings` volume, with the rest of what the installer was given; it was also shown once, to be stored elsewhere. Back the settings volume up as you would the key itself, apart from the other backups:
 
-Back up all three, and keep the master key apart from the other two. A copy of the database and the storage without the key is useless to whoever takes it; that is the point. Lose the key, and so is your own copy.
+```sh
+docker run --rm -v hekate_settings:/config:ro alpine cat /config/hekate.env > hekate-settings.env
+```
+
+Back up all three, and keep the master key apart from the other two. `deploy/backup.sh` and `deploy/restore.sh` script the steps below; [Disaster recovery](docs/recovery.md) says when to use them. A copy of the database and the storage without the key is useless to whoever takes it; that is the point. Lose the key, and so is your own copy.
 
 ## Backing up (Docker Compose)
 

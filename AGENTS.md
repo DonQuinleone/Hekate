@@ -40,9 +40,9 @@ pnpm workspace.
 | `packages/db` | Drizzle schema, migrations and client. Server-only. |
 | `packages/storage` | Storage backends (local disk, S3) behind one interface, with a shared conformance suite. Server-only. |
 | `brand/` | Mark, wordmark and icons. SVG is the source of truth. |
-| `docs/` | Decisions (`docs/decisions.md`), the brand system (`docs/brand.md`), security (`docs/security.md`), backups (`docs/backup.md`) and the configuration reference (`docs/configuration.md`, generated). |
+| `docs/` | Decisions (`docs/decisions.md`), the brand system (`docs/brand.md`), security (`docs/security.md`), backups (`docs/backup.md`), disaster recovery (`docs/recovery.md`) and the configuration reference (`docs/configuration.md`, generated). |
 | `docs/site` | The documentation site (Starlight): install, operate, security, use. Operator pages are copied in from `docs/` at build time; a release publishes it to GitHub Pages. |
-| `deploy/` | Compose files and Caddy configuration. |
+| `deploy/` | Compose files, Caddy configuration, and the backup and restore scripts. |
 
 Commands:
 

@@ -3,6 +3,7 @@ dist/
 # Copied in from docs/ at build time (scripts/sync.ts).
 src/content/docs/install/configuration.md
 src/content/docs/operate/backup.md
+src/content/docs/operate/recovery.md
 src/content/docs/security/model.md
 src/content/docs/security/reporting.md
 src/content/docs/operate/upgrade-notes.md

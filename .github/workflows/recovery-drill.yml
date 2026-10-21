@@ -1,0 +1,97 @@
+# The recovery drill (#195): a whole Docker Compose install backed up with deploy/backup.sh and
+# restored with deploy/restore.sh into a new stack, against the app image. Once a quarter, by
+# hand, and on any change to the scripts or the Compose files.
+name: Recovery drill
+
+on:
+  schedule:
+    - cron: "17 5 1 1,4,7,10 *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - deploy/**
+      - docs/recovery.md
+      - .github/workflows/recovery-drill.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recovery-drill-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: hekate
+          POSTGRES_PASSWORD: hekate
+          POSTGRES_DB: hekate
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U hekate" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      E2E_DATABASE_URL: postgres://hekate:hekate@localhost:5432/hekate
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          push: false
+          tags: ghcr.io/donquinleone/hekate:drill
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install ffmpeg and Poppler
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg poppler-utils fonts-dejavu-core
+      - name: Install Chromium
+        run: pnpm --filter @hekate/e2e exec playwright install --with-deps chromium
+      - run: pnpm --filter @hekate/web build
+        env:
+          VITE_REFERENCE: "1"
+      # An instance with music, video, documents and reviews in it, as the visual suite seeds it.
+      - name: Seed an instance
+        run: |
+          echo "E2E_MASTER_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+          echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)" >> "$GITHUB_ENV"
+      - run: pnpm --filter @hekate/e2e e2e --project seed
+      # The seeded instance as a backup of an earlier install would have it.
+      - name: Make the first backup
+        run: |
+          mkdir -p "$RUNNER_TEMP/first" "$RUNNER_TEMP/second"
+          docker run --rm --network host -v "$RUNNER_TEMP/first:/backup" postgres:18-alpine \
+            pg_dump --format=custom --file=/backup/hekate.dump "$E2E_DATABASE_URL"
+          tar -czf "$RUNNER_TEMP/first/hekate-storage.tar.gz" -C apps/e2e/.state storage
+      - name: Write the install's settings
+        run: |
+          {
+            echo "HEKATE_VERSION=drill"
+            echo "HEKATE_DOMAIN=localhost"
+            echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD"
+            echo "MASTER_KEY=$E2E_MASTER_KEY"
+            echo "AUTH_SECRET=$(openssl rand -hex 32)"
+            echo "PASSWORD_LEAK_CHECK=false"
+          } > .env
+      - name: Restore it into a new install
+        run: deploy/restore.sh "$RUNNER_TEMP/first/hekate.dump" "$RUNNER_TEMP/first/hekate-storage.tar.gz"
+      - name: It serves
+        run: curl --fail --silent --show-error --insecure --retry 10 --retry-all-errors https://localhost/api/health
+      - name: Back the install up
+        run: deploy/backup.sh "$RUNNER_TEMP/second"
+      - name: Lose the machine
+        run: docker compose -f deploy/compose.yml down --volumes
+      - name: Restore the backup onto a new one
+        run: deploy/restore.sh "$RUNNER_TEMP"/second/hekate-*.dump "$RUNNER_TEMP"/second/hekate-storage-*.tar.gz
+      - name: It serves again
+        run: curl --fail --silent --show-error --insecure --retry 10 --retry-all-errors https://localhost/api/health
+      - name: The app's log
+        if: ${{ failure() }}
+        run: docker compose -f deploy/compose.yml logs app

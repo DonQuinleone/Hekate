@@ -17,6 +17,12 @@ const pages = [
     description: "Back up the database, the storage and the master key; restore and verify.",
   },
   {
+    from: "docs/recovery.md",
+    to: "operate/recovery.md",
+    description:
+      "Recovery objectives, what to do when each part is lost, and the scripted restore.",
+  },
+  {
     from: "docs/security.md",
     to: "security/model.md",
     description:
@@ -38,6 +44,7 @@ for (const page of pages) {
     // Links between the copied pages point at their places on the site.
     .replace(/docs\/configuration\.md/g, "../../install/configuration/")
     .replace(/docs\/backup\.md/g, "../../operate/backup/")
+    .replace(/docs\/recovery\.md/g, "../../operate/recovery/")
     .replace(/docs\/security\.md/g, "../../security/model/");
   const target = join(import.meta.dirname, "../src/content/docs", page.to);
   mkdirSync(dirname(target), { recursive: true });
