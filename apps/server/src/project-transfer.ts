@@ -92,10 +92,19 @@ export const transferTables = {
     "notifications",
   ],
   /**
-   * Dropped with the move: unfinished uploads, live download tickets and calendar feed links,
-   * each a way in that was given out under the losing workspace.
+   * Dropped with the move: unfinished uploads, live download tickets, calendar feed links and
+   * upload requests (with their record of who sent what), each a way in that was given out
+   * under the losing workspace. The files sent through a request move with the project.
    */
-  dropped: ["uploads", "upload_parts", "download_tickets", "calendar_feeds"],
+  dropped: [
+    "uploads",
+    "upload_parts",
+    "download_tickets",
+    "calendar_feeds",
+    "upload_requests",
+    "upload_request_uploads",
+    "upload_request_files",
+  ],
   /**
    * The workspace's own, left where they are: people, guests, tags, profiles, settings, keys and
    * the access log (append-only, so the project's history stays in the log it was written to).
@@ -249,7 +258,7 @@ async function assertEligible(
  *   the tasks and threads given to them are given to nobody;
  * - guests are matched in the gaining workspace by address, or added to it;
  * - tags and custom delivery profiles are matched by name, or copied;
- * - unfinished uploads, download tickets and calendar links are dropped, and old
+ * - unfinished uploads, download tickets, calendar links and upload requests are dropped, and old
  *   notifications of those left behind removed.
  * Once it commits, the old objects are deleted, and a checksum still to compute is asked for
  * again in the gaining workspace (the job already queued names the losing one).
@@ -402,6 +411,9 @@ async function leavePeople(tx: Tx, projectId: string, from: string, to: string) 
   await tx.execute(sql`delete from download_tickets where organisation_id = ${from}
     and (file_id in ${files} or project_id = ${projectId})`);
   await tx.execute(sql`delete from calendar_feeds where organisation_id = ${from}
+    and project_id = ${projectId}`);
+  // Its uploads and files rows go with it.
+  await tx.execute(sql`delete from upload_requests where organisation_id = ${from}
     and project_id = ${projectId}`);
   return leaving;
 }
