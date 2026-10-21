@@ -72,7 +72,7 @@ Key issues, page renders and downloads are counted as they are written to the ac
 
 ## System health
 
-Without Prometheus, operators still see the machine on the instance side's **System health** page: processor, memory, disk and database connections now; requests, latency, errors, queue depth, busy worker lanes and uploads over the last hour or day; and each service's state. Every running process writes what it measured each minute to the database, and the rows go after a day, so the page needs no token and nothing beyond PostgreSQL. Processor and memory are the machine's (or the container's host's) as the process sees them; the disk is the one holding local storage.
+Without Prometheus, operators still see the machine on the instance side's **System health** page: processor, memory, disk and database connections now; requests, latency, errors, queue depth, busy worker lanes and uploads over the last hour or day; each service's state; and each storage backend, the master key and the last reconciliation, which an operator can also run there and then. Every running process writes what it measured each minute to the database, and the rows go after a day, so the page needs no token and nothing beyond PostgreSQL. Processor and memory are the machine's (or the container's host's) as the process sees them; the disk is the one holding local storage.
 
 ## Grafana
 

@@ -1485,6 +1485,58 @@ describe.runIf(url)("api", () => {
         ]);
         expect(health.services.find((service) => service.name === "database")?.state).toBe("ok");
         expect(health.metrics.map((m) => m.name)).toContain("hekate_worker_lanes_busy");
+        // Storage: each backend, the master key's workspace keys, and the last run.
+        expect(health.storage.backends.map((b) => [b.name, b.isDefault, b.state])).toEqual([
+          ["local", true, "ok"],
+          ["spare", false, "ok"],
+        ]);
+
+        // A run that failed three hours ago never finished: it is neither the last run nor running.
+        const hoursAgo = (h: number) => new Date(Date.now() - h * 60 * 60_000);
+        await db.insert(schema.storageReconciliations).values([
+          { startedAt: hoursAgo(30), finishedAt: hoursAgo(29), removing: true },
+          { startedAt: hoursAgo(3), removing: true },
+        ]);
+        const runs = async () =>
+          ((await (await read("1h")).json()) as SystemHealth).storage.reconciliation;
+        const settled = await runs();
+        expect(settled.runningSince).toBeNull();
+        expect(new Date(settled.last?.finishedAt ?? 0).getTime()).toBeLessThan(
+          hoursAgo(28).getTime(),
+        );
+        await db
+          .insert(schema.storageReconciliations)
+          .values({ startedAt: hoursAgo(0.1), removing: true });
+        expect((await runs()).runningSince).not.toBeNull();
+        // Runs are the instance's, kept across tests: leave none for the next.
+        await db.delete(schema.storageReconciliations);
+        expect(health.storage.reconciliation.open).toEqual({
+          orphanObjects: 0,
+          unreferencedBlobs: 0,
+          missingObjects: 0,
+        });
+        const reconcile = (cookie = operator) =>
+          asOperator.request("/api/instance/health/reconcile", {
+            ...json({}, cookie),
+            method: "POST",
+          });
+        const before = sent.length;
+        // A workspace's first key is made on first use; the master key wraps it.
+        const [workspace] = await db
+          .select({ id: schema.organisations.id })
+          .from(schema.organisations);
+        await keyring.current(workspace?.id ?? "");
+        const again = (await (await read("1h")).json()) as SystemHealth;
+        const [keys] = await db.select({ n: count() }).from(schema.organisationKeys);
+        expect(keys?.n).toBeGreaterThan(0);
+        expect(again.storage.masterKey).toEqual({ workspaceKeys: keys?.n, previous: 0 });
+        expect((await reconcile()).status).toBe(202);
+        expect(sent.slice(before).map((j) => j.name)).toEqual(["storage-reconcile"]);
+        const [asked] = await db
+          .select({ action: schema.instanceEvents.action })
+          .from(schema.instanceEvents)
+          .where(eq(schema.instanceEvents.action, "storage.reconcile"));
+        expect(asked?.action).toBe("storage.reconcile");
         expect((await read("7d")).status).toBe(400);
 
         // Asked half a minute past the turn, the hour's first minute is still its first point.
@@ -1504,14 +1556,18 @@ describe.runIf(url)("api", () => {
           memoryUsed: 0,
           memoryTotal: 1,
         });
-        const asked = await systemHealth(db, "1h", {
+        const atTheTurn = await systemHealth(db, "1h", {
           checks: async () => ({ database: "ok", storage: "ok", worker: "ok", mail: "off" }),
           diskPath: tmpdir(),
+          backends: storage.backends,
+          described: [],
+          previousMasterKeys: 0,
           now: () => new Date(turn + 30_000),
         });
-        expect(asked.series.requestsPerMinute[0]).toBe(7);
+        expect(atTheTurn.series.requestsPerMinute[0]).toBe(7);
         const theirOwner = await join(operator, "label@example.test", "owner");
         expect((await read("24h", theirOwner)).status).toBe(403);
+        expect((await reconcile(theirOwner)).status).toBe(403);
       });
 
       it("keeps a report when the workspace it names does not exist", async () => {

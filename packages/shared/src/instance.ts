@@ -248,6 +248,7 @@ export const instanceActions: Record<string, string> = {
   "maintenance.on": "turned on",
   "maintenance.off": "turned off",
   "maintenance.message": "given a new notice",
+  "storage.reconcile": "checked against the database by an operator",
 };
 
 /** Where a workspace stands, from its record. */

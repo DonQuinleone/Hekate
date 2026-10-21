@@ -265,6 +265,15 @@ export async function boot(
   const app = createApp({
     db,
     sampler,
+    storageDescribed: storageConfig.backends.map((b) => ({
+      name: b.name,
+      driver: b.driver,
+      where:
+        b.driver === "local"
+          ? b.root
+          : `s3://${b.bucket}${b.prefix ? `/${b.prefix}` : ""}${b.region ? ` · ${b.region}` : ""}`,
+    })),
+    previousMasterKeys: config.MASTER_KEYS_PREVIOUS.length,
     diskPath:
       storageConfig.backends.flatMap((b) => (b.driver === "local" ? [b.root] : []))[0] ??
       config.WORK_DIR ??
