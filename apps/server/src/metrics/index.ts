@@ -244,8 +244,10 @@ export function metricsHandler(token: string | undefined): MiddlewareHandler {
       c.header("WWW-Authenticate", 'Bearer realm="metrics"');
       return c.json({ error: { code: "unauthorised", message: "A metrics token is needed" } }, 401);
     }
+    const body = await registry.render();
+    // Only once the scrape is answered: a read that failed is not one.
     lastRead = new Date();
-    return c.body(await registry.render(), 200, {
+    return c.body(body, 200, {
       "Content-Type": "text/plain; version=0.0.4; charset=utf-8",
       "Cache-Control": "no-store",
     });
