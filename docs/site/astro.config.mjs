@@ -39,6 +39,7 @@ export default defineConfig({
             "operate/upgrade-notes",
             "operate/keys",
             "operate/monitoring",
+            "operate/load-testing",
           ],
         },
         { label: "Security", items: ["security/model", "security/reporting"] },

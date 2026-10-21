@@ -1239,3 +1239,14 @@ CI runs the API suite through PgBouncer in transaction mode at its defaults (the
 - **One PostgreSQL** on a labelled machine, for a start; the docs point to a managed service or Patroni for more (decision 190). Caddy on a manager, through Swarm's virtual address for `api`, retrying for up to five seconds when a replica stops as a request arrives.
 - **CI checks the stack reads** (`docker stack config`) on every pull request; it is not deployed there, as it needs S3 and a swarm.
 
+
+## 195. Load testing
+
+#196. k6 scenarios in `load/hekate.js`, with the targets in the docs (Operate, Load testing) as their thresholds.
+
+- **k6, outside the workspace.** Its scripts run in k6's own runtime, not Node, so they are plain JavaScript with no package; CI runs k6's image, pinned by digest, and nothing is added to the lockfile or the app image.
+- **Self-contained.** The test sets up a fresh instance with its setup code (or signs in to one), makes its own project, uploads a minute of audio made by ffmpeg, waits for it to stream and asks for a review, so it needs no seed and runs against any test instance.
+- **What a studio does at once:** playback (a stream started, its playlists, key and every segment), comments posted and listed, the review page, uploads in parts, and transcodes timed from upload to streaming. Arrival rates, not looping users, so a slow server shows as latency rather than as less load; `HEKATE_SCALE` multiplies them all.
+- **Within Hekate's limits, not around them.** Ten sign-ins a minute from one address and thirty stream keys a minute for each session stay as they are; the test signs in a few sessions once and spreads playback over them. No setting relaxes a limit for testing.
+- **Targets as a floor.** They are what the image meets on a GitHub-hosted runner with k6, PostgreSQL and Caddy on the same four cores, with room to spare: a run that misses one is a regression to look into, not a statement of what production hardware does.
+- **When it runs:** by hand (Actions, Load test), on every release pull request before it merges (Release Please changes `.release-please-manifest.json` in each), and on any change to the test. The app image is served as the Compose file serves it, and k6's summary is kept as an artefact.

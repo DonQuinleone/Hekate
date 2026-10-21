@@ -1,0 +1,92 @@
+# The load test (#196): the k6 scenarios in load/ against the app image, served as the Compose
+# file serves it. By hand (with a longer run or a higher rate when asked), on every release pull
+# request before it merges, and on any change to the test itself.
+name: Load test
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: How long each scenario runs (a k6 duration)
+        default: 2m
+      scale:
+        description: Multiplies every arrival rate
+        default: "1"
+  pull_request:
+    paths:
+      - load/**
+      - .github/workflows/load.yml
+      # Release Please changes it in every release pull request.
+      - .release-please-manifest.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: load-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    env:
+      HEKATE_DURATION: ${{ inputs.duration || '2m' }}
+      HEKATE_SCALE: ${{ inputs.scale || '1' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          push: false
+          tags: ghcr.io/donquinleone/hekate:load
+      - name: Write the install's settings
+        # Compose fills in its file (the image tag, the domain, the database password) from the
+        # environment it runs in; the app reads .env.
+        run: |
+          password=$(openssl rand -hex 16)
+          {
+            echo "HEKATE_VERSION=load"
+            echo "HEKATE_DOMAIN=localhost"
+            echo "POSTGRES_PASSWORD=$password"
+            echo "HEKATE_SETUP_CODE=7KQ2-M9XD-4HPW"
+          } >> "$GITHUB_ENV"
+          {
+            echo "HEKATE_VERSION=load"
+            echo "HEKATE_DOMAIN=localhost"
+            echo "POSTGRES_PASSWORD=$password"
+            echo "MASTER_KEY=$(openssl rand -base64 32)"
+            echo "AUTH_SECRET=$(openssl rand -hex 32)"
+            echo "PASSWORD_LEAK_CHECK=false"
+            echo "HEKATE_SETUP_CODE=7KQ2-M9XD-4HPW"
+          } > .env
+      - name: Start it
+        run: docker compose -f deploy/compose.yml up -d --wait
+      - name: Make a minute of audio
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg
+          mkdir -p "$RUNNER_TEMP/media" "$RUNNER_TEMP/results"
+          ffmpeg -loglevel error -f lavfi -i "sine=frequency=220:duration=60" \
+            -f lavfi -i "anoisesrc=d=60:a=0.05" \
+            -filter_complex "[0][1]amix=inputs=2,aformat=channel_layouts=stereo" \
+            -ar 48000 -c:a flac "$RUNNER_TEMP/media/media.flac"
+      - name: Load it
+        run: |
+          chmod 777 "$RUNNER_TEMP/results"
+          docker run --rm --network host \
+            -v "$PWD/load:/load:ro" -v "$RUNNER_TEMP/media:/media:ro" -v "$RUNNER_TEMP/results:/results" \
+            -e HEKATE_URL=https://localhost -e HEKATE_INSECURE=1 \
+            -e HEKATE_SETUP_CODE -e HEKATE_DURATION -e HEKATE_SCALE -e HEKATE_MEDIA=/media/media.flac \
+            grafana/k6:1.8.2@sha256:bd6ae8607c0a05d0dc0dc3f5753c464b0929baf083ef0f20b7eed845a3d9e6b4 \
+            run --summary-export /results/summary.json /load/hekate.js
+      - name: Keep the results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: load-test
+          path: ${{ runner.temp }}/results
+          if-no-files-found: ignore
+      - name: The app's log
+        if: ${{ failure() }}
+        run: docker compose -f deploy/compose.yml logs app
