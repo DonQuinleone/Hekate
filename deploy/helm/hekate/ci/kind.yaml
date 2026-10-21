@@ -5,3 +5,7 @@ image:
   pullPolicy: Never
 ingress:
   enabled: false
+# The drill sets the instance up; it never depends on a service outside the machine.
+env:
+  HEKATE_UPDATE_CHECK: "false"
+  PASSWORD_LEAK_CHECK: "false"
