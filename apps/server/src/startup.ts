@@ -83,6 +83,11 @@ export function schemaProblem(state: {
  * migrations run only when asked to, one replica at a time, never losing data unasked; without
  * them, a database behind or ahead of the code is named before anything misreads it.
  */
+/** Said when this release starts against a newer one's database, which it can read (#421). */
+const NEWER =
+  "The database has a newer version's migrations, which only add to it: this version runs " +
+  "alongside it, as during a rolling upgrade or after a rollback.";
+
 export async function migrateOrExit(config: {
   DATABASE_URL: string;
   DATABASE_DIRECT_URL?: string | undefined;
@@ -93,16 +98,18 @@ export async function migrateOrExit(config: {
   const sessionUrl = config.DATABASE_DIRECT_URL ?? config.DATABASE_URL;
   try {
     if (config.MIGRATE_ON_START) {
-      const { applied } = await runMigrations(sessionUrl, undefined, {
+      const { applied, newer } = await runMigrations(sessionUrl, undefined, {
         allowDestructive: config.MIGRATE_ALLOW_DESTRUCTIVE,
       });
       if (applied.length > 0) console.log(`Migrated: ${applied.join(", ")}.`);
+      if (newer) console.log(NEWER);
       return;
     }
     const { db, close } = createDb(config.DATABASE_URL, { max: 1 });
     try {
       const state = await migrationState(db);
       const problem = schemaProblem(state);
+      if (!problem && state.newer) console.log(NEWER);
       if (problem) {
         console.error(problem);
         process.exit(1);

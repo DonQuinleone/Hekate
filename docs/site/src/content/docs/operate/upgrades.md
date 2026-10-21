@@ -11,7 +11,7 @@ docker compose -f deploy/compose.yml pull app
 docker compose -f deploy/compose.yml up -d app
 ```
 
-When it starts, the app checks its settings first; if one is wrong it stops and says why, having changed nothing. It then runs any pending database migrations (`MIGRATE_ON_START`, on in the image), and checks its storage and every workspace key before it serves anything; if those fail it stops and names the problem, so fix it and start again. Migrations are not undone: to go back to the previous release once they have run, restore the backup taken before the upgrade, then set `HEKATE_VERSION` to that release.
+When it starts, the app checks its settings first; if one is wrong it stops and says why, having changed nothing. It then runs any pending database migrations (`MIGRATE_ON_START`, on in the image), and checks its storage and every workspace key before it serves anything; if those fail it stops and names the problem, so fix it and start again. Migrations are not undone, and need not be when they only add to the database: the previous release runs against what most upgrades leave, so setting `HEKATE_VERSION` back to it is enough. When a release's migrations change what the one before it reads (a column made required, renamed or dropped, say), the previous release refuses the database and says so; to go back then, restore the backup taken before the upgrade, then set `HEKATE_VERSION` to that release.
 
 ## Migrations that lose data
 
@@ -29,7 +29,7 @@ Replicas that start together migrate one at a time: the first takes a lock in Po
 
 ## When the database and the app disagree
 
-With `MIGRATE_ON_START` off, the app checks the database before it starts. If the database is behind (migrations not yet applied), it stops and names them: start once with `MIGRATE_ON_START=true`, or run `pnpm db:migrate`. If the database is ahead, because a newer release has already migrated it, the app stops whatever the setting: run that newer release again, or restore the backup taken before upgrading.
+With `MIGRATE_ON_START` off, the app checks the database before it starts. If the database is behind (migrations not yet applied), it stops and names them: start once with `MIGRATE_ON_START=true`, or run `pnpm db:migrate`. If the database is ahead, because a newer release has already migrated it, the app runs alongside it when the newer release's migrations only added to the database, and says so; when they changed what this release reads, it stops whatever the setting: run that newer release again, or restore the backup taken before upgrading.
 
 ## Maintenance mode
 
