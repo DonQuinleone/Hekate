@@ -1163,3 +1163,12 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **The address** is read as the access log reads it: X-Forwarded-For's last entry behind Caddy (TRUST_PROXY), none otherwise, as a client could claim any.
 - **Beside, never awaited**: a slow or failed write holds no sign-in up.
 - **Forgetting.** Deleting an account rewrites its address to "A former member" here and in the mail log, as the access log and the instance's events already do.
+
+## 187. Logs: retention and the live tail
+
+#157, last part.
+
+- **Retention per kind** is an instance setting: 30 or 90 days, a year, two years, or for good. A job trims each log once a day (`logs-retention`) and writes what it trimmed as an instance event (`logs.purged`), as every change of the setting is one (`logs.retention`).
+- **Defaults:** authentication a year, mail 90 days, and the audit log for good. Nothing already logged goes because the instance was upgraded; an operator who wants the access log trimmed says so.
+- **The audit log** is the operators' instance events and every workspace's access log. The access log goes only through its purge setting (decision 020), a few thousand rows to a transaction, oldest first by its time-ordered ids.
+- **The live tail** reads the open log again every five seconds while Live is on.

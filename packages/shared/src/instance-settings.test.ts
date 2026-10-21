@@ -37,12 +37,14 @@ describe("instance settings", () => {
         updates: { channel: "beta" },
         maintenance: { on: false, message: "" },
         defaults: { guestLinkDays: 14 },
-      }).map((c) => c.action),
+        logs: { audit: 730, auth: 365, mail: 90 },
+      }),
     ).toEqual([
-      "settings.second_factor_on",
-      "updates.channel",
-      "maintenance.off",
-      "defaults.guest_link_days",
+      { action: "settings.second_factor_on", details: {} },
+      { action: "updates.channel", details: { channel: "beta" } },
+      { action: "maintenance.off", details: { message: "" } },
+      { action: "defaults.guest_link_days", details: { days: 14 } },
+      { action: "logs.retention", details: { kind: "audit", days: 730 } },
     ]);
     expect(settingsChanges(on, on)).toEqual([]);
   });
@@ -54,5 +56,12 @@ describe("instance settings", () => {
     expect(withStored({ ...older, defaults: { guestLinkDays: 14 } }, stored).defaults).toEqual({
       guestLinkDays: 14,
     });
+    // Kept for good is a choice too: a save that leaves out the logs keeps it.
+    const forever = {
+      ...defaultInstanceSettings,
+      logs: { audit: null, auth: null, mail: 30 as const },
+    };
+    const { logs: __, ...olderStill } = older;
+    expect(withStored(olderStill, forever).logs).toEqual({ audit: null, auth: null, mail: 30 });
   });
 });

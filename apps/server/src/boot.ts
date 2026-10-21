@@ -17,6 +17,7 @@ import { createFlags } from "./flags.ts";
 import { createInstanceSettings } from "./instance-settings.ts";
 import { createJobs, jobDefinitions } from "./jobs.ts";
 import { createKeyring, UnknownMasterKeyError } from "./keyring.ts";
+import { purgeLogs } from "./log-retention.ts";
 import { createMailer, loggedMailer } from "./mail.ts";
 import { startWorkers } from "./media/workers.ts";
 import { collectFromDatabase, collectQueues, countedMailer } from "./metrics/index.ts";
@@ -218,6 +219,13 @@ export async function boot(
     });
     await jobs.work("notifications-digest", async () => {
       await deliverDigests(db, mailer, config.PUBLIC_URL);
+    });
+    await jobs.work("logs-retention", async () => {
+      const purged = await purgeLogs(db, (await settings.get()).logs);
+      if (purged.audit + purged.auth + purged.mail > 0)
+        console.log(
+          `Logs trimmed: ${purged.audit} audit, ${purged.auth} authentication, ${purged.mail} mail`,
+        );
     });
     await jobs.work("sign-in-attempts-purge", async () => {
       await purgeAttempts(db);

@@ -1545,7 +1545,9 @@ export function instanceRoutes(options: InstanceOptions) {
                   ? "The update channel"
                   : change.action.startsWith("defaults.")
                     ? "New workspaces' guest links"
-                    : "A second factor",
+                    : change.action.startsWith("logs.")
+                      ? `The ${String(change.details.kind) === "auth" ? "authentication" : String(change.details.kind)} log`
+                      : "A second factor",
               details: change.details,
               ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
             });
