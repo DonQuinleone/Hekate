@@ -1227,3 +1227,15 @@ CI runs the API suite through PgBouncer in transaction mode at its defaults (the
 - **Uploads resume.** A chunk cut off mid-way is never recorded, so the browser sends it again, to any replica, and the upload completes whole. Tested across two app instances.
 - **Compose** gives the app 40 seconds to stop (`stop_grace_period`), longer than the timeout; the Helm chart's grace period and rolling update follow when it comes (#190).
 
+## 194. Docker Swarm
+
+#191. `deploy/stack.yml`, for `docker stack deploy`, beside the Compose file for one machine.
+
+- **Two app services from one image:** `api` (`ROLE=api`, two replicas by default, anywhere) and `worker` (`ROLE=worker`, on machines labelled `hekate.worker=true`); every app task keeps its scratch space in memory, as API replicas make watermarked downloads and marked pages in it too. The API replicas migrate as they start, one at a time (decision 177); workers never do.
+- **Every key a Docker secret**, read through the `_FILE` settings: the master key, `AUTH_SECRET`, the database URL and password, the S3 secret key, and the mail URL if mail is sent. Nothing secret is written in the stack or its environment.
+- **Configured, not installed.** The browser installer writes to one replica's settings file, so the stack gives every setting, and requires `HEKATE_SETUP_CODE`, as replicas each making their own code would refuse each other's.
+- **S3 only.** Local storage would need a filesystem every machine mounts; the stack does not pretend to offer one.
+- **Rolling updates without a gap.** `api` starts each new replica, healthy, before stopping an old one, and rolls back by itself when a new one fails; workers stop first, their jobs finishing or going back to the queue. Every app task has 40 seconds to stop (decision 193).
+- **One PostgreSQL** on a labelled machine, for a start; the docs point to a managed service or Patroni for more (decision 190). Caddy on a manager, through Swarm's virtual address for `api`, retrying for up to five seconds when a replica stops as a request arrives.
+- **CI checks the stack reads** (`docker stack config`) on every pull request; it is not deployed there, as it needs S3 and a swarm.
+

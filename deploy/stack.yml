@@ -1,0 +1,163 @@
+# Hekate on Docker Swarm (#191): API replicas, media workers, PostgreSQL and Caddy, with the keys
+# as Docker secrets. See docs/site/src/content/docs/install/swarm.md. In short:
+#
+#   printf '%s' "$(openssl rand -base64 32)" | docker secret create hekate_master_key -
+#   printf '%s' "$(openssl rand -hex 32)" | docker secret create hekate_auth_secret -
+#   printf '%s' "$(openssl rand -hex 24)" | docker secret create hekate_db_password -
+#   printf 'postgres://hekate:%s@db:5432/hekate' "<the same password>" \
+#     | docker secret create hekate_database_url -
+#   printf '%s' "<S3 secret key>" | docker secret create hekate_s3_secret_key -
+#   docker node update --label-add hekate.db=true <the node that keeps the database>
+#   docker node update --label-add hekate.worker=true <each node that may run media work>
+#   HEKATE_DOMAIN=review.example.com HEKATE_SETUP_CODE=… S3_BUCKET=… S3_ACCESS_KEY_ID=… \
+#     docker stack deploy -c deploy/stack.yml hekate
+#
+# The media live in S3 (or an S3-compatible service), as every node must reach them. Every
+# value below written ${NAME} comes from the environment `docker stack deploy` runs in.
+
+x-app: &app
+  # The release this file came with; HEKATE_VERSION picks another.
+  image: ghcr.io/donquinleone/hekate:${HEKATE_VERSION:-0.1.0} # x-release-please-version
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  # Longer than SHUTDOWN_TIMEOUT_SECONDS: a replica drains and finishes before it is killed (#193).
+  stop_grace_period: 40s
+  secrets: [hekate_master_key, hekate_auth_secret, hekate_database_url, hekate_s3_secret_key]
+  tmpfs:
+    - /tmp:size=256m,mode=1777
+    # Decrypted media exists only while it is worked on: in memory, never on disk. Workers
+    # transcode there; API replicas make watermarked downloads and marked pages there.
+    - /tmp/hekate-work:size=${HEKATE_WORK_SIZE:-8g},mode=0700,uid=1000,gid=1000
+
+x-app-environment: &app-environment
+  DATABASE_URL_FILE: /run/secrets/hekate_database_url
+  AUTH_SECRET_FILE: /run/secrets/hekate_auth_secret
+  MASTER_KEY_FILE: /run/secrets/hekate_master_key
+  PUBLIC_URL: https://${HEKATE_DOMAIN:?set HEKATE_DOMAIN}
+  TRUST_PROXY: "true"
+  # Configured here, not by the browser installer, whose settings would stay on one node. The
+  # setup code that creates the first owner, the same on every replica (three groups of four
+  # letters and digits): a code of each replica's own would be refused by the others.
+  HEKATE_SETUP_CODE: ${HEKATE_SETUP_CODE:?set HEKATE_SETUP_CODE, such as 7KQ2-M9XD-4HPW}
+  STORAGE_BACKENDS: media
+  STORAGE_MEDIA_DRIVER: s3
+  STORAGE_MEDIA_BUCKET: ${S3_BUCKET:?set S3_BUCKET}
+  STORAGE_MEDIA_REGION: ${S3_REGION:-}
+  STORAGE_MEDIA_ENDPOINT: ${S3_ENDPOINT:-}
+  # Most S3-compatible services need the bucket in the path: S3_FORCE_PATH_STYLE=true.
+  STORAGE_MEDIA_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+  STORAGE_MEDIA_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID}
+  STORAGE_MEDIA_SECRET_ACCESS_KEY_FILE: /run/secrets/hekate_s3_secret_key
+  # Mail: add SMTP_URL_FILE: /run/secrets/hekate_smtp_url, with that secret, to send it.
+  MAIL_FROM: ${MAIL_FROM:-Hekate <hekate@localhost>}
+
+services:
+  # Answers requests: as many as the traffic needs, anywhere.
+  api:
+    <<: *app
+    environment:
+      <<: *app-environment
+      ROLE: api
+      # Replicas that start together migrate once, one after another (decision 177).
+      MIGRATE_ON_START: "true"
+    deploy:
+      replicas: ${HEKATE_API_REPLICAS:-2}
+      update_config:
+        parallelism: 1
+        # The new replica is up and ready before the old one stops: no gap in service.
+        order: start-first
+        delay: 10s
+        failure_action: rollback
+        monitor: 60s
+      rollback_config:
+        parallelism: 1
+        order: start-first
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+
+  # Runs the background jobs: media work, mail and the instance's own sweeps (#189). Only on
+  # nodes labelled for it, which have the processors and the memory for ffmpeg.
+  worker:
+    <<: *app
+    environment:
+      <<: *app-environment
+      ROLE: worker
+      MIGRATE_ON_START: "false"
+      WORKER_LANES: ${HEKATE_WORKER_LANES:-}
+      WORKER_CONCURRENCY: ${HEKATE_WORKER_CONCURRENCY:-2}
+    deploy:
+      replicas: ${HEKATE_WORKER_REPLICAS:-1}
+      placement:
+        constraints: [node.labels.hekate.worker == true]
+      update_config:
+        parallelism: 1
+        # A worker's jobs finish or go back to the queue before the next one starts.
+        order: stop-first
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+
+  # One PostgreSQL on the labelled node, its data in a volume there. For high availability,
+  # use a managed service or Patroni instead, and drop this service (docs: The database).
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: hekate
+      POSTGRES_DB: hekate
+      POSTGRES_PASSWORD_FILE: /run/secrets/hekate_db_password
+    secrets: [hekate_db_password]
+    volumes:
+      - postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hekate -d hekate"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.labels.hekate.db == true]
+
+  # HTTPS for the domain, spreading requests across the API replicas.
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - { target: 80, published: 80, mode: host }
+      - { target: 443, published: 443, mode: host }
+      - { target: 443, published: 443, protocol: udp, mode: host }
+    environment:
+      HEKATE_DOMAIN: ${HEKATE_DOMAIN}
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+
+configs:
+  caddyfile:
+    file: ./Caddyfile.swarm
+
+secrets:
+  hekate_master_key:
+    external: true
+  hekate_auth_secret:
+    external: true
+  hekate_database_url:
+    external: true
+  hekate_db_password:
+    external: true
+  hekate_s3_secret_key:
+    external: true
+
+volumes:
+  postgres:
+  caddy-data:
+  caddy-config:

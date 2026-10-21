@@ -20,7 +20,13 @@ export default defineConfig({
       sidebar: [
         {
           label: "Install",
-          items: ["install", "install/configuration", "install/storage", "install/proxies"],
+          items: [
+            "install",
+            "install/swarm",
+            "install/configuration",
+            "install/storage",
+            "install/proxies",
+          ],
         },
         {
           label: "Operate",

@@ -281,6 +281,14 @@ jobs:
           docker run --rm --read-only --tmpfs /tmp --cap-drop ALL \
             --security-opt no-new-privileges:true \
             -v "$PWD/scripts/image-smoke.mjs:/smoke.mjs:ro" hekate:ci /smoke.mjs
+      # The Swarm stack (#191) reads as Docker reads it: every value it needs given.
+      - name: The Swarm stack is valid
+        run: docker stack config -c deploy/stack.yml > /dev/null
+        env:
+          HEKATE_DOMAIN: review.example.test
+          HEKATE_SETUP_CODE: 7KQ2-M9XD-4HPW
+          S3_BUCKET: hekate-media
+          S3_ACCESS_KEY_ID: ci
       # Operating system and package vulnerabilities in the app image.
       - name: Trivy (image)
         id: trivy

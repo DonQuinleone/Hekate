@@ -1,0 +1,19 @@
+# Caddy for the Swarm stack (deploy/stack.yml): as deploy/Caddyfile, to the api service, whose
+# virtual address spreads requests across its replicas.
+{$HEKATE_DOMAIN} {
+	encode zstd gzip
+	# Large media uploads stream straight through to the app.
+	request_body {
+		max_size 20GB
+	}
+	reverse_proxy api:3000 {
+		# A replica stopping as the request arrives: try again, another answers.
+		lb_try_duration 5s
+	}
+	# The app sets the Content Security Policy and the other security headers itself, so
+	# they hold behind any proxy; Caddy, which terminates TLS, adds HSTS.
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+}
