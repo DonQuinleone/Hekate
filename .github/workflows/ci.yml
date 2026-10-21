@@ -390,16 +390,32 @@ jobs:
           curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 2 \
             http://localhost:8080/api/health/ready
       # The backup and restore of the Kubernetes install page (#195), as written there.
-      - name: Set it up
+      - name: Set it up, with a file in it
         run: |
           kubectl port-forward service/hekate 8081:80 &
-          sleep 3
+          api=http://localhost:8081/api
+          origin='origin: https://hekate.example.test'
           password=$(openssl rand -hex 16)
           curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 2 \
-            -X POST http://localhost:8081/api/setup \
-            -H 'content-type: application/json' -H 'origin: https://hekate.example.test' \
+            -X POST "$api/setup" -H 'content-type: application/json' -H "$origin" \
             -H 'x-hekate-setup-code: 7KQ2-M9XD-4HPW' \
             -d "{\"name\":\"Alex Rivera\",\"email\":\"producer@example.test\",\"password\":\"$password\",\"organisation\":\"Endless Hall Records\"}"
+          # The session cookie is Secure (PUBLIC_URL is https), so curl would not send it back
+          # over the port-forward by itself: it is taken from the response and sent by hand.
+          cookie=$(curl --fail --silent --show-error -D - -o /dev/null -X POST "$api/auth/sign-in/email" \
+            -H 'content-type: application/json' -H "$origin" \
+            -d "{\"email\":\"producer@example.test\",\"password\":\"$password\"}" \
+            | grep -i '^set-cookie: [^=]*session_token=' | sed 's/^[^:]*: //; s/;.*//' | tr -d '\r')
+          call() { curl --fail --silent --show-error -H "cookie: $cookie" -H "$origin" "$@"; }
+          project=$(call -X POST "$api/projects" -H 'content-type: application/json' \
+            -d '{"name":"Opening titles","profile":"general"}' | jq -r .project.id)
+          head -c 4096 /dev/urandom > "$RUNNER_TEMP/notes.bin"
+          upload=$(call -X POST "$api/uploads" -H 'content-type: application/json' \
+            -d "{\"projectId\":\"$project\",\"name\":\"Cue notes.bin\",\"size\":4096,\"contentType\":\"application/octet-stream\"}" \
+            | jq -r .upload.id)
+          call -X PUT "$api/uploads/$upload/chunks/0" -H 'content-type: application/octet-stream' \
+            --data-binary "@$RUNNER_TEMP/notes.bin"
+          call -X POST "$api/uploads/$upload/complete" | jq -e .file.id
       - name: Back it up, lose it, restore it
         env:
           DATABASE_URL: postgres://hekate:hekate@postgres:5432/hekate
@@ -413,26 +429,39 @@ jobs:
             containers:
               - name: tools
                 image: postgres:18-alpine
-                command: [sleep, "3600"]
+                command: [tail, -f, /dev/null]
                 volumeMounts: [{ name: media, mountPath: /data }]
             volumes:
               - name: media
                 persistentVolumeClaim: { claimName: hekate-media }
           EOF
           kubectl wait --for=condition=Ready pod/hekate-tools --timeout=120s
-          kubectl scale deployment hekate-api hekate-worker --replicas=0
+          stop() {
+            kubectl scale deployment hekate-api hekate-worker --replicas=0
+            timeout 120 sh -c "while kubectl get pods -o name \
+              -l 'app.kubernetes.io/instance=hekate,app.kubernetes.io/component in (api,worker)' | grep -q .
+              do sleep 2; done"
+          }
+          api=$(kubectl get deployment hekate-api -o jsonpath='{.spec.replicas}')
+          worker=$(kubectl get deployment hekate-worker -o jsonpath='{.spec.replicas}')
+          stop
           kubectl exec hekate-tools -- pg_dump --format=custom "$DATABASE_URL" > hekate.dump
           kubectl exec hekate-tools -- tar -czf - -C /data . > hekate-storage.tar.gz
           # Lost: the database and the media.
           kubectl exec hekate-tools -- psql postgres://hekate:hekate@postgres:5432/postgres \
             -c 'drop database hekate with (force)' -c 'create database hekate'
           kubectl exec hekate-tools -- rm -rf /data/storage
-          kubectl exec -i hekate-tools -- pg_restore --clean --if-exists --no-owner --dbname "$DATABASE_URL" < hekate.dump
+          kubectl exec hekate-tools -- psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'DROP OWNED BY CURRENT_USER'
+          kubectl exec -i hekate-tools -- pg_restore --exit-on-error --no-owner --dbname "$DATABASE_URL" < hekate.dump
           kubectl exec -i hekate-tools -- sh -c \
             'rm -rf /data/storage && tar -xzf - -C /data && chown -R 10001:10001 /data' < hekate-storage.tar.gz
           kubectl scale deployment hekate-api --replicas=1 && kubectl rollout status deployment hekate-api --timeout=180s
-          kubectl exec deploy/hekate-api -- node apps/server/src/cli.ts backup verify
-          kubectl scale deployment hekate-worker --replicas=1
+          # The file uploaded before the backup is there and opens with the restored keys.
+          kubectl exec deploy/hekate-api -- node apps/server/src/cli.ts backup verify | tee verify.txt
+          grep -Eq '^ok +[1-9][0-9]* of [1-9][0-9]* stored objects are in their backend' verify.txt
+          grep -Eq '^ok +([1-9][0-9]*) of \1 sampled files decrypt' verify.txt
+          kubectl scale deployment hekate-api --replicas="$api"
+          kubectl scale deployment hekate-worker --replicas="$worker"
           kubectl delete pod hekate-tools
       - name: It serves again, set up
         run: |

@@ -72,7 +72,7 @@ Every pod runs as an unprivileged user with a read-only filesystem and no capabi
 
 The same three things as anywhere ([Backup and restore](../../operate/backup/)): the database, the media and the master key, the first two as of the same moment. Keep the master key apart from both. With CloudNativePG, its backups to object storage can stand in for the dump; with S3, the bucket's versions as of the dump stand in for the media archive. Otherwise, the steps below do what `deploy/backup.sh` and `deploy/restore.sh` do for Compose; CI runs them, against the chart on kind, on every pull request.
 
-They assume the release is called `hekate`, `DATABASE_URL` is set to the database's address as the cluster sees it, and, for media on a volume, the claim is `hekate-media`. A short-lived pod holds PostgreSQL's tools and the media volume:
+They assume the release is called `hekate`, `DATABASE_URL` is set to the database's address as the cluster sees it, with the user that owns the database, and, for media on a volume, the claim is `hekate-media`. A pod holds PostgreSQL's tools and the media volume until it is deleted:
 
 ```sh
 kubectl apply -f - <<'EOF'
@@ -84,7 +84,7 @@ spec:
   containers:
     - name: tools
       image: postgres:18-alpine
-      command: [sleep, "3600"]
+      command: [tail, -f, /dev/null]
       volumeMounts: [{ name: media, mountPath: /data }]   # leave out with S3
   volumes:                                              # leave out with S3
     - name: media
@@ -93,26 +93,38 @@ EOF
 kubectl wait --for=condition=Ready pod/hekate-tools
 ```
 
-**Back up**, with Hekate stopped so the dump and the media agree (with S3, it can keep running):
+Both steps stop Hekate first, remembering how many replicas each part ran, and wait until its last pod has gone, so nothing writes while the copy is made:
 
 ```sh
+api=$(kubectl get deployment hekate-api -o jsonpath='{.spec.replicas}')
+worker=$(kubectl get deployment hekate-worker -o jsonpath='{.spec.replicas}')
 kubectl scale deployment hekate-api hekate-worker --replicas=0
-kubectl exec hekate-tools -- pg_dump --format=custom "$DATABASE_URL" > hekate.dump
-kubectl exec hekate-tools -- tar -czf - -C /data . > hekate-storage.tar.gz
-kubectl scale deployment hekate-api --replicas=2 && kubectl scale deployment hekate-worker --replicas=1
+while kubectl get pods -o name \
+  -l 'app.kubernetes.io/instance=hekate,app.kubernetes.io/component in (api,worker)' | grep -q .
+do sleep 2; done
 ```
 
-**Restore** into the same release, or a new one installed with the same values and master key:
+**Back up** (with S3, Hekate can keep running and the archive is left out):
 
 ```sh
-kubectl scale deployment hekate-api hekate-worker --replicas=0
-kubectl exec -i hekate-tools -- pg_restore --clean --if-exists --no-owner --dbname "$DATABASE_URL" < hekate.dump
+kubectl exec hekate-tools -- pg_dump --format=custom "$DATABASE_URL" > hekate.dump
+kubectl exec hekate-tools -- tar -czf - -C /data . > hekate-storage.tar.gz
+kubectl scale deployment hekate-api --replicas="$api"
+kubectl scale deployment hekate-worker --replicas="$worker"
+```
+
+**Restore** into the same release, or a new one installed with the same values and master key. The database is emptied first, as the Compose restore makes a new one, so nothing a later release added survives beside the backup:
+
+```sh
+kubectl exec hekate-tools -- psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'DROP OWNED BY CURRENT_USER'
+kubectl exec -i hekate-tools -- pg_restore --exit-on-error --no-owner --dbname "$DATABASE_URL" < hekate.dump
 kubectl exec -i hekate-tools -- sh -c \
   'rm -rf /data/storage && tar -xzf - -C /data && chown -R 10001:10001 /data' < hekate-storage.tar.gz
 kubectl scale deployment hekate-api --replicas=1 && kubectl rollout status deployment hekate-api
 kubectl exec deploy/hekate-api -- node apps/server/src/cli.ts backup verify
-kubectl scale deployment hekate-api --replicas=2 && kubectl scale deployment hekate-worker --replicas=1
+kubectl scale deployment hekate-api --replicas="$api"
+kubectl scale deployment hekate-worker --replicas="$worker"
 kubectl delete pod hekate-tools
 ```
 
-`backup verify` checks that the database, the storage and the master key belong together, as after a Compose restore; only when it passes should people work again. With S3, restore the bucket's versions as of the dump before starting, and skip the archive.
+`backup verify` checks that the database, the storage and the master key belong together, as after a Compose restore; only when it passes should people work again. With S3, restore the bucket's versions as of the dump before starting, and skip the archive. With autoscaling on, the autoscalers rest while a deployment has no replicas, and take over again once it is scaled back.
