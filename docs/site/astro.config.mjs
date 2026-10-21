@@ -28,6 +28,7 @@ export default defineConfig({
             "operate/backup",
             "operate/recovery",
             "operate/replicas",
+            "operate/database",
             "operate/upgrades",
             "operate/upgrade-notes",
             "operate/keys",
