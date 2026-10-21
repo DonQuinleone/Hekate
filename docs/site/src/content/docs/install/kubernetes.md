@@ -66,7 +66,7 @@ Every pod runs as an unprivileged user with a read-only filesystem and no capabi
 
 `helm upgrade` with the new chart runs the migration Job first, then replaces the `api` replicas one at a time, each new one ready before an old one stops; each stops gracefully, drained first, within 40 seconds. Workers are replaced one at a time, the old one stopping first: its jobs finish, or go back to the queue for the next. Every release's migrations work with the release before it, so the old and new run side by side while the upgrade rolls; read the [upgrade notes](../../operate/upgrade-notes/) first all the same.
 
-A release refuses a database that a later release has migrated, so `helm rollback hekate` alone works only when the upgrade migrated nothing. After one that did, going back means restoring the backup taken before it, as with Compose ([Disaster recovery](../../operate/recovery/#a-release-goes-wrong)): take one before every upgrade. A migration that drops or rewrites data needs `migrations.allowDestructive`, set in the same `helm upgrade`.
+`helm rollback hekate` returns to the previous release. It runs against the upgraded database when the upgrade's migrations only added to it, as most do; when they changed what the previous release reads, it refuses the database, and going back means restoring the backup taken before the upgrade, as with Compose ([Disaster recovery](../../operate/recovery/#a-release-goes-wrong)): take one before every upgrade. A migration that drops or rewrites data needs `migrations.allowDestructive`, set in the same `helm upgrade`.
 
 ## Backups
 

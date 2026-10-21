@@ -5,6 +5,7 @@ import { sql } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { createDb } from "./client.ts";
 import {
+  contractingStatements,
   DatabaseAheadError,
   DestructiveMigrationError,
   destructiveStatements,
@@ -52,6 +53,55 @@ describe("destructive statements", () => {
       )
       .map((entry) => entry.tag);
     expect(losing).toEqual(["0003_storage", "0063_takes_on_tracks", "0083_tasks"]);
+  });
+});
+
+describe("contracting statements (#421)", () => {
+  it("finds what the release before cannot run against, but not what only expands", () => {
+    const found = contractingStatements(
+      [
+        'ALTER TABLE "files" ADD COLUMN "size" bigint;',
+        'ALTER TABLE "files" ADD COLUMN "kind" text DEFAULT \'audio\' NOT NULL;',
+        'ALTER TABLE "files" ADD COLUMN "blob_id" uuid NOT NULL;',
+        'ALTER TABLE "files" ALTER COLUMN "name" SET NOT NULL;',
+        'ALTER TABLE "files" RENAME COLUMN "peaks_status" TO "analysis_status";',
+        'ALTER TABLE "folders" ADD CONSTRAINT "folders_name" UNIQUE("project_id","name");',
+        'ALTER TABLE "reviews" ADD CONSTRAINT "reviews_share" CHECK ("reviews"."share" > 0);',
+        'ALTER TABLE "files" ADD CONSTRAINT "files_blob_fk" FOREIGN KEY ("blob_id") REFERENCES "blobs"("id");',
+        'CREATE UNIQUE INDEX "takes_number_idx" ON "takes" USING btree ("track_id","number");',
+        'CREATE INDEX "takes_track_idx" ON "takes" USING btree ("track_id");',
+        'ALTER TABLE "venues" DROP COLUMN "notes";',
+      ].join("\n"),
+    );
+    expect(found).toEqual([
+      'ALTER TABLE "venues" DROP COLUMN "notes"',
+      'ALTER TABLE "files" ADD COLUMN "blob_id" uuid NOT NULL',
+      'ALTER TABLE "files" ALTER COLUMN "name" SET NOT NULL',
+      'ALTER TABLE "files" RENAME COLUMN "peaks_status" TO "analysis_status"',
+      'ALTER TABLE "folders" ADD CONSTRAINT "folders_name" UNIQUE("project_id","name")',
+      'ALTER TABLE "reviews" ADD CONSTRAINT "reviews_share" CHECK ("reviews"."share" > 0)',
+      'ALTER TABLE "files" ADD CONSTRAINT "files_blob_fk" FOREIGN KEY ("blob_id") REFERENCES "blobs"("id")',
+      'CREATE UNIQUE INDEX "takes_number_idx" ON "takes" USING btree ("track_id","number")',
+    ]);
+  });
+
+  it("leaves alone a table the same migration creates, which older code never touches", () => {
+    expect(
+      contractingStatements(
+        [
+          'CREATE TABLE "marks" ("id" uuid PRIMARY KEY NOT NULL, "page" integer NOT NULL);',
+          'ALTER TABLE "marks" ADD CONSTRAINT "marks_page" CHECK ("marks"."page" >= 1);',
+          'CREATE UNIQUE INDEX "marks_page_idx" ON "marks" USING btree ("page");',
+          'ALTER TABLE "marks" ADD CONSTRAINT "marks_file_fk" FOREIGN KEY ("file_id") REFERENCES "files"("id");',
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("takes a migration's own word that it contracts", () => {
+    expect(
+      contractingStatements('-- hekate: contracts\nUPDATE "files" SET "kind" = \'audio\';'),
+    ).toEqual(["-- hekate: contracts"]);
   });
 });
 
@@ -103,7 +153,12 @@ describe.runIf(base)("running migrations", () => {
     const { applied } = await runMigrations(url);
     expect(applied).toEqual(journalOf().map((entry) => entry.tag));
     const { db, close } = createDb(url, { max: 1 });
-    expect(await migrationState(db)).toEqual({ fresh: false, pending: [], ahead: false });
+    expect(await migrationState(db)).toEqual({
+      fresh: false,
+      pending: [],
+      ahead: false,
+      newer: false,
+    });
     await close();
     expect((await runMigrations(url)).applied).toEqual([]);
   }, 120_000);
@@ -137,12 +192,56 @@ describe.runIf(base)("running migrations", () => {
     expect([a.applied.length > 0, b.applied.length > 0].sort()).toEqual([false, true]);
   }, 120_000);
 
-  it("refuses a database a newer version has migrated", async () => {
+  it("runs against a newer release's database whose new migrations only expand it (#421)", async () => {
+    const url = await database();
+    const newer = folderWith([
+      { tag: "9000_phone", sql: 'ALTER TABLE "venues" ADD COLUMN "phone" text;' },
+      { tag: "9001_index", sql: 'CREATE INDEX "venues_phone_idx" ON "venues" ("phone");' },
+    ]);
+    await runMigrations(url, newer);
+    // This code is the release before: it knows neither migration, and needs neither.
+    expect((await runMigrations(url)).applied).toEqual([]);
+    const { db, close } = createDb(url, { max: 1 });
+    expect(await migrationState(db)).toMatchObject({ ahead: false, newer: true, pending: [] });
+    await close();
+  }, 120_000);
+
+  it("refuses a newer release's database once one of its migrations contracts", async () => {
+    const url = await database();
+    const newer = folderWith([
+      { tag: "9000_phone", sql: 'ALTER TABLE "venues" ADD COLUMN "phone" text;' },
+      { tag: "9001_required", sql: 'ALTER TABLE "venues" ALTER COLUMN "phone" SET NOT NULL;' },
+    ]);
+    await runMigrations(url, newer);
+    await expect(runMigrations(url)).rejects.toBeInstanceOf(DatabaseAheadError);
+    const { db, close } = createDb(url, { max: 1 });
+    expect(await migrationState(db)).toMatchObject({ ahead: true, newer: false });
+    await close();
+  }, 120_000);
+
+  it("records the stricter cutoff before migrating, so a failed migration never leaves a looser one", async () => {
     const url = await database();
     await runMigrations(url);
+    const failing = folderWith([
+      { tag: "9000_phone", sql: 'ALTER TABLE "venues" ADD COLUMN "phone" text;' },
+      { tag: "9001_required", sql: 'ALTER TABLE "venues" ALTER COLUMN "no_such" SET NOT NULL;' },
+    ]);
+    await expect(runMigrations(url, failing)).rejects.toThrow();
+    const { db, close } = createDb(url, { max: 1 });
+    const [row] = await db.execute<{ migration: string }>(
+      sql`select migration from drizzle.hekate_readable_from`,
+    );
+    expect(Number(row?.migration)).toBe(journalOf(failing).at(-1)?.when);
+    await close();
+  }, 120_000);
+
+  it("refuses a newer database that recorded nothing, as releases before #421 left it", async () => {
+    const url = await database();
+    await runMigrations(url);
+    const { db, close } = createDb(url, { max: 1 });
+    await db.execute(sql`drop table drizzle.hekate_readable_from`);
     const older = folderWith([], 1);
     await expect(runMigrations(url, older)).rejects.toBeInstanceOf(DatabaseAheadError);
-    const { db, close } = createDb(url, { max: 1 });
     expect((await migrationState(db, older)).ahead).toBe(true);
     await close();
   }, 120_000);
