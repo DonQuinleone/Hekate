@@ -1123,3 +1123,13 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Backends.** Each configured backend with where it keeps objects (path, or bucket and region), whether it takes new objects, the bytes stored there, and whether it answers now. A local backend also shows its disk filling; S3 has no size to fill, so it shows none.
 - **The master key** lives in the environment, so the page cannot rotate it: it says how many workspace keys it wraps, warns while earlier keys are still configured, and links to the rotation steps in the docs. The prototype's rotation date went: nothing records when an operator changed the environment.
 - **Reconciliation** runs over everything each night, not a slice at a time, so the prototype's "Run a slice now" became "Run now": it queues the same job (one at a time, three a quarter of an hour), recorded in the instance's events. The row says when the last instance-wide run finished and what is still open.
+
+## 183. A workspace's Operations page
+
+#165: "For an owner on a single-workspace install: what the instance pages show the operator, reduced to what an owner may see (version, worker on or off, queue depth, encryption state, the master key's rotation date, backups and upgrade notes with links to the docs)."
+
+- **Owners only**, in the workspace's settings under Operations, read every 15 seconds (`/api/organisation/operations`).
+- **This workspace's jobs**, not the instance's: the queue counts jobs whose data names the workspace, so an owner on a shared instance learns nothing of the others.
+- **Encryption** is the workspace key's version and age, and how much is still being re-wrapped after a rotation. Rotating stays an operator's action (decision 174), so there is no Rotate button. The master key's rotation date is not recorded (decision 182), so it is not shown.
+- **Metrics** say whether Prometheus may read `/metrics`, and when this process was last read.
+- **Backups and upgrades** are the operator's: the page links to the docs, and names the newer release when release checks are on. The prototype's "Connected" went: the page loading says as much. So did its backup time and size, which Hekate does not know: backups are taken outside it.

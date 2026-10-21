@@ -152,6 +152,7 @@ import {
   type WorkflowStatus,
   type WorkflowSummary,
   type WorkInput,
+  type WorkspaceOperations,
   type WorkspaceSettings,
   type WorkspaceSettingsInput,
   type WorkspaceState,
@@ -891,6 +892,13 @@ export interface WorkspaceStorage {
   defaultBackend: string;
   available: string[];
 }
+
+/** What the instance is doing for this workspace (#165), for its owner; read every 15 s. */
+export const workspaceOperationsQuery = queryOptions({
+  queryKey: ["organisation", "operations"],
+  queryFn: async () => json<WorkspaceOperations>(await api.organisation.operations.$get()),
+  refetchInterval: 15_000,
+});
 
 export const workspaceStorageQuery = queryOptions({
   queryKey: ["organisation", "storage"],

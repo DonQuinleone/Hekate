@@ -1,5 +1,6 @@
 import {
   accessWindowDays,
+  type CheckState,
   type CommentScope,
   type CustomProfile,
   type DefaultRoleName,
@@ -36,8 +37,12 @@ import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
+import { StatusDot } from "~/components/ui/status";
 import { actionCopy } from "~/lib/access-log";
 import { shortAgent } from "~/lib/agent";
+import { cn } from "~/lib/cn";
+import { ago } from "~/lib/comments";
+import { docsUrl } from "~/lib/links";
 import { formatDates, languageNames } from "~/lib/locale";
 import {
   type AccessEvent,
@@ -57,6 +62,7 @@ import {
   useSaveWorkspaceSettings,
   useWorkspaceStorage,
   workspaceGuestsQuery,
+  workspaceOperationsQuery,
   workspaceSettingsQuery,
   workspaceStorageQuery,
 } from "~/lib/queries";
@@ -152,6 +158,14 @@ const allSections: SectionSpec[] = [
     from: "admin",
     intro: "Every key issue, page render and download, and the changes that matter.",
     docs: "/security/model/#audit",
+  },
+  {
+    id: "operations",
+    label: "Operations",
+    group: "Operations",
+    from: "owner",
+    intro: "What the instance is doing for this workspace.",
+    docs: "/operate/upgrades/",
   },
 ];
 
@@ -846,6 +860,108 @@ function Guests() {
   );
 }
 
+const workerWords: Record<CheckState, string> = {
+  ok: "On",
+  stale: "Not running: no job finished in the last ten minutes",
+  failed: "Its queue could not be read",
+  off: "Off",
+};
+
+/**
+ * Operations (#165), for the owner: what the instance pages show an operator, reduced to what an
+ * owner may see. Backups and upgrades are the operator's, so they link to the docs.
+ */
+function Operations() {
+  const { data, error } = useQuery(workspaceOperationsQuery);
+  if (error) return <p className="m-0 text-signal">{error.message}</p>;
+  if (!data) return null;
+  const { encryption: e, queue: q, metrics: m, release: r } = data;
+  return (
+    <>
+      <Section title="This instance">
+        <Row
+          name="Version"
+          hint={data.build === "dev" ? "A development build" : `Build ${data.build.slice(0, 12)}`}
+          inline
+        >
+          <span className="tabular text-[13px] text-ink-2">{data.version}</span>
+        </Row>
+        <Row name="Worker" hint="Runs analysis, renditions, pages and mail." inline>
+          <span
+            className={cn(
+              "flex items-center gap-2 text-[13px]",
+              data.worker === "ok" ? "text-ink-2" : "text-signal",
+            )}
+          >
+            <StatusDot state={data.worker === "ok" ? "approved" : "changes_requested"} />
+            {workerWords[data.worker]}
+          </span>
+        </Row>
+        <Row
+          name="Queue"
+          hint="This workspace's jobs: waiting · running · failed in the last day."
+          inline
+        >
+          <span className={cn("tabular text-[13px]", q?.failed ? "text-signal" : "text-ink-2")}>
+            {q ? `${q.waiting} · ${q.running} · ${q.failed}` : "Could not be read"}
+          </span>
+        </Row>
+        <Row
+          name="Encryption"
+          hint="Every file has its own key, wrapped by the workspace key, which the instance's master key wraps."
+        >
+          <span className="text-[13px] text-ink-2">
+            {e.keyVersion === null
+              ? "No key yet: one is made with the first file"
+              : e.behind > 0
+                ? `Key v${e.keyVersion} · re-wrapping, ${e.behind} to go`
+                : `Key v${e.keyVersion} since ${dateFormat.format(new Date(e.keySince ?? ""))}`}
+          </span>
+        </Row>
+        <Row name="Metrics" hint="For Prometheus." inline>
+          <span className="tabular text-[13px] text-ink-2">
+            {!m.on
+              ? "Off"
+              : m.lastReadAt
+                ? `/metrics · read ${ago(m.lastReadAt)}`
+                : "/metrics · not read yet"}
+          </span>
+        </Row>
+      </Section>
+      <Section title="Backups and upgrades">
+        <Row
+          name="Backups"
+          hint="The instance's operator takes them: the database and the settings file, with the master key kept apart."
+        >
+          <Button variant="secondary" size="md" asChild>
+            <a href={`${docsUrl}/operate/backup/`} target="_blank" rel="noopener noreferrer">
+              How backups work
+            </a>
+          </Button>
+        </Row>
+        <Row
+          name="Upgrade"
+          hint={
+            r.newer
+              ? `${r.newer.name} is available. Pull the new image and restart; migrations run on start.`
+              : r.checkOn
+                ? "Up to date."
+                : "Release checks are off on this instance."
+          }
+        >
+          {r.newer && (
+            <Button variant="secondary" size="md" asChild>
+              <a href={r.newer.url} target="_blank" rel="noopener noreferrer">
+                Release notes
+              </a>
+            </Button>
+          )}
+        </Row>
+      </Section>
+    </>
+  );
+}
+
 function Storage({ role }: { role: Role }) {
   const { data } = useQuery(workspaceStorageQuery);
   const { data: usage } = useQuery(storageUsageQuery);
@@ -1126,6 +1242,7 @@ export function WorkspaceSettingsPage({ section }: { section: string }) {
         {current.id === "storage" && <Storage role={role} />}
         {current.id === "transfers" && <TransfersSection />}
         {current.id === "log" && <AccessLog />}
+        {current.id === "operations" && <Operations />}
       </SettingsLayout>
     </>
   );

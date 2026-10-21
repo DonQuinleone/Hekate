@@ -227,6 +227,10 @@ export function sameToken(given: string, expected: string): boolean {
   return timingSafeEqual(digest(given), digest(expected));
 }
 
+// When a scraper last read this process's metrics (#165).
+let lastRead: Date | null = null;
+export const metricsLastRead = () => lastRead;
+
 /**
  * `GET /metrics`: everything above in the text format, for a scraper that sends the token as
  * a bearer. Without a token configured there is nothing here at all.
@@ -240,7 +244,10 @@ export function metricsHandler(token: string | undefined): MiddlewareHandler {
       c.header("WWW-Authenticate", 'Bearer realm="metrics"');
       return c.json({ error: { code: "unauthorised", message: "A metrics token is needed" } }, 401);
     }
-    return c.body(await registry.render(), 200, {
+    const body = await registry.render();
+    // Only once the scrape is answered: a read that failed is not one.
+    lastRead = new Date();
+    return c.body(body, 200, {
       "Content-Type": "text/plain; version=0.0.4; charset=utf-8",
       "Cache-Control": "no-store",
     });
