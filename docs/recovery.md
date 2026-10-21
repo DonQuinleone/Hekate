@@ -64,16 +64,26 @@ The media volume or the bucket is gone, or files in it were damaged.
 
 The host is gone, with its volumes.
 
-1. On a new host, install Docker, check out the same release as before, and put back `.env`. If the installer made the master key and it was only in the settings volume, set `MASTER_KEY` in `.env` from the copy kept apart.
-2. Copy the latest backup's files to the host, and run `deploy/restore.sh` with them. It makes the volumes it needs.
-3. Point the domain at the new host. Caddy gets a certificate when the first request arrives.
+1. On a new host, install Docker, check out the same release as before, and put back `.env`.
+2. Put back the settings volume, from its copy kept apart (see [Backup and restore](docs/backup.md)). An install set up in the browser keeps the master key, `AUTH_SECRET` and any storage credentials there, not in `.env`, and nothing starts or verifies without them:
+
+   ```sh
+   docker compose -f deploy/compose.yml create app
+   docker run --rm -i -v hekate_settings:/config alpine \
+     sh -c 'cat > /config/hekate.env && chown 1000:1000 /config/hekate.env && chmod 600 /config/hekate.env' \
+     < hekate-settings.env
+   ```
+
+   Without that copy, set every one of those settings in `.env` instead: the master key from where it was kept apart, a new `AUTH_SECRET` (everyone signs in again), and the storage settings.
+3. Copy the latest backup's files to the host, and run `deploy/restore.sh` with them.
+4. Point the domain at the new host. Caddy gets a certificate when the first request arrives.
 
 ### A release goes wrong
 
 A new release fails to start, or misbehaves once it does.
 
 1. If it stopped at start, it says why, having changed nothing ([Upgrades](../upgrades/)): fix the setting, or go back by setting `HEKATE_VERSION` to the previous release.
-2. If it has migrated the database, the previous release refuses to run against it. Restore the backup taken before the upgrade with `deploy/restore.sh`, then set `HEKATE_VERSION` to the previous release before it starts. What was done on the new release since is lost.
+2. If it has migrated the database, the previous release refuses to run against it. First set `HEKATE_VERSION` in `.env` to the previous release, as `deploy/restore.sh` starts Hekate when it is done; then restore the backup taken before the upgrade with it. What was done on the new release since is lost.
 3. Report what went wrong, with the server's log, so the next release fixes it.
 
 ## Drills
