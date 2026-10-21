@@ -1528,6 +1528,16 @@ describe.runIf(url)("api", () => {
           workspace: { id: organisationId, name: workspace?.name },
           target: "logs-157",
         });
+        // A deleted file is named by what its event kept, not by its project.
+        await audit.record(organisationId, systemActor, {
+          action: "file.delete",
+          projectId: "0199f000-0000-7000-8000-00000000f157",
+          details: { name: "deleted-157.wav" },
+        });
+        const deleted = await read<AuditLogRow>("audit?q=deleted-157");
+        expect(deleted.rows.map((r) => [r.action, r.target])).toEqual([
+          ["file.delete", "deleted-157.wav"],
+        ]);
         // Searched, and a page at a time, newest first.
         const found = await read<AuditLogRow>("audit?q=logs-157");
         expect(found.rows.map((r) => r.action)).toEqual(["workspace.suspended"]);
@@ -1557,11 +1567,14 @@ describe.runIf(url)("api", () => {
         await expect(
           refusing.send({ to: "nobody@endlesshall.example", subject: "Refused 157", text: "" }),
         ).rejects.toThrow("550");
-        const mail = await read<MailLogRow>("mail");
-        expect(mail.rows.map((r) => [r.to, r.result, r.error])).toEqual([
-          ["nobody@endlesshall.example", "failed", "550 5.1.1 No such mailbox"],
-          ["mira@endlesshall.example", "sent", null],
-        ]);
+        // Written beside each message, not awaited by it.
+        await vi.waitFor(async () => {
+          const mail = await read<MailLogRow>("mail");
+          expect(mail.rows.map((r) => [r.to, r.result, r.error])).toEqual([
+            ["nobody@endlesshall.example", "failed", "550 5.1.1 No such mailbox"],
+            ["mira@endlesshall.example", "sent", null],
+          ]);
+        });
 
         // An export is recorded before any of it leaves, and its cells are neutralised.
         await recordInstanceEvent(db, { actorId: null, action: "flag.on", target: "=SUM(1)" });

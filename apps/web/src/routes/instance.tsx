@@ -929,7 +929,11 @@ function Logs() {
     ...(kind === "audit" && workspace ? { workspace } : {}),
   };
   const log = useInfiniteQuery(instanceLogQuery(kind, filters));
-  const { data: workspaces } = useInfiniteQuery(instanceWorkspacesQuery({}));
+  // Every workspace, for the filter: the pages read one after another until there are no more.
+  const workspaces = useInfiniteQuery(instanceWorkspacesQuery({}));
+  useEffect(() => {
+    if (workspaces.hasNextPage && !workspaces.isFetchingNextPage) void workspaces.fetchNextPage();
+  }, [workspaces.hasNextPage, workspaces.isFetchingNextPage, workspaces.fetchNextPage]);
   const rows: (AuditLogRow | MailLogRow)[] =
     log.data?.pages.flatMap((p): (AuditLogRow | MailLogRow)[] => p.rows) ?? [];
   const exportUrl = `/api/instance/logs/${kind}/export?${new URLSearchParams(logQueryString(filters))}`;
@@ -963,7 +967,7 @@ function Logs() {
             className="w-48"
           >
             <option value="">Any workspace</option>
-            {workspaces?.pages
+            {workspaces.data?.pages
               .flatMap((p) => p.workspaces)
               .map((w) => (
                 <option key={w.id} value={w.id}>

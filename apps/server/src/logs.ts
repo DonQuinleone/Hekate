@@ -78,7 +78,8 @@ export async function auditLog(
       union all
       select a.id, a.occurred_at, 'workspace', a.actor_label,
              o.id, o.name, a.action::text,
-             coalesce(f.name, r.title, p.name), host(a.ip_address)
+             -- What it was done to; a deleted file's or project's name lives on in the details.
+             coalesce(f.name, r.title, a.details->>'name', p.name), host(a.ip_address)
       from access_events a
       join organisations o on o.id = a.organisation_id
       left join files f on f.id = a.file_id and f.organisation_id = a.organisation_id

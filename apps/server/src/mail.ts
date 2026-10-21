@@ -80,13 +80,14 @@ export function loggedMailer<M extends Mailer>(db: Database, mailer: M, smtp: bo
   return {
     ...mailer,
     async send(message: Message) {
+      // Written beside the message, never awaited: a slow log holds nothing up.
       try {
         await mailer.send(message);
       } catch (error) {
-        await record(message, "failed", error);
+        void record(message, "failed", error);
         throw error;
       }
-      await record(message, smtp ? "sent" : "logged");
+      void record(message, smtp ? "sent" : "logged");
     },
   };
 }
