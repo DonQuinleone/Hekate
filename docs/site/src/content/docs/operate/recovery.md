@@ -39,7 +39,7 @@ The backup stops Hekate while it copies, so that the dump and the media agree. W
 
 The master key is not among the backup's files. The restore uses the key in `.env`, or failing that, in the settings volume (`/config/hekate.env`).
 
-On Kubernetes the steps are the same, run with `kubectl`; a script for them comes with the Helm chart.
+On Kubernetes the steps are the same, run with `kubectl`: see [Install on Kubernetes](../../install/kubernetes/#backups).
 
 ## Scenarios
 

@@ -1,0 +1,27 @@
+# Every option turned on, for rendering and validation only.
+secrets:
+  existingSecret: hekate-keys
+database:
+  url: ""
+  cloudnativepg:
+    enabled: true
+storage:
+  volume:
+    enabled: false
+  s3:
+    bucket: hekate-media
+    endpoint: https://s3.example.test
+    forcePathStyle: true
+    accessKeyId: ci
+api:
+  autoscaling:
+    enabled: true
+worker:
+  lanes: transcode:4,analyse:2
+  autoscaling:
+    enabled: true
+    queue:
+      enabled: true
+ingress:
+  className: nginx
+  wildcard: true

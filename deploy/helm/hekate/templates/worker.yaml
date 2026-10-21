@@ -1,0 +1,1 @@
+{{ include "hekate.deployment" (dict "root" . "role" "worker") }}

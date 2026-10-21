@@ -1,0 +1,4 @@
+# Hekate's images and PostgreSQL's (for CloudNativePG) are published on GitHub's registry.
+ksv0125:
+  trusted_registries:
+    - ghcr.io

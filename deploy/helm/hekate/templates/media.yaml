@@ -1,0 +1,22 @@
+{{- with .Values.storage.volume }}
+{{- if and .enabled (not .existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "hekate.fullname" $ }}-media
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "hekate.labels" $ | nindent 4 }}
+  annotations:
+    # Uninstalling never deletes the media.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [{{ .accessMode }}]
+  {{- with .storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .size }}
+{{- end }}
+{{- end }}

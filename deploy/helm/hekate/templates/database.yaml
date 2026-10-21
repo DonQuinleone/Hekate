@@ -1,0 +1,25 @@
+{{- with .Values.database.cloudnativepg }}
+{{- if .enabled }}
+# A PostgreSQL cluster run by CloudNativePG: a primary and standbys it fails over between. Its
+# app Secret (<name>-db-app) holds the connection URL the app reads.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "hekate.fullname" $ }}-db
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "hekate.labels" $ | nindent 4 }}
+spec:
+  instances: {{ .instances }}
+  imageName: ghcr.io/cloudnative-pg/postgresql:18
+  bootstrap:
+    initdb:
+      database: hekate
+      owner: hekate
+  storage:
+    size: {{ .size }}
+    {{- with .storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+{{- end }}
+{{- end }}

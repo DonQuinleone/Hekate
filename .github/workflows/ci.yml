@@ -318,3 +318,81 @@ jobs:
         with:
           sarif_file: trivy-image.sarif
           category: trivy-image
+
+  # The Helm chart (#190): it lints, renders valid manifests with nothing misconfigured, and
+  # installs and upgrades on a kind cluster with the image built from this commit.
+  kubernetes:
+    runs-on: ubuntu-latest
+    env:
+      CHART: deploy/helm/hekate
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.1
+      - name: The chart lints
+        run: helm lint "$CHART" --strict -f "$CHART/ci/values.yaml"
+      # Its defaults, and every option turned on.
+      - name: Render the chart
+        run: |
+          mkdir -p "$RUNNER_TEMP/chart"
+          helm template hekate "$CHART" -n hekate -f "$CHART/ci/values.yaml" \
+            > "$RUNNER_TEMP/chart/defaults.yaml"
+          helm template hekate "$CHART" -n hekate -f "$CHART/ci/values.yaml" -f "$CHART/ci/everything.yaml" \
+            > "$RUNNER_TEMP/chart/everything.yaml"
+      - name: The manifests are valid
+        run: |
+          docker run --rm -v "$RUNNER_TEMP/chart:/chart:ro" \
+            ghcr.io/yannh/kubeconform:v0.8.0@sha256:faffaf43f95aa6425306e1ab8d6fcad72acb9049158f38e574c085ea1ec0f64e \
+            -strict -summary -kubernetes-version 1.34.0 -ignore-missing-schemas /chart
+      - name: Trivy (the rendered manifests)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: ${{ runner.temp }}/chart
+          # Trusts the registry Hekate's images are published on.
+          trivy-config: deploy/helm/hekate/ci/trivy.yaml
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          trivyignores: .trivyignore
+          exit-code: "1"
+          version: v0.75.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          push: false
+          tags: hekate:ci
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        with:
+          cluster_name: hekate
+      - name: Load the image and start PostgreSQL
+        run: |
+          kind load docker-image hekate:ci --name hekate
+          kubectl create namespace hekate
+          kubectl config set-context --current --namespace hekate
+          kubectl run postgres --image=postgres:18-alpine --port=5432 \
+            --env=POSTGRES_USER=hekate --env=POSTGRES_PASSWORD=hekate --env=POSTGRES_DB=hekate
+          kubectl expose pod postgres --port=5432
+          kubectl wait --for=condition=Ready pod/postgres --timeout=120s
+      - name: Install it
+        run: |
+          helm install hekate "$CHART" -n hekate -f "$CHART/ci/values.yaml" -f "$CHART/ci/kind.yaml" \
+            --wait --timeout 5m
+      # An upgrade runs the migration Job first, then rolls the replicas one at a time.
+      - name: Upgrade it
+        run: |
+          helm upgrade hekate "$CHART" -n hekate -f "$CHART/ci/values.yaml" -f "$CHART/ci/kind.yaml" \
+            --set-string env.HEKATE_DOCS_URL=https://example.test/docs --wait --timeout 5m
+      - name: It serves
+        run: |
+          kubectl port-forward service/hekate 8080:80 &
+          curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 2 \
+            http://localhost:8080/api/health/ready
+      - name: What happened
+        if: ${{ failure() }}
+        run: |
+          kubectl get pods,jobs,events --sort-by=.metadata.creationTimestamp
+          kubectl logs deployment/hekate-api --all-containers --tail=200 || true
+          kubectl logs deployment/hekate-worker --all-containers --tail=200 || true
+          kubectl logs job/hekate-migrate --tail=200 || true

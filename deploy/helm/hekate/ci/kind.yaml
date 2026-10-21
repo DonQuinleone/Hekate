@@ -1,0 +1,7 @@
+# On kind: the image built by CI, loaded into the cluster, and no Ingress controller.
+image:
+  repository: hekate
+  tag: ci
+  pullPolicy: Never
+ingress:
+  enabled: false

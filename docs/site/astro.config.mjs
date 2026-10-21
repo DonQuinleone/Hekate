@@ -23,6 +23,7 @@ export default defineConfig({
           items: [
             "install",
             "install/swarm",
+            "install/kubernetes",
             "install/configuration",
             "install/storage",
             "install/proxies",

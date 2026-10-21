@@ -1,0 +1,57 @@
+{{- if .Values.migrations.job }}
+# Before an upgrade rolls out: the new release's migrations, under the lock replicas take (#154).
+# Every release's migrations work with the release before it, so the old pods serve on meanwhile.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "hekate.fullname" . }}-migrate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hekate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    helm.sh/hook: pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 1800
+  template:
+    metadata:
+      labels:
+        {{- include "hekate.selector" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "hekate.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "hekate.podSecurity" . | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "hekate.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["apps/server/src/cli.ts", "migrate"]
+          securityContext:
+            {{- include "hekate.containerSecurity" . | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "hekate.fullname" . }}
+          env:
+            {{- include "hekate.env" . | nindent 12 }}
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 512Mi }
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi
+{{- end }}
