@@ -1192,7 +1192,7 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 
 - **`ROLE`: all, api or worker.** `all` is the default, as one process serves most studios. A worker answers only `/api/health*` and `/metrics`, for probes and Prometheus; every other request is refused there, so it is never a second way in. `WORKER=false` keeps meaning `api`: no setting is renamed, nothing for an operator to change.
 - **Five lanes, fixed:** transcode, analyse, pages, mail and system. Each kind of job belongs to one, written beside its definition (`jobDefinitions`); lanes follow the work's cost (transcoding apart from the lighter analysis) and the jobs that must run somewhere (system and mail), not one per job.
-- **`WORKER_LANES`** names the lanes a worker takes and, optionally, how many of each at once (`transcode:4,analyse`); unset, every lane at the defaults, as before. A lane given no number keeps each job's own concurrency.
+- **`WORKER_LANES`** names the lanes a worker takes and, optionally, how many of each kind of job in the lane at once (`transcode:4,analyse`); unset, every lane at the defaults, as before. A lane given no number keeps each job's own concurrency. The count is per kind, as `WORKER_CONCURRENCY`'s always was, not shared by a lane: pg-boss claims a job before its handler runs, so a shared count would have a worker hold claimed jobs while it waited, which idle workers could have run, until their claims expired hours later.
 - **Queue depth by lane** (`hekate_lane_jobs_waiting`) beside the per-queue gauges, the one figure an autoscaler needs per worker pool.
 - **Graceful stop** stays pg-boss's: running jobs finish for up to thirty seconds; one that does not is retried once it expires.
 

@@ -15,7 +15,7 @@ One app process serves most studios. For more, or to keep serving while one rest
 
 `ROLE` says what a process does: `all` (the default) answers requests and runs background jobs; `api` only answers requests; `worker` only runs jobs, and answers nothing but its health (`/api/health`, `/api/health/ready`) and metrics, for its probes and Prometheus. The older `WORKER=false` still means `api`.
 
-Background jobs run in five lanes: **transcode** (streaming renditions), **analyse** (measuring, waveforms and loudness, alignment, checksums), **pages** (documents drawn as pages), **mail** (notifications, digests, reminders) and **system** (the instance's own sweeps, purges and checks). A worker takes every lane unless `WORKER_LANES` names some, each with how many of its jobs to run at once where the default will not do:
+Background jobs run in five lanes: **transcode** (streaming renditions), **analyse** (measuring, waveforms and loudness, alignment, checksums), **pages** (documents drawn as pages), **mail** (notifications, digests, reminders) and **system** (the instance's own sweeps, purges and checks). A worker takes every lane unless `WORKER_LANES` names some, each with how many of each kind of its jobs to run at once where the default will not do. The count is per kind, as `WORKER_CONCURRENCY`'s is: `analyse:2` runs up to two measurements, two analyses, two alignments and two checksums at once, so size it for the heaviest mix a lane may get.
 
 ```sh
 ROLE=worker

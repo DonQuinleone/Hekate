@@ -363,8 +363,8 @@ export function createJobs(options: {
 }
 
 /**
- * The same jobs, worked only in the lanes a worker takes (#189), each lane as many at once as
- * the plan says, or as the job asks where it does not say.
+ * The same jobs, worked only in the lanes a worker takes (#189), each kind of job as many at
+ * once as the plan says, or as the job asks where it does not say.
  */
 export function inLanes(jobs: Jobs, plan: LanePlan): Jobs {
   return {

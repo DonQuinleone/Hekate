@@ -1,6 +1,8 @@
 /**
- * The lanes jobs run in (#189): a worker takes some or all of them, each as many at once as it
- * is told, so media work scales by adding workers that take only the heavy lanes.
+ * The lanes jobs run in (#189): a worker takes some or all of them, each kind of job in a lane
+ * as many at once as it is told, so media work scales by adding workers that take only the heavy
+ * lanes. A count is per kind, as WORKER_CONCURRENCY's is: one shared by a lane's kinds would have
+ * a worker hold jobs it had claimed while it waited, which idle workers could have run.
  * transcode: streaming renditions; analyse: measuring, analysing, aligning and checksums;
  * pages: documents drawn as pages; mail: notifications, digests and reminders; system: the
  * instance's own sweeps, purges and checks.
@@ -13,7 +15,7 @@ export const roles = ["all", "api", "worker"] as const;
 export type Role = (typeof roles)[number];
 
 /**
- * The lanes a worker takes, and how many of each at once where it says; null means every lane,
+ * The lanes a worker takes, and how many of each of a lane's kinds of job at once where it says; null means every lane,
  * each as many at once as the job asks. Written `transcode:4,analyse` (WORKER_LANES).
  */
 export type LanePlan = Map<Lane, number | null> | null;
@@ -38,7 +40,7 @@ export function parseLanes(text: string): { plan: LanePlan } | { error: string }
   return { plan };
 }
 
-/** How many of a lane's jobs to run at once, or none when the plan leaves the lane out. */
+/** How many of one kind of a lane's jobs to run at once, or none when the plan leaves the lane out. */
 export function concurrencyIn(plan: LanePlan, lane: Lane, asked: number): number | null {
   if (!plan) return asked;
   if (!plan.has(lane)) return null;

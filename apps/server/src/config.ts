@@ -325,7 +325,7 @@ const schema = z.object({
     .meta(
       info({
         group: "Media",
-        description: `The lanes of background jobs a worker takes (${lanes.join(", ")}), each with how many at once if not the default. Unset, it takes every lane.`,
+        description: `The lanes of background jobs a worker takes (${lanes.join(", ")}), each with how many of each kind of its jobs to run at once if not the default (analyse:2 runs up to two measurements, two analyses, two alignments and two checksums). Unset, it takes every lane.`,
         example: "transcode:4,analyse:2,pages",
       }),
     ),
@@ -339,7 +339,7 @@ const schema = z.object({
       info({
         group: "Media",
         description:
-          "Media jobs run at once in this process. ffmpeg is CPU-heavy; about half the cores is a good start.",
+          "Jobs of each kind of media work run at once in this process (probing, analysing, pages and so on, each up to this many; streaming renditions and alignments half as many). ffmpeg is CPU-heavy; about half the cores is a good start.",
       }),
     ),
   WORK_DIR: z
