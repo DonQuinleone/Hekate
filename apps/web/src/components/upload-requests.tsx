@@ -261,7 +261,7 @@ export function UploadRequestDialog({
                 onChange={(e) => setWanted(e.target.value)}
               />
             </Field>
-            <div className="grid gap-4 @md/app:grid-cols-3">
+            <div className="grid gap-4 @md/app:grid-cols-[minmax(0,1.5fr)_minmax(0,0.7fr)_minmax(0,1fr)]">
               <Field label="Into">
                 <Select value={into} onChange={(e) => setInto(e.target.value)}>
                   <option value="">Top of the project</option>
