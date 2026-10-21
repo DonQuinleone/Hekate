@@ -5,6 +5,7 @@ import { APIError, createAuthEndpoint } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
 import { and, eq, sql } from "drizzle-orm";
 import type { Audit } from "./audit.ts";
+import { lockedAttempts } from "./auth-log.ts";
 import { authenticate, directoryConfig } from "./directory.ts";
 import type { Keyring } from "./keyring.ts";
 import { waitMessage } from "./lockout.ts";
@@ -46,6 +47,9 @@ export const directorySignIn = (deps: { db: Database; keyring?: Keyring; audit?:
 
           const attempts = `directory:${organisation.id}:${username.toLowerCase()}`;
           const admitted = await admitAttempt(db, attempts);
+          // Locked now, or this try reaches the lock: its refusal is logged as a lockout (#157).
+          if (ctx.request && (admitted.locks || (admitted.wait > 0 && admitted.locked)))
+            lockedAttempts.add(ctx.request);
           if (admitted.wait > 0)
             throw new APIError(
               "TOO_MANY_REQUESTS",

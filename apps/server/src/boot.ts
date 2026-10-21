@@ -125,6 +125,7 @@ export async function boot(
   });
   const auth = createAuth({
     db,
+    trustProxy: config.TRUST_PROXY,
     secret: config.AUTH_SECRET,
     baseURL: config.PUBLIC_URL,
     trustedOrigins: config.TRUSTED_ORIGINS,

@@ -1459,7 +1459,12 @@ export function instanceRoutes(options: InstanceOptions) {
           await recordInstanceEvent(db, {
             actorId: c.var.userId,
             action: "logs.export",
-            target: kind === "audit" ? "The audit log" : "The mail log",
+            target:
+              kind === "audit"
+                ? "The audit log"
+                : kind === "auth"
+                  ? "The authentication log"
+                  : "The mail log",
             details: { kind, filters },
             ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
           });

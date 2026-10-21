@@ -5,6 +5,7 @@ import { type Context, Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { type Audit, requestInfo } from "../audit.ts";
+import { recordAuth, requestOf } from "../auth-log.ts";
 import { CodedException } from "../errors.ts";
 import { maskEmail } from "../guest-code.ts";
 import {
@@ -113,7 +114,23 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
           );
         });
         // One answer for unknown, used, revoked and expired links: nothing to learn from it.
-        if (!used) throw gone();
+        if (!used) {
+          await recordAuth(deps.db, {
+            method: "guest_link",
+            result: "refused",
+            reason: "unknown, used, revoked or expired link",
+            account: "Not known",
+            ...requestOf(c.req.raw, deps.trustProxy),
+          });
+          throw gone();
+        }
+        await recordAuth(deps.db, {
+          method: "guest_link",
+          result: "signed_in",
+          account: (await deps.audit.guest(used.session.guestId)).label,
+          organisationId: used.session.organisationId,
+          ...requestOf(c.req.raw, deps.trustProxy),
+        });
         setGuestCookie(c, used.token, secure);
         return c.json(
           {
@@ -154,16 +171,32 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
               );
             },
             refused: async (tx, who, reason) => {
+              const guest = await deps.audit.guest(who.guestId);
               await deps.audit.record(
                 who.organisationId,
-                await deps.audit.guest(who.guestId),
+                guest,
                 { action: "guest.code_failed", details: { reason } },
                 info,
                 tx,
               );
+              await recordAuth(deps.db, {
+                method: "guest_code",
+                result: "refused",
+                reason: `code ${reason}`,
+                account: guest.label,
+                organisationId: who.organisationId,
+                ...requestOf(c.req.raw, deps.trustProxy),
+              });
             },
           });
           if (result.status === "ok") {
+            await recordAuth(deps.db, {
+              method: "guest_code",
+              result: "signed_in",
+              account: (await deps.audit.guest(result.session.guestId)).label,
+              organisationId: result.session.organisationId,
+              ...requestOf(c.req.raw, deps.trustProxy),
+            });
             setGuestCookie(c, result.token, secure);
             return c.json(
               {
@@ -173,7 +206,16 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
               201,
             );
           }
-          if (result.status === "gone") throw gone();
+          if (result.status === "gone") {
+            await recordAuth(deps.db, {
+              method: "guest_code",
+              result: "refused",
+              reason: "unknown, used, revoked or expired link",
+              account: "Not known",
+              ...requestOf(c.req.raw, deps.trustProxy),
+            });
+            throw gone();
+          }
           if (result.status === "wrong")
             throw new CodedException(
               400,

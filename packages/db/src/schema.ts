@@ -4,6 +4,8 @@ import {
   approvalRules,
   auditActions,
   auditActorTypes,
+  authMethods,
+  authResults,
   type CaptionCue,
   type CaptionFormat,
   type CommentMention,
@@ -20,6 +22,7 @@ import {
   type LoudnessSummary,
   type MailMode,
   type MediaInfo,
+  mailResults,
   type NormalisationMode,
   type NotificationChannels,
   type NotificationKind,
@@ -2625,7 +2628,40 @@ export const versionsRun = pgTable("versions_run", {
   firstStartedAt: timestamp("first_started_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const mailResultEnum = pgEnum("mail_result", ["sent", "failed", "logged"]);
+export const authMethodEnum = pgEnum("auth_method", authMethods);
+export const authResultEnum = pgEnum("auth_result", authResults);
+
+/**
+ * Every sign-in, refusal and lockout (#157), by password, passkey, second factor, directory,
+ * single sign-on or guest link, with the address and the browser. Global: a member's sign-in
+ * belongs to their account, not a workspace; where one is known (a directory, a single sign-on,
+ * a guest's link) it is kept, and goes with the workspace.
+ */
+export const authEvents = pgTable(
+  "auth_events",
+  {
+    id: id(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    method: authMethodEnum("method").notNull(),
+    result: authResultEnum("result").notNull(),
+    /** Why it was refused, in words: "wrong password", "too many attempts". */
+    reason: text("reason"),
+    /** The address tried, or the guest's; kept as typed, so a refusal for no account shows too. */
+    account: text("account").notNull(),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    organisationId: uuid("organisation_id").references(() => organisations.id, {
+      onDelete: "cascade",
+    }),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+  },
+  (t) => [
+    index("auth_events_occurred_idx").on(t.occurredAt),
+    index("auth_events_org_idx").on(t.organisationId, t.id),
+  ],
+);
+
+export const mailResultEnum = pgEnum("mail_result", mailResults);
 
 /**
  * Every message Hekate handed to instance mail (#157), and what came of it: sent over SMTP,

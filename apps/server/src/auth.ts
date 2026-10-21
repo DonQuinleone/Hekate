@@ -8,6 +8,7 @@ import { APIError, createAuthMiddleware, getSessionFromCtx, isAPIError } from "b
 import { emailOTP, haveIBeenPwned, twoFactor } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import type { Audit } from "./audit.ts";
+import { lockedAttempts, recordAuth, requestOf, signInMethodOf } from "./auth-log.ts";
 import { directorySignIn } from "./directory-sign-in.ts";
 import type { Keyring } from "./keyring.ts";
 import { waitMessage } from "./lockout.ts";
@@ -53,6 +54,8 @@ export interface AuthOptions {
    * ones need nothing.
    */
   ssoTrustedOrigins?: string[];
+  /** Read the client address from X-Forwarded-For (behind Caddy), for the authentication log. */
+  trustProxy?: boolean;
 }
 
 /** Better Auth's SSO routes Hekate does not use: providers are set in workspace settings. */
@@ -260,6 +263,13 @@ export function createAuth(options: AuthOptions) {
           const admitted = await admitAttempt(options.db, ctx.body.email);
           if (admitted.wait > 0) {
             metrics.signInsRefused.inc({ method: "password" });
+            await recordAuth(options.db, {
+              method: "password",
+              result: admitted.locked ? "locked" : "refused",
+              reason: "too many attempts",
+              account: ctx.body.email,
+              ...requestOf(ctx.request, options.trustProxy ?? false),
+            });
             throw new APIError(
               "TOO_MANY_REQUESTS",
               { message: waitMessage(admitted.wait, admitted.locked) },
@@ -279,6 +289,40 @@ export function createAuth(options: AuthOptions) {
               ? "passkey"
               : null;
         if (method) (succeeded ? metrics.signIns : metrics.signInsRefused).inc({ method });
+        // The authentication log (#157): each sign-in as its session is made, each refusal.
+        const signedInBy = signInMethodOf(ctx.path);
+        const created = ctx.context.newSession;
+        if (signedInBy && created)
+          await recordAuth(options.db, {
+            method: signedInBy,
+            result: "signed_in",
+            account: created.user.email,
+            userId: created.user.id,
+            organisationId:
+              (created.session as { activeOrganisationId?: string | null }).activeOrganisationId ??
+              null,
+            ...requestOf(ctx.request, options.trustProxy ?? false),
+          });
+        else if (signedInBy && !succeeded) {
+          const returned = ctx.context.returned as { body?: { message?: unknown } };
+          const tried = typeof ctx.body?.email === "string" ? ctx.body.email : null;
+          const locked =
+            ctx.request !== undefined &&
+            ((signedInBy === "password" && locking.has(ctx.request)) ||
+              lockedAttempts.has(ctx.request));
+          await recordAuth(options.db, {
+            method: signedInBy,
+            result: locked ? "locked" : "refused",
+            reason: locked
+              ? "too many failed attempts"
+              : typeof returned.body?.message === "string"
+                ? returned.body.message.slice(0, 200)
+                : null,
+            account:
+              tried ?? (typeof ctx.body?.username === "string" ? ctx.body.username : "Not known"),
+            ...requestOf(ctx.request, options.trustProxy ?? false),
+          });
+        }
         // When each key was last used, for the account page.
         if (ctx.path === "/passkey/verify-authentication" && succeeded) {
           const credential = (ctx.body as { response?: { id?: unknown } } | undefined)?.response

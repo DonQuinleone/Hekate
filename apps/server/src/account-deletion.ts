@@ -5,7 +5,7 @@ import {
   FORMER_MEMBER,
   FRESH_SIGN_IN_MS,
 } from "@hekate/shared";
-import { and, eq, like, ne, sql } from "drizzle-orm";
+import { and, eq, like, ne, or, sql } from "drizzle-orm";
 import type { Audit, RequestInfo } from "./audit.ts";
 import type { Auth } from "./auth.ts";
 import { directoryConfig, verifyPassword } from "./directory.ts";
@@ -224,6 +224,20 @@ export async function deleteAccount(
       .update(schema.instanceEvents)
       .set({ target: FORMER_MEMBER })
       .where(eq(schema.instanceEvents.target, user.email));
+    // Nor do the sign-in and mail logs (#157), which kept the address as it was typed or sent.
+    await tx
+      .update(schema.authEvents)
+      .set({ account: FORMER_MEMBER })
+      .where(
+        or(
+          eq(schema.authEvents.userId, userId),
+          sql`lower(${schema.authEvents.account}) = lower(${user.email})`,
+        ),
+      );
+    await tx
+      .update(schema.mailEvents)
+      .set({ recipient: FORMER_MEMBER })
+      .where(sql`lower(${schema.mailEvents.recipient}) = lower(${user.email})`);
 
     // Its trail is wherever it acted, including workspaces it has left.
     const workspaces = [...new Set([...memberships.map((m) => m.organisationId), ...logged])];

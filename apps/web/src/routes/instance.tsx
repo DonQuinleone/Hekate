@@ -1,5 +1,6 @@
 import {
   type AuditLogRow,
+  type AuthLogRow,
   type CheckState,
   ERROR_REPORT_DAYS,
   errorReportText,
@@ -58,6 +59,7 @@ import { Segmented } from "~/components/ui/segmented";
 import { type ReviewState, StatusDot } from "~/components/ui/status";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { actionCopy } from "~/lib/access-log";
+import { shortAgent } from "~/lib/agent";
 import { api } from "~/lib/api";
 import { authClient } from "~/lib/auth";
 import { cn } from "~/lib/cn";
@@ -889,7 +891,11 @@ const logTime = formatDates({
   second: "2-digit",
 });
 
-const logLabels: Record<LogKind, string> = { audit: "Audit", mail: "Email" };
+const logLabels: Record<LogKind, string> = {
+  audit: "Audit",
+  auth: "Authentication",
+  mail: "Email",
+};
 const rangeLabels: Record<LogRange, string> = {
   "1h": "Last hour",
   "24h": "Last 24 hours",
@@ -899,8 +905,25 @@ const rangeLabels: Record<LogRange, string> = {
 const logNotes: Record<LogKind, string> = {
   audit:
     "Every action an operator took on the instance, and every change in a workspace with the files people downloaded. Streams and page renders stay in each workspace's access log.",
+  auth: "Every sign-in, refusal and lockout, with the address and the browser. After four wrong passwords each try waits longer, and ten in fifteen minutes lock the account for fifteen.",
   mail: "Every message handed to instance mail, and what came back. Without SMTP, messages are written to the server's log.",
 };
+const authMethodLabels: Record<AuthLogRow["method"], string> = {
+  password: "Password",
+  passkey: "Passkey",
+  second_factor: "Second factor",
+  directory: "Directory",
+  sso: "Single sign-on",
+  guest_link: "Guest link",
+  guest_code: "Guest code",
+};
+
+/** What came of a sign-in, in words, with why when it was refused. */
+const authResult = (r: AuthLogRow) =>
+  r.result === "signed_in"
+    ? "Signed in"
+    : `${r.result === "locked" ? "Locked" : "Refused"}${r.reason ? `: ${r.reason}` : ""}`;
+
 const mailResults: Record<MailLogRow["result"], string> = {
   sent: "Sent",
   failed: "Refused",
@@ -926,7 +949,7 @@ function Logs() {
   const filters = {
     range,
     ...(search ? { q: search } : {}),
-    ...(kind === "audit" && workspace ? { workspace } : {}),
+    ...(kind !== "mail" && workspace ? { workspace } : {}),
   };
   const log = useInfiniteQuery(instanceLogQuery(kind, filters));
   // Every workspace, for the filter: the pages read one after another until there are no more.
@@ -934,8 +957,8 @@ function Logs() {
   useEffect(() => {
     if (workspaces.hasNextPage && !workspaces.isFetchingNextPage) void workspaces.fetchNextPage();
   }, [workspaces.hasNextPage, workspaces.isFetchingNextPage, workspaces.fetchNextPage]);
-  const rows: (AuditLogRow | MailLogRow)[] =
-    log.data?.pages.flatMap((p): (AuditLogRow | MailLogRow)[] => p.rows) ?? [];
+  const rows: (AuditLogRow | AuthLogRow | MailLogRow)[] =
+    log.data?.pages.flatMap((p): (AuditLogRow | AuthLogRow | MailLogRow)[] => p.rows) ?? [];
   const exportUrl = `/api/instance/logs/${kind}/export?${new URLSearchParams(logQueryString(filters))}`;
   const body = (
     <>
@@ -959,7 +982,7 @@ function Logs() {
             </option>
           ))}
         </Select>
-        {kind === "audit" && (
+        {kind !== "mail" && (
           <Select
             aria-label="Workspace"
             value={workspace}
@@ -1017,6 +1040,37 @@ function Logs() {
               </span>
               <span className="tabular hidden truncate text-ink-3 @6xl/app:order-5 @6xl/app:block">
                 {r.ipAddress ?? ""}
+              </span>
+            </div>
+          ))
+        ) : kind === "auth" ? (
+          (rows as AuthLogRow[]).map((r) => (
+            <div
+              key={r.id}
+              data-log-entry
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-[13px] @3xl/app:grid-cols-[150px_minmax(0,1fr)_130px_minmax(0,1fr)] @6xl/app:grid-cols-[150px_minmax(0,1fr)_130px_minmax(0,1fr)_200px]"
+            >
+              <span className="tabular text-ink-3">{logTime.format(new Date(r.at))}</span>
+              <span className="justify-self-end text-ink-3 @3xl/app:order-3 @3xl/app:justify-self-start">
+                {authMethodLabels[r.method]}
+              </span>
+              <span className="col-span-2 flex min-w-0 flex-col @3xl/app:order-2 @3xl/app:col-span-1">
+                <span className="truncate text-ink-2">{r.account}</span>
+                {r.workspace && (
+                  <span className="truncate text-[12px] text-ink-3">{r.workspace.name}</span>
+                )}
+              </span>
+              <span
+                className={cn(
+                  "col-span-2 truncate @3xl/app:order-4 @3xl/app:col-span-1",
+                  r.result === "signed_in" ? "text-ink" : "text-signal",
+                )}
+                title={authResult(r)}
+              >
+                {authResult(r)}
+              </span>
+              <span className="tabular hidden truncate text-ink-3 @6xl/app:order-5 @6xl/app:block">
+                {[r.ipAddress, shortAgent(r.userAgent)].filter(Boolean).join(" · ")}
               </span>
             </div>
           ))
