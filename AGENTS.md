@@ -42,7 +42,7 @@ pnpm workspace.
 | `brand/` | Mark, wordmark and icons. SVG is the source of truth. |
 | `docs/` | Decisions (`docs/decisions.md`), the brand system (`docs/brand.md`), security (`docs/security.md`), backups (`docs/backup.md`), disaster recovery (`docs/recovery.md`) and the configuration reference (`docs/configuration.md`, generated). |
 | `docs/site` | The documentation site (Starlight): install, operate, security, use. Operator pages are copied in from `docs/` at build time; a release publishes it to GitHub Pages. |
-| `deploy/` | Compose files, Caddy configuration, and the backup and restore scripts. |
+| `deploy/` | Compose files, the Swarm stack, Caddy configuration, and the backup and restore scripts. |
 
 Commands:
 
