@@ -47,6 +47,7 @@ const instanceIcons: Record<InstanceSection, IconName> = {
   workspaces: "building",
   operators: "fingerprint",
   health: "pulse",
+  logs: "list",
   settings: "settings",
   system: "server",
   debug: "sliders",

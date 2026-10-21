@@ -22,6 +22,7 @@ describe("the instance side", () => {
       "workspaces",
       "operators",
       "health",
+      "logs",
       "debug",
       "system",
       "settings",

@@ -17,7 +17,7 @@ import { createFlags } from "./flags.ts";
 import { createInstanceSettings } from "./instance-settings.ts";
 import { createJobs, jobDefinitions } from "./jobs.ts";
 import { createKeyring, UnknownMasterKeyError } from "./keyring.ts";
-import { createMailer } from "./mail.ts";
+import { createMailer, loggedMailer } from "./mail.ts";
 import { startWorkers } from "./media/workers.ts";
 import { collectFromDatabase, collectQueues, countedMailer } from "./metrics/index.ts";
 import { createSampler } from "./metrics/sampler.ts";
@@ -108,7 +108,14 @@ export async function boot(
   })();
 
   const { db, close } = createDb(config.DATABASE_URL);
-  const mailer = countedMailer(createMailer({ smtpUrl: config.SMTP_URL, from: config.MAIL_FROM }));
+  // Counted for Prometheus (#70) and written to the mail log (#157).
+  const mailer = countedMailer(
+    loggedMailer(
+      db,
+      createMailer({ smtpUrl: config.SMTP_URL, from: config.MAIL_FROM }),
+      Boolean(config.SMTP_URL),
+    ),
+  );
   // Read at each scrape of /metrics (#70).
   collectFromDatabase(db);
   collectQueues(db, Object.keys(jobDefinitions));

@@ -1142,3 +1142,13 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Instance mail has a Test**: a message to the operator's own address, which says whether the mail server took it and shows its refusal when not. A few a quarter of an hour.
 - **Modules** are shown read-only, as the environment set them: billing, the support desk, the documentation and the status page.
 - **Follows.** Telemetry with #162, registration with #184, subdomains with #176.
+
+## 185. Logs as tables: audit and mail first
+
+#157, first part.
+
+- **Audit** reads what is already written, not a new table: the operators' instance events, and each workspace's access log less streams and page renders (which stay in the workspace's own log, as on the instance's workspace page). An operator's event about a workspace (its id in the details) counts as that workspace's when filtered.
+- **Mail** gains a writer: every message handed to instance mail is written to `mail_events` (global: a message may concern no workspace) as sent, refused with the mail server's words (kept to 500 characters), or written to the log where there is no SMTP. Writing it never holds up the message nor hides its failure.
+- **Reading.** Newest first a page at a time, by id: ids are UUIDv7, so a range is a scan of the primary key. Search, a range of an hour to thirty days, and a workspace (audit).
+- **Export** streams the whole filtered log as CSV, its cells neutralised as the access log's; it is an instance event (`logs.export`) written before any of it leaves.
+- **Follows.** Authentication, with writers for sign-ins, refusals, lockouts, second factors and guest links; then retention per kind as a job, and the live tail. API, webhooks and the billing gateway arrive with their features. The prototype's Email tab loses its Template and Provider columns: a message knows its subject, not its template.

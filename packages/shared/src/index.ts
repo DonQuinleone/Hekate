@@ -27,6 +27,7 @@ export * from "./instance.ts";
 export * from "./instance-settings.ts";
 export * from "./item-words.ts";
 export * from "./layouts.ts";
+export * from "./logs.ts";
 export * from "./loudness.ts";
 export * from "./media.ts";
 export * from "./metadata.ts";

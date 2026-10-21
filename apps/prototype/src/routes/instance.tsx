@@ -356,7 +356,7 @@ const logKinds: { id: LogKind; label: string; columns: string[] }[] = [
   { id: "audit", label: "Audit", columns: ["When", "Who", "Workspace", "Action", "On"] },
   { id: "auth", label: "Authentication", columns: ["When", "Who", "Method", "Result", "From"] },
   { id: "api", label: "API", columns: ["When", "Token or client", "Call", "Status", "Time"] },
-  { id: "mail", label: "Email", columns: ["When", "To", "Template", "Result", "Provider"] },
+  { id: "mail", label: "Email", columns: ["When", "To", "Subject", "Result"] },
   { id: "webhooks", label: "Webhooks", columns: ["When", "Channel", "Event", "Result", "Attempt"] },
   { id: "gateway", label: "Gateway", columns: ["When", "Workspace", "Event", "Amount", "Result"] },
 ];
@@ -440,11 +440,16 @@ const logRows: Record<LogKind, string[][]> = {
     ["19:50:19", "hk_cli_a0d4… (client)", "POST /oauth/token", "400 invalid_grant", "6 ms"],
   ],
   mail: [
-    ["20:41:13", "mira@solberg.example", "Review requested", "Delivered", "SMTP"],
-    ["20:12:04", "tomas@endlesshall.example", "Role changed", "Delivered", "SMTP"],
-    ["19:58:31", "owen@lantern.example", "Workspace suspended", "Delivered", "SMTP"],
-    ["18:00:00", "priya@northchoir.example", "Due soon", "Bounced: mailbox full", "SMTP"],
-    ["17:30:12", "producer@endlesshall.example", "Invitation", "Delivered", "SMTP"],
+    ["20:41:13", "mira@solberg.example", "Alex Rivera asked you to review Album masters", "Sent"],
+    ["20:12:04", "tomas@endlesshall.example", "You are now an Engineer in Joplin Rags", "Sent"],
+    ["19:58:31", "owen@lantern.example", "Lantern Pictures is suspended", "Sent"],
+    [
+      "18:00:00",
+      "priya@northchoir.example",
+      "Album masters is due tomorrow",
+      "Refused: 552 5.2.2 Mailbox full",
+    ],
+    ["17:30:12", "producer@endlesshall.example", "Join Endless Hall Records on Hekate", "Sent"],
   ],
   gateway: [
     ["20:52:10", "Endless Hall Records", "invoice.paid · INV-0412", "£49.00", "200 · Stripe"],
@@ -2054,7 +2059,7 @@ export function InstancePage({ section }: { section: string }) {
             {logKind === "api" &&
               "Every call through a token or an OAuth client, with its status and time. Workspaces see their own."}
             {logKind === "mail" &&
-              "Every message handed to the provider, and what came back. Bounces pause the address."}
+              "Every message handed to instance mail, and what came back. Without SMTP, messages are written to the server's log."}
             {logKind === "gateway" &&
               "Every event from the billing gateway, with what it meant here: invoices, subscriptions, trials, codes and payouts."}
             {logKind === "webhooks" &&

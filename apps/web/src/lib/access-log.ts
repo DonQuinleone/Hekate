@@ -1,5 +1,6 @@
-/** Plain words for what each entry records. */
-export const actionCopy: Record<string, string> = {
+import type { AuditAction } from "@hekate/shared";
+
+const actionWords = {
   "stream.key": "Key issued",
   "stream.session": "Playback started",
   "stream.segment": "Segment served",
@@ -18,6 +19,12 @@ export const actionCopy: Record<string, string> = {
   "review.due": "Due date changed",
   "review.reviewer_add": "Reviewer added",
   "review.reviewer_remove": "Reviewer removed",
+  "version.let_through": "Let past the version checks",
+  "variation.replace": "File replaced",
+  "comment.takes_share": "Takes shared",
+  "comment.takes_unshare": "Takes unshared",
+  "file.captions_add": "Captions added",
+  "file.captions_remove": "Captions removed",
   "guest.link": "Guest link sent",
   "guest.sign_in": "Guest signed in",
   "guest.code_sent": "Guest sent a code",
@@ -56,4 +63,7 @@ export const actionCopy: Record<string, string> = {
   "project.transfer_refuse": "Project move refused",
   "project.transfer_cancel": "Project move withdrawn",
   "project.transfer": "Project moved between workspaces",
-};
+} satisfies Record<AuditAction, string>;
+
+/** Plain words for what each entry records; every action has some, or this does not compile. */
+export const actionCopy: Record<string, string> = actionWords;
