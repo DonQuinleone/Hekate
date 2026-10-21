@@ -12,6 +12,9 @@ services:
     # The release this file came with; HEKATE_VERSION picks another.
     image: ghcr.io/donquinleone/hekate:${HEKATE_VERSION:-0.1.0} # x-release-please-version
     restart: unless-stopped
+    # Longer than SHUTDOWN_TIMEOUT_SECONDS (30 by default), so the app drains and finishes what
+    # is under way before Docker would kill it (#193).
+    stop_grace_period: 40s
     env_file: ../.env
     environment:
       DATABASE_URL: postgres://hekate:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/hekate

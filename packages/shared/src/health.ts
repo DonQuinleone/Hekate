@@ -20,7 +20,7 @@ export interface HealthChecks {
 }
 
 export interface Readiness {
-  status: "ready" | "not_ready";
+  status: "ready" | "not_ready" | "stopping";
   version: string;
   checks: HealthChecks;
 }
@@ -28,11 +28,12 @@ export interface Readiness {
 /**
  * Ready to serve when the database and storage are: nothing works without them. A worker or
  * mail that is down is reported, but keeps no request from being served, so a load balancer
- * does not take every replica out at once for want of mail.
+ * does not take every replica out at once for want of mail. A process told to stop is not
+ * ready from that moment, whatever it can still do, so a load balancer drains it first (#193).
  */
-export function readiness(version: string, checks: HealthChecks): Readiness {
+export function readiness(version: string, checks: HealthChecks, stopping = false): Readiness {
   const serves = checks.database === "ok" && checks.storage === "ok";
-  return { status: serves ? "ready" : "not_ready", version, checks };
+  return { status: stopping ? "stopping" : serves ? "ready" : "not_ready", version, checks };
 }
 
 /**

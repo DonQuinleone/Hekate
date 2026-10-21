@@ -2,6 +2,7 @@ import type { Database } from "@hekate/db";
 import { type HealthChecks, readiness } from "@hekate/shared";
 import { sql } from "drizzle-orm";
 import { Hono } from "hono";
+import { isStopping } from "../lifecycle.ts";
 import { version } from "../version.ts";
 
 /**
@@ -24,6 +25,6 @@ export const health = (db: Database, checks: () => Promise<HealthChecks>) =>
     })
     .get("/live", (c) => c.json({ status: "ok", version } as const))
     .get("/ready", async (c) => {
-      const answer = readiness(version, await checks());
+      const answer = readiness(version, await checks(), isStopping());
       return c.json(answer, answer.status === "ready" ? 200 : 503);
     });

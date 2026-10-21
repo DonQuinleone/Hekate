@@ -13,6 +13,10 @@ describe("readiness", () => {
     expect(readiness("0.2.0", { ...all, database: "failed" }).status).toBe("not_ready");
     expect(readiness("0.2.0", { ...all, storage: "failed" }).status).toBe("not_ready");
   });
+
+  it("is not ready once told to stop, however well it could serve (#193)", () => {
+    expect(readiness("0.2.0", all, true).status).toBe("stopping");
+  });
 });
 
 describe("the System health charts", () => {
