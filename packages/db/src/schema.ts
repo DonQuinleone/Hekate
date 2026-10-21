@@ -1766,6 +1766,72 @@ export const uploadParts = pgTable(
 
 // Protected streaming
 
+// Upload requests
+
+/**
+ * A link for someone outside a project to upload files into one of its folders (#139). The
+ * link is the credential: only a hash of its token is kept, it reads nothing, and it accepts
+ * files only until it expires, reaches its limit or is closed.
+ */
+export const uploadRequests = pgTable(
+  "upload_requests",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: projectId(),
+    /** Where files arrive; null for the project's top level. */
+    folderId: uuid("folder_id").references(() => folders.id, { onDelete: "set null" }),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    /** What is wanted, shown to the visitor. */
+    wanted: text("wanted").notNull().default(""),
+    fileLimit: integer("file_limit").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    tokenHash: text("token_hash").notNull(),
+    /** scrypt of the password, with its salt; null when none is asked. */
+    passwordHash: text("password_hash"),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("upload_requests_token_idx").on(t.tokenHash),
+    index("upload_requests_project_idx").on(t.organisationId, t.projectId),
+  ],
+);
+
+/** An upload sent through a request, and who said they sent it. */
+export const uploadRequestUploads = pgTable(
+  "upload_request_uploads",
+  {
+    uploadId: uuid("upload_id")
+      .primaryKey()
+      .references(() => uploads.id, { onDelete: "cascade" }),
+    organisationId: organisationId(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => uploadRequests.id, { onDelete: "cascade" }),
+    sender: text("sender").notNull(),
+  },
+  (t) => [index("upload_request_uploads_request_idx").on(t.organisationId, t.requestId)],
+);
+
+/** A file that arrived through a request: what arrived, and from whom. */
+export const uploadRequestFiles = pgTable(
+  "upload_request_files",
+  {
+    fileId: uuid("file_id")
+      .primaryKey()
+      .references(() => files.id, { onDelete: "cascade" }),
+    organisationId: organisationId(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => uploadRequests.id, { onDelete: "cascade" }),
+    sender: text("sender").notNull(),
+    arrivedAt: timestamp("arrived_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("upload_request_files_request_idx").on(t.organisationId, t.requestId)],
+);
+
 /**
  * A playable proxy of a file: HLS with fragmented MP4 segments, each encrypted with
  * AES-128 under this rendition's content key (docs/security.md). Segments and the

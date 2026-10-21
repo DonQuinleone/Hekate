@@ -53,6 +53,7 @@ The words in this document are used exactly as defined, in code, in the interfac
 | **Plan** | What a workspace pays for and is given: limits, features and the support severities it unlocks. Only with the billing module. |
 | **Notification** | Something that happened, told to one member: a review asked of them, a decision on a review they asked for, a reply, a mention (`@` and their full name), a new version of a track they follow, a failed upload, a guest opening their review. Each kind reaches them in the app, by mail (at once or in a digest), or both, as they choose; reviews asked of them and mentions always reach them in the app. Guests are told by mail only. |
 | **Follow** | Being told about a track or a review beyond your own part in it. Making a track or adding a version to it follows it. |
+| **Upload request** | A link for someone outside a project, with no account, to send files into one of its folders: what is wanted, a file limit, a closing day and an optional password. What arrives is listed with who sent it. |
 | **Error reference** | A short code (`HK-7F3A-2C`) shown with an error, by which an operator finds what happened. |
 
 Terms deliberately **not** used: *movement* (a track is the unit), *asset* (say file, track or version), *take* for anything other than a recording-session snippet.

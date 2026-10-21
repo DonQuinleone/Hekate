@@ -88,6 +88,7 @@ import { Input } from "./ui/input";
 import { ActionMenu, type MenuAction } from "./ui/menu";
 import { Segmented } from "./ui/segmented";
 import { StatusDot } from "./ui/status";
+import { UploadRequestDialog } from "./upload-requests";
 
 type View = "list" | "columns" | "grid";
 const VIEW_KEY = "hekate.files.view";
@@ -336,6 +337,7 @@ export function FileBrowser({
   const tagging = useTagMutations(projectId);
   const [view, setView] = useState<View>(storedView);
   const [naming, setNaming] = useState<"folder" | "track" | null>(null);
+  const [requesting, setRequesting] = useState(false);
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState<Editing>(null);
   const [columnPath, setColumnPath] = useState<Item[]>([]);
@@ -1159,6 +1161,7 @@ export function FileBrowser({
                           },
                         ]
                       : []),
+                    { label: "Upload request…", onSelect: () => setRequesting(true) },
                     "divider" as const,
                   ]
                 : []),
@@ -1171,6 +1174,15 @@ export function FileBrowser({
           <UploadButton />
         </div>
       </div>
+
+      {requesting && (
+        <UploadRequestDialog
+          projectId={projectId}
+          folders={folders ?? []}
+          folderId={folderId}
+          onClose={() => setRequesting(false)}
+        />
+      )}
 
       {naming && (
         <form

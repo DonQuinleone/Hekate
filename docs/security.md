@@ -113,6 +113,15 @@ Uploads are resumable and never sit on the server as plaintext.
 - Completing an upload creates the blob and the file, records a `file.upload` event, and queues the checksum and probe jobs. The checksum job reads the file back through decryption, which also proves it is intact.
 - An upload belongs to the member who started it. Unfinished uploads expire after seven days; an hourly job discards their stored parts.
 
+### Upload requests
+
+A link for someone outside a project to send files into one of its folders (#139, decision 199).
+
+- The link is the credential, as a guest's is: 32 random bytes, kept only as a SHA-256 hash, so it is shown once (and mailed, if the requester gives an address); a new link replaces it and the old one stops at once. A wrong, closed, lapsed or replaced link, or one into an archived project or a suspended workspace, gets the same refusal.
+- It reads nothing. The visitor's page shows only the request's own words, its workspace's name and how many files have arrived; the link sends files into the request's folder and asks after its own uploads, never a file, a folder or anything else of the project.
+- An optional password is kept as salted scrypt and asked for before each file starts; a wrong one is in the access log (`upload_request.password_failed`). Opening links and starting files are rate limited per address.
+- Files are uploaded exactly as members' are: chunked, encrypted on arrival, checked as they land. A place is taken under a lock on the request when a file starts, so its file limit holds however many start at once, and a file still being sent counts. The upload is logged with a `visitor` actor named as the sender said, and the requester is told.
+
 ## Media processing
 
 The media worker runs ffmpeg and ffprobe on uploads, which are untrusted input.

@@ -4581,6 +4581,311 @@ describe.runIf(url)("api", () => {
           createHash("sha256").update(bytes).digest("base64"),
         );
 
+      describe("upload requests (#139)", () => {
+        type Made = { request: { id: string; state: string }; link: string };
+        const days = (n: number) =>
+          new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+        const ask = (cookie: string, projectId: string, body: Record<string, unknown>) =>
+          app.request(
+            `/api/projects/${projectId}/upload-requests`,
+            json(
+              { name: "String stems", folderId: null, fileLimit: 2, expiresOn: days(5), ...body },
+              cookie,
+            ),
+          );
+        const tokenOf = (link: string) => link.split("/u/")[1] ?? "";
+        const visit = (token: string) => app.request(`/api/upload-links/${token}`);
+        const start = (token: string, body: Record<string, unknown>) =>
+          app.request(
+            `/api/upload-links/${token}/uploads`,
+            json({
+              name: "Violins.wav",
+              size: 10,
+              contentType: "audio/wav",
+              sender: "Ines Arlow",
+              ...body,
+            }),
+          );
+        const send = async (token: string, body: Record<string, unknown>, bytes: Uint8Array) => {
+          const started = await start(token, { size: bytes.length, ...body });
+          expect(started.status).toBe(201);
+          const { upload } = (await started.json()) as { upload: UploadView };
+          for (let i = 0; i < upload.chunkCount; i++) {
+            const part = bytes.subarray(i * upload.chunkSize, (i + 1) * upload.chunkSize);
+            const res = await app.request(
+              `/api/upload-links/${token}/uploads/${upload.id}/chunks/${i}`,
+              {
+                method: "PUT",
+                headers: { "content-type": "application/octet-stream" },
+                body: new Uint8Array(part),
+              },
+            );
+            expect(res.status).toBe(204);
+          }
+          return upload.id;
+        };
+        const finish = (token: string, id: string) =>
+          app.request(`/api/upload-links/${token}/uploads/${id}/complete`, json({}));
+
+        it("takes files from someone outside into the request's folder, up to its limit, reading nothing", async () => {
+          const owner = cookieOf(await setup());
+          const projectId = await newProject(owner);
+          const folder = (
+            (await (
+              await app.request(
+                `/api/projects/${projectId}/folders`,
+                json({ name: "Day 2" }, owner),
+              )
+            ).json()) as { folder: { id: string } }
+          ).folder;
+          mailer.sent.length = 0;
+          const made = await ask(owner, projectId, {
+            folderId: folder.id,
+            wanted: "The string stems, one file per section.",
+            password: "seasons-in-the-sun",
+            email: "ines@example.test",
+          });
+          expect(made.status).toBe(201);
+          const { request, link } = (await made.json()) as Made;
+          expect(request.state).toBe("open");
+          // The link is mailed with the workspace's template, and only its hash is kept.
+          expect(mailer.sent.find((m) => m.to === "ines@example.test")?.text).toContain(link);
+          const token = tokenOf(link);
+          const [stored] = await db
+            .select({
+              tokenHash: schema.uploadRequests.tokenHash,
+              password: schema.uploadRequests.passwordHash,
+            })
+            .from(schema.uploadRequests)
+            .where(eq(schema.uploadRequests.id, request.id));
+          expect(stored?.tokenHash).not.toContain(token);
+          expect(stored?.password).toMatch(/^scrypt:/);
+
+          // The visitor sees the request's own words and counts, nothing of the project.
+          const page = (await (await visit(token)).json()) as { request: Record<string, unknown> };
+          expect(page.request).toMatchObject({
+            name: "String stems",
+            wanted: "The string stems, one file per section.",
+            workspace: "Studio",
+            fileLimit: 2,
+            arrived: 0,
+            needsPassword: true,
+            state: "open",
+          });
+          expect(JSON.stringify(page)).not.toContain(projectId);
+
+          // Without the password nothing starts, and the attempt is in the access log.
+          expect((await start(token, {})).status).toBe(403);
+          expect((await start(token, { password: "wrong one" })).status).toBe(403);
+          const failed = await db
+            .select({ actorType: schema.accessEvents.actorType })
+            .from(schema.accessEvents)
+            .where(eq(schema.accessEvents.action, "upload_request.password_failed"));
+          expect(failed.map((e) => e.actorType)).toEqual(["visitor", "visitor"]);
+
+          const password = "seasons-in-the-sun";
+          const first = await send(token, { password }, Buffer.alloc(CHUNK_SIZE + 10, 3));
+          const done = await finish(token, first);
+          expect(done.status).toBe(201);
+          expect(await done.json()).toEqual({
+            arrived: { name: "Violins.wav", size: CHUNK_SIZE + 10 },
+          });
+          expect((await finish(token, first)).status).toBe(200);
+          const [file] = await db
+            .select()
+            .from(schema.files)
+            .innerJoin(
+              schema.uploadRequestFiles,
+              eq(schema.uploadRequestFiles.fileId, schema.files.id),
+            );
+          expect(file?.files).toMatchObject({ projectId, folderId: folder.id, uploadedBy: null });
+          expect(file?.upload_request_files.sender).toBe("Ines Arlow");
+          // The requester is told, and the upload is logged as the visitor's.
+          const told = await db
+            .select({ kind: schema.notifications.kind, text: schema.notifications.text })
+            .from(schema.notifications)
+            .where(eq(schema.notifications.kind, "upload_arrived"));
+          expect(told).toEqual([
+            { kind: "upload_arrived", text: "Ines Arlow sent Violins.wav for String stems" },
+          ]);
+          const uploaded = await db
+            .select({
+              actorType: schema.accessEvents.actorType,
+              label: schema.accessEvents.actorLabel,
+            })
+            .from(schema.accessEvents)
+            .where(eq(schema.accessEvents.action, "file.upload"));
+          expect(uploaded).toEqual([
+            { actorType: "visitor", label: "Ines Arlow (upload request: String stems)" },
+          ]);
+
+          // The link reads nothing: not the file, and not a member's own upload.
+          expect((await app.request(`/api/files/${file?.files.id}`)).status).toBe(401);
+          const { upload: theirs } = await create(owner, { projectId, name: "Mine.wav", size: 4 });
+          expect(
+            (await app.request(`/api/upload-links/${token}/uploads/${theirs?.id}`)).status,
+          ).toBe(404);
+          expect(
+            (
+              await app.request(
+                `/api/upload-links/${token}/uploads/${theirs?.id}/complete`,
+                json({}),
+              )
+            ).status,
+          ).toBe(404);
+
+          // A second file takes the last place while it is sent; a third finds none.
+          const second = await send(token, { password, name: "Violas.wav" }, Buffer.alloc(5, 1));
+          expect((await start(token, { password, name: "Cellos.wav" })).status).toBe(409);
+          expect((await finish(token, second)).status).toBe(201);
+          expect(
+            ((await (await visit(token)).json()) as { request: { state: string } }).request.state,
+          ).toBe("full");
+          expect((await start(token, { password, name: "Basses.wav" })).status).toBe(409);
+
+          // The requester sees what arrived, and from whom.
+          const seen = (await (
+            await app.request(`/api/upload-requests/${request.id}`, { headers: { cookie: owner } })
+          ).json()) as {
+            request: { arrived: number; state: string };
+            arrived: { name: string; sender: string }[];
+          };
+          expect(seen.request).toMatchObject({ arrived: 2, state: "full" });
+          expect(seen.arrived.map((a) => [a.name, a.sender]).sort()).toEqual([
+            ["Violas.wav", "Ines Arlow"],
+            ["Violins.wav", "Ines Arlow"],
+          ]);
+        });
+
+        it("stops a closed, lapsed or replaced link, and refuses lesser roles and other workspaces", async () => {
+          const owner = cookieOf(await setup());
+          const projectId = await newProject(owner);
+          expect((await ask(owner, projectId, { expiresOn: days(120) })).status).toBe(400);
+          const { request, link } = (await (await ask(owner, projectId, {})).json()) as Made;
+          const token = tokenOf(link);
+          expect((await visit("not-a-real-token-at-all")).status).toBe(410);
+
+          // A new link: the old one stops at once.
+          const renewed = (await (
+            await app.request(`/api/upload-requests/${request.id}/link`, json({}, owner))
+          ).json()) as { link: string };
+          expect((await visit(token)).status).toBe(410);
+          const fresh = tokenOf(renewed.link);
+          expect((await visit(fresh)).status).toBe(200);
+
+          // Closed: the page says so, and nothing more is taken.
+          const half = (await (await start(fresh, {})).json()) as { upload: UploadView };
+          const closed = await app.request(
+            `/api/upload-requests/${request.id}/close`,
+            json({}, owner),
+          );
+          expect(((await closed.json()) as Made).request.state).toBe("closed");
+          expect(
+            ((await (await visit(fresh)).json()) as { request: { state: string } }).request.state,
+          ).toBe("closed");
+          expect((await start(fresh, {})).status).toBe(410);
+          expect((await finish(fresh, half.upload.id)).status).toBe(410);
+
+          // Lapsed: the same.
+          const second = (await (await ask(owner, projectId, {})).json()) as Made;
+          await db
+            .update(schema.uploadRequests)
+            .set({ expiresAt: new Date(Date.now() - 1000) })
+            .where(eq(schema.uploadRequests.id, second.request.id));
+          expect(
+            ((await (await visit(tokenOf(second.link))).json()) as { request: { state: string } })
+              .request.state,
+          ).toBe("expired");
+          expect((await start(tokenOf(second.link), {})).status).toBe(410);
+
+          // A member whose role cannot organise the project is refused; one outside it finds none.
+          const reviewer = await joinAs(owner, "reviewer-upload-request@example.test", "member");
+          await grantRole(owner, projectId, reviewer, "Reviewer");
+          expect((await ask(reviewer, projectId, {})).status).toBe(403);
+          expect(
+            (
+              await app.request(`/api/upload-requests/${request.id}`, {
+                headers: { cookie: reviewer },
+              })
+            ).status,
+          ).toBe(403);
+          const outsider = await joinAs(owner, "outsider-upload-request@example.test", "member");
+          expect((await ask(outsider, projectId, {})).status).toBe(404);
+          // Nor does the owner of another workspace.
+          const [other] = await db
+            .insert(schema.organisations)
+            .values({ name: "Saltmarsh Films", slug: "saltmarsh-upload-request" })
+            .returning({ id: schema.organisations.id });
+          const outsiderId = (
+            (await (await app.request("/api/me", { headers: { cookie: outsider } })).json()) as {
+              user: { id: string };
+            }
+          ).user.id;
+          await db
+            .insert(schema.members)
+            .values({ organisationId: other?.id ?? "", userId: outsiderId, role: "owner" });
+          await app.request("/api/me/organisation", {
+            ...json({ organisationId: other?.id }, outsider),
+            method: "PUT",
+          });
+          expect(
+            (
+              await app.request(`/api/upload-requests/${request.id}`, {
+                headers: { cookie: outsider },
+              })
+            ).status,
+          ).toBe(404);
+          expect(
+            (await app.request(`/api/upload-requests/${request.id}/close`, json({}, outsider)))
+              .status,
+          ).toBe(404);
+        });
+
+        it("orders closing and a new link before a visitor's upload finishes, never after", async () => {
+          const owner = cookieOf(await setup());
+          const projectId = await newProject(owner);
+          for (const change of ["close", "link"] as const) {
+            const { request, link } = (await (await ask(owner, projectId, {})).json()) as Made;
+            const token = tokenOf(link);
+            const id = await send(token, {}, new Uint8Array(10).fill(7));
+            // What resuming needs, and nothing of the project.
+            const { upload } = (await (
+              await app.request(`/api/upload-links/${token}/uploads/${id}`)
+            ).json()) as { upload: Record<string, unknown> };
+            expect(upload).not.toHaveProperty("projectId");
+            expect(upload).not.toHaveProperty("folderId");
+            // The owner's change is under way, not yet committed, as the visitor finishes.
+            let commit = () => {};
+            const held = new Promise<void>((resolve) => {
+              commit = resolve;
+            });
+            let locked = () => {};
+            const isLocked = new Promise<void>((resolve) => {
+              locked = resolve;
+            });
+            const changing = db.transaction(async (tx) => {
+              await tx
+                .update(schema.uploadRequests)
+                .set(change === "close" ? { closedAt: new Date() } : { tokenHash: "replaced" })
+                .where(eq(schema.uploadRequests.id, request.id));
+              locked();
+              await held;
+            });
+            await isLocked;
+            const finishing = finish(token, id);
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            commit();
+            await changing;
+            expect((await finishing).status, change).toBe(410);
+            const [arrived] = await db
+              .select({ n: count() })
+              .from(schema.uploadRequestFiles)
+              .where(eq(schema.uploadRequestFiles.requestId, request.id));
+            expect(arrived?.n, change).toBe(0);
+          }
+        });
+      });
+
       it("keeps an upload whole when its replica stops mid-chunk, and another finishes it (#193)", async () => {
         const owner = cookieOf(await setup());
         const projectId = await newProject(owner);

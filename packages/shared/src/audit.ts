@@ -17,6 +17,12 @@ export const auditActions = [
   /** A file left Hekate as a download. */
   "download",
   "file.upload",
+  /** A member asked someone outside for files, with a link (#139). */
+  "upload_request.create",
+  /** A member closed an upload request before it ran out. */
+  "upload_request.close",
+  /** A wrong password was given on an upload request's page. */
+  "upload_request.password_failed",
   "file.delete",
   /** Someone exported this log. */
   "audit.export",
@@ -119,7 +125,8 @@ export const auditActions = [
 export const auditAction = z.enum(auditActions);
 export type AuditAction = z.infer<typeof auditAction>;
 
-export const auditActorTypes = ["member", "guest", "system"] as const;
+/** A visitor is someone sending files through an upload request (#139), with no account. */
+export const auditActorTypes = ["member", "guest", "visitor", "system"] as const;
 export type AuditActorType = (typeof auditActorTypes)[number];
 
 /** Filters for reading the log. Results run newest first; `before` is the last id of the previous page. */

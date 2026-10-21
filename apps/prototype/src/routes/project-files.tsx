@@ -992,10 +992,16 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
                 <Input type="date" defaultValue="2026-10-20" />
               </label>
             </div>
-            <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-              Password (optional)
-              <Input type="password" />
-            </label>
+            <div className="grid gap-4 @md/app:grid-cols-2">
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Password (optional)
+                <Input type="password" />
+              </label>
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Email the link to (optional)
+                <Input type="email" placeholder="alex@example.com" />
+              </label>
+            </div>
             <p className="text-[12px] text-ink-3">
               The visitor's page:{" "}
               <Link to="/u/$code" params={{ code: "r-7f3a" }} className="text-ink-2 hover:text-ink">
