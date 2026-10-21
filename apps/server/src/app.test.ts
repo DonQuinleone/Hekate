@@ -16,6 +16,7 @@ import {
   lookingPermissions,
   mapTime,
   type SystemHealth,
+  type WorkspaceOperations,
 } from "@hekate/shared";
 import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
 import { and, asc, count, desc, eq, inArray, isNotNull, like, ne, or, sql } from "drizzle-orm";
@@ -3303,6 +3304,37 @@ describe.runIf(url)("api", () => {
         });
         await expect(storage.remove(organisationId, blob.id)).rejects.toThrow();
         expect(await backends.get("local").head(blob.key)).toEqual({ size: encryptedSize(9) });
+      });
+
+      it("shows the owner what the instance is doing for the workspace, and no one else (#165)", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const read = (cookie: string) =>
+          app.request("/api/organisation/operations", { headers: { cookie } });
+        // Another workspace's key is never this one's.
+        const [elsewhere] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-ops" })
+          .returning();
+        await keyring.current(elsewhere?.id ?? "");
+        await keyring.rotate(elsewhere?.id ?? "");
+        const before = (await (await read(owner)).json()) as WorkspaceOperations;
+        expect(before.encryption).toEqual({ keyVersion: null, keySince: null, behind: 0 });
+        await keyring.current(organisationId);
+        const ops = (await (await read(owner)).json()) as WorkspaceOperations;
+        expect(ops.version).toMatch(/^\d+\.\d+\.\d+/);
+        expect(ops.build).toBe("dev");
+        expect(ops.encryption).toMatchObject({ keyVersion: 1, behind: 0 });
+        expect(ops.encryption.keySince).not.toBeNull();
+        // No worker runs here; the queue is read, and empty for this workspace.
+        expect(["stale", "failed"]).toContain(ops.worker);
+        expect(ops.queue).toEqual({ waiting: 0, running: 0, failed: 0 });
+        // When the process was last read is the process's: another test here scrapes it.
+        expect(ops.metrics.on).toBe(false);
+        expect(ops.release).toEqual({ checkOn: false, newer: null });
+        // Owners only: an admin is refused.
+        const admin = await joinAs(owner, "admin@example.test", "admin");
+        expect((await read(admin)).status).toBe(403);
       });
 
       it("shows a workspace's storage by backend and project, and reconciles it alone", async () => {

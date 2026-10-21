@@ -1417,13 +1417,10 @@ export function SettingsPage({
       {sec === "operations" && (
         <>
           <Section title="This instance">
-            <Row name="Version" hint="hekate 0.2.0 · built 12 Oct 2026">
-              <span className="flex items-center gap-2 text-[13px] text-ink-2">
-                <Dot state="approved" />
-                Connected
-              </span>
+            <Row name="Version" hint="Build 4f1c2a9b7e03">
+              <span className="tabular text-[13px] text-ink-2">0.2.0</span>
             </Row>
-            <Row name="Worker" hint="Runs analysis, renditions, pages and mail">
+            <Row name="Worker" hint="Runs analysis, renditions, pages and mail.">
               <span
                 className={cn(
                   "flex items-center gap-2 text-[13px]",
@@ -1431,36 +1428,47 @@ export function SettingsPage({
                 )}
               >
                 <Dot state={state === "failed" ? "changes_requested" : "approved"} />
-                {state === "failed" ? "Off since 02:14" : "On"}
+                {state === "failed" ? "Not running: no job finished in the last ten minutes" : "On"}
               </span>
             </Row>
-            <Row name="Queue" hint="Jobs waiting · running · failed in the last day">
-              <span className="tabular text-[13px] text-ink-2">
+            <Row
+              name="Queue"
+              hint="This workspace's jobs: waiting · running · failed in the last day."
+            >
+              <span
+                className={cn(
+                  "tabular text-[13px]",
+                  state === "failed" ? "text-signal" : "text-ink-2",
+                )}
+              >
                 {state === "failed" ? "38 · 0 · 12" : "2 · 1 · 0"}
               </span>
             </Row>
-            <Row name="Encryption" hint="Per-file keys wrapped by the master key">
-              <span className="flex items-center gap-2 text-[13px] text-ink-2">
-                <Dot state={state === "processing" ? "working" : "approved"} />
-                {state === "processing" ? "Key rotation 61% through" : "Rotated 2 Oct"}
+            <Row
+              name="Encryption"
+              hint="Every file has its own key, wrapped by the workspace key, which the instance's master key wraps."
+            >
+              <span className="text-[13px] text-ink-2">
+                {state === "processing" ? "Key v3 · re-wrapping, 41 to go" : "Key v3 since 2 Oct"}
               </span>
-              <Button variant="ghost" size="md">
-                Rotate
-              </Button>
             </Row>
-            <Row name="Metrics" hint="Prometheus">
-              <span className="tabular text-[13px] text-ink-2">/metrics · scraped 14 s ago</span>
+            <Row name="Metrics" hint="For Prometheus.">
+              <span className="tabular text-[13px] text-ink-2">/metrics · read 14 s ago</span>
             </Row>
           </Section>
           <Section title="Backups and upgrades">
-            <Row name="Last backup" hint="Database and the master key, nightly">
-              <span className="text-[13px] text-ink-2">Today 02:00 · 1.2 GB · verified</span>
+            <Row
+              name="Backups"
+              hint="The instance's operator takes them: the database and the settings file, with the master key kept apart."
+            >
+              <Button variant="secondary" size="md">
+                How backups work
+              </Button>
             </Row>
             <Row
               name="Upgrade"
-              hint="Pull the new image, run migrations on start, keep the previous image until it is healthy."
+              hint="Hekate 0.2.1 is available. Pull the new image and restart; migrations run on start."
             >
-              <span className="text-[13px] text-ink-2">0.2.1 available</span>
               <Button variant="secondary" size="md">
                 Release notes
               </Button>

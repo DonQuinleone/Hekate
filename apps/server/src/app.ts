@@ -42,6 +42,7 @@ import { invitationRoutes } from "./routes/invitations.ts";
 import { projectMarkRoutes } from "./routes/marks.ts";
 import { accountRoutes, meRoutes } from "./routes/me.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
+import { operationsRoutes } from "./routes/operations.ts";
 import { organisationRoutes } from "./routes/organisation.ts";
 import { projectOverviewRoutes } from "./routes/overview.ts";
 import { patchRowRoutes, projectPatchRoutes, stageBoxRoutes } from "./routes/patch.ts";
@@ -269,6 +270,17 @@ export function createApi(deps: AppDeps) {
           baseURL: deps.publicUrl,
           trusted: deps.ssoTrustedOrigins ?? [],
           trustProxy: deps.trustProxy ?? false,
+        }),
+      )
+      .route(
+        "/organisation/operations",
+        operationsRoutes({
+          db: deps.db,
+          checks,
+          settings,
+          build: deps.build ?? "dev",
+          updateCheck: deps.updateCheck ?? false,
+          metricsOn: Boolean(deps.metricsToken),
         }),
       )
       .route(

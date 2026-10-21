@@ -69,3 +69,4 @@ export * from "./watermark.ts";
 export * from "./wave.ts";
 export * from "./workflow-files.ts";
 export * from "./workflows.ts";
+export * from "./workspace-operations.ts";

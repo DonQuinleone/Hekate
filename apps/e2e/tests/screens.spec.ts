@@ -419,6 +419,11 @@ const screens: Screen[] = [
     ready: "main >> text=Usage by project",
   },
   { name: "settings-log", path: () => "/settings/log", ready: "main [data-log-entry]" },
+  {
+    name: "settings-operations",
+    path: () => "/settings/operations",
+    ready: "main >> text=How backups work",
+  },
 ];
 
 /** Fonts in, pictures drawn, nothing still on its way. */
