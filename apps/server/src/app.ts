@@ -86,6 +86,7 @@ import {
   variationRoutes,
   versionRoutes,
 } from "./routes/tracks.ts";
+import { uploadLinkRoutes, uploadRequestRoutes } from "./routes/upload-requests.ts";
 import { uploadRoutes } from "./routes/uploads.ts";
 import { trackWorkflowRunRoutes, workflowRunRoutes } from "./routes/workflow-runs.ts";
 import { projectWorkflowRoutes, workflowRoutes } from "./routes/workflows.ts";
@@ -187,6 +188,21 @@ export function createApi(deps: AppDeps) {
     workDir: deps.workDir,
   };
   const taskMail = { db: deps.db, mailer: deps.mailer, publicUrl: deps.publicUrl };
+  const uploadRequestDeps = {
+    db: deps.db,
+    storage: deps.storage,
+    jobs: deps.jobs,
+    audit: deps.audit,
+    mailer: deps.mailer,
+    publicUrl: deps.publicUrl,
+    trustProxy: deps.trustProxy ?? false,
+  };
+  const uploadLinkLimit = rateLimit(
+    deps.db,
+    "upload-link",
+    { max: 60, windowMs: 10 * 60_000 },
+    { trustProxy: deps.trustProxy ?? false },
+  );
   const reviewDeps: ReviewDeps = {
     db: deps.db,
     audit: deps.audit,
@@ -445,6 +461,14 @@ export function createApi(deps: AppDeps) {
         "/uploads",
         uploadRoutes(deps.db, deps.storage, deps.jobs, deps.audit, deps.trustProxy ?? false),
       )
+      // Upload requests (#139): members ask for files; the visitor's side has no session, its
+      // link the credential, so opening one and starting a file are slowed, per address.
+      .use("/upload-requests/*", ...member)
+      .route("/", uploadRequestRoutes(uploadRequestDeps))
+      .use("/upload-links/*", async (c, next) =>
+        /\/chunks\//.test(c.req.path) ? next() : uploadLinkLimit(c, next),
+      )
+      .route("/upload-links", uploadLinkRoutes(uploadRequestDeps))
       // Guest reviewers reach files and reviews too, only those of their own reviews.
       .use("/files/*", viewer)
       .route("/files", fileRoutes(playback))
@@ -519,10 +543,15 @@ const ATTACHMENT_PATH = /^\/api\/files\/[^/]+\/comments\/[^/]+\/attachments$/;
 /** The largest request body outside the upload chunks, which carry their own limit. */
 export const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
+/** An upload's chunk, a member's or one sent through an upload request: its own limit. */
+const CHUNK_PATH = /^\/api\/(uploads|upload-links\/[^/]+\/uploads)\/[^/]+\/chunks\//;
+
 /** What an upload sends: starting one, its chunks, finishing it, or a comment's attachment. */
 const uploading = (method: string, path: string) =>
   (method === "POST" || method === "PUT") &&
-  (/^\/api\/uploads(\/|$)/.test(path) || ATTACHMENT_PATH.test(path));
+  (/^\/api\/uploads(\/|$)/.test(path) ||
+    /^\/api\/upload-links\/[^/]+\/uploads/.test(path) ||
+    ATTACHMENT_PATH.test(path));
 
 export function createApp(given: AppDeps) {
   const deps = { ...given, settings: given.settings ?? createInstanceSettings(given.db) };
@@ -536,7 +565,7 @@ export function createApp(given: AppDeps) {
   if (deps.log !== false) app.use("/api/*", logger());
   // Every other body is small: settings, comments, sign-in. A chunk's limit is its own.
   app.use("/api/*", async (c, next) =>
-    /^\/api\/uploads\/[^/]+\/chunks\//.test(c.req.path)
+    CHUNK_PATH.test(c.req.path)
       ? next()
       : ATTACHMENT_PATH.test(c.req.path)
         ? bodyLimit({
