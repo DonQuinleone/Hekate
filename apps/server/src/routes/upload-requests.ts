@@ -88,6 +88,12 @@ function memberView(row: RequestRow, arrived: number, now = new Date()) {
   };
 }
 
+/** An upload as its visitor sees it: what resuming needs, nothing of the project. */
+function visitorView(row: Parameters<typeof uploadView>[0], chunks: number[]) {
+  const { projectId: _project, folderId: _folder, ...view } = uploadView(row, chunks);
+  return view;
+}
+
 /** Every refusal of a link that does not lead anywhere, alike: it gives nothing away. */
 const gone = () =>
   new HTTPException(410, { message: "This link does not lead to an upload request." });
@@ -448,7 +454,7 @@ export const uploadLinkRoutes = (deps: UploadRequestDeps) => {
             });
           },
         });
-        return c.json({ upload: uploadView(row, []) }, 201);
+        return c.json({ upload: visitorView(row, []) }, 201);
       },
     )
 
@@ -458,7 +464,7 @@ export const uploadLinkRoutes = (deps: UploadRequestDeps) => {
       const { upload } = await uploadOf(request, id);
       const chunks = await engine.received(upload.organisationId, upload.id);
       return c.json({
-        upload: uploadView(
+        upload: visitorView(
           upload,
           chunks.map((p) => p.chunk),
         ),
@@ -505,6 +511,16 @@ export const uploadLinkRoutes = (deps: UploadRequestDeps) => {
         }),
         request: requestInfo(c, deps.trustProxy),
         also: async (tx, made) => {
+          // Checked again under a lock on the request, so a close or a new link committed
+          // meanwhile is ordered before this file, never after.
+          const [locked] = await tx
+            .select()
+            .from(uploadRequests)
+            .where(inOrg(uploadRequests, request.organisationId, eq(uploadRequests.id, request.id)))
+            .for("update");
+          if (!locked || locked.tokenHash !== request.tokenHash) throw gone();
+          const state = uploadRequestState(locked, 0);
+          if (state === "closed" || state === "expired") throw gone();
           await tx.insert(uploadRequestFiles).values({
             fileId: made.id,
             organisationId: request.organisationId,

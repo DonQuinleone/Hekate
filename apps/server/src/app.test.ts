@@ -4840,6 +4840,50 @@ describe.runIf(url)("api", () => {
               .status,
           ).toBe(404);
         });
+
+        it("orders closing and a new link before a visitor's upload finishes, never after", async () => {
+          const owner = cookieOf(await setup());
+          const projectId = await newProject(owner);
+          for (const change of ["close", "link"] as const) {
+            const { request, link } = (await (await ask(owner, projectId, {})).json()) as Made;
+            const token = tokenOf(link);
+            const id = await send(token, {}, new Uint8Array(10).fill(7));
+            // What resuming needs, and nothing of the project.
+            const { upload } = (await (
+              await app.request(`/api/upload-links/${token}/uploads/${id}`)
+            ).json()) as { upload: Record<string, unknown> };
+            expect(upload).not.toHaveProperty("projectId");
+            expect(upload).not.toHaveProperty("folderId");
+            // The owner's change is under way, not yet committed, as the visitor finishes.
+            let commit = () => {};
+            const held = new Promise<void>((resolve) => {
+              commit = resolve;
+            });
+            let locked = () => {};
+            const isLocked = new Promise<void>((resolve) => {
+              locked = resolve;
+            });
+            const changing = db.transaction(async (tx) => {
+              await tx
+                .update(schema.uploadRequests)
+                .set(change === "close" ? { closedAt: new Date() } : { tokenHash: "replaced" })
+                .where(eq(schema.uploadRequests.id, request.id));
+              locked();
+              await held;
+            });
+            await isLocked;
+            const finishing = finish(token, id);
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            commit();
+            await changing;
+            expect((await finishing).status, change).toBe(410);
+            const [arrived] = await db
+              .select({ n: count() })
+              .from(schema.uploadRequestFiles)
+              .where(eq(schema.uploadRequestFiles.requestId, request.id));
+            expect(arrived?.n, change).toBe(0);
+          }
+        });
       });
 
       it("keeps an upload whole when its replica stops mid-chunk, and another finishes it (#193)", async () => {
