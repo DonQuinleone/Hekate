@@ -43,6 +43,12 @@ export const jobDefinitions = {
    * Forget sign-in attempts a day old that hold no lock, so they do not pile up, and error
    * reports past their time. Hourly.
    */
+  /** Each log kept as long as the instance's settings say, and no longer (#157). Daily. */
+  "logs-retention": {
+    data: z.object({}),
+    options: { retryLimit: 2, expireInSeconds: 60 * 60 },
+    schedule: "23 4 * * *",
+  },
   "sign-in-attempts-purge": {
     data: z.object({}),
     options: { retryLimit: 1, expireInSeconds: 10 * 60 },

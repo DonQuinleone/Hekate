@@ -256,6 +256,8 @@ export const instanceActions: Record<string, string> = {
   "storage.reconcile": "checked against the database by an operator",
   "defaults.guest_link_days": "given a new lifetime",
   "logs.export": "exported",
+  "logs.retention": "given a new retention",
+  "logs.purged": "trimmed to what the settings keep",
 };
 
 /** Where a workspace stands, from its record. */

@@ -2,6 +2,10 @@ import { z } from "zod";
 import { defaultWorkspaceSettings, guestLinkDays } from "./organisation.ts";
 import { updateChannels } from "./releases.ts";
 
+/** How long a log may keep its rows, in days (#157). */
+export const logKeepDays = [30, 90, 365, 730] as const;
+export type LogKeepDays = (typeof logKeepDays)[number];
+
 /**
  * Instance settings (#160): what an operator decides for the whole instance, kept in one row
  * and read by every process as it runs, so a change needs no restart. What the environment
@@ -23,6 +27,12 @@ const instanceSettingsSchema = z.object({
   }),
   /** What a new workspace starts with; its owner may change it after. */
   defaults: z.object({ guestLinkDays: z.literal(guestLinkDays) }),
+  /** How long each log keeps its rows (#157), in days; null keeps them for good. */
+  logs: z.object({
+    audit: z.literal(logKeepDays).nullable(),
+    auth: z.literal(logKeepDays).nullable(),
+    mail: z.literal(logKeepDays).nullable(),
+  }),
 });
 export type InstanceSettings = z.infer<typeof instanceSettingsSchema>;
 
@@ -32,6 +42,7 @@ export type InstanceSettings = z.infer<typeof instanceSettingsSchema>;
  */
 export const instanceSettingsInput = instanceSettingsSchema.extend({
   defaults: instanceSettingsSchema.shape.defaults.optional(),
+  logs: instanceSettingsSchema.shape.logs.optional(),
 });
 export type InstanceSettingsInput = z.infer<typeof instanceSettingsInput>;
 
@@ -42,6 +53,7 @@ export const withStored = (
 ): InstanceSettings => ({
   ...input,
   defaults: input.defaults ?? stored.defaults,
+  logs: input.logs ?? stored.logs,
 });
 
 export const defaultInstanceSettings: InstanceSettings = {
@@ -49,6 +61,9 @@ export const defaultInstanceSettings: InstanceSettings = {
   updates: { channel: "stable" },
   maintenance: { on: false, message: "" },
   defaults: { guestLinkDays: defaultWorkspaceSettings.guestLinkDays },
+  // The audit log is kept for good unless an operator says otherwise: nothing already logged
+  // goes because the instance was upgraded.
+  logs: { audit: null, auth: 365, mail: 90 },
 };
 
 /** Stored settings over the defaults, so one written before a setting existed still reads. */
@@ -59,6 +74,7 @@ export function instanceSettingsOf(stored: unknown): InstanceSettings {
     updates: { ...defaultInstanceSettings.updates, ...value.updates },
     maintenance: { ...defaultInstanceSettings.maintenance, ...value.maintenance },
     defaults: { ...defaultInstanceSettings.defaults, ...value.defaults },
+    logs: { ...defaultInstanceSettings.logs, ...value.logs },
   };
   const parsed = instanceSettingsSchema.safeParse(merged);
   return parsed.success ? parsed.data : defaultInstanceSettings;
@@ -94,6 +110,9 @@ export function settingsChanges(
       action: "defaults.guest_link_days",
       details: { days: after.defaults.guestLinkDays },
     });
+  for (const kind of ["audit", "auth", "mail"] as const)
+    if (before.logs[kind] !== after.logs[kind])
+      changes.push({ action: "logs.retention", details: { kind, days: after.logs[kind] } });
   return changes;
 }
 

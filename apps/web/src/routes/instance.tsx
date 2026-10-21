@@ -21,8 +21,10 @@ import {
   instanceActions,
   instanceSections,
   instanceSectionsFor,
+  type LogKeepDays,
   type LogKind,
   type LogRange,
+  logKeepDays,
   logKinds,
   logRanges,
   type MailLogRow,
@@ -631,6 +633,47 @@ function Settings() {
           </Select>
         </Row>
       </Section>
+      <Section
+        title="Logs"
+        intro="How long each log keeps its rows; a job trims them once a day, and says what it trimmed."
+      >
+        {(
+          [
+            [
+              "audit",
+              "Audit",
+              "Every action, operators' and in every workspace, downloads among them.",
+            ],
+            ["auth", "Authentication", "Every sign-in, refusal and lockout."],
+            ["mail", "Email", "Every message handed to instance mail."],
+          ] as const
+        ).map(([kind, name, hint]) => (
+          <Row key={kind} name={name} hint={hint}>
+            <Select
+              aria-label={`Keep the ${name.toLowerCase()} log for`}
+              value={settings.logs[kind] ?? ""}
+              disabled={save.isPending}
+              onChange={(e) =>
+                save.mutate({
+                  ...settings,
+                  logs: {
+                    ...settings.logs,
+                    [kind]: e.target.value ? (Number(e.target.value) as LogKeepDays) : null,
+                  },
+                })
+              }
+              className="w-40"
+            >
+              {logKeepDays.map((d) => (
+                <option key={d} value={d}>
+                  {d === 365 ? "A year" : d === 730 ? "Two years" : `${d} days`}
+                </option>
+              ))}
+              <option value="">For good</option>
+            </Select>
+          </Row>
+        ))}
+      </Section>
       <Section title="Address and mail" intro="Set in the environment at start.">
         <Row name="Address" hint="PUBLIC_URL" inline>
           <span className="truncate text-[13px] text-ink-2">{env.publicUrl}</span>
@@ -951,7 +994,12 @@ function Logs() {
     ...(search ? { q: search } : {}),
     ...(kind !== "mail" && workspace ? { workspace } : {}),
   };
-  const log = useInfiniteQuery(instanceLogQuery(kind, filters));
+  // Live: read again every few seconds, the newest arriving at the top.
+  const [live, setLive] = useState(false);
+  const log = useInfiniteQuery({
+    ...instanceLogQuery(kind, filters),
+    refetchInterval: live ? 5_000 : false,
+  });
   // Every workspace, for the filter: the pages read one after another until there are no more.
   const workspaces = useInfiniteQuery(instanceWorkspacesQuery({}));
   useEffect(() => {
@@ -999,7 +1047,20 @@ function Logs() {
               ))}
           </Select>
         )}
-        <Button variant="secondary" size="md" asChild className="ml-auto">
+        <Button
+          variant={live ? "primary" : "ghost"}
+          size="md"
+          aria-pressed={live}
+          onClick={() => setLive((on) => !on)}
+          className="ml-auto"
+        >
+          <span
+            aria-hidden
+            className={cn("size-1.5 rounded-full bg-current", !live && "opacity-50")}
+          />
+          Live
+        </Button>
+        <Button variant="secondary" size="md" asChild>
           <a href={exportUrl} download>
             <Icon name="download" size={14} />
             Export

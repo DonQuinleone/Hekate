@@ -2037,7 +2037,8 @@ export function InstancePage({ section }: { section: string }) {
               ))}
             </Select>
             <span className="ml-auto flex items-center gap-1.5">
-              <Button variant="ghost" size="md">
+              <Button variant="ghost" size="md" aria-pressed={false}>
+                <span aria-hidden className="size-1.5 rounded-full bg-current opacity-50" />
                 Live
               </Button>
               <Button variant="secondary" size="md">
@@ -2401,6 +2402,32 @@ export function InstancePage({ section }: { section: string }) {
               </Select>
             </Row>
             <SwitchRow name="Forensic marking on" checked />
+          </Section>
+          <Section
+            title="Logs"
+            intro="How long each log keeps its rows; a job trims them once a day, and says what it trimmed."
+          >
+            {(
+              [
+                [
+                  "Audit",
+                  "Every action, operators' and in every workspace, downloads among them.",
+                  "",
+                ],
+                ["Authentication", "Every sign-in, refusal and lockout.", "365"],
+                ["Email", "Every message handed to instance mail.", "90"],
+              ] as const
+            ).map(([name, hint, keep]) => (
+              <Row key={name} name={name} hint={hint}>
+                <Select defaultValue={keep} className="w-40">
+                  <option value="30">30 days</option>
+                  <option value="90">90 days</option>
+                  <option value="365">A year</option>
+                  <option value="730">Two years</option>
+                  <option value="">For good</option>
+                </Select>
+              </Row>
+            ))}
           </Section>
           <Section title="Address and mail">
             <Row name="Address">
