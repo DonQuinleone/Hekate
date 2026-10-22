@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanContentType, fileKindOf, fileName } from "./files.ts";
+import { cleanContentType, fileChains, fileKindOf, fileName, replacedFiles } from "./files.ts";
 import { channelNames, formatBytes, formatChannels, formatDuration } from "./format.ts";
 
 describe("files", () => {
@@ -65,5 +65,31 @@ describe("formatting for lists", () => {
     expect(channelNames(4, "4 channels")).toEqual(["1", "2", "3", "4"]);
     // A layout that does not match the count is not trusted.
     expect(channelNames(3, "stereo")).toEqual(["1", "2", "3"]);
+  });
+});
+
+describe("version chains", () => {
+  const file = (id: string, previousFileId: string | null = null) => ({ id, previousFileId });
+
+  it("numbers each chain from its oldest file, with its latest", () => {
+    const chains = fileChains([file("c", "b"), file("a"), file("b", "a"), file("x")]);
+    expect(chains.get("a")).toEqual({ number: 1, count: 3, latestId: "c" });
+    expect(chains.get("b")).toEqual({ number: 2, count: 3, latestId: "c" });
+    expect(chains.get("c")).toEqual({ number: 3, count: 3, latestId: "c" });
+    // A file alone is in no chain.
+    expect(chains.has("x")).toBe(false);
+  });
+
+  it("starts a chain where the file before is not among them", () => {
+    const chains = fileChains([file("b", "gone"), file("c", "b")]);
+    expect(chains.get("b")).toEqual({ number: 1, count: 2, latestId: "c" });
+    expect(fileChains([file("b", "gone")]).size).toBe(0);
+  });
+
+  it("leaves out the files a later version replaces", () => {
+    expect([...replacedFiles([file("a"), file("b", "a"), file("c", "b"), file("x")])]).toEqual([
+      "a",
+      "b",
+    ]);
   });
 });

@@ -129,6 +129,8 @@ export interface File {
   media: MediaInfo;
   /** A deterministic seed for drawing waveforms and pages. */
   seed: number;
+  /** The file this one replaces, in a loose file's simple version chain (#149). */
+  previousId?: string;
 }
 
 export interface Variation {

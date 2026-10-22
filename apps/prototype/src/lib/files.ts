@@ -1,5 +1,6 @@
 import type { IconName } from "~/components/icons";
 import {
+  files as allFiles,
   comments,
   type File,
   type Folder,
@@ -74,10 +75,35 @@ export function qaSummary(
   };
 }
 
-/** Files that are nobody's variation: the loose files of a folder. */
+/**
+ * Files that are nobody's variation: the loose files of a folder. A version chain shows by
+ * its latest file (#149); the files a later version replaces are a step away on its page.
+ */
 export function looseFiles(files: File[]): File[] {
-  return files.filter((f) => !variationOf(f.id));
+  return files.filter((f) => !variationOf(f.id) && !allFiles.some((x) => x.previousId === f.id));
+}
+
+/** A loose file's simple version chain (#149), oldest first; empty for a file in none. */
+export function chainOf(file: File): File[] {
+  const chain = [file];
+  for (let at = allFiles.find((f) => f.id === file.previousId); at; ) {
+    chain.unshift(at);
+    const previous: string | undefined = at.previousId;
+    at = allFiles.find((f) => f.id === previous);
+  }
+  for (let at = allFiles.find((f) => f.previousId === file.id); at; ) {
+    chain.push(at);
+    const id: string = at.id;
+    at = allFiles.find((f) => f.previousId === id);
+  }
+  return chain.length > 1 ? chain : [];
 }
 
 export const tracksIn = (projectId: string, folderId: string | null): Track[] =>
   tracks.filter((t) => t.projectId === projectId && t.folderId === folderId);
+
+/** "V2 · " for the latest of a chain, before its details in a list (#149). */
+export function chainLabel(file: File): string {
+  const chain = chainOf(file);
+  return chain.length ? `V${chain.findIndex((f) => f.id === file.id) + 1} · ` : "";
+}

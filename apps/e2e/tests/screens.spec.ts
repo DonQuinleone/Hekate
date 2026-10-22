@@ -314,6 +314,29 @@ const screens: Screen[] = [
     path: (s) => `/files/${s.cutFileId}`,
     ready: "section[aria-label=Comments] li",
   },
+  // A general project (#149): folders and files, a booklet in two proofs shown by the latest.
+  {
+    name: "project-general",
+    path: (s) => `/projects/${s.generalProjectId}/files`,
+    ready: "main a:has-text('Booklet - proof 2.pdf')",
+  },
+  // The proof opened from its approval: region comments numbered on its pages, its versions.
+  {
+    name: "file-document",
+    path: (s) => `/files/${s.bookletFileId}?review=${s.signOffId}`,
+    ready: "role=button[name=/^Version V2/]",
+  },
+  // A file with no viewer: what it is, and comments about all of it.
+  {
+    name: "file-other",
+    path: (s) => `/files/${s.printFileId}`,
+    ready: "text=Nothing to show for an archive",
+  },
+  {
+    name: "review-general",
+    path: (s) => `/reviews/${s.signOffId}`,
+    ready: "text=Gate passed",
+  },
   { name: "review", path: (s) => `/reviews/${s.reviewId}`, ready: "h1:has-text('Album masters')" },
   // The review page in each of its states (#129).
   {

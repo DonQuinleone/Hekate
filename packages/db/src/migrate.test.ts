@@ -98,6 +98,11 @@ describe("contracting statements (#421)", () => {
     ).toEqual([]);
   });
 
+  it("leaves the release before able to run against a file's version chain (#149)", () => {
+    const text = readFileSync(join(migrationsFolder, "0116_file_chains.sql"), "utf8");
+    expect(contractingStatements(text)).toEqual([]);
+  });
+
   it("takes a migration's own word that it contracts", () => {
     expect(
       contractingStatements('-- hekate: contracts\nUPDATE "files" SET "kind" = \'audio\';'),

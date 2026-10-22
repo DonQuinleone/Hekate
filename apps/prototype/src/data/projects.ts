@@ -274,6 +274,19 @@ export const files: File[] = [
     seed: 61,
   },
   {
+    id: "file-liner-1",
+    projectId: "proj-joplin",
+    folderId: "f-artwork",
+    name: "Liner notes - draft 1.pdf",
+    kind: "document",
+    size: 610_000,
+    uploadedBy: "p-mira",
+    uploadedAt: "2026-10-05T11:20:00Z",
+    state: "ready",
+    media: { duration: 0, pages: 4 },
+    seed: 63,
+  },
+  {
     id: "file-liner",
     projectId: "proj-joplin",
     folderId: "f-artwork",
@@ -285,6 +298,7 @@ export const files: File[] = [
     state: "ready",
     media: { duration: 0, pages: 4 },
     seed: 62,
+    previousId: "file-liner-1",
   },
   {
     id: "file-stems",

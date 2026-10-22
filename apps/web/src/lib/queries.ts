@@ -1078,6 +1078,8 @@ export interface ProjectFile {
   openComments?: number;
   /** The workspace tags on it (in a project's file list). */
   tagIds?: string[];
+  /** The file this one replaces, in a simple version chain (#149; in a project's file list). */
+  previousFileId?: string | null;
 }
 
 export type StreamStatus = "none" | "pending" | "ready" | "failed";
@@ -1115,6 +1117,13 @@ export interface FileDetail extends ProjectFile {
     /** The track's score, when one is linked. */
     scoreFileId: string | null;
   } | null;
+  /**
+   * Its simple version chain (#149), oldest first, as far as the viewer may open it; empty
+   * for a file in none.
+   */
+  chain: { id: string; name: string; number: number; createdAt: string }[];
+  /** The take it belongs to, if any: a take's file has no version chain. */
+  takeId: string | null;
   /** The project's profile: it decides which tools the page offers, bars among them. */
   profile: ProjectProfile;
   /** For a guest, what their reviews let them do with this file; null for members. */
@@ -3404,6 +3413,18 @@ export function useOrganise(projectId: string) {
         if (!res.ok) await json(res);
       },
       onSuccess: refresh,
+    }),
+    /** Makes one file the next version of another, in its chain (#149). */
+    nextVersion: useMutation({
+      mutationFn: async ({ id, fileId }: { id: string; fileId: string }) =>
+        json(await api.files[":id"].next.$post({ param: { id }, json: { fileId } })),
+      onSuccess: (_, { id, fileId }) =>
+        Promise.all([
+          refresh(),
+          // The chain both files show; not what hangs below them, such as their comments.
+          client.invalidateQueries({ queryKey: ["files", id], exact: true }),
+          client.invalidateQueries({ queryKey: ["files", fileId], exact: true }),
+        ]),
     }),
   };
 }
