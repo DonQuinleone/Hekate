@@ -52,7 +52,7 @@ import {
   variationOf,
 } from "~/data";
 import { cn } from "~/lib/cn";
-import { qaSummary } from "~/lib/files";
+import { chainOf, qaSummary } from "~/lib/files";
 import { dueIn, formatDateTime, formatReference } from "~/lib/format";
 import { latestDecision, needsYou } from "~/lib/reviews";
 import { useViewer, visibleComments } from "~/viewer/context";
@@ -394,6 +394,9 @@ export function FilePage({
     ? `${personById(viewer.personId).name} · Endless Hall Records · 14 Oct 2026`
     : undefined;
   const base = viewer.isGuest ? "/g/files/$fileId" : "/files/$fileId";
+  /** A loose file's simple version chain (#149), oldest first; empty for a file in none. */
+  const chain = file && !inTrack ? chainOf(file) : [];
+  const latestInChain = !chain.length || chain[chain.length - 1]?.id === file?.id;
   const _trackName = inTrack?.track.name;
 
   usePageHeader({
@@ -473,6 +476,10 @@ export function FilePage({
               label="file"
               actions={[
                 { label: "Copy link", onSelect: () => {} },
+                // A loose file takes a new version in its place (#149); a track's are its own.
+                ...(project && !inTrack && latestInChain && viewer.can(project.id, "upload")
+                  ? [{ label: "New version…", onSelect: () => {} }]
+                  : []),
                 ...(access.triage
                   ? [
                       { label: "Export comments…", onSelect: () => setSheet("export") },
@@ -678,6 +685,28 @@ export function FilePage({
         hint: fileById(v.fileId)?.state === "pending" ? "analysing" : undefined,
       }))}
     />
+  );
+
+  // The versions of a loose file, as a track's are chosen (#149).
+  const chainMenu = chain.length > 0 && (
+    <div className="flex shrink-0 items-center gap-2">
+      <Dropdown
+        value={
+          <span className="flex items-center gap-1.5 font-medium text-ink">
+            V{chain.findIndex((f) => f.id === file.id) + 1}
+            {latestInChain && <span className="font-normal text-ink-3">latest</span>}
+          </span>
+        }
+        actions={chain
+          .map((f, i) => ({
+            label: `V${i + 1}`,
+            hint: i === chain.length - 1 ? "latest" : f.name,
+            checked: f.id === file.id,
+            onSelect: () => navigate({ to: base, params: { fileId: f.id }, search: (s) => s }),
+          }))
+          .reverse()}
+      />
+    </div>
   );
 
   const strip = (isAudio || isVideo) && (
@@ -1078,6 +1107,7 @@ export function FilePage({
 
   const main: ReactNode = isPages ? (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3 @3xl/app:p-4">
+      {chainMenu}
       <PageViewer
         file={file}
         page={page}
@@ -1096,7 +1126,8 @@ export function FilePage({
       </p>
     </div>
   ) : file.kind === "other" ? (
-    <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
+    <div className="relative flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
+      {chainMenu && <div className="absolute top-3 left-3 @3xl/app:left-4">{chainMenu}</div>}
       <Icon name="file" size={28} className="text-ink-3" />
       <p className="text-[14px] text-ink">Nothing to show for an archive</p>
       <p className="text-[13px] text-ink-3">

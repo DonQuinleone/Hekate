@@ -28,7 +28,8 @@ import { DownloadDialog } from "~/components/downloads";
 import type { FrameDraft } from "~/components/drawings";
 import { ExportCommentsDialog } from "~/components/exports";
 import { FileDetailsSheet } from "~/components/file-details";
-import { mediaSummary } from "~/components/files";
+import { FileChain, NewVersionDialog, takesVersions } from "~/components/file-versions";
+import { fileSummary, mediaSummary } from "~/components/files";
 import { Icon } from "~/components/icons";
 import { Loudness } from "~/components/loudness";
 import { ImportMarkersDialog } from "~/components/marker-import";
@@ -82,6 +83,29 @@ function Notice({ children }: { children: ReactNode }) {
   return (
     <div className="rounded-panel border border-hairline bg-surface px-4 py-6 text-sm text-ink-3">
       {children}
+    </div>
+  );
+}
+
+/** Archives, by their name: what a file with no viewer most often is. */
+const ARCHIVE = /\.(zip|rar|7z|tar|gz|tgz|bz2|xz)$/i;
+
+/**
+ * A file with no viewer (#149): what it is, that its comments are about all of it, and
+ * whether it may be downloaded (from the header). Its details and comments follow.
+ */
+function NothingToShow({ fileId, name }: { fileId: string; name: string }) {
+  const { data: downloads } = useQuery(downloadsQuery(fileId));
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-panel border border-hairline bg-surface px-6 py-12 text-center">
+      <Icon name="file" size={28} className="text-ink-3" />
+      <p className="m-0 text-[14px] text-ink">
+        {ARCHIVE.test(name) ? "Nothing to show for an archive" : "Nothing to show for this file"}
+      </p>
+      <p className="m-0 max-w-sm text-[13px] text-ink-3">
+        Comments here are about the whole file.
+        {downloads && downloads.level !== "none" ? " You may download it." : ""}
+      </p>
     </div>
   );
 }
@@ -190,11 +214,10 @@ function Playback({
     if (file.streamStatus === "pending") return <Notice>Drawing the pages.</Notice>;
     if (file.streamStatus === "failed")
       return <Notice>This file could not be drawn as pages.</Notice>;
-    return <Notice>Only PDFs and pictures are shown as pages.</Notice>;
+    return <NothingToShow fileId={file.id} name={file.name} />;
   }
-  if (file.kind !== "audio" && file.kind !== "video") {
-    return <Notice>This kind of file has nothing to show here.</Notice>;
-  }
+  if (file.kind !== "audio" && file.kind !== "video")
+    return <NothingToShow fileId={file.id} name={file.name} />;
   if (file.streamStatus === "failed")
     return <Notice>This file could not be prepared for playback.</Notice>;
   if (file.mediaInfo === null) return <Notice>Measuring the file.</Notice>;
@@ -317,6 +340,7 @@ export function FilePage({
   const [frameDraft, setFrameDraft] = useState<FrameDraft | null>(null);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [versioning, setVersioning] = useState(false);
   const [chosenNormal, setChosenNormal] = useNormalisedChoice();
   // Arriving from another version or variation: start where that one was (#15).
   const { media, onMedia } = useFileMedia(fileId, startAt, onStarted);
@@ -412,6 +436,8 @@ export function FilePage({
     (picture && allows("qa"));
   /** Triage (#132) belongs to members who may triage. */
   const canTriage = !guest && can("triage");
+  /** A loose file's next version (#149), for those who may upload. */
+  const canVersion = !guest && can("upload") && takesVersions(file);
   const shown = view === "triage" ? (canTriage ? "triage" : "review") : hasQa ? view : "review";
   // Comparison sets the volume while it is shown (its sources level-matched); otherwise, here.
   const comparing = comparable && shown === "review";
@@ -585,7 +611,7 @@ export function FilePage({
         crumbs={crumbs}
         title={file.name}
         // Media formats show in the player; other files say what they are here.
-        meta={summary ? undefined : file.contentType}
+        meta={summary ? undefined : fileSummary(file)}
         actions={
           guest ? (
             <>
@@ -605,16 +631,28 @@ export function FilePage({
                 <Icon name="info" size={14} />
                 Details
               </Button>
-              {canTriage && (
+              {(canTriage || canVersion) && (
                 <ActionMenu
                   always
                   label="file"
                   actions={[
-                    { label: "Export comments…", onSelect: () => setExporting(true) },
-                    ...(file.kind === "audio" || file.kind === "video"
-                      ? [{ label: "Import a marker list…", onSelect: () => setImporting(true) }]
+                    ...(canVersion
+                      ? [{ label: "New version…", onSelect: () => setVersioning(true) }]
                       : []),
-                    { label: "Triage comments", onSelect: () => onView("triage") },
+                    ...(canTriage
+                      ? [
+                          { label: "Export comments…", onSelect: () => setExporting(true) },
+                          ...(file.kind === "audio" || file.kind === "video"
+                            ? [
+                                {
+                                  label: "Import a marker list…",
+                                  onSelect: () => setImporting(true),
+                                },
+                              ]
+                            : []),
+                          { label: "Triage comments", onSelect: () => onView("triage") },
+                        ]
+                      : []),
                   ]}
                 />
               )}
@@ -622,6 +660,7 @@ export function FilePage({
           )
         }
       />
+      {versioning && <NewVersionDialog file={file} onClose={() => setVersioning(false)} />}
       {exporting && <ExportCommentsDialog file={file} onClose={() => setExporting(false)} />}
       {importing && <ImportMarkersDialog file={file} onClose={() => setImporting(false)} />}
       {!guest && showDetails && (
@@ -629,6 +668,7 @@ export function FilePage({
       )}
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-5 sm:px-6">
         {!guest && <FileContext file={file} media={media} />}
+        <FileChain file={file} />
         {hasQa && (
           <div
             role="tablist"

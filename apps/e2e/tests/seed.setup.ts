@@ -1018,6 +1018,88 @@ setup("seed", async ({ page, browser }) => {
     permissions: { download: "proxy", expiresAt: "2026-10-31T23:59:59Z" },
   });
 
+  // A general project (#149): the album's booklet in two proofs, the second replacing the
+  // first, its cover as a picture and its print files as something with no viewer. The
+  // second proof goes through an approval with comments on regions of its pages.
+  const { project: general } = await api<{ project: { id: string } }>(
+    page,
+    "POST",
+    "/api/projects",
+    {
+      name: "Joplin Rags booklet",
+      profile: "general",
+      description: "The album's booklet, cover and print files, for sign-off.",
+    },
+  );
+  writeFileSync(file("Booklet - proof 1.pdf"), samplePdf(3));
+  writeFileSync(file("Booklet - proof 2.pdf"), samplePdf(4));
+  writeFileSync(
+    file("Print files.zip"),
+    Buffer.from("PK\u0005\u0006".padEnd(22, "\u0000"), "latin1"),
+  );
+  execFileSync("ffmpeg", [
+    "-v",
+    "error",
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    "smptehdbars=size=1200x1200",
+    "-frames:v",
+    "1",
+    file("Cover.png"),
+  ]);
+  await upload(page, general.id, [file("Booklet - proof 1.pdf"), file("Cover.png")]);
+  await upload(page, general.id, [file("Booklet - proof 2.pdf"), file("Print files.zip")]);
+  const generalFiles = await settled(page, general.id);
+  const booklet = (part: string) => {
+    const found = generalFiles.find((f) => f.name.includes(part));
+    if (!found) throw new Error(`No file named like ${part}`);
+    return found.id;
+  };
+  const proof = booklet("proof 2");
+  await api(page, "POST", `/api/files/${booklet("proof 1")}/next`, { fileId: proof });
+  await comment(booklet("proof 1"), "The track list runs onto the fold.");
+  const { review: signOff } = await api<{ review: { id: string } }>(
+    page,
+    "POST",
+    `/api/projects/${general.id}/reviews`,
+    {
+      kind: "approval",
+      title: "Booklet sign-off",
+      message: "The second proof, with the corrected track list. Approve it for print.",
+      dueAt: "2026-10-29T17:00:00Z",
+      order: "parallel",
+      items: [{ fileId: proof }, { fileId: booklet("Cover") }],
+      reviewers: [user.id],
+    },
+  );
+  await comment(proof, "Kern the title a little tighter.", {
+    kind: "region",
+    page: 1,
+    x: 0.1,
+    y: 0.08,
+    width: 0.62,
+    height: 0.1,
+  });
+  await comment(proof, "This paragraph should match the label copy.", {
+    kind: "region",
+    page: 2,
+    x: 0.1,
+    y: 0.06,
+    width: 0.5,
+    height: 0.12,
+  });
+  await comment(booklet("Cover"), "The bars read well at thumbnail size.", {
+    kind: "region",
+    x: 0.05,
+    y: 0.6,
+    width: 0.9,
+    height: 0.35,
+  });
+  await comment(booklet("Print files"), "These are the printer's final files.");
+  await decide(signOff.id, "approved", "Good to print.");
+
   // Other workspaces on the instance (#174), one of them suspended: its owner is told why.
   for (const [name, slug] of [
     ["North Choir Collective", "north-choir"],
@@ -1248,6 +1330,10 @@ setup("seed", async ({ page, browser }) => {
     invitationPath: new URL(invitation).pathname,
     uploadLinkPath: new URL(uploadLink).pathname,
     usedGuestPath: guestLink,
+    generalProjectId: general.id,
+    bookletFileId: proof,
+    printFileId: booklet("Print files"),
+    signOffId: signOff.id,
   };
   writeFileSync(join(state, "seeded.json"), JSON.stringify(seeded, null, 2));
   await page.context().storageState({ path: join(state, "owner.json") });

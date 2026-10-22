@@ -72,6 +72,25 @@ describe("itemsIn", () => {
     expect(itemsIn(folders, tracks, files, "Stems").map((i) => i.id)).toEqual(["bass.wav"]);
   });
 
+  it("shows a version chain by its latest file (#149)", () => {
+    const chained = [
+      file("Booklet proof 1.pdf", null),
+      { ...file("Booklet proof 2.pdf", null), previousFileId: "Booklet proof 1.pdf" },
+      { ...file("Booklet proof 3.pdf", null), previousFileId: "Booklet proof 2.pdf" },
+      file("Cover.png", null),
+    ];
+    expect(itemsIn([], [], chained, null).map((i) => i.id)).toEqual([
+      "Booklet proof 3.pdf",
+      "Cover.png",
+    ]);
+    const mine = chained.map((f) => ({ ...f, uploadedById: "me" }));
+    const show = { ...noFilters, show: ["mine" as const] };
+    expect(filterProject([], [], mine, show, "me", indexMarks([])).map((i) => i.id)).toEqual([
+      "Booklet proof 3.pdf",
+      "Cover.png",
+    ]);
+  });
+
   it("counts what a folder shows", () => {
     expect(folderCount(folders, tracks, files, "Mixes")).toBe("1 item");
     expect(folderCount(folders, tracks, files, "Stems")).toBe("1 item");

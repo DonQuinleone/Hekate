@@ -17156,6 +17156,7 @@ describe.runIf(url)("api", () => {
           colleague,
           organisationId,
           projectId,
+          file,
           mix: await file("Mix v3.wav"),
           stem: await file("Drums.wav"),
         };
@@ -17319,6 +17320,96 @@ describe.runIf(url)("api", () => {
         ).toBe(404);
         const logged = await audit.query(s.organisationId, { action: "file.delete", limit: 5 });
         expect(logged.events[0]?.details).toMatchObject({ fileId: s.stem, name: "Drums.wav" });
+      });
+
+      it("chains a loose file's versions, each replacing the one before (#149)", async () => {
+        const s = await library("Reviewer");
+        type Chain = { file: { chain: { id: string; name: string; number: number }[] } };
+        const chainOf = async (id: string) =>
+          (
+            (await (
+              await app.request(`/api/files/${id}`, { headers: { cookie: s.owner } })
+            ).json()) as Chain
+          ).file.chain;
+        const next = (id: string, fileId: string, cookie = s.owner) =>
+          app.request(`/api/files/${id}/next`, json({ fileId }, cookie));
+        const mixes = await folderOf(
+          await app.request(
+            `/api/projects/${s.projectId}/folders`,
+            json({ name: "Mixes" }, s.owner),
+          ),
+        );
+        await send("PATCH", `/api/files/${s.mix}`, { folderId: mixes.id }, s.owner);
+        // A Reviewer cannot add versions.
+        expect((await next(s.mix, s.stem, s.colleague)).status).toBe(403);
+        // The new version takes the old one's place.
+        const made = await next(s.mix, s.stem);
+        expect(made.status).toBe(200);
+        expect(((await made.json()) as { file: unknown }).file).toEqual({
+          id: s.stem,
+          previousFileId: s.mix,
+          folderId: mixes.id,
+        });
+        const third = await s.file("Mix v5.wav");
+        // One later version each, and no loops.
+        expect((await next(s.mix, third)).status).toBe(409);
+        expect((await next(s.stem, s.mix)).status).toBe(409);
+        expect((await next(third, s.mix)).status).toBe(409);
+        expect((await next(s.stem, s.stem)).status).toBe(422);
+        // Another project's file is not a version of this one.
+        const other = await app.request(
+          "/api/projects",
+          json({ name: "Elite", profile: "general" }, s.owner),
+        );
+        const otherId = ((await other.json()) as { project: { id: string } }).project.id;
+        const [foreign] = await db
+          .insert(schema.files)
+          .values({
+            organisationId: s.organisationId,
+            projectId: otherId,
+            name: "Elsewhere.wav",
+            kind: "audio",
+            blobId: (await storage.put(s.organisationId, Buffer.from("elsewhere"))).id,
+            contentType: "audio/wav",
+            byteSize: 9,
+          })
+          .returning();
+        expect((await next(s.stem, foreign?.id ?? "")).status).toBe(422);
+        expect((await next(foreign?.id ?? "", third)).status).toBe(422);
+        // A track's files have their versions in the track.
+        const inTrack = await s.file("Mix v4.wav");
+        const track = await app.request(
+          `/api/projects/${s.projectId}/tracks`,
+          json({ name: "Maple Leaf Rag" }, s.owner),
+        );
+        const trackId = ((await track.json()) as { track: { id: string } }).track.id;
+        await app.request(
+          `/api/tracks/${trackId}/versions`,
+          json({ variations: [{ fileId: inTrack, name: "Mix" }] }, s.owner),
+        );
+        expect((await next(s.stem, inTrack)).status).toBe(409);
+        expect((await next(inTrack, third)).status).toBe(409);
+
+        expect((await next(s.stem, third)).status).toBe(200);
+        const chain = await chainOf(s.mix);
+        expect(chain.map((f) => [f.name, f.number])).toEqual([
+          ["Mix v3.wav", 1],
+          ["Drums.wav", 2],
+          ["Mix v5.wav", 3],
+        ]);
+        expect(await chainOf(third)).toEqual(chain);
+        // A file alone is in no chain.
+        expect(await chainOf(inTrack)).toEqual([]);
+        const listed = (await (
+          await app.request(`/api/projects/${s.projectId}/files`, { headers: { cookie: s.owner } })
+        ).json()) as { files: { id: string; previousFileId: string | null }[] };
+        expect(listed.files.find((f) => f.id === third)?.previousFileId).toBe(s.stem);
+        // Taking one out closes the gap.
+        expect((await remove(`/api/files/${s.stem}`, s.owner)).status).toBe(204);
+        expect((await chainOf(third)).map((f) => f.name)).toEqual(["Mix v3.wav", "Mix v5.wav"]);
+        // The first goes, and the rest stand on their own.
+        expect((await remove(`/api/files/${s.mix}`, s.owner)).status).toBe(204);
+        expect(await chainOf(third)).toEqual([]);
       });
     });
 

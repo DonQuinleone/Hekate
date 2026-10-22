@@ -69,3 +69,52 @@ export type CreateUploadInput = z.input<typeof createUploadInput>;
 /** A PDF, by its type or its name: the documents whose pages are drawn, scores among them. */
 export const isPdf = (name: string, contentType: string) =>
   contentType === "application/pdf" || name.toLowerCase().endsWith(".pdf");
+
+/** Makes a file the next version of another, in a simple version chain (#149). */
+export const nextVersionInput = z.object({ fileId: z.uuid() });
+export type NextVersionInput = z.input<typeof nextVersionInput>;
+
+/** A file as a chain sees it: what it replaces, if anything. */
+export interface Chained {
+  id: string;
+  previousFileId: string | null;
+}
+
+/** Where a file sits in its chain: numbered from 1, the oldest. */
+export interface ChainPlace {
+  number: number;
+  /** How many files the chain holds. */
+  count: number;
+  /** The chain's latest file, which stands for the chain in a list. */
+  latestId: string;
+}
+
+/**
+ * The version chains among some files (#149): each file that replaces another, or is
+ * replaced, with its place. A file whose predecessor is not among them starts a chain; a
+ * file alone is in none.
+ */
+export function fileChains(files: readonly Chained[]): Map<string, ChainPlace> {
+  const ids = new Set(files.map((f) => f.id));
+  const next = new Map<string, string>();
+  for (const f of files) {
+    if (f.previousFileId && ids.has(f.previousFileId)) next.set(f.previousFileId, f.id);
+  }
+  const places = new Map<string, ChainPlace>();
+  for (const f of files) {
+    if (f.previousFileId && ids.has(f.previousFileId)) continue;
+    const chain = [f.id];
+    // A loop cannot be made through the routes; guard against one all the same.
+    for (let at = next.get(f.id); at && !chain.includes(at); at = next.get(at)) chain.push(at);
+    if (chain.length < 2) continue;
+    const latestId = chain[chain.length - 1] as string;
+    chain.forEach((id, i) => {
+      places.set(id, { number: i + 1, count: chain.length, latestId });
+    });
+  }
+  return places;
+}
+
+/** The files a later version replaces: a list shows only each chain's latest. */
+export const replacedFiles = (files: readonly Chained[]): Set<string> =>
+  new Set([...fileChains(files)].filter(([id, place]) => id !== place.latestId).map(([id]) => id));

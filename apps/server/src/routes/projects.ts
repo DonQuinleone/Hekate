@@ -399,6 +399,8 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
           streamStatus: files.streamStatus,
           analysisStatus: files.analysisStatus,
           pageCount: files.pageCount,
+          /** The file this one replaces, in a version chain (#149). */
+          previousFileId: files.previousFileId,
           uploadedBy: users.name,
           uploadedById: users.id,
           createdAt: files.createdAt,

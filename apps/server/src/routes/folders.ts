@@ -4,6 +4,7 @@ import {
   createFolderInput,
   deliveryProfileChoice,
   descendantsOf,
+  nextVersionInput,
   updateFileInput,
   updateFolderInput,
 } from "@hekate/shared";
@@ -16,6 +17,7 @@ import { type Actor, actorOf, can, canOnFile, type MemberActor } from "../access
 import { type Audit, requestInfo } from "../audit.ts";
 import { assertProfileRef } from "../delivery-profiles.ts";
 import { NotFound } from "../errors.ts";
+import { nextOf } from "../file-chains.ts";
 import type { ViewerVariables } from "../guests.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
@@ -215,6 +217,63 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
       if (!file) throw new NotFound("File");
       return c.json({ file });
     })
+    // A simple version chain (#149): the file named becomes this one's next version, and
+    // takes its place in the folder. Loose files only: a track's files have its versions.
+    .post("/:id/next", idParam, zValidator("json", nextVersionInput), async (c) => {
+      const actor = memberOnly(c.var.actor);
+      const id = c.req.valid("param").id;
+      const { fileId } = c.req.valid("json");
+      const { projectId } = await canOnFile(db, actor, "upload", id);
+      if (fileId === id) {
+        throw new HTTPException(422, { message: "A file cannot be its own next version" });
+      }
+      const file = await db.transaction(async (tx) => {
+        // Under the project lock, so two at once cannot both take the same place.
+        await lockProject(tx, actor.organisationId, projectId);
+        const both = await tx
+          .select({
+            id: files.id,
+            projectId: files.projectId,
+            folderId: files.folderId,
+            takeId: files.takeId,
+            previousFileId: files.previousFileId,
+          })
+          .from(files)
+          .where(inOrg(files, actor.organisationId, inArray(files.id, [id, fileId])));
+        const before = both.find((f) => f.id === id);
+        const after = both.find((f) => f.id === fileId);
+        if (!before) throw new NotFound("File");
+        if (!after || after.projectId !== projectId) {
+          throw new HTTPException(422, { message: "That file is not in this project" });
+        }
+        const inVersion = await tx
+          .select({ fileId: variations.fileId })
+          .from(variations)
+          .where(inOrg(variations, actor.organisationId, inArray(variations.fileId, [id, fileId])));
+        if (inVersion.length > 0 || before.takeId || after.takeId) {
+          throw new HTTPException(409, {
+            message: "A file in a track or a take has its versions there",
+          });
+        }
+        if (await nextOf(tx, actor.organisationId, id)) {
+          throw new HTTPException(409, { message: "This file already has a later version" });
+        }
+        if (after.previousFileId || (await nextOf(tx, actor.organisationId, fileId))) {
+          throw new HTTPException(409, { message: "That file already has versions of its own" });
+        }
+        const [row] = await tx
+          .update(files)
+          .set({ previousFileId: id, folderId: before.folderId, updatedAt: new Date() })
+          .where(inOrg(files, actor.organisationId, eq(files.id, fileId)))
+          .returning({
+            id: files.id,
+            previousFileId: files.previousFileId,
+            folderId: files.folderId,
+          });
+        return row;
+      });
+      return c.json({ file });
+    })
     // What this file alone is measured against (#144), over its track's and project's.
     .put("/:id/delivery-profile", idParam, zValidator("json", deliveryProfileChoice), async (c) => {
       const actor = memberOnly(c.var.actor);
@@ -239,7 +298,7 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
       const who = await audit.member(actor.userId);
       await db.transaction(async (tx) => {
         const [file] = await tx
-          .select({ id: files.id, name: files.name })
+          .select({ id: files.id, name: files.name, previousFileId: files.previousFileId })
           .from(files)
           .where(inOrg(files, actor.organisationId, eq(files.id, id)))
           .for("update");
@@ -279,7 +338,16 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
             message: `This file is part of the review "${reviewed.title}"`,
           });
         }
+        // A file taken out of a version chain closes the gap: the one after it follows the
+        // one before (#149).
+        const next = await nextOf(tx, actor.organisationId, id);
         await tx.delete(files).where(inOrg(files, actor.organisationId, eq(files.id, id)));
+        if (next && file.previousFileId) {
+          await tx
+            .update(files)
+            .set({ previousFileId: file.previousFileId, updatedAt: new Date() })
+            .where(inOrg(files, actor.organisationId, eq(files.id, next.id)));
+        }
         await audit.record(
           actor.organisationId,
           who,

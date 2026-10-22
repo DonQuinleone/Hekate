@@ -37,6 +37,14 @@ export interface Seeded {
   uploadLinkPath: string;
   /** A guest link already used, which no longer signs anyone in. */
   usedGuestPath: string;
+  /** A general project (#149): a booklet in two proofs, a cover and print files. */
+  generalProjectId: string;
+  /** The booklet's second proof, replacing the first, with region comments. */
+  bookletFileId: string;
+  /** Print files with no viewer: the "other file" page. */
+  printFileId: string;
+  /** The approval the booklet went through. */
+  signOffId: string;
 }
 
 export const seeded = (): Seeded =>

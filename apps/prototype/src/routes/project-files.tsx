@@ -26,6 +26,7 @@ import {
 } from "~/data";
 import { cn } from "~/lib/cn";
 import {
+  chainLabel,
   fileDetails,
   folderPath,
   kindIcon,
@@ -380,6 +381,7 @@ function FileRow({ file, project }: { file: File; project: Project }) {
           {file.name}
         </span>
         <span className="block truncate text-[12px] text-ink-3 @3xl/app:hidden">
+          {chainLabel(file)}
           {fileDetails(file)}
         </span>
       </Link>
@@ -398,6 +400,7 @@ function FileRow({ file, project }: { file: File; project: Project }) {
         {file.state === "ready" && <span className="text-ink-3">—</span>}
       </span>
       <span className="hidden truncate text-[13px] text-ink-3 @3xl/app:block">
+        {chainLabel(file)}
         {fileDetails(file)} · {formatBytes(file.size)}
       </span>
       <span className="hidden items-center @3xl/app:flex">

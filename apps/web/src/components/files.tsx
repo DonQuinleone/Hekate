@@ -53,6 +53,37 @@ export function mediaSummary(
   return parts.length > 0 ? parts.join(" · ") : "Not readable as media";
 }
 
+/** A file's format from its name, as people say it: "PDF", "PNG", "ZIP". */
+const formatOf = (name: string) => {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 && dot < name.length - 1 ? name.slice(dot + 1).toUpperCase() : null;
+};
+
+/**
+ * What a list says about a file (#149): a recording's or a video's measurements, a
+ * document's pages, a picture's format; otherwise its type.
+ */
+export function fileSummary(file: {
+  name: string;
+  kind: FileKind;
+  contentType: string;
+  mediaInfo: MediaInfo | null;
+  streamStatus: StreamStatus;
+  pageCount?: number | null | undefined;
+}): string {
+  const media = mediaSummary(file.kind, file.mediaInfo, file.streamStatus);
+  if (media) return media;
+  const format = formatOf(file.name);
+  if (file.kind === "image") return format ? `${format} picture` : "Picture";
+  if (file.kind === "document") {
+    const pages = file.pageCount
+      ? ` · ${file.pageCount} page${file.pageCount === 1 ? "" : "s"}`
+      : "";
+    return `${format ?? "Document"}${pages}`;
+  }
+  return format ? `${format} file` : file.contentType;
+}
+
 interface Pending {
   key: string;
   file: File;

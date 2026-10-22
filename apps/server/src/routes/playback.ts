@@ -25,6 +25,7 @@ import {
 import { alignmentsFrom } from "../alignment-graph.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { CodedException, NotFound } from "../errors.ts";
+import { chainOf } from "../file-chains.ts";
 import type { PlaySessionVariables, ViewerVariables } from "../guests.ts";
 import type { Keyring } from "../keyring.ts";
 import { watermark } from "../media/watermark.ts";
@@ -118,6 +119,14 @@ async function reachable(db: Database, actor: Actor): Promise<Set<string> | null
   );
 }
 
+/** A file's version chain (#149), oldest first, without the files a guest cannot open. */
+async function shownChain(db: Database, actor: Actor, fileId: string) {
+  const chain = await chainOf(db, actor.organisationId, fileId);
+  const reached = await reachable(db, actor);
+  const shown = reached ? chain.filter((f) => reached.has(f.id)) : chain;
+  return shown.length > 1 ? shown : [];
+}
+
 /** A variation as the file page shows it; the track's settings stay on the server. */
 const shownVariation = <V extends { trackNormalisation: unknown }>({
   trackNormalisation: _,
@@ -161,6 +170,8 @@ export const fileRoutes = (deps: PlaybackDeps) =>
           streamStatus: files.streamStatus,
           analysisStatus: files.analysisStatus,
           pageCount: files.pageCount,
+          /** A take's file has its place in the take; a loose file can have versions (#149). */
+          takeId: files.takeId,
           uploadedBy: users.name,
           createdAt: files.createdAt,
           /** The project's profile decides which tools the file page offers. */
@@ -242,6 +253,8 @@ export const fileRoutes = (deps: PlaybackDeps) =>
             commentReferences,
           }),
           variation: variation ? shownVariation(variation) : null,
+          // Its simple version chain (#149), as far as this person may open it.
+          chain: await shownChain(deps.db, c.var.actor, file.id),
           grant: access?.grant ?? null,
           watermark: markText
             ? { text: markText, position: style.position, opacity: style.opacity }

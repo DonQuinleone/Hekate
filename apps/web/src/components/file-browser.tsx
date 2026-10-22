@@ -4,6 +4,7 @@ import {
   descendantsOf,
   type FileColumn,
   type FileColumnLayout,
+  fileChains,
   folderPath,
   formatBytes,
   formatDuration,
@@ -79,7 +80,7 @@ import { Empty } from "./empty";
 import { ColumnHeading, ColumnsMenu, columnNames } from "./file-columns";
 import { FilterChips, FilterMenu, TagEditor } from "./file-filters";
 import { AttachForm, destinations, MoveForm, RenameForm } from "./file-forms";
-import { kindIcon, mediaSummary, UploadButton, UploadList } from "./files";
+import { fileSummary, kindIcon, UploadButton, UploadList } from "./files";
 import { Icon, type IconName } from "./icons";
 import { Card } from "./page";
 import { Button } from "./ui/button";
@@ -196,8 +197,7 @@ function FileStatus({
   return <span className="text-ink-3">—</span>;
 }
 
-const details = (file: ProjectFile) =>
-  mediaSummary(file.kind, file.mediaInfo, file.streamStatus) ?? file.contentType;
+const details = (file: ProjectFile) => fileSummary(file);
 
 /** A file's first tags, and how many more. */
 function TagPills({ ids, tags }: { ids: string[]; tags: Map<string, Tag> }) {
@@ -567,6 +567,15 @@ export function FileBrowser({
       : {};
 
   const fileById = new Map(allFiles.map((f) => [f.id, f]));
+  /** Where each file sits in its version chain (#149), for the latest to say which it is. */
+  const chains = fileChains(
+    allFiles.map((f) => ({ id: f.id, previousFileId: f.previousFileId ?? null })),
+  );
+  /** A file's details, led by its version where a chain has it. */
+  const fileSummary = (f: ProjectFile) => {
+    const place = chains.get(f.id);
+    return `${place ? `V${place.number} · ` : ""}${details(f)}`;
+  };
   /** The file that stands for an item when it comes to being seen: a track's latest. */
   const seenFile = (item: Item) =>
     item.kind === "file"
@@ -956,7 +965,7 @@ export function FileBrowser({
         case "versions":
           return (
             <span className="tabular truncate">
-              {details(f)} · {formatBytes(f.byteSize)}
+              {fileSummary(f)} · {formatBytes(f.byteSize)}
             </span>
           );
         case "people":
@@ -1002,7 +1011,7 @@ export function FileBrowser({
       const latest = item.track.versions.at(-1);
       return `${trackStateLabel(state, profile)}${latest ? ` · ${versionLabel(latest.number)}` : ""}`;
     }
-    return item.kind === "file" ? details(item.file) : undefined;
+    return item.kind === "file" ? fileSummary(item.file) : undefined;
   };
 
   const row = (item: Item, place?: Place) => {

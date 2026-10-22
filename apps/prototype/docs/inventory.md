@@ -110,8 +110,8 @@ Each screen lists its states. Every screen is designed at desktop (1440) and pho
 
 | Screen | What it shows | States | Issues |
 | --- | --- | --- | --- |
-| Document | Pages the server drew, thumbnails, zoom, region comments numbered in reading order, page comments, whole-file comments; watermark for guests. | Rendering; more than 300 pages; a picture (one page); failed render. | #29 |
-| Other file | A file with no viewer: details and whole-file comments; a simple version chain. | No preview. | #19 |
+| Document | Pages the server drew, thumbnails, zoom, region comments numbered in reading order, page comments, whole-file comments; watermark for guests; a loose file's simple version chain (V1, V2, chosen as a track's versions are, and New version in the file's menu, taking its place in the list). | Rendering; more than 300 pages; a picture (one page); failed render; an earlier version. | #29 #149 |
+| Other file | A file with no viewer: what it is, details and whole-file comments; a simple version chain. | No preview. | #19 #149 |
 | File details | Format, size, checksum, uploaded by, storage backend, encrypted at rest, renditions, pages, analysis state, this file's access log. | Processing. | #7 #28 #30 |
 | Download | The download permission at work: proxy or original, watermarked per recipient and logged; the confirmation. | No permission (absent); refused. | #32 #55 |
 

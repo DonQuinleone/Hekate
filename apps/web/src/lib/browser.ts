@@ -10,6 +10,7 @@ import {
   maxColumnWidth,
   minColumnWidth,
   type ProjectProfile,
+  replacedFiles,
   versionLabel,
 } from "@hekate/shared";
 import type { Folder, ProjectFile, Track, Version } from "./queries";
@@ -26,6 +27,16 @@ export const filesInTracks = (tracks: Track[]) =>
   new Set(tracks.flatMap((t) => t.versions.flatMap((v) => v.variations.map((x) => x.fileId))));
 
 /**
+ * The files a list leaves out: a track's, shown by their track, and those a later version
+ * replaces, shown by the latest of their chain (#149).
+ */
+const notListed = (tracks: Track[], files: ProjectFile[]) =>
+  new Set([
+    ...filesInTracks(tracks),
+    ...replacedFiles(files.map((f) => ({ id: f.id, previousFileId: f.previousFileId ?? null }))),
+  ]);
+
+/**
  * What one folder (null, the top) holds, folders first, then tracks, then files that are not
  * a track's: a track is a special kind of folder, so it sits among them.
  */
@@ -35,7 +46,7 @@ export function itemsIn(
   files: ProjectFile[],
   folderId: string | null,
 ): Item[] {
-  const inTracks = filesInTracks(tracks);
+  const inTracks = notListed(tracks, files);
   return [
     ...folders
       .filter((f) => f.parentId === folderId)
@@ -197,7 +208,7 @@ export function filterProject(
   marks: MarkIndex,
 ): Item[] {
   const byId = new Map(files.map((f) => [f.id, f]));
-  const inTracks = filesInTracks(tracks);
+  const inTracks = notListed(tracks, files);
   const filesOf = (t: Track, latestOnly: boolean) =>
     (latestOnly ? t.versions.slice(-1) : t.versions)
       .flatMap((v) => v.variations.map((x) => byId.get(x.fileId)))
