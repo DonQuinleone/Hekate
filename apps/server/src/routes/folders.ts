@@ -239,7 +239,8 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
             previousFileId: files.previousFileId,
           })
           .from(files)
-          .where(inOrg(files, actor.organisationId, inArray(files.id, [id, fileId])));
+          .where(inOrg(files, actor.organisationId, inArray(files.id, [id, fileId])))
+          .for("update");
         const before = both.find((f) => f.id === id);
         const after = both.find((f) => f.id === fileId);
         if (!before) throw new NotFound("File");
@@ -270,6 +271,7 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
             previousFileId: files.previousFileId,
             folderId: files.folderId,
           });
+        if (!row) throw new NotFound("File");
         return row;
       });
       return c.json({ file });
@@ -297,6 +299,8 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
       const { projectId } = await canOnFile(db, actor, "delete_files", id);
       const who = await audit.member(actor.userId);
       await db.transaction(async (tx) => {
+        // Under the project lock, as a file's versions are linked (#149).
+        await lockProject(tx, actor.organisationId, projectId);
         const [file] = await tx
           .select({ id: files.id, name: files.name, previousFileId: files.previousFileId })
           .from(files)
@@ -339,10 +343,10 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
           });
         }
         // A file taken out of a version chain closes the gap: the one after it follows the
-        // one before (#149).
+        // one before, or starts the chain where this one did (#149).
         const next = await nextOf(tx, actor.organisationId, id);
         await tx.delete(files).where(inOrg(files, actor.organisationId, eq(files.id, id)));
-        if (next && file.previousFileId) {
+        if (next) {
           await tx
             .update(files)
             .set({ previousFileId: file.previousFileId, updatedAt: new Date() })

@@ -1,6 +1,6 @@
 import { fileChains } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { type DragEvent, useRef, useState } from "react";
 import { filesInTracks } from "~/lib/browser";
 import { cn } from "~/lib/cn";
@@ -14,36 +14,38 @@ import { FileInput } from "./ui/input";
 import { Dropdown } from "./ui/menu";
 
 /**
- * A loose file's simple version chain (#149): every version one step away, the one shown
- * marked, as a track's versions are. Nothing for a file in no chain.
+ * A loose file's simple version chain (#149): the version shown, and every other one a step
+ * away, newest first, as the prototype chooses a track's. Nothing for a file in no chain.
  */
 export function FileChain({ file }: { file: FileDetail }) {
-  if (file.chain.length === 0) return null;
+  const navigate = useNavigate();
+  const shown = file.chain.find((v) => v.id === file.id);
+  if (!shown) return null;
+  const latest = file.chain.at(-1)?.id;
   return (
-    <nav aria-label="Versions" className="flex flex-wrap items-center gap-1 text-[13px]">
-      {file.chain.map((v) => {
-        const current = v.id === file.id;
-        return (
-          <Link
-            key={v.id}
-            to="/files/$fileId"
-            params={{ fileId: v.id }}
-            // The review it was opened from holds while moving along the chain.
-            search={(prev) => ({ review: prev.review })}
-            aria-current={current ? "page" : undefined}
-            title={v.name}
-            className={cn(
-              "tabular h-6 rounded-chip border px-2 font-mono text-[11px] leading-6 no-underline",
-              current
-                ? "border-edge bg-raised text-ink"
-                : "border-transparent text-ink-3 hover:text-ink",
-            )}
-          >
-            V{v.number}
-          </Link>
-        );
-      })}
-    </nav>
+    <div className="flex items-center">
+      <Dropdown
+        label="Version"
+        value={
+          <span className="tabular flex items-center gap-1.5 font-medium text-ink">
+            V{shown.number}
+            {shown.id === latest && <span className="font-normal text-ink-3">latest</span>}
+          </span>
+        }
+        actions={[...file.chain].reverse().map((v) => ({
+          label: `V${v.number}`,
+          hint: v.id === latest ? "latest" : v.name,
+          checked: v.id === file.id,
+          // The review it was opened from holds while moving along the chain.
+          onSelect: () =>
+            void navigate({
+              to: "/files/$fileId",
+              params: { fileId: v.id },
+              search: (prev) => ({ review: prev.review }),
+            }),
+        }))}
+      />
+    </div>
   );
 }
 

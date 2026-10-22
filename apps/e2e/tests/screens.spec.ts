@@ -324,7 +324,7 @@ const screens: Screen[] = [
   {
     name: "file-document",
     path: (s) => `/files/${s.bookletFileId}?review=${s.signOffId}`,
-    ready: "nav[aria-label=Versions] >> text=V2",
+    ready: "role=button[name=/^Version V2/]",
   },
   // A file with no viewer: what it is, and comments about all of it.
   {

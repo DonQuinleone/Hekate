@@ -1,5 +1,5 @@
 {
-  "id": "62099466-b058-4f7b-a38c-93b014285630",
+  "id": "c7129992-982d-4007-bb95-c9745b4936c0",
   "prevId": "a7f8c6d5-4316-443e-8182-2292c14360de",
   "version": "7",
   "dialect": "postgresql",
@@ -3321,7 +3321,7 @@
               "nulls": "last"
             }
           ],
-          "isUnique": true,
+          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -3465,19 +3465,6 @@
           "tableTo": "takes",
           "columnsFrom": [
             "take_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "files_previous_file_id_files_id_fk": {
-          "name": "files_previous_file_id_files_id_fk",
-          "tableFrom": "files",
-          "tableTo": "files",
-          "columnsFrom": [
-            "previous_file_id"
           ],
           "columnsTo": [
             "id"
