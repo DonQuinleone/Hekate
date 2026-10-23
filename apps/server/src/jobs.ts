@@ -205,6 +205,13 @@ export const jobDefinitions = {
     options: { retryLimit: 1, expireInSeconds: 30 * 60 },
     schedule: "47 * * * *",
   },
+  /** Dunning (#178): warn the workspaces whose payment failed at 7 and 14 days, suspend at 21. */
+  "billing-dunning": {
+    lane: "system",
+    data: z.object({}),
+    options: { retryLimit: 1, expireInSeconds: 30 * 60 },
+    schedule: "53 * * * *",
+  },
   /** Compare storage with the database: remove what nothing uses, report what is missing. Daily. */
   "storage-reconcile": {
     lane: "system",

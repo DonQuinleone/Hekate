@@ -3,6 +3,7 @@ export * from "./adm-render.ts";
 export * from "./alignment.ts";
 export * from "./anchor.ts";
 export * from "./audit.ts";
+export * from "./billing.ts";
 export * from "./board.ts";
 export * from "./calendar.ts";
 export * from "./captions.ts";

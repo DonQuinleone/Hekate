@@ -1408,3 +1408,17 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Retired, not deleted.** A retired plan is hidden and no workspace is put on it again; those already on it stay until moved, so their price and limits never change under them.
 - **Operators only.** Plans and a workspace's plan are changed on the instance side, each as an instance event; a workspace's members read their own plan at `/api/organisation/plan`.
 - **Expanding only:** two new tables and a nullable column (decision 198).
+
+## 210. The billing gateway: Stripe behind one interface, webhooks taken once, dunning that deletes nothing
+
+#178. With `HEKATE_BILLING=stripe`, workspaces pay for their plans through Stripe.
+
+- **One interface, facts in Hekate's terms.** A gateway makes customers, checks out, changes a plan, opens its portal and reads its own webhooks into facts (a checkout, a subscription, an invoice, a payout). What a fact means for the workspace is the same for every gateway, so Paddle can follow behind the interface without touching plans, invoices or dunning.
+- **Stripe's API by hand.** The few calls Hekate makes are written out against a pinned API version (`2025-09-30.clover`) rather than taken from Stripe's library. The version cannot move under it, nothing is added to the image, and tests stand in for the network with a function. The signature on each webhook is checked as Stripe documents it, any `v1` signature holding, within five minutes.
+- **No prices to copy.** Each subscription carries its plan's price; the product it is sold against has an id Hekate chooses (`hekate_<plan id>`), made the first time and renamed with the plan. Nothing about a plan is set up in Stripe first. A plan by agreement (no price) is never sold through the gateway.
+- **First Checkout, then in place.** The first payment goes through Stripe Checkout; once a workspace has a subscription, a change of plan is made on it, pro-rated, so a workspace never ends up with two. The customer is made once (Stripe's idempotency key), and the portal handles the card.
+- **The customer names the workspace.** An event is tied to a workspace by its customer alone, never by anything else it carries: a checkout whose reference names another workspace than its customer's changes nothing.
+- **Taken once, kept.** Every event is written to `gateway_events` before anything is done with it, keyed by Stripe's id, so a second delivery answers as the first did, and one that failed part-way is tried again on its next. The log outlives the workspace, and a payout belongs to none, so the table is global (only operators read it). An invoice's status never moves back when its events arrive out of order.
+- **Dunning.** Counted from the first failed payment: the owners are warned at 7 and 14 days, and the workspace is suspended at 21, by an hourly job that claims each step in the database first so it is taken once. A payment ends it and reopens a workspace dunning suspended; one an operator suspended or set to be deleted stays as it is. Nothing is deleted for want of payment.
+- **Test mode only, for now.** `STRIPE_SECRET_KEY` takes `sk_test_` and `rk_test_` keys; live keys come with the hosted offering. The test the issue asks for (a test clock driving a trial to conversion and a failed payment to suspension) runs against Stripe's test mode where `STRIPE_TEST_SECRET_KEY` is set, reading the events back from Stripe since a test cannot receive webhooks.
+- **Expanding only:** three new tables (decision 198).

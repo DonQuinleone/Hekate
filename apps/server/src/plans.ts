@@ -149,6 +149,8 @@ export async function assignPlan(
     trialEndsAt: string | null;
     renewsAt: string | null;
   },
+  /** The gateway's word on a subscription stands, even for a plan retired since (#178). */
+  options: { retired?: boolean } = {},
 ): Promise<{ name: string | null }> {
   if (!input.planId) {
     await tx.delete(workspacePlans).where(inOrg(workspacePlans, organisationId));
@@ -161,7 +163,7 @@ export async function assignPlan(
   // Locked, as savePlan locks it: see there.
   const [plan] = await tx.select().from(plans).where(eq(plans.id, input.planId)).for("update");
   if (!plan) throw new NotFound("Plan");
-  if (plan.retiredAt) throw retired();
+  if (plan.retiredAt && !options.retired) throw retired();
   const values = {
     planId: plan.id,
     status: input.status,

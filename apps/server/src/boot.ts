@@ -5,6 +5,9 @@ import { count } from "drizzle-orm";
 import { createApp } from "./app.ts";
 import { createAudit } from "./audit.ts";
 import { createAuth } from "./auth.ts";
+import { runDunning } from "./billing/billing.ts";
+import { stripeClient } from "./billing/stripe.ts";
+import { stripeGateway } from "./billing/stripe-gateway.ts";
 import { createSend } from "./channels.ts";
 import { failureOfJob, purgeErrorReports, recordFailure } from "./error-reports.ts";
 import { deliver, dispatchEvents, onEventWritten } from "./events.ts";
@@ -106,6 +109,17 @@ export async function boot(
     db,
     Object.fromEntries(Object.entries(jobDefinitions).map(([name, d]) => [name, d.lane])),
   );
+  // The billing gateway (#178), with HEKATE_BILLING=stripe; the settings check made sure of
+  // its keys.
+  const gateway =
+    config.HEKATE_BILLING === "stripe" && config.STRIPE_SECRET_KEY && config.STRIPE_WEBHOOK_SECRET
+      ? stripeGateway({
+          stripe: stripeClient({ secretKey: config.STRIPE_SECRET_KEY }),
+          webhookSecret: config.STRIPE_WEBHOOK_SECRET,
+          tax: config.STRIPE_TAX,
+        })
+      : null;
+  const billing = { db, gateway, mailer, publicUrl: config.PUBLIC_URL };
   // Workspace subdomains (#176), where they are on.
   const subdomains = subdomainsOf(config.PUBLIC_URL, config.WORKSPACE_SUBDOMAINS);
   const auth = createAuth({
@@ -261,6 +275,10 @@ export async function boot(
     await taking.work("usage-refresh", async () => {
       await refreshUsage(db);
     });
+    await taking.work("billing-dunning", async () => {
+      const steps = await runDunning(billing);
+      if (steps > 0) console.log(`Dunning took ${steps} step(s)`);
+    });
     await taking.work("workspaces-purge", async () => {
       const purged = await purgeDueWorkspaces(db, backends);
       if (purged > 0) console.log(`Purged ${purged} deleted workspace(s)`);
@@ -313,6 +331,7 @@ export async function boot(
           : `s3://${b.bucket}${b.prefix ? `/${b.prefix}` : ""}${b.region ? ` · ${b.region}` : ""}`,
     })),
     previousMasterKeys: config.MASTER_KEYS_PREVIOUS.length,
+    gateway,
     modules: {
       billing: config.HEKATE_BILLING,
       support: config.HEKATE_SUPPORT,

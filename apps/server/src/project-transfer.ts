@@ -136,6 +136,8 @@ export const transferTables = {
     "workspace_mail",
     "workspace_mail_suppressions",
     "workspace_plans",
+    "billing_accounts",
+    "invoices",
     "workspace_usage",
   ],
 } as const;

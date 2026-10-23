@@ -22,6 +22,8 @@ import {
   type EventKind,
   type FileColumnLayout,
   type InstanceSettings,
+  type InvoiceSource,
+  type InvoiceStatus,
   type LoudnessSummary,
   type MailMode,
   type MailProvider,
@@ -2508,6 +2510,97 @@ export const workspacePlans = pgTable(
     ...timestamps,
   },
   (t) => [uniqueIndex("workspace_plans_organisation_idx").on(t.organisationId)],
+);
+
+/**
+ * A workspace's account with the billing gateway (#178): its customer there, the subscription
+ * paying for its plan, and where it stands in dunning. `pastDueSince` is when a payment first
+ * failed and is cleared once one succeeds; `dunningStage` counts the steps dunning has taken
+ * since (warned at 7 days, at 14, suspended at 21).
+ */
+export const billingAccounts = pgTable(
+  "billing_accounts",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    gateway: text("gateway").$type<"stripe">().notNull(),
+    customerId: text("customer_id").notNull(),
+    subscriptionId: text("subscription_id"),
+    /** When the last subscription event taken was made: an older one, arriving late, is not. */
+    subscriptionEventAt: timestamp("subscription_event_at", { withTimezone: true }),
+    pastDueSince: timestamp("past_due_since", { withTimezone: true }),
+    dunningStage: integer("dunning_stage").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("billing_accounts_organisation_idx").on(t.organisationId),
+    uniqueIndex("billing_accounts_customer_idx").on(t.gateway, t.customerId),
+  ],
+);
+
+/**
+ * A workspace's invoices (#178): copied from the gateway as it reports them, or made by an
+ * operator for a plan by agreement and marked paid by hand. Amounts in the minor unit.
+ */
+export const invoices = pgTable(
+  "invoices",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    source: text("source").$type<InvoiceSource>().notNull(),
+    /** The gateway's id for it; null for one by hand. */
+    gatewayId: text("gateway_id"),
+    number: text("number"),
+    status: text("status").$type<InvoiceStatus>().notNull(),
+    currency: text("currency").notNull(),
+    amountDue: integer("amount_due").notNull(),
+    amountPaid: integer("amount_paid").notNull().default(0),
+    periodStart: timestamp("period_start", { withTimezone: true }),
+    periodEnd: timestamp("period_end", { withTimezone: true }),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    /** The gateway's page for paying or reading it. */
+    url: text("url"),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("invoices_gateway_idx").on(t.source, t.gatewayId),
+    index("invoices_organisation_idx").on(t.organisationId, t.issuedAt),
+  ],
+);
+
+/**
+ * Every event the billing gateway sent (#178), kept as it came: what makes a webhook idempotent
+ * (one row per gateway event, taken once), replayable, and the instance's Gateway log. A payout
+ * belongs to no workspace; an event outlives the workspace it was about.
+ */
+export const gatewayEvents = pgTable(
+  "gateway_events",
+  {
+    id: id(),
+    gateway: text("gateway").$type<"stripe">().notNull(),
+    eventId: text("event_id").notNull(),
+    type: text("type").notNull(),
+    organisationId: uuid("organisation_id").references(() => organisations.id, {
+      onDelete: "set null",
+    }),
+    /** What it was about, in words: `INV-0412`, a plan's name. */
+    summary: text("summary"),
+    amount: integer("amount"),
+    currency: text("currency"),
+    /** `taken`, `ignored`, or why it failed. */
+    result: text("result"),
+    payload: jsonb("payload").notNull(),
+    /** When the gateway made it. */
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+    takenAt: timestamp("taken_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("gateway_events_event_idx").on(t.gateway, t.eventId),
+    index("gateway_events_received_idx").on(t.receivedAt),
+  ],
 );
 
 /**

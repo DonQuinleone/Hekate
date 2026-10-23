@@ -61,6 +61,33 @@ describe("configuration", () => {
     expect(config.WORKER_LANES).toBeNull();
   });
 
+  it("takes payments through Stripe only with its keys, and test-mode keys only (#178)", () => {
+    const base = {
+      DATABASE_URL: "postgres://hekate:secret@localhost:5432/hekate",
+      AUTH_SECRET: "x".repeat(32),
+      MASTER_KEY: Buffer.alloc(32, 1).toString("base64"),
+      HEKATE_BILLING: "stripe",
+    };
+    const problems = (env: Record<string, string>) => {
+      try {
+        loadConfig({ ...base, ...env });
+        return [];
+      } catch (error) {
+        return (error as ConfigError).problems.map((p) => p.name);
+      }
+    };
+    expect(problems({})).toEqual(["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]);
+    expect(
+      problems({ STRIPE_SECRET_KEY: "sk_live_abc", STRIPE_WEBHOOK_SECRET: "whsec_abc" }),
+    ).toEqual(["STRIPE_SECRET_KEY"]);
+    const config = loadConfig({
+      ...base,
+      STRIPE_SECRET_KEY: "rk_test_abc",
+      STRIPE_WEBHOOK_SECRET: "whsec_abc",
+    });
+    expect([config.STRIPE_SECRET_KEY, config.STRIPE_TAX]).toEqual(["rk_test_abc", false]);
+  });
+
   it("sends mail one way, each provider's settings whole (#71)", () => {
     const base = {
       DATABASE_URL: "postgres://hekate:secret@localhost:5432/hekate",

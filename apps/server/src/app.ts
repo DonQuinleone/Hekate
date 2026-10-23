@@ -14,6 +14,7 @@ import { HTTPException } from "hono/http-exception";
 import { logger } from "hono/logger";
 import type { Audit } from "./audit.ts";
 import { type Auth, SESSION_DAYS } from "./auth.ts";
+import type { Gateway } from "./billing/gateway.ts";
 import { createSend, type Send } from "./channels.ts";
 import { errorHandler, requestId } from "./errors.ts";
 import { requirePlaySession, requireViewer } from "./guests.ts";
@@ -27,6 +28,8 @@ import { countRequests, metricsHandler } from "./metrics/index.ts";
 import type { Sampler } from "./metrics/sampler.ts";
 import { rateLimit } from "./rate-limit.ts";
 import { attachmentRoutes } from "./routes/attachments.ts";
+import { billingRoutes } from "./routes/billing.ts";
+import { billingHookRoutes } from "./routes/billing-hooks.ts";
 import { projectBoardRoutes } from "./routes/board.ts";
 import { calendarFeedRoutes, projectCalendarRoutes } from "./routes/calendar.ts";
 import { captionRoutes } from "./routes/captions.ts";
@@ -173,10 +176,18 @@ export interface AppDeps {
   previousMasterKeys?: number;
   /** The modules switched on at start, shown in the instance's Settings (#160). */
   modules?: InstanceModules;
+  /** The billing gateway (#178), with HEKATE_BILLING=stripe; none otherwise. */
+  gateway?: Gateway | null;
 }
 
 export function createApi(deps: AppDeps) {
   const settings = deps.settings ?? createInstanceSettings(deps.db);
+  const billing = {
+    db: deps.db,
+    gateway: deps.gateway ?? null,
+    mailer: deps.mailer,
+    publicUrl: deps.publicUrl,
+  };
   // The environment asks it, or an operator does in Settings (#160), read as the server runs.
   const rule = {
     get instance() {
@@ -306,6 +317,8 @@ export function createApi(deps: AppDeps) {
       .route("/sign-in-methods", signInMethodRoutes(deps.db, deps.subdomains ?? null))
       // Which names Caddy may get a certificate for (#176): asked before each one.
       .route("/tls", tlsRoutes(deps.db, deps.subdomains ?? null))
+      // The billing gateway's events (#178): no session, a signature instead.
+      .route("/hooks/billing", billingHookRoutes(billing))
       // Providers' bounce reports (#161): no session, a signature instead.
       .route(
         "/hooks/mail",
@@ -357,6 +370,7 @@ export function createApi(deps: AppDeps) {
         }),
       )
       .route("/organisation/plan", planRoutes(deps.db, (deps.modules?.billing ?? "off") !== "off"))
+      .route("/organisation/billing", billingRoutes(billing))
       .route(
         "/organisation/channels",
         channelRoutes({
