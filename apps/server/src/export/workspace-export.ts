@@ -661,11 +661,10 @@ export const viewOf = (row: Row, requestedBy: string | null): WorkspaceExport =>
 
 export class ExportRefused extends Error {
   override name = "ExportRefused";
-  constructor(
-    readonly status: 404 | 409 | 410,
-    message: string,
-  ) {
+  readonly status: 404 | 409 | 410;
+  constructor(status: 404 | 409 | 410, message: string) {
     super(message);
+    this.status = status;
   }
 }
 
