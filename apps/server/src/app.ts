@@ -269,6 +269,7 @@ export function createApi(deps: AppDeps) {
       .route(
         "/instance",
         instanceRoutes({
+          billing,
           db: deps.db,
           auth: deps.auth,
           rule,

@@ -2579,6 +2579,8 @@ export const invoices = pgTable(
     /** The gateway's id for it; null for one by hand. */
     gatewayId: text("gateway_id"),
     number: text("number"),
+    /** What one by hand is for, in the operator's words. */
+    description: text("description"),
     status: text("status").$type<InvoiceStatus>().notNull(),
     currency: text("currency").notNull(),
     amountDue: integer("amount_due").notNull(),

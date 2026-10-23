@@ -3,10 +3,10 @@ import type { ChannelKind, DeliveryStatus, EventKind } from "./events.ts";
 
 /**
  * The instance's logs as tables (#157): what operators look up in the app, beside the JSON lines
- * on stdout that log shippers read. Each kind arrives with what writes it: the API and the
- * billing gateway follow with their features.
+ * on stdout that log shippers read. Each kind arrives with what writes it: the API follows with
+ * its feature. The billing gateway's (#178) is shown only with billing on.
  */
-export const logKinds = ["audit", "auth", "mail", "webhooks"] as const;
+export const logKinds = ["audit", "auth", "mail", "webhooks", "gateway"] as const;
 export type LogKind = (typeof logKinds)[number];
 export const logKindParam = z.object({ kind: z.enum(logKinds) });
 
@@ -107,11 +107,30 @@ export interface WebhookLogRow {
   replay: boolean;
 }
 
+/** One event from the billing gateway (#178), and what it meant here. */
+export interface GatewayLogRow {
+  id: string;
+  /** When it arrived. */
+  at: string;
+  gateway: string;
+  /** The gateway's own name for it: `invoice.paid`. */
+  event: string;
+  /** Its workspace; none for a payout, or once the workspace is gone. */
+  workspace: { id: string; name: string } | null;
+  /** What it was about: an invoice's number, a plan's name. */
+  summary: string | null;
+  amount: number | null;
+  currency: string | null;
+  /** `taken`, `ignored…`, `failed: …`, or null while it is being taken. */
+  result: string | null;
+}
+
 export interface LogRows {
   audit: AuditLogRow;
   auth: AuthLogRow;
   mail: MailLogRow;
   webhooks: WebhookLogRow;
+  gateway: GatewayLogRow;
 }
 
 export type LogPage<K extends LogKind> = { rows: LogRows[K][]; next: string | null };

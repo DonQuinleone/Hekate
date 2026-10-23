@@ -2,6 +2,7 @@ import type { Database } from "@hekate/db";
 import {
   type AuditLogRow,
   type AuthLogRow,
+  type GatewayLogRow,
   type LogKind,
   type LogQuery,
   logRangeHours,
@@ -266,6 +267,60 @@ export async function webhookLog(
   };
 }
 
+/** Every event the billing gateway sent (#178); one workspace's where filtered. */
+export async function gatewayLog(
+  db: Database,
+  filters: Filters,
+  now = new Date(),
+): Promise<{ rows: GatewayLogRow[]; next: string | null }> {
+  const conditions: SQL[] = [sql`g.id >= ${sinceOf(filters, now)}::uuid`];
+  if (filters.before) conditions.push(sql`g.id < ${filters.before}::uuid`);
+  if (filters.workspace) conditions.push(sql`g.organisation_id = ${filters.workspace}::uuid`);
+  if (filters.q) {
+    const like = `%${escapeLike(filters.q)}%`;
+    conditions.push(
+      sql`(g.type ilike ${like} or g.summary ilike ${like} or g.result ilike ${like}
+           or g.event_id ilike ${like} or o.name ilike ${like})`,
+    );
+  }
+  const rows = await db.execute<{
+    id: string;
+    at: Date | string;
+    gateway: string;
+    event: string;
+    workspace_id: string | null;
+    workspace_name: string | null;
+    summary: string | null;
+    amount: number | null;
+    currency: string | null;
+    result: string | null;
+  }>(sql`
+    select g.id, g.received_at as at, g.gateway, g.type as event, o.id as workspace_id,
+           o.name as workspace_name, g.summary, g.amount, g.currency, g.result
+    from gateway_events g
+    left join organisations o on o.id = g.organisation_id
+    where ${all(conditions)}
+    order by g.id desc
+    limit ${filters.limit + 1}`);
+  const page = rows.slice(0, filters.limit);
+  return {
+    rows: page.map((r) => ({
+      id: r.id,
+      at: new Date(r.at).toISOString(),
+      gateway: r.gateway,
+      event: r.event,
+      workspace: r.workspace_id ? { id: r.workspace_id, name: r.workspace_name ?? "" } : null,
+      summary: r.summary,
+      amount: r.amount,
+      currency: r.currency,
+      result: r.result,
+    })),
+    next: rows.length > filters.limit ? (page.at(-1)?.id ?? null) : null,
+  };
+}
+
+type AnyLogRow = AuditLogRow | AuthLogRow | MailLogRow | WebhookLogRow | GatewayLogRow;
+
 /** A log's page, of whichever kind. */
 export function readLog(
   db: Database,
@@ -273,12 +328,13 @@ export function readLog(
   filters: Filters,
   now?: Date,
 ): Promise<{
-  rows: (AuditLogRow | AuthLogRow | MailLogRow | WebhookLogRow)[];
+  rows: AnyLogRow[];
   next: string | null;
 }> {
   if (kind === "audit") return auditLog(db, filters, now);
   if (kind === "auth") return authLog(db, filters, now);
   if (kind === "webhooks") return webhookLog(db, filters, now);
+  if (kind === "gateway") return gatewayLog(db, filters, now);
   return mailLog(db, filters, now);
 }
 
@@ -306,12 +362,22 @@ const csvColumns: Record<LogKind, string[]> = {
     "attempts",
     "replay",
   ],
+  gateway: [
+    "received_at",
+    "gateway",
+    "event",
+    "workspace",
+    "summary",
+    "amount",
+    "currency",
+    "result",
+  ],
 };
 
 const csvLine = (cells: unknown[]) => `${cells.map(csvCell).join(",")}\r\n`;
 
 /** A row as the export writes it, each cell neutralised as the access log's are. */
-function csvOf(kind: LogKind, row: AuditLogRow | AuthLogRow | MailLogRow | WebhookLogRow): string {
+function csvOf(kind: LogKind, row: AnyLogRow): string {
   if (kind === "audit") {
     const r = row as AuditLogRow;
     return csvLine([r.at, r.source, r.who, r.workspace?.name, r.action, r.target, r.ipAddress]);
@@ -341,6 +407,19 @@ function csvOf(kind: LogKind, row: AuditLogRow | AuthLogRow | MailLogRow | Webho
       r.result,
       r.attempts,
       r.replay ? "yes" : "no",
+    ]);
+  }
+  if (kind === "gateway") {
+    const r = row as GatewayLogRow;
+    return csvLine([
+      r.at,
+      r.gateway,
+      r.event,
+      r.workspace?.name,
+      r.summary,
+      r.amount,
+      r.currency,
+      r.result,
     ]);
   }
   const r = row as MailLogRow;

@@ -7,10 +7,13 @@ import {
   billingOf,
   changePlan,
   DUNNING_REASON,
+  invoiceByHand,
+  retakeGatewayEvent,
   runDunning,
+  settleByHand,
   takeGatewayEvent,
 } from "./billing.ts";
-import { type Stripe, signStripeEvent } from "./stripe.ts";
+import { type Stripe, StripeError, signStripeEvent } from "./stripe.ts";
 import { stripeGateway } from "./stripe-gateway.ts";
 
 const url = process.env.DATABASE_URL;
@@ -24,7 +27,11 @@ describe.runIf(url)("billing (#178)", () => {
   const calls: [string, string, Obj][] = [];
   /** Stripe's side: its subscriptions and checkouts as they stand, by id. */
   const subscriptions = new Map<string, Obj>();
+  const invoices = new Map<string, Obj>();
   const sessions = new Map<string, { status: string }>();
+  const missing = () => {
+    throw new StripeError(404, "No such object", "resource_missing");
+  };
   const stripe: Stripe = {
     async request(method, path, params = {}) {
       calls.push([method, path, params]);
@@ -41,8 +48,11 @@ describe.runIf(url)("billing (#178)", () => {
         if (session[2]) held.status = "expired";
         return held as never;
       }
+      const held = /^\/v1\/invoices\/(\w+)$/.exec(path)?.[1];
+      if (held && method === "GET") return (invoices.get(held) ?? missing()) as never;
       const subscription = /^\/v1\/subscriptions\/(\w+)$/.exec(path)?.[1];
-      if (subscription && method === "GET") return (subscriptions.get(subscription) ?? {}) as never;
+      if (subscription && method === "GET")
+        return (subscriptions.get(subscription) ?? missing()) as never;
       return {} as never;
     },
   };
@@ -126,20 +136,27 @@ describe.runIf(url)("billing (#178)", () => {
     subscriptions.set(object.id, object);
     return object;
   };
-  // Stripe's ids are its own across every account: one invoice per customer here.
-  const invoice = (w: { customerId: string }, status: string, extra: Obj = {}) => ({
-    id: `in_${w.customerId}`,
-    customer: w.customerId,
-    parent: { subscription_details: { subscription: `sub_${w.customerId}` } },
-    number: "INV-0412",
-    status,
-    currency: "gbp",
-    amount_due: 4900,
-    amount_paid: status === "paid" ? 4900 : 0,
-    created: 1_792_000_000,
-    hosted_invoice_url: "https://invoice.stripe.com/i/abc",
-    ...extra,
-  });
+  /**
+   * An invoice as Stripe holds it now, which its events are read against. Stripe's ids are its
+   * own across every account: one invoice per customer here.
+   */
+  const invoice = (w: { customerId: string }, status: string, extra: Obj = {}) => {
+    const object = {
+      id: `in_${w.customerId}`,
+      customer: w.customerId,
+      parent: { subscription_details: { subscription: `sub_${w.customerId}` } },
+      number: "INV-0412",
+      status,
+      currency: "gbp",
+      amount_due: 4900,
+      amount_paid: status === "paid" ? 4900 : 0,
+      created: 1_792_000_000,
+      hosted_invoice_url: "https://invoice.stripe.com/i/abc",
+      ...extra,
+    };
+    invoices.set(object.id, object);
+    return object;
+  };
   const checkedOut = async (w: Awaited<ReturnType<typeof workspace>>) => {
     await send("checkout.session.completed", {
       mode: "subscription",
@@ -270,13 +287,27 @@ describe.runIf(url)("billing (#178)", () => {
     expect((await account(w.id))?.pastDueSince).toBeNull();
   });
 
+  it("takes the event's own word for an invoice the gateway no longer has", async () => {
+    const w = await workspace();
+    await checkedOut(w);
+    // A draft, deleted in Stripe before its event arrives.
+    const draft = { ...invoice(w, "draft"), id: `in_draft_${w.customerId}` };
+    const taken = await send("invoice.deleted", draft);
+    expect(taken).toMatchObject({ taken: true, result: "taken" });
+    const [row] = await db
+      .select()
+      .from(schema.invoices)
+      .where(inOrg(schema.invoices, w.id, eq(schema.invoices.gatewayId, draft.id)));
+    expect(row?.status).toBe("draft");
+  });
+
   it("never moves an invoice back when its events arrive out of order", async () => {
     const w = await workspace();
-    await send(
-      "invoice.paid",
-      invoice(w, "paid", { status_transitions: { paid_at: 1_792_000_100 } }),
-    );
-    await send("invoice.finalized", invoice(w, "open"));
+    const paid = invoice(w, "paid", { status_transitions: { paid_at: 1_792_000_100 } });
+    await send("invoice.paid", paid);
+    // A late event's snapshot says open; Stripe holds it paid.
+    const stale = { ...paid, status: "open", amount_paid: 0 };
+    await send("invoice.finalized", stale);
     const [row] = await db.select().from(schema.invoices).where(inOrg(schema.invoices, w.id));
     expect(row).toMatchObject({ status: "paid", amountPaid: 4900, number: "INV-0412" });
     expect((await billingOf(db, w.id, gateway)).invoices).toEqual([
@@ -366,11 +397,9 @@ describe.runIf(url)("billing (#178)", () => {
     const w = await workspace();
     await checkedOut(w);
     // An invoice made by hand in Stripe, failing, is kept but changes nothing.
-    await send("invoice.payment_failed", {
-      ...invoice(w, "open"),
-      id: `in_hand_${w.customerId}`,
-      parent: null,
-    });
+    const byHand = { ...invoice(w, "open"), id: `in_hand_${w.customerId}`, parent: null };
+    invoices.set(byHand.id, byHand);
+    await send("invoice.payment_failed", byHand);
     expect((await account(w.id))?.pastDueSince).toBeNull();
     // Without the gateway, nothing advances.
     await send("invoice.payment_failed", invoice(w, "open"), new Date(Date.now() - 22 * day));
@@ -391,6 +420,75 @@ describe.runIf(url)("billing (#178)", () => {
     expect((await organisation(w.id))?.suspendedReason).toBe("Asked us to pause it");
     await send("invoice.paid", invoice(w, "paid"));
     expect((await organisation(w.id))?.suspendedReason).toBe("Asked us to pause it");
+  });
+
+  it("takes an event again against the invoice as it stands, never undoing a payment", async () => {
+    const w = await workspace();
+    await checkedOut(w);
+    await send("invoice.payment_failed", invoice(w, "open"), new Date(Date.now() - 2 * day));
+    expect((await account(w.id))?.pastDueSince).not.toBeNull();
+    const [failure] = await db
+      .select({ id: schema.gatewayEvents.id })
+      .from(schema.gatewayEvents)
+      .where(
+        and(
+          eq(schema.gatewayEvents.organisationId, w.id),
+          eq(schema.gatewayEvents.type, "invoice.payment_failed"),
+        ),
+      );
+    await send("invoice.paid", invoice(w, "paid"));
+    expect((await account(w.id))?.pastDueSince).toBeNull();
+    // The old failure, taken again, finds the invoice paid: nothing is owed.
+    const again = await retakeGatewayEvent(deps, failure?.id ?? "");
+    expect(again).toMatchObject({ type: "invoice.payment_failed", organisationId: w.id });
+    expect((await account(w.id))?.pastDueSince).toBeNull();
+    expect(
+      await retakeGatewayEvent({ ...deps, gateway: null }, failure?.id ?? "").catch(
+        (e: unknown) => e,
+      ),
+    ).toMatchObject({ status: 409, code: "billing_unavailable" });
+    expect(await retakeGatewayEvent(deps, uuidv7()).catch((e: unknown) => e)).toMatchObject({
+      status: 404,
+    });
+  });
+
+  it("numbers invoices by hand in one series, and settles only open ones made by hand", async () => {
+    const w = await workspace();
+    const other = await workspace();
+    const made = await invoiceByHand(db, w.id, {
+      amount: 120_000,
+      currency: "GBP",
+      description: "Joplin Rags mastering, by agreement",
+      periodStart: null,
+      periodEnd: null,
+      dueAt: "2026-11-30T00:00:00Z",
+    });
+    const next = await invoiceByHand(db, other.id, {
+      amount: 5000,
+      currency: "GBP",
+      description: "Opening titles review seats",
+      periodStart: null,
+      periodEnd: null,
+      dueAt: null,
+    });
+    const n = Number(made.number?.slice(3));
+    expect(made).toMatchObject({ source: "manual", status: "open", amountDue: 120_000 });
+    expect(next.number).toBe(`HK-${String(n + 1).padStart(4, "0")}`);
+    // Another workspace's invoice is not this one's to settle.
+    expect(
+      await settleByHand(db, other.id, made.id, "paid").catch((e: unknown) => e),
+    ).toMatchObject({ status: 409, code: "not_open" });
+    const paid = await settleByHand(db, w.id, made.id, "paid");
+    expect(paid).toMatchObject({ status: "paid", amountPaid: 120_000 });
+    expect(paid.paidAt).not.toBeNull();
+    expect(await settleByHand(db, w.id, made.id, "void").catch((e: unknown) => e)).toMatchObject({
+      status: 409,
+    });
+    expect((await billingOf(db, w.id, gateway)).invoices[0]).toMatchObject({
+      number: made.number,
+      description: "Joplin Rags mastering, by agreement",
+      status: "paid",
+    });
   });
 
   it("offers only plans that are priced, shown and current, and none without a gateway", async () => {

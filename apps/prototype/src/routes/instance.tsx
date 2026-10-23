@@ -2235,6 +2235,14 @@ export function InstancePage({ section }: { section: string }) {
                 Pick a delivery
               </Button>
             </Row>
+            <Row
+              name="Take a gateway event again"
+              hint="Act on a past event from the billing gateway again, read against how its subscription or invoice stands now. With billing on."
+            >
+              <Button variant="secondary" size="md">
+                Pick an event
+              </Button>
+            </Row>
             <SwitchRow
               name="Verbose logging for the worker"
               hint="For an hour, then off by itself."

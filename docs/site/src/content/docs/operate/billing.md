@@ -24,6 +24,16 @@ Both keys may be read from files (`STRIPE_SECRET_KEY_FILE`, `STRIPE_WEBHOOK_SECR
 - **Plans and limits.** A subscription's plan, status (trial, active, past due or cancelled) and renewal date come from Stripe, read from the subscription as it stands when each event arrives, so events in any order leave it right. The plan's limits are copied to the workspace as when an operator assigns one.
 - **Invoices.** Each invoice Stripe reports is kept with its number, amounts, period and Stripe's page for it, and listed in the workspace's billing settings. An invoice's status never moves back, whatever order its events arrive in.
 
+## Invoices by hand
+
+A plan by agreement (one without a price) is not sold through Stripe. Operators invoice for it by hand, with billing on (`stripe` or `manual`): `POST /api/instance/workspaces/:id/invoices` with the amount in the currency's minor unit, the currency and what it is for, and optionally its period and due date. Invoices by hand are numbered in the instance's own series (`HK-0001`), sent outside Hekate, and marked paid or void by hand (`POST …/invoices/:invoiceId/settle`). Each is an instance event, and each shows in the workspace's billing settings with the rest. Dunning leaves invoices by hand to the operators.
+
+## The Gateway log
+
+With billing on, **Logs** has a **Gateway** tab: every event Stripe sent, when it arrived, its workspace (none for a payout), what it was about, its amount, and what came of it (`taken`, `ignored` and why, or `failed` and why). It is kept for good, as a record of payments, and exports to CSV like the other logs.
+
+**Debug tools**, **Replay**, takes a past event again. It is read against the subscription or invoice as Stripe holds it now, so taking an old event again never undoes what came after it: an old failed payment taken again after the invoice was paid leaves nothing owed. Each is an instance event.
+
 ## When a payment fails
 
 Dunning counts from the first failed payment of the workspace's subscription (an invoice made by hand in Stripe does not count):

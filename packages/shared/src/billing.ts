@@ -17,8 +17,10 @@ export type InvoiceStatus = (typeof invoiceStatuses)[number];
 export interface Invoice {
   id: string;
   source: InvoiceSource;
-  /** The gateway's number for it (`INV-0412`), or Hekate's for one by hand. */
+  /** The gateway's number for it (`INV-0412`), or Hekate's for one by hand (`HK-0007`). */
   number: string | null;
+  /** What one by hand is for. */
+  description: string | null;
   status: InvoiceStatus;
   currency: string;
   amountDue: number;
@@ -31,6 +33,27 @@ export interface Invoice {
   /** The gateway's page for paying or reading it; null for one by hand. */
   url: string | null;
 }
+
+/**
+ * An invoice an operator makes by hand (#178), for a plan by agreement: it is sent by mail
+ * outside Hekate and marked paid, or void, by hand.
+ */
+export const manualInvoiceInput = z.object({
+  amount: z.number().int().positive().max(100_000_000),
+  currency: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{3}$/, { error: "A three-letter currency code, such as GBP" }),
+  description: z.string().trim().min(1, "Say what it is for").max(200),
+  periodStart: z.iso.datetime({ offset: true }).nullable().default(null),
+  periodEnd: z.iso.datetime({ offset: true }).nullable().default(null),
+  dueAt: z.iso.datetime({ offset: true }).nullable().default(null),
+});
+export type ManualInvoiceInput = z.input<typeof manualInvoiceInput>;
+
+/** An invoice by hand, settled by hand: paid, or void. */
+export const manualInvoiceOutcome = z.object({ outcome: z.enum(["paid", "void"]) });
 
 /** Changing the workspace's plan: through Checkout first, then on its subscription. */
 export const checkoutInput = z.object({ planId: z.uuid() });

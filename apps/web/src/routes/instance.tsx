@@ -6,6 +6,8 @@ import {
   ERROR_REPORT_DAYS,
   errorReportText,
   formatBytes,
+  formatMoney,
+  type GatewayLogRow,
   guestLinkDays,
   type HealthAmount,
   type HealthRange,
@@ -544,24 +546,135 @@ function WebhookEntry({ row: r, action }: { row: WebhookLogRow; action?: ReactNo
   );
 }
 
+/** One event in the gateway log: when, for which workspace, what it was, and what came of it. */
+function GatewayEntry({ row: r, action }: { row: GatewayLogRow; action?: ReactNode }) {
+  const failed = r.result?.startsWith("failed") ?? false;
+  return (
+    <div
+      data-log-entry
+      className={cn(
+        "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-[13px]",
+        action
+          ? "@3xl/app:grid-cols-[150px_minmax(0,1fr)_minmax(0,1.4fr)_110px_minmax(0,1fr)_104px]"
+          : "@3xl/app:grid-cols-[150px_minmax(0,1fr)_minmax(0,1.4fr)_110px_minmax(0,1fr)]",
+      )}
+    >
+      <span className="tabular text-ink-3">{logTime.format(new Date(r.at))}</span>
+      <span className="tabular justify-self-end text-ink-2 @3xl/app:order-4">
+        {r.amount === null || !r.currency ? "" : formatMoney(r.amount, r.currency)}
+      </span>
+      <span className="col-span-2 truncate text-ink-2 @3xl/app:order-2 @3xl/app:col-span-1">
+        {r.workspace?.name ?? "Instance"}
+      </span>
+      <span className="tabular col-span-2 truncate text-ink @3xl/app:order-3 @3xl/app:col-span-1">
+        {[r.event, r.summary].filter(Boolean).join(" · ")}
+      </span>
+      <span
+        className={cn(
+          "col-span-2 truncate @3xl/app:order-5 @3xl/app:col-span-1",
+          failed ? "text-signal" : "text-ink-3",
+        )}
+        title={r.result ?? undefined}
+      >
+        {r.result ?? "Being taken"}
+      </span>
+      {action && (
+        <span className="col-span-2 @3xl/app:order-6 @3xl/app:col-span-1 @3xl/app:justify-self-end">
+          {action}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /**
  * A past delivery sent again to its channel (#161): a new delivery of the same event, so a
  * receiver that kept it can tell. Chosen from the last week's deliveries.
  */
 function Replay() {
-  const [picking, setPicking] = useState(false);
+  const [picking, setPicking] = useState<"delivery" | "gateway" | null>(null);
+  const { data: own } = useQuery(instanceOwnSettingsQuery);
+  const billing = own ? own.environment.modules.billing !== "off" : false;
   return (
     <Section title="Replay">
       <Row
         name="Replay a webhook"
         hint="Send a past delivery again to its channel, as the same event."
       >
-        <Button variant="secondary" size="md" onClick={() => setPicking(true)}>
+        <Button variant="secondary" size="md" onClick={() => setPicking("delivery")}>
           Pick a delivery
         </Button>
       </Row>
-      {picking && <ReplayDialog onClose={() => setPicking(false)} />}
+      {billing && (
+        <Row
+          name="Take a gateway event again"
+          hint="Act on a past event from the billing gateway again, read against how its subscription or invoice stands now."
+        >
+          <Button variant="secondary" size="md" onClick={() => setPicking("gateway")}>
+            Pick an event
+          </Button>
+        </Row>
+      )}
+      {picking === "delivery" && <ReplayDialog onClose={() => setPicking(null)} />}
+      {picking === "gateway" && <GatewayReplayDialog onClose={() => setPicking(null)} />}
     </Section>
+  );
+}
+
+/** A gateway event taken again (#178), chosen from the last week's. */
+function GatewayReplayDialog({ onClose }: { onClose: () => void }) {
+  const client = useQueryClient();
+  const log = useInfiniteQuery(instanceLogQuery("gateway", { range: "7d" }));
+  const [taken, setTaken] = useState<Map<string, string>>(new Map());
+  const take = useMutation({
+    mutationFn: async (id: string) =>
+      json<{ result: string }>(
+        await api.instance["gateway-events"][":id"].replay.$post({ param: { id } }),
+      ),
+    onSuccess: ({ result }, id) => {
+      setTaken((t) => new Map(t).set(id, result));
+      void client.invalidateQueries({ queryKey: ["instance", "logs", "gateway"] });
+    },
+  });
+  const rows = log.data?.pages.flatMap((p) => p.rows) ?? [];
+  return (
+    <Dialog
+      title="Take a gateway event again"
+      description="The last week's events, newest first. Each is read against its subscription or invoice as the gateway holds it now, so nothing that came after is undone."
+      onClose={onClose}
+      width="xl"
+    >
+      <div className="flex max-h-[60vh] flex-col divide-y divide-line overflow-y-auto rounded-panel border border-line">
+        {log.isPending ? (
+          <p className="m-0 px-4 py-3 text-[13px] text-ink-3">Loading</p>
+        ) : rows.length === 0 ? (
+          <div className="p-4">
+            <Empty title="No events this week" text="The gateway has sent nothing." />
+          </div>
+        ) : (
+          rows.map((r) => (
+            <GatewayEntry
+              key={r.id}
+              row={taken.has(r.id) ? { ...r, result: taken.get(r.id) ?? r.result } : r}
+              action={
+                <Button
+                  size="sm"
+                  disabled={taken.has(r.id) || (take.isPending && take.variables === r.id)}
+                  onClick={() => take.mutate(r.id)}
+                >
+                  {taken.has(r.id) ? "Taken" : "Take again"}
+                </Button>
+              }
+            />
+          ))
+        )}
+      </div>
+      {take.isError && (
+        <p role="alert" className="m-0 mt-3 text-[13px] text-signal">
+          {take.error.message}
+        </p>
+      )}
+    </Dialog>
   );
 }
 
@@ -1133,6 +1246,7 @@ const logLabels: Record<LogKind, string> = {
   auth: "Authentication",
   mail: "Email",
   webhooks: "Webhooks",
+  gateway: "Gateway",
 };
 const rangeLabels: Record<LogRange, string> = {
   "1h": "Last hour",
@@ -1147,6 +1261,8 @@ const logNotes: Record<LogKind, string> = {
   mail: "Every message handed to instance mail, and what came back. Without SMTP, messages are written to the server's log.",
   webhooks:
     "Every delivery to a workspace's channels and its attempts. A channel that keeps failing pauses itself for five minutes; Debug tools send a delivery again.",
+  gateway:
+    "Every event from the billing gateway, with what it meant here: invoices, subscriptions, trials and payouts. Debug tools take one again.",
 };
 const deliveryStatusLabels: Record<WebhookLogRow["status"], string> = {
   pending: "Waiting",
@@ -1195,6 +1311,11 @@ const auditAction = (r: AuditLogRow) =>
  */
 function Logs() {
   const [kind, setKind] = useState<LogKind>("audit");
+  // The billing gateway's log only where billing is on (#178).
+  const { data: own } = useQuery(instanceOwnSettingsQuery);
+  const kinds = logKinds.filter(
+    (k) => k !== "gateway" || (own && own.environment.modules.billing !== "off"),
+  );
   const [q, setQ] = useState("");
   const search = useDeferredValue(q.trim());
   const [range, setRange] = useState<LogRange>("24h");
@@ -1215,9 +1336,9 @@ function Logs() {
   useEffect(() => {
     if (workspaces.hasNextPage && !workspaces.isFetchingNextPage) void workspaces.fetchNextPage();
   }, [workspaces.hasNextPage, workspaces.isFetchingNextPage, workspaces.fetchNextPage]);
-  const rows: (AuditLogRow | AuthLogRow | MailLogRow | WebhookLogRow)[] =
+  const rows: (AuditLogRow | AuthLogRow | MailLogRow | WebhookLogRow | GatewayLogRow)[] =
     log.data?.pages.flatMap(
-      (p): (AuditLogRow | AuthLogRow | MailLogRow | WebhookLogRow)[] => p.rows,
+      (p): (AuditLogRow | AuthLogRow | MailLogRow | WebhookLogRow | GatewayLogRow)[] => p.rows,
     ) ?? [];
   const exportUrl = `/api/instance/logs/${kind}/export?${new URLSearchParams(logQueryString(filters))}`;
   const body = (
@@ -1349,6 +1470,8 @@ function Logs() {
           ))
         ) : kind === "webhooks" ? (
           (rows as WebhookLogRow[]).map((r) => <WebhookEntry key={r.id} row={r} />)
+        ) : kind === "gateway" ? (
+          (rows as GatewayLogRow[]).map((r) => <GatewayEntry key={r.id} row={r} />)
         ) : (
           (rows as MailLogRow[]).map((r) => (
             <div
@@ -1398,13 +1521,13 @@ function Logs() {
   return (
     <Tabs value={kind} onValueChange={(v) => setKind(v as LogKind)}>
       <TabsList>
-        {logKinds.map((k) => (
+        {kinds.map((k) => (
           <TabsTrigger key={k} value={k}>
             {logLabels[k]}
           </TabsTrigger>
         ))}
       </TabsList>
-      {logKinds.map((k) => (
+      {kinds.map((k) => (
         <TabsContent key={k} value={k} className="mt-4 flex flex-col gap-4">
           {k === kind && body}
         </TabsContent>
