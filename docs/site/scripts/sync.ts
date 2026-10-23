@@ -1,7 +1,8 @@
 // Copies the operator pages that live in docs/ into the site, with the frontmatter Starlight
 // needs, so each has one source. The copies are generated and not committed.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { apiReferencePages, type OpenApi, pageText } from "./api-reference.ts";
 import { upgradeNotesPage } from "./upgrade-notes.ts";
 
 const root = join(import.meta.dirname, "../../..");
@@ -59,4 +60,15 @@ writeFileSync(
   join(import.meta.dirname, "../src/content/docs/operate/upgrade-notes.md"),
   `---\ntitle: "Upgrade notes"\ndescription: "What to do before or after upgrading to each release."\n---\n\n<!-- Gathered from CHANGELOG.md at build time. -->\n\n${upgradeNotesPage(existsSync(changelog) ? readFileSync(changelog, "utf8") : null)}`,
 );
-console.log(`docs: ${pages.length} pages copied in, and the upgrade notes`);
+// The API reference (#197), a page per group, from the document the server writes from its
+// routes; the document itself is published beside it, to import into a client.
+const openapi = join(root, "docs/openapi.json");
+const referenceDir = join(import.meta.dirname, "../src/content/docs/reference/api");
+rmSync(referenceDir, { recursive: true, force: true });
+mkdirSync(referenceDir, { recursive: true });
+const reference = apiReferencePages(JSON.parse(readFileSync(openapi, "utf8")) as OpenApi);
+for (const page of reference) writeFileSync(join(referenceDir, `${page.slug}.md`), pageText(page));
+copyFileSync(openapi, join(import.meta.dirname, "../public/openapi.json"));
+console.log(
+  `docs: ${pages.length} pages copied in, the upgrade notes, and ${reference.length} API reference pages`,
+);

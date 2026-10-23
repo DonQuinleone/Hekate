@@ -33,16 +33,16 @@ Some things no token can do, whatever it holds: sign in, change an account, a wo
 
 ## Making calls
 
-Send the token in each call's `Authorization` header:
+Send the token in each call's `Authorization` header, to the public API at `/api/v1`:
 
 ```sh
-curl https://review.endlesshall.example/api/projects \
+curl https://review.endlesshall.example/api/v1/projects \
   -H "Authorization: Bearer $HEKATE_TOKEN"
 ```
 
-The answers and errors are the web app's own. A token that is wrong, revoked or expired gets `401` with `token_invalid`; a call its scopes do not cover gets `403` with `insufficient_scope`, naming the scope it needs. A session cookie sent with a token is ignored: the token alone decides.
+[The API](../api/) covers versions, errors and worked examples, and the API reference lists every call with the scope it needs. A token that is wrong, revoked or expired gets `401` with `token_invalid`; a call its scopes do not cover gets `403` with `insufficient_scope`, naming the scope it needs. A session cookie sent with a token is ignored: the token alone decides.
 
-A download works as it does in the app: ask for one (`POST /api/files/{id}/downloads`) and fetch the link it gives within five minutes, once, with the same token.
+A download works as it does in the app: ask for one (`POST /api/v1/files/{id}/downloads`) and fetch the link it gives within five minutes, once, with the same token.
 
 ## Limits and the API log
 

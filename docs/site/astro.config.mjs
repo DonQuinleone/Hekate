@@ -65,7 +65,14 @@ export default defineConfig({
             "use/api-tokens",
             "use/export-and-delete",
             "use/support",
+            "use/api",
           ],
+        },
+        // Written from docs/openapi.json at build time (scripts/sync.ts), a page per group.
+        {
+          label: "API reference",
+          collapsed: true,
+          items: [{ autogenerate: { directory: "reference/api" } }],
         },
       ],
     }),
