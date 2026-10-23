@@ -7,6 +7,10 @@ import type { BillingCustomer, InvoiceStatus, WorkspacePlanStatus } from "@hekat
  */
 export interface Gateway {
   readonly kind: "stripe";
+  /** Whether it works out and collects tax (Stripe Tax). */
+  readonly tax: boolean;
+  /** The account payments go to, as the gateway names it (#180); null when it cannot say. */
+  account(): Promise<{ id: string; name: string | null } | null>;
   /** Make the workspace a customer, once: asked again, the same customer comes back. */
   createCustomer(input: { organisationId: string; name: string; email: string }): Promise<string>;
   /** A checkout for an owner to pay for a plan the first time: its page and when it lapses. */

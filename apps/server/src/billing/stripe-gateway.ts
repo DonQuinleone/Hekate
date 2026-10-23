@@ -81,6 +81,15 @@ export function stripeGateway(options: {
   });
   return {
     kind: "stripe",
+    tax: options.tax,
+    async account() {
+      const account = await gone(stripe.request<Record<string, unknown>>("GET", "/v1/account"));
+      const id = str(account?.id);
+      if (!account || !id) return null;
+      const profile = obj(account.business_profile);
+      const settings = obj(obj(account.settings).dashboard);
+      return { id, name: str(profile.name) ?? str(settings.display_name) };
+    },
     async createCustomer({ organisationId, name, email }) {
       const customer = await stripe.request<{ id: string }>(
         "POST",

@@ -1464,3 +1464,15 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Waiving voids.** Waiving what a workspace owes voids its open invoices: at Stripe first, so nothing can collect them, then those by hand. Voiding (rather than marking uncollectible) settles them under either of Stripe's ways of deciding a subscription's status, so the subscription returns to active and its webhook agrees with what Hekate did. Dunning ends and a workspace it suspended opens again; one an operator suspended does not.
 - **An operator's plan change reaches the gateway.** Putting a workspace that pays through Stripe on another plan moves its subscription too, so Stripe bills what the workspace is on and the next webhook does not move it back. It cannot be put on a plan by agreement, or none, while that subscription runs.
 - **No new tables.** The plans and codes keep their routes from #177 and #178; the overview and waiving are reads and writes of what is there.
+
+## 215. Billing's rules are settings; the Gateways tab
+
+#180, the second part.
+
+- **Rules in the instance's settings.** The currency, dunning's three days and a trial's length are kept with the instance's other settings (#160), read as the server runs, so a change needs no restart and is an instance event. A save from a client that leaves them out keeps them as stored. Dunning's days must each come after the one before; stored ones that do not are read as the defaults, never half-applied.
+- **Dunning reads its days each run.** A workspace already owing moves to new days at the next run. A step already taken is never taken again, so shortening the days cannot warn an owner twice, and lengthening them cannot reopen a workspace already suspended (paying, or an operator's waiver, does that).
+- **The reason no longer names a day.** A workspace dunning suspended was told "21 days overdue"; with the days an operator's to set, the reason says only that a payment is overdue. The old words are still recognised, so a workspace suspended under them still opens once paid.
+- **The currency is a default, not a conversion.** It is what new plans and amounts off start in. Each plan keeps its own currency, and Stripe charges in it.
+- **Trials have a length before they have a sign-up.** Open sign-up with a trial is #184's; the length is set here so the rule lives with the others.
+- **The Gateways tab reads, it does not connect.** Stripe's account, its webhook's last event and failures, and Stripe Tax are shown; the keys stay in the environment. Paddle is not built yet, and invoices by hand cannot be turned off (a plan by agreement would have no way to be billed), so the prototype's Connect button and switch became plain rows.
+

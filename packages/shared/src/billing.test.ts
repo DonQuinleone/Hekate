@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  DUNNING_REASON,
   dunningDue,
+  dunningRule,
   formatMoney,
+  isDunningReason,
   minorUnits,
   monthlyAmount,
   promoCodeInput,
   promoRefusal,
   promoSummary,
+  suspendsAt,
 } from "./billing.ts";
 
 describe("dunning (#178)", () => {
@@ -26,6 +30,28 @@ describe("dunning (#178)", () => {
   it("skips a warning it missed for the step its days have reached", () => {
     expect(dunningDue(since, after(15), 0)).toBe(2);
     expect(dunningDue(since, after(30), 0)).toBe(3);
+  });
+
+  it("takes its days from the instance's rule, each after the one before (#180)", () => {
+    const rule = { warn: 3, warnAgain: 10, suspend: 30 };
+    expect(dunningDue(since, after(3), 0, rule)).toBe(1);
+    expect(dunningDue(since, after(21), 2, rule)).toBeNull();
+    expect(dunningDue(since, after(30), 2, rule)).toBe(3);
+    expect(suspendsAt(since, rule)).toEqual(after(30));
+    expect(dunningRule.safeParse(rule).success).toBe(true);
+    expect(dunningRule.safeParse({ warn: 7, warnAgain: 7, suspend: 21 }).success).toBe(false);
+    expect(dunningRule.safeParse({ warn: 7, warnAgain: 14, suspend: 10 }).success).toBe(false);
+  });
+
+  it("knows a workspace it suspended, under its old words too (#180)", () => {
+    expect(isDunningReason(DUNNING_REASON)).toBe(true);
+    expect(
+      isDunningReason(
+        "A payment is 21 days overdue. The workspace opens again as soon as it is paid.",
+      ),
+    ).toBe(true);
+    expect(isDunningReason("The invoice for October is unpaid.")).toBe(false);
+    expect(isDunningReason(null)).toBe(false);
   });
 });
 

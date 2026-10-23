@@ -119,7 +119,14 @@ export async function boot(
           tax: config.STRIPE_TAX,
         })
       : null;
-  const billing = { db, gateway, mailer, publicUrl: config.PUBLIC_URL };
+  const billing = {
+    db,
+    gateway,
+    mailer,
+    publicUrl: config.PUBLIC_URL,
+    // The rules as an operator last set them (#180), read when the job runs.
+    rules: async () => (await settings.get()).billing,
+  };
   // Workspace subdomains (#176), where they are on.
   const subdomains = subdomainsOf(config.PUBLIC_URL, config.WORKSPACE_SUBDOMAINS);
   const auth = createAuth({

@@ -84,7 +84,7 @@ import {
   retakeGatewayEvent,
   settleByHand,
 } from "../billing/billing.ts";
-import { billingOverview, planByOperator, waive } from "../billing/overview.ts";
+import { billingOverview, gatewayStatus, planByOperator, waive } from "../billing/overview.ts";
 import { endPromo, listPromos, savePromo, usesOf } from "../billing/promos.ts";
 import { workspaceEmail } from "../email/templates.ts";
 import { CodedException, NotFound } from "../errors.ts";
@@ -1206,6 +1206,13 @@ export function instanceRoutes(options: InstanceOptions) {
       .get("/billing/overview", async (c) => {
         if (billingOff()) throw billingOffRefusal();
         return c.json(await billingOverview(db, options.billing?.gateway ?? null));
+      })
+      // How the instance takes payment (#180): the gateway's account and its webhook's health.
+      .get("/billing/gateway", async (c) => {
+        if (billingOff()) throw billingOffRefusal();
+        return c.json(
+          await gatewayStatus(db, options.billing?.gateway ?? null, options.environment.publicUrl),
+        );
       })
       // Waive what a workspace owes (#180): its open invoices voided, dunning over, reopened.
       .post("/workspaces/:id/waive", idParam, zValidator("json", waiveInput), async (c) => {

@@ -1827,6 +1827,17 @@ describe.runIf(url)("api", () => {
             gateway: "stripe",
             workspaces: [{ name: "Studio", plan: null, overdue: null }],
           });
+          const gateway = (cookie: string, via = paying) =>
+            via.request("/api/instance/billing/gateway", { headers: { cookie } });
+          expect((await gateway(admin)).status).toBe(403);
+          expect((await gateway(operator, asOperator)).status).toBe(409);
+          expect(await (await gateway(operator)).json()).toMatchObject({
+            mode: "stripe",
+            stripe: {
+              test: true,
+              webhookUrl: expect.stringContaining("/api/hooks/billing/stripe"),
+            },
+          });
           const access = await paying.request("/api/instance/me", {
             headers: { cookie: operator },
           });
@@ -2487,8 +2498,30 @@ describe.runIf(url)("api", () => {
           maintenance: { on: false, message: "" },
           defaults: { guestLinkDays: 3, storageQuota: null, memberLimit: null },
           logs: { audit: null, auth: 365, mail: 90, webhooks: 30 },
+          billing: {
+            currency: "GBP",
+            dunning: { warn: 7, warnAgain: 14, suspend: 21 },
+            trialDays: 14,
+          },
         });
         expect(first.environment.sessionDays).toBe(14);
+        // Billing's rules (#180): each step after the one before, and each change an event.
+        const rules = {
+          currency: "eur",
+          dunning: { warn: 5, warnAgain: 10, suspend: 30 },
+          trialDays: 0,
+        };
+        expect(
+          (
+            await save({
+              ...first.settings,
+              billing: { ...rules, dunning: { warn: 9, warnAgain: 8, suspend: 30 } },
+            })
+          ).status,
+        ).toBe(400);
+        expect((await save({ ...first.settings, billing: rules })).status).toBe(200);
+        expect((await read()).settings).toMatchObject({ billing: { ...rules, currency: "EUR" } });
+        expect((await save(first.settings)).status).toBe(200);
         const notice = async () =>
           (await (await asOperator.request("/api/notice")).json()) as {
             maintenance: { on: boolean; message: string };

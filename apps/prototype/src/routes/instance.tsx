@@ -1524,19 +1524,26 @@ export function InstancePage({ section }: { section: string }) {
                   </Button>
                 </Row>
                 <Row
-                  name="Paddle"
-                  hint="Not connected. Merchant of record for VAT in every country."
+                  name="Webhook"
+                  hint="Where Stripe sends its events, with the signing secret in STRIPE_WEBHOOK_SECRET."
                 >
-                  <Button variant="ghost" size="md">
-                    Connect
-                  </Button>
+                  <code className="tabular truncate text-[12px] text-ink-2">
+                    https://review.endlesshall.example/api/hooks/billing/stripe
+                  </code>
                 </Row>
                 <Row
-                  name="Manual invoicing"
-                  hint="For custom plans: invoices by email, marked paid by hand."
-                >
-                  <Switch label="Manual invoicing" checked onChange={() => {}} />
-                </Row>
+                  name="Paddle"
+                  hint="Not connected. A merchant of record, collecting VAT in every country: it follows with the hosted offering."
+                />
+                <Row
+                  name={
+                    <span className="flex items-center gap-2">
+                      <Dot state="approved" />
+                      Manual invoicing
+                    </span>
+                  }
+                  hint="For plans by agreement: numbered HK-…, sent outside Hekate and marked paid by hand. 1 invoice open."
+                />
               </Section>
               <Section title="Rules">
                 <Row
@@ -1547,14 +1554,17 @@ export function InstancePage({ section }: { section: string }) {
                     Edit
                   </Button>
                 </Row>
-                <Row name="Currency" hint="Invoices in the instance's currency; Stripe converts.">
+                <Row name="Currency" hint="New plans and amounts off are priced in it.">
                   <Select defaultValue="GBP" className="w-28">
                     <option>GBP</option>
                     <option>EUR</option>
                     <option>USD</option>
                   </Select>
                 </Row>
-                <Row name="Trials" hint="14 days, card required, converts to the chosen plan.">
+                <Row
+                  name="Trials"
+                  hint="14 days for workspaces that sign up for one, converting to the plan chosen."
+                >
                   <Button variant="ghost" size="md">
                     Edit
                   </Button>

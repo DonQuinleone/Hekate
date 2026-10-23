@@ -1,12 +1,14 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  type BillingGatewayStatus,
   type BillingOverview,
   type BillingWorkspaceRow,
-  DUNNING_REASON,
+  dunningReasons,
+  isDunningReason,
   monthlyAmount,
   type WorkspacePlanStatus,
 } from "@hekate/shared";
-import { and, asc, count, eq, gte, isNotNull, isNull, lt } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, like, lt } from "drizzle-orm";
 import { CodedException, NotFound } from "../errors.ts";
 import { assignPlan } from "../plans.ts";
 import { type BillingDeps, keepInvoice, priceOf, settle } from "./billing.ts";
@@ -96,7 +98,7 @@ export async function billingOverview(
       subscribed: Boolean(r.subscriptionId),
       pastDueSince: r.pastDueSince?.toISOString() ?? null,
       overdue: owed?.dueAt ? { number: owed.number, dueAt: owed.dueAt.toISOString() } : null,
-      dunningSuspended: r.suspendedReason === DUNNING_REASON,
+      dunningSuspended: isDunningReason(r.suspendedReason),
     };
   });
   return {
@@ -179,7 +181,7 @@ export async function waive(
     .from(organisations)
     .where(eq(organisations.id, organisationId));
   if (!org) throw new NotFound("Workspace");
-  if (open.length === 0 && !account?.pastDueSince && org.reason !== DUNNING_REASON)
+  if (open.length === 0 && !account?.pastDueSince && !isDunningReason(org.reason))
     throw new CodedException(409, "nothing_owed", "This workspace owes nothing.");
   const fromGateway = open.filter((i) => i.source === "stripe" && i.gatewayId);
   if (fromGateway.length > 0 && !gateway)
@@ -224,7 +226,7 @@ async function reopenIfDunned(tx: Tx, organisationId: string) {
     .where(
       and(
         eq(organisations.id, organisationId),
-        eq(organisations.suspendedReason, DUNNING_REASON),
+        inArray(organisations.suspendedReason, [...dunningReasons]),
         isNull(organisations.deleteAfter),
       ),
     )
@@ -267,4 +269,52 @@ export async function planByOperator(
     });
   }
   return assignPlan(tx, organisationId, input);
+}
+
+/**
+ * How the instance takes payment (#180): the gateway's account and whether its webhook is
+ * arriving, read as the tab opens; invoices by hand still open. Across workspaces deliberately.
+ */
+export async function gatewayStatus(
+  db: Reader,
+  gateway: Gateway | null,
+  publicUrl: string,
+  now = new Date(),
+): Promise<BillingGatewayStatus> {
+  const weekAgo = new Date(now.getTime() - 7 * 86_400_000);
+  const [account, [last], [failed], [open]] = await Promise.all([
+    gateway
+      ? gateway.account().catch((error: unknown) => {
+          console.error("The gateway's account could not be read", error);
+          return null;
+        })
+      : null,
+    db
+      .select({ at: gatewayEvents.receivedAt })
+      .from(gatewayEvents)
+      .orderBy(desc(gatewayEvents.receivedAt))
+      .limit(1),
+    db
+      .select({ n: count() })
+      .from(gatewayEvents)
+      .where(and(gte(gatewayEvents.receivedAt, weekAgo), like(gatewayEvents.result, "failed%"))),
+    db
+      .select({ n: count() })
+      .from(invoices)
+      .where(and(eq(invoices.source, "manual"), eq(invoices.status, "open"))),
+  ]);
+  return {
+    mode: gateway ? "stripe" : "manual",
+    stripe: gateway
+      ? {
+          account,
+          test: true,
+          tax: gateway.tax,
+          lastEventAt: last?.at.toISOString() ?? null,
+          failedEvents: failed?.n ?? 0,
+          webhookUrl: new URL("/api/hooks/billing/stripe", publicUrl).toString(),
+        }
+      : null,
+    openByHand: open?.n ?? 0,
+  };
 }

@@ -1161,6 +1161,12 @@ for (const [name, steps, ready] of [
     ["tab:Plans", "button:Actions for Studio", "menuitem:Edit limits and price…"],
     "[role=dialog] >> text=Support requests marked",
   ],
+  ["instance-billing-gateways", ["tab:Gateways"], "main >> text=Manual invoicing"],
+  [
+    "instance-billing-dunning",
+    ["tab:Gateways", "button:Edit"],
+    "[role=dialog] >> text=Warn again at",
+  ],
   [
     "instance-billing-change-plan",
     ["button:Actions for Saltmarsh Films", "menuitem:Change plan…"],
