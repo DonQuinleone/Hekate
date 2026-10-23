@@ -16,6 +16,11 @@ const id = "0190a6f0-0000-7000-8000-000000000001";
 describe("API token scopes (#198)", () => {
   it("asks a read scope of reading and a write scope of changing files", () => {
     expect(scopeFor("GET", "/api/projects")).toBe("files:read");
+    // Trailing slashes are dropped, quickly however many there are.
+    expect(scopeFor("GET", "/api/projects///")).toBe("files:read");
+    const started = performance.now();
+    expect(scopeFor("GET", `/api/${"/".repeat(50_000)}x`)).toBeNull();
+    expect(performance.now() - started).toBeLessThan(200);
     expect(scopeFor("GET", `/api/projects/${id}/files`)).toBe("files:read");
     expect(scopeFor("HEAD", `/api/files/${id}`)).toBe("files:read");
     expect(scopeFor("POST", `/api/projects/${id}/folders`)).toBe("files:write");

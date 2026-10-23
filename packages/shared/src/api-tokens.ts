@@ -196,7 +196,10 @@ export function scopeFor(method: string, path: string): ApiScope | null {
         : null;
   if (!access) return null;
   if (!path.startsWith("/api/")) return null;
-  const rest = path.slice(4).replace(/\/+$/, "") || "/";
+  // Trailing slashes dropped by hand: a pattern for them is slow on a path of many slashes.
+  let end = path.length;
+  while (end > 4 && path[end - 1] === "/") end -= 1;
+  const rest = path.slice(4, end) || "/";
   // Nothing that walks out of its segment, or that a router might read another way.
   if (/(^|\/)\.\.?(\/|$)|\/\/|%|\\/.test(rest)) return null;
   if (refused.some((r) => r.test(rest))) return null;

@@ -26,11 +26,15 @@ const { apiTokens, apiRequests, members, organisations, users } = schema;
 
 /** A new token, the hash stored in its place, and its hint. The token is shown once. */
 export function newApiToken(kind: ApiTokenKind) {
-  const secret = `${apiTokenPrefixes[kind]}${randomBytes(32).toString("base64url")}`;
-  return { secret, hash: hashApiToken(secret), hint: apiTokenHint(secret) };
+  const token = `${apiTokenPrefixes[kind]}${randomBytes(32).toString("base64url")}`;
+  return { secret: token, hash: hashApiToken(token), hint: apiTokenHint(token) };
 }
 
-export const hashApiToken = (secret: string) => createHash("sha256").update(secret).digest("hex");
+/**
+ * A token's hash, all the database keeps. SHA-256 is enough: a token is 256 random bits, not a
+ * password a person chose, so there is nothing for a slow hash to protect (as guest links).
+ */
+export const hashApiToken = (token: string) => createHash("sha256").update(token).digest("hex");
 
 /** A token as settings show it, with whoever made it named. */
 export const apiTokenRowOf = (

@@ -362,7 +362,7 @@ async function operatorDetail(deps: DeskDeps, t: TicketRecord): Promise<Operator
     place: {
       id: t.organisationId,
       name: place?.name ?? "",
-      address: deps.subdomains ? deps.subdomains.replace("*", slug) : slug,
+      address: deps.subdomains ? deps.subdomains.replaceAll("*", slug) : slug,
       plan: plan.plan?.name ?? null,
       openReviews: reviews?.n ?? 0,
     },
