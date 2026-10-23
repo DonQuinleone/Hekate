@@ -751,7 +751,10 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
           "SparkPost",
           "Mailgun",
           "SendGrid",
+          "Amazon SES",
           "Postal",
+          "Plunk",
+          "Mailcoach",
           "Google Workspace",
           "Microsoft 365",
           "Log only (development)",
@@ -767,6 +770,34 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
           <div className="grid gap-4 @md/app:grid-cols-2">
             {field("Username", "hekate")}
             {field("Password", "", "password")}
+          </div>
+        </>
+      ) : provider === "Microsoft 365" ? (
+        <>
+          <p className="text-[13px] text-ink-3">
+            Sent through Microsoft Graph as the From mailbox, by an app registration granted the
+            Mail.Send application permission.
+          </p>
+          <div className="grid gap-4 @md/app:grid-cols-2">
+            {field("Directory (tenant) ID", "endlesshall.onmicrosoft.com")}
+            {field("Application (client) ID", "")}
+          </div>
+          {field("Client secret", "", "password")}
+        </>
+      ) : provider === "Mailcoach" ? (
+        <div className="grid gap-4 @md/app:grid-cols-2">
+          {field("Address", "https://endlesshall.mailcoach.app")}
+          {field("API token", "", "password")}
+        </div>
+      ) : provider === "Amazon SES" ? (
+        <>
+          <div className="grid gap-4 @md/app:grid-cols-[minmax(0,1fr)_120px]">
+            {field("Host", "email-smtp.eu-west-1.amazonaws.com")}
+            {field("Port", "587")}
+          </div>
+          <div className="grid gap-4 @md/app:grid-cols-2">
+            {field("Username", "")}
+            {field("SMTP password", "", "password")}
           </div>
         </>
       ) : provider.startsWith("Log") ? (

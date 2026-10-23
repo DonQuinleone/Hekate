@@ -95,6 +95,18 @@ app.kubernetes.io/instance: {{ .Release.Name }}
       name: {{ $secret }}
       key: smtp-url
       optional: true
+- name: MAIL_GRAPH_CLIENT_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ $secret }}
+      key: mail-graph-client-secret
+      optional: true
+- name: MAIL_MAILCOACH_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: {{ $secret }}
+      key: mail-mailcoach-token
+      optional: true
 - name: METRICS_TOKEN
   valueFrom:
     secretKeyRef:

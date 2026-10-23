@@ -61,6 +61,38 @@ describe("configuration", () => {
     expect(config.WORKER_LANES).toBeNull();
   });
 
+  it("sends mail one way, each provider's settings whole (#71)", () => {
+    const base = {
+      DATABASE_URL: "postgres://hekate:secret@localhost:5432/hekate",
+      AUTH_SECRET: "x".repeat(32),
+      MASTER_KEY: Buffer.alloc(32, 1).toString("base64"),
+    };
+    const problems = (env: Record<string, string>) => {
+      try {
+        loadConfig({ ...base, ...env });
+        return [];
+      } catch (error) {
+        return (error as ConfigError).problems.map((p) => `${p.name}: ${p.message}`);
+      }
+    };
+    const graph = {
+      MAIL_GRAPH_TENANT: "endlesshall.onmicrosoft.com",
+      MAIL_GRAPH_CLIENT_ID: "app",
+      MAIL_GRAPH_CLIENT_SECRET: "secret",
+    };
+    expect(problems(graph)).toEqual([]);
+    expect(problems({ MAIL_GRAPH_TENANT: "endlesshall.onmicrosoft.com" })).toEqual([
+      "MAIL_GRAPH_CLIENT_ID: required with MAIL_GRAPH_TENANT",
+      "MAIL_GRAPH_CLIENT_SECRET: required with MAIL_GRAPH_TENANT",
+    ]);
+    expect(problems({ MAIL_MAILCOACH_URL: "https://endlesshall.mailcoach.app" })).toEqual([
+      "MAIL_MAILCOACH_TOKEN: required with MAIL_MAILCOACH_URL",
+    ]);
+    expect(problems({ ...graph, SMTP_URL: "smtp://mail.example:587" })).toEqual([
+      "MAIL_GRAPH_TENANT: mail goes out one way: set only one of SMTP_URL, MAIL_GRAPH_TENANT",
+    ]);
+  });
+
   it("reads a worker's role and lanes, and names a lane that is not one (#189)", () => {
     const secrets = {
       DATABASE_URL: "postgres://hekate:secret@localhost:5432/hekate",

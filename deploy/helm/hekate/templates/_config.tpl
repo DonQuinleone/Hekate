@@ -16,6 +16,15 @@ TRUST_PROXY: {{ .Values.trustProxy | quote }}
 TRUST_PROXY: {{ .Values.ingress.enabled | quote }}
 {{- end }}
 MAIL_FROM: {{ .Values.mail.from | quote }}
+{{- with .Values.mail.microsoft.tenant }}
+MAIL_GRAPH_TENANT: {{ . | quote }}
+{{- end }}
+{{- with .Values.mail.microsoft.clientId }}
+MAIL_GRAPH_CLIENT_ID: {{ . | quote }}
+{{- end }}
+{{- with .Values.mail.mailcoach.url }}
+MAIL_MAILCOACH_URL: {{ . | quote }}
+{{- end }}
 STORAGE_BACKENDS: media
 {{- if .Values.storage.volume.enabled }}
 STORAGE_MEDIA_DRIVER: local
@@ -58,6 +67,12 @@ s3-secret-access-key: {{ . | quote }}
 {{- end }}
 {{- with .Values.mail.smtpUrl }}
 smtp-url: {{ . | quote }}
+{{- end }}
+{{- with .Values.mail.microsoft.clientSecret }}
+mail-graph-client-secret: {{ . | quote }}
+{{- end }}
+{{- with .Values.mail.mailcoach.token }}
+mail-mailcoach-token: {{ . | quote }}
 {{- end }}
 {{- with .Values.metricsToken }}
 metrics-token: {{ . | quote }}

@@ -102,11 +102,23 @@ export const masterKeyStepInput = z.object({
   stored: z.literal(true, { error: "Confirm the key is stored where the server cannot reach" }),
 });
 
-/** Providers send by SMTP; each fills in its host, port and, where it is fixed, the user. */
+/**
+ * The ways mail can leave (#71). Most providers send by SMTP, each filling in its host, port
+ * and, where it is fixed, the user; Microsoft 365 goes through Microsoft Graph, as Exchange
+ * Online turns basic SMTP sign-in off, and Mailcoach through its transactional API.
+ */
 export const mailProviders = {
-  smtp: { label: "SMTP", host: null, port: 587, username: null, secret: "Password" },
+  smtp: {
+    label: "SMTP",
+    transport: "smtp",
+    host: null,
+    port: 587,
+    username: null,
+    secret: "Password",
+  },
   resend: {
     label: "Resend",
+    transport: "smtp",
     host: "smtp.resend.com",
     port: 465,
     username: "resend",
@@ -114,6 +126,7 @@ export const mailProviders = {
   },
   sparkpost: {
     label: "SparkPost",
+    transport: "smtp",
     host: "smtp.sparkpostmail.com",
     port: 587,
     username: "SMTP_Injection",
@@ -121,6 +134,7 @@ export const mailProviders = {
   },
   mailgun: {
     label: "Mailgun",
+    transport: "smtp",
     host: "smtp.mailgun.org",
     port: 587,
     username: null,
@@ -128,14 +142,48 @@ export const mailProviders = {
   },
   sendgrid: {
     label: "SendGrid",
+    transport: "smtp",
     host: "smtp.sendgrid.net",
     port: 587,
     username: "apikey",
     secret: "API key",
   },
-  postal: { label: "Postal", host: null, port: 25, username: null, secret: "Password" },
+  ses: {
+    label: "Amazon SES",
+    transport: "smtp",
+    // The region's endpoint, such as email-smtp.eu-west-1.amazonaws.com.
+    host: null,
+    port: 587,
+    username: null,
+    secret: "SMTP password",
+  },
+  postal: {
+    label: "Postal",
+    transport: "smtp",
+    host: null,
+    port: 25,
+    username: null,
+    secret: "Password",
+  },
+  plunk: {
+    label: "Plunk",
+    transport: "smtp",
+    host: "smtp.useplunk.com",
+    port: 587,
+    username: "plunk",
+    secret: "Secret key",
+  },
+  mailcoach: {
+    label: "Mailcoach",
+    transport: "mailcoach",
+    host: null,
+    port: null,
+    username: null,
+    secret: "API token",
+  },
   google: {
     label: "Google Workspace",
+    transport: "smtp",
     host: "smtp.gmail.com",
     port: 587,
     username: null,
@@ -143,16 +191,25 @@ export const mailProviders = {
   },
   microsoft: {
     label: "Microsoft 365",
-    host: "smtp.office365.com",
-    port: 587,
+    transport: "microsoft",
+    host: null,
+    port: null,
     username: null,
-    secret: "Password",
+    secret: "Client secret",
   },
-  log: { label: "Log only (development)", host: null, port: null, username: null, secret: null },
+  log: {
+    label: "Log only (development)",
+    transport: "log",
+    host: null,
+    port: null,
+    username: null,
+    secret: null,
+  },
 } as const satisfies Record<
   string,
   {
     label: string;
+    transport: "smtp" | "microsoft" | "mailcoach" | "log";
     host: string | null;
     port: number | null;
     username: string | null;
@@ -174,14 +231,37 @@ export const mailStepInput = z
     host: hostName.optional(),
     port: z.number().int().min(1).max(65535).optional(),
     username: z.string().trim().max(256).optional(),
+    /** The password, API key, token or client secret, as the provider calls it. */
     password: z.string().max(512).optional(),
+    /** Microsoft 365: the directory (tenant) ID and the app registration's client ID. */
+    tenant: z.string().trim().max(128).optional(),
+    clientId: z.string().trim().max(128).optional(),
+    /** Mailcoach: the account's address. */
+    url: z.string().trim().max(512).optional(),
     from: z.string().trim().min(3, "Say who mail comes from").max(320),
   })
   .superRefine((mail, ctx) => {
-    if (mail.provider === "log") return;
     const preset = mailProviders[mail.provider];
-    if (!(preset.host ?? mail.host))
+    if (preset.transport === "log") return;
+    const need = (path: keyof typeof mail, message: string) => {
+      if (!mail[path]) ctx.addIssue({ code: "custom", path: [path], message });
+    };
+    if (preset.transport === "smtp" && !(preset.host ?? mail.host))
       ctx.addIssue({ code: "custom", path: ["host"], message: "Give the SMTP host" });
+    if (preset.transport === "microsoft") {
+      need("tenant", "Give the directory (tenant) ID");
+      need("clientId", "Give the application (client) ID");
+      need("password", "Give a client secret");
+    }
+    if (preset.transport === "mailcoach") {
+      if (!/^https:\/\/[^\s/]+/i.test(mail.url ?? ""))
+        ctx.addIssue({
+          code: "custom",
+          path: ["url"],
+          message: "The account's address, such as https://endlesshall.mailcoach.app",
+        });
+      need("password", "Give an API token");
+    }
     if (!fromAddress(mail.from))
       ctx.addIssue({
         code: "custom",
@@ -204,10 +284,10 @@ export function fromAddress(from: string) {
   return address && z.email().safeParse(address).success ? address : null;
 }
 
-/** The SMTP URL a provider's settings come to; none for log only. Port 465 is TLS from the start. */
+/** The SMTP URL a provider's settings come to; none for one that does not send by SMTP. Port 465 is TLS from the start. */
 export function smtpUrlOf(mail: MailStepInput): string | undefined {
-  if (mail.provider === "log") return undefined;
   const preset = mailProviders[mail.provider];
+  if (preset.transport !== "smtp") return undefined;
   const host = preset.host ?? mail.host;
   const port = mail.port ?? preset.port ?? 587;
   const username = preset.username ?? mail.username;
@@ -215,6 +295,32 @@ export function smtpUrlOf(mail: MailStepInput): string | undefined {
     ? `${encodeURIComponent(username)}${mail.password ? `:${encodeURIComponent(mail.password)}` : ""}@`
     : "";
   return `${port === 465 ? "smtps" : "smtp"}://${auth}${host}:${port}`;
+}
+
+/** Every setting that says how mail leaves (#71), in the order they are written. */
+export const mailSettingNames = [
+  "SMTP_URL",
+  "MAIL_GRAPH_TENANT",
+  "MAIL_GRAPH_CLIENT_ID",
+  "MAIL_GRAPH_CLIENT_SECRET",
+  "MAIL_MAILCOACH_URL",
+  "MAIL_MAILCOACH_TOKEN",
+  "MAIL_FROM",
+] as const;
+export type MailSettingName = (typeof mailSettingNames)[number];
+
+/** The settings a provider's details come to: its own, and every other way of sending cleared. */
+export function mailSettingsOf(mail: MailStepInput): Record<MailSettingName, string | null> {
+  const transport = mailProviders[mail.provider].transport;
+  return {
+    SMTP_URL: smtpUrlOf(mail) ?? null,
+    MAIL_GRAPH_TENANT: transport === "microsoft" ? (mail.tenant ?? null) : null,
+    MAIL_GRAPH_CLIENT_ID: transport === "microsoft" ? (mail.clientId ?? null) : null,
+    MAIL_GRAPH_CLIENT_SECRET: transport === "microsoft" ? (mail.password ?? null) : null,
+    MAIL_MAILCOACH_URL: transport === "mailcoach" ? (mail.url ?? null) : null,
+    MAIL_MAILCOACH_TOKEN: transport === "mailcoach" ? (mail.password ?? null) : null,
+    MAIL_FROM: mail.from,
+  };
 }
 
 /** What an SMTP URL says, without its password, for showing settings already made. */
@@ -272,7 +378,16 @@ export interface InstallState {
   storage:
     | { kind: "local"; path: string | null; pathFixed: boolean }
     | { kind: "s3"; bucket: string; region: string | null; endpoint: string | null };
-  mail: { provider: MailProvider; host: string | null; port: number | null; from: string | null };
+  mail: {
+    provider: MailProvider;
+    host: string | null;
+    port: number | null;
+    from: string | null;
+    /** Microsoft 365's tenant and client, and Mailcoach's address: never a secret. */
+    tenant: string | null;
+    clientId: string | null;
+    url: string | null;
+  };
   address: { publicUrl: string | null };
 }
 

@@ -695,6 +695,9 @@ function MailStep({ code, state, advance, back }: StepProps) {
     port: String(state.mail.port ?? mailProviders[state.mail.provider].port ?? 587),
     username: "",
     password: "",
+    tenant: state.mail.tenant ?? "",
+    clientId: state.mail.clientId ?? "",
+    url: state.mail.url ?? "",
     from: state.mail.from ?? `Hekate <hekate@${window.location.hostname}>`,
   });
   const [to, setTo] = useState("");
@@ -703,13 +706,17 @@ function MailStep({ code, state, advance, back }: StepProps) {
   const test = useStep();
   const step = useStep();
   const preset = mailProviders[mail.provider];
+  const smtp = preset.transport === "smtp";
+  // Only what the provider's way of sending takes (#71).
   const body = () => ({
     provider: mail.provider,
     from: mail.from,
-    ...(preset.host ? {} : mail.host ? { host: mail.host } : {}),
-    ...(mail.provider !== "log" && mail.port ? { port: Number(mail.port) } : {}),
-    ...(preset.username ? {} : mail.username ? { username: mail.username } : {}),
-    ...(mail.password ? { password: mail.password } : {}),
+    ...(smtp && !preset.host && mail.host ? { host: mail.host } : {}),
+    ...(smtp && mail.port ? { port: Number(mail.port) } : {}),
+    ...(smtp && !preset.username && mail.username ? { username: mail.username } : {}),
+    ...(preset.transport !== "log" && mail.password ? { password: mail.password } : {}),
+    ...(preset.transport === "microsoft" ? { tenant: mail.tenant, clientId: mail.clientId } : {}),
+    ...(preset.transport === "mailcoach" ? { url: mail.url } : {}),
   });
   const set = (name: keyof typeof mail) => (e: { target: { value: string } }) =>
     setMail({ ...mail, [name]: e.target.value });
@@ -727,11 +734,17 @@ function MailStep({ code, state, advance, back }: StepProps) {
       {fixed ? (
         <Fixed
           label="Mail"
-          value={
+          value={[
             state.mail.host
-              ? `${state.mail.host}:${state.mail.port ?? ""}${state.mail.from ? ` · ${state.mail.from}` : ""}`
-              : (state.mail.from ?? "")
-          }
+              ? `${state.mail.host}:${state.mail.port ?? ""}`
+              : (state.mail.url ??
+                (state.mail.tenant
+                  ? `${mailProviders.microsoft.label} · ${state.mail.tenant}`
+                  : "")),
+            state.mail.from ?? "",
+          ]
+            .filter(Boolean)
+            .join(" · ")}
         />
       ) : (
         <>
@@ -755,10 +768,54 @@ function MailStep({ code, state, advance, back }: StepProps) {
               ))}
             </Select>
           </Field>
-          {mail.provider === "log" ? (
+          {preset.transport === "log" ? (
             <p className="m-0 rounded-panel border border-line bg-raised/40 px-4 py-3 text-[13px] text-ink-2">
               Messages are written to the log instead of sent. For development only.
             </p>
+          ) : preset.transport === "microsoft" ? (
+            <>
+              <p className="m-0 text-[13px] text-ink-3">
+                Sent through Microsoft Graph as the From mailbox, by an app registration granted the
+                Mail.Send application permission.
+              </p>
+              <div className="grid gap-4 @md/app:grid-cols-2">
+                <Field label="Directory (tenant) ID">
+                  <Input value={mail.tenant} onChange={set("tenant")} className="h-10" />
+                </Field>
+                <Field label="Application (client) ID">
+                  <Input value={mail.clientId} onChange={set("clientId")} className="h-10" />
+                </Field>
+              </div>
+              <Field label={preset.secret}>
+                <Input
+                  type="password"
+                  value={mail.password}
+                  onChange={set("password")}
+                  autoComplete="off"
+                  className="h-10"
+                />
+              </Field>
+            </>
+          ) : preset.transport === "mailcoach" ? (
+            <div className="grid gap-4 @md/app:grid-cols-2">
+              <Field label="Address">
+                <Input
+                  value={mail.url}
+                  onChange={set("url")}
+                  placeholder="https://endlesshall.mailcoach.app"
+                  className="h-10"
+                />
+              </Field>
+              <Field label={preset.secret}>
+                <Input
+                  type="password"
+                  value={mail.password}
+                  onChange={set("password")}
+                  autoComplete="off"
+                  className="h-10"
+                />
+              </Field>
+            </div>
           ) : (
             <>
               {!preset.host && (
@@ -767,7 +824,11 @@ function MailStep({ code, state, advance, back }: StepProps) {
                     <Input
                       value={mail.host}
                       onChange={set("host")}
-                      placeholder="smtp.example.com"
+                      placeholder={
+                        mail.provider === "ses"
+                          ? "email-smtp.eu-west-1.amazonaws.com"
+                          : "smtp.example.com"
+                      }
                       className="h-10"
                     />
                   </Field>

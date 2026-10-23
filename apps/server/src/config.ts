@@ -21,6 +21,8 @@ export const fileSettings = [
   "DATABASE_DIRECT_URL",
   "AUTH_SECRET",
   "SMTP_URL",
+  "MAIL_GRAPH_CLIENT_SECRET",
+  "MAIL_MAILCOACH_TOKEN",
   "MASTER_KEY",
   "MASTER_KEYS_PREVIOUS",
   "METRICS_TOKEN",
@@ -307,6 +309,66 @@ const schema = z.object({
     .string()
     .default("Hekate <hekate@localhost>")
     .meta(info({ group: "Mail", description: "The sender of every message." })),
+  MAIL_GRAPH_TENANT: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .meta(
+      info({
+        group: "Mail",
+        description:
+          "Microsoft 365, instead of SMTP: the directory (tenant) ID of an app registration granted Mail.Send, which sends as the MAIL_FROM mailbox through Microsoft Graph. With MAIL_GRAPH_CLIENT_ID and MAIL_GRAPH_CLIENT_SECRET.",
+        example: "contoso.onmicrosoft.com",
+      }),
+    ),
+  MAIL_GRAPH_CLIENT_ID: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .meta(
+      info({
+        group: "Mail",
+        description: "Microsoft 365: the app registration's application (client) ID.",
+        example: "00000000-0000-0000-0000-000000000000",
+      }),
+    ),
+  MAIL_GRAPH_CLIENT_SECRET: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .meta(
+      info({
+        group: "Mail",
+        description: "Microsoft 365: a client secret of the app registration.",
+        secret: true,
+      }),
+    ),
+  MAIL_MAILCOACH_URL: z
+    .url({ error: "must be a web address, such as https://endlesshall.mailcoach.app" })
+    .optional()
+    .meta(
+      info({
+        group: "Mail",
+        description:
+          "Mailcoach, instead of SMTP: the address of the Mailcoach account whose transactional API sends mail. With MAIL_MAILCOACH_TOKEN.",
+        example: "https://endlesshall.mailcoach.app",
+      }),
+    ),
+  MAIL_MAILCOACH_TOKEN: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .meta(
+      info({
+        group: "Mail",
+        description: "Mailcoach: an API token allowed to send transactional mail.",
+        secret: true,
+      }),
+    ),
   WORKER: flag("true").meta(
     info({
       group: "Media",
@@ -611,12 +673,31 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
 
 /** Settings that only make sense with another, checked even when others are wrong. */
 function together(env: Record<string, string | undefined>): ConfigProblem[] {
+  const problems: ConfigProblem[] = [];
   const support = env.HEKATE_SUPPORT;
   if ((support === "link" || support === "mail") && !env.HEKATE_SUPPORT_ADDRESS)
-    return [
-      { name: "HEKATE_SUPPORT_ADDRESS", message: `required when HEKATE_SUPPORT is ${support}` },
-    ];
-  return [];
+    problems.push({
+      name: "HEKATE_SUPPORT_ADDRESS",
+      message: `required when HEKATE_SUPPORT is ${support}`,
+    });
+  // Mail leaves one way (#71): each provider's settings whole, and no more than one of them.
+  const sets = {
+    smtp: ["SMTP_URL"],
+    microsoft: ["MAIL_GRAPH_TENANT", "MAIL_GRAPH_CLIENT_ID", "MAIL_GRAPH_CLIENT_SECRET"],
+    mailcoach: ["MAIL_MAILCOACH_URL", "MAIL_MAILCOACH_TOKEN"],
+  };
+  const used = Object.entries(sets).filter(([, names]) => names.some((n) => env[n]));
+  for (const [, names] of used) {
+    const missing = names.filter((n) => !env[n]);
+    for (const name of missing)
+      problems.push({ name, message: `required with ${names.filter((n) => env[n]).join(", ")}` });
+  }
+  if (used.length > 1)
+    problems.push({
+      name: used.flatMap(([, names]) => names.filter((n) => env[n]))[1] ?? "SMTP_URL",
+      message: `mail goes out one way: set only one of ${used.map(([, names]) => names[0]).join(", ")}`,
+    });
+  return problems;
 }
 
 /** One problem with a setting, in words: which, and what would be valid. */

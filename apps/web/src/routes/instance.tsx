@@ -13,6 +13,7 @@ import {
   type InstanceAccess,
   type InstanceEnvironment,
   type InstanceFlag,
+  type InstanceMail,
   type InstanceMemberRow,
   type InstanceSection,
   type InstanceSettings,
@@ -528,7 +529,7 @@ function Settings() {
   });
   const mailTest = useMutation({
     mutationFn: async () =>
-      json<{ to: string; mail: "smtp" | "log" }>(await api.instance.settings["mail-test"].$post()),
+      json<{ to: string; mail: InstanceMail }>(await api.instance.settings["mail-test"].$post()),
   });
   if (error) return <p className="m-0 text-signal">{error.message}</p>;
   if (!data) return null;
@@ -678,18 +679,8 @@ function Settings() {
         <Row name="Address" hint="PUBLIC_URL" inline>
           <span className="truncate text-[13px] text-ink-2">{env.publicUrl}</span>
         </Row>
-        <Row
-          name="Instance mail"
-          hint={
-            env.mail === "smtp"
-              ? "Sent over SMTP (SMTP_URL)."
-              : "Written to the server's log: set SMTP_URL to send it."
-          }
-          inline
-        >
-          <span className="text-[13px] text-ink-2">
-            {env.mail === "smtp" ? "SMTP" : "Log only"}
-          </span>
+        <Row name="Instance mail" hint={mailHints[env.mail]} inline>
+          <span className="text-[13px] text-ink-2">{mailNames[env.mail]}</span>
           <Button
             variant="secondary"
             size="md"
@@ -2638,3 +2629,17 @@ function AddOperator({ onClose }: { onClose: () => void }) {
     </Dialog>
   );
 }
+
+/** How instance mail goes out (#71), named, and the settings that say so. */
+const mailNames: Record<InstanceMail, string> = {
+  smtp: "SMTP",
+  microsoft: "Microsoft 365",
+  mailcoach: "Mailcoach",
+  log: "Log only",
+};
+const mailHints: Record<InstanceMail, string> = {
+  smtp: "Sent over SMTP (SMTP_URL).",
+  microsoft: "Sent through Microsoft Graph as the sender's mailbox (MAIL_GRAPH_*).",
+  mailcoach: "Sent through Mailcoach's transactional API (MAIL_MAILCOACH_*).",
+  log: "Written to the server's log: set SMTP_URL, or a provider's settings, to send it.",
+};

@@ -37,7 +37,7 @@ Open `https://` and your domain, and enter the code. The installer tests each st
 2. **Database:** reached and brought up to date.
 3. **Storage:** a local directory or an S3-compatible bucket, written to and read back. See [Storage](storage/).
 4. **Master key:** made in your browser, or one you bring. It opens every file: keep a copy where the server cannot reach it, apart from your backups.
-5. **Mail:** SMTP, with the hosts of the common providers filled in, and a test message.
+5. **Mail:** SMTP, with the hosts of the common providers filled in (Amazon SES and Plunk among them), Microsoft 365 through Microsoft Graph, or Mailcoach through its API, and a test message.
 6. **Address:** looked up and asked for a code only this server knows, so you know it reaches this server.
 7. **First workspace:** its name, and you as its owner. After that, accounts are by invitation.
 
