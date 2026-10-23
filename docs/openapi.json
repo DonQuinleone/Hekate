@@ -13925,6 +13925,17 @@
                       }
                     ]
                   },
+                  "trackId": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "fileLimit": {
                     "type": "integer",
                     "minimum": 1,
