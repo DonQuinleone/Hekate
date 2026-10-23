@@ -24,6 +24,15 @@ The first row of *Channels* is the workspace's mail. Until an admin chooses othe
 - **Test.** *Test* sends one message to you through the saved details, and nothing stands in for it: what comes back is the answer.
 - **Nothing private.** An SMTP server or a Mailcoach address must be on the public internet, unless the operator lists it in `WEBHOOK_TRUSTED_ORIGINS` (`smtp://host:port` for SMTP).
 
+## Bounce reports
+
+Resend, Mailgun, SendGrid and SparkPost can tell Hekate when an address bounces for good or someone marks a message as spam. Hekate then stops sending to that address, so a dead mailbox does not keep costing reputation.
+
+- **For a workspace's own mail.** Give the provider's signing secret in the workspace's mail (*Edit…*): Resend's webhook signing secret, Mailgun's HTTP webhook signing key, SendGrid's verification key, or SparkPost's webhook `user:password`. The dialog then shows the address to paste into the provider's webhook, for its permanent bounce and complaint events.
+- **For the instance's mail.** The operator sets `MAIL_WEBHOOK_SECRET` and points the provider's webhook at `/api/hooks/mail/instance`. The instance's SMTP host says which provider it is. An address it reports is not sent to by anyone on the instance.
+- **Only signed reports count.** A report whose signature does not hold, or is more than five minutes old, is refused and changes nothing. A bounce the provider will retry by itself (a full mailbox, say) is not a report.
+- **What bounced.** *Bounced addresses…* lists what is no longer sent to, and *Send again* is for an address put right or reported in error. Operators find the instance's list under *Settings*, *Address and mail*. Every report, and every message held back, is in the mail log.
+
 ## Receiving a webhook
 
 Each delivery is a `POST` with these headers:

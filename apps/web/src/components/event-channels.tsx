@@ -1,4 +1,5 @@
 import {
+  bounceSecrets,
   type ChannelKind,
   type ChannelRow,
   channelKindLabels,
@@ -8,6 +9,7 @@ import {
   eventKinds,
   eventLabels,
   eventsSummary,
+  isBounceProvider,
   type MailProvider,
   mailProviders,
   type WorkspaceMail,
@@ -18,7 +20,15 @@ import { type CSSProperties, type FormEvent, useState } from "react";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
 import { formatDates } from "~/lib/locale";
-import { channelsQuery, useChannels, useWorkspaceMail, workspaceMailQuery } from "~/lib/queries";
+import {
+  channelsQuery,
+  instanceSuppressionsQuery,
+  useChannels,
+  useSendAgain,
+  useWorkspaceMail,
+  workspaceMailQuery,
+  workspaceSuppressionsQuery,
+} from "~/lib/queries";
 import { Icon } from "./icons";
 import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
@@ -58,6 +68,7 @@ export function ChannelsSection() {
   const [editing, setEditing] = useState<ChannelRow | "new" | null>(null);
   const [choosing, setChoosing] = useState<ChannelRow | null>(null);
   const [editingMail, setEditingMail] = useState(false);
+  const [bounced, setBounced] = useState(false);
   const { data: mail } = useQuery(workspaceMailQuery);
   const [tested, setTested] = useState<{ id: string; ok: boolean; result: string } | null>(null);
   if (!channels) return null;
@@ -78,7 +89,7 @@ export function ChannelsSection() {
           </Button>
         }
       >
-        <MailRow onEdit={() => setEditingMail(true)} />
+        <MailRow onEdit={() => setEditingMail(true)} onBounced={() => setBounced(true)} />
         {channels.length === 0 && (
           <Row
             name="No channels yet"
@@ -163,6 +174,7 @@ export function ChannelsSection() {
       {editingMail && (
         <WorkspaceMailDialog saved={mail ?? null} onClose={() => setEditingMail(false)} />
       )}
+      {bounced && <SuppressionsDialog scope="workspace" onClose={() => setBounced(false)} />}
       {choosing && (
         <EventsDialog
           channel={channels.find((c) => c.id === choosing.id) ?? choosing}
@@ -413,7 +425,7 @@ function ChannelDialog({ channel, onClose }: { channel: ChannelRow | null; onClo
  * then sends what members, guests and invitations are sent. It is not in the matrix: members
  * choose what reaches them by mail.
  */
-function MailRow({ onEdit }: { onEdit: () => void }) {
+function MailRow({ onEdit, onBounced }: { onEdit: () => void; onBounced: () => void }) {
   const { data: mail, isPending } = useQuery(workspaceMailQuery);
   const { remove, resume, test } = useWorkspaceMail();
   if (isPending) return null;
@@ -429,7 +441,7 @@ function MailRow({ onEdit }: { onEdit: () => void }) {
   ) : mail.failures > 0 ? (
     `${mail.target} · ${mail.failures} failed in a row${mail.lastError ? `: ${mail.lastError}` : ""}`
   ) : (
-    `${mail.target} · from ${mail.from}`
+    `${mail.target} · from ${mail.from}${mail.suppressed > 0 ? ` · ${mail.suppressed} not sent to after a bounce` : ""}`
   );
   return (
     <Row
@@ -476,6 +488,7 @@ function MailRow({ onEdit }: { onEdit: () => void }) {
             label="Mail"
             actions={[
               { label: "Edit…", onSelect: onEdit },
+              ...(mail.bounceUrl ? [{ label: "Bounced addresses…", onSelect: onBounced }] : []),
               "divider",
               {
                 label: "Back to the instance's mail",
@@ -504,6 +517,7 @@ function WorkspaceMailDialog({
     port: String(saved?.port ?? mailProviders[saved?.provider ?? "resend"].port ?? 587),
     username: saved?.username ?? "",
     password: "",
+    webhookSecret: "",
     tenant: saved?.tenant ?? "",
     clientId: saved?.clientId ?? "",
     url: saved?.url ?? "",
@@ -513,6 +527,7 @@ function WorkspaceMailDialog({
   const smtp = preset.transport === "smtp";
   // A secret already stored is kept unless another is typed, for the same provider.
   const keeps = Boolean(saved?.hasSecret && saved.provider === mail.provider);
+  const keepsWebhook = Boolean(saved?.hasWebhookSecret && saved.provider === mail.provider);
   const set = (name: keyof typeof mail) => (e: { target: { value: string } }) =>
     setMail({ ...mail, [name]: e.target.value });
   const submit = (event: FormEvent) => {
@@ -525,6 +540,7 @@ function WorkspaceMailDialog({
         ...(smtp && mail.port ? { port: Number(mail.port) } : {}),
         ...(smtp && !preset.username && mail.username ? { username: mail.username } : {}),
         ...(mail.password ? { password: mail.password } : {}),
+        ...(mail.webhookSecret ? { webhookSecret: mail.webhookSecret } : {}),
         ...(preset.transport === "microsoft"
           ? { tenant: mail.tenant, clientId: mail.clientId }
           : {}),
@@ -621,6 +637,30 @@ function WorkspaceMailDialog({
             {secret}
           </>
         )}
+        {isBounceProvider(mail.provider) && (
+          <Field
+            label={bounceSecrets[mail.provider].label}
+            hint={
+              keepsWebhook
+                ? "Empty keeps the one saved."
+                : `For bounce reports, so mail stops going to addresses that bounce. ${bounceSecrets[mail.provider].hint}`
+            }
+          >
+            <Input
+              type="password"
+              value={mail.webhookSecret}
+              onChange={set("webhookSecret")}
+              autoComplete="off"
+            />
+          </Field>
+        )}
+        {isBounceProvider(mail.provider) &&
+          saved?.bounceUrl &&
+          saved.provider === mail.provider && (
+            <Field label="Bounce reports go to" hint="Paste this into the provider's webhook.">
+              <Input value={saved.bounceUrl} readOnly onFocus={(e) => e.target.select()} />
+            </Field>
+          )}
         <Field label="From" hint="An address the provider lets the workspace send as.">
           <Input
             value={mail.from}
@@ -639,6 +679,64 @@ function WorkspaceMailDialog({
           </Button>
         </div>
       </form>
+    </Dialog>
+  );
+}
+
+/**
+ * Addresses a provider reported as bounced for good or complaining (#161), which mail no longer
+ * goes to: the workspace's own provider's, or the instance's. Sending again is for an address put
+ * right, or reported in error.
+ */
+export function SuppressionsDialog({
+  scope,
+  onClose,
+}: {
+  scope: "workspace" | "instance";
+  onClose: () => void;
+}) {
+  const { data: rows, isPending } = useQuery(
+    scope === "workspace" ? workspaceSuppressionsQuery : instanceSuppressionsQuery,
+  );
+  const again = useSendAgain(scope);
+  return (
+    <Dialog
+      title="Bounced addresses"
+      description="Mail is no longer sent to these: the provider said they bounced for good, or that someone complained."
+      onClose={onClose}
+      width="md"
+    >
+      <div className="flex max-h-[60vh] flex-col divide-y divide-line overflow-y-auto rounded-panel border border-line">
+        {isPending ? (
+          <p className="m-0 px-4 py-3 text-[13px] text-ink-3">Loading</p>
+        ) : !rows || rows.length === 0 ? (
+          <p className="m-0 px-4 py-3 text-[13px] text-ink-3">None: every address is sent to.</p>
+        ) : (
+          rows.map((r) => (
+            <div key={r.id} className="flex items-center gap-3 px-4 py-2 text-[13px]">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-ink">{r.address}</div>
+                <div className="truncate text-[12px] text-ink-3">
+                  {r.kind === "bounce" ? "Bounced" : "Complained"} · {ago(r.at)}
+                  {r.detail ? ` · ${r.detail}` : ""}
+                </div>
+              </div>
+              <Button
+                size="sm"
+                disabled={again.isPending && again.variables === r.id}
+                onClick={() => again.mutate(r.id)}
+              >
+                Send again
+              </Button>
+            </div>
+          ))
+        )}
+      </div>
+      {again.isError && (
+        <p role="alert" className="m-0 mt-3 text-[13px] text-signal">
+          {again.error.message}
+        </p>
+      )}
     </Dialog>
   );
 }

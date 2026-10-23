@@ -126,7 +126,12 @@ describe.runIf(url)("a workspace's own mail (#161)", () => {
     expect(row?.configSealed).not.toContain("re_secret");
     expect(row?.lastSentAt).not.toBeNull();
     // Settings see everything but the secret.
-    const view = await workspaceMailOf(db, keyring, organisationId);
+    const view = await workspaceMailOf(
+      db,
+      keyring,
+      organisationId,
+      "https://review.endlesshall.example",
+    );
     expect(view).toMatchObject({
       provider: "resend",
       target: "smtp.resend.com:465",
@@ -159,7 +164,12 @@ describe.runIf(url)("a workspace's own mail (#161)", () => {
     // Nothing lost: every message went, through the instance.
     expect(instance.sent).toHaveLength(5);
     expect(tries).toBe(5);
-    const view = await workspaceMailOf(db, keyring, organisationId);
+    const view = await workspaceMailOf(
+      db,
+      keyring,
+      organisationId,
+      "https://review.endlesshall.example",
+    );
     expect(view).toMatchObject({ failures: 5, lastError: "535 Authentication failed" });
     const [row] = await db
       .select()
@@ -172,7 +182,9 @@ describe.runIf(url)("a workspace's own mail (#161)", () => {
     expect(instance.sent).toHaveLength(6);
     // Saved again, it starts afresh.
     await saveWorkspaceMail(db, keyring, organisationId, resend);
-    expect(await workspaceMailOf(db, keyring, organisationId)).toMatchObject({
+    expect(
+      await workspaceMailOf(db, keyring, organisationId, "https://review.endlesshall.example"),
+    ).toMatchObject({
       failures: 0,
       pausedUntil: null,
       lastError: null,

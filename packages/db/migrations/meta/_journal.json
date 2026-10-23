@@ -841,6 +841,13 @@
       "when": 1792728692331,
       "tag": "0119_workspace_mail",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1792734094155,
+      "tag": "0120_mail_suppressions",
+      "breakpoints": true
     }
   ]
 }

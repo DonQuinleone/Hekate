@@ -1,6 +1,7 @@
 import { tmpdir } from "node:os";
 import type { Database } from "@hekate/db";
 import {
+  type BounceProvider,
   COMMENT_ATTACHMENT_MAX_BYTES,
   type InstanceMail,
   type InstanceModules,
@@ -47,6 +48,7 @@ import { homeRoutes } from "./routes/home.ts";
 import { installRoutes } from "./routes/install.ts";
 import { instanceRoutes } from "./routes/instance.ts";
 import { invitationRoutes } from "./routes/invitations.ts";
+import { mailHookRoutes } from "./routes/mail-hooks.ts";
 import { projectMarkRoutes } from "./routes/marks.ts";
 import { accountRoutes, meRoutes } from "./routes/me.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
@@ -126,6 +128,10 @@ export interface AppDeps {
   webhookTrustedOrigins?: string[];
   /** How a channel is sent to (#161); a guarded HTTP request unless a test gives its own. */
   sendToChannel?: Send;
+  /** The instance's provider, where it is one that reports bounces (#161), secret or not. */
+  bounceProvider?: BounceProvider | null;
+  /** The instance's provider's bounce reports (#161): which provider, and its signing secret. */
+  instanceBounces?: { provider: BounceProvider; secret: string } | null;
   /** For tests: the mailer a workspace's own mail details come to (#161). */
   buildWorkspaceMailer?: (mail: MailStepInput) => Mailer;
   /** Check the first owner's password against known breaches (PASSWORD_LEAK_CHECK). */
@@ -272,6 +278,13 @@ export function createApi(deps: AppDeps) {
             requireSecondFactor: deps.requireSecondFactor ?? false,
             operatorSecurityKey: deps.operatorSecurityKey ?? true,
             mail: deps.mail ?? "log",
+            bounces: deps.bounceProvider
+              ? {
+                  provider: deps.bounceProvider,
+                  url: new URL("/api/hooks/mail/instance", deps.publicUrl).toString(),
+                  secretSet: Boolean(deps.instanceBounces),
+                }
+              : null,
             passwordLeakCheck: deps.passwordLeakCheck ?? false,
             sessionDays: SESSION_DAYS,
             modules: deps.modules ?? {
@@ -284,6 +297,15 @@ export function createApi(deps: AppDeps) {
         }),
       )
       .route("/sign-in-methods", signInMethodRoutes(deps.db))
+      // Providers' bounce reports (#161): no session, a signature instead.
+      .route(
+        "/hooks/mail",
+        mailHookRoutes({
+          db: deps.db,
+          keyring: deps.keyring,
+          instance: deps.instanceBounces ?? null,
+        }),
+      )
       // Deleting the account needs no workspace; it answers before the workspace check below.
       .route(
         "/me",
@@ -333,6 +355,7 @@ export function createApi(deps: AppDeps) {
           audit: deps.audit,
           trusted: deps.webhookTrustedOrigins ?? [],
           trustProxy: deps.trustProxy ?? false,
+          publicUrl: deps.publicUrl,
           ...(deps.buildWorkspaceMailer ? { build: deps.buildWorkspaceMailer } : {}),
         }),
       )

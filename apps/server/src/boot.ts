@@ -15,6 +15,7 @@ import { createKeyring, UnknownMasterKeyError } from "./keyring.ts";
 import { type Role, roleOf } from "./lanes.ts";
 import { purgeLogs } from "./log-retention.ts";
 import { createMailer, loggedMailer, mailTransportOf } from "./mail.ts";
+import { bounceProviderOf, instanceBouncesOf } from "./mail-bounces.ts";
 import { startWorkers } from "./media/workers.ts";
 import { collectFromDatabase, collectQueues, countedMailer } from "./metrics/index.ts";
 import { createSampler } from "./metrics/sampler.ts";
@@ -328,6 +329,8 @@ export async function boot(
     maxPasskeys: config.MAX_PASSKEYS,
     ssoTrustedOrigins: config.SSO_TRUSTED_ORIGINS,
     webhookTrustedOrigins: config.WEBHOOK_TRUSTED_ORIGINS,
+    instanceBounces: instanceBouncesOf(config),
+    bounceProvider: bounceProviderOf(config.SMTP_URL),
     storageReconcile: config.STORAGE_RECONCILE,
     setupGate: options.gate,
     operatorSecurityKey: config.OPERATOR_SECURITY_KEY,

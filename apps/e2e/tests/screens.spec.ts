@@ -1201,6 +1201,70 @@ test("settings-notifications-mail", async ({ page }) => {
   await checkScreen(page);
 });
 
+// A workspace's own mail with bounce reports (#161), answered here rather than set: real
+// details would have the suite's mail try a provider. Its edit dialog, then what bounced.
+test("settings-notifications-bounces", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  const mail = {
+    provider: "resend",
+    from: "Endless Hall Records <mail@endlesshall.example>",
+    target: "smtp.resend.com:465",
+    host: null,
+    port: null,
+    username: null,
+    tenant: null,
+    clientId: null,
+    url: null,
+    hasSecret: true,
+    hasWebhookSecret: true,
+    bounceUrl:
+      "http://localhost:3990/api/hooks/mail/workspaces/0199e3a0-0000-7000-8000-000000000161",
+    suppressed: 2,
+    pausedUntil: null,
+    failures: 0,
+    lastSentAt: "2026-10-14T09:12:00Z",
+    lastError: null,
+  };
+  await page.route("**/api/organisation/mail", (route) => route.fulfill({ json: { mail } }));
+  await page.route("**/api/organisation/mail/suppressions", (route) =>
+    route.fulfill({
+      json: {
+        suppressions: [
+          {
+            id: "0199e3a0-0000-7000-8000-000000000201",
+            address: "a.rivera@old-label.example",
+            kind: "bounce",
+            provider: "resend",
+            detail: "550 5.1.1 The email account that you tried to reach does not exist",
+            at: "2026-10-14T08:40:00Z",
+          },
+          {
+            id: "0199e3a0-0000-7000-8000-000000000202",
+            address: "press@endlesshall.example",
+            kind: "complaint",
+            provider: "resend",
+            detail: null,
+            at: "2026-10-13T16:05:00Z",
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto("/settings/notifications");
+  await settle(page, "main >> text=2 not sent to after a bounce");
+  await page.getByRole("button", { name: "Actions for Mail" }).click();
+  await page.getByRole("menuitem", { name: "Edit…" }).click();
+  await settle(page, "[role=dialog] >> text=Bounce reports go to");
+  await saveScreen(page, "settings-notifications-mail-edit");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Actions for Mail" }).click();
+  await page.getByRole("menuitem", { name: "Bounced addresses…" }).click();
+  await settle(page, "[role=dialog] >> text=press@endlesshall.example");
+  await saveScreen(page, "settings-notifications-bounces");
+  await checkScreen(page);
+});
+
 // A new channel (#161): a webhook's name, address and the events it hears of.
 test("settings-notifications-new", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);

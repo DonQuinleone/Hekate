@@ -1012,6 +1012,70 @@ describe.runIf(url)("api", () => {
         expect(changes).toHaveLength(3);
         expect(JSON.stringify(changes)).not.toContain("very-secret");
       });
+
+      it("takes its provider's bounce reports only signed, and stops sending to what they name", async () => {
+        const owner = cookieOf(await setup());
+        const member = await joinAs(owner, "tomas-bounce@example.test", "member");
+        const key = Buffer.from("endless-hall-svix-key");
+        const saved = await call("", owner, "PUT", {
+          provider: "resend",
+          password: "re_secret",
+          webhookSecret: `whsec_${key.toString("base64")}`,
+          from: "Endless Hall Records <mail@endlesshall.example>",
+        });
+        const { mail } = (await saved.json()) as {
+          mail: { bounceUrl: string; hasWebhookSecret: boolean };
+        };
+        expect(mail.hasWebhookSecret).toBe(true);
+        const path = new URL(mail.bounceUrl).pathname;
+        expect(path).toMatch(/^\/api\/hooks\/mail\/workspaces\/[0-9a-f-]{36}$/);
+        const body = JSON.stringify({
+          type: "email.bounced",
+          data: {
+            to: ["gone@example.test"],
+            bounce: { type: "Permanent", message: "No such user" },
+          },
+        });
+        const at = String(Math.floor(Date.now() / 1000));
+        const hook = (signature: string) =>
+          withMail.request(path, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "svix-id": "msg_1",
+              "svix-timestamp": at,
+              "svix-signature": `v1,${signature}`,
+            },
+            body,
+          });
+        // Unsigned, or signed by anyone else, it changes nothing.
+        expect((await hook("bm90IGl0")).status).toBe(401);
+        expect(await (await call("/suppressions", owner)).json()).toEqual({ suppressions: [] });
+        const signature = createHmac("sha256", key).update(`msg_1.${at}.${body}`).digest("base64");
+        expect((await hook(signature)).status).toBe(204);
+        // The instance takes none here: no secret was set for it.
+        expect(
+          (await withMail.request("/api/hooks/mail/instance", { method: "POST", body })).status,
+        ).toBe(404);
+
+        expect((await call("/suppressions", member)).status).toBe(403);
+        const listed = (await (await call("/suppressions", owner)).json()) as {
+          suppressions: { id: string; address: string; kind: string; detail: string }[];
+        };
+        expect(listed.suppressions).toEqual([
+          expect.objectContaining({
+            address: "gone@example.test",
+            kind: "bounce",
+            detail: "No such user",
+          }),
+        ]);
+        expect(await (await call("", owner)).json()).toMatchObject({ mail: { suppressed: 1 } });
+        const id = listed.suppressions[0]?.id ?? "";
+        expect((await call(`/suppressions/${id}`, member, "DELETE")).status).toBe(403);
+        expect((await call(`/suppressions/${id}`, owner, "DELETE")).status).toBe(204);
+        expect((await call(`/suppressions/${id}`, owner, "DELETE")).status).toBe(404);
+        expect(await (await call("/suppressions", owner)).json()).toEqual({ suppressions: [] });
+      });
     });
 
     describe("the instance side", () => {

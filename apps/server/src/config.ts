@@ -23,6 +23,7 @@ export const fileSettings = [
   "SMTP_URL",
   "MAIL_GRAPH_CLIENT_SECRET",
   "MAIL_MAILCOACH_TOKEN",
+  "MAIL_WEBHOOK_SECRET",
   "MASTER_KEY",
   "MASTER_KEYS_PREVIOUS",
   "METRICS_TOKEN",
@@ -374,6 +375,19 @@ const schema = z.object({
       info({
         group: "Mail",
         description: "Mailcoach: an API token allowed to send transactional mail.",
+        secret: true,
+      }),
+    ),
+  MAIL_WEBHOOK_SECRET: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .meta(
+      info({
+        group: "Mail",
+        description:
+          "Bounce reports (#161): what proves a report came from the instance's mail provider, so Hekate stops sending to addresses that bounced for good or complained. Resend's webhook signing secret, Mailgun's HTTP webhook signing key, SendGrid's verification key, or SparkPost's webhook user:password. The provider's webhook goes to /api/hooks/mail/instance.",
         secret: true,
       }),
     ),

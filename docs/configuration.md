@@ -61,6 +61,7 @@ A setting marked as secret may instead name a file that holds it, with `_FILE` a
 | `MAIL_GRAPH_CLIENT_SECRET` | unset | Microsoft 365: a client secret of the app registration. Or `MAIL_GRAPH_CLIENT_SECRET_FILE`, naming a file that holds it. |
 | `MAIL_MAILCOACH_URL` | unset | Mailcoach, instead of SMTP: the address of the Mailcoach account whose transactional API sends mail. With MAIL_MAILCOACH_TOKEN. Example: `https://endlesshall.mailcoach.app`. |
 | `MAIL_MAILCOACH_TOKEN` | unset | Mailcoach: an API token allowed to send transactional mail. Or `MAIL_MAILCOACH_TOKEN_FILE`, naming a file that holds it. |
+| `MAIL_WEBHOOK_SECRET` | unset | Bounce reports (#161): what proves a report came from the instance's mail provider, so Hekate stops sending to addresses that bounced for good or complained. Resend's webhook signing secret, Mailgun's HTTP webhook signing key, SendGrid's verification key, or SparkPost's webhook user:password. The provider's webhook goes to /api/hooks/mail/instance. Or `MAIL_WEBHOOK_SECRET_FILE`, naming a file that holds it. |
 
 ## Media
 

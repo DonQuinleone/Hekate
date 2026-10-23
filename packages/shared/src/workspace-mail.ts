@@ -19,6 +19,8 @@ export const workspaceMailProviders = (Object.keys(mailProviders) as MailProvide
  */
 export const workspaceMailInput = mailStepFields.extend({
   provider: z.enum(workspaceMailProviders as [MailProvider, ...MailProvider[]]),
+  /** What proves a bounce report came from the provider (#161); kept when left out. */
+  webhookSecret: z.string().trim().max(1024).optional(),
 });
 export type WorkspaceMailInput = z.infer<typeof workspaceMailInput>;
 
@@ -38,6 +40,11 @@ export interface WorkspaceMail {
   clientId: string | null;
   url: string | null;
   hasSecret: boolean;
+  /** Bounce reports: whether a secret is set to check them, and the address to send them to. */
+  hasWebhookSecret: boolean;
+  bounceUrl: string | null;
+  /** Addresses its provider reported, which its mail no longer sends to. */
+  suppressed: number;
   /** Paused after repeated failures until this time; the instance's mail stands in meanwhile. */
   pausedUntil: string | null;
   failures: number;

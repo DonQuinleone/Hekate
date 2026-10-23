@@ -1,9 +1,10 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { workspaceMailInput } from "@hekate/shared";
+import { type MailSuppression, workspaceMailInput } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
+import { z } from "zod";
 import { type Audit, requestInfo } from "../audit.ts";
 import type { Keyring } from "../keyring.ts";
 import { mayFetch } from "../sso.ts";
@@ -24,6 +25,8 @@ export interface WorkspaceMailRouteDeps {
   audit: Audit;
   trusted: string[];
   trustProxy: boolean;
+  /** The instance's address, for the bounce reports' webhook. */
+  publicUrl: string;
   /** For tests: the mailer a workspace's details come to. */
   build?: RoutedMailDeps["build"];
 }
@@ -42,7 +45,7 @@ export const workspaceMailRoutes = (deps: WorkspaceMailRouteDeps) => {
     new Hono<{ Variables: TenantVariables }>()
       .use("*", requireRole("admin"))
       .get("/", async (c) =>
-        c.json({ mail: await workspaceMailOf(db, keyring, c.var.organisationId) }),
+        c.json({ mail: await workspaceMailOf(db, keyring, c.var.organisationId, deps.publicUrl) }),
       )
       .put("/", zValidator("json", workspaceMailInput), async (c) => {
         const organisationId = c.var.organisationId;
@@ -65,7 +68,7 @@ export const workspaceMailRoutes = (deps: WorkspaceMailRouteDeps) => {
           },
           requestInfo(c, deps.trustProxy),
         );
-        return c.json({ mail: await workspaceMailOf(db, keyring, organisationId) });
+        return c.json({ mail: await workspaceMailOf(db, keyring, organisationId, deps.publicUrl) });
       })
       // Back to the instance's mail.
       .delete("/", async (c) => {
@@ -79,6 +82,46 @@ export const workspaceMailRoutes = (deps: WorkspaceMailRouteDeps) => {
         );
         return c.body(null, 204);
       })
+      // What its provider reported (#161): addresses its mail no longer sends to.
+      .get("/suppressions", async (c) => {
+        const rows = await db
+          .select()
+          .from(schema.workspaceMailSuppressions)
+          .where(inOrg(schema.workspaceMailSuppressions, c.var.organisationId))
+          .orderBy(desc(schema.workspaceMailSuppressions.updatedAt))
+          .limit(500);
+        const suppressions: MailSuppression[] = rows.map((r) => ({
+          id: r.id,
+          address: r.address,
+          kind: r.kind,
+          provider: r.provider,
+          detail: r.detail,
+          at: r.updatedAt.toISOString(),
+        }));
+        return c.json({ suppressions });
+      })
+      // Send to an address again: put right at the recipient's end, or reported in error.
+      .delete("/suppressions/:id", zValidator("param", z.object({ id: z.uuid() })), async (c) => {
+        const organisationId = c.var.organisationId;
+        const [gone] = await db
+          .delete(schema.workspaceMailSuppressions)
+          .where(
+            inOrg(
+              schema.workspaceMailSuppressions,
+              organisationId,
+              eq(schema.workspaceMailSuppressions.id, c.req.valid("param").id),
+            ),
+          )
+          .returning({ address: schema.workspaceMailSuppressions.address });
+        if (!gone) throw new HTTPException(404, { message: "No such address" });
+        await audit.record(
+          organisationId,
+          await audit.member(c.var.userId),
+          { action: "organisation.mail", details: { sendsAgainTo: gone.address } },
+          requestInfo(c, deps.trustProxy),
+        );
+        return c.body(null, 204);
+      })
       // Sending again now, rather than when the pause runs out.
       .post("/resume", async (c) => {
         const organisationId = c.var.organisationId;
@@ -86,7 +129,7 @@ export const workspaceMailRoutes = (deps: WorkspaceMailRouteDeps) => {
           .update(schema.workspaceMail)
           .set({ failures: 0, pausedUntil: null, updatedAt: new Date() })
           .where(inOrg(schema.workspaceMail, organisationId));
-        return c.json({ mail: await workspaceMailOf(db, keyring, organisationId) });
+        return c.json({ mail: await workspaceMailOf(db, keyring, organisationId, deps.publicUrl) });
       })
       // One message to whoever asks, through the saved details alone: its failure is the answer.
       .post("/test", async (c) => {
