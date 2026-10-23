@@ -13,6 +13,10 @@ const notSecret = new Set([
   "score_mark_categories.key",
   // An invoice's PDF at the gateway, which the workspace's owners already read in Billing.
   "invoices.pdf_url",
+  // Which API token made a call (#198): its id, name and kind, never the token.
+  "api_requests.token_id",
+  "api_requests.token_name",
+  "api_requests.token_kind",
 ]);
 
 describe("an export's records (#186)", () => {
