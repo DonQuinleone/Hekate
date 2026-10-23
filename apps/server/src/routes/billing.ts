@@ -19,7 +19,7 @@ export const billingRoutes = (deps: BillingDeps) =>
         await changePlan(deps, {
           organisationId: c.var.organisationId,
           userId: c.var.userId,
-          planId: c.req.valid("json").planId,
+          ...c.req.valid("json"),
         }),
       ),
     )

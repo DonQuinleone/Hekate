@@ -23,6 +23,9 @@ export const globalTables = new Set<PgTable>([
   // The gateway names its customer, not a workspace: where a webhook finds which workspace it
   // is about, and nothing more (#178).
   schema.gatewayCustomers,
+  // A code is the instance's, and who used it is read across workspaces by the operators who
+  // made it; each use still names its workspace (#178).
+  schema.promoRedemptions,
 ]);
 
 export const tenantTables: TenantTable[] = (Object.values(schema) as unknown[]).filter(

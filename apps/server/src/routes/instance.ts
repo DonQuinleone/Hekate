@@ -41,6 +41,7 @@ import {
   operatorMoveInput,
   operatorParam as operatorParamSchema,
   planInput,
+  promoCodeInput,
   settingsChanges,
   suspendWorkspaceInput,
   WORKSPACE_DELETE_GRACE_DAYS,
@@ -82,6 +83,7 @@ import {
   retakeGatewayEvent,
   settleByHand,
 } from "../billing/billing.ts";
+import { endPromo, listPromos, savePromo, usesOf } from "../billing/promos.ts";
 import { workspaceEmail } from "../email/templates.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import { replayDelivery } from "../events.ts";
@@ -1190,6 +1192,46 @@ export function instanceRoutes(options: InstanceOptions) {
         });
         return c.json({ plans: await listPlans(db) });
       })
+      // Promo codes (#178): kept whether or not billing is on; used only while it is.
+      .use("/promos", operatorsOnly)
+      .use("/promos/*", operatorsOnly)
+      .get("/promos", async (c) => c.json({ promos: await listPromos(db) }))
+      .post("/promos", zValidator("json", promoCodeInput), async (c) => {
+        const promo = await savePromo(db, c.req.valid("json"));
+        await recordInstanceEvent(db, {
+          actorId: c.var.userId,
+          action: "promo.created",
+          target: promo.code,
+          details: { promoId: promo.id },
+          ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+        });
+        return c.json({ promo }, 201);
+      })
+      .put("/promos/:id", idParam, zValidator("json", promoCodeInput), async (c) => {
+        const promo = await savePromo(db, c.req.valid("json"), c.req.valid("param").id);
+        await recordInstanceEvent(db, {
+          actorId: c.var.userId,
+          action: "promo.changed",
+          target: promo.code,
+          details: { promoId: promo.id },
+          ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+        });
+        return c.json({ promo });
+      })
+      .post("/promos/:id/end", idParam, async (c) => {
+        const promo = await endPromo(db, c.req.valid("param").id);
+        await recordInstanceEvent(db, {
+          actorId: c.var.userId,
+          action: "promo.ended",
+          target: promo.code,
+          details: { promoId: promo.id },
+          ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+        });
+        return c.json({ promo });
+      })
+      .get("/promos/:id/uses", idParam, async (c) =>
+        c.json({ uses: await usesOf(db, c.req.valid("param").id) }),
+      )
       // Retired: no workspace is put on it again; those on it stay until moved.
       .post("/plans/:id/retire", idParam, async (c) => {
         const { id } = c.req.valid("param");

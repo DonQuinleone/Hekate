@@ -1,5 +1,12 @@
 import type { InvoiceStatus, WorkspacePlanStatus } from "@hekate/shared";
-import type { Fact, Gateway, InvoiceFacts, PricedPlan, SubscriptionFact } from "./gateway.ts";
+import type {
+  Discount,
+  Fact,
+  Gateway,
+  InvoiceFacts,
+  PricedPlan,
+  SubscriptionFact,
+} from "./gateway.ts";
 import { type Stripe, StripeError, type StripeEvent, verifyStripeEvent } from "./stripe.ts";
 
 /**
@@ -27,6 +34,36 @@ export function stripeGateway(options: {
     }
     return id;
   };
+  /**
+   * The code's coupon, made the first time it is used. A coupon's terms never change in Stripe,
+   * so its id carries them: a code whose terms are changed gets a new one, and subscriptions
+   * that had the old keep what they were given.
+   */
+  const coupon = async (discount: Discount) => {
+    const terms =
+      discount.percentOff !== null
+        ? `p${discount.percentOff}`
+        : `a${discount.amountOff}${discount.currency?.toLowerCase()}`;
+    const id = `hekate_${discount.promoId.replaceAll("-", "")}_${terms}_m${discount.months ?? "f"}`;
+    try {
+      await stripe.request("POST", "/v1/coupons", {
+        id,
+        name: discount.code,
+        ...(discount.percentOff !== null
+          ? { percent_off: discount.percentOff }
+          : { amount_off: discount.amountOff, currency: discount.currency?.toLowerCase() }),
+        ...(discount.months === null
+          ? { duration: "forever" }
+          : discount.months === 1
+            ? { duration: "once" }
+            : { duration: "repeating", duration_in_months: discount.months }),
+        metadata: { promoId: discount.promoId },
+      });
+    } catch (error) {
+      if (!(error instanceof StripeError) || error.code !== "resource_already_exists") throw error;
+    }
+    return id;
+  };
   const priceData = async (plan: PricedPlan) => ({
     currency: plan.price.currency.toLowerCase(),
     unit_amount: plan.price.amount,
@@ -45,7 +82,15 @@ export function stripeGateway(options: {
       );
       return customer.id;
     },
-    async checkout({ organisationId, customerId, plan, trialEnd, successUrl, cancelUrl }) {
+    async checkout({
+      organisationId,
+      customerId,
+      plan,
+      trialEnd,
+      discount,
+      successUrl,
+      cancelUrl,
+    }) {
       const session = await stripe.request<{ id: string; url: string; expires_at: number }>(
         "POST",
         "/v1/checkout/sessions",
@@ -54,6 +99,7 @@ export function stripeGateway(options: {
           customer: customerId,
           client_reference_id: organisationId,
           line_items: [{ price_data: await priceData(plan), quantity: 1 }],
+          ...(discount ? { discounts: [{ coupon: await coupon(discount) }] } : {}),
           subscription_data: {
             metadata: { organisationId, planId: plan.id },
             // A trial already running ends when it would have; Stripe needs two days' notice.
@@ -95,7 +141,7 @@ export function stripeGateway(options: {
       if (!fact) throw new Error(`Stripe's subscription ${subscriptionId} cannot be read`);
       return fact;
     },
-    async changePlan({ subscriptionId, plan }) {
+    async changePlan({ subscriptionId, plan, discount }) {
       const subscription = await stripe.request<{ items: { data: { id: string }[] } }>(
         "GET",
         `/v1/subscriptions/${subscriptionId}`,
@@ -105,6 +151,7 @@ export function stripeGateway(options: {
       await stripe.request("POST", `/v1/subscriptions/${subscriptionId}`, {
         items: [{ id: item.id, price_data: await priceData(plan) }],
         metadata: { planId: plan.id },
+        ...(discount ? { discounts: [{ coupon: await coupon(discount) }] } : {}),
         proration_behavior: "create_prorations",
       });
     },
@@ -234,12 +281,23 @@ function invoiceFacts(o: Obj): { customerId: string; invoice: InvoiceFacts } | n
 export function stripeFact(event: StripeEvent): Fact {
   const o = event.data.object;
   if (event.type === "checkout.session.completed") {
+    const checkoutId = str(o.id);
     const organisationId = str(o.client_reference_id);
     const customerId = idOf(o.customer);
     const subscriptionId = idOf(o.subscription);
-    if (o.mode !== "subscription" || !organisationId || !customerId || !subscriptionId)
+    if (
+      o.mode !== "subscription" ||
+      !checkoutId ||
+      !organisationId ||
+      !customerId ||
+      !subscriptionId
+    )
       return { kind: "other" };
-    return { kind: "checkout", organisationId, customerId, subscriptionId };
+    return { kind: "checkout", checkoutId, organisationId, customerId, subscriptionId };
+  }
+  if (event.type === "checkout.session.expired") {
+    const checkoutId = str(o.id);
+    return checkoutId ? { kind: "checkout_expired", checkoutId } : { kind: "other" };
   }
   if (event.type.startsWith("customer.subscription."))
     return subscriptionFact(o, event.type === "customer.subscription.deleted") ?? { kind: "other" };

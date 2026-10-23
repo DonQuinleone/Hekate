@@ -14,6 +14,7 @@ import { recordInstanceEvent } from "../instance-events.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { assignPlan, workspacePlanOf } from "../plans.ts";
 import type { Fact, Gateway, GatewayEvent, InvoiceFacts } from "./gateway.ts";
+import { assertApplies, discountOf, findPromo, releaseHeld, takeHeld, useOf } from "./promos.ts";
 
 const {
   billingAccounts,
@@ -131,7 +132,7 @@ const unavailable = () =>
  */
 export async function changePlan(
   deps: BillingDeps,
-  input: { organisationId: string; userId: string; planId: string },
+  input: { organisationId: string; userId: string; planId: string; promoCode?: string },
 ): Promise<{ url: string | null }> {
   const { db, gateway } = deps;
   if (!gateway) throw unavailable();
@@ -159,24 +160,43 @@ export async function changePlan(
       .where(inOrg(billingAccounts, input.organisationId))
       .for("update");
     if (!account) throw new NotFound("Workspace");
+    // The code, held for the change, so its last use cannot go twice.
+    const promo = input.promoCode ? await findPromo(tx, input.promoCode) : null;
     if (account.subscriptionId) {
-      await gateway.changePlan({ subscriptionId: account.subscriptionId, plan: priced });
+      if (promo) assertApplies(promo, plan.id, price.currency);
+      await gateway.changePlan({
+        subscriptionId: account.subscriptionId,
+        plan: priced,
+        discount: promo ? discountOf(promo) : null,
+      });
+      if (promo)
+        await useOf(tx, promo, {
+          organisationId: input.organisationId,
+          planId: plan.id,
+          checkoutId: null,
+        });
       // The gateway's webhook confirms it, and puts the workspace on the plan.
       return { url: null };
     }
     if (account.checkoutId) {
-      // The checkout already open, for the same plan and with time left, is given again;
-      // any other is closed first, so only one can ever be paid.
+      // The checkout already open, for the same plan and code and with time left, is given
+      // again; any other is closed first, and the code it held given back, so only one can
+      // ever be paid.
       const left = (account.checkoutExpiresAt?.getTime() ?? 0) - Date.now();
-      if (account.checkoutPlanId === plan.id && account.checkoutUrl && left > 10 * 60_000)
-        return { url: account.checkoutUrl };
+      const same =
+        account.checkoutPlanId === plan.id && account.checkoutPromoId === (promo?.id ?? null);
+      if (same && account.checkoutUrl && left > 10 * 60_000) return { url: account.checkoutUrl };
       if ((await gateway.closeCheckout(account.checkoutId)) === "complete")
         throw new CodedException(
           409,
           "checkout_finishing",
           "A checkout for this workspace has just been paid: its plan arrives in a moment.",
         );
+      await releaseHeld(tx, account.checkoutId);
     }
+    // Asked again now the old checkout's use is given back.
+    const code = promo && input.promoCode ? await findPromo(tx, input.promoCode) : null;
+    if (code) assertApplies(code, plan.id, price.currency);
     const current = await workspacePlanOf(tx, input.organisationId, true);
     const url = billingUrl(deps.publicUrl);
     const session = await gateway.checkout({
@@ -185,14 +205,22 @@ export async function changePlan(
       plan: priced,
       trialEnd:
         current.status === "trial" && current.trialEndsAt ? new Date(current.trialEndsAt) : null,
+      discount: code ? discountOf(code) : null,
       successUrl: `${url}?checkout=done`,
       cancelUrl: url,
     });
+    if (code)
+      await useOf(tx, code, {
+        organisationId: input.organisationId,
+        planId: plan.id,
+        checkoutId: session.id,
+      });
     await tx
       .update(billingAccounts)
       .set({
         checkoutId: session.id,
         checkoutPlanId: plan.id,
+        checkoutPromoId: code?.id ?? null,
         checkoutUrl: session.url,
         checkoutExpiresAt: session.expiresAt,
         updatedAt: new Date(),
@@ -390,11 +418,14 @@ async function act(
           subscriptionId: fact.subscriptionId,
           checkoutId: null,
           checkoutPlanId: null,
+          checkoutPromoId: null,
           checkoutUrl: null,
           checkoutExpiresAt: null,
           updatedAt: new Date(),
         })
         .where(inOrg(billingAccounts, account.organisationId));
+      // The code it held, if any, is now the workspace's.
+      await takeHeld(tx, fact.checkoutId);
       return {
         ...none,
         organisationId: account.organisationId,
@@ -482,6 +513,11 @@ async function act(
         currency: invoice.currency,
         result: "taken",
       };
+    }
+    case "checkout_expired": {
+      // Lapsed unpaid: the code it held is given back.
+      const organisationId = await releaseHeld(tx, fact.checkoutId);
+      return { ...none, organisationId, summary: "Checkout lapsed", result: "taken" };
     }
     case "payout":
       return { ...none, amount: fact.amount, currency: fact.currency, result: "taken" };

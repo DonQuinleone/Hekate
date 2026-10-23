@@ -155,6 +155,7 @@ describe("Stripe's events, read here (#178)", () => {
     expect(
       stripeFact(
         event("checkout.session.completed", {
+          id: "cs_1",
           mode: "subscription",
           client_reference_id: "org-1",
           customer: "cus_1",
@@ -163,12 +164,17 @@ describe("Stripe's events, read here (#178)", () => {
       ),
     ).toEqual({
       kind: "checkout",
+      checkoutId: "cs_1",
       organisationId: "org-1",
       customerId: "cus_1",
       subscriptionId: "sub_1",
     });
     expect(stripeFact(event("checkout.session.completed", { mode: "payment" }))).toEqual({
       kind: "other",
+    });
+    expect(stripeFact(event("checkout.session.expired", { id: "cs_2" }))).toEqual({
+      kind: "checkout_expired",
+      checkoutId: "cs_2",
     });
     expect(stripeFact(event("payout.paid", { amount: 118_000, currency: "gbp" }))).toEqual({
       kind: "payout",
@@ -207,6 +213,14 @@ describe("Stripe's events, read here (#178)", () => {
       customerId: "cus_1",
       plan,
       trialEnd: null,
+      discount: {
+        promoId: "0199a1b2-0000-7000-8000-0000000000aa",
+        code: "LAUNCH50",
+        percentOff: 50,
+        amountOff: null,
+        currency: null,
+        months: 3,
+      },
       successUrl: "https://review.example/settings/billing?checkout=done",
       cancelUrl: "https://review.example/settings/billing",
     });
@@ -219,9 +233,21 @@ describe("Stripe's events, read here (#178)", () => {
     expect(calls.map(([m, p]) => `${m} ${p}`)).toEqual([
       "POST /v1/products",
       `POST /v1/products/${product}`,
+      "POST /v1/coupons",
       "POST /v1/checkout/sessions",
     ]);
-    expect(calls[2]?.[2]).toMatchObject({
+    // The code's coupon, named after its terms so a change of terms makes another.
+    const coupon = "hekate_0199a1b20000700080000000000000aa_p50_m3";
+    expect(calls[2]?.[2]).toEqual({
+      id: coupon,
+      name: "LAUNCH50",
+      percent_off: 50,
+      duration: "repeating",
+      duration_in_months: 3,
+      metadata: { promoId: "0199a1b2-0000-7000-8000-0000000000aa" },
+    });
+    expect(calls[3]?.[2]).toMatchObject({ discounts: [{ coupon }] });
+    expect(calls[3]?.[2]).toMatchObject({
       mode: "subscription",
       customer: "cus_1",
       client_reference_id: "org-1",
@@ -239,7 +265,7 @@ describe("Stripe's events, read here (#178)", () => {
       automatic_tax: { enabled: true },
     });
     calls.length = 0;
-    await gateway.changePlan({ subscriptionId: "sub_1", plan });
+    await gateway.changePlan({ subscriptionId: "sub_1", plan, discount: null });
     expect(calls.at(-1)).toEqual([
       "POST",
       "/v1/subscriptions/sub_1",
