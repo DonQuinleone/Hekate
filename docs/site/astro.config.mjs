@@ -58,6 +58,7 @@ export default defineConfig({
             "use/reviews",
             "use/takes",
             "use/guests",
+            "use/branding",
             "use/upload-requests",
             "use/workflow-files",
             "use/integrations",
