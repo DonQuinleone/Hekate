@@ -1,12 +1,12 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import { organisationStorageInput } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, can } from "../access.ts";
 import { NotFound } from "../errors.ts";
+import { zValidator } from "../openapi/validator.ts";
 import type { Storage } from "../storage.ts";
 import { projectBytes } from "../storage-usage.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";

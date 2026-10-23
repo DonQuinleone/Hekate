@@ -59,7 +59,6 @@ import {
   workspaceStateOf,
 } from "@hekate/shared";
 import type { Backends } from "@hekate/storage";
-import { zValidator } from "@hono/zod-validator";
 import {
   and,
   count,
@@ -115,6 +114,7 @@ import { type JobName, type Jobs, jobDefinitions } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
 import { escapeLike, logCsv, readLog } from "../logs.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { listPlans, savePlan, workspacePlanOf } from "../plans.ts";
 import { admit } from "../rate-limit.ts";
 import { listSignUpInvitations, newSignUpLink, revokeSignUpInvitation } from "../sign-up.ts";

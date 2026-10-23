@@ -1,12 +1,12 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import { overviewLayoutInput, profileFor } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { and, count, desc, eq, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { actorOf, can } from "../access.ts";
 import { recentActivity } from "../activity.ts";
 import { customProfilesOf } from "../delivery-profiles.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { projectFigures } from "../project-figures.ts";
 import { failingChecks } from "../qa-summary.ts";
 import type { TenantVariables } from "../tenancy.ts";

@@ -8,7 +8,6 @@ import {
   taskNoteInput,
   tasksCsv,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -16,6 +15,7 @@ import { z } from "zod";
 import { actorOf, can, lockLiveProject } from "../access.ts";
 import { NotFound } from "../errors.ts";
 import { projectPeople } from "../notifications.ts";
+import { zValidator } from "../openapi/validator.ts";
 import {
   nameOf,
   nextTaskNumber,

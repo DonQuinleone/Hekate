@@ -6,7 +6,13 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/dist", "!**/migrations/meta", "!**/routeTree.gen.ts"]
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/migrations/meta",
+      "!**/routeTree.gen.ts",
+      "!docs/openapi.json"
+    ]
   },
   "formatter": {
     "indentStyle": "space",

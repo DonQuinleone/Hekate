@@ -27,7 +27,6 @@ import {
   updateCarryInput,
   visibleComments,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { and, asc, eq, inArray, isNull, or, type SQL, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { Hono } from "hono";
@@ -43,6 +42,7 @@ import type { ViewerVariables } from "../guests.ts";
 import type { LinkRoots } from "../hosts.ts";
 import type { Mailer } from "../mail.ts";
 import { type NotificationActor, notifyNow, projectPeople } from "../notifications.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { referencesOfFile } from "../references.ts";
 import { requesterOf } from "../requester.ts";
 import {

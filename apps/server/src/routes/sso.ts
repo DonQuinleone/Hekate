@@ -1,9 +1,9 @@
 import type { Database } from "@hekate/db";
 import { entitled, ssoSettingsInput } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { type Audit, requestInfo } from "../audit.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { assertEntitled, workspacePlanOf } from "../plans.ts";
 import { SsoProblem, saveSso, serviceProvider, ssoOf } from "../sso.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";

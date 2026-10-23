@@ -5,7 +5,6 @@ import {
   deletionProblem,
   type ProjectDeletion,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { and, eq, gt, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -16,6 +15,7 @@ import { NotFound } from "../errors.ts";
 import type { Subdomains } from "../hosts.ts";
 import type { Mailer } from "../mail.ts";
 import { notifyNow } from "../notifications.ts";
+import { zValidator } from "../openapi/validator.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
 const { members, projects, reviews, users } = schema;

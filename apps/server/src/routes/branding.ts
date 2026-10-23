@@ -6,13 +6,13 @@ import {
   type StoredBranding,
   storedBrandingOf,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { eq } from "drizzle-orm";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { type Audit, requestInfo } from "../audit.ts";
 import { LogoRefused, sanitiseLogo } from "../branding.ts";
 import { CodedException, NotFound } from "../errors.ts";
+import { zValidator } from "../openapi/validator.ts";
 import type { Storage } from "../storage.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";
 import { assertStorageRoom } from "../usage.ts";

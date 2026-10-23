@@ -1,13 +1,15 @@
 import { type Database, uuidv7 } from "@hekate/db";
+import type { ApiErrorBody } from "@hekate/shared";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import { failureContext, recordFailure } from "./error-reports.ts";
 
-/** Every error leaves the API in the same shape; a failure also carries its reference (#159). */
-export interface ApiError {
-  error: { code: string; message: string; reference?: string };
-}
+/**
+ * Every error leaves the API in the same shape (`apiErrorBody` in `packages/shared`); a failure
+ * also carries its reference (#159), and a request that did not validate its issues.
+ */
+export type ApiError = ApiErrorBody;
 
 export class NotFound extends HTTPException {
   constructor(what: string) {

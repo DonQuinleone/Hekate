@@ -10,7 +10,6 @@ import {
   workspaceDeletionConfirm,
   workspaceExportInput,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { eq } from "drizzle-orm";
 import { type Context, Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -31,6 +30,7 @@ import { recordInstanceEvent } from "../instance-events.ts";
 import type { Jobs } from "../jobs.ts";
 import type { Mailer } from "../mail.ts";
 import { notifyNow } from "../notifications.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { admit, tooMany } from "../rate-limit.ts";
 import type { Storage } from "../storage.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";

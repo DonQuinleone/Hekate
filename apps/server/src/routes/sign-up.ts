@@ -10,7 +10,6 @@ import {
   signUpTokenParam,
   trialEnd,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { isAPIError } from "better-auth/api";
 import { isPasswordCompromised } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
@@ -23,6 +22,7 @@ import { type Subdomains, workspaceAddress } from "../hosts.ts";
 import { recordInstanceEvent } from "../instance-events.ts";
 import type { InstanceSettingsStore } from "../instance-settings.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { assignPlan } from "../plans.ts";
 import { admit, type LimitRule, tooMany } from "../rate-limit.ts";
 import { claimSignUpLink, findSignUpLink, newSignUpLink, trialPlan } from "../sign-up.ts";

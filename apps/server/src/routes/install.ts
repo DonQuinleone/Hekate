@@ -21,7 +21,6 @@ import {
   storageStepInput,
 } from "@hekate/shared";
 import { createBackends, StorageConfigError, storageConfigFromEnv } from "@hekate/storage";
-import { zValidator } from "@hono/zod-validator";
 import { sql } from "drizzle-orm";
 import { Hono } from "hono";
 import type { z } from "zod";
@@ -29,6 +28,7 @@ import { withFileSettings } from "../config.ts";
 import { CodedException } from "../errors.ts";
 import { blocking, checkRequirements } from "../install/requirements.ts";
 import { createMailer, mailTransportOf } from "../mail.ts";
+import { zValidator } from "../openapi/validator.ts";
 import {
   given,
   INSTALLED,

@@ -1,11 +1,11 @@
 import { type Database, schema } from "@hekate/db";
 import { directorySettingsInput, entitled } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Audit, requestInfo } from "../audit.ts";
 import { directoryConfig, directoryOf, saveDirectory, testDirectory } from "../directory.ts";
 import type { Keyring } from "../keyring.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { assertEntitled, workspacePlanOf } from "../plans.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";
 

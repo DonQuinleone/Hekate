@@ -1,12 +1,12 @@
 import { type Database, schema } from "@hekate/db";
 import { incidentInput, incidentMomentProblem, incidentUpdateInput } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { desc, eq } from "drizzle-orm";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { requestInfo } from "../audit.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import { recordInstanceEvent } from "../instance-events.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { type Status, withUpdates } from "../status.ts";
 
 const { incidents, incidentUpdates } = schema;

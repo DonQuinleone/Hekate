@@ -15,7 +15,6 @@ import {
   transferRequestInput,
 } from "@hekate/shared";
 import type { Backends } from "@hekate/storage";
-import { zValidator } from "@hono/zod-validator";
 import { and, desc, eq, inArray, isNull, lte, ne, or, type SQL } from "drizzle-orm";
 import { type Context, Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -30,6 +29,7 @@ import type { Jobs } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
 import type { Mailer } from "../mail.ts";
 import { notifyNow } from "../notifications.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { moveProject } from "../project-transfer.ts";
 import type { TenantVariables } from "../tenancy.ts";
 

@@ -1,5 +1,4 @@
 import { checkoutInput } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import {
   type BillingDeps,
@@ -9,6 +8,7 @@ import {
   portalFor,
   rulesOf,
 } from "../billing/billing.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";
 
 /**

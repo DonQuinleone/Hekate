@@ -7,12 +7,12 @@ import {
   monthGrid,
   type ProjectPermission,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { type AnyColumn, and, asc, eq, isNotNull, ne, type SQL, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { actorOf, can, projectAccess } from "../access.ts";
 import { NotFound } from "../errors.ts";
+import { zValidator } from "../openapi/validator.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
 const {

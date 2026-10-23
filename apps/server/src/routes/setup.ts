@@ -1,6 +1,5 @@
 import { type Database, schema } from "@hekate/db";
 import { isReservedSlug } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { isAPIError } from "better-auth/api";
 import { isPasswordCompromised } from "better-auth/plugins";
 import { asc, count } from "drizzle-orm";
@@ -8,6 +7,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import type { Auth } from "../auth.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { requireSetupCode, type SetupGate } from "../setup-code.ts";
 import { recordInstanceEvent } from "./instance.ts";
 

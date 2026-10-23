@@ -9,7 +9,6 @@ import {
   type PingBody,
   updateChannelInput,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { asc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -20,6 +19,7 @@ import { openConfig, resumeChannel, sealConfig, sealContext } from "../events.ts
 import { linkBase, type Subdomains } from "../hosts.ts";
 import type { Jobs } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { mayFetch } from "../sso.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";
 

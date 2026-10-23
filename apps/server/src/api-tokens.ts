@@ -17,6 +17,7 @@ import {
 import { and, eq, gt, isNull, lt, or } from "drizzle-orm";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
+import { getPath } from "hono/utils/url";
 import { requestInfo } from "./audit.ts";
 import type { ApiError } from "./errors.ts";
 import { pinnedWorkspace } from "./hosts.ts";
@@ -222,7 +223,8 @@ async function logCall(
     tokenName: token.name,
     tokenKind: token.kind,
     method: c.req.method,
-    path: c.req.path.slice(0, 500),
+    // The path as asked, so the log shows the version a call used (decision 224).
+    path: getPath(c.req.raw).slice(0, 500),
     status,
     durationMs: Math.round(performance.now() - started),
     ipAddress: requestInfo(c, deps.trustProxy).ipAddress ?? null,

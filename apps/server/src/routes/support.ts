@@ -5,10 +5,10 @@ import {
   ticketReplyInput,
   type WorkspaceSupport,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
+import { zValidator } from "../openapi/validator.ts";
 import { listPlans, workspacePlanOf } from "../plans.ts";
 import {
   assertSupportOn,

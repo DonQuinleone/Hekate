@@ -1,12 +1,12 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import { type MailSuppression, workspaceMailInput } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { type Audit, requestInfo } from "../audit.ts";
 import type { Keyring } from "../keyring.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { mayFetch } from "../sso.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";
 import {

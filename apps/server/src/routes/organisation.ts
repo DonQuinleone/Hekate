@@ -14,7 +14,6 @@ import {
   workspaceSettingsInput,
   workspaceSettingsOf,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { and, asc, count, desc, eq, gt, inArray, isNull, max, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -30,6 +29,7 @@ import { revokeGuest } from "../guests.ts";
 import { type LinkRoots, linkBase } from "../hosts.ts";
 import { INVITATION_LIFETIME_MS, newInvitationToken } from "../invitation-token.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
+import { zValidator } from "../openapi/validator.ts";
 import type { Storage } from "../storage.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";
 import { assertMemberRoom } from "../usage.ts";

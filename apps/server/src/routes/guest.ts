@@ -1,5 +1,4 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { zValidator } from "@hono/zod-validator";
 import { eq } from "drizzle-orm";
 import { type Context, Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -20,6 +19,7 @@ import {
   verifyGuestCode,
 } from "../guests.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { guestReviews } from "./reviews.ts";
 
 const { organisations, guestSessions } = schema;

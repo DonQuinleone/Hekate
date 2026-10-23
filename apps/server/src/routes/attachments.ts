@@ -7,7 +7,6 @@ import {
   type CommentAttachment,
   DOWNLOAD_LINK_SECONDS,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { count, eq } from "drizzle-orm";
 import { type Context, Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -16,6 +15,7 @@ import { type Actor, canOnFile } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { admit, tooMany } from "../rate-limit.ts";
 import type { Storage } from "../storage.ts";
 import { assertStorageRoom } from "../usage.ts";

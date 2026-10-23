@@ -1,6 +1,5 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import { fileTagsInput, tagInput } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { and, asc, count, eq, inArray, notInArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -8,6 +7,7 @@ import { z } from "zod";
 import { canOnFile, lockLiveProject } from "../access.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";
 
 const { tags, fileTags, files } = schema;

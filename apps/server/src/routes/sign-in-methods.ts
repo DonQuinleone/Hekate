@@ -1,11 +1,11 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import { type RegistrationMode, ssoStartInput } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { brandingOf } from "../branding.ts";
 import { type HostVariables, rootAddress, type Subdomains } from "../hosts.ts";
+import { zValidator } from "../openapi/validator.ts";
 
 const { directories, organisations, ssoProviders } = schema;
 

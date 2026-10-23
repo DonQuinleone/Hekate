@@ -10,7 +10,6 @@ import {
   captionLabel,
   parseCaptions,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { asc, count, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -19,6 +18,7 @@ import { canOnFile } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
+import { zValidator } from "../openapi/validator.ts";
 import type { Storage } from "../storage.ts";
 
 const { captionTracks, files } = schema;

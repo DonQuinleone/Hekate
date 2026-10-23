@@ -1,18 +1,23 @@
 import { tmpdir } from "node:os";
 import type { Database } from "@hekate/db";
 import {
+  apiBase,
   type BounceProvider,
   COMMENT_ATTACHMENT_MAX_BYTES,
   type InstanceMail,
   type InstanceModules,
   type InstanceNotice,
   type MailStepInput,
+  OPENAPI_PATH,
+  scopeFor,
   TICKET_ATTACHMENT_MAX_BYTES,
+  unversioned,
 } from "@hekate/shared";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { logger } from "hono/logger";
+import { getPath } from "hono/utils/url";
 import { tokenAuth } from "./api-tokens.ts";
 import type { Audit } from "./audit.ts";
 import { type Auth, SESSION_DAYS } from "./auth.ts";
@@ -29,6 +34,7 @@ import type { Keyring } from "./keyring.ts";
 import type { Mailer } from "./mail.ts";
 import { countRequests, metricsHandler } from "./metrics/index.ts";
 import type { Sampler } from "./metrics/sampler.ts";
+import { type OpenApiDocument, openapiDocument } from "./openapi/document.ts";
 import { rateLimit } from "./rate-limit.ts";
 import { personalTokenRoutes, serviceTokenRoutes } from "./routes/api-tokens.ts";
 import { attachmentRoutes } from "./routes/attachments.ts";
@@ -761,10 +767,21 @@ const uploading = (method: string, path: string) =>
     /^\/api\/upload-links\/[^/]+\/uploads/.test(path) ||
     ATTACHMENT_PATH.test(path));
 
+/**
+ * The path the router reads (decision 224): a version's (`/api/v1/files/…`) without its
+ * version, so each version reaches the same routes as the unversioned API the web app uses.
+ * The path as asked stays in the request's URL, for the version gate below.
+ */
+const routedPath = (request: Request) => {
+  const path = getPath(request);
+  return unversioned(path)?.path ?? path;
+};
+
 export function createApp(given: AppDeps) {
   const deps = { ...given, settings: given.settings ?? createInstanceSettings(given.db) };
   const settings = deps.settings;
-  const app = new Hono();
+  const app = new Hono({ getPath: routedPath });
+  const api = createApi(deps);
   app.use("*", securityHeaders({ https: deps.publicUrl.startsWith("https://") }));
   // For Prometheus (#70): only with a token, and never through the API's own middleware.
   app.get("/metrics", metricsHandler(deps.metricsToken));
@@ -820,6 +837,36 @@ export function createApp(given: AppDeps) {
       );
     await next();
   });
+  // The public API's description (#197): OpenAPI 3.1, read from the routes once, on first ask.
+  // Deliberately public, and before the token check: it describes calls and holds no data, and
+  // a script may fetch it with its token in hand.
+  let described: OpenApiDocument | undefined;
+  app.get(OPENAPI_PATH, (c) => {
+    described ??= openapiDocument(api, {
+      server: { url: new URL(apiBase(), deps.publicUrl).toString() },
+      ...(deps.modules?.docsUrl ? { docsUrl: deps.modules.docsUrl } : {}),
+    });
+    return c.json(described, 200, { "cache-control": "public, max-age=300" });
+  });
+  // A version (`/api/v1`) answers the calls a token may make, and nothing else: whatever else
+  // the unversioned API does is the web app's own, and may change in any release.
+  app.use("/api/*", async (c, next) => {
+    const asked = getPath(c.req.raw);
+    if (unversioned(asked)) {
+      if (scopeFor(c.req.method, c.req.path)) return next();
+      return c.json(
+        { error: { code: "not_found", message: "That is not part of this version of the API." } },
+        404,
+      );
+    }
+    // A version this server does not answer: said plainly, before any token is judged.
+    if (/^\/api\/v\d+(\/|$)/.test(asked))
+      return c.json(
+        { error: { code: "not_found", message: "This server does not answer that version." } },
+        404,
+      );
+    return next();
+  });
   // API tokens (#198): a call that carries one is let in on it alone, within its scopes, and
   // logged; one that carries none goes on to the session checks.
   app.use("/api/*", tokenAuth({ db: deps.db, trustProxy: deps.trustProxy ?? false }));
@@ -829,7 +876,7 @@ export function createApp(given: AppDeps) {
     throw new HTTPException(403, { message: "Sign-up is by invitation" });
   });
   app.on(["GET", "POST"], "/api/auth/*", (c) => deps.auth.handler(c.req.raw));
-  app.route("/api", createApi(deps));
+  app.route("/api", api);
   app.notFound((c) => c.json({ error: { code: "not_found", message: "Not found" } }, 404));
   app.onError(errorHandler(deps.db));
   return app;

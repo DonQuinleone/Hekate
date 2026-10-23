@@ -7,13 +7,13 @@ import {
   matchEdl,
   parseCmx3600,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { actorOf, can } from "../access.ts";
 import { readEdlFile } from "../edl-file.ts";
 import { NotFound } from "../errors.ts";
+import { zValidator } from "../openapi/validator.ts";
 import type { Storage } from "../storage.ts";
 import type { TenantVariables } from "../tenancy.ts";
 

@@ -6,7 +6,6 @@ import {
   logQuery,
   updateApiTokenInput,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { and, count, desc, eq, isNull } from "drizzle-orm";
 import type { Context } from "hono";
 import { Hono } from "hono";
@@ -15,6 +14,7 @@ import { apiTokenRowOf, createServiceAccount, newApiToken } from "../api-tokens.
 import { type Audit, requestInfo } from "../audit.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import { apiLog } from "../logs.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";
 
 const { apiTokens, users } = schema;

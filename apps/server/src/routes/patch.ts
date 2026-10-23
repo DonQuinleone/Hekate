@@ -7,7 +7,6 @@ import {
   type StageBox,
   stageBoxInput,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { asc, eq, inArray, max } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -15,6 +14,7 @@ import { z } from "zod";
 import { actorOf, can, lockLiveProject } from "../access.ts";
 import { NotFound } from "../errors.ts";
 import { textPdfOf } from "../media/pdf.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { PATCH_PAGE, patchListPages } from "../patch-pdf.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { xlsxOf } from "../xlsx.ts";

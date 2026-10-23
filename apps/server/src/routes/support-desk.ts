@@ -11,7 +11,6 @@ import {
   ticketStateInput,
   ticketsQuery,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import {
   and,
   asc,
@@ -32,6 +31,7 @@ import { requestInfo } from "../audit.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import { recordInstanceEvent } from "../instance-events.ts";
 import { escapeLike } from "../logs.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { listPlans, workspacePlanOf } from "../plans.ts";
 import { signal } from "../signals.ts";
 import {

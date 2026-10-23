@@ -8,13 +8,13 @@ import {
   workflowRunStartInput,
   workflowStepInput,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { and, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, can } from "../access.ts";
 import { NotFound } from "../errors.ts";
+import { zValidator } from "../openapi/validator.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { completeStep, type RunnerDeps, runsOf, startByHand } from "../workflow-runner.ts";
 

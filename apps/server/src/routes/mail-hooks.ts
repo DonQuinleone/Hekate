@@ -1,11 +1,11 @@
 import type { Database } from "@hekate/db";
 import type { BounceProvider } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import type { Keyring } from "../keyring.ts";
 import { type Fetcher, readBounces, recordBounces, Unverified } from "../mail-bounces.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { bounceConfigOf } from "../workspace-mail.ts";
 
 export interface MailHookDeps {

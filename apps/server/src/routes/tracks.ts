@@ -19,7 +19,6 @@ import {
   withPrimary,
   workspaceSettingsOf,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { and, asc, eq, getTableColumns, inArray, max, ne, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -36,6 +35,7 @@ import type { Jobs } from "../jobs.ts";
 import type { Mailer } from "../mail.ts";
 import { metrics } from "../metrics/index.ts";
 import { follow, followersOf, notifyNow } from "../notifications.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { swapScore } from "../score-swap.ts";
 import type { Storage } from "../storage.ts";
 import type { TenantVariables } from "../tenancy.ts";
