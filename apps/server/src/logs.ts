@@ -6,6 +6,7 @@ import {
   type LogQuery,
   logRangeHours,
   type MailLogRow,
+  type WebhookLogRow,
 } from "@hekate/shared";
 import { type SQL, sql } from "drizzle-orm";
 import { csvCell } from "./audit.ts";
@@ -208,15 +209,76 @@ export async function authLog(
   };
 }
 
+/** Every delivery to a workspace's channel (#161), and its attempts; one workspace's where filtered. */
+export async function webhookLog(
+  db: Database,
+  filters: Filters,
+  now = new Date(),
+): Promise<{ rows: WebhookLogRow[]; next: string | null }> {
+  const conditions: SQL[] = [sql`d.id >= ${sinceOf(filters, now)}::uuid`];
+  if (filters.before) conditions.push(sql`d.id < ${filters.before}::uuid`);
+  if (filters.workspace) conditions.push(sql`d.organisation_id = ${filters.workspace}::uuid`);
+  if (filters.q) {
+    const like = `%${escapeLike(filters.q)}%`;
+    conditions.push(
+      sql`(c.name ilike ${like} or c.kind ilike ${like} or e.kind ilike ${like}
+           or d.last_result ilike ${like} or d.status ilike ${like} or o.name ilike ${like})`,
+    );
+  }
+  const rows = await db.execute<{
+    id: string;
+    at: Date | string;
+    workspace_id: string;
+    workspace_name: string;
+    channel_id: string;
+    channel_kind: WebhookLogRow["channel"]["kind"];
+    channel_name: string;
+    event: WebhookLogRow["event"];
+    status: WebhookLogRow["status"];
+    result: string | null;
+    attempts: number;
+    replay: boolean;
+  }>(sql`
+    select d.id, d.created_at as at, o.id as workspace_id, o.name as workspace_name,
+           c.id as channel_id, c.kind as channel_kind, c.name as channel_name, e.kind as event,
+           d.status, d.last_result as result, d.attempts, d.replay_of is not null as replay
+    from event_deliveries d
+    join channels c on c.id = d.channel_id and c.organisation_id = d.organisation_id
+    join events e on e.id = d.event_id and e.organisation_id = d.organisation_id
+    join organisations o on o.id = d.organisation_id
+    where ${all(conditions)}
+    order by d.id desc
+    limit ${filters.limit + 1}`);
+  const page = rows.slice(0, filters.limit);
+  return {
+    rows: page.map((r) => ({
+      id: r.id,
+      at: new Date(r.at).toISOString(),
+      workspace: { id: r.workspace_id, name: r.workspace_name },
+      channel: { id: r.channel_id, kind: r.channel_kind, name: r.channel_name },
+      event: r.event,
+      status: r.status,
+      result: r.result,
+      attempts: r.attempts,
+      replay: r.replay,
+    })),
+    next: rows.length > filters.limit ? (page.at(-1)?.id ?? null) : null,
+  };
+}
+
 /** A log's page, of whichever kind. */
 export function readLog(
   db: Database,
   kind: LogKind,
   filters: Filters,
   now?: Date,
-): Promise<{ rows: (AuditLogRow | AuthLogRow | MailLogRow)[]; next: string | null }> {
+): Promise<{
+  rows: (AuditLogRow | AuthLogRow | MailLogRow | WebhookLogRow)[];
+  next: string | null;
+}> {
   if (kind === "audit") return auditLog(db, filters, now);
   if (kind === "auth") return authLog(db, filters, now);
+  if (kind === "webhooks") return webhookLog(db, filters, now);
   return mailLog(db, filters, now);
 }
 
@@ -233,12 +295,23 @@ const csvColumns: Record<LogKind, string[]> = {
     "user_agent",
   ],
   mail: ["occurred_at", "to", "subject", "result", "error"],
+  webhooks: [
+    "created_at",
+    "workspace",
+    "channel",
+    "kind",
+    "event",
+    "status",
+    "result",
+    "attempts",
+    "replay",
+  ],
 };
 
 const csvLine = (cells: unknown[]) => `${cells.map(csvCell).join(",")}\r\n`;
 
 /** A row as the export writes it, each cell neutralised as the access log's are. */
-function csvOf(kind: LogKind, row: AuditLogRow | AuthLogRow | MailLogRow): string {
+function csvOf(kind: LogKind, row: AuditLogRow | AuthLogRow | MailLogRow | WebhookLogRow): string {
   if (kind === "audit") {
     const r = row as AuditLogRow;
     return csvLine([r.at, r.source, r.who, r.workspace?.name, r.action, r.target, r.ipAddress]);
@@ -254,6 +327,20 @@ function csvOf(kind: LogKind, row: AuditLogRow | AuthLogRow | MailLogRow): strin
       r.workspace?.name,
       r.ipAddress,
       r.userAgent,
+    ]);
+  }
+  if (kind === "webhooks") {
+    const r = row as WebhookLogRow;
+    return csvLine([
+      r.at,
+      r.workspace.name,
+      r.channel.name,
+      r.channel.kind,
+      r.event,
+      r.status,
+      r.result,
+      r.attempts,
+      r.replay ? "yes" : "no",
     ]);
   }
   const r = row as MailLogRow;

@@ -20,6 +20,7 @@ import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
 import { lockLiveProject } from "./access.ts";
 import { NotFound } from "./errors.ts";
+import { emitEvent } from "./events.ts";
 import type { Jobs } from "./jobs.ts";
 import { followersOf, projectPeople, recordNotification } from "./notifications.ts";
 import { qaReportOf } from "./routes/qa.ts";
@@ -232,6 +233,17 @@ async function apply(
     });
   };
   for (const effect of moved.effects) {
+    // Every stage that starts, whatever it does, is an event for the workspace's channels.
+    if (effect.kind === "start")
+      await emitEvent(tx, {
+        organisationId,
+        kind: "stage.started",
+        actor: null,
+        projectId,
+        trackId,
+        path: `/tracks/${trackId}`,
+        details: { stage: node(effect.nodeId)?.name ?? "A stage" },
+      });
     if (effect.kind === "status" || (effect.kind === "finish" && effect.status)) {
       const status = effect.kind === "status" ? effect.status : effect.status;
       await tx

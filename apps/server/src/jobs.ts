@@ -114,6 +114,22 @@ export const jobDefinitions = {
     options: { retryLimit: 1, expireInSeconds: 5 * 60 },
     schedule: "* * * * *",
   },
+  /**
+   * Hand the events waiting in the outbox to their channels (#161), and queue deliveries that
+   * are due and lost their job. A moment after each event, and every minute.
+   */
+  "events-dispatch": {
+    lane: "mail",
+    data: z.object({}),
+    options: { retryLimit: 1, expireInSeconds: 5 * 60 },
+    schedule: "* * * * *",
+  },
+  /** Send one event to one channel (#161); a failure is tried again by the delivery itself. */
+  "event-delivery": {
+    lane: "mail",
+    data: z.object({ organisationId: z.uuid(), deliveryId: z.uuid() }),
+    options: { retryLimit: 2, retryDelay: 30, expireInSeconds: 2 * 60 },
+  },
   /** Send each digest that is due: hourly ones every hour, daily ones in the morning. */
   "notifications-digest": {
     lane: "mail",

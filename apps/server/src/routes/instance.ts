@@ -70,6 +70,7 @@ import { type Audit, requestInfo } from "../audit.ts";
 import type { Auth } from "../auth.ts";
 import { workspaceEmail } from "../email/templates.ts";
 import { CodedException, NotFound } from "../errors.ts";
+import { replayDelivery } from "../events.ts";
 import { createFlags } from "../flags.ts";
 import { inspectFile, inspectReview, inspectSession } from "../inspect.ts";
 import type { InstanceSettingsStore } from "../instance-settings.ts";
@@ -1394,6 +1395,46 @@ export function instanceRoutes(options: InstanceOptions) {
         });
         return c.json({ jobs: queued }, 202);
       })
+      // A past delivery sent again to its channel (#161), as a new delivery of the same event.
+      .use("/deliveries/*", operatorsOnly)
+      .post(
+        "/deliveries/:id/replay",
+        zValidator("param", z.object({ id: z.uuid() })),
+        async (c) => {
+          const { id } = c.req.valid("param");
+          // Found by its id alone, as an error report is: operators work across workspaces.
+          const [found] = await db
+            .select({
+              organisationId: schema.eventDeliveries.organisationId,
+              channel: schema.channels.name,
+              workspace: schema.organisations.name,
+            })
+            .from(schema.eventDeliveries)
+            .innerJoin(schema.channels, eq(schema.channels.id, schema.eventDeliveries.channelId))
+            .innerJoin(
+              schema.organisations,
+              eq(schema.organisations.id, schema.eventDeliveries.organisationId),
+            )
+            .where(eq(schema.eventDeliveries.id, id));
+          if (!found) throw new NotFound("Delivery");
+          const made = await replayDelivery(
+            db,
+            options.jobs,
+            found.organisationId,
+            id,
+            c.var.userId,
+          );
+          if (!made) throw new NotFound("Delivery");
+          await recordInstanceEvent(db, {
+            actorId: c.var.userId,
+            action: "debug.webhook_replayed",
+            target: `${found.channel} (${found.workspace})`,
+            details: { deliveryId: id, replay: made.id, organisationId: found.organisationId },
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+          return c.json({ delivery: made.id }, 202);
+        },
+      )
       // System information (#158): what runs, what is newer, and what it runs on.
       .use("/system", operatorsOnly)
       .use("/system/*", operatorsOnly)

@@ -2,11 +2,12 @@ import { type Database, inOrg, schema } from "@hekate/db";
 import { unwrapKey, wrapKey } from "@hekate/storage";
 import { and, count, eq, isNotNull, lt, max, sql } from "drizzle-orm";
 import { sealContext } from "./directory.ts";
+import { sealContext as channelContext } from "./events.ts";
 import type { Keyring } from "./keyring.ts";
 import { openSecret, sealSecret } from "./secrets.ts";
 import { dataKeyContext } from "./storage.ts";
 
-const { blobs, directories, renditions, uploads } = schema;
+const { blobs, channels, directories, renditions, uploads } = schema;
 
 /** A table whose rows hold a key wrapped by a version of the organisation's key. */
 type Wrapped = typeof blobs | typeof uploads | typeof renditions;
@@ -61,7 +62,11 @@ export async function pendingRewrap(db: Database, organisationId: string, curren
         lt(directories.bindPasswordKeyVersion, current),
       ),
     );
-  return pending + (directory?.n ?? 0);
+  const [channel] = await db
+    .select({ n: count() })
+    .from(channels)
+    .where(inOrg(channels, organisationId, lt(channels.keyVersion, current)));
+  return pending + (directory?.n ?? 0) + (channel?.n ?? 0);
 }
 
 /**
@@ -137,6 +142,29 @@ export async function rewrapOrganisation(db: Database, keyring: Keyring, organis
         ),
       )
       .returning({ id: directories.id });
+    rewrapped += updated.length;
+  }
+  // Each channel's sealed address (#161), as the directory's password.
+  const stale = await db
+    .select()
+    .from(channels)
+    .where(inOrg(channels, organisationId, lt(channels.keyVersion, current)));
+  for (const channel of stale) {
+    const context = channelContext(organisationId, channel.id);
+    const older = await keyring.version(organisationId, channel.keyVersion);
+    const secret = openSecret(older, channel.configSealed, context);
+    const updated = await db
+      .update(channels)
+      .set({ configSealed: sealSecret(key, secret, context), keyVersion: current })
+      .where(
+        inOrg(
+          channels,
+          organisationId,
+          eq(channels.id, channel.id),
+          eq(channels.keyVersion, channel.keyVersion),
+        ),
+      )
+      .returning({ id: channels.id });
     rewrapped += updated.length;
   }
   return rewrapped;

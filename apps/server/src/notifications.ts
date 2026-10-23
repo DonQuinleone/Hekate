@@ -13,6 +13,7 @@ import {
 } from "@hekate/shared";
 import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { render } from "./email/render.ts";
+import { emitEvent } from "./events.ts";
 import type { Mailer } from "./mail.ts";
 
 const {
@@ -93,7 +94,7 @@ async function reachable(db: Db, organisationId: string, ids: string[], projectI
     .map((r) => r.userId);
 }
 
-async function actorName(db: Db, organisationId: string, actor: NotificationActor) {
+export async function actorName(db: Db, organisationId: string, actor: NotificationActor) {
   if (!actor) return null;
   if ("userId" in actor) {
     const [user] = await db
@@ -545,7 +546,30 @@ export async function tellProcessingFailed(db: Database, organisationId: string,
     .select({ name: files.name, projectId: files.projectId, uploadedBy: files.uploadedBy })
     .from(files)
     .where(inOrg(files, organisationId, eq(files.id, fileId)));
-  if (!file?.uploadedBy) return;
+  if (!file) return;
+  // The workspace's channels hear of it once too (#161), whoever uploaded it.
+  const [said] = await db
+    .select({ id: schema.events.id })
+    .from(schema.events)
+    .where(
+      inOrg(
+        schema.events,
+        organisationId,
+        eq(schema.events.kind, "processing.failed"),
+        sql`${schema.events.data}->'file'->>'id' = ${fileId}`,
+      ),
+    )
+    .limit(1);
+  if (!said)
+    await emitEvent(db, {
+      organisationId,
+      kind: "processing.failed",
+      actor: null,
+      projectId: file.projectId,
+      fileId,
+      path: `/files/${fileId}`,
+    });
+  if (!file.uploadedBy) return;
   const [told] = await db
     .select({ id: notifications.id })
     .from(notifications)

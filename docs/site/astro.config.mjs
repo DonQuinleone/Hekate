@@ -52,6 +52,7 @@ export default defineConfig({
             "use/guests",
             "use/upload-requests",
             "use/workflow-files",
+            "use/integrations",
           ],
         },
       ],

@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, type Page, test as setup } from "@playwright/test";
 import postgres from "postgres";
+import { uuidv7 } from "../../../packages/db/src/id.ts";
 import { textPdfOf } from "../../server/src/media/pdf.ts";
 import { samplePdf } from "../../server/src/media/sample-pdf.ts";
 import { SETUP_CODE } from "../constants.ts";
@@ -1275,6 +1276,74 @@ setup("seed", async ({ page, browser }) => {
     for (const r of reports)
       await sql`insert into error_reports (id, reference, source, location, message, stack, status, request_id, job_id, context, organisation_id, user_id)
         values (gen_random_uuid(), ${r.reference}, ${r.source}, ${r.location}, ${r.message}, ${r.stack}, ${r.status}, ${r.request_id}, ${r.job_id}, ${r.context ? sql.json(r.context) : null}, ${r.organisation_id}, ${r.user_id})`;
+
+    // Where the workspace's events go (#161): a Slack channel, a Teams one and a webhook that
+    // kept failing and paused, with a few deliveries for the webhook log. Their addresses are
+    // never opened here: the events are dispatched already, and the webhook stays paused.
+    const channel = async (
+      kind: string,
+      name: string,
+      target: string,
+      events: string[],
+      extra: { failures?: number; pausedUntil?: string; delivered?: boolean } = {},
+    ) => {
+      const [row] = await sql<{ id: string }[]>`
+        insert into channels (id, organisation_id, kind, name, target, config_sealed, key_version,
+          events, failures, paused_until, last_delivered_at)
+        values (gen_random_uuid(), ${label?.id ?? null}, ${kind}, ${name}, ${target}, 'sealed', 1,
+          ${events}, ${extra.failures ?? 0}, ${extra.pausedUntil ?? null},
+          ${extra.delivered ? new Date(Date.parse(FIXED_TIME) - 2 * 60 * 60_000) : null})
+        returning id`;
+      return row?.id ?? "";
+    };
+    const slack = await channel(
+      "slack",
+      "#masters",
+      "hooks.slack.com",
+      ["decision.recorded", "version.arrived"],
+      { delivered: true },
+    );
+    await channel("teams", "Mastering", "prod-01.westeurope.logic.azure.com", [
+      "review.requested",
+      "processing.failed",
+    ]);
+    const hook = await channel(
+      "webhook",
+      "Release desk",
+      "https://hooks.endlesshall.example/hekate",
+      [
+        "review.requested",
+        "decision.recorded",
+        "feedback.submitted",
+        "version.arrived",
+        "stage.started",
+        "comment.mentioned",
+        "guest.signed_in",
+        "file.downloaded",
+        "processing.failed",
+      ],
+      { failures: 5, pausedUntil: "2099-01-01T18:00:00Z" },
+    );
+    const deliveries: [string, string, string, string | null, number][] = [
+      [slack, "decision.recorded", "delivered", "200", 1],
+      [hook, "decision.recorded", "pending", "503", 5],
+      [slack, "version.arrived", "delivered", "200", 1],
+      [hook, "version.arrived", "failed", "503", 6],
+    ];
+    for (const [channelId, kind, status, result, attempts] of deliveries) {
+      const [event] = await sql<{ id: string }[]>`
+        insert into events (id, organisation_id, kind, data, dispatched_at)
+        values (${uuidv7()}, ${label?.id ?? null}, ${kind},
+          ${sql.json({ project: null, actor: { name: "Mira Solberg", guest: false }, path: "/" })},
+          now())
+        returning id`;
+      await sql`insert into event_deliveries (id, organisation_id, channel_id, event_id, status,
+          attempts, last_result, next_attempt_at, delivered_at)
+        values (${uuidv7()}, ${label?.id ?? null}, ${channelId}, ${event?.id ?? null},
+          ${status}, ${attempts}, ${result},
+          ${status === "pending" ? "2099-01-01T18:00:00Z" : sql`now()`},
+          ${status === "delivered" ? sql`now()` : null})`;
+    }
 
     // A day of the machine measured, a minute a row (#156), before the database's own clock:
     // the page reads the minutes before now, whatever the browser's clock says.

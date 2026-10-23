@@ -145,6 +145,16 @@ An append-only access log records who accessed what, when, through which review,
 
 Every failure a person sees (any 5xx) and every job's last failed attempt is recorded under a reference such as `HK-7F3A-2C` (#159), which the message asks them to quote, and written to the log as one JSON line. The report holds the route or the job, the request's id (made by the server, never taken from the request), the error and its stack, the job's data (identifiers only), the workspace, and the account it happened to; nothing else about the person, no address and no browser. Only operators read reports, in Debug tools, where the account is shown by its name and email. A workspace's reports are deleted with it, and every report after 30 days. Debug tools' inspectors show an operator a file's, a review's or a session's records, never stored content, and each look is written to the instance's events (decision 066).
 
+## Channels and webhooks
+
+A workspace's events can go to Slack, Discord, Microsoft Teams or a webhook of its own (#161, Settings, Notifications and integrations; admins only).
+
+- **What leaves.** An event names things (the workspace, project, review, track or file, and who acted) and links to them in the app. It never carries media, a link to media, a comment's words, a decision's note, or who was mentioned; the schemas are in `packages/shared/src/events.ts`.
+- **Addresses sealed.** A channel's address, which for Slack, Discord and Teams is itself the credential, and a webhook's signing secret are sealed with the workspace key (AES-256-GCM, bound to the channel) and rewrapped when the key rotates. Settings show only the host, or a webhook's address without its query. The signing secret is shown once, when it is made.
+- **Signed.** A webhook carries `Hekate-Signature: t=…,v1=…`, an HMAC-SHA256 of the time and the body, so a receiver can check who sent it and refuse an old one. The event's id is the same on every retry and replay, so a receiver can drop a repeat.
+- **Nothing private.** Channels must be HTTPS. The server connects only to public addresses: the address checked is the address connected to (no DNS rebinding), an address given as a number is checked too, and redirects are not followed. An origin on a private network needs the operator to list it in `WEBHOOK_TRUSTED_ORIGINS`. Each request has ten seconds.
+- **Logged.** Adding, changing and removing a channel are in the workspace's access log; every delivery and its attempts are in the instance's webhook log, and replaying one is an instance event.
+
 ## Headers and limits
 
 - **Headers:** the app sets them on every response, so they hold behind any proxy. The Content Security Policy allows this origin alone: no inline or evaluated script, no style, font, image or request from elsewhere, `blob:` only where hls.js feeds MediaSource and runs its worker, and `frame-ancestors 'none'` (with `X-Frame-Options: DENY`), so no page can be framed. Also `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, a `Permissions-Policy` that grants passkeys, full screen and autoplay to this origin and nothing else, `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy: same-origin`, and HSTS when the public address is HTTPS (Caddy, terminating TLS, adds it too). The visual suite loads every screen under the policy and fails on any violation.

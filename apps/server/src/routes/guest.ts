@@ -7,6 +7,7 @@ import { z } from "zod";
 import { type Audit, requestInfo } from "../audit.ts";
 import { recordAuth, requestOf } from "../auth-log.ts";
 import { CodedException } from "../errors.ts";
+import { emitEvent } from "../events.ts";
 import { maskEmail } from "../guest-code.ts";
 import {
   clearGuestCookie,
@@ -21,6 +22,14 @@ import { type Mailer, sendEmail } from "../mail.ts";
 import { guestReviews } from "./reviews.ts";
 
 const { organisations, guestSessions } = schema;
+
+/** A guest's sign-in, as the workspace's channels hear of it (#161): the access log has the rest. */
+const guestSignedIn = (session: { organisationId: string; guestId: string }) => ({
+  organisationId: session.organisationId,
+  kind: "guest.signed_in" as const,
+  actor: { guestId: session.guestId },
+  path: "/settings/log",
+});
 
 export interface GuestRouteDeps {
   db: Database;
@@ -112,6 +121,7 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
             requestInfo(c, deps.trustProxy),
             tx,
           );
+          await emitEvent(tx, guestSignedIn(session));
         });
         // One answer for unknown, used, revoked and expired links: nothing to learn from it.
         if (!used) {
@@ -169,6 +179,7 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
                 info,
                 tx,
               );
+              await emitEvent(tx, guestSignedIn(session));
             },
             refused: async (tx, who, reason) => {
               const guest = await deps.audit.guest(who.guestId);

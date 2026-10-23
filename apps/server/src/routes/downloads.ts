@@ -32,6 +32,7 @@ import { z } from "zod";
 import { type Actor, actorOf, can, fileAccess, guestReach } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
+import { emitEvent } from "../events.ts";
 import type { ViewerVariables } from "../guests.ts";
 import type { Keyring } from "../keyring.ts";
 import {
@@ -79,6 +80,23 @@ const {
   tracks,
   users,
 } = schema;
+
+/** A download, as the workspace's channels hear of it (#161), once it is in the access log. */
+const downloaded = (
+  organisationId: string,
+  actor: Actor,
+  projectId: string,
+  fileId: string,
+  kind: DownloadKind,
+) => ({
+  organisationId,
+  kind: "file.downloaded" as const,
+  actor: actor.kind === "guest" ? { guestId: actor.guestId } : { userId: actor.userId },
+  projectId,
+  fileId,
+  path: `/files/${fileId}`,
+  details: { download: kind },
+});
 
 export interface DownloadDeps {
   db: Database;
@@ -703,6 +721,7 @@ async function sendEveryScore(
       },
       requestInfo(c, deps.trustProxy),
     );
+    await emitEvent(deps.db, downloaded(organisationId, actor, projectId, file.id, kind));
   }
   const who = await recipientOf(deps.db, actor);
   const [project] = await deps.db
@@ -799,6 +818,7 @@ export const downloadRoutes = (deps: DownloadDeps) =>
         },
         requestInfo(c, deps.trustProxy),
       );
+      await emitEvent(deps.db, downloaded(organisationId, actor, file.projectId, file.id, kind));
       if (file.kind === "audio" && kind === "original") {
         const { stream } = await deps.storage.open(organisationId, file.blobId);
         return new Response(stream as unknown as ReadableStream, {

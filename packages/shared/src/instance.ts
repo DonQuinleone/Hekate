@@ -26,7 +26,7 @@ export const instanceSections: Record<InstanceSection, { label: string; hint: st
   operators: { label: "Operators", hint: "The accounts that may manage the instance" },
   logs: {
     label: "Logs",
-    hint: "What people and operators did, every sign-in, and the mail the instance sent",
+    hint: "What people and operators did, every sign-in, the mail the instance sent and every webhook",
   },
   health: {
     label: "System health",
@@ -245,6 +245,7 @@ export const instanceActions: Record<string, string> = {
   "member.second_factor_reset": "had their second factor reset by an operator",
   "debug.inspected": "inspected in Debug tools",
   "debug.job_retried": "run again from Debug tools",
+  "debug.webhook_replayed": "sent again from Debug tools",
   "flag.on": "turned on",
   "flag.off": "turned off",
   "settings.second_factor_on": "required of every account",

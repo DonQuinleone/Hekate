@@ -458,6 +458,11 @@ const screens: Screen[] = [
     path: () => "/settings/storage",
     ready: "main >> text=Usage by project",
   },
+  {
+    name: "settings-notifications",
+    path: () => "/settings/notifications",
+    ready: "main >> text=Release desk >> nth=0",
+  },
   { name: "settings-log", path: () => "/settings/log", ready: "main [data-log-entry]" },
   {
     name: "settings-operations",
@@ -1159,6 +1164,40 @@ test("instance-logs-mail", async ({ page }) => {
   await page.getByRole("tab", { name: "Email" }).click();
   await settle(page, "main >> text=Written to the log >> nth=0");
   await saveScreen(page, "instance-logs-mail");
+  await checkScreen(page);
+});
+
+// Logs (#161): every delivery to a workspace's channels, and what came of it.
+test("instance-logs-webhooks", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto("/instance/logs");
+  await settle(page, "main [data-log-entry] >> nth=0");
+  await page.getByRole("tab", { name: "Webhooks" }).click();
+  await settle(page, "main >> text=Release desk >> nth=0");
+  await saveScreen(page, "instance-logs-webhooks");
+  await checkScreen(page);
+});
+
+// Debug tools (#161): a past delivery, picked to be sent again.
+test("instance-debug-replay", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto("/instance/debug");
+  await settle(page, "main >> text=Replay a webhook");
+  await page.getByRole("button", { name: "Pick a delivery" }).click();
+  await settle(page, "[role=dialog] >> text=Release desk >> nth=0");
+  await saveScreen(page, "instance-debug-replay");
+  await checkScreen(page);
+});
+
+// A new channel (#161): a webhook's name, address and the events it hears of.
+test("settings-notifications-new", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto("/settings/notifications");
+  await settle(page, "main >> text=Release desk >> nth=0");
+  await page.getByRole("button", { name: "Channel", exact: true }).click();
+  await page.getByLabel("Kind").selectOption("webhook");
+  await settle(page, "[role=dialog] >> text=Each event arrives as JSON");
+  await saveScreen(page, "settings-notifications-new");
   await checkScreen(page);
 });
 

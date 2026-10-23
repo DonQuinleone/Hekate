@@ -32,6 +32,8 @@ const instanceSettingsSchema = z.object({
     audit: z.literal(logKeepDays).nullable(),
     auth: z.literal(logKeepDays).nullable(),
     mail: z.literal(logKeepDays).nullable(),
+    /** Events and their deliveries to the workspaces' channels (#161). */
+    webhooks: z.literal(logKeepDays).nullable(),
   }),
 });
 export type InstanceSettings = z.infer<typeof instanceSettingsSchema>;
@@ -42,7 +44,9 @@ export type InstanceSettings = z.infer<typeof instanceSettingsSchema>;
  */
 export const instanceSettingsInput = instanceSettingsSchema.extend({
   defaults: instanceSettingsSchema.shape.defaults.optional(),
-  logs: instanceSettingsSchema.shape.logs.optional(),
+  logs: instanceSettingsSchema.shape.logs
+    .extend({ webhooks: instanceSettingsSchema.shape.logs.shape.webhooks.optional() })
+    .optional(),
 });
 export type InstanceSettingsInput = z.infer<typeof instanceSettingsInput>;
 
@@ -53,7 +57,12 @@ export const withStored = (
 ): InstanceSettings => ({
   ...input,
   defaults: input.defaults ?? stored.defaults,
-  logs: input.logs ?? stored.logs,
+  logs: input.logs
+    ? {
+        ...input.logs,
+        webhooks: input.logs.webhooks === undefined ? stored.logs.webhooks : input.logs.webhooks,
+      }
+    : stored.logs,
 });
 
 export const defaultInstanceSettings: InstanceSettings = {
@@ -63,7 +72,7 @@ export const defaultInstanceSettings: InstanceSettings = {
   defaults: { guestLinkDays: defaultWorkspaceSettings.guestLinkDays },
   // The audit log is kept for good unless an operator says otherwise: nothing already logged
   // goes because the instance was upgraded.
-  logs: { audit: null, auth: 365, mail: 90 },
+  logs: { audit: null, auth: 365, mail: 90, webhooks: 30 },
 };
 
 /** Stored settings over the defaults, so one written before a setting existed still reads. */
@@ -110,7 +119,7 @@ export function settingsChanges(
       action: "defaults.guest_link_days",
       details: { days: after.defaults.guestLinkDays },
     });
-  for (const kind of ["audit", "auth", "mail"] as const)
+  for (const kind of ["audit", "auth", "mail", "webhooks"] as const)
     if (before.logs[kind] !== after.logs[kind])
       changes.push({ action: "logs.retention", details: { kind, days: after.logs[kind] } });
   return changes;

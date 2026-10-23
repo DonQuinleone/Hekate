@@ -10,10 +10,12 @@ import {
   type CarryStatus,
   type CategoryHandling,
   type CategoryInput,
+  type ChannelRow,
   type CommentAttachment,
   type CommentMention,
   type CommentReferences,
   type CompareAlignment,
+  type CreateChannelInput,
   type CreateProjectInput,
   type CreateReviewInput,
   type CreateUploadRequestInput,
@@ -146,6 +148,7 @@ import {
   type TriageInput,
   type UnderlayInput,
   type UpdateCarryInput,
+  type UpdateChannelInput,
   type UpdateProjectInput,
   type UpdateVariationInput,
   type UploadRequestState,
@@ -827,6 +830,48 @@ export function useTestDirectory() {
     mutationFn: async () =>
       json<{ ok: boolean; problem: string | null }>(await api.organisation.directory.test.$post()),
   });
+}
+
+/** Where the workspace's events go (#161): its channels and the events each carries; admins only. */
+export const channelsQuery = queryOptions({
+  queryKey: ["organisation", "channels"],
+  queryFn: async () =>
+    (await json<{ channels: ChannelRow[] }>(await api.organisation.channels.$get())).channels,
+});
+
+/** Add, change, remove and test a channel. A webhook's signing secret comes back once. */
+export function useChannels() {
+  const client = useQueryClient();
+  const refresh = () => client.invalidateQueries({ queryKey: channelsQuery.queryKey });
+  return {
+    add: useMutation({
+      mutationFn: async (input: CreateChannelInput) =>
+        json<{ channel: ChannelRow; secret?: string }>(
+          await api.organisation.channels.$post({ json: input }),
+        ),
+      onSuccess: refresh,
+    }),
+    change: useMutation({
+      mutationFn: async ({ id, ...input }: UpdateChannelInput & { id: string }) =>
+        json<{ channel: ChannelRow; secret?: string }>(
+          await api.organisation.channels[":id"].$patch({ param: { id }, json: input }),
+        ),
+      onSuccess: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api.organisation.channels[":id"].$delete({ param: { id } });
+        if (!res.ok) await json(res);
+      },
+      onSuccess: refresh,
+    }),
+    test: useMutation({
+      mutationFn: async (id: string) =>
+        json<{ ok: boolean; result: string }>(
+          await api.organisation.channels[":id"].test.$post({ param: { id } }),
+        ),
+    }),
+  };
 }
 
 /** The workspace's single sign-on, and what its identity provider is to be told; admins only. */

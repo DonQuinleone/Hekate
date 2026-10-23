@@ -827,6 +827,13 @@
       "when": 1792716053352,
       "tag": "0117_spectrogram_variants",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1792724572950,
+      "tag": "0118_events_and_channels",
+      "breakpoints": true
     }
   ]
 }
