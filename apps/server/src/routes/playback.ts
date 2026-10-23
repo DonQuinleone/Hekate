@@ -1,9 +1,13 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  analysisKey,
+  defaultAnalysis,
   effectiveNormalisation,
+  isDefaultAnalysis,
   isFollowingPart,
   marks,
   type PlayerTool,
+  spectrumAnalysisSchema,
   watermarkOf,
 } from "@hekate/shared";
 import { unwrapKey } from "@hekate/storage";
@@ -27,6 +31,7 @@ import { type Audit, requestInfo } from "../audit.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import { chainOf } from "../file-chains.ts";
 import type { PlaySessionVariables, ViewerVariables } from "../guests.ts";
+import type { Jobs } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
 import { watermark } from "../media/watermark.ts";
 import { normalisationOf } from "../normalisation.ts";
@@ -59,6 +64,8 @@ const {
   peakLevels,
   loudness,
   spectrograms,
+  spectrogramVariantFailures,
+  spectrogramVariants,
   variations,
   versions,
   tracks,
@@ -77,7 +84,12 @@ export interface PlaybackDeps {
   secondFactor: SecondFactorRule;
   /** Scratch space for marking pages (WORK_DIR). */
   workDir?: string;
+  /** For spectrograms with a viewer's own analysis settings, drawn when first asked for (#34). */
+  jobs: Pick<Jobs, "send">;
 }
+
+/** The analysis a spectrogram is asked for with (#34); anything left out is the default. */
+const analysisQuery = zValidator("query", spectrumAnalysisSchema.partial());
 
 /** Nothing about playback may be cached or shared: every response is per viewer, per session. */
 const PRIVATE = {
@@ -432,35 +444,112 @@ export const fileRoutes = (deps: PlaybackDeps) =>
       });
     })
     // Spectrograms: band levels over time, from which no audio can be rebuilt (like peaks).
-    .get("/:id/spectrograms", fileParam, async (c) => {
+    // With a viewer's own analysis settings (#34), the first ask queues them, and the
+    // answer is pending until they are drawn.
+    .get("/:id/spectrograms", fileParam, analysisQuery, async (c) => {
       const organisationId = c.var.organisationId;
       const [file] = await deps.db
         .select({ id: files.id, analysisStatus: files.analysisStatus })
         .from(files)
         .where(inOrg(files, organisationId, eq(files.id, c.req.valid("param").id)));
       if (!file) throw new NotFound("File");
+      const analysis = { ...defaultAnalysis, ...c.req.valid("query") };
+      const noStore = { "cache-control": "no-store" };
+      if (isDefaultAnalysis(analysis)) {
+        const rows = await deps.db
+          .select({
+            id: spectrograms.id,
+            channel: spectrograms.channel,
+            fftSize: spectrograms.fftSize,
+            sampleRate: spectrograms.sampleRate,
+            samplesPerColumn: spectrograms.samplesPerColumn,
+            columns: spectrograms.columnCount,
+            bands: spectrograms.bandCount,
+          })
+          .from(spectrograms)
+          .where(inOrg(spectrograms, organisationId, eq(spectrograms.fileId, file.id)));
+        return c.json({ status: file.analysisStatus, spectrograms: rows }, 200, noStore);
+      }
+      // Drawn from the analysed file, so not before it is analysed, and never for one that failed.
+      if (file.analysisStatus !== "ready")
+        return c.json({ status: file.analysisStatus, spectrograms: [] }, 200, noStore);
+      const key = analysisKey(analysis);
+      const ofThis = inOrg(
+        spectrogramVariants,
+        organisationId,
+        eq(spectrogramVariants.fileId, file.id),
+        eq(spectrogramVariants.analysis, key),
+      );
       const rows = await deps.db
-        .select({
-          id: spectrograms.id,
-          channel: spectrograms.channel,
-          fftSize: spectrograms.fftSize,
-          sampleRate: spectrograms.sampleRate,
-          samplesPerColumn: spectrograms.samplesPerColumn,
-          columns: spectrograms.columnCount,
-          bands: spectrograms.bandCount,
-        })
-        .from(spectrograms)
-        .where(inOrg(spectrograms, organisationId, eq(spectrograms.fileId, file.id)));
-      return c.json({ status: file.analysisStatus, spectrograms: rows }, 200, {
-        "cache-control": "no-store",
-      });
+        .update(spectrogramVariants)
+        .set({ usedAt: new Date() })
+        .where(ofThis)
+        .returning({
+          id: spectrogramVariants.id,
+          channel: spectrogramVariants.channel,
+          fftSize: spectrogramVariants.fftSize,
+          sampleRate: spectrogramVariants.sampleRate,
+          samplesPerColumn: spectrogramVariants.samplesPerColumn,
+          columns: spectrogramVariants.columnCount,
+          bands: spectrogramVariants.bandCount,
+        });
+      if (rows.length > 0) return c.json({ status: "ready", spectrograms: rows }, 200, noStore);
+      // Tried to the last and failed: said so, and drawn again only when asked (below).
+      const [failed] = await deps.db
+        .select({ id: spectrogramVariantFailures.id })
+        .from(spectrogramVariantFailures)
+        .where(
+          inOrg(
+            spectrogramVariantFailures,
+            organisationId,
+            eq(spectrogramVariantFailures.fileId, file.id),
+            eq(spectrogramVariantFailures.analysis, key),
+          ),
+        );
+      if (failed) return c.json({ status: "failed", spectrograms: [] }, 200, noStore);
+      await deps.jobs.send(
+        "spectrogram-variant",
+        { organisationId, fileId: file.id, analysis: key },
+        { singletonKey: `${file.id}:${key}` },
+      );
+      return c.json({ status: "pending", spectrograms: [] }, 200, noStore);
     })
+    // Settings that could not be drawn, tried again on request (#34).
+    .post(
+      "/:id/spectrograms/retry",
+      fileParam,
+      zValidator("json", spectrumAnalysisSchema),
+      async (c) => {
+        const organisationId = c.var.organisationId;
+        const fileId = c.req.valid("param").id;
+        const key = analysisKey(c.req.valid("json"));
+        const gone = await deps.db
+          .delete(spectrogramVariantFailures)
+          .where(
+            inOrg(
+              spectrogramVariantFailures,
+              organisationId,
+              eq(spectrogramVariantFailures.fileId, fileId),
+              eq(spectrogramVariantFailures.analysis, key),
+            ),
+          )
+          .returning({ id: spectrogramVariantFailures.id });
+        if (gone.length === 0) throw new NotFound("Failed spectrogram");
+        await deps.jobs.send(
+          "spectrogram-variant",
+          { organisationId, fileId, analysis: key },
+          { singletonKey: `${fileId}:${key}` },
+        );
+        return c.body(null, 202);
+      },
+    )
     .get(
       "/:id/spectrograms/:spectrogramId",
       zValidator("param", z.object({ id: z.uuid(), spectrogramId: z.uuid() })),
       async (c) => {
         const { id, spectrogramId } = c.req.valid("param");
         const organisationId = c.var.organisationId;
+        // The file's own spectrograms, or one drawn with a viewer's settings (#34).
         const [row] = await deps.db
           .select({ blobId: spectrograms.blobId })
           .from(spectrograms)
@@ -471,6 +560,19 @@ export const fileRoutes = (deps: PlaybackDeps) =>
               eq(spectrograms.id, spectrogramId),
               eq(spectrograms.fileId, id),
             ),
+          )
+          .union(
+            deps.db
+              .select({ blobId: spectrogramVariants.blobId })
+              .from(spectrogramVariants)
+              .where(
+                inOrg(
+                  spectrogramVariants,
+                  organisationId,
+                  eq(spectrogramVariants.id, spectrogramId),
+                  eq(spectrogramVariants.fileId, id),
+                ),
+              ),
           );
         if (!row) throw new NotFound("Spectrogram");
         const { blob, stream } = await deps.storage.open(organisationId, row.blobId);

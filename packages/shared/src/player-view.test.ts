@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { defaultPreferences, preferencesInput, preferencesOf } from "./account.ts";
 import { defaultPlayerViewSettings, savePreset, viewPresetsSchema } from "./player-view.ts";
+import { analysisKey, analysisOfKey, defaultAnalysis, isDefaultAnalysis } from "./spectrogram.ts";
 
 const view = defaultPlayerViewSettings;
 
@@ -34,5 +35,29 @@ describe("the player's view, kept with the account (#135)", () => {
     const dozen = Array.from({ length: 12 }, (_, i) => ({ name: `View ${i}`, view }));
     expect(viewPresetsSchema.safeParse(dozen).success).toBe(true);
     expect(viewPresetsSchema.safeParse([...dozen, { name: "One more", view }]).success).toBe(false);
+  });
+});
+
+describe("the spectrogram's analysis settings (#34)", () => {
+  it("names each set of settings by a key, and reads only keys it made", () => {
+    const blackman = { window: "blackman-harris", fftSize: "16384", overlap: "87.5" } as const;
+    expect(analysisKey(blackman)).toBe("blackman-harris/16384/87.5");
+    expect(analysisOfKey("blackman-harris/16384/87.5")).toEqual(blackman);
+    expect(analysisOfKey(analysisKey(defaultAnalysis))).toEqual(defaultAnalysis);
+    expect(isDefaultAnalysis(defaultAnalysis)).toBe(true);
+    expect(isDefaultAnalysis(blackman)).toBe(false);
+    for (const key of ["hann/auto", "hann/512/75", "hann/auto/75/x", "triangle/auto/75", ""])
+      expect(analysisOfKey(key)).toBeNull();
+  });
+
+  it("reads a view kept before there was a choice as analysed by default", () => {
+    const { analysis: _, ...older } = view.spectrum;
+    const kept = preferencesOf({ playerView: { ...view, spectrum: older } }).playerView;
+    expect(kept?.spectrum.analysis).toEqual(defaultAnalysis);
+    expect(
+      preferencesOf({
+        playerView: { ...view, spectrum: { ...view.spectrum, analysis: { window: "box" } } },
+      }).playerView,
+    ).toBeNull();
   });
 });

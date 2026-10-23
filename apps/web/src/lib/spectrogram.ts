@@ -1,13 +1,19 @@
 import {
   byteToLevel,
+  defaultAnalysis,
   defaultSpectrumView,
   type FrequencyScale,
   frequencyScales,
   rowBands,
   type Spectrogram,
+  type SpectrogramAnalysis,
   type SpectrogramColourMap,
+  type SpectrogramWindow,
   type SpectrumView,
   spectrogramColourMaps,
+  spectrogramFftSizes,
+  spectrogramOverlaps,
+  spectrogramWindows,
 } from "@hekate/shared";
 
 export const colourMaps = spectrogramColourMaps;
@@ -91,6 +97,28 @@ export function colourTable(map: ColourMap, signalStops?: string[]): Uint8Array 
 export type SpectrogramView = SpectrumView;
 export const defaultView: SpectrogramView = defaultSpectrumView;
 
+/** Analysis settings from storage (#34): each one missing or unknown is the default's. */
+export function readAnalysis(value: unknown): SpectrogramAnalysis {
+  const v = (typeof value === "object" && value !== null ? value : {}) as Partial<
+    Record<keyof SpectrogramAnalysis, unknown>
+  >;
+  const pick = <T extends string>(x: unknown, options: readonly T[], fallback: T) =>
+    options.includes(x as T) ? (x as T) : fallback;
+  return {
+    window: pick(v.window, spectrogramWindows, defaultAnalysis.window),
+    fftSize: pick(v.fftSize, spectrogramFftSizes, defaultAnalysis.fftSize),
+    overlap: pick(v.overlap, spectrogramOverlaps, defaultAnalysis.overlap),
+  };
+}
+
+/** How each window is named. */
+export const windowNames: Record<SpectrogramWindow, string> = {
+  hann: "Hann",
+  hamming: "Hamming",
+  "blackman-harris": "Blackman–Harris",
+  kaiser: "Kaiser",
+};
+
 /** A view from storage, with anything missing or invalid replaced by the default. */
 export function readView(value: unknown): SpectrogramView {
   const v = (typeof value === "object" && value !== null ? value : {}) as Partial<
@@ -105,6 +133,7 @@ export function readView(value: unknown): SpectrogramView {
   const low = within(number(v.low, defaultView.low), 0, 191_999);
   const high = within(number(v.high, defaultView.high), 1, 192_000);
   return {
+    analysis: readAnalysis(v.analysis),
     colourMap: colourMaps.includes(v.colourMap as ColourMap)
       ? (v.colourMap as ColourMap)
       : defaultView.colourMap,

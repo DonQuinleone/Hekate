@@ -2,7 +2,15 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bandFrequency, byteToLevel, decodeSpectrogram, type Spectrogram } from "@hekate/shared";
+import {
+  bandFrequency,
+  byteToLevel,
+  decodeSpectrogram,
+  type Spectrogram,
+  spectrogramFftSizes,
+  spectrogramOverlaps,
+  spectrogramWindows,
+} from "@hekate/shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { run } from "./ffmpeg.ts";
 import {
@@ -11,6 +19,7 @@ import {
   fftSizeFor,
   SpectrogramBuilder,
   spectrogramsInThread,
+  windowOf,
 } from "./spectrogram.ts";
 
 const pcm = (
@@ -113,6 +122,43 @@ describe("spectrogram builder", () => {
       // So each column pools several overlapping windows.
       expect(builder.samplesPerColumn / builder.hop).toBeGreaterThanOrEqual(8);
     }
+  });
+
+  it("analyses with the window, FFT size and overlap chosen, each column pooling windows (#34)", () => {
+    const rate = 48_000;
+    const frames = rate * 2;
+    const tone = (f: number) => 0.5 * Math.sin((2 * Math.PI * 937.5 * f) / rate);
+    for (const window of spectrogramWindows) {
+      for (const fftSize of spectrogramFftSizes) {
+        for (const overlap of spectrogramOverlaps) {
+          const builder = new SpectrogramBuilder(1, rate, frames, {
+            analysis: { window, fftSize, overlap },
+          });
+          expect(builder.fftSize).toBe(fftSize === "auto" ? 2048 : Number(fftSize));
+          expect(builder.hop).toBe(builder.fftSize * (1 - Number(overlap) / 100));
+          expect(builder.samplesPerColumn / rate).toBeGreaterThanOrEqual(0.1);
+          expect(builder.samplesPerColumn / builder.hop).toBeGreaterThanOrEqual(4);
+          builder.push(pcm(frames, 1, tone));
+          const s = builder.finish()[0]?.spectrogram as Spectrogram;
+          const found = loudest(s, Math.floor(s.columns / 2));
+          // Every window finds the tone at its level, within its own bands' width.
+          expect(Math.abs(found.hz - 937.5)).toBeLessThan(rate / builder.fftSize);
+          expect(found.db).toBeGreaterThan(-8);
+          expect(found.db).toBeLessThan(-5);
+        }
+      }
+    }
+  });
+
+  it("draws each kind of window as itself", () => {
+    const hann = windowOf("hann", 8);
+    expect(hann[0]).toBeCloseTo(0);
+    expect(hann[4]).toBeCloseTo(1);
+    expect(windowOf("hamming", 8)[0]).toBeCloseTo(0.08);
+    expect(windowOf("blackman-harris", 8)[0]).toBeCloseTo(0.00006, 4);
+    const kaiser = windowOf("kaiser", 8);
+    expect(kaiser[4]).toBeCloseTo(1);
+    expect(kaiser[0]).toBeLessThan(0.01);
   });
 
   it("keeps 23 Hz bands up to 24 kHz at high rates, pooling only above", () => {

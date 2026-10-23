@@ -1,5 +1,5 @@
 import { parentPort, workerData } from "node:worker_threads";
-import { encodeSpectrogram } from "@hekate/shared";
+import { encodeSpectrogram, type SpectrogramAnalysis } from "@hekate/shared";
 import { computeSpectrograms } from "./spectrogram.ts";
 
 /**
@@ -7,17 +7,18 @@ import { computeSpectrograms } from "./spectrogram.ts";
  * analysis never holds up the API on the main thread. It receives a path in the job's
  * workspace and returns encoded spectrograms; an `abort` message stops ffmpeg.
  */
-const { path, audio, duration } = workerData as {
+const { path, audio, duration, analysis } = workerData as {
   path: string;
   audio: { channels: number; sampleRate: number };
   duration: number | undefined;
+  analysis: SpectrogramAnalysis;
 };
 const controller = new AbortController();
 parentPort?.on("message", (message) => {
   if (message === "abort") controller.abort();
 });
 try {
-  const out = await computeSpectrograms(path, audio, duration, controller.signal);
+  const out = await computeSpectrograms(path, audio, duration, controller.signal, analysis);
   const encoded = out.map(({ channel, spectrogram }) => ({
     channel,
     columns: spectrogram.columns,

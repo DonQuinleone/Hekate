@@ -28,6 +28,26 @@ export const jobDefinitions = {
     data: z.object({ organisationId: z.uuid(), fileId: z.uuid() }),
     options: { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 2 * 60 * 60 },
   },
+  /**
+   * Draw a file's spectrograms with a viewer's own analysis settings (#34), the first time
+   * someone asks for them. One at a time for each file and set of settings.
+   */
+  "spectrogram-variant": {
+    lane: "analyse",
+    data: z.object({
+      organisationId: z.uuid(),
+      fileId: z.uuid(),
+      analysis: z.string().min(1).max(64),
+    }),
+    options: { retryLimit: 2, retryDelay: 30, retryBackoff: true, expireInSeconds: 60 * 60 },
+  },
+  /** Spectrograms drawn with a viewer's own settings, unused for 30 days, removed (#34). Daily. */
+  "spectrogram-variants-expire": {
+    lane: "system",
+    data: z.object({}),
+    options: { retryLimit: 2, expireInSeconds: 30 * 60 },
+    schedule: "41 3 * * *",
+  },
   /** Draw a document or picture as pages for protected viewing (#29). */
   "document-render": {
     lane: "pages",

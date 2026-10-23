@@ -3,6 +3,7 @@ import {
   type AlignmentPoints,
   type Anchor,
   type ApprovalRule,
+  analysisKey,
   type Board,
   type CalendarEvent,
   type CaptionTrack,
@@ -27,6 +28,7 @@ import {
   decodeLoudness,
   decodePeaks,
   decodeSpectrogram,
+  defaultAnalysis,
   defaultPreferences,
   type EditDecisions,
   type EditPlot,
@@ -56,6 +58,7 @@ import {
   type InstanceWorkspacePage,
   type InstanceWorkspaceSettings,
   type InstanceWorkspaceStorage,
+  isDefaultAnalysis,
   itemWords,
   type LinkablePerson,
   type LogKind,
@@ -114,6 +117,7 @@ import {
   type SessionSummary,
   type SessionTodoChange,
   type SharedTake,
+  type SpectrogramAnalysis,
   type SsoServiceProvider,
   type SsoSettings,
   type SsoSettingsInput,
@@ -1284,16 +1288,41 @@ export interface SpectrogramInfo {
   bands: number;
 }
 
-/** A file's spectrograms, one per channel plus mid and side, once the worker has made them. */
-export const spectrogramsQuery = (fileId: string) =>
+/**
+ * A file's spectrograms, one per channel plus mid and side, once the worker has made them:
+ * with the analysis every file has, or a viewer's own, drawn when first asked for (#34).
+ */
+export const spectrogramsQuery = (
+  fileId: string,
+  analysis: SpectrogramAnalysis = defaultAnalysis,
+) =>
   queryOptions({
-    queryKey: ["files", fileId, "spectrograms"],
+    queryKey: ["files", fileId, "spectrograms", "list", analysisKey(analysis)],
     queryFn: async () =>
       json<{ status: StreamStatus; spectrograms: SpectrogramInfo[] }>(
-        await api.files[":id"].spectrograms.$get({ param: { id: fileId } }),
+        await api.files[":id"].spectrograms.$get({
+          param: { id: fileId },
+          query: isDefaultAnalysis(analysis) ? {} : analysis,
+        }),
       ),
     refetchInterval: (query) => (query.state.data?.status === "pending" ? 3000 : false),
   });
+
+/** Try again to draw spectrograms with settings that failed (#34). */
+export function useRetrySpectrogram(fileId: string, analysis: SpectrogramAnalysis) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await api.files[":id"].spectrograms.retry.$post({
+        param: { id: fileId },
+        json: analysis,
+      });
+      if (!res.ok) await json(res);
+    },
+    onSuccess: () =>
+      client.invalidateQueries({ queryKey: spectrogramsQuery(fileId, analysis).queryKey }),
+  });
+}
 
 /** One spectrogram, decoded. They never change, so they are kept for the visit. */
 export const spectrogramQuery = (fileId: string, spectrogramId: string) =>

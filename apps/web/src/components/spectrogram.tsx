@@ -1,8 +1,14 @@
-import { channelNames, type Spectrogram as SpectrogramData, scalePosition } from "@hekate/shared";
+import {
+  channelNames,
+  isDefaultAnalysis,
+  type SpectrogramAnalysis,
+  type Spectrogram as SpectrogramData,
+  scalePosition,
+} from "@hekate/shared";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
-import { spectrogramQuery, spectrogramsQuery } from "~/lib/queries";
+import { spectrogramQuery, spectrogramsQuery, useRetrySpectrogram } from "~/lib/queries";
 import {
   colourTable,
   combineSpectrograms,
@@ -10,6 +16,7 @@ import {
   type SpectrogramView,
 } from "~/lib/spectrogram";
 import { useShownTheme } from "~/lib/theme";
+import { Button } from "./ui/button";
 
 /**
  * Which spectrogram to show: every channel stacked ("each"), every channel as one ("all",
@@ -143,7 +150,7 @@ export function Spectrogram({
   /** Off when a waveform drawn on top already names the channels. */
   labels?: boolean;
 }) {
-  const { data: index } = useQuery(spectrogramsQuery(fileId));
+  const { data: index } = useQuery(spectrogramsQuery(fileId, view.analysis));
   const available = index?.status === "ready" ? index.spectrograms : [];
   const own = available
     .filter((s) => /^\d+$/.test(s.channel))
@@ -201,6 +208,9 @@ export function Spectrogram({
     if (duration > 0) media.currentTime = ((event.clientX - box.left) / box.width) * duration;
   };
 
+  // A viewer's own settings that could not be drawn (#34): said so, with a way to try again.
+  if (index?.status === "failed" && !isDefaultAnalysis(view.analysis))
+    return <DrawingFailed fileId={fileId} analysis={view.analysis} height={height} />;
   if (index && index.status !== "pending" && index.status !== "ready") return null;
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: the position slider is the keyboard route to seeking; this is a pointer shortcut.
@@ -228,6 +238,11 @@ export function Spectrogram({
           />
         </div>
       ))}
+      {index?.status === "pending" && !isDefaultAnalysis(view.analysis) && (
+        <span role="status" className="m-auto px-3 text-center text-[12px] text-ink-3">
+          Drawing the spectrogram with these settings
+        </span>
+      )}
       {playhead && loaded && (
         <span
           ref={marker}
@@ -235,6 +250,29 @@ export function Spectrogram({
           aria-hidden="true"
         />
       )}
+    </div>
+  );
+}
+
+function DrawingFailed({
+  fileId,
+  analysis,
+  height,
+}: {
+  fileId: string;
+  analysis: SpectrogramAnalysis;
+  height: number;
+}) {
+  const retry = useRetrySpectrogram(fileId, analysis);
+  return (
+    <div
+      className="flex w-full flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-control border border-hairline px-3 text-center text-[12px] text-ink-3"
+      style={{ minHeight: Math.min(height, 72) }}
+    >
+      <span role="status">The spectrogram could not be drawn with these settings.</span>
+      <Button size="sm" variant="ghost" disabled={retry.isPending} onClick={() => retry.mutate()}>
+        Try again
+      </Button>
     </div>
   );
 }

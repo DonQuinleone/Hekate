@@ -1783,6 +1783,44 @@ for (const [place, wave] of [
   });
 }
 
+// The spectrogram's own analysis (#34): a window, FFT size and overlap of the viewer's
+// choosing, drawn on the server the first time and shown once it is.
+test("player-spectrogram-analysis", async ({ page }, info) => {
+  // Chosen for this capture alone: the account keeps nothing, so no other screen sees it.
+  await page.route("**/api/me/preferences", (route) =>
+    route.request().method() === "PATCH" ? route.fulfill({ status: 204 }) : route.fallback(),
+  );
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "hekate.player.view",
+      JSON.stringify({
+        split: false,
+        spectrogram: "below",
+        wave: { colour: "ink", opacity: 0.5, height: 0.32 },
+      }),
+    ),
+  );
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "[role=img][aria-label^=Spectrogram]:not(.animate-pulse) canvas");
+  await page.getByRole("button", { name: "View" }).click();
+  await page.getByRole("button", { name: "Channel, levels, range and analysis…" }).click();
+  // Each choice asks for its spectrograms once it has taken; the next follows it.
+  const asked = page.waitForRequest(/spectrograms\?.*window=kaiser/);
+  await page.getByLabel("Window").selectOption("kaiser");
+  await asked;
+  await page.getByLabel("FFT size").selectOption("16384");
+  // Drawn the first time it is asked for (by the first of the two widths), then kept.
+  await expect(page.getByText("Drawing the spectrogram with these settings")).toBeHidden({
+    timeout: 90_000,
+  });
+  await settle(page, "[role=img][aria-label^=Spectrogram]:not(.animate-pulse) canvas");
+  const settings = page.locator("fieldset:has(legend:has-text('Spectrogram settings'))");
+  if (info.project.name === "phone")
+    await settings.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await saveScreen(page, "player-spectrogram-analysis");
+  await checkScreen(page);
+});
+
 // "Any other options for these bars?" (#46): the takes covering a bar thread's first bar.
 test("file-comment-other-takes", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);

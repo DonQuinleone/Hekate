@@ -1508,7 +1508,7 @@ export function Player({
                     onClick={() => setTuning((t) => !t)}
                     className="self-start px-0 text-ink-3 hover:text-ink"
                   >
-                    {tuning ? "Hide spectrogram settings" : "Channel, levels and range…"}
+                    {tuning ? "Hide spectrogram settings" : "Channel, levels, range and analysis…"}
                   </Button>
                 )}
                 {kind === "audio" && !canSpectrogram && tools && !tools.includes("spectrogram") && (

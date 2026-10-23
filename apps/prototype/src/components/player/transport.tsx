@@ -10,6 +10,7 @@ import type { Playback } from "./playback.ts";
 import type { ColourMap } from "./spectrogram.tsx";
 
 export type WaveColour = "ink" | "signal" | "cool" | "warm";
+export type SpectrumWindow = "hann" | "hamming" | "blackman-harris" | "kaiser";
 
 export interface View {
   split: boolean;
@@ -18,6 +19,15 @@ export interface View {
   spectrogram: "off" | "below" | "behind" | "instead";
   colourMap: ColourMap;
   scale: "linear" | "log" | "mel";
+  /**
+   * How the spectrogram is analysed (#34): the window, the FFT's size and how far windows
+   * overlap. Anything but the default is drawn on the server when first asked for.
+   */
+  analysis: {
+    window: SpectrumWindow;
+    fftSize: "auto" | "1024" | "4096" | "16384";
+    overlap: "50" | "75" | "87.5";
+  };
   normalised: boolean;
   /** The line of loudness and issues under the player. */
   loudness: boolean;
@@ -29,6 +39,7 @@ export const defaultView: View = {
   spectrogram: "off",
   colourMap: "cyan-orange",
   scale: "log",
+  analysis: { window: "hann", fftSize: "auto", overlap: "75" },
   normalised: false,
   loudness: true,
 };
@@ -86,6 +97,7 @@ export function ViewMenu({
   normaliseAllowed: boolean;
 }) {
   const [open, setOpen, box] = usePopover();
+  const [analysing, setAnalysing] = useState(false);
   const row = "flex items-center justify-between gap-4 text-[13px] text-ink";
   return (
     <div ref={box} className="relative">
@@ -233,10 +245,75 @@ export function ViewMenu({
                   </div>
                   <button
                     type="button"
+                    aria-expanded={analysing}
+                    onClick={() => setAnalysing(!analysing)}
                     className="self-start text-[13px] text-ink-3 hover:text-ink"
                   >
-                    Window, FFT size, overlap and presets…
+                    Window, FFT size and overlap…
                   </button>
+                  {analysing && (
+                    <div className="flex flex-col gap-2.5 border-t border-line pt-2.5">
+                      <div className={row}>
+                        Window
+                        <Seg
+                          value={view.analysis.window}
+                          onChange={(v) =>
+                            onView({ ...view, analysis: { ...view.analysis, window: v } })
+                          }
+                          label="Window"
+                          options={[
+                            { id: "hann", label: "Hann" },
+                            { id: "hamming", label: "Hamming" },
+                            { id: "blackman-harris", label: "B–H" },
+                            { id: "kaiser", label: "Kaiser" },
+                          ]}
+                        />
+                      </div>
+                      <div className={row}>
+                        <span>
+                          FFT size
+                          <span className="block text-[12px] text-ink-3">
+                            Smaller is sharper in time, larger in pitch
+                          </span>
+                        </span>
+                        <Seg
+                          value={view.analysis.fftSize}
+                          onChange={(v) =>
+                            onView({ ...view, analysis: { ...view.analysis, fftSize: v } })
+                          }
+                          label="FFT size"
+                          options={[
+                            { id: "auto", label: "Auto" },
+                            { id: "1024", label: "1k" },
+                            { id: "4096", label: "4k" },
+                            { id: "16384", label: "16k" },
+                          ]}
+                        />
+                      </div>
+                      <div className={row}>
+                        Overlap
+                        <Seg
+                          value={view.analysis.overlap}
+                          onChange={(v) =>
+                            onView({ ...view, analysis: { ...view.analysis, overlap: v } })
+                          }
+                          label="Overlap"
+                          options={[
+                            { id: "50", label: "50%" },
+                            { id: "75", label: "75%" },
+                            { id: "87.5", label: "87.5%" },
+                          ]}
+                        />
+                      </div>
+                      <p className="text-[12px] text-ink-3">
+                        {view.analysis.window === "hann" &&
+                        view.analysis.fftSize === "auto" &&
+                        view.analysis.overlap === "75"
+                          ? "As every file is analysed. Other settings are drawn on the server the first time, and kept with your view and its presets."
+                          : "Drawn on the server the first time; the spectrogram says so while it is drawn."}
+                      </p>
+                    </div>
+                  )}
                 </>
               )}
             </>

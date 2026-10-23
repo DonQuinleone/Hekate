@@ -166,6 +166,9 @@ export function projectBytes(db: Database, organisationId: string, projectId?: s
       union select f.project_id, s.blob_id from spectrograms s
         join files f on f.id = s.file_id and f.organisation_id = ${org}
         where s.organisation_id = ${org} and s.blob_id is not null
+      union select f.project_id, v.blob_id from spectrogram_variants v
+        join files f on f.id = v.file_id and f.organisation_id = ${org}
+        where v.organisation_id = ${org}
     )
     select p.id, p.name, coalesce(sum(b.byte_size), 0)::text as bytes
     from projects p

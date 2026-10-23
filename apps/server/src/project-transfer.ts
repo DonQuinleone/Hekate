@@ -72,6 +72,8 @@ export const transferTables = {
     "peak_levels",
     "loudness",
     "spectrograms",
+    "spectrogram_variants",
+    "spectrogram_variant_failures",
     "file_pages",
     "file_tags",
     "caption_tracks",
@@ -178,6 +180,7 @@ function objectsOf(projectId: string, from: string) {
       union ${blobsOf("peak_levels", "blob_id", sql`file_id in ${files}`)}
       union ${blobsOf("loudness", "blob_id", sql`file_id in ${files}`)}
       union ${blobsOf("spectrograms", "blob_id", sql`file_id in ${files}`)}
+      union ${blobsOf("spectrogram_variants", "blob_id", sql`file_id in ${files}`)}
       union ${blobsOf("file_pages", "blob_id", sql`file_id in ${files}`)}
       union ${blobsOf("file_pages", "thumb_blob_id", sql`file_id in ${files}`)}
       union ${blobsOf("caption_tracks", "blob_id", sql`file_id in ${files}`)}
@@ -577,6 +580,8 @@ async function moveRows(tx: Tx, projectId: string, from: string, to: string) {
       "peak_levels",
       "loudness",
       "spectrograms",
+      "spectrogram_variants",
+      "spectrogram_variant_failures",
       "file_pages",
       "file_tags",
       "caption_tracks",

@@ -4,8 +4,10 @@ import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { type Database, inOrg, schema, uuidv7 } from "@hekate/db";
 import {
+  analysisOfKey,
   encodeLoudness,
   encodePeaks,
+  isDefaultAnalysis,
   layoutsWithLfe,
   lfeChannels,
   type MediaInfo,
@@ -56,6 +58,8 @@ const {
   loudness,
   qaFindings,
   spectrograms,
+  spectrogramVariantFailures,
+  spectrogramVariants,
   tracks,
 } = schema;
 
@@ -704,6 +708,114 @@ const checksOf = async (db: Database | Tx, organisationId: string, fileId: strin
     ).map((f) => f.check as string),
   );
 
+/**
+ * A file's spectrograms with a viewer's own analysis settings (#34), drawn from its own decode
+ * as the analysis draws the default ones, and kept under the settings' key. Idempotent: a
+ * set already drawn is left alone, and two at once keep the first.
+ */
+export function spectrogramVariantHandler(
+  deps: MediaWorkerDeps,
+): JobHandler<"spectrogram-variant"> {
+  return async ({ organisationId, fileId, analysis: key }, job) => {
+    const analysis = analysisOfKey(key);
+    if (!analysis || isDefaultAnalysis(analysis)) return;
+    const [file] = await deps.db
+      .select()
+      .from(files)
+      .where(inOrg(files, organisationId, eq(files.id, fileId)));
+    const audio = file?.mediaInfo?.audio;
+    if (!file || !audio || file.analysisStatus !== "ready") return;
+    const [drawn] = await deps.db
+      .select({ id: spectrogramVariants.id })
+      .from(spectrogramVariants)
+      .where(
+        inOrg(
+          spectrogramVariants,
+          organisationId,
+          eq(spectrogramVariants.fileId, fileId),
+          eq(spectrogramVariants.analysis, key),
+        ),
+      )
+      .limit(1);
+    if (drawn) return;
+    const stored: string[] = [];
+    try {
+      const spectra = await withWorkspace(deps.workDir, async (dir) => {
+        const input = await materialise(deps.storage, organisationId, file.blobId, dir, job.signal);
+        return spectrogramsInThread(input, audio, file.mediaInfo?.duration, job.signal, analysis);
+      });
+      const rows: (typeof spectrogramVariants.$inferInsert)[] = [];
+      for (const spectrum of spectra) {
+        const blob = await deps.storage.put(organisationId, Buffer.from(spectrum.bytes), {
+          contentType: "application/octet-stream",
+          projectId: file.projectId,
+        });
+        stored.push(blob.id);
+        rows.push({
+          organisationId,
+          fileId,
+          analysis: key,
+          channel: spectrum.channel,
+          fftSize: spectrum.fftSize,
+          sampleRate: audio.sampleRate,
+          samplesPerColumn: spectrum.samplesPerColumn,
+          columnCount: spectrum.columns,
+          bandCount: spectrum.bands,
+          blobId: blob.id,
+        });
+      }
+      const kept = await deps.db
+        .insert(spectrogramVariants)
+        .values(rows)
+        .onConflictDoNothing()
+        .returning({ blobId: spectrogramVariants.blobId });
+      // Drawn twice at once: the first set stands, and this one's bytes go.
+      const unused = stored.filter((id) => !kept.some((k) => k.blobId === id));
+      await discard(deps.storage, organisationId, unused, `spectrograms of file ${fileId}`);
+    } catch (error) {
+      await discard(deps.storage, organisationId, stored, `spectrograms of file ${fileId}`);
+      // The last try: asked for again, these settings answer failed rather than draw again.
+      if (job.retryCount >= jobDefinitions["spectrogram-variant"].options.retryLimit) {
+        await deps.db
+          .insert(spectrogramVariantFailures)
+          .values({ organisationId, fileId, analysis: key })
+          .onConflictDoNothing();
+      }
+      throw error;
+    }
+  };
+}
+
+/** How long spectrograms with a viewer's own settings are kept after they were last used. */
+export const VARIANT_DAYS = 30;
+
+/**
+ * Spectrograms with a viewer's own settings that nobody has used for a month, removed (#34):
+ * across the instance, as a system job, like expired uploads.
+ */
+export async function expireSpectrogramVariants(
+  db: Database,
+  storage: Storage,
+  now = new Date(),
+): Promise<number> {
+  const before = new Date(now.getTime() - VARIANT_DAYS * 24 * 60 * 60_000);
+  const gone = await db
+    .delete(spectrogramVariants)
+    .where(lt(spectrogramVariants.usedAt, before))
+    .returning({
+      organisationId: spectrogramVariants.organisationId,
+      blobId: spectrogramVariants.blobId,
+    });
+  for (const row of gone) {
+    await discard(storage, row.organisationId, [row.blobId], "an unused spectrogram");
+  }
+  // Failures as old are forgotten too, so the next ask tries again.
+  await db
+    .delete(spectrogramVariantFailures)
+    .where(lt(spectrogramVariantFailures.updatedAt, before));
+  return gone.length;
+}
+
 /** The spectrograms stored when a file was analysed, each channel's as encoded. */
 async function storedSpectra(deps: MediaWorkerDeps, organisationId: string, fileId: string) {
   const rows = await deps.db
@@ -903,6 +1015,13 @@ export async function startWorkers(jobs: Jobs, deps: MediaWorkerDeps, concurrenc
   await jobs.work("media-analysis", analysisHandler(deps), { concurrency });
   await jobs.work("blob-checksum", checksumHandler(deps), { concurrency });
   await jobs.work("document-render", renderHandler(deps), { concurrency });
+  await jobs.work("spectrogram-variant", spectrogramVariantHandler(deps), {
+    concurrency: Math.max(1, Math.floor(concurrency / 2)),
+  });
+  await jobs.work("spectrogram-variants-expire", async () => {
+    const removed = await expireSpectrogramVariants(deps.db, deps.storage);
+    if (removed > 0) console.log(`Removed ${removed} spectrogram(s) unused for a month`);
+  });
   await jobs.work("media-align", alignHandler(deps), {
     concurrency: Math.max(1, Math.floor(concurrency / 2)),
   });
