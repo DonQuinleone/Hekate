@@ -29,6 +29,7 @@ import { INVITATION_LIFETIME_MS, newInvitationToken } from "../invitation-token.
 import { type Mailer, sendEmail } from "../mail.ts";
 import type { Storage } from "../storage.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";
+import { assertMemberRoom } from "../usage.ts";
 
 const {
   members,
@@ -406,37 +407,41 @@ export const organisationRoutes = (
         .where(and(eq(members.organisationId, c.var.organisationId), eq(users.email, email)));
       if (existing) throw new HTTPException(409, { message: "That person is already a member" });
 
-      // A new invitation replaces any pending one for the same address.
-      await db
-        .update(invitations)
-        .set({ revokedAt: new Date() })
-        .where(
-          inOrg(
-            invitations,
-            c.var.organisationId,
-            eq(invitations.email, email),
-            isNull(invitations.acceptedAt),
-            isNull(invitations.revokedAt),
-          ),
-        );
-
       const { token, hash } = newInvitationToken();
-      const [invitation] = await db
-        .insert(invitations)
-        .values({
-          organisationId: c.var.organisationId,
-          email,
-          role,
-          tokenHash: hash,
-          invitedBy: c.var.userId,
-          expiresAt: new Date(Date.now() + INVITATION_LIFETIME_MS),
-        })
-        .returning({
-          id: invitations.id,
-          email: invitations.email,
-          role: invitations.role,
-          expiresAt: invitations.expiresAt,
-        });
+      const invitation = await db.transaction(async (tx) => {
+        // A new invitation replaces any pending one for the same address.
+        await tx
+          .update(invitations)
+          .set({ revokedAt: new Date() })
+          .where(
+            inOrg(
+              invitations,
+              c.var.organisationId,
+              eq(invitations.email, email),
+              isNull(invitations.acceptedAt),
+              isNull(invitations.revokedAt),
+            ),
+          );
+        // Each invitation waiting takes a place under the member limit (#175).
+        await assertMemberRoom(tx, c.var.organisationId, "invitation");
+        const [made] = await tx
+          .insert(invitations)
+          .values({
+            organisationId: c.var.organisationId,
+            email,
+            role,
+            tokenHash: hash,
+            invitedBy: c.var.userId,
+            expiresAt: new Date(Date.now() + INVITATION_LIFETIME_MS),
+          })
+          .returning({
+            id: invitations.id,
+            email: invitations.email,
+            role: invitations.role,
+            expiresAt: invitations.expiresAt,
+          });
+        return made;
+      });
       const [organisation] = await db
         .select({ name: organisations.name, settings: organisations.settings })
         .from(organisations)

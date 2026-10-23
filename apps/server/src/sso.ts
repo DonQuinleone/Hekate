@@ -13,6 +13,7 @@ import {
 } from "@hekate/shared";
 import { eq } from "drizzle-orm";
 import type { Audit } from "./audit.ts";
+import { memberRoom } from "./usage.ts";
 
 const { authAccounts, members, ssoProviders } = schema;
 
@@ -384,8 +385,19 @@ export async function provision(
     .select({ id: members.id, role: members.role })
     .from(members)
     .where(inOrg(members, organisationId, eq(members.userId, input.userId)));
-  if (!membership) await db.insert(members).values({ organisationId, userId: input.userId, role });
-  else if (membership.role !== "owner" && membership.role !== role)
+  if (!membership) {
+    // The workspace's member limit (#175): signed in, they join once there is room.
+    const joined = await db.transaction(async (tx) => {
+      const refusal = await memberRoom(tx, organisationId, "provisioning");
+      if (refusal) {
+        console.warn(`A first sign-in to workspace ${organisationId} was not joined: ${refusal}`);
+        return false;
+      }
+      await tx.insert(members).values({ organisationId, userId: input.userId, role });
+      return true;
+    });
+    if (!joined) return;
+  } else if (membership.role !== "owner" && membership.role !== role)
     await db
       .update(members)
       .set({ role })

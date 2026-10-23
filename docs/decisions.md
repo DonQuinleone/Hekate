@@ -1372,3 +1372,14 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Logs as they are.** Each console line is also sent as a log record in its span's trace; stdout is unchanged, for log shippers that read it.
 - **Joined to error references.** An error report keeps the trace id it happened in (decision 159's references), shown in Debug tools and in the copied report.
 - **Expanding only:** a nullable column on error reports (decision 198).
+
+## 207. Quotas and usage: limits an operator sets, refused under a lock, counted each hour
+
+#175. A workspace may be held to a storage quota and a member limit, and what it uses is counted.
+
+- **Set by an operator, seeded from the defaults.** Two nullable columns on the workspace; null is no limit, which is where every workspace starts on upgrade and every default starts. Plans (#177) will set them later; the workspace's own people never do.
+- **Refused as it happens, never after.** An upload takes its room in the quota as it begins, and an invitation its place under the limit as it is sent, each checked under a lock on the workspace's row in the transaction that records it, so two at once cannot both slip under. Every invitation waiting takes a place, whichever way someone joins; accepting one discounts only its own. Comment attachments are checked before they are stored, and again under the lock once they are. Renditions of what was let in are always made.
+- **Nothing removed.** Lowering a limit below what a workspace uses refuses only what would add to it.
+- **Warned from 90%.** On the workspace's Storage settings, its Storage tab on the instance side, and the instance's Overview.
+- **The month, counted hourly.** One row per workspace and month: storage now and at its peak, people and projects, and the plays and downloads the access log holds, counted on from where the last count stopped, so each hour reads only what is new. Each count stops fifteen minutes short of now: an access event's id is made before its transaction commits, and an event that lands late must not fall behind a count that has passed it. A month just ended is counted to its end first. For billing (#177, #179) to read.
+- **Expanding only:** new nullable columns and a new table (decision 198).

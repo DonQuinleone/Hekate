@@ -1,8 +1,10 @@
 import { type Database, schema } from "@hekate/db";
+import type { WorkspaceUsage } from "@hekate/shared";
 import { and, desc, eq, gte, isNotNull, isNull, or, sql } from "drizzle-orm";
 import type { Audit } from "./audit.ts";
 import { type ReconcileReport, reconcileStorage } from "./reconcile.ts";
 import type { Storage } from "./storage.ts";
+import { workspaceUsageOf } from "./usage.ts";
 
 const { storageFindings, storageReconciliations } = schema;
 
@@ -23,6 +25,8 @@ export interface WorkspaceStorage {
     /** Objects removed in the last 30 days. */
     removed: number;
   };
+  /** What it uses against its limits, and in the month so far (#175). */
+  usage: WorkspaceUsage;
 }
 
 /**
@@ -106,6 +110,7 @@ export async function workspaceStorage(
       missing: await open("missing_object"),
       removed: removed?.n ?? 0,
     },
+    usage: await workspaceUsageOf(db, org),
   };
 }
 

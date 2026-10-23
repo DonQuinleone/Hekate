@@ -35,6 +35,7 @@ import { recordedReconciliation } from "./storage-usage.ts";
 import { checkReleases, recordVersionRun } from "./system-info.ts";
 import { remindTasksDue } from "./tasks.ts";
 import { startTelemetry } from "./telemetry.ts";
+import { refreshUsage } from "./usage.ts";
 import { clockElapsed, fileMeasured, sweepRuns } from "./workflow-runner.ts";
 import { rewrapBehind, rewrapOrganisation } from "./workspace-keys.ts";
 import { routedMailer } from "./workspace-mail.ts";
@@ -251,6 +252,9 @@ export async function boot(
       const rewrapped = await rewrapOrganisation(db, keyring, organisationId);
       if (rewrapped > 0)
         console.log(`Rewrapped ${rewrapped} key(s) of workspace ${organisationId}`);
+    });
+    await taking.work("usage-refresh", async () => {
+      await refreshUsage(db);
     });
     await taking.work("workspaces-purge", async () => {
       const purged = await purgeDueWorkspaces(db, backends);

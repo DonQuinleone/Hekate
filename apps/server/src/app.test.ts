@@ -77,6 +77,7 @@ import { createStorage } from "./storage.ts";
 import { systemHealth } from "./system-health.ts";
 import { remindTasksDue } from "./tasks.ts";
 import { expireUploads } from "./uploads.ts";
+import { storageInUse } from "./usage.ts";
 import { clockElapsed, fileMeasured, sweepRuns, workflowsFor } from "./workflow-runner.ts";
 import { rewrapBehind, rewrapOrganisation } from "./workspace-keys.ts";
 import { purgeDueWorkspaces } from "./workspace-purge.ts";
@@ -1166,6 +1167,130 @@ describe.runIf(url)("api", () => {
         expect(all.workspaces.map((w) => w.name)).toEqual(["Saltmarsh Films", "Studio"]);
       });
 
+      describe("usage and quotas (#175)", () => {
+        const studio = async () =>
+          (
+            await db
+              .select({ id: schema.organisations.id })
+              .from(schema.organisations)
+              .where(eq(schema.organisations.name, "Studio"))
+          )[0]?.id ?? "";
+        const limit = (id: string, limits: unknown, cookie: string) =>
+          send("PUT", `/api/instance/workspaces/${id}/limits`, limits, cookie);
+
+        it("holds a workspace to its member limit, counting invitations, and only an operator sets it", async () => {
+          const operator = cookieOf(await setup());
+          const id = await studio();
+          const set = await limit(id, { storageQuota: null, memberLimit: 2 }, operator);
+          expect(set.status).toBe(200);
+          expect(await set.json()).toMatchObject({
+            limits: { storageQuota: null, memberLimit: 2 },
+            members: 1,
+          });
+          const [event] = await db
+            .select()
+            .from(schema.instanceEvents)
+            .where(eq(schema.instanceEvents.action, "workspace.limits"));
+          expect(event).toMatchObject({ target: "Studio", details: { memberLimit: 2 } });
+
+          // One member and one invitation fill two places.
+          const first = await invite(operator, "a@example.test");
+          expect(first.res.status).toBe(201);
+          const full = await invite(operator, "b@example.test");
+          expect(full.res.status).toBe(409);
+          expect(full.body).toMatchObject({
+            error: {
+              code: "member_limit",
+              message: expect.stringMatching(/^Member limit reached: 2 of 2\./),
+            },
+          });
+          // Inviting the same address again replaces its invitation, taking no new place.
+          const again = await invite(operator, "a@example.test");
+          expect(again.res.status).toBe(201);
+
+          // Lowered below what it holds, the invitation already sent waits: accepting is
+          // refused, no account is made, and the link still works once there is room.
+          expect((await limit(id, { storageQuota: null, memberLimit: 1 }, operator)).status).toBe(
+            200,
+          );
+          const token = tokenFrom(again.body.link);
+          const refused = await app.request(
+            `/api/invitations/${token}/accept`,
+            json({ name: "Ines Arlow", password: "correct horse battery" }),
+          );
+          expect(refused.status).toBe(409);
+          expect(await refused.json()).toMatchObject({ error: { code: "member_limit" } });
+          expect(
+            await db.select().from(schema.users).where(eq(schema.users.email, "a@example.test")),
+          ).toEqual([]);
+          expect(await (await app.request(`/api/invitations/${token}`)).json()).toMatchObject({
+            status: "valid",
+          });
+          expect((await limit(id, { storageQuota: null, memberLimit: 3 }, operator)).status).toBe(
+            200,
+          );
+          const joined = await app.request(
+            `/api/invitations/${token}/accept`,
+            json({ name: "Ines Arlow", password: "correct horse battery" }),
+          );
+          expect(joined.status).toBe(201);
+
+          // A member, even an admin of the workspace, may not set its limits; nor may a limit be
+          // set to nothing at all.
+          const admin = await join(operator, "admin@example.test", "admin");
+          expect((await limit(id, { storageQuota: null, memberLimit: 50 }, admin)).status).toBe(
+            403,
+          );
+          expect((await limit(id, { storageQuota: 0, memberLimit: null }, operator)).status).toBe(
+            400,
+          );
+        });
+
+        it("refuses an upload past the storage quota, counting uploads arriving, and warns from 90%", async () => {
+          const operator = cookieOf(await setup());
+          const id = await studio();
+          const project = (await (
+            await app.request(
+              "/api/projects",
+              json({ name: "Joplin Rags", profile: "music" }, operator),
+            )
+          ).json()) as { project: { id: string } };
+          const begin = (size: number) =>
+            app.request(
+              "/api/uploads",
+              json({ projectId: project.project.id, name: "Bethena.wav", size }, operator),
+            );
+          expect(
+            (await limit(id, { storageQuota: 1000, memberLimit: null }, operator)).status,
+          ).toBe(200);
+          expect((await begin(600)).status).toBe(201);
+          const over = await begin(500);
+          expect(over.status).toBe(409);
+          expect(await over.json()).toMatchObject({
+            error: {
+              code: "storage_quota",
+              message: expect.stringMatching(/^Storage quota reached: 600 B of 1\.0 KB\./),
+            },
+          });
+          expect((await begin(350)).status).toBe(201);
+
+          // The workspace's admins see where it stands, and the operators are warned.
+          const usage = (await (
+            await app.request("/api/organisation/storage/usage", { headers: { cookie: operator } })
+          ).json()) as { usage: { storageBytes: number; limits: { storageQuota: number } } };
+          expect(usage.usage).toMatchObject({ storageBytes: 950, limits: { storageQuota: 1000 } });
+          const overview = (await (await get("/api/instance/overview", operator)).json()) as {
+            needs: { kind: string; title: string }[];
+          };
+          expect(overview.needs).toContainEqual(
+            expect.objectContaining({
+              kind: "quota_near",
+              title: "Studio is at 95% of its storage quota",
+            }),
+          );
+        });
+      });
+
       it("adds and removes operators, but never the last", async () => {
         const first = cookieOf(await setup());
         await join(first, "ops@example.test");
@@ -1670,7 +1795,7 @@ describe.runIf(url)("api", () => {
           security: { requireSecondFactor: false },
           updates: { channel: "stable" },
           maintenance: { on: false, message: "" },
-          defaults: { guestLinkDays: 3 },
+          defaults: { guestLinkDays: 3, storageQuota: null, memberLimit: null },
           logs: { audit: null, auth: 365, mail: 90, webhooks: 30 },
         });
         expect(first.environment.sessionDays).toBe(14);
@@ -1750,7 +1875,11 @@ describe.runIf(url)("api", () => {
         const operator = cookieOf(await setup());
         type Answer = { settings: InstanceSettings; environment: InstanceEnvironment };
         const current = (await (await get("/api/instance/settings", operator)).json()) as Answer;
-        expect(current.settings.defaults).toEqual({ guestLinkDays: 3 });
+        expect(current.settings.defaults).toEqual({
+          guestLinkDays: 3,
+          storageQuota: null,
+          memberLimit: null,
+        });
         expect(current.environment.modules).toEqual({
           billing: "off",
           support: "off",
@@ -1760,14 +1889,21 @@ describe.runIf(url)("api", () => {
         const saved = await send(
           "PUT",
           "/api/instance/settings",
-          { ...current.settings, defaults: { guestLinkDays: 30 } },
+          {
+            ...current.settings,
+            defaults: { guestLinkDays: 30, storageQuota: 1e12, memberLimit: 25 },
+          },
           operator,
         );
         expect(((await saved.json()) as Answer).settings.defaults.guestLinkDays).toBe(30);
         // An older page sends no defaults: saving something else keeps them as stored.
         const { defaults: _, ...older } = current.settings;
         const kept = await send("PUT", "/api/instance/settings", older, operator);
-        expect(((await kept.json()) as Answer).settings.defaults).toEqual({ guestLinkDays: 30 });
+        expect(((await kept.json()) as Answer).settings.defaults).toEqual({
+          guestLinkDays: 30,
+          storageQuota: 1e12,
+          memberLimit: 25,
+        });
         expect(
           (
             await send(
@@ -1795,10 +1931,16 @@ describe.runIf(url)("api", () => {
         );
         const { id } = (await made.json()) as { id: string };
         const [workspace] = await db
-          .select({ settings: schema.organisations.settings })
+          .select({
+            settings: schema.organisations.settings,
+            storageQuota: schema.organisations.storageQuota,
+            memberLimit: schema.organisations.memberLimit,
+          })
           .from(schema.organisations)
           .where(eq(schema.organisations.id, id));
         expect(workspaceSettingsOf(workspace?.settings).guestLinkDays).toBe(30);
+        // Its limits too (#175), which only an operator changes after.
+        expect(workspace).toMatchObject({ storageQuota: 1e12, memberLimit: 25 });
 
         // A test message goes to the operator, through instance mail.
         mailer.sent.length = 0;
@@ -10529,6 +10671,22 @@ describe.runIf(url)("api", () => {
           const full = await stored();
           expect((await attach(picture, "Page 6.png")).status).toBe(409);
           expect(await stored()).toBe(full);
+
+          // The workspace's storage quota (#175) refuses one past it, and nothing is kept.
+          const { comment: another } = (await (await post({ body: "Bar 14" })).json()) as {
+            comment: { id: string };
+          };
+          const quota = (storageQuota: number | null) =>
+            db
+              .update(schema.organisations)
+              .set({ storageQuota })
+              .where(eq(schema.organisations.id, s.organisationId));
+          await quota((await storageInUse(db, s.organisationId)) + 10);
+          const over = await attach(picture, "Bar 14.png", s.owner, another.id);
+          expect(over.status).toBe(409);
+          expect(await over.json()).toMatchObject({ error: { code: "storage_quota" } });
+          expect(await stored()).toBe(full);
+          await quota(null);
 
           // A download is made for one person, works once, and is logged first.
           const ticket = (cookie: string, id = attachment.id) =>

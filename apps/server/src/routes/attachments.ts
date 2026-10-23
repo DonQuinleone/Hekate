@@ -18,6 +18,7 @@ import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
 import { admit, tooMany } from "../rate-limit.ts";
 import type { Storage } from "../storage.ts";
+import { assertStorageRoom } from "../usage.ts";
 import { attachment, threadsOn, wroteIt } from "./comments.ts";
 
 const { comments, commentAttachments, downloadTickets } = schema;
@@ -123,6 +124,9 @@ export const attachmentRoutes = (deps: AttachmentDeps) =>
         if (bytes.length === 0) throw new HTTPException(400, { message: "The file is empty" });
         if (bytes.length > COMMENT_ATTACHMENT_MAX_BYTES)
           throw new HTTPException(413, { message: "An attachment can be at most 25 MB" });
+        // The workspace's quota (#175): checked before the bytes are stored, so a refusal costs
+        // no store, and again below, under the lock, with them counted.
+        await db.transaction((tx) => assertStorageRoom(tx, organisationId, bytes.length));
         const contentType = contentTypeOf(c.req.header("content-type"));
         const blob = await storage.put(organisationId, bytes, {
           contentType,
@@ -132,6 +136,9 @@ export const attachmentRoutes = (deps: AttachmentDeps) =>
           const made = await db.transaction(async (tx) => {
             // Again under the comment's lock, so two at once cannot pass the limit together.
             await mayAttach(tx, organisationId, actor, commentId, true);
+            // And the quota under the workspace's: its blob is stored, so it counts already, and
+            // attachments sent at once cannot all pass on what was used before any of them.
+            await assertStorageRoom(tx, organisationId, 0);
             const [row] = await tx
               .insert(commentAttachments)
               .values({

@@ -1167,6 +1167,23 @@ export function SettingsPage({
       {sec === "storage" && (
         <>
           <Section
+            title="Usage"
+            intro="Uploads are refused at the storage quota and invitations at the member limit, which the instance’s operators set; this page warns from 90%."
+          >
+            <Row name="Storage" hint="245 GB of 1.0 TB">
+              <span className="block h-1.5 w-56 max-w-full overflow-hidden rounded-full bg-raised">
+                <span className="block h-full w-[24.5%] rounded-full bg-ink-2" />
+              </span>
+            </Row>
+            <Row name="Members" hint="12 of 25 · 2 invited, each taking a place">
+              <span className="block h-1.5 w-56 max-w-full overflow-hidden rounded-full bg-raised">
+                <span className="block h-full w-[56%] rounded-full bg-ink-2" />
+              </span>
+            </Row>
+            <Row name="Guests and projects" hint="31 guests · 2 projects" />
+            <Row name="This month" hint="184 plays · 12 downloads · storage at its peak 251 GB" />
+          </Section>
+          <Section
             title="Backends"
             action={
               <Button variant="secondary" size="md" onClick={() => setAdding(true)}>

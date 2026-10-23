@@ -19,6 +19,8 @@ describe("instance settings", () => {
     // Written before new workspaces had defaults: they read as the defaults.
     expect(instanceSettingsOf({ maintenance: { on: false, message: "" } }).defaults).toEqual({
       guestLinkDays: 3,
+      storageQuota: null,
+      memberLimit: null,
     });
     expect(instanceSettingsOf({ defaults: { guestLinkDays: 30 } }).defaults.guestLinkDays).toBe(30);
   });
@@ -36,7 +38,7 @@ describe("instance settings", () => {
         security: { requireSecondFactor: true },
         updates: { channel: "beta" },
         maintenance: { on: false, message: "" },
-        defaults: { guestLinkDays: 14 },
+        defaults: { guestLinkDays: 14, storageQuota: 1e12, memberLimit: 25 },
         logs: { audit: 730, auth: 365, mail: 90, webhooks: 90 },
       }),
     ).toEqual([
@@ -44,6 +46,8 @@ describe("instance settings", () => {
       { action: "updates.channel", details: { channel: "beta" } },
       { action: "maintenance.off", details: { message: "" } },
       { action: "defaults.guest_link_days", details: { days: 14 } },
+      { action: "defaults.storage_quota", details: { bytes: 1e12 } },
+      { action: "defaults.member_limit", details: { members: 25 } },
       { action: "logs.retention", details: { kind: "audit", days: 730 } },
       { action: "logs.retention", details: { kind: "webhooks", days: 90 } },
     ]);
@@ -51,12 +55,25 @@ describe("instance settings", () => {
   });
 
   it("keeps what a save leaves out as stored, never back to its default", () => {
-    const stored = { ...defaultInstanceSettings, defaults: { guestLinkDays: 30 as const } };
+    const stored = {
+      ...defaultInstanceSettings,
+      defaults: { guestLinkDays: 30 as const, storageQuota: 1e12, memberLimit: 25 },
+    };
     const { defaults: _, ...older } = defaultInstanceSettings;
-    expect(withStored(older, stored).defaults).toEqual({ guestLinkDays: 30 });
+    expect(withStored(older, stored).defaults).toEqual(stored.defaults);
+    // A client from before the limits (#175) leaves them as stored.
     expect(withStored({ ...older, defaults: { guestLinkDays: 14 } }, stored).defaults).toEqual({
       guestLinkDays: 14,
+      storageQuota: 1e12,
+      memberLimit: 25,
     });
+    // No limit is a choice too.
+    expect(
+      withStored(
+        { ...older, defaults: { guestLinkDays: 14, storageQuota: null, memberLimit: 25 } },
+        stored,
+      ).defaults.storageQuota,
+    ).toBeNull();
     // Kept for good is a choice too: a save that leaves out the logs keeps it.
     const forever = {
       ...defaultInstanceSettings,

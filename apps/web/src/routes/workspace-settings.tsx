@@ -39,6 +39,7 @@ import { Dialog } from "~/components/ui/dialog";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { StatusDot } from "~/components/ui/status";
+import { UsageRows } from "~/components/usage";
 import { actionCopy } from "~/lib/access-log";
 import { shortAgent } from "~/lib/agent";
 import { cn } from "~/lib/cn";
@@ -978,8 +979,22 @@ function Storage({ role }: { role: Role }) {
   if (!data) return null;
   const receiving = data.backend ?? data.defaultBackend;
   const usedIn = (name: string) => usage?.backends.find((b) => b.name === name);
+  const limited =
+    usage && (usage.usage.limits.storageQuota !== null || usage.usage.limits.memberLimit !== null);
   return (
     <>
+      {usage && (
+        <Section
+          title="Usage"
+          intro={
+            limited
+              ? "Uploads are refused at the storage quota and invitations at the member limit, which the instance’s operators set; this page warns from 90%."
+              : "The instance sets no limits for this workspace. What it uses is counted each hour."
+          }
+        >
+          <UsageRows usage={usage.usage} />
+        </Section>
+      )}
       <Section
         title="Backends"
         intro="Existing files stay where they are; the choice applies to new ones."

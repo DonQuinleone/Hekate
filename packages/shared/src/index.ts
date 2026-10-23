@@ -68,6 +68,7 @@ export * from "./tasks.ts";
 export * from "./templates.ts";
 export * from "./tracks.ts";
 export * from "./upload-requests.ts";
+export * from "./usage.ts";
 export * from "./video-time.ts";
 export * from "./watermark.ts";
 export * from "./wave.ts";

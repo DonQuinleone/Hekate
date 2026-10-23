@@ -1102,15 +1102,34 @@ setup("seed", async ({ page, browser }) => {
   await decide(signOff.id, "approved", "Good to print.");
 
   // Other workspaces on the instance (#174), one of them suspended: its owner is told why.
+  const invited: Record<string, string> = {};
   for (const [name, slug] of [
     ["North Choir Collective", "north-choir"],
     ["Saltmarsh Films", "saltmarsh"],
   ] as const)
-    await api(page, "POST", "/api/instance/workspaces", {
-      name,
-      slug,
-      ownerEmail: `owner@${slug}.example`,
-    });
+    invited[slug] = (
+      await api<{ link: string }>(page, "POST", "/api/instance/workspaces", {
+        name,
+        slug,
+        ownerEmail: `owner@${slug}.example`,
+      })
+    ).link;
+  // Saltmarsh Films' owner keeps a score there, for its quota (#175) to be measured against.
+  const saltmarshOwner = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+  const saltmarshPage = await saltmarshOwner.newPage();
+  await api(
+    saltmarshPage,
+    "POST",
+    `/api/invitations/${invited.saltmarsh?.split("/invite/")[1]}/accept`,
+    { name: "Tomas Varga", password: "correct horse battery" },
+  );
+  const titles = await api<{ project: { id: string } }>(saltmarshPage, "POST", "/api/projects", {
+    name: "Opening titles",
+    profile: "video",
+  });
+  await upload(saltmarshPage, titles.project.id, [file("Maple Leaf Rag - Score.pdf")]);
+  await settled(saltmarshPage, titles.project.id);
+  await saltmarshOwner.close();
   const lantern = await api<{ id: string; link: string }>(
     page,
     "POST",
@@ -1279,6 +1298,28 @@ setup("seed", async ({ page, browser }) => {
     for (const r of reports)
       await sql`insert into error_reports (id, reference, source, location, message, stack, status, request_id, job_id, trace_id, context, organisation_id, user_id)
         values (gen_random_uuid(), ${r.reference}, ${r.source}, ${r.location}, ${r.message}, ${r.stack}, ${r.status}, ${r.request_id}, ${r.job_id}, ${r.trace_id}, ${r.context ? sql.json(r.context) : null}, ${r.organisation_id}, ${r.user_id})`;
+
+    // Usage and quotas (#175): Endless Hall Records within its limits, with the month counted
+    // so far; Saltmarsh Films at 92% of a quota an operator set by hand, which the overview
+    // warns of.
+    await api(page, "PUT", `/api/instance/workspaces/${label?.id}/limits`, {
+      storageQuota: 1e12,
+      memberLimit: 25,
+    });
+    await sql`insert into workspace_usage (id, organisation_id, month, storage_bytes, storage_peak, members, guests, projects, plays, downloads, measured_at)
+      select gen_random_uuid(), ${label?.id ?? null}, date_trunc('month', ${FIXED_TIME}::timestamptz)::date,
+        coalesce(sum(byte_size), 0), coalesce(sum(byte_size), 0), 0, 0, 0, 184, 12, ${FIXED_TIME}::timestamptz
+      from blobs where organisation_id = ${label?.id ?? null}`;
+    const [saltmarsh] = await sql<
+      { id: string }[]
+    >`select id from organisations where name = 'Saltmarsh Films'`;
+    const [stored] = await sql<
+      { bytes: string }[]
+    >`select coalesce(sum(byte_size), 0)::text as bytes from blobs where organisation_id = ${saltmarsh?.id ?? null}`;
+    await api(page, "PUT", `/api/instance/workspaces/${saltmarsh?.id}/limits`, {
+      storageQuota: Math.ceil(Number(stored?.bytes ?? 0) / 0.92),
+      memberLimit: 10,
+    });
 
     // Where the workspace's events go (#161): a Slack channel, a Teams one and a webhook that
     // kept failing and paused, with a few deliveries for the webhook log. Their addresses are

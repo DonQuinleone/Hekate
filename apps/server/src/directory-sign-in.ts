@@ -10,6 +10,7 @@ import { authenticate, directoryConfig } from "./directory.ts";
 import type { Keyring } from "./keyring.ts";
 import { waitMessage } from "./lockout.ts";
 import { admitAttempt, clearAttempts } from "./sign-in.ts";
+import { memberRoom } from "./usage.ts";
 
 const { authAccounts, members, organisations, users } = schema;
 
@@ -122,11 +123,14 @@ export const directorySignIn = (deps: { db: Database; keyring?: Keyring; audit?:
               .select({ id: members.id, role: members.role })
               .from(members)
               .where(inOrg(members, organisation.id, eq(members.userId, id)));
-            if (!membership)
+            if (!membership) {
+              // The workspace's member limit (#175): no account is kept for one refused.
+              const refusal = await memberRoom(tx, organisation.id, "provisioning");
+              if (refusal) throw new APIError("FORBIDDEN", { message: refusal });
               await tx
                 .insert(members)
                 .values({ organisationId: organisation.id, userId: id, role });
-            else if (membership.role !== "owner" && membership.role !== role)
+            } else if (membership.role !== "owner" && membership.role !== role)
               await tx
                 .update(members)
                 .set({ role })
