@@ -32,6 +32,7 @@ import { cn } from "~/lib/cn";
 import { formatDateTime } from "~/lib/format";
 import { useViewer } from "~/viewer/context";
 import { Empty, Refused, useScreenState } from "~/viewer/state-gate";
+import { BrandingSection } from "./branding.tsx";
 import { BrandSection, ComponentsSection } from "./design-system.tsx";
 import { MembersSection } from "./members.tsx";
 import { EmailSection } from "./org-email.tsx";
@@ -43,6 +44,8 @@ const intros: Record<string, string> = {
   defaults: "What a new project copies unless it says otherwise.",
   categories: "The categories a comment can carry, and their colours.",
   delivery: "The numbers the checks measure against, shared by every project that picks a profile.",
+  branding:
+    "The workspace's logo and accent, on its sign-in page, guest pages and email. Hekate's own mark stays in the app.",
   brand:
     "The mark, the colours, the type, and every reusable component with the rule for using it.",
   email: "What every message from Hekate looks like, and the words the workspace sends.",
@@ -63,6 +66,7 @@ const sections = [
   { id: "defaults", label: "Defaults", group: "Workspace" },
   { id: "categories", label: "Comment categories", group: "Workspace" },
   { id: "delivery", label: "Delivery profiles", group: "Workspace" },
+  { id: "branding", label: "Branding", group: "Workspace" },
   { id: "brand", label: "Brand and design system", group: "Workspace" },
   { id: "email", label: "Email templates", group: "Workspace" },
   { id: "members", label: "Members", group: "Access" },
@@ -675,6 +679,7 @@ export function SettingsPage({
         </>
       )}
       {sec === "email" && <EmailSection />}
+      {sec === "branding" && <BrandingSection />}
       {sec === "brand" && (
         <>
           <BrandSection />
