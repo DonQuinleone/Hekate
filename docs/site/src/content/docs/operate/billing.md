@@ -65,6 +65,18 @@ Below, billing's **rules**, which operators set:
 
 Each change of a rule is an instance event.
 
+**Reports** shows the instance's figures in its currency (plans priced in another are left out, and named):
+- **MRR**, what paying workspaces' plans are worth a month at list price (a yearly price as a twelfth; a plan by agreement at a twelfth of what its workspaces paid by hand in the last year), and **ARR**, twelve times that;
+- **churn**, plans that ended in the last 90 days against those and the ones paying now, and the **average** a paying workspace pays a month;
+- what was **collected** each of the last twelve months, and from how many workspaces;
+- **by plan**, where the monthly revenue comes from.
+
+Its **exports** are CSV for an accountant, for the last twelve months, this year so far or last year:
+- **invoices:** every invoice issued in the period, by hand and through Stripe, with its amounts, dates and status;
+- **revenue recognition:** what each month earned, by workspace and plan, each payment spread over the months it pays for by days (one without a period counts in the month it was paid). The plan is the one the workspace is on now.
+
+Each export is an instance event, recorded before any of it leaves.
+
 **Promo codes** lists the codes, newest first, with what each gives, how many have used it, until when, and for which plans. Operators add and edit codes, copy one, see who used it, and end one.
 
 ## Promo codes

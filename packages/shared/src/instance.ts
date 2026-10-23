@@ -318,6 +318,7 @@ export const instanceActions: Record<string, string> = {
   "billing.currency": "given a new currency for billing",
   "billing.dunning": "given new days for dunning",
   "billing.trial_days": "given a new length of trial",
+  "billing.export": "exported",
   "promo.created": "added as a promo code",
   "promo.changed": "changed, for its uses from now",
   "promo.ended": "ended",

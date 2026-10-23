@@ -1406,6 +1406,18 @@ setup("seed", async ({ page, browser }) => {
       status: "trial",
       trialEndsAt: "2026-10-26T00:00:00Z",
     });
+    // A year of Stripe's invoices, paid, for the Reports tab (#180): Endless Hall Records on
+    // Studio since last November, Saltmarsh Films on Label since May.
+    for (let back = 11; back >= 1; back -= 1) {
+      const start = new Date(Date.UTC(2026, 9 - back, 1));
+      const end = new Date(Date.UTC(2026, 10 - back, 1));
+      const rows: [string | undefined, number, string][] = [[label?.id, 4900, "endless"]];
+      if (back <= 5) rows.push([saltmarsh?.id, 19_000, "saltmarsh"]);
+      for (const [organisationId, amount, who] of rows)
+        await sql`insert into invoices (id, organisation_id, source, gateway_id, number, status, currency, amount_due, amount_paid, period_start, period_end, issued_at, paid_at)
+          values (gen_random_uuid(), ${organisationId ?? null}, 'stripe', ${`in_seed_${who}_${back}`}, ${`INV-${String(400 - back * 2 - (who === "saltmarsh" ? 1 : 0)).padStart(4, "0")}`}, 'paid', 'GBP', ${amount}, ${amount}, ${start}, ${end}, ${start}, ${start})`;
+    }
+
     // Newest first, as the list shows them: LAUNCH50 at the top.
     for (const code of [
       { code: "BETA", percentOff: 100, months: 6, maxUses: 3, planIds: [studio?.id] },

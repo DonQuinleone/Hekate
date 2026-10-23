@@ -6,6 +6,7 @@ import {
   analysisKey,
   type BillingGatewayStatus,
   type BillingOverview,
+  type BillingReports,
   type Board,
   type CalendarEvent,
   type CaptionTrack,
@@ -4395,6 +4396,12 @@ export const instanceBillingQuery = queryOptions({
 export const instanceGatewayQuery = queryOptions({
   queryKey: ["instance", "billing", "gateway"],
   queryFn: async () => json<BillingGatewayStatus>(await api.instance.billing.gateway.$get()),
+});
+
+/** The instance's Billing reports (#180), in its currency. */
+export const instanceReportsQuery = queryOptions({
+  queryKey: ["instance", "billing", "reports"],
+  queryFn: async () => json<BillingReports>(await api.instance.billing.reports.$get()),
 });
 
 /** Save the instance's settings whole, as the Settings page and billing's rules do. */

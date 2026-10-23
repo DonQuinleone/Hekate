@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  churnRate,
   DUNNING_REASON,
   dunningDue,
   dunningRule,
@@ -7,9 +8,11 @@ import {
   isDunningReason,
   minorUnits,
   monthlyAmount,
+  monthsBack,
   promoCodeInput,
   promoRefusal,
   promoSummary,
+  recognise,
   suspendsAt,
 } from "./billing.ts";
 
@@ -137,5 +140,49 @@ describe("promo codes (#178)", () => {
     expect(promoSummary({ ...base, months: null, endedAt: "2026-10-01T00:00:00Z" }, date)).toBe(
       "50% off for good · used 4 of 50 · ended",
     );
+  });
+});
+
+describe("reports (#180)", () => {
+  it("counts back twelve months to this one, across a year's end", () => {
+    const months = monthsBack(new Date("2026-02-14T12:00:00Z"), 12);
+    expect(months).toHaveLength(12);
+    expect(months[0]).toBe("2025-03");
+    expect(months.at(-1)).toBe("2026-02");
+  });
+
+  it("spreads a payment over the months it pays for, by days, adding up to what was paid", () => {
+    const paidAt = new Date("2026-03-01T00:00:00Z");
+    // A year from 1 March: a twelfth-ish a month, by each month's days.
+    const year = recognise({
+      amountPaid: 49_000,
+      paidAt,
+      periodStart: new Date("2026-03-01T00:00:00Z"),
+      periodEnd: new Date("2027-03-01T00:00:00Z"),
+    });
+    expect(year).toHaveLength(12);
+    expect(year[0]).toEqual({ month: "2026-03", amount: Math.floor((49_000 * 31) / 365) });
+    expect(year.reduce((sum, s) => sum + s.amount, 0)).toBe(49_000);
+    // A month from the 15th: two months' shares.
+    expect(
+      recognise({
+        amountPaid: 4900,
+        paidAt,
+        periodStart: new Date("2026-10-15T00:00:00Z"),
+        periodEnd: new Date("2026-11-15T00:00:00Z"),
+      }),
+    ).toEqual([
+      { month: "2026-10", amount: Math.floor((4900 * 17) / 31) },
+      { month: "2026-11", amount: 4900 - Math.floor((4900 * 17) / 31) },
+    ]);
+    // No period: the month it was paid.
+    expect(recognise({ amountPaid: 120_000, paidAt, periodStart: null, periodEnd: null })).toEqual([
+      { month: "2026-03", amount: 120_000 },
+    ]);
+  });
+
+  it("takes churn as those lost against those lost and those paying", () => {
+    expect(churnRate(1, 9)).toBe(0.1);
+    expect(churnRate(0, 0)).toBeNull();
   });
 });

@@ -396,3 +396,80 @@ export interface BillingGatewayStatus {
   /** Invoices made by hand still open, across workspaces. */
   openByHand: number;
 }
+
+/** A month as reports name it: `2026-10`. */
+export type MonthKey = `${number}-${string}`;
+
+/** The month a moment falls in, in UTC. */
+export const monthKeyOf = (at: Date): MonthKey =>
+  `${at.getUTCFullYear()}-${String(at.getUTCMonth() + 1).padStart(2, "0")}` as MonthKey;
+
+/** The last so many months, oldest first, ending with the one `now` is in. */
+export function monthsBack(now: Date, count: number): MonthKey[] {
+  return Array.from({ length: count }, (_, i) =>
+    monthKeyOf(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (count - 1 - i), 1))),
+  );
+}
+
+/**
+ * An invoice's payment spread over the months it pays for, by days (#180's revenue
+ * recognition): a year paid in March is a twelfth a month. One with no period is the month it
+ * was paid. Each share is whole minor units, and the shares add up to what was paid.
+ */
+export function recognise(invoice: {
+  amountPaid: number;
+  paidAt: Date;
+  periodStart: Date | null;
+  periodEnd: Date | null;
+}): { month: MonthKey; amount: number }[] {
+  const { periodStart: start, periodEnd: end, amountPaid } = invoice;
+  if (!start || !end || end <= start)
+    return [{ month: monthKeyOf(invoice.paidAt), amount: amountPaid }];
+  const total = end.getTime() - start.getTime();
+  const parts: { month: MonthKey; ms: number }[] = [];
+  let cursor = start;
+  while (cursor < end) {
+    const next = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
+    const until = next < end ? next : end;
+    parts.push({ month: monthKeyOf(cursor), ms: until.getTime() - cursor.getTime() });
+    cursor = until;
+  }
+  // Each share rounded down, and what rounding left given to the last.
+  const shares = parts.map((p) => ({
+    month: p.month,
+    amount: Math.floor((amountPaid * p.ms) / total),
+  }));
+  const given = shares.reduce((sum, s) => sum + s.amount, 0);
+  const last = shares.at(-1);
+  if (last) last.amount += amountPaid - given;
+  return shares;
+}
+
+/** Share of the paying base lost in a period, or null with nobody to lose. */
+export const churnRate = (lost: number, payingNow: number) =>
+  lost + payingNow === 0 ? null : lost / (lost + payingNow);
+
+/** The instance's Billing reports (#180), in one currency: the instance's. */
+export interface BillingReports {
+  currency: string;
+  /** What paying workspaces' plans are worth a month at list price, and a year. */
+  mrr: number;
+  arr: number;
+  /** Paying workspaces on a priced plan in this currency, and what each pays on average. */
+  paying: number;
+  average: number | null;
+  /** Workspaces whose plan ended in the last 90 days, against those paying now. */
+  churn: { lost: number; rate: number | null };
+  /** What was collected, and from how many workspaces, each of the last twelve months. */
+  months: { month: MonthKey; collected: number; workspaces: number }[];
+  /** Where the monthly revenue comes from: each plan, its workspaces and its share. */
+  byPlan: { planId: string; name: string; workspaces: number; amount: number; share: number }[];
+  /** Other currencies some plans are priced in, left out of these figures. */
+  otherCurrencies: string[];
+}
+
+/** The period an export covers: these months, oldest first, both included. */
+export const exportPeriod = z.object({
+  from: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+  to: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+});

@@ -36,6 +36,7 @@ import {
 } from "~/lib/queries";
 import { TileGrid } from "./billing";
 import { Gateways } from "./instance-billing-gateways";
+import { Reports } from "./instance-billing-reports";
 import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
 import { Choice, ChoiceCard } from "./ui/choice";
@@ -76,7 +77,7 @@ const severityNames: Record<SupportSeverity, string> = {
 const useInstanceCurrency = () =>
   useQuery(instanceOwnSettingsQuery).data?.settings.billing.currency ?? "GBP";
 
-type BillingTab = "overview" | "plans" | "promos" | "gateways";
+type BillingTab = "overview" | "plans" | "promos" | "gateways" | "reports";
 
 export function InstanceBilling() {
   const [tab, setTab] = useState<BillingTab>("overview");
@@ -89,6 +90,7 @@ export function InstanceBilling() {
         <TabsTrigger value="plans">Plans</TabsTrigger>
         <TabsTrigger value="promos">Promo codes</TabsTrigger>
         <TabsTrigger value="gateways">Gateways</TabsTrigger>
+        <TabsTrigger value="reports">Reports</TabsTrigger>
       </TabsList>
       <TabsContent value="overview" className="flex flex-col gap-6 pt-6">
         <Overview />
@@ -101,6 +103,9 @@ export function InstanceBilling() {
       </TabsContent>
       <TabsContent value="gateways" className="flex flex-col gap-6 pt-6">
         <Gateways />
+      </TabsContent>
+      <TabsContent value="reports" className="flex flex-col gap-6 pt-6">
+        <Reports />
       </TabsContent>
     </Tabs>
   );

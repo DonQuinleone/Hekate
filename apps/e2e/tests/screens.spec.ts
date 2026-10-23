@@ -1162,6 +1162,7 @@ for (const [name, steps, ready] of [
     "[role=dialog] >> text=Support requests marked",
   ],
   ["instance-billing-gateways", ["tab:Gateways"], "main >> text=Manual invoicing"],
+  ["instance-billing-reports", ["tab:Reports"], "main >> text=Revenue recognition"],
   [
     "instance-billing-dunning",
     ["tab:Gateways", "button:Edit"],

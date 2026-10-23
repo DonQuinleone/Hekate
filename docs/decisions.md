@@ -1476,3 +1476,13 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Trials have a length before they have a sign-up.** Open sign-up with a trial is #184's; the length is set here so the rule lives with the others.
 - **The Gateways tab reads, it does not connect.** Stripe's account, its webhook's last event and failures, and Stripe Tax are shown; the keys stay in the environment. Paddle is not built yet, and invoices by hand cannot be turned off (a plan by agreement would have no way to be billed), so the prototype's Connect button and switch became plain rows.
 
+## 216. Billing reports: list price, collected, and recognised by days
+
+#180, the last part.
+
+- **Two kinds of figure, said apart.** MRR, ARR, the average and the by-plan split are what the plans paying workspaces are on are worth, at list price: they move the moment a plan changes, with no history to keep. "Collected" is what invoices actually paid, month by month. Discounts, credits and failed payments show in the second, not the first. A plan by agreement has no list price, so it counts at a twelfth of what its workspaces paid by hand in the last year.
+- **One currency.** The figures are in the instance's currency (decision 215). Plans priced in another are left out and named, rather than converted at a rate Hekate would have to choose.
+- **Churn without history.** Churn is the plans that ended in the last 90 days against those plus the ones paying now. A workspace's plan records when it was cancelled; nothing else is kept for it.
+- **Recognition by days.** The recognition export spreads each paid invoice over its period by days, shares rounded down and the remainder given to the last month, so a month's shares add up to what was paid. Invoices do not record their plan, so the export names the plan the workspace is on now.
+- **Exports are recorded first**, as the logs' exports are (#157), and streamed.
+
