@@ -39,7 +39,7 @@ Open `https://` and your domain, and enter the code. The installer tests each st
 4. **Master key:** made in your browser, or one you bring. It opens every file: keep a copy where the server cannot reach it, apart from your backups.
 5. **Mail:** SMTP, with the hosts of the common providers filled in (Amazon SES and Plunk among them), Microsoft 365 through Microsoft Graph, or Mailcoach through its API, and a test message.
 6. **Address:** looked up and asked for a code only this server knows, so you know it reaches this server.
-7. **First workspace:** its name, and you as its owner. After that, accounts are by invitation.
+7. **First workspace:** its name, and you as its owner. After that, accounts are by invitation, and only operators make workspaces until [registration](../operate/registration/) says otherwise.
 
 The installer keeps what it is given in `/config/hekate.env`, on a volume of its own (`settings`), readable by the server alone. Anything also set in `.env` (the database URL and the address, in the Compose file) is shown as fixed and never overwritten; set `MASTER_KEY` and `AUTH_SECRET` in `.env` too, if you would rather keep every setting there.
 

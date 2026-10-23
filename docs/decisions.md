@@ -1486,3 +1486,15 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Recognition by days.** The recognition export spreads each paid invoice over its period by days, shares rounded down and the remainder given to the last month, so a month's shares add up to what was paid. Invoices do not record their plan, so the export names the plan the workspace is on now.
 - **Exports are recorded first**, as the logs' exports are (#157), and streamed.
 
+## 219. Registration: operators only, anyone invited, or anyone
+
+#184. Who may make a workspace is an instance setting: operators only (the default, and how every instance worked before), anyone an operator invites, or anyone who confirms their email. Joining a workspace is unchanged: its own invitations work whatever registration says.
+
+- **One choice, not two.** The prototype had the three-way choice and a switch, "Allow sign-up without an invitation", which said the same as "Anyone". The switch is gone; the prototype changed with it. "Anyone invited" means an operator's invitation to make a workspace of one's own; an operator who wants to name the workspace and its subdomain still makes it on the Workspaces page, as before.
+- **A setting, not a column.** Registration lives with the instance's other settings (#160), read as the server runs; a save from a client that leaves it out keeps it as stored, and anything unknown reads as the defaults, so never as open.
+- **The link confirms the email.** Open sign-up asks for the email first and mails a link; the form to name the workspace and make the account is behind it, so an account is never made for an address nobody holds, and no account waits unconfirmed. An operator's invitation is the same link, lasting a week instead of a day. Asking says the same whether or not the address has an account; one that has sees, at the link, that it should sign in, then names the workspace alone.
+- **No new table.** The links are one-off verifications, kept in Better Auth's own table for them (as its links to confirm an email are), the token only as a hash. Using one removes it in the transaction that makes the workspace, so it works once; a failure after the account was made removes the account, so the link stays a first try.
+- **Closed means closed.** The mode is checked when the link is used, not only when it was sent: turning registration to operators only stops every link still waiting, and an open link asked for before it became invite-only no longer works.
+- **The trial.** With billing on, a workspace that signs up starts a trial of the length billing's rules set (decision 215), on the first plan the operators offer (priced, not hidden, not retired, in their order); choosing a plan through Checkout carries it over (decision 210). Without such a plan it is on the internal plan. What happens when a trial ends unconverted is billing's to decide, not registration's.
+- **Abuse limits** are counted in PostgreSQL, like the other limits (#172): links asked for by address and by email, workspaces made by address and by email. No CAPTCHA: the email link already costs a script a mailbox per workspace.
+

@@ -61,7 +61,7 @@ Below, every workspace, those owing first, with its plan and what comes next: it
 Below, billing's **rules**, which operators set:
 - **dunning:** the days at which owners are warned, warned again and the workspace suspended (7, 14 and 21 unless changed), each after the one before;
 - **currency:** what new plans and amounts off start in;
-- **trials:** how long a trial lasts for a workspace that signs up for one, or none.
+- **trials:** how long a trial lasts for a workspace that [signs up](../registration/#trials), or none.
 
 Each change of a rule is an instance event.
 
