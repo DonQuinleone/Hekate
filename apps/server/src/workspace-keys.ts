@@ -6,8 +6,9 @@ import { sealContext as channelContext } from "./events.ts";
 import type { Keyring } from "./keyring.ts";
 import { openSecret, sealSecret } from "./secrets.ts";
 import { dataKeyContext } from "./storage.ts";
+import { mailSealContext } from "./workspace-mail.ts";
 
-const { blobs, channels, directories, renditions, uploads } = schema;
+const { blobs, channels, directories, renditions, uploads, workspaceMail } = schema;
 
 /** A table whose rows hold a key wrapped by a version of the organisation's key. */
 type Wrapped = typeof blobs | typeof uploads | typeof renditions;
@@ -66,7 +67,11 @@ export async function pendingRewrap(db: Database, organisationId: string, curren
     .select({ n: count() })
     .from(channels)
     .where(inOrg(channels, organisationId, lt(channels.keyVersion, current)));
-  return pending + (directory?.n ?? 0) + (channel?.n ?? 0);
+  const [mail] = await db
+    .select({ n: count() })
+    .from(workspaceMail)
+    .where(inOrg(workspaceMail, organisationId, lt(workspaceMail.keyVersion, current)));
+  return pending + (directory?.n ?? 0) + (channel?.n ?? 0) + (mail?.n ?? 0);
 }
 
 /**
@@ -165,6 +170,29 @@ export async function rewrapOrganisation(db: Database, keyring: Keyring, organis
         ),
       )
       .returning({ id: channels.id });
+    rewrapped += updated.length;
+  }
+  // The workspace's own mail (#161), the same way.
+  const [mail] = await db
+    .select()
+    .from(workspaceMail)
+    .where(inOrg(workspaceMail, organisationId, lt(workspaceMail.keyVersion, current)));
+  if (mail) {
+    const context = mailSealContext(organisationId);
+    const older = await keyring.version(organisationId, mail.keyVersion);
+    const secret = openSecret(older, mail.configSealed, context);
+    const updated = await db
+      .update(workspaceMail)
+      .set({ configSealed: sealSecret(key, secret, context), keyVersion: current })
+      .where(
+        inOrg(
+          workspaceMail,
+          organisationId,
+          eq(workspaceMail.id, mail.id),
+          eq(workspaceMail.keyVersion, mail.keyVersion),
+        ),
+      )
+      .returning({ id: workspaceMail.id });
     rewrapped += updated.length;
   }
   return rewrapped;

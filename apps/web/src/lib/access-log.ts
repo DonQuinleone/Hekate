@@ -47,6 +47,7 @@ const actionWords = {
   "organisation.channel_add": "Channel added",
   "organisation.channel_change": "Channel changed",
   "organisation.channel_remove": "Channel removed",
+  "organisation.mail": "Workspace mail changed",
   "account.lockout": "Account locked after failed sign-ins",
   "account.password_reset": "Password reset with an emailed code",
   "account.second_factor_added": "Second factor added",

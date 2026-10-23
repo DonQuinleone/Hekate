@@ -35,6 +35,7 @@ import { checkReleases, recordVersionRun } from "./system-info.ts";
 import { remindTasksDue } from "./tasks.ts";
 import { clockElapsed, fileMeasured, sweepRuns } from "./workflow-runner.ts";
 import { rewrapBehind, rewrapOrganisation } from "./workspace-keys.ts";
+import { routedMailer } from "./workspace-mail.ts";
 import { purgeDueWorkspaces } from "./workspace-purge.ts";
 
 /**
@@ -76,10 +77,20 @@ export async function boot(
   const { db, sql: client, close } = createDb(config.DATABASE_URL);
   // Counted for Prometheus (#70) and written to the mail log (#157).
   const mailTransport = mailTransportOf(config);
+  const keyring = createKeyring(db, {
+    current: config.MASTER_KEY,
+    previous: config.MASTER_KEYS_PREVIOUS,
+  });
+  // A workspace's own mail sends what is sent for it (#161); the instance's sends the rest.
   const mailer = countedMailer(
     loggedMailer(
       db,
-      createMailer({ transport: mailTransport, from: config.MAIL_FROM }),
+      routedMailer({
+        db,
+        keyring,
+        instance: createMailer({ transport: mailTransport, from: config.MAIL_FROM }),
+        trusted: config.WEBHOOK_TRUSTED_ORIGINS,
+      }),
       mailTransport.kind !== "log",
     ),
   );
@@ -89,10 +100,6 @@ export async function boot(
     db,
     Object.fromEntries(Object.entries(jobDefinitions).map(([name, d]) => [name, d.lane])),
   );
-  const keyring = createKeyring(db, {
-    current: config.MASTER_KEY,
-    previous: config.MASTER_KEYS_PREVIOUS,
-  });
   const auth = createAuth({
     db,
     trustProxy: config.TRUST_PROXY,

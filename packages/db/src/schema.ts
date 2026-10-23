@@ -24,6 +24,7 @@ import {
   type InstanceSettings,
   type LoudnessSummary,
   type MailMode,
+  type MailProvider,
   type MediaInfo,
   mailResults,
   type NormalisationMode,
@@ -2846,6 +2847,33 @@ export const channels = pgTable(
     ...timestamps,
   },
   (t) => [index("channels_organisation_idx").on(t.organisationId)],
+);
+
+/**
+ * A workspace's own mail (#161): the provider its mail leaves through instead of the
+ * instance's, with the installer's choices. Its details (password, token or client secret
+ * among them) are sealed with the workspace's key, as JSON; `target` is what settings show.
+ * Failing too often in a row pauses it, and the instance's mail stands in meanwhile.
+ */
+export const workspaceMail = pgTable(
+  "workspace_mail",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    provider: text("provider").$type<MailProvider>().notNull(),
+    from: text("from").notNull(),
+    target: text("target").notNull(),
+    configSealed: text("config_sealed").notNull(),
+    /** The version of the workspace key that sealed it. */
+    keyVersion: integer("key_version").notNull(),
+    failures: integer("failures").notNull().default(0),
+    pausedUntil: timestamp("paused_until", { withTimezone: true }),
+    lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+    /** What the provider last said when it would not take a message. */
+    lastError: text("last_error"),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("workspace_mail_organisation_idx").on(t.organisationId)],
 );
 
 /**

@@ -116,6 +116,7 @@ describe("tenancy", () => {
       "workflow_steps",
       "workflows",
       "works",
+      "workspace_mail",
     ]);
     for (const table of tenantTables) {
       expect(getTableColumns(table).organisationId?.notNull).toBe(true);

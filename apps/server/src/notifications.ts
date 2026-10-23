@@ -316,7 +316,12 @@ async function sendOnce(db: Database, mailer: Mailer, publicUrl: string, n: Noti
   if (!claimed) return false;
   const to = await emailOf(db, n.userId);
   try {
-    if (to) await mailer.send({ to, ...instantMail(n, publicUrl, await mailWorkspace(db, n)) });
+    if (to)
+      await mailer.send({
+        to,
+        ...instantMail(n, publicUrl, await mailWorkspace(db, n)),
+        organisationId: n.organisationId,
+      });
     return true;
   } catch (error) {
     console.warn(`Could not send a notification by mail: ${String(error)}`);
@@ -433,7 +438,11 @@ export async function deliverDigests(
       const to = await emailOf(tx, userId);
       try {
         if (to)
-          await mailer.send({ to, ...digestMail(rows, workspace?.name ?? "Hekate", publicUrl) });
+          await mailer.send({
+            to,
+            ...digestMail(rows, workspace?.name ?? "Hekate", publicUrl),
+            organisationId,
+          });
       } catch (error) {
         console.warn(`Could not send a notification digest: ${String(error)}`);
         return;

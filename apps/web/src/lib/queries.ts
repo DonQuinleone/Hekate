@@ -164,6 +164,8 @@ import {
   type WorkflowStatus,
   type WorkflowSummary,
   type WorkInput,
+  type WorkspaceMail,
+  type WorkspaceMailInput,
   type WorkspaceOperations,
   type WorkspaceSettings,
   type WorkspaceSettingsInput,
@@ -870,6 +872,44 @@ export function useChannels() {
         json<{ ok: boolean; result: string }>(
           await api.organisation.channels[":id"].test.$post({ param: { id } }),
         ),
+    }),
+  };
+}
+
+/** The workspace's own mail (#161), or null where the instance's sends; admins only. */
+export const workspaceMailQuery = queryOptions({
+  queryKey: ["organisation", "mail"],
+  queryFn: async () =>
+    (await json<{ mail: WorkspaceMail | null }>(await api.organisation.mail.$get())).mail,
+});
+
+/** Set, test, resume or remove the workspace's own mail. */
+export function useWorkspaceMail() {
+  const client = useQueryClient();
+  const refresh = () => client.invalidateQueries({ queryKey: workspaceMailQuery.queryKey });
+  return {
+    save: useMutation({
+      mutationFn: async (input: WorkspaceMailInput) =>
+        (await json<{ mail: WorkspaceMail }>(await api.organisation.mail.$put({ json: input })))
+          .mail,
+      onSuccess: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: async () => {
+        const res = await api.organisation.mail.$delete();
+        if (!res.ok) await json(res);
+      },
+      onSuccess: refresh,
+    }),
+    resume: useMutation({
+      mutationFn: async () =>
+        (await json<{ mail: WorkspaceMail }>(await api.organisation.mail.resume.$post())).mail,
+      onSuccess: refresh,
+    }),
+    test: useMutation({
+      mutationFn: async () =>
+        json<{ ok: boolean; result: string }>(await api.organisation.mail.test.$post()),
+      onSettled: refresh,
     }),
   };
 }

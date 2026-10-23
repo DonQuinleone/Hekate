@@ -154,6 +154,7 @@ A workspace's events can go to Slack, Discord, Microsoft Teams or a webhook of i
 - **Signed.** A webhook carries `Hekate-Signature: t=…,v1=…`, an HMAC-SHA256 of the time and the body, so a receiver can check who sent it and refuse an old one. The event's id is the same on every retry and replay, so a receiver can drop a repeat.
 - **Nothing private.** Channels must be HTTPS. The server connects only to public addresses: the address checked is the address connected to (no DNS rebinding), an address given as a number is checked too, and redirects are not followed. An origin on a private network needs the operator to list it in `WEBHOOK_TRUSTED_ORIGINS`. Each request has ten seconds.
 - **Logged.** Adding, changing and removing a channel are in the workspace's access log; every delivery and its attempts are in the instance's webhook log, and replaying one is an instance event.
+- **A workspace's own mail.** Its provider's details, the secret among them, are sealed with the workspace key, rewrapped on rotation and never sent back. An SMTP server is connected to at the address that was checked as public (the certificate still checked against its name), and a Mailcoach address must be public each time it is reached, unless the operator trusts it. Mail that belongs to an account (password resets, sign-in codes for members) never goes through a workspace's mail. Setting, changing and removing it are in the access log.
 
 ## Headers and limits
 

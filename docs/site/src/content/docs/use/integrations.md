@@ -1,6 +1,6 @@
 ---
 title: Channels and webhooks
-description: How a workspace's events reach Slack, Discord, Microsoft Teams or a receiver of your own, and how a webhook is checked.
+description: How a workspace's events reach Slack, Discord, Microsoft Teams or a receiver of your own, how a webhook is checked, and the workspace's own mail.
 ---
 
 A workspace can tell other places what happens in it: a review asked for, a decision recorded, a new version, a stage that starts, a download. Each place is a **channel**. Admins set them up in *Workspace settings*, *Notifications and integrations*.
@@ -13,6 +13,16 @@ A workspace can tell other places what happens in it: a review asked for, a deci
 - **Nothing private.** A channel must be HTTPS and reach the public internet. A receiver inside your own network needs the operator to allow its origin with `WEBHOOK_TRUSTED_ORIGINS`.
 
 An event names things (the project, the review, the track, who acted) and links to them; it never carries media, a comment's words or who was mentioned. Operators see every delivery in the instance's *Logs*, under *Webhooks*, and can send one again from *Debug tools*.
+
+## The workspace's own mail
+
+The first row of *Channels* is the workspace's mail. Until an admin chooses otherwise, it is the instance's: whatever the operator set up. *Use the workspace's own* gives the workspace a provider of its own, with the same choices the installer offers (SMTP, Resend, SparkPost, Mailgun, SendGrid, Amazon SES, Postal, Plunk, Google Workspace, Microsoft 365 or Mailcoach) and an address to send from.
+
+- **What it sends.** Everything sent for the workspace: notifications and digests, review requests and shares, guest links and codes, reminders, upload requests and invitations. Mail that belongs to an account rather than a workspace, such as a password reset, stays with the instance.
+- **Sealed.** The password, API key, token or client secret is encrypted with the workspace's key and never shown again; leave it empty when editing to keep it.
+- **Failures.** A message the workspace's mail refuses is sent by the instance's mail instead, so nothing is lost. Five refusals in a row pause the workspace's mail for a quarter of an hour; *Resume* tries it again at once, and saving new details starts afresh.
+- **Test.** *Test* sends one message to you through the saved details, and nothing stands in for it: what comes back is the answer.
+- **Nothing private.** An SMTP server or a Mailcoach address must be on the public internet, unless the operator lists it in `WEBHOOK_TRUSTED_ORIGINS` (`smtp://host:port` for SMTP).
 
 ## Receiving a webhook
 

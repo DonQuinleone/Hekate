@@ -1189,6 +1189,18 @@ test("instance-debug-replay", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The workspace's own mail (#161): a provider's fields, as the installer asks for them.
+test("settings-notifications-mail", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto("/settings/notifications");
+  await settle(page, "main >> text=Release desk >> nth=0");
+  await page.getByRole("button", { name: "Use the workspace's own" }).click();
+  await page.getByRole("dialog").locator("select").first().selectOption("ses");
+  await settle(page, "[role=dialog] >> text=Host");
+  await saveScreen(page, "settings-notifications-mail");
+  await checkScreen(page);
+});
+
 // A new channel (#161): a webhook's name, address and the events it hears of.
 test("settings-notifications-new", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);

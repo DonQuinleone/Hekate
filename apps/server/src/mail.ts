@@ -8,6 +8,8 @@ export interface Message {
   subject: string;
   text: string;
   html?: string;
+  /** The workspace it is sent for, whose own mail sends it if it has one (#161). */
+  organisationId?: string;
 }
 
 export interface Mailer {
@@ -67,9 +69,10 @@ async function refused(provider: string, res: Response): Promise<Error> {
 
 /** The whole message as MIME (plain text and HTML together), as Graph takes it. */
 async function mimeOf(from: string, message: Message): Promise<Buffer> {
+  const { organisationId: _, ...mail } = message;
   const built = await createTransport({ streamTransport: true, buffer: true }).sendMail({
     from,
-    ...message,
+    ...mail,
   });
   return built.message as Buffer;
 }
@@ -201,16 +204,20 @@ export function createMailer(options: {
   const smtp = createTransport(transport.url);
   return {
     async send(message) {
-      await smtp.sendMail({ from, ...message });
+      const { organisationId: _, ...mail } = message;
+      await smtp.sendMail({ from, ...mail });
     },
     verify: () => smtp.verify(),
   };
 }
 
-/** Send a message in Hekate's shape, as plain text and HTML together. */
-export function sendEmail(mailer: Mailer, to: string, email: Email) {
+/**
+ * Send a message in Hekate's shape, as plain text and HTML together; for a workspace, through
+ * its own mail where it has one (#161).
+ */
+export function sendEmail(mailer: Mailer, to: string, email: Email, organisationId?: string) {
   const { subject, text, html } = render(email);
-  return mailer.send({ to, subject, text, html });
+  return mailer.send({ to, subject, text, html, ...(organisationId ? { organisationId } : {}) });
 }
 
 /** Collects messages for tests. */
