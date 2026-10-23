@@ -80,6 +80,15 @@ const limitsFrom = (plan: Entitlements) => ({
   projectLimit: plan.projectLimit,
 });
 
+const keyTaken = () => new CodedException(409, "plan_key_taken", "Another plan has that key");
+const retired = () => new CodedException(409, "plan_retired", "That plan is retired");
+
+/** True when a statement failed on the named unique index. */
+function violates(error: unknown, index: string): boolean {
+  const cause = (error as { cause?: { code?: string; constraint_name?: string } }).cause;
+  return cause?.code === "23505" && cause.constraint_name === index;
+}
+
 /**
  * Save a plan, new or changed. A change to its limits reaches every workspace on it at once,
  * in the same transaction: a plan's limits are its workspaces' limits.
@@ -92,14 +101,28 @@ export async function savePlan(tx: Tx, input: PlanInput, id?: string) {
       .values(values)
       .onConflictDoNothing({ target: plans.key })
       .returning();
-    if (!made) throw new CodedException(409, "plan_key_taken", "Another plan has that key");
+    if (!made) throw keyTaken();
     return made;
   }
+  // Locked first, as assignPlan locks it, so a workspace put on it meanwhile gets the new
+  // limits or is among those the change reaches, never neither.
+  const [current] = await tx
+    .select({ retiredAt: plans.retiredAt })
+    .from(plans)
+    .where(eq(plans.id, id))
+    .for("update");
+  if (!current) return null;
+  // Those still on a retired plan keep what they had.
+  if (current.retiredAt) throw retired();
   const [saved] = await tx
     .update(plans)
     .set({ ...values, updatedAt: new Date() })
     .where(eq(plans.id, id))
-    .returning();
+    .returning()
+    .catch((error: unknown) => {
+      if (violates(error, "plans_key_unique")) throw keyTaken();
+      throw error;
+    });
   if (!saved) return null;
   const on = await tx
     .select({ organisationId: workspacePlans.organisationId })
@@ -135,9 +158,10 @@ export async function assignPlan(
       .where(eq(organisations.id, organisationId));
     return { name: null };
   }
-  const [plan] = await tx.select().from(plans).where(eq(plans.id, input.planId));
+  // Locked, as savePlan locks it: see there.
+  const [plan] = await tx.select().from(plans).where(eq(plans.id, input.planId)).for("update");
   if (!plan) throw new NotFound("Plan");
-  if (plan.retiredAt) throw new CodedException(409, "plan_retired", "That plan is retired");
+  if (plan.retiredAt) throw retired();
   const values = {
     planId: plan.id,
     status: input.status,

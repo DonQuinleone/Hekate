@@ -105,6 +105,16 @@ export function createAuth(options: AuthOptions) {
   const maxPasskeys = options.maxPasskeys ?? 5;
   /** Sign-in requests whose attempt reached the lock, to log once they have failed. */
   const locking = new WeakSet<Request>();
+  /** Single sign-on, on a plan without it (#177), neither starts nor finishes. */
+  const assertSsoEntitled = async (organisationId: string) => {
+    const { entitlements } = await workspacePlanOf(
+      options.db,
+      organisationId,
+      options.billing ?? false,
+    );
+    if (!entitled(entitlements, "sso"))
+      throw new APIError("FORBIDDEN", { message: notEntitledMessage("sso") });
+  };
   return betterAuth({
     appName: "Hekate",
     secret: options.secret,
@@ -231,14 +241,7 @@ export function createAuth(options: AuthOptions) {
             throw new APIError("BAD_REQUEST", {
               message: "That workspace does not sign in with single sign-on.",
             });
-          // On a plan without it (#177), it does not start.
-          const { entitlements } = await workspacePlanOf(
-            options.db,
-            provider.organisationId,
-            options.billing ?? false,
-          );
-          if (!entitled(entitlements, "sso"))
-            throw new APIError("FORBIDDEN", { message: notEntitledMessage("sso") });
+          await assertSsoEntitled(provider.organisationId);
           return {
             context: {
               body: {
@@ -250,10 +253,15 @@ export function createAuth(options: AuthOptions) {
           };
         }
         const via = ssoProviderIn(ctx);
-        if (via && !(await providerState(options.db, via))?.enabled)
-          throw new APIError("BAD_REQUEST", {
-            message: "That workspace does not sign in with single sign-on.",
-          });
+        if (via) {
+          const provider = await providerState(options.db, via);
+          if (!provider?.enabled)
+            throw new APIError("BAD_REQUEST", {
+              message: "That workspace does not sign in with single sign-on.",
+            });
+          // Asked again as the provider answers: a plan changed meanwhile holds at once.
+          await assertSsoEntitled(provider.organisationId);
+        }
         // Up to the instance's limit of keys per account: asked when registration starts, and
         // again when the key is saved, so options fetched ahead of time cannot pass it.
         if (

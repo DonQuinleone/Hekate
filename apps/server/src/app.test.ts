@@ -1561,6 +1561,18 @@ describe.runIf(url)("api", () => {
           );
           expect(changed.status).toBe(200);
           expect((await project("Opening titles", operator)).status).toBe(201);
+          // Another plan's key is refused on a change as on a new plan.
+          expect(
+            (await call("POST", "/api/instance/plans", { ...plan, key: "label" }, operator)).status,
+          ).toBe(201);
+          const clash = await call(
+            "PUT",
+            `/api/instance/plans/${planId}`,
+            { ...plan, key: "label" },
+            operator,
+          );
+          expect(clash.status).toBe(409);
+          expect(await clash.json()).toMatchObject({ error: { code: "plan_key_taken" } });
 
           // Single sign-on is not on it: shown as such, and refused when turned on.
           const sso = await get("/api/organisation/sso", operator, billed);
@@ -1600,6 +1612,15 @@ describe.runIf(url)("api", () => {
           const retired = await assign({ planId });
           expect(retired.status).toBe(409);
           expect(await retired.json()).toMatchObject({ error: { code: "plan_retired" } });
+          // Nor is it changed, so the workspaces still on it keep what they had.
+          const edited = await call(
+            "PUT",
+            `/api/instance/plans/${planId}`,
+            { ...plan, projectLimit: 1 },
+            operator,
+          );
+          expect(edited.status).toBe(409);
+          expect(await edited.json()).toMatchObject({ error: { code: "plan_retired" } });
           const back = await assign({ planId: null });
           expect(await back.json()).toMatchObject({ plan: null });
           expect((await project("Bristol sessions", operator)).status).toBe(201);
