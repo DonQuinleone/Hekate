@@ -7,7 +7,7 @@ import {
   type InvoiceStatus,
   type WorkspacePlan,
 } from "@hekate/shared";
-import { and, asc, desc, eq, isNotNull, isNull, lt } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, lt, or } from "drizzle-orm";
 import { longDate } from "../email/templates.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
@@ -15,8 +15,16 @@ import { assignPlan, workspacePlanOf } from "../plans.ts";
 import { recordInstanceEvent } from "../routes/instance.ts";
 import type { Fact, Gateway, GatewayEvent, InvoiceFacts } from "./gateway.ts";
 
-const { billingAccounts, invoices, gatewayEvents, workspacePlans, plans, organisations, members } =
-  schema;
+const {
+  billingAccounts,
+  gatewayCustomers,
+  invoices,
+  gatewayEvents,
+  workspacePlans,
+  plans,
+  organisations,
+  members,
+} = schema;
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 type Reader = Pick<Database, "select">;
@@ -137,29 +145,60 @@ export async function changePlan(
       "That plan is by agreement: ask the instance's operators.",
     );
   const priced = { id: plan.id, name: plan.name, price };
-  const [account] = await db
-    .select()
+  const [held] = await db
+    .select({ id: billingAccounts.id })
     .from(billingAccounts)
     .where(inOrg(billingAccounts, input.organisationId));
-  if (account?.subscriptionId) {
-    await gateway.changePlan({ subscriptionId: account.subscriptionId, plan: priced });
-    // The gateway's webhook confirms it, and puts the workspace on the plan.
-    return { url: null };
-  }
-  const customerId = account?.customerId ?? (await customerFor(deps, input));
-  const current = await workspacePlanOf(db, input.organisationId, true);
-  const url = billingUrl(deps.publicUrl);
-  return {
-    url: await gateway.checkout({
+  if (!held) await customerFor(deps, input);
+  // One change at a time for a workspace: two owners, or a retry, cannot start two checkouts.
+  return db.transaction(async (tx) => {
+    const [account] = await tx
+      .select()
+      .from(billingAccounts)
+      .where(inOrg(billingAccounts, input.organisationId))
+      .for("update");
+    if (!account) throw new NotFound("Workspace");
+    if (account.subscriptionId) {
+      await gateway.changePlan({ subscriptionId: account.subscriptionId, plan: priced });
+      // The gateway's webhook confirms it, and puts the workspace on the plan.
+      return { url: null };
+    }
+    if (account.checkoutId) {
+      // The checkout already open, for the same plan and with time left, is given again;
+      // any other is closed first, so only one can ever be paid.
+      const left = (account.checkoutExpiresAt?.getTime() ?? 0) - Date.now();
+      if (account.checkoutPlanId === plan.id && account.checkoutUrl && left > 10 * 60_000)
+        return { url: account.checkoutUrl };
+      if ((await gateway.closeCheckout(account.checkoutId)) === "complete")
+        throw new CodedException(
+          409,
+          "checkout_finishing",
+          "A checkout for this workspace has just been paid: its plan arrives in a moment.",
+        );
+    }
+    const current = await workspacePlanOf(tx, input.organisationId, true);
+    const url = billingUrl(deps.publicUrl);
+    const session = await gateway.checkout({
       organisationId: input.organisationId,
-      customerId,
+      customerId: account.customerId,
       plan: priced,
       trialEnd:
         current.status === "trial" && current.trialEndsAt ? new Date(current.trialEndsAt) : null,
       successUrl: `${url}?checkout=done`,
       cancelUrl: url,
-    }),
-  };
+    });
+    await tx
+      .update(billingAccounts)
+      .set({
+        checkoutId: session.id,
+        checkoutPlanId: plan.id,
+        checkoutUrl: session.url,
+        checkoutExpiresAt: session.expiresAt,
+        updatedAt: new Date(),
+      })
+      .where(inOrg(billingAccounts, input.organisationId));
+    return { url: session.url };
+  });
 }
 
 /** The workspace's customer at the gateway, made now and kept. */
@@ -179,12 +218,17 @@ async function customerFor(deps: BillingDeps, input: { organisationId: string; u
     email: who.email,
   });
   // The gateway makes one customer per workspace however often it is asked, so a second
-  // request at once finds the row the first wrote.
-  await db
-    .insert(billingAccounts)
-    .values({ organisationId: input.organisationId, gateway: gateway.kind, customerId })
-    .onConflictDoNothing();
-  return customerId;
+  // request at once finds the rows the first wrote.
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(gatewayCustomers)
+      .values({ gateway: gateway.kind, customerId, organisationId: input.organisationId })
+      .onConflictDoNothing();
+    await tx
+      .insert(billingAccounts)
+      .values({ organisationId: input.organisationId, gateway: gateway.kind, customerId })
+      .onConflictDoNothing();
+  });
 }
 
 /** The gateway's page for the workspace's card and billing details. */
@@ -241,7 +285,7 @@ export async function takeGatewayEvent(
         .where(eq(gatewayEvents.id, row.id))
         .for("update");
       if (held?.takenAt && !options.again) return { taken: false, result: held.result ?? "taken" };
-      const outcome = await act(tx, event.fact, event.occurredAt);
+      const outcome = await act(tx, deps.gateway, gateway, event.fact, event.occurredAt);
       await tx
         .update(gatewayEvents)
         .set({ ...outcome, takenAt: new Date() })
@@ -265,28 +309,56 @@ interface Outcome {
   result: string;
 }
 
-/** The workspace a gateway's customer is, looked up by the customer the gateway names. */
-async function accountOfCustomer(tx: Tx, customerId: string) {
+/**
+ * The billing account of the workspace a gateway's customer is, held for the change. The
+ * workspace is found by the gateway and customer the event names, in the one table kept for
+ * that, and the account asked of that workspace alone.
+ */
+async function accountOf(tx: Tx, gateway: Gateway["kind"], customerId: string) {
+  const [link] = await tx
+    .select({ organisationId: gatewayCustomers.organisationId })
+    .from(gatewayCustomers)
+    .where(and(eq(gatewayCustomers.gateway, gateway), eq(gatewayCustomers.customerId, customerId)));
+  if (!link) return null;
   const [account] = await tx
     .select()
     .from(billingAccounts)
-    // Deliberately by customer alone: the gateway names its customer, not a workspace.
-    .where(eq(billingAccounts.customerId, customerId))
+    .where(
+      inOrg(
+        billingAccounts,
+        link.organisationId,
+        eq(billingAccounts.gateway, gateway),
+        eq(billingAccounts.customerId, customerId),
+      ),
+    )
     .for("update");
   return account ?? null;
 }
 
-async function act(tx: Tx, fact: Fact, at: Date): Promise<Outcome> {
+async function act(
+  tx: Tx,
+  connected: Gateway | null,
+  gateway: Gateway["kind"],
+  fact: Fact,
+  at: Date,
+): Promise<Outcome> {
   const none = { organisationId: null, summary: null, amount: null, currency: null };
   switch (fact.kind) {
     case "checkout": {
-      const account = await accountOfCustomer(tx, fact.customerId);
+      const account = await accountOf(tx, gateway, fact.customerId);
       // Only the workspace whose customer checked out: the reference alone proves nothing.
       if (account?.organisationId !== fact.organisationId)
         return { ...none, result: "ignored: not this workspace's customer" };
       await tx
         .update(billingAccounts)
-        .set({ subscriptionId: fact.subscriptionId, updatedAt: new Date() })
+        .set({
+          subscriptionId: fact.subscriptionId,
+          checkoutId: null,
+          checkoutPlanId: null,
+          checkoutUrl: null,
+          checkoutExpiresAt: null,
+          updatedAt: new Date(),
+        })
         .where(inOrg(billingAccounts, account.organisationId));
       return {
         ...none,
@@ -296,72 +368,72 @@ async function act(tx: Tx, fact: Fact, at: Date): Promise<Outcome> {
       };
     }
     case "subscription": {
-      const account = await accountOfCustomer(tx, fact.customerId);
+      const account = await accountOf(tx, gateway, fact.customerId);
       if (!account) return { ...none, result: "ignored: no workspace is this customer" };
       const organisationId = account.organisationId;
-      const [plan] = fact.planId
-        ? await tx.select().from(plans).where(eq(plans.id, fact.planId))
+      // Stripe sends a subscription's events in any order: what counts is how it stands stands,
+      // asked with the account held, so two at once cannot leave the older standing.
+      const stands = connected ? await connected.subscription(fact.subscriptionId) : fact;
+      const [plan] = stands.planId
+        ? await tx.select().from(plans).where(eq(plans.id, stands.planId))
         : [];
       const base = {
         organisationId,
         summary: plan?.name ?? null,
-        amount: fact.amount,
-        currency: fact.currency,
+        amount: stands.amount,
+        currency: stands.currency,
       };
-      // Stripe may send a subscription's events out of order: an older one changes nothing.
-      if (account.subscriptionEventAt && at < account.subscriptionEventAt)
-        return { ...base, result: "ignored: older than the last" };
-      await tx
-        .update(billingAccounts)
-        .set({ subscriptionEventAt: at })
-        .where(inOrg(billingAccounts, organisationId));
-      if (fact.ended) {
+      if (stands.ended) {
         // An old subscription ending, once the workspace has another, changes nothing.
-        if (account.subscriptionId && account.subscriptionId !== fact.subscriptionId)
+        if (account.subscriptionId && account.subscriptionId !== stands.subscriptionId)
           return { ...base, result: "ignored: not the workspace's subscription" };
         await tx
           .update(billingAccounts)
           .set({ subscriptionId: null, updatedAt: new Date() })
           .where(inOrg(billingAccounts, organisationId));
-      } else if (account.subscriptionId !== fact.subscriptionId)
+      } else if (account.subscriptionId !== stands.subscriptionId)
         await tx
           .update(billingAccounts)
-          .set({ subscriptionId: fact.subscriptionId, updatedAt: new Date() })
+          .set({ subscriptionId: stands.subscriptionId, updatedAt: new Date() })
           .where(inOrg(billingAccounts, organisationId));
-      if (!fact.status) return { ...base, result: "taken" };
+      if (!stands.status) return { ...base, result: "taken" };
       const dates = {
-        trialEndsAt: fact.trialEndsAt?.toISOString() ?? null,
-        renewsAt: fact.ended ? null : (fact.renewsAt?.toISOString() ?? null),
+        trialEndsAt: stands.trialEndsAt?.toISOString() ?? null,
+        renewsAt: stands.ended ? null : (stands.renewsAt?.toISOString() ?? null),
       };
       if (plan)
         await assignPlan(
           tx,
           organisationId,
-          { planId: plan.id, status: fact.status, ...dates },
+          { planId: plan.id, status: stands.status, ...dates },
           { retired: true },
         );
       else
         await tx
           .update(workspacePlans)
           .set({
-            status: fact.status,
-            trialEndsAt: fact.trialEndsAt,
-            renewsAt: fact.ended ? null : fact.renewsAt,
+            status: stands.status,
+            trialEndsAt: stands.trialEndsAt,
+            renewsAt: stands.ended ? null : stands.renewsAt,
             updatedAt: new Date(),
           })
           .where(inOrg(workspacePlans, organisationId));
-      if (fact.status === "past_due") await markPastDue(tx, organisationId, at);
-      else if (fact.status === "active" || fact.status === "trial")
+      if (stands.status === "past_due") await markPastDue(tx, organisationId, at);
+      else if (stands.status === "active" || stands.status === "trial")
         await settle(tx, organisationId);
       return { ...base, result: "taken" };
     }
     case "invoice": {
-      const account = await accountOfCustomer(tx, fact.customerId);
+      const account = await accountOf(tx, gateway, fact.customerId);
       if (!account) return { ...none, result: "ignored: no workspace is this customer" };
       const organisationId = account.organisationId;
       await keepInvoice(tx, organisationId, fact.invoice);
-      if (fact.outcome === "failed") await markPastDue(tx, organisationId, at);
-      else if (fact.outcome === "paid") await settle(tx, organisationId);
+      // Only the workspace's own subscription's invoices start or end dunning: not one made by
+      // hand in the gateway, nor an old subscription's.
+      const ours =
+        account.subscriptionId !== null && fact.invoice.subscriptionId === account.subscriptionId;
+      if (ours && fact.outcome === "failed") await markPastDue(tx, organisationId, at);
+      else if (ours && fact.outcome === "paid") await settle(tx, organisationId);
       return {
         organisationId,
         summary: fact.invoice.number,
@@ -435,7 +507,7 @@ async function settle(tx: Tx, organisationId: string) {
     .where(inOrg(billingAccounts, organisationId));
   await tx
     .update(billingAccounts)
-    .set({ pastDueSince: null, dunningStage: 0, updatedAt: new Date() })
+    .set({ pastDueSince: null, dunningStage: 0, noticedStage: 0, updatedAt: new Date() })
     .where(inOrg(billingAccounts, organisationId));
   await tx
     .update(workspacePlans)
@@ -464,75 +536,98 @@ async function settle(tx: Tx, organisationId: string) {
 
 /**
  * Dunning, hourly: each workspace whose payment failed is warned at 7 and 14 days and
- * suspended at 21, until a payment goes through. Each step is taken once, claimed in the
- * database first, so two workers never both send it. Returns the steps taken.
+ * suspended at 21, until a payment goes through. A step is claimed in the database before it is
+ * taken, so it is taken once; its owners are told after, and told again each hour until the
+ * mail goes. Only while the gateway that would settle it is on: with billing off, or another
+ * gateway, nothing advances. Returns the steps taken.
  */
 export async function runDunning(deps: BillingDeps, now = new Date()): Promise<number> {
-  const { db } = deps;
+  const { db, gateway } = deps;
+  if (!gateway) return 0;
   const due = await db
     .select({
       organisationId: billingAccounts.organisationId,
       pastDueSince: billingAccounts.pastDueSince,
       stage: billingAccounts.dunningStage,
+      noticed: billingAccounts.noticedStage,
     })
     .from(billingAccounts)
     // Across workspaces deliberately: the job looks after every one.
     .where(
       and(
+        eq(billingAccounts.gateway, gateway.kind),
         isNotNull(billingAccounts.pastDueSince),
-        lt(billingAccounts.dunningStage, dunningSteps.length),
+        or(
+          lt(billingAccounts.dunningStage, dunningSteps.length),
+          lt(billingAccounts.noticedStage, billingAccounts.dunningStage),
+        ),
       ),
     );
   let taken = 0;
   for (const account of due) {
     if (!account.pastDueSince) continue;
-    const step = dunningDue(account.pastDueSince, now, account.stage);
-    if (step === null) continue;
     const since = account.pastDueSince;
-    const suspends = dunningSteps[step - 1]?.action === "suspend";
-    const claimed = await db.transaction(async (tx) => {
-      const [claim] = await tx
+    let stage = account.stage;
+    const step = dunningDue(since, now, stage);
+    if (step !== null && (await takeStep(db, account.organisationId, step, now))) {
+      stage = step;
+      taken += 1;
+    }
+    if (account.noticed >= stage) continue;
+    try {
+      await tellOwners(deps, account.organisationId, since, stage);
+      await db
         .update(billingAccounts)
-        .set({ dunningStage: step, updatedAt: new Date() })
+        .set({ noticedStage: stage, updatedAt: new Date() })
         .where(
           inOrg(
             billingAccounts,
             account.organisationId,
-            lt(billingAccounts.dunningStage, step),
+            eq(billingAccounts.dunningStage, stage),
             isNotNull(billingAccounts.pastDueSince),
           ),
-        )
-        .returning({ id: billingAccounts.id });
-      if (!claim) return false;
-      if (suspends) {
-        const [suspended] = await tx
-          .update(organisations)
-          .set({ suspendedAt: now, suspendedReason: DUNNING_REASON, updatedAt: new Date() })
-          .where(
-            and(eq(organisations.id, account.organisationId), isNull(organisations.suspendedAt)),
-          )
-          .returning({ name: organisations.name });
-        if (suspended)
-          await recordInstanceEvent(tx, {
-            actorId: null,
-            action: "workspace.suspended",
-            target: suspended.name,
-            details: {
-              organisationId: account.organisationId,
-              reason: DUNNING_REASON,
-              by: "billing",
-            },
-          });
-      }
-      return true;
-    });
-    if (!claimed) continue;
-    taken += 1;
-    await tellOwners(deps, account.organisationId, since, step).catch((error) =>
-      console.error(`Dunning mail for workspace ${account.organisationId} failed`, error),
-    );
+        );
+    } catch (error) {
+      console.error(
+        `Dunning mail for workspace ${account.organisationId} failed; it is sent again next hour`,
+        error,
+      );
+    }
   }
   return taken;
+}
+
+/** Claim a dunning step and take it: a suspension, at the last. False if it was taken already. */
+async function takeStep(db: Database, organisationId: string, step: number, now: Date) {
+  return db.transaction(async (tx) => {
+    const [claim] = await tx
+      .update(billingAccounts)
+      .set({ dunningStage: step, updatedAt: new Date() })
+      .where(
+        inOrg(
+          billingAccounts,
+          organisationId,
+          lt(billingAccounts.dunningStage, step),
+          isNotNull(billingAccounts.pastDueSince),
+        ),
+      )
+      .returning({ id: billingAccounts.id });
+    if (!claim) return false;
+    if (dunningSteps[step - 1]?.action !== "suspend") return true;
+    const [suspended] = await tx
+      .update(organisations)
+      .set({ suspendedAt: now, suspendedReason: DUNNING_REASON, updatedAt: new Date() })
+      .where(and(eq(organisations.id, organisationId), isNull(organisations.suspendedAt)))
+      .returning({ name: organisations.name });
+    if (suspended)
+      await recordInstanceEvent(tx, {
+        actorId: null,
+        action: "workspace.suspended",
+        target: suspended.name,
+        details: { organisationId, reason: DUNNING_REASON, by: "billing" },
+      });
+    return true;
+  });
 }
 
 /** The owners are told each step: what is owed, by when, and that nothing is deleted. */

@@ -16,18 +16,33 @@ import { stripeGateway } from "./stripe-gateway.ts";
 const url = process.env.DATABASE_URL;
 const secret = "whsec_billing_tests";
 const day = 86_400_000;
+type Obj = Record<string, unknown>;
 
 describe.runIf(url)("billing (#178)", () => {
   const { db, close } = createDb(url ?? "", { max: 3 });
   const mailer = memoryMailer();
-  const calls: [string, string, Record<string, unknown>][] = [];
+  const calls: [string, string, Obj][] = [];
+  /** Stripe's side: its subscriptions and checkouts as they stand, by id. */
+  const subscriptions = new Map<string, Obj>();
+  const sessions = new Map<string, { status: string }>();
   const stripe: Stripe = {
     async request(method, path, params = {}) {
       calls.push([method, path, params]);
       if (path === "/v1/customers") return { id: `cus_${uuidv7().slice(-12)}` } as never;
-      if (path === "/v1/checkout/sessions")
-        return { url: "https://checkout.stripe.com/c/x" } as never;
-      if (method === "GET") return { items: { data: [{ id: "si_1" }] } } as never;
+      if (path === "/v1/checkout/sessions") {
+        const id = `cs_${uuidv7().slice(-12)}`;
+        sessions.set(id, { status: "open" });
+        const expires_at = Math.floor(Date.now() / 1000) + 86_400;
+        return { id, url: `https://checkout.stripe.com/c/${id}`, expires_at } as never;
+      }
+      const session = /^\/v1\/checkout\/sessions\/(cs_\w+)(\/expire)?$/.exec(path);
+      if (session?.[1]) {
+        const held = sessions.get(session[1]) ?? { status: "expired" };
+        if (session[2]) held.status = "expired";
+        return held as never;
+      }
+      const subscription = /^\/v1\/subscriptions\/(\w+)$/.exec(path)?.[1];
+      if (subscription && method === "GET") return (subscriptions.get(subscription) ?? {}) as never;
       return {} as never;
     },
   };
@@ -41,19 +56,18 @@ describe.runIf(url)("billing (#178)", () => {
     await close();
   });
 
-  /** A workspace with an owner, a priced plan, and the owner's id. */
-  const workspace = async () => {
+  /** A workspace with an owner and a priced plan, checked out once so it is a customer. */
+  const workspace = async (plan: Obj = {}) => {
     const [org] = await db
       .insert(schema.organisations)
       .values({ name: "Endless Hall Records", slug: `billing-${uuidv7()}` })
       .returning();
+    const id = org?.id ?? "";
     const userId = uuidv7();
     const email = `owner-${userId}@example.test`;
     await db.insert(schema.users).values({ id: userId, name: "Mira Solberg", email });
-    await db
-      .insert(schema.members)
-      .values({ organisationId: org?.id ?? "", userId, role: "owner" });
-    const [plan] = await db
+    await db.insert(schema.members).values({ organisationId: id, userId, role: "owner" });
+    const [made] = await db
       .insert(schema.plans)
       .values({
         key: `studio-${uuidv7().slice(-8)}`,
@@ -64,12 +78,20 @@ describe.runIf(url)("billing (#178)", () => {
         memberLimit: 25,
         features: ["sso"],
         severities: ["low", "normal"],
+        ...plan,
       })
       .returning();
-    return { id: org?.id ?? "", userId, email, planId: plan?.id ?? "" };
+    const planId = made?.id ?? "";
+    const checkout = await changePlan(deps, { organisationId: id, userId, planId });
+    const [account] = await db
+      .select()
+      .from(schema.billingAccounts)
+      .where(inOrg(schema.billingAccounts, id));
+    const customerId = account?.customerId ?? "";
+    return { id, userId, email, planId, customerId, checkout, subscriptionId: `sub_${customerId}` };
   };
   /** Send an event as Stripe would, through the gateway's own reading of it. */
-  const send = (type: string, object: Record<string, unknown>, at = new Date(), id = uuidv7()) => {
+  const send = (type: string, object: Obj, at = new Date(), id = uuidv7()) => {
     const body = JSON.stringify({
       id: `evt_${id}`,
       type,
@@ -84,25 +106,31 @@ describe.runIf(url)("billing (#178)", () => {
       gateway.read(body, () => header),
     );
   };
-  const subscription = (
-    customer: string,
-    planId: string,
-    status: string,
-    extra: Record<string, unknown> = {},
-  ) => ({
-    id: "sub_1",
-    customer,
-    status,
-    metadata: { planId },
-    items: {
-      data: [{ current_period_end: 1_794_000_000, price: { unit_amount: 4900, currency: "gbp" } }],
-    },
-    ...extra,
-  });
+  /** A subscription as Stripe holds it now, which its events are read against. */
+  const subscribe = (w: { customerId: string; planId: string }, status: string) => {
+    const object = {
+      id: `sub_${w.customerId}`,
+      customer: w.customerId,
+      status,
+      metadata: { planId: w.planId },
+      items: {
+        data: [
+          {
+            id: "si_1",
+            current_period_end: 1_794_000_000,
+            price: { unit_amount: 4900, currency: "gbp" },
+          },
+        ],
+      },
+    };
+    subscriptions.set(object.id, object);
+    return object;
+  };
   // Stripe's ids are its own across every account: one invoice per customer here.
-  const invoice = (customer: string, status: string, extra: Record<string, unknown> = {}) => ({
-    id: `in_${customer}`,
-    customer,
+  const invoice = (w: { customerId: string }, status: string, extra: Obj = {}) => ({
+    id: `in_${w.customerId}`,
+    customer: w.customerId,
+    parent: { subscription_details: { subscription: `sub_${w.customerId}` } },
     number: "INV-0412",
     status,
     currency: "gbp",
@@ -112,41 +140,38 @@ describe.runIf(url)("billing (#178)", () => {
     hosted_invoice_url: "https://invoice.stripe.com/i/abc",
     ...extra,
   });
+  const checkedOut = async (w: Awaited<ReturnType<typeof workspace>>) => {
+    await send("checkout.session.completed", {
+      mode: "subscription",
+      client_reference_id: w.id,
+      customer: w.customerId,
+      subscription: w.subscriptionId,
+    });
+    await send("customer.subscription.created", subscribe(w, "active"));
+  };
   const account = async (id: string) =>
     (await db.select().from(schema.billingAccounts).where(inOrg(schema.billingAccounts, id)))[0];
   const organisation = async (id: string) =>
     (await db.select().from(schema.organisations).where(eq(schema.organisations.id, id)))[0];
+  const planState = async (id: string) =>
+    (
+      await db
+        .select({ status: schema.workspacePlans.status })
+        .from(schema.workspacePlans)
+        .where(inOrg(schema.workspacePlans, id))
+    )[0]?.status;
 
-  it("checks out once, as one customer, then changes the plan in place", async () => {
+  it("checks out as one customer, then changes the plan in place", async () => {
+    calls.length = 0;
     const w = await workspace();
-    calls.length = 0;
-    const first = await changePlan(deps, {
-      organisationId: w.id,
-      userId: w.userId,
-      planId: w.planId,
+    expect(w.checkout.url).toMatch(/^https:\/\/checkout\.stripe\.com\/c\/cs_/);
+    expect(calls.find(([, p]) => p === "/v1/customers")?.[2]).toMatchObject({
+      name: "Endless Hall Records",
+      email: w.email,
     });
-    expect(first.url).toBe("https://checkout.stripe.com/c/x");
-    const customer = calls.find(([, p]) => p === "/v1/customers")?.[2];
-    expect(customer).toMatchObject({ name: "Endless Hall Records", email: w.email });
-    const held = await account(w.id);
-    expect(held?.customerId).toMatch(/^cus_/);
+    expect(w.customerId).toMatch(/^cus_/);
 
-    // A second try before paying reuses the customer.
-    calls.length = 0;
-    await changePlan(deps, { organisationId: w.id, userId: w.userId, planId: w.planId });
-    expect(calls.some(([, p]) => p === "/v1/customers")).toBe(false);
-
-    // Checked out: the subscription is the workspace's, and its plan arrives with it.
-    await send("checkout.session.completed", {
-      mode: "subscription",
-      client_reference_id: w.id,
-      customer: held?.customerId,
-      subscription: "sub_1",
-    });
-    await send(
-      "customer.subscription.created",
-      subscription(held?.customerId ?? "", w.planId, "active"),
-    );
+    await checkedOut(w);
     const [limits] = await db
       .select({
         storageQuota: schema.organisations.storageQuota,
@@ -167,23 +192,54 @@ describe.runIf(url)("billing (#178)", () => {
         price: { amount: 4900, currency: "GBP", interval: "month" },
       }),
     );
+    expect((await account(w.id))?.checkoutId).toBeNull();
 
     // Now subscribed, a change goes to the subscription, not to another checkout.
     calls.length = 0;
     expect(
       await changePlan(deps, { organisationId: w.id, userId: w.userId, planId: w.planId }),
     ).toEqual({ url: null });
-    expect(calls.map(([m, p]) => `${m} ${p}`)).toContain("POST /v1/subscriptions/sub_1");
+    expect(calls.map(([m, p]) => `${m} ${p}`)).toContain(
+      `POST /v1/subscriptions/${w.subscriptionId}`,
+    );
+  });
+
+  it("gives one checkout at a time, so only one can be paid", async () => {
+    const w = await workspace();
+    const ask = (planId = w.planId) =>
+      changePlan(deps, { organisationId: w.id, userId: w.userId, planId }).catch((e: unknown) => e);
+    // The same plan again: the same checkout.
+    calls.length = 0;
+    expect(await ask()).toEqual(w.checkout);
+    expect(calls.some(([, p]) => p === "/v1/checkout/sessions")).toBe(false);
+    // Another plan: the first is closed before the second is made.
+    const [other] = await db
+      .insert(schema.plans)
+      .values({
+        key: `label-${uuidv7().slice(-8)}`,
+        name: "Label",
+        priceAmount: 19_000,
+        interval: "month",
+        features: [],
+        severities: [],
+      })
+      .returning();
+    const first = String(w.checkout.url).split("/").at(-1) ?? "";
+    const second = (await ask(other?.id)) as { url: string };
+    expect(sessions.get(first)?.status).toBe("expired");
+    expect(second.url).not.toBe(w.checkout.url);
+    // Paid already, though its webhook has not come: no other is made.
+    const paid = second.url.split("/").at(-1) ?? "";
+    sessions.set(paid, { status: "complete" });
+    expect(await ask()).toMatchObject({ status: 409, code: "checkout_finishing" });
   });
 
   it("takes each event once, and ignores another workspace's checkout", async () => {
     const w = await workspace();
     const other = await workspace();
-    await changePlan(deps, { organisationId: w.id, userId: w.userId, planId: w.planId });
-    const customerId = (await account(w.id))?.customerId ?? "";
     const id = uuidv7();
-    const once = await send("invoice.finalized", invoice(customerId, "open"), new Date(), id);
-    const again = await send("invoice.finalized", invoice(customerId, "open"), new Date(), id);
+    const once = await send("invoice.finalized", invoice(w, "open"), new Date(), id);
+    const again = await send("invoice.finalized", invoice(w, "open"), new Date(), id);
     expect([once.taken, again.taken]).toEqual([true, false]);
     expect(
       await db
@@ -192,40 +248,35 @@ describe.runIf(url)("billing (#178)", () => {
         .where(eq(schema.gatewayEvents.eventId, `evt_${id}`)),
     ).toHaveLength(1);
 
-    // A subscription's older event, arriving after a newer one, changes nothing.
-    await send("customer.subscription.updated", subscription(customerId, w.planId, "active"));
-    const late = await send(
-      "customer.subscription.updated",
-      subscription(customerId, w.planId, "past_due"),
-      new Date(Date.now() - 60_000),
-    );
-    expect(late.result).toBe("ignored: older than the last");
-    const [state] = await db
-      .select({ status: schema.workspacePlans.status })
-      .from(schema.workspacePlans)
-      .where(inOrg(schema.workspacePlans, w.id));
-    expect(state?.status).toBe("active");
-
     // A checkout naming another workspace than its customer's changes nothing.
     const stray = await send("checkout.session.completed", {
       mode: "subscription",
       client_reference_id: other.id,
-      customer: customerId,
+      customer: w.customerId,
       subscription: "sub_x",
     });
     expect(stray.result).toBe("ignored: not this workspace's customer");
-    expect((await account(other.id))?.subscriptionId).toBeUndefined();
+    expect((await account(other.id))?.subscriptionId).toBeNull();
+  });
+
+  it("reads a subscription as it stands, whatever order its events arrive in", async () => {
+    const w = await workspace();
+    await checkedOut(w);
+    // Stripe holds it active; an older event saying it was past due arrives late.
+    const late = { ...subscribe(w, "past_due") };
+    subscribe(w, "active");
+    await send("customer.subscription.updated", late, new Date(Date.now() - 60_000));
+    expect(await planState(w.id)).toBe("active");
+    expect((await account(w.id))?.pastDueSince).toBeNull();
   });
 
   it("never moves an invoice back when its events arrive out of order", async () => {
     const w = await workspace();
-    await changePlan(deps, { organisationId: w.id, userId: w.userId, planId: w.planId });
-    const customerId = (await account(w.id))?.customerId ?? "";
     await send(
       "invoice.paid",
-      invoice(customerId, "paid", { status_transitions: { paid_at: 1_792_000_100 } }),
+      invoice(w, "paid", { status_transitions: { paid_at: 1_792_000_100 } }),
     );
-    await send("invoice.finalized", invoice(customerId, "open"));
+    await send("invoice.finalized", invoice(w, "open"));
     const [row] = await db.select().from(schema.invoices).where(inOrg(schema.invoices, w.id));
     expect(row).toMatchObject({ status: "paid", amountPaid: 4900, number: "INV-0412" });
     expect((await billingOf(db, w.id, gateway)).invoices).toEqual([
@@ -239,17 +290,11 @@ describe.runIf(url)("billing (#178)", () => {
 
   it("warns at 7 and 14 days, suspends at 21, deletes nothing, and reopens once paid", async () => {
     const w = await workspace();
-    await changePlan(deps, { organisationId: w.id, userId: w.userId, planId: w.planId });
-    const customerId = (await account(w.id))?.customerId ?? "";
-    await send("customer.subscription.created", subscription(customerId, w.planId, "active"));
+    await checkedOut(w);
     const failed = new Date("2026-10-01T09:00:00Z");
-    await send("invoice.payment_failed", invoice(customerId, "open"), failed);
+    await send("invoice.payment_failed", invoice(w, "open"), failed);
     // A second failure keeps the first's date.
-    await send(
-      "invoice.payment_failed",
-      invoice(customerId, "open"),
-      new Date("2026-10-04T09:00:00Z"),
-    );
+    await send("invoice.payment_failed", invoice(w, "open"), new Date("2026-10-04T09:00:00Z"));
     expect((await account(w.id))?.pastDueSince).toEqual(failed);
     const mine = () => mailer.sent.filter((m) => m.to === w.email);
 
@@ -285,20 +330,58 @@ describe.runIf(url)("billing (#178)", () => {
     expect(mine()).toHaveLength(3);
 
     // Paid: dunning ends and the workspace opens again.
-    await send("invoice.paid", invoice(customerId, "paid"));
+    await send("invoice.paid", invoice(w, "paid"));
     expect(await organisation(w.id)).toMatchObject({ suspendedAt: null, suspendedReason: null });
-    expect(await account(w.id)).toMatchObject({ pastDueSince: null, dunningStage: 0 });
+    expect(await account(w.id)).toMatchObject({
+      pastDueSince: null,
+      dunningStage: 0,
+      noticedStage: 0,
+    });
+  });
+
+  it("tells the owners again each hour until the mail goes", async () => {
+    const w = await workspace();
+    await checkedOut(w);
+    const failed = new Date("2026-10-01T09:00:00Z");
+    await send("invoice.payment_failed", invoice(w, "open"), failed);
+    let down = true;
+    const flaky: BillingDeps = {
+      ...deps,
+      mailer: {
+        async send(message) {
+          if (down && message.to === w.email) throw new Error("The mail server is down");
+          await mailer.send(message);
+        },
+      },
+    };
+    await runDunning(flaky, new Date(failed.getTime() + 7 * day));
+    expect(await account(w.id)).toMatchObject({ dunningStage: 1, noticedStage: 0 });
+    down = false;
+    await runDunning(flaky, new Date(failed.getTime() + 7 * day + 3_600_000));
+    expect(await account(w.id)).toMatchObject({ dunningStage: 1, noticedStage: 1 });
+    expect(mailer.sent.filter((m) => m.to === w.email)).toHaveLength(1);
+  });
+
+  it("starts dunning only for the workspace's own subscription, and only with its gateway on", async () => {
+    const w = await workspace();
+    await checkedOut(w);
+    // An invoice made by hand in Stripe, failing, is kept but changes nothing.
+    await send("invoice.payment_failed", {
+      ...invoice(w, "open"),
+      id: `in_hand_${w.customerId}`,
+      parent: null,
+    });
+    expect((await account(w.id))?.pastDueSince).toBeNull();
+    // Without the gateway, nothing advances.
+    await send("invoice.payment_failed", invoice(w, "open"), new Date(Date.now() - 22 * day));
+    expect(await runDunning({ ...deps, gateway: null })).toBe(0);
+    expect((await account(w.id))?.dunningStage).toBe(0);
   });
 
   it("leaves a workspace an operator suspended as the operator left it", async () => {
     const w = await workspace();
-    await changePlan(deps, { organisationId: w.id, userId: w.userId, planId: w.planId });
-    const customerId = (await account(w.id))?.customerId ?? "";
-    await send(
-      "invoice.payment_failed",
-      invoice(customerId, "open"),
-      new Date(Date.now() - 22 * day),
-    );
+    await checkedOut(w);
+    await send("invoice.payment_failed", invoice(w, "open"), new Date(Date.now() - 22 * day));
     await db
       .update(schema.organisations)
       .set({ suspendedAt: new Date(), suspendedReason: "Asked us to pause it" })
@@ -306,7 +389,7 @@ describe.runIf(url)("billing (#178)", () => {
     await runDunning(deps);
     expect((await account(w.id))?.dunningStage).toBe(3);
     expect((await organisation(w.id))?.suspendedReason).toBe("Asked us to pause it");
-    await send("invoice.paid", invoice(customerId, "paid"));
+    await send("invoice.paid", invoice(w, "paid"));
     expect((await organisation(w.id))?.suspendedReason).toBe("Asked us to pause it");
   });
 

@@ -1655,7 +1655,11 @@ describe.runIf(url)("api", () => {
               async request(method, path) {
                 stripeCalls.push(`${method} ${path}`);
                 if (path === "/v1/customers") return { id: "cus_routes" } as never;
-                return { url: "https://checkout.stripe.com/c/routes" } as never;
+                return {
+                  id: "cs_routes",
+                  url: "https://checkout.stripe.com/c/routes",
+                  expires_at: Math.floor(Date.now() / 1000) + 86_400,
+                } as never;
               },
             },
             webhookSecret,

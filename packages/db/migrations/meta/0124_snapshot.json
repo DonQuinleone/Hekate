@@ -1,5 +1,5 @@
 {
-  "id": "9a66941f-3222-42be-acbb-94bf4fabcbbf",
+  "id": "2401faad-4bd8-4166-82d8-e23b3b205dc3",
   "prevId": "40341917-eebd-4b18-976d-c04467d49448",
   "version": "7",
   "dialect": "postgresql",
@@ -937,8 +937,26 @@
           "primaryKey": false,
           "notNull": false
         },
-        "subscription_event_at": {
-          "name": "subscription_event_at",
+        "checkout_id": {
+          "name": "checkout_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "checkout_plan_id": {
+          "name": "checkout_plan_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "checkout_url": {
+          "name": "checkout_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "checkout_expires_at": {
+          "name": "checkout_expires_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
@@ -951,6 +969,13 @@
         },
         "dunning_stage": {
           "name": "dunning_stage",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "noticed_stage": {
+          "name": "noticed_stage",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -4448,6 +4473,86 @@
           "value": "(\"follows\".\"track_id\" is null) <> (\"follows\".\"review_id\" is null)"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.gateway_customers": {
+      "name": "gateway_customers",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "gateway": {
+          "name": "gateway",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "customer_id": {
+          "name": "customer_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "organisation_id": {
+          "name": "organisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "gateway_customers_customer_idx": {
+          "name": "gateway_customers_customer_idx",
+          "columns": [
+            {
+              "expression": "gateway",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "customer_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "gateway_customers_organisation_id_organisations_id_fk": {
+          "name": "gateway_customers_organisation_id_organisations_id_fk",
+          "tableFrom": "gateway_customers",
+          "tableTo": "organisations",
+          "columnsFrom": [
+            "organisation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.gateway_events": {

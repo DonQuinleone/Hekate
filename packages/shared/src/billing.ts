@@ -54,12 +54,15 @@ export function dunningDue(pastDueSince: Date, now: Date, taken: number): number
   return reached > taken ? reached : null;
 }
 
-/** A price in words: `£49.00`, `€190.00`; other currencies by their code. */
+/**
+ * A price in words, from its amount in the currency's minor unit: `£49.00`, `JP¥4,900`. The
+ * minor unit is the currency's own (none for yen, three places for dinars), as Stripe counts.
+ */
 export function formatMoney(amount: number, currency: string): string {
-  const symbols: Record<string, string> = { GBP: "£", EUR: "€", USD: "$" };
-  const code = currency.toUpperCase();
-  const value = (Math.abs(amount) / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  const sign = amount < 0 ? "−" : "";
-  const symbol = symbols[code];
-  return symbol ? `${sign}${symbol}${value}` : `${sign}${value} ${code}`;
+  const format = new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: currency.toUpperCase(),
+  });
+  const places = format.resolvedOptions().maximumFractionDigits ?? 2;
+  return format.format(amount / 10 ** places);
 }

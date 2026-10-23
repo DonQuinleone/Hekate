@@ -1,5 +1,5 @@
 import type { InvoiceStatus, WorkspacePlanStatus } from "@hekate/shared";
-import type { Fact, Gateway, InvoiceFacts, PricedPlan } from "./gateway.ts";
+import type { Fact, Gateway, InvoiceFacts, PricedPlan, SubscriptionFact } from "./gateway.ts";
 import { type Stripe, StripeError, type StripeEvent, verifyStripeEvent } from "./stripe.ts";
 
 /**
@@ -46,31 +46,54 @@ export function stripeGateway(options: {
       return customer.id;
     },
     async checkout({ organisationId, customerId, plan, trialEnd, successUrl, cancelUrl }) {
-      const session = await stripe.request<{ url: string }>("POST", "/v1/checkout/sessions", {
-        mode: "subscription",
-        customer: customerId,
-        client_reference_id: organisationId,
-        line_items: [{ price_data: await priceData(plan), quantity: 1 }],
-        subscription_data: {
-          metadata: { organisationId, planId: plan.id },
-          // A trial already running ends when it would have; Stripe needs two days' notice.
-          trial_end:
-            trialEnd && trialEnd.getTime() > Date.now() + 2 * 86_400_000
-              ? Math.floor(trialEnd.getTime() / 1000)
-              : undefined,
+      const session = await stripe.request<{ id: string; url: string; expires_at: number }>(
+        "POST",
+        "/v1/checkout/sessions",
+        {
+          mode: "subscription",
+          customer: customerId,
+          client_reference_id: organisationId,
+          line_items: [{ price_data: await priceData(plan), quantity: 1 }],
+          subscription_data: {
+            metadata: { organisationId, planId: plan.id },
+            // A trial already running ends when it would have; Stripe needs two days' notice.
+            trial_end:
+              trialEnd && trialEnd.getTime() > Date.now() + 2 * 86_400_000
+                ? Math.floor(trialEnd.getTime() / 1000)
+                : undefined,
+          },
+          ...(options.tax
+            ? {
+                automatic_tax: { enabled: true },
+                billing_address_collection: "required",
+                customer_update: { address: "auto", name: "auto" },
+                tax_id_collection: { enabled: true },
+              }
+            : {}),
+          success_url: successUrl,
+          cancel_url: cancelUrl,
         },
-        ...(options.tax
-          ? {
-              automatic_tax: { enabled: true },
-              billing_address_collection: "required",
-              customer_update: { address: "auto", name: "auto" },
-              tax_id_collection: { enabled: true },
-            }
-          : {}),
-        success_url: successUrl,
-        cancel_url: cancelUrl,
-      });
-      return session.url;
+      );
+      return { id: session.id, url: session.url, expiresAt: new Date(session.expires_at * 1000) };
+    },
+    async closeCheckout(id) {
+      const session = await stripe.request<{ status: string }>(
+        "GET",
+        `/v1/checkout/sessions/${id}`,
+      );
+      if (session.status === "complete") return "complete";
+      if (session.status === "open")
+        await stripe.request("POST", `/v1/checkout/sessions/${id}/expire`);
+      return "closed";
+    },
+    async subscription(subscriptionId) {
+      const subscription = await stripe.request<Record<string, unknown>>(
+        "GET",
+        `/v1/subscriptions/${subscriptionId}`,
+      );
+      const fact = subscriptionFact(subscription, subscription.status === "canceled");
+      if (!fact) throw new Error(`Stripe's subscription ${subscriptionId} cannot be read`);
+      return fact;
     },
     async changePlan({ subscriptionId, plan }) {
       const subscription = await stripe.request<{ items: { data: { id: string }[] } }>(
@@ -139,6 +162,28 @@ export function planStatusOf(status: unknown): WorkspacePlanStatus | null {
 
 const invoiceStatuses: InvoiceStatus[] = ["draft", "open", "paid", "void", "uncollectible"];
 
+/** A Stripe subscription, read here. */
+function subscriptionFact(o: Obj, ended: boolean): SubscriptionFact | null {
+  const customerId = idOf(o.customer);
+  const subscriptionId = str(o.id);
+  if (!customerId || !subscriptionId) return null;
+  const item = firstOf(o.items);
+  const price = obj(item.price);
+  return {
+    kind: "subscription",
+    customerId,
+    subscriptionId,
+    planId: str(obj(o.metadata).planId),
+    status: ended ? "cancelled" : planStatusOf(o.status),
+    trialEndsAt: time(o.trial_end),
+    // Kept on the item from 2025's API versions, on the subscription before.
+    renewsAt: time(item.current_period_end) ?? time(o.current_period_end),
+    ended,
+    amount: num(price.unit_amount),
+    currency: str(price.currency)?.toUpperCase() ?? null,
+  };
+}
+
 /** What a Stripe event means here. Pure: what it reads is what the event carries. */
 export function stripeFact(event: StripeEvent): Fact {
   const o = event.data.object;
@@ -150,27 +195,8 @@ export function stripeFact(event: StripeEvent): Fact {
       return { kind: "other" };
     return { kind: "checkout", organisationId, customerId, subscriptionId };
   }
-  if (event.type.startsWith("customer.subscription.")) {
-    const customerId = idOf(o.customer);
-    const subscriptionId = str(o.id);
-    if (!customerId || !subscriptionId) return { kind: "other" };
-    const item = firstOf(o.items);
-    const price = obj(item.price);
-    const ended = event.type === "customer.subscription.deleted";
-    return {
-      kind: "subscription",
-      customerId,
-      subscriptionId,
-      planId: str(obj(o.metadata).planId),
-      status: ended ? "cancelled" : planStatusOf(o.status),
-      trialEndsAt: time(o.trial_end),
-      // Kept on the item from 2025's API versions, on the subscription before.
-      renewsAt: time(item.current_period_end) ?? time(o.current_period_end),
-      ended,
-      amount: num(price.unit_amount),
-      currency: str(price.currency)?.toUpperCase() ?? null,
-    };
-  }
+  if (event.type.startsWith("customer.subscription."))
+    return subscriptionFact(o, event.type === "customer.subscription.deleted") ?? { kind: "other" };
   if (event.type.startsWith("invoice.")) {
     const customerId = idOf(o.customer);
     const gatewayId = str(o.id);
@@ -180,6 +206,9 @@ export function stripeFact(event: StripeEvent): Fact {
     const status = invoiceStatuses.find((s) => s === o.status) ?? "open";
     const invoice: InvoiceFacts = {
       gatewayId,
+      // Under its parent from 2025's API versions, on the invoice before.
+      subscriptionId:
+        idOf(obj(obj(o.parent).subscription_details).subscription) ?? idOf(o.subscription),
       number: str(o.number),
       status,
       currency: (str(o.currency) ?? "gbp").toUpperCase(),

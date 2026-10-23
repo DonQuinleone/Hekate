@@ -18,15 +18,15 @@ Both keys may be read from files (`STRIPE_SECRET_KEY_FILE`, `STRIPE_WEBHOOK_SECR
 
 ## How a workspace pays
 
-- **Choosing a plan.** A workspace's owner chooses one of the plans that have a price and are not hidden or retired. The first time, Hekate makes the workspace a Stripe customer and sends the owner to Stripe Checkout. After that, a change goes straight to the subscription, the difference pro-rated. A trial the workspace is already on carries over, so it converts when the trial would have ended.
+- **Choosing a plan.** A workspace's owner chooses one of the plans that have a price and are not hidden or retired. The first time, Hekate makes the workspace a Stripe customer and sends the owner to Stripe Checkout; only one checkout is open at a time, so a workspace never pays for two subscriptions. After that, a change goes straight to the subscription, the difference pro-rated. A trial the workspace is already on carries over, so it converts when the trial would have ended.
 - **The card.** Owners change it, and the billing details, in Stripe's customer portal.
 - **Webhooks.** Every event is checked against the signing secret; one that does not hold is refused (401). Each event is taken once, however often Stripe sends it, and kept for the instance's Gateway log. One that fails answers 500, so Stripe sends it again.
-- **Plans and limits.** A subscription's plan, status (trial, active, past due or cancelled) and renewal date come from Stripe, and the plan's limits are copied to the workspace as when an operator assigns one.
+- **Plans and limits.** A subscription's plan, status (trial, active, past due or cancelled) and renewal date come from Stripe, read from the subscription as it stands when each event arrives, so events in any order leave it right. The plan's limits are copied to the workspace as when an operator assigns one.
 - **Invoices.** Each invoice Stripe reports is kept with its number, amounts, period and Stripe's page for it, and listed in the workspace's billing settings. An invoice's status never moves back, whatever order its events arrive in.
 
 ## When a payment fails
 
-Dunning counts from the first failed payment:
+Dunning counts from the first failed payment of the workspace's subscription (an invoice made by hand in Stripe does not count):
 
 | After | What happens |
 | --- | --- |
@@ -34,7 +34,7 @@ Dunning counts from the first failed payment:
 | 14 days | They are told again. |
 | 21 days | The workspace is suspended (an instance event, by billing), and its owners are told. |
 
-Nothing is ever deleted for want of payment. Once a payment goes through, dunning ends, and a workspace it suspended opens again. A workspace an operator suspended, or set to be deleted, stays as the operator left it. The `billing-dunning` job runs hourly.
+Nothing is ever deleted for want of payment. Once a payment goes through, dunning ends, and a workspace it suspended opens again. A workspace an operator suspended, or set to be deleted, stays as the operator left it. The `billing-dunning` job runs hourly, and only with billing on; mail that fails is sent again the next hour.
 
 ## Testing it against Stripe
 

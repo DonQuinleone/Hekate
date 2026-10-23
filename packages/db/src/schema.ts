@@ -2526,16 +2526,44 @@ export const billingAccounts = pgTable(
     gateway: text("gateway").$type<"stripe">().notNull(),
     customerId: text("customer_id").notNull(),
     subscriptionId: text("subscription_id"),
-    /** When the last subscription event taken was made: an older one, arriving late, is not. */
-    subscriptionEventAt: timestamp("subscription_event_at", { withTimezone: true }),
+    /**
+     * The checkout an owner was last sent to, until it is finished or expires: asked again for
+     * the same plan, the same one is given, and another plan expires it first, so a workspace
+     * never pays for two subscriptions.
+     */
+    checkoutId: text("checkout_id"),
+    checkoutPlanId: uuid("checkout_plan_id"),
+    checkoutUrl: text("checkout_url"),
+    checkoutExpiresAt: timestamp("checkout_expires_at", { withTimezone: true }),
     pastDueSince: timestamp("past_due_since", { withTimezone: true }),
     dunningStage: integer("dunning_stage").notNull().default(0),
+    /** The dunning step its owners have been told of; behind `dunningStage` until mail goes. */
+    noticedStage: integer("noticed_stage").notNull().default(0),
     ...timestamps,
   },
   (t) => [
     uniqueIndex("billing_accounts_organisation_idx").on(t.organisationId),
     uniqueIndex("billing_accounts_customer_idx").on(t.gateway, t.customerId),
   ],
+);
+
+/**
+ * Which workspace each of the gateway's customers is (#178): the one lookup a webhook makes
+ * before it knows the workspace, by the gateway and customer it names. Everything after it is
+ * asked of the workspace it gives.
+ */
+export const gatewayCustomers = pgTable(
+  "gateway_customers",
+  {
+    id: id(),
+    gateway: text("gateway").$type<"stripe">().notNull(),
+    customerId: text("customer_id").notNull(),
+    organisationId: uuid("organisation_id")
+      .notNull()
+      .references(() => organisations.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("gateway_customers_customer_idx").on(t.gateway, t.customerId)],
 );
 
 /**

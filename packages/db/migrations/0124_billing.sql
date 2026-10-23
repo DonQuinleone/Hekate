@@ -4,11 +4,23 @@ CREATE TABLE "billing_accounts" (
 	"gateway" text NOT NULL,
 	"customer_id" text NOT NULL,
 	"subscription_id" text,
-	"subscription_event_at" timestamp with time zone,
+	"checkout_id" text,
+	"checkout_plan_id" uuid,
+	"checkout_url" text,
+	"checkout_expires_at" timestamp with time zone,
 	"past_due_since" timestamp with time zone,
 	"dunning_stage" integer DEFAULT 0 NOT NULL,
+	"noticed_stage" integer DEFAULT 0 NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "gateway_customers" (
+	"id" uuid PRIMARY KEY NOT NULL,
+	"gateway" text NOT NULL,
+	"customer_id" text NOT NULL,
+	"organisation_id" uuid NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "gateway_events" (
@@ -48,10 +60,12 @@ CREATE TABLE "invoices" (
 );
 --> statement-breakpoint
 ALTER TABLE "billing_accounts" ADD CONSTRAINT "billing_accounts_organisation_id_organisations_id_fk" FOREIGN KEY ("organisation_id") REFERENCES "public"."organisations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "gateway_customers" ADD CONSTRAINT "gateway_customers_organisation_id_organisations_id_fk" FOREIGN KEY ("organisation_id") REFERENCES "public"."organisations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "gateway_events" ADD CONSTRAINT "gateway_events_organisation_id_organisations_id_fk" FOREIGN KEY ("organisation_id") REFERENCES "public"."organisations"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "invoices" ADD CONSTRAINT "invoices_organisation_id_organisations_id_fk" FOREIGN KEY ("organisation_id") REFERENCES "public"."organisations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "billing_accounts_organisation_idx" ON "billing_accounts" USING btree ("organisation_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "billing_accounts_customer_idx" ON "billing_accounts" USING btree ("gateway","customer_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "gateway_customers_customer_idx" ON "gateway_customers" USING btree ("gateway","customer_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "gateway_events_event_idx" ON "gateway_events" USING btree ("gateway","event_id");--> statement-breakpoint
 CREATE INDEX "gateway_events_received_idx" ON "gateway_events" USING btree ("received_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "invoices_gateway_idx" ON "invoices" USING btree ("source","gateway_id");--> statement-breakpoint

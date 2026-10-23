@@ -20,6 +20,9 @@ export const globalTables = new Set<PgTable>([
   // A payout belongs to no workspace, and an event outlives its workspace; only operators read
   // them (#178).
   schema.gatewayEvents,
+  // The gateway names its customer, not a workspace: where a webhook finds which workspace it
+  // is about, and nothing more (#178).
+  schema.gatewayCustomers,
 ]);
 
 export const tenantTables: TenantTable[] = (Object.values(schema) as unknown[]).filter(

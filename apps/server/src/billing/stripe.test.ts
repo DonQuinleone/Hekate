@@ -131,6 +131,7 @@ describe("Stripe's events, read here (#178)", () => {
         created: 1_792_000_000,
         lines: { data: [{ period: { start: 1_792_000_000, end: 1_794_600_000 } }] },
         hosted_invoice_url: "https://invoice.stripe.com/i/abc",
+        parent: { subscription_details: { subscription: "sub_1" } },
       }),
     );
     expect(fact).toMatchObject({
@@ -139,6 +140,7 @@ describe("Stripe's events, read here (#178)", () => {
       outcome: "failed",
       invoice: {
         gatewayId: "in_1",
+        subscriptionId: "sub_1",
         number: "INV-0401",
         status: "open",
         currency: "GBP",
@@ -185,7 +187,11 @@ describe("Stripe's events, read here (#178)", () => {
         if (path === "/v1/products")
           throw new StripeError(400, "Product already exists.", "resource_already_exists");
         if (path === "/v1/checkout/sessions")
-          return { url: "https://checkout.stripe.com/c/abc" } as never;
+          return {
+            id: "cs_abc",
+            url: "https://checkout.stripe.com/c/abc",
+            expires_at: 1_792_086_400,
+          } as never;
         if (method === "GET") return { items: { data: [{ id: "si_1" }] } } as never;
         return {} as never;
       },
@@ -196,7 +202,7 @@ describe("Stripe's events, read here (#178)", () => {
       name: "Studio",
       price: { amount: 4900, currency: "GBP", interval: "month" as const },
     };
-    const url = await gateway.checkout({
+    const session = await gateway.checkout({
       organisationId: "org-1",
       customerId: "cus_1",
       plan,
@@ -204,7 +210,11 @@ describe("Stripe's events, read here (#178)", () => {
       successUrl: "https://review.example/settings/billing?checkout=done",
       cancelUrl: "https://review.example/settings/billing",
     });
-    expect(url).toBe("https://checkout.stripe.com/c/abc");
+    expect(session).toEqual({
+      id: "cs_abc",
+      url: "https://checkout.stripe.com/c/abc",
+      expiresAt: new Date(1_792_086_400_000),
+    });
     const product = "hekate_0199a1b2000070008000000000000001";
     expect(calls.map(([m, p]) => `${m} ${p}`)).toEqual([
       "POST /v1/products",

@@ -22,10 +22,11 @@ describe("dunning (#178)", () => {
 });
 
 describe("money", () => {
-  it("reads as people write it, in the minor unit given", () => {
+  it("reads as people write it, in each currency's own minor unit", () => {
     expect(formatMoney(4900, "gbp")).toBe("£49.00");
     expect(formatMoney(118_000, "GBP")).toBe("£1,180.00");
-    expect(formatMoney(-2450, "GBP")).toBe("−£24.50");
-    expect(formatMoney(19_000, "CHF")).toBe("190.00 CHF");
+    expect(formatMoney(-2450, "GBP")).toBe("-£24.50");
+    expect(formatMoney(4900, "JPY")).toBe("JP¥4,900");
+    expect(formatMoney(19_000, "KWD")).toBe("KWD\u00a019.000");
   });
 });

@@ -124,6 +124,9 @@ describe.runIf(key && url)("Stripe, on a test clock (#178)", () => {
         })
       ).id;
       await db
+        .insert(schema.gatewayCustomers)
+        .values({ organisationId, gateway: "stripe", customerId: customer });
+      await db
         .insert(schema.billingAccounts)
         .values({ organisationId, gateway: "stripe", customerId: customer });
       const product = (

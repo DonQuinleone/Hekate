@@ -9,7 +9,7 @@ export interface Gateway {
   readonly kind: "stripe";
   /** Make the workspace a customer, once: asked again, the same customer comes back. */
   createCustomer(input: { organisationId: string; name: string; email: string }): Promise<string>;
-  /** Where an owner goes to pay for a plan for the first time. */
+  /** A checkout for an owner to pay for a plan the first time: its page and when it lapses. */
   checkout(input: {
     organisationId: string;
     customerId: string;
@@ -18,7 +18,14 @@ export interface Gateway {
     trialEnd: Date | null;
     successUrl: string;
     cancelUrl: string;
-  }): Promise<string>;
+  }): Promise<{ id: string; url: string; expiresAt: Date }>;
+  /**
+   * Close a checkout no longer wanted, so it cannot be paid as well as a later one. `complete`
+   * when it was paid already, and so cannot be.
+   */
+  closeCheckout(id: string): Promise<"closed" | "complete">;
+  /** A subscription as it stands now: what its events are read against, whatever their order. */
+  subscription(subscriptionId: string): Promise<SubscriptionFact>;
   /** Move a subscription to another plan, the difference pro-rated. */
   changePlan(input: { subscriptionId: string; plan: PricedPlan }): Promise<void>;
   /** Where an owner changes the card and billing details, and reads past invoices. */
@@ -44,6 +51,8 @@ export interface GatewayEvent {
 
 export interface InvoiceFacts {
   gatewayId: string;
+  /** The subscription it bills; null for one made by hand in the gateway. */
+  subscriptionId: string | null;
   number: string | null;
   status: InvoiceStatus;
   currency: string;
@@ -57,22 +66,25 @@ export interface InvoiceFacts {
   url: string | null;
 }
 
+/** A subscription as it stands. A null status changes nothing about the plan. */
+export interface SubscriptionFact {
+  kind: "subscription";
+  customerId: string;
+  subscriptionId: string;
+  planId: string | null;
+  status: WorkspacePlanStatus | null;
+  trialEndsAt: Date | null;
+  renewsAt: Date | null;
+  ended: boolean;
+  amount: number | null;
+  currency: string | null;
+}
+
 export type Fact =
   /** An owner finished checking out: the workspace's subscription is known. */
   | { kind: "checkout"; organisationId: string; customerId: string; subscriptionId: string }
-  /** A subscription began, changed or ended. A null status changes nothing about the plan. */
-  | {
-      kind: "subscription";
-      customerId: string;
-      subscriptionId: string;
-      planId: string | null;
-      status: WorkspacePlanStatus | null;
-      trialEndsAt: Date | null;
-      renewsAt: Date | null;
-      ended: boolean;
-      amount: number | null;
-      currency: string | null;
-    }
+  /** A subscription began, changed or ended. */
+  | SubscriptionFact
   /** An invoice was made, finalised, paid, failed or voided. */
   | {
       kind: "invoice";
