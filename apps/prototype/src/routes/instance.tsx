@@ -12,7 +12,6 @@ import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
-import { Switch } from "~/components/ui/toggle";
 import { env, severities, tickets } from "~/data";
 import { cn } from "~/lib/cn";
 import { useViewer } from "~/viewer/context";

@@ -1980,7 +1980,9 @@ export function instanceRoutes(options: InstanceOptions) {
                           ? `The ${String(change.details.kind) === "auth" ? "authentication" : String(change.details.kind)} log`
                           : change.action.startsWith("registration.")
                             ? "Registration"
-                            : "A second factor",
+                            : change.action.startsWith("billing.")
+                              ? "Billing's rules"
+                              : "A second factor",
               details: change.details,
               ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
             });
