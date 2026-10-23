@@ -30,6 +30,7 @@ import { carryPreview, carryThreads } from "../carry.ts";
 import { assertProfileRef, customProfilesOf } from "../delivery-profiles.ts";
 import { readEdlFile } from "../edl-file.ts";
 import { CodedException, NotFound } from "../errors.ts";
+import { emitEvent } from "../events.ts";
 import type { Jobs } from "../jobs.ts";
 import type { Mailer } from "../mail.ts";
 import { metrics } from "../metrics/index.ts";
@@ -529,6 +530,15 @@ export const trackRoutes = (
             })
             .returning({ id: versions.id });
           madeId = version?.id ?? "";
+          await emitEvent(tx, {
+            organisationId,
+            kind: "version.arrived",
+            actor: { userId: c.var.userId },
+            projectId: track.projectId,
+            trackId: id,
+            path: `/tracks/${id}`,
+            details: { version: number },
+          });
           await tx.insert(variations).values(
             withPrimary(input.variations).map((v) => ({
               organisationId,

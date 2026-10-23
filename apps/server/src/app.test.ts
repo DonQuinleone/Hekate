@@ -8,6 +8,7 @@ import { createDb, runMigrations, schema, uuidv7, withAuditPurge } from "@hekate
 import {
   type AuditLogRow,
   type AuthLogRow,
+  type ChannelRow,
   decodeLoudness,
   decodePeaks,
   decodeSpectrogram,
@@ -754,6 +755,163 @@ describe.runIf(url)("api", () => {
       return { res, body: (await res.json()) as { link: string; invitation: { id: string } } };
     };
 
+    describe("channels (#161)", () => {
+      const tested: { url: string; body: string }[] = [];
+      const withChannels = createApp({
+        db,
+        auth,
+        mailer,
+        storage,
+        audit,
+        jobs,
+        keyring,
+        playbackSecret: playbackSecret("test-secret-test-secret-test-secret-0"),
+        publicUrl: "http://localhost:3000",
+        log: false,
+        // Trusted, so the test needs no lookup; anything private is still refused.
+        webhookTrustedOrigins: ["https://hooks.slack.com", "https://hooks.example"],
+        sendToChannel: async (to, out) => {
+          tested.push({ url: to, body: out.body });
+          return { status: to.includes("broken") ? 500 : 200, retryAfter: null };
+        },
+      });
+      const call = (path: string, cookie: string, method = "GET", body?: unknown) =>
+        withChannels.request(`/api/organisation/channels${path}`, {
+          ...(body === undefined ? { headers: { cookie } } : json(body, cookie)),
+          method,
+        });
+      const joinAs = async (cookie: string, email: string, role: string) => {
+        const { body } = await invite(cookie, email, role);
+        const res = await app.request(
+          `/api/invitations/${tokenFrom(body.link)}/accept`,
+          json({ name: email.split("@")[0], password: "correct horse battery" }),
+        );
+        expect(res.status).toBe(201);
+        return cookieOf(res);
+      };
+      type Made = { channel: ChannelRow; secret?: string };
+
+      it("keeps a workspace's channels for its admins, and never sends an address back", async () => {
+        const owner = cookieOf(await setup());
+        const member = await joinAs(owner, "tomas@example.test", "member");
+        const admin = await joinAs(owner, "ines@example.test", "admin");
+        const hook = {
+          kind: "webhook",
+          name: "Release desk",
+          url: "https://hooks.example/hekate?token=very-secret",
+          events: ["decision.recorded", "version.arrived"],
+        };
+        // Members see and change nothing.
+        expect((await call("", member)).status).toBe(403);
+        expect((await call("", member, "POST", hook)).status).toBe(403);
+        // Addresses that are not what they say, or are inside the network, are refused.
+        const refused = async (body: unknown) => {
+          const res = await call("", admin, "POST", body);
+          expect(res.status).toBe(422);
+          return ((await res.json()) as { error: { message: string } }).error.message;
+        };
+        expect(await refused({ ...hook, kind: "slack" })).toContain("https://hooks.slack.com/");
+        expect(await refused({ ...hook, url: "http://hooks.example/hekate" })).toMatch(/https/);
+        expect(await refused({ ...hook, url: "https://10.0.0.8/hekate" })).toMatch(/private/);
+        // An event with no schema is no event.
+        expect(
+          (await call("", admin, "POST", { ...hook, events: ["review.archived"] })).status,
+        ).toBe(400);
+
+        const made = await call("", admin, "POST", hook);
+        expect(made.status).toBe(201);
+        const { channel, secret } = (await made.json()) as Made;
+        // The signing secret once, here; the address never.
+        expect(secret).toMatch(/^whsec_/);
+        expect(channel).toMatchObject({
+          kind: "webhook",
+          target: "https://hooks.example/hekate",
+          events: ["decision.recorded", "version.arrived"],
+          pausedUntil: null,
+        });
+        const listed = await (await call("", owner)).text();
+        expect(listed).not.toContain("very-secret");
+        expect(listed).not.toContain(secret ?? "-");
+        const [stored] = await db
+          .select()
+          .from(schema.channels)
+          .where(eq(schema.channels.id, channel.id));
+        expect(stored?.configSealed).not.toContain("very-secret");
+
+        // Which events, a new secret, a resume.
+        const changed = await call(`/${channel.id}`, admin, "PATCH", {
+          events: ["file.downloaded"],
+          newSecret: true,
+          resume: true,
+        });
+        expect(changed.status).toBe(200);
+        const after = (await changed.json()) as Made;
+        expect(after.channel.events).toEqual(["file.downloaded"]);
+        expect(after.secret).toMatch(/^whsec_/);
+        expect(after.secret).not.toBe(secret);
+
+        // A test goes out now, signed with the new secret, and says what came back.
+        tested.length = 0;
+        const test = await call(`/${channel.id}/test`, admin, "POST", {});
+        expect(await test.json()).toEqual({ ok: true, result: "Sent: it answered 200" });
+        expect(tested[0]?.url).toBe("https://hooks.example/hekate?token=very-secret");
+        expect(JSON.parse(tested[0]?.body ?? "{}")).toMatchObject({
+          type: "ping",
+          workspace: { name: "Studio" },
+        });
+        const slack = (await (
+          await call("", admin, "POST", {
+            kind: "slack",
+            name: "#masters",
+            url: "https://hooks.slack.com/services/broken",
+            events: [],
+          })
+        ).json()) as Made;
+        expect(slack.secret).toBeUndefined();
+        expect(slack.channel.target).toBe("hooks.slack.com");
+        expect(await (await call(`/${slack.channel.id}/test`, admin, "POST", {})).json()).toEqual({
+          ok: false,
+          result: "It answered 500",
+        });
+
+        // Another workspace's channel is not found here, whoever asks.
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Mill Lane", slug: "mill-lane" })
+          .returning();
+        const [theirs] = await db
+          .insert(schema.channels)
+          .values({
+            organisationId: other?.id ?? "",
+            kind: "slack",
+            name: "#theirs",
+            target: "hooks.slack.com",
+            configSealed: "x",
+            keyVersion: 1,
+          })
+          .returning();
+        const id = theirs?.id ?? "";
+        expect((await call(`/${id}`, owner, "PATCH", { name: "Mine" })).status).toBe(404);
+        expect((await call(`/${id}/test`, owner, "POST", {})).status).toBe(404);
+        expect((await call(`/${id}`, owner, "DELETE")).status).toBe(404);
+        expect(await (await call("", owner)).text()).not.toContain("#theirs");
+
+        expect((await call(`/${channel.id}`, admin, "DELETE")).status).toBe(204);
+        const left = (await (await call("", owner)).json()) as { channels: ChannelRow[] };
+        expect(left.channels.map((c) => c.name)).toEqual(["#masters"]);
+        const actions = (
+          await db.select({ action: schema.accessEvents.action }).from(schema.accessEvents)
+        ).map((e) => e.action);
+        expect(actions).toEqual(
+          expect.arrayContaining([
+            "organisation.channel_add",
+            "organisation.channel_change",
+            "organisation.channel_remove",
+          ]),
+        );
+      });
+    });
+
     describe("the instance side", () => {
       const asOperator = createApp({
         db,
@@ -1347,7 +1505,7 @@ describe.runIf(url)("api", () => {
           updates: { channel: "stable" },
           maintenance: { on: false, message: "" },
           defaults: { guestLinkDays: 3 },
-          logs: { audit: null, auth: 365, mail: 90 },
+          logs: { audit: null, auth: 365, mail: 90, webhooks: 30 },
         });
         expect(first.environment.sessionDays).toBe(14);
         const notice = async () =>
@@ -1754,7 +1912,7 @@ describe.runIf(url)("api", () => {
           create trigger refuse_157 before delete on instance_events
             for each statement execute function refuse_157()`);
         await expect(
-          purgeLogs(db, { audit: 365, auth: 365, mail: null }, now, { batch: 1 }),
+          purgeLogs(db, { audit: 365, auth: 365, mail: null, webhooks: null }, now, { batch: 1 }),
         ).rejects.toThrow();
         await db.execute(
           sql`drop trigger refuse_157 on instance_events; drop function refuse_157()`,
@@ -1774,10 +1932,15 @@ describe.runIf(url)("api", () => {
           account: "old@example.test",
           occurredAt: old,
         });
-        const first = await purgeLogs(db, { audit: null, auth: 365, mail: 365 }, now, {
-          batch: 1,
-        });
-        expect(first).toEqual({ audit: 0, auth: 1, mail: 1 });
+        const first = await purgeLogs(
+          db,
+          { audit: null, auth: 365, mail: 365, webhooks: null },
+          now,
+          {
+            batch: 1,
+          },
+        );
+        expect(first).toEqual({ audit: 0, auth: 1, mail: 1, webhooks: 0 });
         expect(await accessCount()).toBe(3);
         expect(
           (await db.select({ account: schema.authEvents.account }).from(schema.authEvents)).map(
@@ -1786,9 +1949,14 @@ describe.runIf(url)("api", () => {
         ).toEqual(["new@example.test"]);
 
         // The access log goes only through its purge setting, and what went is itself logged.
-        const second = await purgeLogs(db, { audit: 365, auth: 365, mail: 365 }, now, {
-          batch: 1,
-        });
+        const second = await purgeLogs(
+          db,
+          { audit: 365, auth: 365, mail: 365, webhooks: null },
+          now,
+          {
+            batch: 1,
+          },
+        );
         expect(second.audit).toBeGreaterThanOrEqual(4);
         expect(await accessCount()).toBe(0);
         await db.delete(schema.organisations).where(eq(schema.organisations.id, other?.id ?? ""));
@@ -7913,6 +8081,68 @@ describe.runIf(url)("api", () => {
         expect(
           (await app.request(path(foreign?.id ?? "", "/remind"), json({}, s.owner))).status,
         ).toBe(404);
+      });
+
+      it("tells the workspace's channels what happened, with what it changed (#161)", async () => {
+        const s = await studio();
+        await db.insert(schema.channels).values({
+          organisationId: s.organisationId,
+          kind: "slack",
+          name: "#masters",
+          target: "hooks.slack.com",
+          configSealed: "sealed",
+          keyVersion: 1,
+          events: ["review.requested", "decision.recorded", "version.arrived"],
+        });
+        const review = await reviewOf(
+          await request(s.owner, s.projectId, {
+            kind: "approval",
+            title: "Master sign-off",
+            items: [{ trackId: s.trackId }],
+            reviewers: [s.ids.composer],
+          }),
+        );
+        // Refused, nothing is told.
+        expect(
+          (
+            await app.request(
+              `/api/reviews/${review.id}/decisions`,
+              json({ decision: "approved" }, s.accompanist),
+            )
+          ).status,
+        ).toBe(403);
+        await app.request(
+          `/api/reviews/${review.id}/decisions`,
+          json({ decision: "changes_requested", note: "Bar 12" }, s.composer),
+        );
+        expect(
+          (
+            await app.request(
+              `/api/tracks/${s.trackId}/versions`,
+              json({ variations: [{ fileId: s.artwork, name: "Mix" }] }, s.owner),
+            )
+          ).status,
+        ).toBe(201);
+        const told = await db
+          .select({ kind: schema.events.kind, data: schema.events.data })
+          .from(schema.events)
+          .where(eq(schema.events.organisationId, s.organisationId))
+          .orderBy(asc(schema.events.createdAt));
+        expect(told.map((e) => e.kind)).toEqual([
+          "review.requested",
+          "decision.recorded",
+          "version.arrived",
+        ]);
+        expect(told[1]?.data).toMatchObject({
+          project: { id: s.projectId, name: "Rags" },
+          actor: { name: "composer", guest: false },
+          review: { id: review.id, title: "Master sign-off", kind: "approval" },
+          decision: "changes_requested",
+          path: `/reviews/${review.id}`,
+        });
+        // A decision's note is the review's; the event names, it does not quote.
+        expect(JSON.stringify(told)).not.toContain("Bar 12");
+        expect(told[2]?.data).toMatchObject({ version: 2, track: { id: s.trackId } });
       });
 
       it("deletes an account, keeping its comments and decisions as a former member's", async () => {

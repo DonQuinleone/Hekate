@@ -1,11 +1,12 @@
 import { z } from "zod";
+import type { ChannelKind, DeliveryStatus, EventKind } from "./events.ts";
 
 /**
  * The instance's logs as tables (#157): what operators look up in the app, beside the JSON lines
- * on stdout that log shippers read. Each kind arrives with what writes it: authentication next,
- * then API, webhooks and the billing gateway with their features.
+ * on stdout that log shippers read. Each kind arrives with what writes it: the API and the
+ * billing gateway follow with their features.
  */
-export const logKinds = ["audit", "auth", "mail"] as const;
+export const logKinds = ["audit", "auth", "mail", "webhooks"] as const;
 export type LogKind = (typeof logKinds)[number];
 export const logKindParam = z.object({ kind: z.enum(logKinds) });
 
@@ -87,10 +88,26 @@ export interface MailLogRow {
   error: string | null;
 }
 
+/** One event sent to one of a workspace's channels (#161), and what came of it so far. */
+export interface WebhookLogRow {
+  id: string;
+  at: string;
+  workspace: { id: string; name: string };
+  channel: { id: string; kind: ChannelKind; name: string };
+  event: EventKind;
+  status: DeliveryStatus;
+  /** The receiver's last answer, or what went wrong before one. */
+  result: string | null;
+  attempts: number;
+  /** A replay, sent again from the debug tools. */
+  replay: boolean;
+}
+
 export interface LogRows {
   audit: AuditLogRow;
   auth: AuthLogRow;
   mail: MailLogRow;
+  webhooks: WebhookLogRow;
 }
 
 export type LogPage<K extends LogKind> = { rows: LogRows[K][]; next: string | null };

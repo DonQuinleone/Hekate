@@ -15,6 +15,7 @@ export * from "./downloads.ts";
 export * from "./edl.ts";
 export * from "./email.ts";
 export * from "./error-reports.ts";
+export * from "./events.ts";
 export * from "./file-columns.ts";
 export * from "./files.ts";
 export * from "./flags.ts";

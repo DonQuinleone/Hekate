@@ -23,6 +23,8 @@ export interface Purged {
   audit: number;
   auth: number;
   mail: number;
+  /** Events (#161), each with its deliveries. */
+  webhooks: number;
 }
 
 /** Delete batches until one comes back short, counting each as it commits. */
@@ -69,7 +71,7 @@ export async function purgeLogs(
   now = new Date(),
   { batch = BATCH }: { batch?: number } = {},
 ): Promise<Purged> {
-  const purged: Purged = { audit: 0, auth: 0, mail: 0 };
+  const purged: Purged = { audit: 0, auth: 0, mail: 0, webhooks: 0 };
   let complete = false;
   try {
     if (keep.auth !== null) {
@@ -83,6 +85,36 @@ export async function purgeLogs(
       await trim(db, t, t.occurredAt, cutoff(keep.mail, now), batch, (n) => {
         purged.mail += n;
       });
+    }
+    if (keep.webhooks !== null) {
+      // Each workspace's events, oldest first; their deliveries go with them.
+      const e = schema.events;
+      const before = cutoff(keep.webhooks, now);
+      const workspaces = await db
+        .selectDistinct({ id: e.organisationId })
+        .from(e)
+        .where(lt(e.createdAt, before));
+      for (const { id: organisationId } of workspaces) {
+        await inBatches(
+          batch,
+          async () => {
+            const oldest = db
+              .select({ id: e.id })
+              .from(e)
+              .where(inOrg(e, organisationId, lt(e.createdAt, before)))
+              .orderBy(asc(e.createdAt))
+              .limit(batch);
+            const gone = await db
+              .delete(e)
+              .where(inOrg(e, organisationId, inArray(e.id, oldest)))
+              .returning({ id: e.id });
+            return gone.length;
+          },
+          (n) => {
+            purged.webhooks += n;
+          },
+        );
+      }
     }
     if (keep.audit !== null) {
       const before = cutoff(keep.audit, now);
@@ -119,7 +151,7 @@ export async function purgeLogs(
     }
     complete = true;
   } finally {
-    if (purged.audit + purged.auth + purged.mail > 0)
+    if (purged.audit + purged.auth + purged.mail + purged.webhooks > 0)
       await recordInstanceEvent(db, {
         actorId: null,
         action: "logs.purged",

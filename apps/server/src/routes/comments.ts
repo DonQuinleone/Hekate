@@ -38,6 +38,7 @@ import { type Audit, requestInfo } from "../audit.ts";
 import { hopsOf, lockTrackOfFile, versionNumbersOf } from "../carry.ts";
 import { commentSheet } from "../comment-sheet.ts";
 import { CodedException, NotFound } from "../errors.ts";
+import { emitEvent } from "../events.ts";
 import type { ViewerVariables } from "../guests.ts";
 import type { Mailer } from "../mail.ts";
 import { type NotificationActor, notifyNow, projectPeople } from "../notifications.ts";
@@ -1065,6 +1066,16 @@ async function tellAboutComment(
       kind: "mention",
       recipients: mentioned,
       text: `mentioned you on ${c.fileName}`,
+    });
+    await emitEvent(deps.db, {
+      organisationId: c.organisationId,
+      kind: "comment.mentioned",
+      actor: c.actor,
+      projectId: c.projectId,
+      fileId: c.fileId,
+      commentId: c.commentId,
+      path: `/files/${c.fileId}`,
+      details: { mentioned: mentioned.length },
     });
   }
   if (!c.parentId || c.onlyMentions) return;

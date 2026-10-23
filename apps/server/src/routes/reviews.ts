@@ -48,6 +48,7 @@ import {
 import { type Audit, type RequestInfo, requestInfo } from "../audit.ts";
 import { decisionWords, longDate, subjectValues, workspaceEmail } from "../email/templates.ts";
 import { NotFound } from "../errors.ts";
+import { emitEvent } from "../events.ts";
 import { issueGuestLink, revokeGuest, type ViewerVariables } from "../guests.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { followersOf, notifyNow } from "../notifications.ts";
@@ -943,6 +944,10 @@ async function notifyShare(
   }
 }
 
+/** Who acted, as an event names them. */
+const eventActor = (actor: Actor) =>
+  actor.kind === "guest" ? { guestId: actor.guestId } : { userId: actor.userId };
+
 const decisionText: Record<ReviewDecision, (title: string) => string> = {
   approved: (title) => `approved "${title}"`,
   changes_requested: (title) => `requested changes on "${title}"`,
@@ -1391,6 +1396,14 @@ export async function requestReview(
       request,
       tx,
     );
+    await emitEvent(tx, {
+      organisationId,
+      kind: "review.requested",
+      actor: { userId: actor.userId },
+      projectId,
+      reviewId: created.id,
+      path: `/reviews/${created.id}`,
+    });
     return created;
   });
   if (!review) return null;
@@ -1891,6 +1904,15 @@ export const reviewRoutes = (deps: ReviewDeps) =>
           requestInfo(c, deps.trustProxy),
           tx,
         );
+        await emitEvent(tx, {
+          organisationId: actor.organisationId,
+          kind: "decision.recorded",
+          actor: eventActor(actor),
+          projectId: review.projectId,
+          reviewId: review.id,
+          path: `/reviews/${review.id}`,
+          details: { decision: input.decision },
+        });
         await tx
           .update(reviewReviewers)
           .set({
@@ -1959,6 +1981,14 @@ export const reviewRoutes = (deps: ReviewDeps) =>
           requestInfo(c, deps.trustProxy),
           tx,
         );
+        await emitEvent(tx, {
+          organisationId: actor.organisationId,
+          kind: "feedback.submitted",
+          actor: eventActor(actor),
+          projectId: review.projectId,
+          reviewId: review.id,
+          path: `/reviews/${review.id}`,
+        });
         const settled = await settle(tx, review);
         const after = await reviewersOf(tx, actor.organisationId, review.id);
         const next =

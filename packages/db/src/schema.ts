@@ -8,15 +8,18 @@ import {
   authResults,
   type CaptionCue,
   type CaptionFormat,
+  type ChannelKind,
   type CommentMention,
   type CommentReferences,
   type CustomProfileInput,
   carryStatuses,
   categoryHandlings,
+  type DeliveryStatus,
   type DigestFrequency,
   type DirectoryRoleRule,
   type DownloadKind,
   defaultReviewerPermissions,
+  type EventKind,
   type FileColumnLayout,
   type InstanceSettings,
   type LoudnessSummary,
@@ -2814,6 +2817,95 @@ export const mailEvents = pgTable(
     error: text("error"),
   },
   (t) => [index("mail_events_occurred_idx").on(t.occurredAt)],
+);
+
+// Events and channels (#161)
+
+/**
+ * Where a workspace's events go: a Slack, Discord or Microsoft Teams channel, or a webhook.
+ * The address (and a webhook's signing secret) is sealed with the workspace's key, as JSON;
+ * `target` is what settings show of it. Failing too often in a row pauses it for a while.
+ */
+export const channels = pgTable(
+  "channels",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    kind: text("kind").$type<ChannelKind>().notNull(),
+    name: text("name").notNull(),
+    target: text("target").notNull(),
+    configSealed: text("config_sealed").notNull(),
+    /** The version of the workspace key that sealed it. */
+    keyVersion: integer("key_version").notNull(),
+    events: text("events").array().$type<EventKind[]>().notNull().default(sql`'{}'`),
+    /** Failures in a row since the last delivery that worked. */
+    failures: integer("failures").notNull().default(0),
+    pausedUntil: timestamp("paused_until", { withTimezone: true }),
+    lastDeliveredAt: timestamp("last_delivered_at", { withTimezone: true }),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [index("channels_organisation_idx").on(t.organisationId)],
+);
+
+/**
+ * The outbox: an event, written in the transaction that made it happen, waiting to be handed
+ * to the channels that carry its kind. Written only while some channel of the workspace does.
+ */
+export const events = pgTable(
+  "events",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    kind: text("kind").$type<EventKind>().notNull(),
+    data: jsonb("data").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** When its deliveries were made; null while it waits. */
+    dispatchedAt: timestamp("dispatched_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("events_waiting_idx").on(t.createdAt).where(sql`${t.dispatchedAt} is null`),
+    index("events_organisation_idx").on(t.organisationId, t.createdAt),
+  ],
+);
+
+/**
+ * One event sent to one channel, and its attempts: the webhook log. One per event and channel,
+ * so dispatching twice delivers once; a replay is a row of its own, pointing at the original.
+ */
+export const eventDeliveries = pgTable(
+  "event_deliveries",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    channelId: uuid("channel_id")
+      .notNull()
+      .references(() => channels.id, { onDelete: "cascade" }),
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    status: text("status").$type<DeliveryStatus>().notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    /** While one worker sends it, no other may. */
+    claimedUntil: timestamp("claimed_until", { withTimezone: true }),
+    /** The receiver's last answer: an HTTP status, or what went wrong before one. */
+    lastResult: text("last_result"),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    replayOf: uuid("replay_of"),
+    replayedBy: text("replayed_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("event_deliveries_once_idx")
+      .on(t.channelId, t.eventId)
+      .where(sql`${t.replayOf} is null`),
+    index("event_deliveries_due_idx")
+      .on(t.nextAttemptAt)
+      .where(sql`${t.status} in ('pending', 'sending')`),
+    index("event_deliveries_channel_idx").on(t.organisationId, t.channelId, t.createdAt),
+    index("event_deliveries_created_idx").on(t.createdAt),
+  ],
 );
 
 /**

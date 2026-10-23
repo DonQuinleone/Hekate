@@ -293,6 +293,14 @@ const schema = z.object({
       example: "https://login.internal.example",
     }),
   ),
+  WEBHOOK_TRUSTED_ORIGINS: list.meta(
+    info({
+      group: "Server",
+      description:
+        "Origins on a private network (a chat server or receiver inside your own network), comma separated, that workspaces' channels and webhooks may reach (#161). Public ones need nothing; anything else on a private address is refused.",
+      example: "https://hooks.internal.example",
+    }),
+  ),
   SMTP_URL: z
     .url({ error: "must be an SMTP URL, such as smtp://user:pass@mail.example.com:587" })
     .optional()

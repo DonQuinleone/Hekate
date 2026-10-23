@@ -66,6 +66,7 @@ Workspaces are named by their id, never their name, and routes by their pattern 
 | `hekate_downloads_total` | counter | workspace | Downloads, marked for whoever asked. |
 | `hekate_database_up` | gauge | | Whether the database answered during the scrape. |
 | `hekate_mail_sent_total`, `hekate_mail_failed_total` | counter | | Messages the mail server took, and would not take. |
+| `hekate_webhook_deliveries_total` | counter | `channel`, `status` | Each attempt to send an event to a workspace's channel: `slack`, `discord`, `teams` or `webhook`, and `delivered` or `failed`. |
 | `hekate_signins_total`, `hekate_signins_refused_total` | counter | method | Sign-ins by password, passkey, directory or single sign-on, and those refused. |
 
 Key issues, page renders and downloads are counted as they are written to the access log, which stays the record of who saw what; the metrics only say how much.

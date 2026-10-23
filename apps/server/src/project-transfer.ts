@@ -111,7 +111,8 @@ export const transferTables = {
    * The workspace's own, left where they are: people, guests, tags, profiles, settings, keys and
    * the access log (append-only, so the project's history stays in the log it was written to).
    * Guests, tags and delivery profiles the project uses are matched in the gaining workspace,
-   * by address, name or label, or copied there.
+   * by address, name or label, or copied there. Its channels, and the events they were sent,
+   * stay too: an event names a project as it was when it happened.
    */
   workspace: [
     "members",
@@ -128,6 +129,9 @@ export const transferTables = {
     "directories",
     "sso_providers",
     "access_events",
+    "channels",
+    "events",
+    "event_deliveries",
   ],
 } as const;
 

@@ -12,6 +12,7 @@ import { HTTPException } from "hono/http-exception";
 import { logger } from "hono/logger";
 import type { Audit } from "./audit.ts";
 import { type Auth, SESSION_DAYS } from "./auth.ts";
+import { createSend, type Send } from "./channels.ts";
 import { errorHandler, requestId } from "./errors.ts";
 import { requirePlaySession, requireViewer } from "./guests.ts";
 import { createHealthChecks } from "./health-checks.ts";
@@ -27,6 +28,7 @@ import { projectBoardRoutes } from "./routes/board.ts";
 import { calendarFeedRoutes, projectCalendarRoutes } from "./routes/calendar.ts";
 import { captionRoutes } from "./routes/captions.ts";
 import { categoryRoutes, projectCategoryRoutes } from "./routes/categories.ts";
+import { channelRoutes } from "./routes/channels.ts";
 import { carryRoutes, commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
 import { directoryRoutes } from "./routes/directory.ts";
 import {
@@ -118,6 +120,10 @@ export interface AppDeps {
   storageReconcile?: "remove" | "report";
   /** Identity providers on a private network the server may reach (SSO_TRUSTED_ORIGINS). */
   ssoTrustedOrigins?: string[];
+  /** Channels and webhooks on a private network the server may reach (WEBHOOK_TRUSTED_ORIGINS). */
+  webhookTrustedOrigins?: string[];
+  /** How a channel is sent to (#161); a guarded HTTP request unless a test gives its own. */
+  sendToChannel?: Send;
   /** Check the first owner's password against known breaches (PASSWORD_LEAK_CHECK). */
   passwordLeakCheck?: boolean;
   /** The instance asks every account for a second factor (REQUIRE_SECOND_FACTOR). */
@@ -299,6 +305,19 @@ export function createApi(deps: AppDeps) {
         ssoRoutes(deps.db, deps.audit, {
           baseURL: deps.publicUrl,
           trusted: deps.ssoTrustedOrigins ?? [],
+          trustProxy: deps.trustProxy ?? false,
+        }),
+      )
+      .route(
+        "/organisation/channels",
+        channelRoutes({
+          db: deps.db,
+          keyring: deps.keyring,
+          audit: deps.audit,
+          jobs: deps.jobs,
+          send: deps.sendToChannel ?? createSend(deps.webhookTrustedOrigins ?? []),
+          publicUrl: deps.publicUrl,
+          trusted: deps.webhookTrustedOrigins ?? [],
           trustProxy: deps.trustProxy ?? false,
         }),
       )

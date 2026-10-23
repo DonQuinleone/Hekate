@@ -112,8 +112,16 @@ const providers = [
   "Microsoft 365",
   "Slack",
   "Discord",
+  "Microsoft Teams",
   "Webhook",
 ];
+/** Where each chat or webhook kind's address comes from, as the product's dialog asks for it. */
+const channelAddress: Record<string, string> = {
+  Slack: "https://hooks.slack.com/services/…",
+  Discord: "https://discord.com/api/webhooks/…",
+  "Microsoft Teams": "https://…logic.azure.com/workflows/…",
+  Webhook: "https://hooks.example/hekate",
+};
 
 function Test({ state }: { state: "idle" | "ok" | "failed" }) {
   const [s, setS] = useState(state);
@@ -164,6 +172,7 @@ export function SettingsPage({
   const elevated =
     viewer.persona.organisationRole === "owner" || viewer.persona.organisationRole === "admin";
   const [adding, setAdding] = useState(false);
+  const [channelKind, setChannelKind] = useState("Resend");
   const [leak, setLeak] = useState<"idle" | "scanning" | "match" | "none">("idle");
   const [logFilter, setLogFilter] = useState("");
   usePageHeader({ title: "Workspace settings" });
@@ -1569,23 +1578,44 @@ export function SettingsPage({
             <div className="flex flex-col gap-4">
               <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
                 Kind
-                <Select defaultValue="Resend">
+                <Select value={channelKind} onChange={(e) => setChannelKind(e.target.value)}>
                   {providers.map((p) => (
                     <option key={p}>{p}</option>
                   ))}
                 </Select>
               </label>
-              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-                API key
-                <Input type="password" placeholder="re_…" />
-              </label>
-              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-                From
-                <Input defaultValue="Hekate <hekate@endlesshall.example>" />
-              </label>
-              <Button variant="secondary" size="md" className="self-start">
-                Send a test
-              </Button>
+              {channelAddress[channelKind] ? (
+                <>
+                  {/* A chat channel or a webhook: a name, its address, and the events it hears of. */}
+                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                    Name
+                    <Input placeholder={channelKind === "Webhook" ? "Release desk" : "#masters"} />
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                    Address
+                    <Input type="url" placeholder={channelAddress[channelKind]} />
+                    <span className="text-[12px] text-ink-3">
+                      {channelKind === "Webhook"
+                        ? "Each event arrives as JSON, signed; the signing secret is shown once, when the webhook is made."
+                        : "Kept sealed: settings show only its host."}
+                    </span>
+                  </label>
+                </>
+              ) : (
+                <>
+                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                    API key
+                    <Input type="password" placeholder="re_…" />
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                    From
+                    <Input defaultValue="Hekate <hekate@endlesshall.example>" />
+                  </label>
+                  <Button variant="secondary" size="md" className="self-start">
+                    Send a test
+                  </Button>
+                </>
+              )}
             </div>
           ) : sec === "storage" ? (
             <div className="flex flex-col gap-4">

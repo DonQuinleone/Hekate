@@ -27,6 +27,7 @@ import { deliveryHint, ProfileEditor, ProfileOptions } from "~/components/delive
 import { DirectorySection } from "~/components/directory";
 import { EmailTemplatesSection } from "~/components/email-templates";
 import { Empty } from "~/components/empty";
+import { ChannelsSection } from "~/components/event-channels";
 import { Icon } from "~/components/icons";
 import { PageHeader } from "~/components/page-header";
 import { PlayerToolsTable } from "~/components/player-tools";
@@ -135,6 +136,14 @@ const allSections: SectionSpec[] = [
     from: "admin",
     intro: "How members sign in to this workspace.",
     docs: "/security/model/",
+  },
+  {
+    id: "notifications",
+    label: "Notifications and integrations",
+    group: "Access",
+    from: "admin",
+    intro: "Where the workspace's events go: Slack, Discord, Microsoft Teams and webhooks.",
+    docs: "/use/integrations/",
   },
   {
     id: "transfers",
@@ -1239,6 +1248,7 @@ export function WorkspaceSettingsPage({ section }: { section: string }) {
             <DirectorySection />
           </>
         )}
+        {current.id === "notifications" && <ChannelsSection />}
         {current.id === "storage" && <Storage role={role} />}
         {current.id === "transfers" && <TransfersSection />}
         {current.id === "log" && <AccessLog />}

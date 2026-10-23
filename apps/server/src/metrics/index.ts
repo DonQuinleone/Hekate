@@ -91,6 +91,11 @@ export const metrics = {
     "hekate_mail_failed_total",
     "Messages the mail server would not take.",
   ),
+  webhookDeliveries: registry.counter(
+    "hekate_webhook_deliveries_total",
+    "Events sent to a workspace's channels (#161), each attempt, by kind of channel and whether it was taken.",
+    ["channel", "status"],
+  ),
   signIns: registry.counter("hekate_signins_total", "Sign-ins that succeeded, by method.", [
     "method",
   ]),

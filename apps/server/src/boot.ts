@@ -5,7 +5,9 @@ import { count } from "drizzle-orm";
 import { createApp } from "./app.ts";
 import { createAudit } from "./audit.ts";
 import { createAuth } from "./auth.ts";
+import { createSend } from "./channels.ts";
 import { failureOfJob, purgeErrorReports, recordFailure } from "./error-reports.ts";
+import { deliver, dispatchEvents, onEventWritten } from "./events.ts";
 import { createFlags } from "./flags.ts";
 import { createInstanceSettings } from "./instance-settings.ts";
 import { createJobs, inLanes, jobDefinitions } from "./jobs.ts";
@@ -156,6 +158,16 @@ export async function boot(
     void holdJobs();
   });
 
+  // An event written is dispatched a moment later, once its transaction has committed (#161).
+  onEventWritten(() => {
+    void jobs
+      .send("events-dispatch", {}, { singletonKey: "events-dispatch", startAfterSeconds: 2 })
+      .catch((error: unknown) =>
+        console.warn(`Could not queue the event dispatch now: ${String(error)}`),
+      );
+  });
+  const sendToChannel = createSend(config.WEBHOOK_TRUSTED_ORIGINS);
+
   // What this process does (#189): requests, background jobs in the lanes it takes, or both.
   const role = roleOf(config.ROLE, config.WORKER);
   if (role !== "api") {
@@ -200,11 +212,22 @@ export async function boot(
     await taking.work("notifications-digest", async () => {
       await deliverDigests(db, mailer, config.PUBLIC_URL);
     });
+    await taking.work("events-dispatch", async () => {
+      await dispatchEvents(db, jobs);
+    });
+    const delivering = { db, keyring, jobs, send: sendToChannel, publicUrl: config.PUBLIC_URL };
+    await taking.work(
+      "event-delivery",
+      async ({ organisationId, deliveryId }) => {
+        await deliver(delivering, organisationId, deliveryId);
+      },
+      { concurrency: 4 },
+    );
     await taking.work("logs-retention", async () => {
       const purged = await purgeLogs(db, (await settings.get()).logs);
-      if (purged.audit + purged.auth + purged.mail > 0)
+      if (purged.audit + purged.auth + purged.mail + purged.webhooks > 0)
         console.log(
-          `Logs trimmed: ${purged.audit} audit, ${purged.auth} authentication, ${purged.mail} mail`,
+          `Logs trimmed: ${purged.audit} audit, ${purged.auth} authentication, ${purged.mail} mail, ${purged.webhooks} events`,
         );
     });
     await taking.work("sign-in-attempts-purge", async () => {
@@ -297,6 +320,7 @@ export async function boot(
     requireSecondFactor: config.REQUIRE_SECOND_FACTOR,
     maxPasskeys: config.MAX_PASSKEYS,
     ssoTrustedOrigins: config.SSO_TRUSTED_ORIGINS,
+    webhookTrustedOrigins: config.WEBHOOK_TRUSTED_ORIGINS,
     storageReconcile: config.STORAGE_RECONCILE,
     setupGate: options.gate,
     operatorSecurityKey: config.OPERATOR_SECURITY_KEY,

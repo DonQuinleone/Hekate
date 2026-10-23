@@ -99,6 +99,10 @@ export const auditActions = [
   "organisation.directory",
   /** An admin changed the workspace's single sign-on settings. */
   "organisation.sso",
+  /** An admin added, changed or removed one of the workspace's channels (#161). */
+  "organisation.channel_add",
+  "organisation.channel_change",
+  "organisation.channel_remove",
   /** A project was archived (its open reviews closing), or brought back. */
   "project.archive",
   "project.unarchive",

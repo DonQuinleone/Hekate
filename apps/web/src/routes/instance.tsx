@@ -2,6 +2,7 @@ import {
   type AuditLogRow,
   type AuthLogRow,
   type CheckState,
+  channelKindLabels,
   ERROR_REPORT_DAYS,
   errorReportText,
   formatBytes,
@@ -32,6 +33,7 @@ import {
   parseErrorReference,
   type UpdateChannel,
   updateChannels,
+  type WebhookLogRow,
   WORKSPACE_DELETE_GRACE_DAYS,
   type WorkspaceState,
 } from "@hekate/shared";
@@ -43,7 +45,14 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type FormEvent, useDeferredValue, useEffect, useRef, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useDeferredValue,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { Gauge, Spark } from "~/components/charts";
 import { Stat } from "~/components/dashboard";
 import { Empty } from "~/components/empty";
@@ -467,8 +476,132 @@ function Debug() {
           lookUp(reference);
         }}
       />
+      <Replay />
       <Flags />
     </>
+  );
+}
+
+/** One delivery in the webhook log: when, to which channel, which event, and what came of it. */
+function WebhookEntry({ row: r, action }: { row: WebhookLogRow; action?: ReactNode }) {
+  return (
+    <div
+      data-log-entry
+      className={cn(
+        "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-[13px]",
+        action
+          ? "@3xl/app:grid-cols-[150px_minmax(0,1fr)_170px_minmax(0,1fr)_120px_104px]"
+          : "@3xl/app:grid-cols-[150px_minmax(0,1fr)_170px_minmax(0,1fr)_120px]",
+      )}
+    >
+      <span className="tabular text-ink-3">{logTime.format(new Date(r.at))}</span>
+      <span className="tabular justify-self-end text-ink-3 @3xl/app:order-5 @3xl/app:justify-self-end">
+        {r.replay ? "Replay · " : ""}
+        {r.attempts === 1 ? "1 attempt" : `${r.attempts} attempts`}
+      </span>
+      <span className="col-span-2 flex min-w-0 flex-col @3xl/app:order-2 @3xl/app:col-span-1">
+        <span className="truncate text-ink-2">
+          {channelKindLabels[r.channel.kind]} {r.channel.name}
+        </span>
+        <span className="truncate text-[12px] text-ink-3">{r.workspace.name}</span>
+      </span>
+      <span className="tabular col-span-2 truncate text-ink @3xl/app:order-3 @3xl/app:col-span-1">
+        {r.event}
+      </span>
+      <span
+        className={cn(
+          "col-span-2 truncate @3xl/app:order-4 @3xl/app:col-span-1",
+          r.status === "failed" || (r.status === "pending" && r.attempts > 0)
+            ? "text-signal"
+            : "text-ink-3",
+        )}
+        title={deliveryResult(r)}
+      >
+        {deliveryResult(r)}
+      </span>
+      {action && (
+        <span className="col-span-2 @3xl/app:order-6 @3xl/app:col-span-1 @3xl/app:justify-self-end">
+          {action}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A past delivery sent again to its channel (#161): a new delivery of the same event, so a
+ * receiver that kept it can tell. Chosen from the last week's deliveries.
+ */
+function Replay() {
+  const [picking, setPicking] = useState(false);
+  return (
+    <Section title="Replay">
+      <Row
+        name="Replay a webhook"
+        hint="Send a past delivery again to its channel, as the same event."
+      >
+        <Button variant="secondary" size="md" onClick={() => setPicking(true)}>
+          Pick a delivery
+        </Button>
+      </Row>
+      {picking && <ReplayDialog onClose={() => setPicking(false)} />}
+    </Section>
+  );
+}
+
+function ReplayDialog({ onClose }: { onClose: () => void }) {
+  const client = useQueryClient();
+  const log = useInfiniteQuery(instanceLogQuery("webhooks", { range: "7d" }));
+  const [sent, setSent] = useState<Set<string>>(new Set());
+  const replay = useMutation({
+    mutationFn: async (id: string) =>
+      json<{ delivery: string }>(
+        await api.instance.deliveries[":id"].replay.$post({ param: { id } }),
+      ),
+    onSuccess: (_, id) => {
+      setSent((s) => new Set(s).add(id));
+      void client.invalidateQueries({ queryKey: ["instance", "logs", "webhooks"] });
+    },
+  });
+  const rows = log.data?.pages.flatMap((p) => p.rows) ?? [];
+  return (
+    <Dialog
+      title="Replay a webhook"
+      description="The last week's deliveries, newest first. The channel gets the event again, with the same id."
+      onClose={onClose}
+      width="xl"
+    >
+      <div className="flex max-h-[60vh] flex-col divide-y divide-line overflow-y-auto rounded-panel border border-line">
+        {log.isPending ? (
+          <p className="m-0 px-4 py-3 text-[13px] text-ink-3">Loading</p>
+        ) : rows.length === 0 ? (
+          <div className="p-4">
+            <Empty title="No deliveries this week" text="Nothing has been sent to a channel." />
+          </div>
+        ) : (
+          rows.map((r) => (
+            <WebhookEntry
+              key={r.id}
+              row={r}
+              action={
+                <Button
+                  size="sm"
+                  disabled={sent.has(r.id) || (replay.isPending && replay.variables === r.id)}
+                  onClick={() => replay.mutate(r.id)}
+                >
+                  {sent.has(r.id) ? "Queued" : "Send again"}
+                </Button>
+              }
+            />
+          ))
+        )}
+      </div>
+      {replay.isError && (
+        <p role="alert" className="m-0 mt-3 text-[13px] text-signal">
+          {replay.error.message}
+        </p>
+      )}
+    </Dialog>
   );
 }
 
@@ -647,6 +780,11 @@ function Settings() {
             ],
             ["auth", "Authentication", "Every sign-in, refusal and lockout."],
             ["mail", "Email", "Every message handed to instance mail."],
+            [
+              "webhooks",
+              "Webhooks",
+              "Every event the workspaces' channels were sent, with each delivery.",
+            ],
           ] as const
         ).map(([kind, name, hint]) => (
           <Row key={kind} name={name} hint={hint}>
@@ -929,6 +1067,7 @@ const logLabels: Record<LogKind, string> = {
   audit: "Audit",
   auth: "Authentication",
   mail: "Email",
+  webhooks: "Webhooks",
 };
 const rangeLabels: Record<LogRange, string> = {
   "1h": "Last hour",
@@ -941,7 +1080,20 @@ const logNotes: Record<LogKind, string> = {
     "Every action an operator took on the instance, and every change in a workspace with the files people downloaded. Streams and page renders stay in each workspace's access log.",
   auth: "Every sign-in, refusal and lockout, with the address and the browser. After four wrong passwords each try waits longer, and ten in fifteen minutes lock the account for fifteen.",
   mail: "Every message handed to instance mail, and what came back. Without SMTP, messages are written to the server's log.",
+  webhooks:
+    "Every delivery to a workspace's channels and its attempts. A channel that keeps failing pauses itself for five minutes; Debug tools send a delivery again.",
 };
+const deliveryStatusLabels: Record<WebhookLogRow["status"], string> = {
+  pending: "Waiting",
+  sending: "Sending",
+  delivered: "Delivered",
+  failed: "Given up",
+  skipped: "Not sent",
+};
+
+/** What came of a delivery: its status, and what the receiver last said. */
+const deliveryResult = (r: WebhookLogRow) =>
+  [deliveryStatusLabels[r.status], r.result].filter(Boolean).join(" · ");
 const authMethodLabels: Record<AuthLogRow["method"], string> = {
   password: "Password",
   passkey: "Passkey",
@@ -996,8 +1148,10 @@ function Logs() {
   useEffect(() => {
     if (workspaces.hasNextPage && !workspaces.isFetchingNextPage) void workspaces.fetchNextPage();
   }, [workspaces.hasNextPage, workspaces.isFetchingNextPage, workspaces.fetchNextPage]);
-  const rows: (AuditLogRow | AuthLogRow | MailLogRow)[] =
-    log.data?.pages.flatMap((p): (AuditLogRow | AuthLogRow | MailLogRow)[] => p.rows) ?? [];
+  const rows: (AuditLogRow | AuthLogRow | MailLogRow | WebhookLogRow)[] =
+    log.data?.pages.flatMap(
+      (p): (AuditLogRow | AuthLogRow | MailLogRow | WebhookLogRow)[] => p.rows,
+    ) ?? [];
   const exportUrl = `/api/instance/logs/${kind}/export?${new URLSearchParams(logQueryString(filters))}`;
   const body = (
     <>
@@ -1126,6 +1280,8 @@ function Logs() {
               </span>
             </div>
           ))
+        ) : kind === "webhooks" ? (
+          (rows as WebhookLogRow[]).map((r) => <WebhookEntry key={r.id} row={r} />)
         ) : (
           (rows as MailLogRow[]).map((r) => (
             <div
