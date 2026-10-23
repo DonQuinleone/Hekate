@@ -204,6 +204,9 @@ export async function dispatchEvents(db: Database, jobs: DeliveryJobs, now = new
             inOrg(channels, event.organisationId, sql`${event.kind} = any(${channels.events})`),
           );
         if (carrying.length > 0) {
+          // Due now by this server's clock, which `deliver` compares with: the database's is finer,
+          // and its now() could read as a moment ahead.
+          const due = new Date();
           const rows = await tx
             .insert(eventDeliveries)
             .values(
@@ -211,6 +214,7 @@ export async function dispatchEvents(db: Database, jobs: DeliveryJobs, now = new
                 organisationId: event.organisationId,
                 channelId: c.id,
                 eventId: event.id,
+                nextAttemptAt: due,
               })),
             )
             .onConflictDoNothing()
@@ -456,6 +460,7 @@ export async function replayDelivery(
       eventId: original.eventId,
       replayOf: original.replayOf ?? original.id,
       replayedBy,
+      nextAttemptAt: new Date(),
     })
     .returning();
   if (made) await queueDelivery(jobs, organisationId, made.id);

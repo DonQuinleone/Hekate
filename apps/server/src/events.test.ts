@@ -180,7 +180,11 @@ describe.runIf(url)("events and deliveries (#161)", () => {
 
     const send = deps(createSend([origin]));
     received.length = 0;
-    expect(await deliver(send, organisationId, delivery?.id ?? "")).toBe("delivered");
+    // Due the moment it is made: the database's clock is finer than ours, so a delivery sent in
+    // the same millisecond as it was made must still be due.
+    expect(await deliver(send, organisationId, delivery?.id ?? "", delivery?.nextAttemptAt)).toBe(
+      "delivered",
+    );
     // Delivered is delivered: the job running again sends nothing.
     expect(await deliver(send, organisationId, delivery?.id ?? "")).toBe("not_due");
     expect(received).toHaveLength(1);
@@ -200,7 +204,9 @@ describe.runIf(url)("events and deliveries (#161)", () => {
 
     // A replay is a delivery of its own, of the same event.
     const replay = await replayDelivery(db, jobs, organisationId, delivery?.id ?? "", null);
-    expect(await deliver(send, organisationId, replay?.id ?? "")).toBe("delivered");
+    expect(await deliver(send, organisationId, replay?.id ?? "", replay?.nextAttemptAt)).toBe(
+      "delivered",
+    );
     const again = JSON.parse(received[1]?.body ?? "{}") as WebhookBody;
     expect(again.id).toBe(event?.id);
     expect(received[1]?.headers["hekate-delivery"]).toBe(replay?.id);
