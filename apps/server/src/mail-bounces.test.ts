@@ -50,6 +50,12 @@ describe("bounce reports (#161)", () => {
       data: { to: ["ines@example.test"], bounce: { type: "Transient" } },
     });
     expect(readBounces("resend", secret, transient, signed(transient), now)).toEqual([]);
+    // Nor is one Resend could not class: it may have been either.
+    const undetermined = JSON.stringify({
+      type: "email.bounced",
+      data: { to: ["ines@example.test"], bounce: { type: "Undetermined" } },
+    });
+    expect(readBounces("resend", secret, undetermined, signed(undetermined), now)).toEqual([]);
     const complained = JSON.stringify({ type: "email.complained", data: { to: ["a@b.test"] } });
     expect(readBounces("resend", secret, complained, signed(complained), now)).toEqual([
       { address: "a@b.test", kind: "complaint", detail: null },

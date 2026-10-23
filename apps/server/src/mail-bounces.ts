@@ -73,7 +73,8 @@ function resend(secret: string, body: string, header: Headers, now: Date): Bounc
     data?: { to?: string[]; bounce?: { type?: string; message?: string } };
   };
   const to = event.data?.to ?? [];
-  if (event.type === "email.bounced" && event.data?.bounce?.type !== "Transient")
+  // Only a permanent bounce: a transient one is retried, and an undetermined one may be either.
+  if (event.type === "email.bounced" && event.data?.bounce?.type === "Permanent")
     return to.flatMap((a) => report(a, "bounce", event.data?.bounce?.message));
   if (event.type === "email.complained") return to.flatMap((a) => report(a, "complaint", null));
   return [];
