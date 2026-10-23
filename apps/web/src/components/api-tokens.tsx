@@ -4,6 +4,7 @@ import {
   type ApiTokenKind,
   type ApiTokenLifetime,
   type ApiTokenRow,
+  apiBase,
   apiScopeLabels,
   apiScopes,
   apiTokenExpired,
@@ -407,9 +408,10 @@ function RevokeDialog({
   );
 }
 
-/** Account's "Using the API": where calls go and how a token is sent. */
+/** Account's "Using the API": where calls go, how a token is sent, and the reference (#197). */
 export function UsingTheApiSection() {
-  const base = typeof window === "undefined" ? "/api" : `${window.location.origin}/api`;
+  const path = apiBase();
+  const base = typeof window === "undefined" ? path : `${window.location.origin}${path}`;
   return (
     <Section
       title="Using the API"
@@ -423,10 +425,10 @@ export function UsingTheApiSection() {
           Authorization: Bearer hk_pat_…
         </span>
       </Row>
-      <Row name="Guide" hint="Scopes, limits, errors and examples.">
+      <Row name="Reference" hint="OpenAPI 3.1, with examples for every call.">
         <Button variant="ghost" size="md" asChild>
-          <a href={`${docsUrl}/use/api-tokens/`} target="_blank" rel="noreferrer">
-            Open the guide
+          <a href={`${docsUrl}/use/api/`} target="_blank" rel="noreferrer">
+            Open the reference
           </a>
         </Button>
       </Row>
