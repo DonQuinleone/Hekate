@@ -536,6 +536,23 @@ describe.runIf(url)("support (#181, #182)", () => {
     // The desk's status page is the one the workspace's help menu links to.
     const me = (await (await get("/api/me", member)).json()) as { support: SupportModule };
     expect(me.support.statusUrl).toBe("https://status.endlesshall.example");
+    // A Settings page loaded before the desk changed never undoes it.
+    const { settings: stale } = (await (await get("/api/instance/settings", operator)).json()) as {
+      settings: Record<string, unknown>;
+    };
+    expect(
+      (
+        await send(
+          "/api/instance/settings",
+          { ...stale, support: { statusUrl: null, onCall: null } },
+          operator,
+          "PUT",
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      ((await (await get("/api/instance/support/desk", operator)).json()) as SupportDesk).onCall,
+    ).toBe(alex?.id);
 
     // With someone on call, an Emergency goes to them and is marked as one.
     mailer.sent.length = 0;

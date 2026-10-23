@@ -2954,6 +2954,8 @@ describe.runIf(url)("api", () => {
             trialDays: 14,
           },
           registration: { mode: "closed" },
+          // The support desk's own (#182), saved from the desk alone.
+          support: { statusUrl: null, onCall: null },
         });
         expect(first.environment.sessionDays).toBe(14);
         // Billing's rules (#180): each step after the one before, and each change an event.

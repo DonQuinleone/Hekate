@@ -216,15 +216,21 @@ export async function detailOf(
   };
 }
 
-/** A new reference, unique across the instance; tried again on the rare clash. */
-async function referenceFor(tx: Pick<Database, "select">) {
+/**
+ * Makes the ticket under a new reference, unique across the instance. The unique index decides,
+ * so two tickets sent at once can never share one; a clash is tried again with another.
+ */
+async function insertTicket(
+  tx: Pick<Database, "insert">,
+  values: Omit<typeof tickets.$inferInsert, "reference">,
+) {
   for (let attempt = 0; attempt < 8; attempt++) {
-    const candidate = formatTicketReference(randomBytes(3));
-    const [taken] = await tx
-      .select({ id: tickets.id })
-      .from(tickets)
-      .where(eq(tickets.reference, candidate));
-    if (!taken) return candidate;
+    const [made] = await tx
+      .insert(tickets)
+      .values({ ...values, reference: formatTicketReference(randomBytes(3)) })
+      .onConflictDoNothing({ target: tickets.reference })
+      .returning();
+    if (made) return made;
   }
   throw new Error("Could not make a ticket reference");
 }
@@ -332,25 +338,19 @@ export async function createTicket(
     .where(eq(users.id, who.userId));
   const name = person?.name ?? "Someone";
   const made = await db.transaction(async (tx) => {
-    const reference = await referenceFor(tx);
-    const [ticket] = await tx
-      .insert(tickets)
-      .values({
-        organisationId: who.organisationId,
-        reference,
-        subject: input.subject,
-        kind: input.kind,
-        severity: input.severity,
-        state: "waiting",
-        requesterId: who.userId,
-        requesterName: name,
-        errorReference: input.errorReference ?? reports[0]?.reference ?? null,
-        itemKind: input.item?.kind ?? null,
-        itemId: input.item?.id ?? null,
-        operatorAccess: input.item ? input.operatorAccess : false,
-      })
-      .returning();
-    if (!ticket) throw new Error("The ticket was not made");
+    const ticket = await insertTicket(tx, {
+      organisationId: who.organisationId,
+      subject: input.subject,
+      kind: input.kind,
+      severity: input.severity,
+      state: "waiting",
+      requesterId: who.userId,
+      requesterName: name,
+      errorReference: input.errorReference ?? reports[0]?.reference ?? null,
+      itemKind: input.item?.kind ?? null,
+      itemId: input.item?.id ?? null,
+      operatorAccess: input.item ? input.operatorAccess : false,
+    });
     const [first] = await tx
       .insert(ticketMessages)
       .values({

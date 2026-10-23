@@ -124,8 +124,8 @@ import { nearQuota, workspaceUsageOf } from "../usage.ts";
 import { pendingRewrap } from "../workspace-keys.ts";
 import { operatorMove } from "./project-transfers.ts";
 import { retryFile } from "./retry.ts";
-import { refusal, sendExport } from "./workspace-lifecycle.ts";
 import { supportDeskRoutes } from "./support-desk.ts";
+import { refusal, sendExport } from "./workspace-lifecycle.ts";
 
 /**
  * The instance side (#155, decision 062). Operators manage every workspace; a workspace's
@@ -2110,7 +2110,9 @@ export function instanceRoutes(options: InstanceOptions) {
         });
       })
       .put("/settings", zValidator("json", instanceSettingsInput), async (c) => {
-        const input = c.req.valid("json");
+        // The support desk's part is saved from the desk alone (#182), so a Settings page
+        // loaded before a change there never undoes it.
+        const { support: _desk, ...input } = c.req.valid("json");
         await db.transaction(async (tx) => {
           const { before, after } = await options.settings.write(tx, input, c.var.userId);
           // Every other replica reads them again when this commits (#188).
@@ -2133,12 +2135,12 @@ export function instanceRoutes(options: InstanceOptions) {
                         : change.action.startsWith("support.")
                           ? "The support desk"
                           : change.action.startsWith("logs.")
-                          ? `The ${String(change.details.kind) === "auth" ? "authentication" : String(change.details.kind)} log`
-                          : change.action.startsWith("registration.")
-                            ? "Registration"
-                            : change.action.startsWith("billing.")
-                              ? "Billing's rules"
-                              : "A second factor",
+                            ? `The ${String(change.details.kind) === "auth" ? "authentication" : String(change.details.kind)} log`
+                            : change.action.startsWith("registration.")
+                              ? "Registration"
+                              : change.action.startsWith("billing.")
+                                ? "Billing's rules"
+                                : "A second factor",
               details: change.details,
               ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
             });
