@@ -414,7 +414,7 @@ describe.runIf(url)("events and deliveries (#161)", () => {
       path: `/files/${fileId}`,
     });
     await dispatchEvents(db, jobs);
-    const keep = { audit: null, auth: null, mail: null, webhooks: 30 as const };
+    const keep = { audit: null, auth: null, mail: null, webhooks: 30 as const, api: null };
     expect((await purgeLogs(db, keep)).webhooks).toBe(0);
     const later = new Date(Date.now() + 31 * 24 * 60 * 60_000);
     expect((await purgeLogs(db, keep, later)).webhooks).toBeGreaterThanOrEqual(1);

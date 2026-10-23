@@ -45,6 +45,8 @@ const instanceSettingsSchema = z.object({
     mail: z.literal(logKeepDays).nullable(),
     /** Events and their deliveries to the workspaces' channels (#161). */
     webhooks: z.literal(logKeepDays).nullable(),
+    /** Calls made with API tokens (#198). */
+    api: z.literal(logKeepDays).nullable(),
   }),
   /** Billing's rules (#180): the instance's currency, dunning's days and a trial's length. */
   billing: billingRules,
@@ -65,7 +67,10 @@ export const instanceSettingsInput = instanceSettingsSchema.extend({
     })
     .optional(),
   logs: instanceSettingsSchema.shape.logs
-    .extend({ webhooks: instanceSettingsSchema.shape.logs.shape.webhooks.optional() })
+    .extend({
+      webhooks: instanceSettingsSchema.shape.logs.shape.webhooks.optional(),
+      api: instanceSettingsSchema.shape.logs.shape.api.optional(),
+    })
     .optional(),
   billing: billingRules.optional(),
   registration: instanceSettingsSchema.shape.registration.optional(),
@@ -95,6 +100,7 @@ export const withStored = (
     ? {
         ...input.logs,
         webhooks: input.logs.webhooks === undefined ? stored.logs.webhooks : input.logs.webhooks,
+        api: input.logs.api === undefined ? stored.logs.api : input.logs.api,
       }
     : stored.logs,
   billing: input.billing ?? stored.billing,
@@ -113,7 +119,7 @@ export const defaultInstanceSettings: InstanceSettings = {
   },
   // The audit log is kept for good unless an operator says otherwise: nothing already logged
   // goes because the instance was upgraded.
-  logs: { audit: null, auth: 365, mail: 90, webhooks: 30 },
+  logs: { audit: null, auth: 365, mail: 90, webhooks: 30, api: 30 },
   billing: defaultBillingRules,
   // As before registration was a setting: operators make the workspaces.
   registration: { mode: "closed" },
@@ -192,7 +198,7 @@ export function settingsChanges(
     changes.push({ action: "billing.trial_days", details: { days: after.billing.trialDays } });
   if (before.registration.mode !== after.registration.mode)
     changes.push({ action: "registration.mode", details: { mode: after.registration.mode } });
-  for (const kind of ["audit", "auth", "mail", "webhooks"] as const)
+  for (const kind of ["audit", "auth", "mail", "webhooks", "api"] as const)
     if (before.logs[kind] !== after.logs[kind])
       changes.push({ action: "logs.retention", details: { kind, days: after.logs[kind] } });
   return changes;

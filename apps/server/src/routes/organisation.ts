@@ -19,6 +19,7 @@ import { and, asc, count, desc, eq, gt, inArray, isNull, max, sql } from "drizzl
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
+import { revokeMemberTokens } from "../api-tokens.ts";
 import { type Audit, csvHeader, csvRow, requestInfo } from "../audit.ts";
 import { assertProfileRef, customProfilesOf, deleteCustomProfile } from "../delivery-profiles.ts";
 import { render } from "../email/render.ts";
@@ -379,6 +380,8 @@ export const organisationRoutes = (
             ),
           );
         await tx.delete(members).where(inOrg(members, c.var.organisationId, eq(members.id, id)));
+        // Their API tokens here stop working with them (#198).
+        await revokeMemberTokens(tx, c.var.organisationId, member.userId, c.var.userId);
       });
       return c.body(null, 204);
     })

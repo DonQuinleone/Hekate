@@ -2931,7 +2931,7 @@ describe.runIf(url)("api", () => {
           updates: { channel: "stable" },
           maintenance: { on: false, message: "" },
           defaults: { guestLinkDays: 3, storageQuota: null, memberLimit: null },
-          logs: { audit: null, auth: 365, mail: 90, webhooks: 30 },
+          logs: { audit: null, auth: 365, mail: 90, webhooks: 30, api: 30 },
           billing: {
             currency: "GBP",
             dunning: { warn: 7, warnAgain: 14, suspend: 21 },
@@ -3378,7 +3378,9 @@ describe.runIf(url)("api", () => {
           create trigger refuse_157 before delete on instance_events
             for each statement execute function refuse_157()`);
         await expect(
-          purgeLogs(db, { audit: 365, auth: 365, mail: null, webhooks: null }, now, { batch: 1 }),
+          purgeLogs(db, { audit: 365, auth: 365, mail: null, webhooks: null, api: null }, now, {
+            batch: 1,
+          }),
         ).rejects.toThrow();
         await db.execute(
           sql`drop trigger refuse_157 on instance_events; drop function refuse_157()`,
@@ -3400,13 +3402,13 @@ describe.runIf(url)("api", () => {
         });
         const first = await purgeLogs(
           db,
-          { audit: null, auth: 365, mail: 365, webhooks: null },
+          { audit: null, auth: 365, mail: 365, webhooks: null, api: null },
           now,
           {
             batch: 1,
           },
         );
-        expect(first).toEqual({ audit: 0, auth: 1, mail: 1, webhooks: 0 });
+        expect(first).toEqual({ audit: 0, auth: 1, mail: 1, webhooks: 0, api: 0 });
         expect(await accessCount()).toBe(3);
         expect(
           (await db.select({ account: schema.authEvents.account }).from(schema.authEvents)).map(
@@ -3417,7 +3419,7 @@ describe.runIf(url)("api", () => {
         // The access log goes only through its purge setting, and what went is itself logged.
         const second = await purgeLogs(
           db,
-          { audit: 365, auth: 365, mail: 365, webhooks: null },
+          { audit: 365, auth: 365, mail: 365, webhooks: null, api: null },
           now,
           {
             batch: 1,

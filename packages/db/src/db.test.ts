@@ -31,6 +31,8 @@ describe("tenancy", () => {
     expect(names).toEqual([
       "access_events",
       "alignments",
+      "api_requests",
+      "api_tokens",
       "billing_accounts",
       "blobs",
       "calendar_feeds",

@@ -1,6 +1,8 @@
 import {
   type AlignmentPoints,
   type Anchor,
+  type ApiScope,
+  type ApiTokenKind,
   approvalRules,
   auditActions,
   auditActorTypes,
@@ -3412,5 +3414,69 @@ export const projectTransfers = pgTable(
       .where(sql`${t.status} in ('pending', 'moving')`),
     index("project_transfers_from_idx").on(t.fromOrganisationId, t.status),
     index("project_transfers_to_idx").on(t.toOrganisationId, t.status),
+  ],
+);
+
+// API tokens (#198)
+
+/**
+ * An API token: a member's own (`personal`), or one of the workspace's service tokens, which act
+ * as the workspace through an account of their own (`user_id`, which no one signs in as). Either
+ * reaches its workspace alone, within its scopes. Only a SHA-256 hash of the token is stored; the
+ * token is shown once, when it is made. Revoked tokens stay, so the API log can name them.
+ */
+export const apiTokens = pgTable(
+  "api_tokens",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    kind: text("kind").$type<ApiTokenKind>().notNull(),
+    /** Who it acts as: the member, or the service token's own account. */
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** Its first characters (`hk_pat_7f3a`), to tell it apart in settings and the log. */
+    hint: text("hint").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    scopes: text("scopes").array().$type<ApiScope[]>().notNull(),
+    /** Null: until it is revoked. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    /** When it was last used, to the minute. */
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    revokedBy: text("revoked_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [
+    index("api_tokens_organisation_idx").on(t.organisationId, t.kind),
+    index("api_tokens_user_idx").on(t.userId),
+  ],
+);
+
+/**
+ * The API log (#157, #198): each call made with a token, its answer and how long it took. The
+ * path is kept without its query; nothing of the request's body or headers is.
+ */
+export const apiRequests = pgTable(
+  "api_requests",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    tokenId: uuid("token_id").references(() => apiTokens.id, { onDelete: "set null" }),
+    /** The token's name and kind when the call was made. */
+    tokenName: text("token_name").notNull(),
+    tokenKind: text("token_kind").$type<ApiTokenKind>().notNull(),
+    method: text("method").notNull(),
+    path: text("path").notNull(),
+    status: integer("status").notNull(),
+    durationMs: integer("duration_ms").notNull(),
+    ipAddress: text("ip_address"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("api_requests_org_idx").on(t.organisationId, t.id),
+    index("api_requests_token_idx").on(t.tokenId),
   ],
 );

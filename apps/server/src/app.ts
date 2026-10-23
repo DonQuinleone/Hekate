@@ -12,6 +12,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { logger } from "hono/logger";
+import { tokenAuth } from "./api-tokens.ts";
 import type { Audit } from "./audit.ts";
 import { type Auth, SESSION_DAYS } from "./auth.ts";
 import type { Gateway } from "./billing/gateway.ts";
@@ -27,6 +28,7 @@ import type { Mailer } from "./mail.ts";
 import { countRequests, metricsHandler } from "./metrics/index.ts";
 import type { Sampler } from "./metrics/sampler.ts";
 import { rateLimit } from "./rate-limit.ts";
+import { personalTokenRoutes, serviceTokenRoutes } from "./routes/api-tokens.ts";
 import { attachmentRoutes } from "./routes/attachments.ts";
 import { billingRoutes } from "./routes/billing.ts";
 import { billingHookRoutes } from "./routes/billing-hooks.ts";
@@ -238,6 +240,7 @@ export function createApi(deps: AppDeps) {
     workDir: deps.workDir,
   };
   const taskMail = { db: deps.db, mailer: deps.mailer, ...links };
+  const tokenDeps = { db: deps.db, audit: deps.audit, trustProxy: deps.trustProxy ?? false };
   const uploadRequestDeps: UploadRequestDeps = {
     db: deps.db,
     storage: deps.storage,
@@ -374,6 +377,8 @@ export function createApi(deps: AppDeps) {
           billing: (deps.modules?.billing ?? "off") !== "off",
         }),
       )
+      // A member's own API tokens (#198), in this workspace.
+      .route("/me/tokens", personalTokenRoutes(tokenDeps))
       .route("/invitations", invitationRoutes(deps.db, deps.auth))
       // Making a workspace without an operator (#184), as the instance's registration allows.
       .route(
@@ -411,6 +416,8 @@ export function createApi(deps: AppDeps) {
         }),
       )
       .route("/organisation/plan", planRoutes(deps.db, (deps.modules?.billing ?? "off") !== "off"))
+      // The workspace's service tokens (#198), and the calls its tokens made.
+      .route("/organisation/tokens", serviceTokenRoutes(tokenDeps))
       .route("/organisation/billing", billingRoutes(billing))
       .route(
         "/organisation/channels",
@@ -734,6 +741,9 @@ export function createApp(given: AppDeps) {
       );
     await next();
   });
+  // API tokens (#198): a call that carries one is let in on it alone, within its scopes, and
+  // logged; one that carries none goes on to the session checks.
+  app.use("/api/*", tokenAuth({ db: deps.db, trustProxy: deps.trustProxy ?? false }));
   // Better Auth's own sign-up stays closed: accounts come from setup, invitations, and the
   // instance's sign-up (#184, `/api/sign-up`), which confirms the email first.
   app.all("/api/auth/sign-up/*", () => {

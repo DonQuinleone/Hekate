@@ -9,6 +9,7 @@ import {
 import { and, asc, eq } from "drizzle-orm";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
+import type { ApiTokenContext } from "./api-tokens.ts";
 import type { Auth } from "./auth.ts";
 import { CodedException } from "./errors.ts";
 import { pinnedWorkspace } from "./hosts.ts";
@@ -20,6 +21,8 @@ import type { OrganisationRole } from "@hekate/shared";
 export interface SessionVariables {
   userId: string;
   sessionId: string;
+  /** Set where the request came with an API token (#198) rather than a session. */
+  apiToken?: ApiTokenContext;
 }
 
 export interface TenantVariables extends SessionVariables {
@@ -27,9 +30,20 @@ export interface TenantVariables extends SessionVariables {
   organisationRole: OrganisationRole;
 }
 
-/** Requires a signed-in member. Responds 401 otherwise. */
+/**
+ * Requires a signed-in member, or an API token (#198) acting as one; a token's "session" is
+ * the token itself, so what is bound to a session (a download's link) is bound to it. Responds
+ * 401 otherwise.
+ */
 export const requireSession = (auth: Auth) =>
   createMiddleware<{ Variables: SessionVariables }>(async (c, next) => {
+    const token = c.var.apiToken;
+    if (token) {
+      c.set("userId", token.userId);
+      c.set("sessionId", tokenSessionId(token));
+      await next();
+      return;
+    }
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) throw new HTTPException(401, { message: "Sign in to continue" });
     c.set("userId", session.user.id);
@@ -199,6 +213,14 @@ export const requireOrganisation = (
   payable: ReadonlySet<string> = new Set(),
 ) =>
   createMiddleware<{ Variables: TenantVariables }>(async (c, next) => {
+    // A token is its workspace's alone, checked as the request came in (api-tokens.ts).
+    const token = c.var.apiToken;
+    if (token) {
+      c.set("organisationId", token.organisationId);
+      c.set("organisationRole", token.role);
+      await next();
+      return;
+    }
     const membership = await organisationFor(db, c.var.userId, c.var.sessionId, pinnedWorkspace(c));
     if (!owing.has(c.req.path)) {
       await assertOpen(
@@ -213,6 +235,9 @@ export const requireOrganisation = (
     c.set("organisationRole", membership.role);
     await next();
   });
+
+/** What a token's requests are bound to where a session's would be. */
+export const tokenSessionId = (token: { id: string }) => `token:${token.id}`;
 
 export async function membershipOf(db: Database, userId: string, organisationId: string) {
   const [row] = await db

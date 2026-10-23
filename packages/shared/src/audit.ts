@@ -85,6 +85,13 @@ export const auditActions = [
   /** A member added a passkey or hardware security key to their account, or removed one. */
   "account.passkey_added",
   "account.passkey_removed",
+  /**
+   * An API token (#198) was made, renamed or given other scopes, or revoked: a member's own, or
+   * one of the workspace's service tokens. The token itself is never written; its name and hint are.
+   */
+  "api_token.create",
+  "api_token.change",
+  "api_token.revoke",
   /** A member deleted their account; what they did stays, as a former member's. */
   "account.deleted",
   /** A member signed in with the workspace's directory; the first time also makes them one. */

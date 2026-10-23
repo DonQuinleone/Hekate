@@ -43,6 +43,7 @@ import {
   operatorParam as operatorParamSchema,
   planInput,
   promoCodeInput,
+  SERVICE_ACCOUNT_DOMAIN,
   settingsChanges,
   signUpInvitationInput,
   suspendWorkspaceInput,
@@ -1357,7 +1358,16 @@ export function instanceRoutes(options: InstanceOptions) {
           crowded,
         ] = await Promise.all([
           db.select({ n: count() }).from(schema.organisations),
-          db.select({ n: count() }).from(schema.users).where(isNull(schema.users.deletedAt)),
+          // People: not the accounts service tokens act through (#198).
+          db
+            .select({ n: count() })
+            .from(schema.users)
+            .where(
+              and(
+                isNull(schema.users.deletedAt),
+                sql`${schema.users.email} not like ${`%@${SERVICE_ACCOUNT_DOMAIN}`}`,
+              ),
+            ),
           db.select({ n: sum(schema.blobs.byteSize) }).from(schema.blobs),
           db
             .select({ n: count() })

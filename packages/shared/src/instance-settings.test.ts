@@ -39,7 +39,7 @@ describe("instance settings", () => {
         updates: { channel: "beta" },
         maintenance: { on: false, message: "" },
         defaults: { guestLinkDays: 14, storageQuota: 1e12, memberLimit: 25 },
-        logs: { audit: 730, auth: 365, mail: 90, webhooks: 90 },
+        logs: { audit: 730, auth: 365, mail: 90, webhooks: 90, api: 30 },
         billing: {
           currency: "EUR",
           dunning: { warn: 5, warnAgain: 14, suspend: 30 },
@@ -86,7 +86,7 @@ describe("instance settings", () => {
     // Kept for good is a choice too: a save that leaves out the logs keeps it.
     const forever = {
       ...defaultInstanceSettings,
-      logs: { audit: null, auth: null, mail: 30 as const, webhooks: null },
+      logs: { audit: null, auth: null, mail: 30 as const, webhooks: null, api: null },
     };
     const { logs: __, ...olderStill } = older;
     expect(withStored(olderStill, forever).logs).toEqual({
@@ -94,11 +94,13 @@ describe("instance settings", () => {
       auth: null,
       mail: 30,
       webhooks: null,
+      api: null,
     });
-    // A client from before the webhook log leaves its retention as stored.
+    // A client from before the webhook log, or the API log (#198), leaves their retention as
+    // stored.
     expect(
       withStored({ ...olderStill, logs: { audit: 730, auth: null, mail: 30 } }, forever).logs,
-    ).toEqual({ audit: 730, auth: null, mail: 30, webhooks: null });
+    ).toEqual({ audit: 730, auth: null, mail: 30, webhooks: null, api: null });
   });
 
   it("reads billing's rules over the defaults, and keeps them through an older client's save (#180)", () => {

@@ -3,10 +3,10 @@ import type { ChannelKind, DeliveryStatus, EventKind } from "./events.ts";
 
 /**
  * The instance's logs as tables (#157): what operators look up in the app, beside the JSON lines
- * on stdout that log shippers read. Each kind arrives with what writes it: the API follows with
- * its feature. The billing gateway's (#178) is shown only with billing on.
+ * on stdout that log shippers read. Each kind arrives with what writes it: the API's with API
+ * tokens (#198). The billing gateway's (#178) is shown only with billing on.
  */
-export const logKinds = ["audit", "auth", "mail", "webhooks", "gateway"] as const;
+export const logKinds = ["audit", "auth", "api", "mail", "webhooks", "gateway"] as const;
 export type LogKind = (typeof logKinds)[number];
 export const logKindParam = z.object({ kind: z.enum(logKinds) });
 
@@ -107,6 +107,22 @@ export interface WebhookLogRow {
   replay: boolean;
 }
 
+/** One call made with an API token (#198), and how it was answered. */
+export interface ApiLogRow {
+  id: string;
+  at: string;
+  workspace: { id: string; name: string };
+  /** The token's name as it was then, and whose: a member's own, or the workspace's. */
+  token: { id: string | null; name: string; kind: "personal" | "service" };
+  method: string;
+  /** The path, without its query. */
+  path: string;
+  status: number;
+  /** How long it took to answer, in milliseconds. */
+  durationMs: number;
+  ipAddress: string | null;
+}
+
 /** One event from the billing gateway (#178), and what it meant here. */
 export interface GatewayLogRow {
   id: string;
@@ -128,6 +144,7 @@ export interface GatewayLogRow {
 export interface LogRows {
   audit: AuditLogRow;
   auth: AuthLogRow;
+  api: ApiLogRow;
   mail: MailLogRow;
   webhooks: WebhookLogRow;
   gateway: GatewayLogRow;

@@ -6,6 +6,7 @@ import {
   FRESH_SIGN_IN_MS,
 } from "@hekate/shared";
 import { and, eq, like, ne, or, sql } from "drizzle-orm";
+import { revokeMemberTokens } from "./api-tokens.ts";
 import type { Audit, RequestInfo } from "./audit.ts";
 import type { Auth } from "./auth.ts";
 import { directoryConfig, verifyPassword } from "./directory.ts";
@@ -292,6 +293,8 @@ export async function deleteAccount(
       ]) {
         await tx.delete(table).where(inOrg(table, organisationId, eq(table.userId, userId)));
       }
+      // Their API tokens (#198) stop working; the rows stay, for the API log to name.
+      await revokeMemberTokens(tx, organisationId, userId, null);
     }
     await tx.delete(twoFactors).where(eq(twoFactors.userId, userId));
     await tx.delete(passkeys).where(eq(passkeys.userId, userId));
