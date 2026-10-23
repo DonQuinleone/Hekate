@@ -281,7 +281,7 @@ export async function endGrantTokens(
 type GrantRecord = typeof oauthGrants.$inferSelect;
 
 /** Whether the connection's member is still in the workspace, and the workspace open. */
-async function grantStands(db: Database, grant: GrantRecord): Promise<boolean> {
+async function grantStands(db: Pick<Database, "select">, grant: GrantRecord): Promise<boolean> {
   const [row] = await db
     .select({ suspendedAt: organisations.suspendedAt, role: schema.members.role })
     .from(organisations)
@@ -293,9 +293,35 @@ async function grantStands(db: Database, grant: GrantRecord): Promise<boolean> {
   return Boolean(row?.role) && !row?.suspendedAt;
 }
 
-/** An access token and a refresh token for a connection, as the token endpoint answers them. */
-async function issueTokens(
+type Writer = Pick<Database, "select" | "insert" | "update">;
+
+/**
+ * Runs `work` with the connection's row locked, so spending a code or refresh token, issuing the
+ * next tokens and revoking them all on a replay happen one at a time: a replay waits for the
+ * tokens issued for the first use, and revokes them too.
+ */
+async function withGrantLocked<T>(
   db: Database,
+  organisationId: string,
+  grantId: string,
+  work: (tx: Writer) => Promise<T>,
+): Promise<T> {
+  return db.transaction(async (tx) => {
+    await tx
+      .select({ id: oauthGrants.id })
+      .from(oauthGrants)
+      .where(inOrg(oauthGrants, organisationId, eq(oauthGrants.id, grantId)))
+      .for("update");
+    return work(tx);
+  });
+}
+
+/**
+ * An access token and a refresh token for a connection, as the token endpoint answers them, in
+ * the caller's transaction.
+ */
+async function issueTokens(
+  db: Writer,
   client: ClientRecord,
   grant: GrantRecord,
   scopes: ApiScope[],
@@ -308,27 +334,25 @@ async function issueTokens(
     .select({ name: schema.users.name })
     .from(schema.users)
     .where(eq(schema.users.id, grant.userId));
-  await db.transaction(async (tx) => {
-    await tx.insert(apiTokens).values({
-      organisationId: grant.organisationId,
-      kind: "oauth",
-      userId: grant.userId,
-      // The application and whom it acts for, as the API log names its calls.
-      name: `${client.name} · ${user?.name ?? "member"}`.slice(0, 160),
-      hint: access.hint,
-      tokenHash: access.hash,
-      scopes,
-      expiresAt: new Date(now.getTime() + OAUTH_ACCESS_SECONDS * 1000),
-      createdBy: grant.userId,
-      grantId: grant.id,
-    });
-    await tx.insert(oauthRefreshTokens).values({
-      organisationId: grant.organisationId,
-      grantId: grant.id,
-      tokenHash: credentialHash(refresh),
-      scopes: refreshScopes,
-      expiresAt: new Date(now.getTime() + OAUTH_REFRESH_SECONDS * 1000),
-    });
+  await db.insert(apiTokens).values({
+    organisationId: grant.organisationId,
+    kind: "oauth",
+    userId: grant.userId,
+    // The application and whom it acts for, as the API log names its calls.
+    name: `${client.name} · ${user?.name ?? "member"}`.slice(0, 160),
+    hint: access.hint,
+    tokenHash: access.hash,
+    scopes,
+    expiresAt: new Date(now.getTime() + OAUTH_ACCESS_SECONDS * 1000),
+    createdBy: grant.userId,
+    grantId: grant.id,
+  });
+  await db.insert(oauthRefreshTokens).values({
+    organisationId: grant.organisationId,
+    grantId: grant.id,
+    tokenHash: credentialHash(refresh),
+    scopes: refreshScopes,
+    expiresAt: new Date(now.getTime() + OAUTH_REFRESH_SECONDS * 1000),
   });
   return {
     access_token: access.secret,
@@ -370,27 +394,29 @@ export async function exchangeCode(
       ),
     );
   if (!found) return invalidGrant("That code is not known.");
-  const [spent] = await db
-    .update(oauthCodes)
-    .set({ usedAt: now })
-    .where(inOrg(oauthCodes, org, eq(oauthCodes.id, found.code.id), isNull(oauthCodes.usedAt)))
-    .returning({ id: oauthCodes.id });
-  if (!spent) {
-    await endGrantTokens(db, org, [found.grant.id], now);
-    return invalidGrant("That code was used already.");
-  }
-  if (found.code.expiresAt <= now) return invalidGrant("That code has expired.");
-  if (input.redirect_uri !== found.code.redirectUri)
-    return invalidGrant("The redirect address is not the one the code was issued for.");
-  if (!redirectMatches(client.redirectUris, found.code.redirectUri))
-    return invalidGrant("The redirect address is no longer registered.");
-  if (!pkceVerifies(input.code_verifier, found.code.codeChallenge))
-    return invalidGrant("The code verifier does not match the code challenge.");
-  if (!(await grantStands(db, found.grant)))
-    return invalidGrant("The member is no longer in the workspace, or it is suspended.");
-  const scopes = common(found.code.scopes, client.scopes, found.grant.scopes);
-  if (scopes.length === 0) return invalidGrant("Nothing granted remains.");
-  return issueTokens(db, client, found.grant, scopes, scopes, now);
+  return withGrantLocked(db, org, found.grant.id, async (tx) => {
+    const [spent] = await tx
+      .update(oauthCodes)
+      .set({ usedAt: now })
+      .where(inOrg(oauthCodes, org, eq(oauthCodes.id, found.code.id), isNull(oauthCodes.usedAt)))
+      .returning({ id: oauthCodes.id });
+    if (!spent) {
+      await endGrantTokens(tx, org, [found.grant.id], now);
+      return invalidGrant("That code was used already.");
+    }
+    if (found.code.expiresAt <= now) return invalidGrant("That code has expired.");
+    if (input.redirect_uri !== found.code.redirectUri)
+      return invalidGrant("The redirect address is not the one the code was issued for.");
+    if (!redirectMatches(client.redirectUris, found.code.redirectUri))
+      return invalidGrant("The redirect address is no longer registered.");
+    if (!pkceVerifies(input.code_verifier, found.code.codeChallenge))
+      return invalidGrant("The code verifier does not match the code challenge.");
+    if (!(await grantStands(tx, found.grant)))
+      return invalidGrant("The member is no longer in the workspace, or it is suspended.");
+    const scopes = common(found.code.scopes, client.scopes, found.grant.scopes);
+    if (scopes.length === 0) return invalidGrant("Nothing granted remains.");
+    return issueTokens(tx, client, found.grant, scopes, scopes, now);
+  });
 }
 
 /**
@@ -436,24 +462,26 @@ export async function refreshTokens(
     return { error: "invalid_scope", description: "Nothing granted remains." };
   if (!(await grantStands(db, found.grant)))
     return invalidGrant("The member is no longer in the workspace, or it is suspended.");
-  const [spent] = await db
-    .update(oauthRefreshTokens)
-    .set({ usedAt: now })
-    .where(
-      inOrg(
-        oauthRefreshTokens,
-        org,
-        eq(oauthRefreshTokens.id, found.token.id),
-        isNull(oauthRefreshTokens.usedAt),
-        isNull(oauthRefreshTokens.revokedAt),
-      ),
-    )
-    .returning({ id: oauthRefreshTokens.id });
-  if (!spent) {
-    await endGrantTokens(db, org, [found.grant.id], now);
-    return invalidGrant("That refresh token was used already.");
-  }
-  return issueTokens(db, client, found.grant, scopes, held, now);
+  return withGrantLocked(db, org, found.grant.id, async (tx) => {
+    const [spent] = await tx
+      .update(oauthRefreshTokens)
+      .set({ usedAt: now })
+      .where(
+        inOrg(
+          oauthRefreshTokens,
+          org,
+          eq(oauthRefreshTokens.id, found.token.id),
+          isNull(oauthRefreshTokens.usedAt),
+          isNull(oauthRefreshTokens.revokedAt),
+        ),
+      )
+      .returning({ id: oauthRefreshTokens.id });
+    if (!spent) {
+      await endGrantTokens(tx, org, [found.grant.id], now);
+      return invalidGrant("That refresh token was used already.");
+    }
+    return issueTokens(tx, client, found.grant, scopes, held, now);
+  });
 }
 
 /**

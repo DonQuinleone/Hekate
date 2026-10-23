@@ -9,6 +9,7 @@ import {
   incidentUpdateInput,
   serviceDays,
   serviceStateNow,
+  weightedCover,
   worstState,
 } from "./status.ts";
 
@@ -39,6 +40,25 @@ describe("status page (#183)", () => {
     expect(days.at(-3)?.state).toBe("none");
     expect(days.at(-2)?.state).toBe("operational");
     expect(uptime).toBe(1);
+  });
+
+  it("counts incidents over the same time once, at the worst impact", () => {
+    expect(
+      weightedCover([
+        { from: 0, to: 60, weight: 1 },
+        { from: 0, to: 60, weight: 1 },
+        { from: 30, to: 90, weight: 0.3 },
+      ]),
+    ).toBeCloseTo(60 + 30 * 0.3, 6);
+    const hour = (title: string): IncidentSpan => ({
+      title,
+      impact: "major",
+      services: ["api"],
+      startedAt: "2026-10-22T10:00:00Z",
+      resolvedAt: "2026-10-22T11:00:00Z",
+    });
+    const { days } = serviceDays("api", [], [hour("Sign-in fails"), hour("Uploads fail")], now);
+    expect(days.at(-2)?.downMinutes).toBe(60);
   });
 
   it("knows nothing without a measure or an incident", () => {

@@ -136,6 +136,25 @@ export const impactWeight: Record<IncidentImpact, number> = {
 
 const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
+export type WeightedSpan = { from: number; to: number; weight: number };
+
+/**
+ * How much of the timeline some span covers, each stretch counted once at the greatest weight
+ * of the spans over it: two incidents over the same hour are one hour down, not two.
+ */
+export function weightedCover(spans: WeightedSpan[]): number {
+  const edges = [...new Set(spans.flatMap((s) => [s.from, s.to]))].sort((a, b) => a - b);
+  let covered = 0;
+  for (let k = 0; k < edges.length - 1; k++) {
+    const from = edges[k] as number;
+    const to = edges[k + 1] as number;
+    let weight = 0;
+    for (const s of spans) if (s.from <= from && s.to >= to) weight = Math.max(weight, s.weight);
+    covered += (to - from) * weight;
+  }
+  return covered;
+}
+
 /**
  * A service's 90 days and its uptime over them. Each day's down minutes are the more of those
  * measured failing and those an incident naming it says were down (weighted by its impact),
@@ -173,16 +192,20 @@ export function serviceDays(
     const length = Math.max(0, (end - start) / MINUTE_MS);
     const record = measured.get(day);
     const measuredDown = record?.down ?? 0;
-    let posted = 0;
     const touching: IncidentSpan[] = [];
+    const spans: WeightedSpan[] = [];
     for (const i of mine) {
       const began = Date.parse(i.startedAt);
       const ended = i.resolvedAt ? Date.parse(i.resolvedAt) : nowMs;
       if (began >= end || ended <= start) continue;
       touching.push(i);
-      const overlap = Math.min(end, ended) - Math.max(start, began);
-      posted += (Math.max(0, overlap) / MINUTE_MS) * impactWeight[i.impact];
+      spans.push({
+        from: Math.max(start, began),
+        to: Math.min(end, ended),
+        weight: impactWeight[i.impact],
+      });
     }
+    const posted = weightedCover(spans) / MINUTE_MS;
     const lost = Math.min(length, Math.max(measuredDown, posted));
     total += length;
     down += lost;

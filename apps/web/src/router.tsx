@@ -261,18 +261,22 @@ const signUpLink = createRoute({
 const oauthAuthorize = createRoute({
   getParentRoute: () => root,
   path: "/oauth/authorize",
-  // Each parameter as the application sent it: the router reads `state=123` as a number.
-  validateSearch: (search: Record<string, unknown>): AuthorizeParams =>
-    authorizeParams
+  validateSearch: (search: Record<string, unknown>): AuthorizeParams => {
+    // Each parameter as the application sent it. The router reads `state=1e5` as the number
+    // 100000, which would lose its spelling, so a value it did not keep as a string is read
+    // from the address itself. (Once the router has rewritten the address, it keeps strings.)
+    const sent = new URLSearchParams(window.location.search);
+    return authorizeParams
       .catch({})
       .parse(
         Object.fromEntries(
           Object.entries(search).map(([k, v]) => [
             k,
-            typeof v === "string" ? v : JSON.stringify(v),
+            typeof v === "string" ? v : (sent.get(k) ?? JSON.stringify(v)),
           ]),
         ),
-      ),
+      );
+  },
   beforeLoad: async ({ context }) => {
     if (await context.queryClient.ensureQueryData(setupQuery)) throw redirect({ to: "/setup" });
     if (!(await context.queryClient.fetchQuery(meQuery)))

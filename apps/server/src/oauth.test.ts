@@ -460,6 +460,23 @@ describe.runIf(url)("OAuth 2.1 with a sample client (#447)", () => {
     expect(await db.select().from(schema.oauthGrants)).toHaveLength(1);
   });
 
+  it("leaves nothing usable when the same refresh token is used twice at once", async () => {
+    const owner = await setup();
+    const client = await sampleClient(await register(owner));
+    const first = await client.connect(owner);
+
+    // A race: whichever wins is issued tokens, and the loser's revocation must cover them.
+    const answers = await Promise.all([
+      client.refresh(first.refresh_token),
+      client.refresh(first.refresh_token),
+    ]);
+    expect(answers.map((r) => r.status).sort()).toEqual([200, 400]);
+    const won = answers.find((r) => r.status === 200);
+    const issued = (await won?.json()) as TokenResponse;
+    expect((await withToken(issued.access_token, "/api/projects")).status).toBe(401);
+    expect((await client.refresh(issued.refresh_token)).status).toBe(400);
+  });
+
   it("refuses a wider scope on refresh, spending nothing, and takes a narrower one", async () => {
     const owner = await setup();
     const client = await sampleClient(await register(owner));
