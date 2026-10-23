@@ -1,7 +1,8 @@
+import type { PublicBranding } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useState } from "react";
-import { Mark, Wordmark } from "~/components/brand";
+import { Mark, Wordmark, WorkspaceLogo } from "~/components/brand";
 import { Icon } from "~/components/icons";
 import { AddPasskey, usePasskeySignIn } from "~/components/passkeys";
 import { CodeAppSetup } from "~/components/second-factor";
@@ -12,6 +13,7 @@ import { Input } from "~/components/ui/input";
 import { BeingDeleted } from "~/components/workspace-lifecycle";
 import { api } from "~/lib/api";
 import { authClient } from "~/lib/auth";
+import { useBrandAccent } from "~/lib/branding";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
 import { passwordStrength } from "~/lib/password";
@@ -23,21 +25,42 @@ import {
   useSwitchOrganisation,
 } from "~/lib/queries";
 
+/** Whose page this is, for a workspace's logo and accent (#185). */
+export interface FrameBrand {
+  name: string;
+  branding: PublicBranding | null;
+}
+
 export function Frame({
   title,
   intro,
   children,
+  brand,
 }: {
   title: string;
   intro: string;
   children: ReactNode;
+  /** The workspace whose page it is; by default the one this host answers for, if any. */
+  brand?: FrameBrand | null;
 }) {
+  // At a workspace's own address (#176) its page carries its logo and accent (#185).
+  const { data: methods, isPending } = useQuery({ ...signInMethodsQuery, enabled: !brand });
+  const here = methods?.workspace;
+  const shown = brand ?? (here ? { name: here.name, branding: here.branding } : null);
+  useBrandAccent(shown?.branding?.accent);
+  const logo = shown?.branding?.logo;
   return (
     <div className="flex min-h-full items-center justify-center px-4 py-12">
       <div className="flex w-full max-w-[380px] flex-col gap-8">
-        <div className="flex items-center gap-2 text-ink">
-          <Mark size={22} aria-hidden="true" />
-          <Wordmark height={18} />
+        <div className="flex h-8 items-center gap-2 text-ink">
+          {logo && shown ? (
+            <WorkspaceLogo logo={logo} name={shown.name} height={32} maxWidth={200} />
+          ) : brand !== undefined || !isPending ? (
+            <>
+              <Mark size={22} aria-hidden="true" />
+              <Wordmark height={18} />
+            </>
+          ) : null}
         </div>
         <div className="flex flex-col gap-2">
           <h1 className="m-0 text-[24px] font-medium tracking-[-0.02em]">{title}</h1>

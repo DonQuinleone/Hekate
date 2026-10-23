@@ -27,6 +27,7 @@ import { type FormEvent, useState } from "react";
 import { ScopesSection, TokensSection, WorkspaceApiLogSection } from "~/components/api-tokens";
 import { Avatar } from "~/components/avatar";
 import { BillingSection } from "~/components/billing";
+import { BrandingSection } from "~/components/branding";
 import { deliveryHint, ProfileEditor, ProfileOptions } from "~/components/delivery-profiles";
 import { DirectorySection } from "~/components/directory";
 import { EmailTemplatesSection } from "~/components/email-templates";
@@ -121,6 +122,15 @@ const allSections: SectionSpec[] = [
     group: "Workspace",
     from: "admin",
     intro: "What QA measures recordings against: the built-in profiles, and the workspace's own.",
+  },
+  {
+    id: "branding",
+    label: "Branding",
+    group: "Workspace",
+    from: "admin",
+    intro:
+      "The workspace's logo and accent, on its sign-in page, guest pages and email. Hekate's own mark stays in the app.",
+    docs: "/use/branding/",
   },
   {
     id: "email",
@@ -1321,6 +1331,7 @@ export function WorkspaceSettingsPage({
         {current.id === "general" && <General role={role} />}
         {current.id === "defaults" && <Defaults />}
         {current.id === "delivery" && <DeliveryProfiles />}
+        {current.id === "branding" && <BrandingSection />}
         {current.id === "email" && <EmailTemplatesSection />}
         {current.id === "members" && <Members role={role} />}
         {current.id === "security" && (

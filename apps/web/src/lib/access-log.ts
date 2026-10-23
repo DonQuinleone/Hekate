@@ -42,6 +42,7 @@ const actionWords = {
   "comment.import": "Marker list imported",
   "organisation.rename": "Workspace renamed",
   "organisation.settings": "Workspace settings changed",
+  "organisation.branding": "Branding changed",
   "organisation.directory": "Directory settings changed",
   "organisation.sso": "Single sign-on settings changed",
   "organisation.channel_add": "Channel added",

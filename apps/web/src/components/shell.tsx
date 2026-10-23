@@ -9,7 +9,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { Fragment, type ReactNode, useCallback, useState } from "react";
 import { Avatar } from "~/components/avatar";
-import { Lockup, Mark } from "~/components/brand";
+import { Lockup, Mark, WorkspaceLogo } from "~/components/brand";
 import { CommandPalette } from "~/components/command-palette";
 import { Icon, type IconName } from "~/components/icons";
 import { paletteKey } from "~/components/kbd";
@@ -947,8 +947,19 @@ export function Shell({ children }: { children: ReactNode }) {
   );
 }
 
-/** Guests see no navigation: their reviews, and the way out. */
-export function GuestFrame({ account, children }: { account: ReactNode; children: ReactNode }) {
+/**
+ * Guests see no navigation: their reviews, and the way out. The workspace's logo leads where it
+ * has one (#185); otherwise Hekate's lockup does.
+ */
+export function GuestFrame({
+  account,
+  logo,
+  children,
+}: {
+  account: ReactNode;
+  logo?: { url: string; width: number; height: number; name: string } | null;
+  children: ReactNode;
+}) {
   const [slots, onTrail, onActions] = useHeaderSlots();
   return (
     <div className="relative flex h-full flex-col @3xl/app:p-2.5">
@@ -957,7 +968,11 @@ export function GuestFrame({ account, children }: { account: ReactNode; children
         <HeaderSlotsProvider slots={slots}>
           <header className="relative flex min-h-12 shrink-0 flex-wrap items-center gap-x-3 border-b border-line px-3 @3xl/app:flex-nowrap @3xl/app:px-6">
             <Link to="/g" className="flex shrink-0 items-center" aria-label="Your reviews">
-              <Lockup size={18} />
+              {logo ? (
+                <WorkspaceLogo logo={logo} name={logo.name} height={24} maxWidth={140} />
+              ) : (
+                <Lockup size={18} />
+              )}
             </Link>
             <div className="mx-1 hidden h-5 w-px bg-line-strong @3xl/app:block" />
             <div ref={onTrail} className="flex h-12 min-w-0 flex-1 items-center" />
