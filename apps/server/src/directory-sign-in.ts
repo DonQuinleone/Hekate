@@ -125,7 +125,7 @@ export const directorySignIn = (deps: { db: Database; keyring?: Keyring; audit?:
               .where(inOrg(members, organisation.id, eq(members.userId, id)));
             if (!membership) {
               // The workspace's member limit (#175): no account is kept for one refused.
-              const refusal = await memberRoom(tx, organisation.id, "joining");
+              const refusal = await memberRoom(tx, organisation.id, "provisioning");
               if (refusal) throw new APIError("FORBIDDEN", { message: refusal });
               await tx
                 .insert(members)

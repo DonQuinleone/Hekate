@@ -61,7 +61,7 @@ export const invitationRoutes = (db: Database, auth: Auth) =>
         });
       const { invitation } = found;
       // Refused before an account is made for it; checked again as the place is taken.
-      await db.transaction((tx) => assertMemberRoom(tx, invitation.organisationId, "joining"));
+      await db.transaction((tx) => assertMemberRoom(tx, invitation.organisationId, "accepting"));
 
       const [existing] = await db.select().from(users).where(eq(users.email, invitation.email));
       let userId: string;
@@ -95,30 +95,37 @@ export const invitationRoutes = (db: Database, auth: Auth) =>
         userId = user.id;
       }
 
-      await db.transaction(async (tx) => {
-        // Room under the member limit (#175), first: a refusal leaves the link usable once
-        // someone has left or the limit is raised.
-        await assertMemberRoom(tx, invitation.organisationId, "joining");
-        // Claim the invitation atomically so a link can only be used once.
-        const [claimed] = await tx
-          .update(invitations)
-          .set({ acceptedAt: new Date() })
-          .where(
-            and(
-              eq(invitations.id, invitation.id),
-              isNull(invitations.acceptedAt),
-              isNull(invitations.revokedAt),
-              gt(invitations.expiresAt, new Date()),
-            ),
-          )
-          .returning({ id: invitations.id });
-        if (!claimed)
-          throw new HTTPException(410, { message: "This invitation has already been used" });
-        await tx
-          .insert(members)
-          .values({ organisationId: invitation.organisationId, userId, role: invitation.role })
-          .onConflictDoNothing();
-      });
+      await db
+        .transaction(async (tx) => {
+          // Room under the member limit (#175), first: a refusal leaves the link usable once
+          // someone has left or the limit is raised.
+          await assertMemberRoom(tx, invitation.organisationId, "accepting");
+          // Claim the invitation atomically so a link can only be used once.
+          const [claimed] = await tx
+            .update(invitations)
+            .set({ acceptedAt: new Date() })
+            .where(
+              and(
+                eq(invitations.id, invitation.id),
+                isNull(invitations.acceptedAt),
+                isNull(invitations.revokedAt),
+                gt(invitations.expiresAt, new Date()),
+              ),
+            )
+            .returning({ id: invitations.id });
+          if (!claimed)
+            throw new HTTPException(410, { message: "This invitation has already been used" });
+          await tx
+            .insert(members)
+            .values({ organisationId: invitation.organisationId, userId, role: invitation.role })
+            .onConflictDoNothing();
+        })
+        .catch(async (error: unknown) => {
+          // Refused once its account was made (the last place went between the checks, say):
+          // the account goes too, so a later try is a first one again.
+          if (!existing) await db.delete(users).where(eq(users.id, userId));
+          throw error;
+        });
 
       if (!existing && input.password) {
         const signIn = await auth.api.signInEmail({

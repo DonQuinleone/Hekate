@@ -16,7 +16,7 @@ On the instance side, **Workspaces**, choose the workspace, then **Storage**. It
 | Limit | Refused at it | Counts |
 | --- | --- | --- |
 | Storage quota | Starting an upload, by a member or through an upload request; attaching a file to a comment. | Every byte the workspace stores, before encryption: originals and what Hekate made from them, with the uploads still arriving, which take their room as they begin. |
-| Member limit | Inviting someone; accepting an invitation; a first sign-in through the workspace's directory. Someone signing in through its single sign-on for the first time is signed in, and joins on a later sign-in once there is room. | Members, and the invitations waiting, each of which takes a place. |
+| Member limit | Inviting someone; accepting an invitation; a first sign-in through the workspace's directory. Someone signing in through its single sign-on for the first time is signed in, and joins on a later sign-in once there is room. | Members, and the invitations waiting, each of which takes a place; accepting one counts all but its own. |
 
 A refusal says where the workspace stands: *Storage quota reached: 1.0 TB of 1.0 TB*. Lowering a limit below what a workspace uses removes nothing: it only refuses what would add to it. Renditions, pages and waveforms of files already uploaded are always made, even past the quota.
 
@@ -24,4 +24,4 @@ From 90% of a limit, the workspace's **Storage** settings and its Storage tab on
 
 ## Usage
 
-Each workspace's **Storage** settings show, for its admins, its storage, members, guests and projects as they are now, and the month so far: plays (a player starting a session), downloads, and its storage at the month's peak. A job counts the month each hour (`usage-refresh`), reading only the access log's events since its last count; months are kept by their first day, in UTC, for billing to read later.
+Each workspace's **Storage** settings show, for its admins, its storage, members, guests and projects as they are now, and the month so far: plays (a player starting a session), downloads, and its storage at the month's peak. A job counts the month each hour (`usage-refresh`), reading only the access log's events since its last count, and only to fifteen minutes before it runs, so an event still being written is counted next time rather than missed. A month just ended is counted to its end by the first count of the next. Months are kept by their first day, in UTC, for billing to read later.

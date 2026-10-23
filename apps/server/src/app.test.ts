@@ -77,6 +77,7 @@ import { createStorage } from "./storage.ts";
 import { systemHealth } from "./system-health.ts";
 import { remindTasksDue } from "./tasks.ts";
 import { expireUploads } from "./uploads.ts";
+import { storageInUse } from "./usage.ts";
 import { clockElapsed, fileMeasured, sweepRuns, workflowsFor } from "./workflow-runner.ts";
 import { rewrapBehind, rewrapOrganisation } from "./workspace-keys.ts";
 import { purgeDueWorkspaces } from "./workspace-purge.ts";
@@ -10670,6 +10671,22 @@ describe.runIf(url)("api", () => {
           const full = await stored();
           expect((await attach(picture, "Page 6.png")).status).toBe(409);
           expect(await stored()).toBe(full);
+
+          // The workspace's storage quota (#175) refuses one past it, and nothing is kept.
+          const { comment: another } = (await (await post({ body: "Bar 14" })).json()) as {
+            comment: { id: string };
+          };
+          const quota = (storageQuota: number | null) =>
+            db
+              .update(schema.organisations)
+              .set({ storageQuota })
+              .where(eq(schema.organisations.id, s.organisationId));
+          await quota((await storageInUse(db, s.organisationId)) + 10);
+          const over = await attach(picture, "Bar 14.png", s.owner, another.id);
+          expect(over.status).toBe(409);
+          expect(await over.json()).toMatchObject({ error: { code: "storage_quota" } });
+          expect(await stored()).toBe(full);
+          await quota(null);
 
           // A download is made for one person, works once, and is logged first.
           const ticket = (cookie: string, id = attachment.id) =>

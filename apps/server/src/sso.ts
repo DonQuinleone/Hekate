@@ -388,7 +388,7 @@ export async function provision(
   if (!membership) {
     // The workspace's member limit (#175): signed in, they join once there is room.
     const joined = await db.transaction(async (tx) => {
-      const refusal = await memberRoom(tx, organisationId, "joining");
+      const refusal = await memberRoom(tx, organisationId, "provisioning");
       if (refusal) {
         console.warn(`A first sign-in to workspace ${organisationId} was not joined: ${refusal}`);
         return false;
