@@ -4,6 +4,7 @@ import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  isBounceProvider,
   MAIL_PAUSE_AFTER,
   MAIL_PAUSE_MINUTES,
   type MailStepInput,
@@ -18,6 +19,7 @@ import { eq, sql } from "drizzle-orm";
 import { createTransport } from "nodemailer";
 import type { Keyring } from "./keyring.ts";
 import { createMailer, type Mailer, type Message, mailTransportOf } from "./mail.ts";
+import { suppressed, suppressedCount } from "./mail-bounces.ts";
 import { openSecret, sealSecret } from "./secrets.ts";
 import { privateAddress, publicLookup } from "./sso.ts";
 
@@ -36,7 +38,19 @@ export const mailSealContext = (organisationId: string) => `workspace-mail:${org
 type Row = typeof workspaceMail.$inferSelect;
 
 /** What settings show of it: everything but the secret. */
-export function viewOf(row: Row, mail: MailStepInput, now = new Date()): WorkspaceMail {
+/** The details a workspace's mail is sealed with: the provider's, and its bounce secret. */
+export type StoredMail = MailStepInput & { webhookSecret?: string };
+
+/** Where a workspace's provider sends its bounce reports. */
+export const bounceUrlOf = (publicUrl: string, organisationId: string) =>
+  new URL(`/api/hooks/mail/workspaces/${organisationId}`, publicUrl).toString();
+
+export function viewOf(
+  row: Row,
+  mail: StoredMail,
+  extra: { publicUrl: string; suppressed: number },
+  now = new Date(),
+): WorkspaceMail {
   return {
     provider: row.provider,
     from: row.from,
@@ -48,6 +62,11 @@ export function viewOf(row: Row, mail: MailStepInput, now = new Date()): Workspa
     clientId: mail.clientId ?? null,
     url: mail.url ?? null,
     hasSecret: Boolean(mail.password),
+    hasWebhookSecret: Boolean(mail.webhookSecret),
+    bounceUrl: isBounceProvider(row.provider)
+      ? bounceUrlOf(extra.publicUrl, row.organisationId)
+      : null,
+    suppressed: extra.suppressed,
     pausedUntil: row.pausedUntil && row.pausedUntil > now ? row.pausedUntil.toISOString() : null,
     failures: row.failures,
     lastSentAt: row.lastSentAt?.toISOString() ?? null,
@@ -60,17 +79,34 @@ async function rowOf(db: Pick<Database, "select">, organisationId: string) {
   return row ?? null;
 }
 
-async function opened(keyring: Keyring, row: Row): Promise<MailStepInput> {
+export async function opened(keyring: Keyring, row: Row): Promise<StoredMail> {
   const key = await keyring.version(row.organisationId, row.keyVersion);
   return JSON.parse(
     openSecret(key, row.configSealed, mailSealContext(row.organisationId)),
-  ) as MailStepInput;
+  ) as StoredMail;
 }
 
 /** The workspace's mail as settings show it, or null where it leaves mail to the instance. */
-export async function workspaceMailOf(db: Database, keyring: Keyring, organisationId: string) {
+export async function workspaceMailOf(
+  db: Database,
+  keyring: Keyring,
+  organisationId: string,
+  publicUrl: string,
+) {
   const row = await rowOf(db, organisationId);
-  return row ? viewOf(row, await opened(keyring, row)) : null;
+  if (!row) return null;
+  return viewOf(row, await opened(keyring, row), {
+    publicUrl,
+    suppressed: await suppressedCount(db, organisationId),
+  });
+}
+
+/** A workspace's mail as its bounce reports need it: the provider and the secret, or null. */
+export async function bounceConfigOf(db: Database, keyring: Keyring, organisationId: string) {
+  const row = await rowOf(db, organisationId);
+  if (!row || !isBounceProvider(row.provider)) return null;
+  const mail = await opened(keyring, row);
+  return { provider: row.provider, secret: mail.webhookSecret ?? "" };
 }
 
 export class MailRefused extends Error {}
@@ -84,17 +120,17 @@ export async function mergedMail(
   keyring: Keyring,
   organisationId: string,
   input: WorkspaceMailInput,
-): Promise<MailStepInput> {
+): Promise<StoredMail> {
   const row = await rowOf(db, organisationId);
   const stored = row ? await opened(keyring, row) : null;
-  const password =
-    input.password ||
-    (stored && stored.provider === input.provider ? stored.password : undefined) ||
-    undefined;
+  // A secret left out is kept, but only one of the same provider's.
+  const same = stored && stored.provider === input.provider ? stored : null;
+  const password = input.password || same?.password || undefined;
+  const webhookSecret = input.webhookSecret || same?.webhookSecret || undefined;
   const parsed = mailStepInput.safeParse({ ...input, ...(password ? { password } : {}) });
   if (!parsed.success)
     throw new MailRefused(parsed.error.issues[0]?.message ?? "Those details do not fit together");
-  return parsed.data;
+  return { ...parsed.data, ...(webhookSecret ? { webhookSecret } : {}) };
 }
 
 /** Save the workspace's mail, sealed; it is used from the next message on. */
@@ -102,7 +138,7 @@ export async function saveWorkspaceMail(
   db: Database,
   keyring: Keyring,
   organisationId: string,
-  mail: MailStepInput,
+  mail: StoredMail,
 ) {
   const { version, key } = await keyring.current(organisationId);
   const values = {
@@ -286,6 +322,8 @@ export function routedMailer(deps: RoutedMailDeps): Mailer {
   return {
     async send(message: Message) {
       const organisationId = message.organisationId;
+      // An address a provider reported as bounced or complaining is not sent to again (#161).
+      if (await suppressed(deps.db, message.to, organisationId)) return "suppressed";
       const row = organisationId ? await rowOf(deps.db, organisationId) : null;
       const at = now();
       if (!organisationId || !row || (row.pausedUntil && row.pausedUntil > at))

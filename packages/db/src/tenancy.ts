@@ -15,6 +15,8 @@ export const globalTables = new Set<PgTable>([
   schema.errorReports,
   // A member's sign-in is their account's, not a workspace's; only operators read them (#157).
   schema.authEvents,
+  // The instance's mail sends for everyone; what its provider bounced is everyone's (#161).
+  schema.mailSuppressions,
 ]);
 
 export const tenantTables: TenantTable[] = (Object.values(schema) as unknown[]).filter(

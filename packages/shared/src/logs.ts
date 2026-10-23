@@ -61,7 +61,11 @@ export const authMethods = [
 export type AuthMethod = (typeof authMethods)[number];
 export const authResults = ["signed_in", "refused", "locked"] as const;
 export type AuthResult = (typeof authResults)[number];
-export const mailResults = ["sent", "failed", "logged"] as const;
+/**
+ * What came of a message: sent, refused, written to the server's log, reported back by the
+ * provider as bounced or complained of (#161), or not sent to an address that had.
+ */
+export const mailResults = ["sent", "failed", "logged", "bounced", "suppressed"] as const;
 export type MailResult = (typeof mailResults)[number];
 
 /** A sign-in, a refusal or a lockout, by how it was tried. */

@@ -30,6 +30,7 @@ import {
   logKinds,
   logRanges,
   type MailLogRow,
+  mailProviders,
   parseErrorReference,
   type UpdateChannel,
   updateChannels,
@@ -56,6 +57,7 @@ import {
 import { Gauge, Spark } from "~/components/charts";
 import { Stat } from "~/components/dashboard";
 import { Empty } from "~/components/empty";
+import { SuppressionsDialog } from "~/components/event-channels";
 import { Icon } from "~/components/icons";
 import { Code, Fact, Inspect } from "~/components/inspect";
 import { Page } from "~/components/page";
@@ -650,6 +652,7 @@ function Settings() {
   const client = useQueryClient();
   const { data, error } = useQuery(instanceOwnSettingsQuery);
   const [message, setMessage] = useState<string | null>(null);
+  const [bounced, setBounced] = useState(false);
   const save = useMutation({
     mutationFn: async (next: InstanceSettings) =>
       json<{ settings: InstanceSettings; environment: InstanceEnvironment }>(
@@ -839,7 +842,22 @@ function Settings() {
           />
         )}
         {mailTest.isError && <Row name="Not sent" hint={mailTest.error.message} />}
+        {env.bounces && (
+          <Row
+            name="Bounce reports"
+            hint={
+              env.bounces.secretSet
+                ? `${mailProviders[env.bounces.provider].label} reports to ${env.bounces.url}; mail stops going to addresses that bounce for good or complain.`
+                : `Set MAIL_WEBHOOK_SECRET, then point ${mailProviders[env.bounces.provider].label}'s webhook at ${env.bounces.url}, so mail stops going to addresses that bounce.`
+            }
+          >
+            <Button variant="secondary" size="md" onClick={() => setBounced(true)}>
+              Bounced addresses…
+            </Button>
+          </Row>
+        )}
       </Section>
+      {bounced && <SuppressionsDialog scope="instance" onClose={() => setBounced(false)} />}
       <Danger>
         <Row
           name="Maintenance mode"
@@ -1114,6 +1132,8 @@ const mailResults: Record<MailLogRow["result"], string> = {
   sent: "Sent",
   failed: "Refused",
   logged: "Written to the log",
+  bounced: "Bounced",
+  suppressed: "Not sent: it bounced before",
 };
 
 /** What an audit row did, in words: an operator's action, or a workspace's. */
@@ -1293,7 +1313,7 @@ function Logs() {
               <span
                 className={cn(
                   "justify-self-end @3xl/app:order-4 @3xl/app:justify-self-start",
-                  r.result === "failed" ? "text-signal" : "text-ink-3",
+                  r.result === "failed" || r.result === "bounced" ? "text-signal" : "text-ink-3",
                 )}
               >
                 {mailResults[r.result]}

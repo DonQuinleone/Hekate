@@ -1351,3 +1351,13 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Public only.** An SMTP host is resolved, checked and connected to at that address; Mailcoach is checked before each request. `WEBHOOK_TRUSTED_ORIGINS` allows private ones (`smtp://host:port`).
 - **Expanding only:** a new table and a new access-log action (decision 198).
 - **Bounces follow:** the providers' bounce reports, and what they stop sending to, are the third part of #161.
+
+## 205. Bounce reports: signed webhooks, and addresses no longer sent to
+
+#161, third part. A provider's bounce and complaint reports stop mail to the addresses they name.
+
+- **Four providers to begin with.** Resend (Svix), Mailgun, SendGrid and SparkPost, whose reports Hekate can check: an HMAC, an ECDSA signature or basic authentication, with the time where the provider signs one. Amazon SES (through SNS), Postal, Plunk and Mailcoach follow; Google Workspace, Microsoft 365 and plain SMTP send no such reports.
+- **Two scopes.** The instance's reports (its SMTP host names the provider, `MAIL_WEBHOOK_SECRET` the secret) stop mail to the address for everyone, as an address that does not exist does not exist anywhere. A workspace's own provider's (its secret sealed with its mail) stop only that workspace's mail.
+- **Hard bounces and complaints only.** A transient bounce is the provider's to retry; acting on it would stop mail to a full mailbox for good.
+- **Held back, not failed.** A message to a reported address is not sent, and the mail log says so; nothing retries it. *Send again* takes an address off the list, in the workspace's access log or as an instance event.
+- **Expanding only:** new tables and new mail log results (decision 198).

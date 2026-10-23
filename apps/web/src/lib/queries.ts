@@ -67,6 +67,7 @@ import {
   type LogPage,
   type LogRange,
   type LoudnessSummary,
+  type MailSuppression,
   type Mark,
   type MarkInput,
   type MediaInfo,
@@ -912,6 +913,48 @@ export function useWorkspaceMail() {
       onSettled: refresh,
     }),
   };
+}
+
+/** Addresses the workspace's own provider reported as bounced or complaining (#161). */
+export const workspaceSuppressionsQuery = queryOptions({
+  queryKey: ["organisation", "mail", "suppressions"],
+  queryFn: async () =>
+    (
+      await json<{ suppressions: MailSuppression[] }>(
+        await api.organisation.mail.suppressions.$get(),
+      )
+    ).suppressions,
+});
+
+/** Addresses the instance's provider reported (#161); operators only. */
+export const instanceSuppressionsQuery = queryOptions({
+  queryKey: ["instance", "settings", "suppressions"],
+  queryFn: async () =>
+    (
+      await json<{ suppressions: MailSuppression[] }>(
+        await api.instance.settings.suppressions.$get(),
+      )
+    ).suppressions,
+});
+
+/** Send to a reported address again, in the workspace or on the instance. */
+export function useSendAgain(scope: "workspace" | "instance") {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res =
+        scope === "workspace"
+          ? await api.organisation.mail.suppressions[":id"].$delete({ param: { id } })
+          : await api.instance.settings.suppressions[":id"].$delete({ param: { id } });
+      if (!res.ok) await json(res);
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({
+        queryKey:
+          scope === "workspace" ? ["organisation", "mail"] : instanceSuppressionsQuery.queryKey,
+      });
+    },
+  });
 }
 
 /** The workspace's single sign-on, and what its identity provider is to be told; admins only. */

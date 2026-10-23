@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { BounceProvider } from "./mail-bounces.ts";
 import { defaultWorkspaceSettings, guestLinkDays } from "./organisation.ts";
 import { updateChannels } from "./releases.ts";
 
@@ -150,6 +151,11 @@ export interface InstanceEnvironment {
   operatorSecurityKey: boolean;
   /** How instance mail goes out (#71): SMTP, Microsoft 365, Mailcoach, or only to the log. */
   mail: InstanceMail;
+  /**
+   * Bounce reports (#161): the provider the instance's SMTP host is, where it reports, and
+   * whether MAIL_WEBHOOK_SECRET is set to check them. Null where the provider sends none Hekate reads.
+   */
+  bounces: { provider: BounceProvider; url: string; secretSet: boolean } | null;
   passwordLeakCheck: boolean;
   /** How long a session lasts, in days. */
   sessionDays: number;

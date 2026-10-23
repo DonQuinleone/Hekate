@@ -29,6 +29,7 @@ import {
   logExportQuery,
   logKindParam,
   logQuery,
+  type MailSuppression,
   nameMatches,
   newerReleases,
   newWorkspaceInput,
@@ -1565,6 +1566,42 @@ export function instanceRoutes(options: InstanceOptions) {
         }
         return c.json({ to: user.email, mail: options.environment.mail } as const);
       })
+      // Addresses the instance's mail provider reported (#161), and sending to one again.
+      .get("/settings/suppressions", async (c) => {
+        const rows = await db
+          .select()
+          .from(schema.mailSuppressions)
+          .orderBy(desc(schema.mailSuppressions.updatedAt))
+          .limit(500);
+        const suppressions: MailSuppression[] = rows.map((r) => ({
+          id: r.id,
+          address: r.address,
+          kind: r.kind,
+          provider: r.provider,
+          detail: r.detail,
+          at: r.updatedAt.toISOString(),
+        }));
+        return c.json({ suppressions });
+      })
+      .delete(
+        "/settings/suppressions/:id",
+        zValidator("param", z.object({ id: z.uuid() })),
+        async (c) => {
+          const [gone] = await db
+            .delete(schema.mailSuppressions)
+            .where(eq(schema.mailSuppressions.id, c.req.valid("param").id))
+            .returning({ address: schema.mailSuppressions.address });
+          if (!gone) throw new NotFound("address");
+          await recordInstanceEvent(db, {
+            actorId: c.var.userId,
+            action: "mail.sends_again",
+            target: gone.address,
+            details: {},
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+          return c.body(null, 204);
+        },
+      )
       .get("/settings", async (c) => {
         options.settings.forget();
         return c.json({

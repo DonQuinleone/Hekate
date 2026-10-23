@@ -2877,6 +2877,42 @@ export const workspaceMail = pgTable(
 );
 
 /**
+ * Addresses mail is no longer sent to (#161), because the instance's provider reported a hard
+ * bounce or a complaint: global, as the instance's mail sends for everyone. A workspace's own
+ * provider's reports are kept apart, in `workspace_mail_suppressions`.
+ */
+export const mailSuppressions = pgTable(
+  "mail_suppressions",
+  {
+    id: id(),
+    /** Lower-cased. */
+    address: text("address").notNull(),
+    kind: text("kind").$type<"bounce" | "complaint">().notNull(),
+    /** The provider that reported it, and what it said. */
+    provider: text("provider").notNull(),
+    detail: text("detail"),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("mail_suppressions_address_idx").on(t.address)],
+);
+
+/** A workspace's own provider's bounces and complaints (#161): what its mail no longer sends to. */
+export const workspaceMailSuppressions = pgTable(
+  "workspace_mail_suppressions",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    /** Lower-cased. */
+    address: text("address").notNull(),
+    kind: text("kind").$type<"bounce" | "complaint">().notNull(),
+    provider: text("provider").notNull(),
+    detail: text("detail"),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("workspace_mail_suppressions_address_idx").on(t.organisationId, t.address)],
+);
+
+/**
  * The outbox: an event, written in the transaction that made it happen, waiting to be handed
  * to the channels that carry its kind. Written only while some channel of the workspace does.
  */

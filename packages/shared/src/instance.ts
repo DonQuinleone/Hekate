@@ -246,6 +246,7 @@ export const instanceActions: Record<string, string> = {
   "debug.inspected": "inspected in Debug tools",
   "debug.job_retried": "run again from Debug tools",
   "debug.webhook_replayed": "sent again from Debug tools",
+  "mail.sends_again": "sent mail again, after a bounce report",
   "flag.on": "turned on",
   "flag.off": "turned off",
   "settings.second_factor_on": "required of every account",
