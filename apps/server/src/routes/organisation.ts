@@ -21,6 +21,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { revokeMemberTokens } from "../api-tokens.ts";
 import { type Audit, csvHeader, csvRow, requestInfo } from "../audit.ts";
+import { brandingOf, emailBrandOf } from "../branding.ts";
 import { assertProfileRef, customProfilesOf, deleteCustomProfile } from "../delivery-profiles.ts";
 import { render } from "../email/render.ts";
 import { sampleData, workspaceEmail } from "../email/templates.ts";
@@ -257,6 +258,10 @@ export const organisationRoutes = (
           sample,
           workspaceSettingsOf(workspace.settings).emailSubjects,
         );
+        // With the workspace's logo and accent (#185): the logo at this origin, as the preview
+        // is shown in this app.
+        const brand = emailBrandOf(await brandingOf(db, c.var.organisationId));
+        if (brand) email.brand = brand;
         c.header("cache-control", "no-store");
         return c.json(render(email, c.req.valid("query").scheme));
       },

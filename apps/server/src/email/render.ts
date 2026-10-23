@@ -1,9 +1,19 @@
 /**
  * Every message Hekate sends has one shape (who did what, one action, a line about why you got
  * it) and goes as a multipart mail: a plain-text part written to be read as it is, and an HTML
- * part laid out in tables for light and dark mail clients. No images, no tracking: the mark is
- * drawn in table cells and every link goes to the app.
+ * part laid out in tables for light and dark mail clients. No tracking: the mark is drawn in
+ * table cells and every link goes to the app. The one image is a workspace's own logo (#185),
+ * at one public address for every reader, so loading it says nothing about who opened what.
  */
+import { logoBox } from "@hekate/shared";
+
+/** A workspace's branding as its mail shows it (#185, decision 226). */
+export interface EmailBrand {
+  /** Its logo, at an absolute address, in place of Hekate's lockup at the top. */
+  logo?: { url: string; width: number; height: number };
+  /** Its accent, legible on the dark ground, for the action in place of the signal. */
+  accent?: string;
+}
 
 export interface Email {
   /** The workspace it comes from, at the top and in the foot; none for a message about an account. */
@@ -22,6 +32,8 @@ export interface Email {
   foot: string;
   /** Where to change what reaches you, when the reader is a member. */
   settingsUrl?: string;
+  /** The workspace's logo and accent, where it has set them. */
+  brand?: EmailBrand;
 }
 
 export interface Rendered {
@@ -119,6 +131,26 @@ function mark(p: (typeof palettes)[Scheme]) {
 }
 
 /**
+ * The top of the card: Hekate's lockup and the workspace's name, or the workspace's own logo
+ * where it has one (#185), named for those whose client holds images back. The foot still says
+ * Hekate sent it.
+ */
+function header(email: Email, p: (typeof palettes)[Scheme]) {
+  const logo = email.brand?.logo;
+  if (logo) {
+    const box = logoBox(logo, 32, 200);
+    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+<td valign="middle"><img src="${escapeHtml(logo.url)}" width="${box.width}" height="${box.height}" alt="${escapeHtml(email.workspace ?? "")}" style="display:block;border:0;outline:none;text-decoration:none;width:${box.width}px;height:${box.height}px;max-width:100%;font-size:15px;font-weight:600;color:${p.ink}"></td>
+</tr></table>`;
+  }
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+<td width="20" valign="middle">${mark(p)}</td>
+<td class="hk-ink" valign="middle" style="padding-left:8px;font-size:15px;font-weight:600;color:${p.ink}">Hekate</td>
+<td class="hk-ink3" align="right" valign="middle" style="font-size:13px;color:${p.ink3}">${escapeHtml(email.workspace ?? "")}</td>
+</tr></table>`;
+}
+
+/**
  * The HTML part. Light colours are inline; dark clients get theirs from a media query. A
  * preview asks for one scheme and gets it inline, without the query, whatever its viewer's own.
  */
@@ -131,8 +163,11 @@ export function renderHtml(email: Email, preview?: Scheme): string {
   const list = email.list?.length
     ? `<ul class="hk-ink2" style="margin:12px 0 0;padding:0 0 0 18px;font-size:14px;line-height:22px;color:${p.ink2}">${email.list.map((i) => `<li style="margin:0 0 4px">${escapeHtml(i)}</li>`).join("")}</ul>`
     : "";
+  // The accent was checked for contrast when it was set; anything else here is ignored.
+  const signal =
+    email.brand?.accent && /^#[0-9a-f]{6}$/i.test(email.brand.accent) ? email.brand.accent : SIGNAL;
   const action = email.action
-    ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 0"><tr><td style="border-radius:8px;background:${SIGNAL}"><a href="${escapeHtml(email.action.url)}" style="display:inline-block;padding:11px 18px;font-family:${font};font-size:15px;font-weight:600;line-height:18px;color:${ON_SIGNAL};text-decoration:none;border-radius:8px">${escapeHtml(email.action.label)}</a></td></tr></table>`
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 0"><tr><td style="border-radius:8px;background:${signal}"><a href="${escapeHtml(email.action.url)}" style="display:inline-block;padding:11px 18px;font-family:${font};font-size:15px;font-weight:600;line-height:18px;color:${ON_SIGNAL};text-decoration:none;border-radius:8px">${escapeHtml(email.action.label)}</a></td></tr></table>`
     : "";
   const settings = email.settingsUrl
     ? ` · <a class="hk-ink3" href="${escapeHtml(email.settingsUrl)}" style="color:${p.ink3};text-decoration:underline">Change what you are told about</a>`
@@ -166,11 +201,7 @@ ${darkStyles}
 <tr><td align="center" style="padding:32px 12px">
 <table role="presentation" class="hk-card" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;background:${p.card};border:1px solid ${p.border};border-radius:12px;font-family:${font}">
 <tr><td style="padding:28px 28px 0">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-<td width="20" valign="middle">${mark(p)}</td>
-<td class="hk-ink" valign="middle" style="padding-left:8px;font-size:15px;font-weight:600;color:${p.ink}">Hekate</td>
-<td class="hk-ink3" align="right" valign="middle" style="font-size:13px;color:${p.ink3}">${escapeHtml(email.workspace ?? "")}</td>
-</tr></table>
+${header(email, p)}
 </td></tr>
 <tr><td style="padding:24px 28px 28px">
 <h1 class="hk-ink" style="margin:0;font-size:21px;line-height:27px;font-weight:600;color:${p.ink}">${escapeHtml(email.heading)}</h1>

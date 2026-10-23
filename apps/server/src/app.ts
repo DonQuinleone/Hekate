@@ -17,6 +17,7 @@ import { tokenAuth } from "./api-tokens.ts";
 import type { Audit } from "./audit.ts";
 import { type Auth, SESSION_DAYS } from "./auth.ts";
 import type { Gateway } from "./billing/gateway.ts";
+import { brandedMailer } from "./branding.ts";
 import { createSend, type Send } from "./channels.ts";
 import { errorHandler, requestId } from "./errors.ts";
 import { requirePlaySession, requireViewer } from "./guests.ts";
@@ -34,6 +35,7 @@ import { attachmentRoutes } from "./routes/attachments.ts";
 import { billingRoutes } from "./routes/billing.ts";
 import { billingHookRoutes } from "./routes/billing-hooks.ts";
 import { projectBoardRoutes } from "./routes/board.ts";
+import { brandingRoutes, logoRoutes } from "./routes/branding.ts";
 import { calendarFeedRoutes, projectCalendarRoutes } from "./routes/calendar.ts";
 import { captionRoutes } from "./routes/captions.ts";
 import { categoryRoutes, projectCategoryRoutes } from "./routes/categories.ts";
@@ -193,7 +195,14 @@ export interface AppDeps {
   gateway?: Gateway | null;
 }
 
-export function createApi(deps: AppDeps) {
+export function createApi(given: AppDeps) {
+  // Mail sent for a workspace carries its logo and accent (#185), whichever route sends it.
+  const deps = {
+    ...given,
+    mailer: given.mailer.brand
+      ? given.mailer
+      : brandedMailer(given.mailer, given.db, given.publicUrl),
+  };
   const settings = deps.settings ?? createInstanceSettings(deps.db);
   // What links sent out are made from: each workspace's own address with subdomains on (#437).
   const links = { publicUrl: deps.publicUrl, subdomains: deps.subdomains ?? null };
@@ -381,6 +390,8 @@ export function createApi(deps: AppDeps) {
           async () => (await settings.get()).registration.mode,
         ),
       )
+      // A workspace's logo (#185): public, as its sign-in page and its mail show it.
+      .route("/branding", logoRoutes({ db: deps.db, storage: deps.storage }))
       // Which names Caddy may get a certificate for (#176): asked before each one.
       .route("/tls", tlsRoutes(deps.db, deps.subdomains ?? null))
       // The billing gateway's events (#178): no session, a signature instead.
@@ -452,6 +463,16 @@ export function createApi(deps: AppDeps) {
           trusted: deps.ssoTrustedOrigins ?? [],
           trustProxy: deps.trustProxy ?? false,
           billing: (deps.modules?.billing ?? "off") !== "off",
+        }),
+      )
+      .route(
+        "/organisation/branding",
+        brandingRoutes({
+          db: deps.db,
+          storage: deps.storage,
+          audit: deps.audit,
+          trustProxy: deps.trustProxy ?? false,
+          ...(deps.workDir ? { workDir: deps.workDir } : {}),
         }),
       )
       .route("/organisation/plan", planRoutes(deps.db, (deps.modules?.billing ?? "off") !== "off"))

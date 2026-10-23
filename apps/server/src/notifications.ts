@@ -12,10 +12,10 @@ import {
   workspaceSettingsOf,
 } from "@hekate/shared";
 import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
-import { render } from "./email/render.ts";
+import { type EmailBrand, render } from "./email/render.ts";
 import { emitEvent } from "./events.ts";
 import { type LinkRoots, linkBase } from "./hosts.ts";
-import type { Mailer } from "./mail.ts";
+import { brandFor, type Mailer } from "./mail.ts";
 
 const {
   notifications,
@@ -215,6 +215,8 @@ const whyFoot: Record<NotificationKind, string> = {
 export interface MailWorkspace {
   name: string;
   subjects: EmailSubjects;
+  /** Its logo and accent, where it has set them (#185). */
+  brand?: EmailBrand | undefined;
 }
 
 /**
@@ -249,11 +251,17 @@ export function instantMail(n: NotificationRow, address: string, workspace: Mail
     },
     foot: shared ? "You get this because something was shared with you." : whyFoot[n.kind],
     settingsUrl: `${base}${settingsPath}`,
+    ...(workspace.brand ? { brand: workspace.brand } : {}),
   });
 }
 
 /** Several notifications gathered into one mail, oldest first. */
-export function digestMail(rows: NotificationRow[], workspace: string, address: string) {
+export function digestMail(
+  rows: NotificationRow[],
+  workspace: string,
+  address: string,
+  brand?: EmailBrand,
+) {
   const base = address.replace(/\/$/, "");
   const count = `${rows.length} update${rows.length === 1 ? "" : "s"}`;
   return render({
@@ -265,6 +273,7 @@ export function digestMail(rows: NotificationRow[], workspace: string, address: 
     action: { label: "Open your inbox", url: `${base}/inbox` },
     foot: "You get these gathered together, as you chose.",
     settingsUrl: `${base}${settingsPath}`,
+    ...(brand ? { brand } : {}),
   });
 }
 
@@ -331,7 +340,10 @@ async function sendOnce(db: Database, mailer: Mailer, roots: LinkRoots, n: Notif
       const workspace = await mailWorkspace(db, roots, n);
       await mailer.send({
         to,
-        ...instantMail(n, workspace.address, workspace),
+        ...instantMail(n, workspace.address, {
+          ...workspace,
+          brand: await brandFor(mailer, n.organisationId),
+        }),
         organisationId: n.organisationId,
       });
     }
@@ -453,7 +465,12 @@ export async function deliverDigests(
         if (to)
           await mailer.send({
             to,
-            ...digestMail(rows, workspace?.name ?? "Hekate", linkBase(roots, workspace?.slug)),
+            ...digestMail(
+              rows,
+              workspace?.name ?? "Hekate",
+              linkBase(roots, workspace?.slug),
+              await brandFor(mailer, organisationId),
+            ),
             organisationId,
           });
       } catch (error) {

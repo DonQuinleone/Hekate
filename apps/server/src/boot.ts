@@ -8,6 +8,7 @@ import { createAuth } from "./auth.ts";
 import { runDunning } from "./billing/billing.ts";
 import { stripeClient } from "./billing/stripe.ts";
 import { stripeGateway } from "./billing/stripe-gateway.ts";
+import { brandedMailer } from "./branding.ts";
 import { createSend } from "./channels.ts";
 import { failureOfJob, purgeErrorReports, recordFailure } from "./error-reports.ts";
 import { deliver, dispatchEvents, onEventWritten } from "./events.ts";
@@ -93,17 +94,22 @@ export async function boot(
     previous: config.MASTER_KEYS_PREVIOUS,
   });
   // A workspace's own mail sends what is sent for it (#161); the instance's sends the rest.
-  const mailer = countedMailer(
-    loggedMailer(
-      db,
-      routedMailer({
+  // Either way it carries the workspace's logo and accent (#185).
+  const mailer = brandedMailer(
+    countedMailer(
+      loggedMailer(
         db,
-        keyring,
-        instance: createMailer({ transport: mailTransport, from: config.MAIL_FROM }),
-        trusted: config.WEBHOOK_TRUSTED_ORIGINS,
-      }),
-      mailTransport.kind !== "log",
+        routedMailer({
+          db,
+          keyring,
+          instance: createMailer({ transport: mailTransport, from: config.MAIL_FROM }),
+          trusted: config.WEBHOOK_TRUSTED_ORIGINS,
+        }),
+        mailTransport.kind !== "log",
+      ),
     ),
+    db,
+    config.PUBLIC_URL,
   );
   // Read at each scrape of /metrics (#70).
   collectFromDatabase(db);

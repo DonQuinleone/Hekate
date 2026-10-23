@@ -4,6 +4,7 @@ import { zValidator } from "@hono/zod-validator";
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
+import { brandingOf } from "../branding.ts";
 import { type HostVariables, rootAddress, type Subdomains } from "../hosts.ts";
 
 const { directories, organisations, ssoProviders } = schema;
@@ -46,7 +47,13 @@ export const signInMethodRoutes = (
         directory: Boolean(directory),
         sso: Boolean(sso),
         workspace: host
-          ? { name: host.name, slug: host.slug, providerId: sso?.providerId ?? null }
+          ? {
+              name: host.name,
+              slug: host.slug,
+              providerId: sso?.providerId ?? null,
+              // Its logo and accent (#185): public, as the page is.
+              branding: await brandingOf(db, host.id),
+            }
           : null,
         root: subdomains ? rootAddress(subdomains) : null,
         // A workspace's own host signs in to that workspace; making another starts at the root.
