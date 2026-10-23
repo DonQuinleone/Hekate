@@ -362,6 +362,7 @@ export async function boot(
     modules: {
       billing: config.HEKATE_BILLING,
       support: config.HEKATE_SUPPORT,
+      supportAddress: config.HEKATE_SUPPORT_ADDRESS ?? null,
       docsUrl: config.HEKATE_DOCS_URL,
       statusUrl: config.HEKATE_STATUS_URL ?? null,
     },

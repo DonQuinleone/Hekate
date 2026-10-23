@@ -52,6 +52,14 @@ const instanceSettingsSchema = z.object({
   billing: billingRules,
   /** Who may make a workspace (#184): operators only, anyone they invite, or anyone. */
   registration: z.object({ mode: z.enum(registrationModes) }),
+  /**
+   * The support desk's own settings (#182): its status page, over HEKATE_STATUS_URL, and the
+   * operator on call, who hears of each new ticket first and is paged for an Emergency.
+   */
+  support: z.object({
+    statusUrl: z.url().max(500).nullable(),
+    onCall: z.string().min(1).max(64).nullable(),
+  }),
 });
 export type InstanceSettings = z.infer<typeof instanceSettingsSchema>;
 
@@ -74,6 +82,8 @@ export const instanceSettingsInput = instanceSettingsSchema.extend({
     .optional(),
   billing: billingRules.optional(),
   registration: instanceSettingsSchema.shape.registration.optional(),
+  // Saved from the Support page's desk, never from Settings.
+  support: instanceSettingsSchema.shape.support.optional(),
 });
 export type InstanceSettingsInput = z.infer<typeof instanceSettingsInput>;
 
@@ -105,6 +115,7 @@ export const withStored = (
     : stored.logs,
   billing: input.billing ?? stored.billing,
   registration: input.registration ?? stored.registration,
+  support: input.support ?? stored.support,
 });
 
 export const defaultInstanceSettings: InstanceSettings = {
@@ -123,6 +134,7 @@ export const defaultInstanceSettings: InstanceSettings = {
   billing: defaultBillingRules,
   // As before registration was a setting: operators make the workspaces.
   registration: { mode: "closed" },
+  support: { statusUrl: null, onCall: null },
 };
 
 /** Stored settings over the defaults, so one written before a setting existed still reads. */
@@ -143,6 +155,7 @@ export function instanceSettingsOf(stored: unknown): InstanceSettings {
       },
     },
     registration: { ...defaultInstanceSettings.registration, ...value.registration },
+    support: { ...defaultInstanceSettings.support, ...value.support },
   };
   const parsed = instanceSettingsSchema.safeParse(merged);
   return parsed.success ? parsed.data : defaultInstanceSettings;
@@ -201,12 +214,18 @@ export function settingsChanges(
   for (const kind of ["audit", "auth", "mail", "webhooks", "api"] as const)
     if (before.logs[kind] !== after.logs[kind])
       changes.push({ action: "logs.retention", details: { kind, days: after.logs[kind] } });
+  if (before.support.statusUrl !== after.support.statusUrl)
+    changes.push({ action: "support.status_page", details: { url: after.support.statusUrl } });
+  if (before.support.onCall !== after.support.onCall)
+    changes.push({ action: "support.on_call", details: { userId: after.support.onCall } });
   return changes;
 }
 
 export interface InstanceModules {
   billing: "off" | "stripe" | "paddle" | "manual";
   support: "off" | "app" | "link" | "mail";
+  /** HEKATE_SUPPORT_ADDRESS: the desk with `link`, the mailbox with `mail` (#181). */
+  supportAddress?: string | null;
   docsUrl: string;
   statusUrl: string | null;
 }

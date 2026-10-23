@@ -46,7 +46,8 @@ export function createInstanceSettings(db: Database, now = () => Date.now()) {
      */
     async write(
       tx: Tx,
-      input: InstanceSettingsInput,
+      /** The save, or how to make it from what is stored (the support desk's part alone, say). */
+      input: InstanceSettingsInput | ((stored: InstanceSettings) => InstanceSettingsInput),
       by: string,
     ): Promise<{ before: InstanceSettings; after: InstanceSettings }> {
       // The row made first if it is not there yet, so even the first two saves take turns.
@@ -61,7 +62,7 @@ export function createInstanceSettings(db: Database, now = () => Date.now()) {
         .for("update");
       const before = instanceSettingsOf(row?.settings);
       // Under the lock: what the save leaves out is what is stored now, not a default.
-      const after = withStored(input, before);
+      const after = withStored(typeof input === "function" ? input(before) : input, before);
       await tx
         .update(schema.instanceSettings)
         .set({ settings: after, updatedBy: by, updatedAt: new Date() })

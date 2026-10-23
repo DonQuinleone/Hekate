@@ -46,6 +46,7 @@ describe("instance settings", () => {
           trialDays: 30,
         },
         registration: { mode: "closed" },
+        support: { statusUrl: "https://status.example", onCall: "user-1" },
       }),
     ).toEqual([
       { action: "settings.second_factor_on", details: {} },
@@ -59,6 +60,8 @@ describe("instance settings", () => {
       { action: "billing.trial_days", details: { days: 30 } },
       { action: "logs.retention", details: { kind: "audit", days: 730 } },
       { action: "logs.retention", details: { kind: "webhooks", days: 90 } },
+      { action: "support.status_page", details: { url: "https://status.example" } },
+      { action: "support.on_call", details: { userId: "user-1" } },
     ]);
     expect(settingsChanges(on, on)).toEqual([]);
   });
@@ -101,6 +104,11 @@ describe("instance settings", () => {
     expect(
       withStored({ ...olderStill, logs: { audit: 730, auth: null, mail: 30 } }, forever).logs,
     ).toEqual({ audit: 730, auth: null, mail: 30, webhooks: null, api: null });
+    // The Settings page never sends the desk's settings (#182); they stay as the desk saved them.
+    const desk = { ...defaultInstanceSettings, support: { statusUrl: null, onCall: "user-1" } };
+    const { support: ___, ...fromSettings } = older;
+    expect(withStored(fromSettings, desk).support).toEqual({ statusUrl: null, onCall: "user-1" });
+    expect(instanceSettingsOf({ logs: {} }).support).toEqual({ statusUrl: null, onCall: null });
   });
 
   it("reads billing's rules over the defaults, and keeps them through an older client's save (#180)", () => {

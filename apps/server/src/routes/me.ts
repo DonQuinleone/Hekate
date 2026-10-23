@@ -7,6 +7,7 @@ import {
   preferencesInput,
   preferencesOf,
   profileInput,
+  type SupportModule,
   workspaceSettingsOf,
 } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
@@ -48,6 +49,8 @@ export const meRoutes = (
     subdomains?: Subdomains | null;
     /** The billing module is on (#178): the workspace's Billing settings show. */
     billing?: boolean;
+    /** How the instance answers support (#181), for the help menu and the Support page. */
+    support?: () => Promise<SupportModule>;
   },
 ) =>
   new Hono<{ Variables: TenantVariables }>()
@@ -136,6 +139,14 @@ export const meRoutes = (
         // The root's address, which keeps the instance's pages, with subdomains on (#176).
         root: deps.subdomains ? rootAddress(deps.subdomains) : null,
         billing: deps.billing ?? false,
+        support: deps.support
+          ? await deps.support()
+          : ({
+              mode: "off",
+              address: null,
+              docsUrl: "https://docs.hekate.studio",
+              statusUrl: null,
+            } satisfies SupportModule),
       });
     })
     // Name, language and time zone. The email address changes through sign-in's own flow,

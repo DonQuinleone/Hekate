@@ -78,6 +78,7 @@ const actionWords = {
   "project.transfer_refuse": "Project move refused",
   "project.transfer_cancel": "Project move withdrawn",
   "project.transfer": "Project moved between workspaces",
+  "support.attachment_download": "Ticket attachment downloaded",
 } satisfies Record<AuditAction, string>;
 
 /** Plain words for what each entry records; every action has some, or this does not compile. */

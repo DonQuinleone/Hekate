@@ -63,6 +63,9 @@ import {
   type TaskEventDetail,
   type TaskEventKind,
   type TemplateContent,
+  type TicketAuthor,
+  type TicketKind,
+  type TicketState,
   taskPriorities,
   taskStatuses,
   transferStatuses,
@@ -2771,6 +2774,98 @@ export const workspaceUsage = pgTable(
   },
   (t) => [uniqueIndex("workspace_usage_month_idx").on(t.organisationId, t.month)],
 );
+
+// Support (docs/domain.md)
+
+/**
+ * A ticket (#181): a question from a workspace to the people who run the instance, with a
+ * reference made on sending (unique across the instance, so an operator can find it), a type,
+ * and a severity the workspace's plan allowed when it was sent.
+ */
+export const tickets = pgTable(
+  "tickets",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    reference: text("reference").notNull(),
+    subject: text("subject").notNull(),
+    kind: text("kind").$type<TicketKind>().notNull(),
+    severity: text("severity").$type<SupportSeverity>().notNull(),
+    state: text("state").$type<TicketState>().notNull().default("waiting"),
+    requesterId: text("requester_id").references(() => users.id, { onDelete: "set null" }),
+    /** Their name when they asked, for when the account has gone. */
+    requesterName: text("requester_name").notNull(),
+    /** The failure they saw (#159), which the operators look up. */
+    errorReference: text("error_reference"),
+    /** The file or review they asked from, and whether the operators may open it. */
+    itemKind: text("item_kind").$type<"file" | "review">(),
+    itemId: uuid("item_id"),
+    operatorAccess: boolean("operator_access").notNull().default(false),
+    /** When an operator first answered, for the desk's first-reply time. */
+    firstReplyAt: timestamp("first_reply_at", { withTimezone: true }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("tickets_reference_idx").on(t.reference),
+    index("tickets_organisation_idx").on(t.organisationId, t.updatedAt),
+    index("tickets_state_idx").on(t.state, t.updatedAt),
+  ],
+);
+
+/** One message in a ticket's thread: from the workspace, an operator, or Hekate itself. */
+export const ticketMessages = pgTable(
+  "ticket_messages",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    author: text("author").$type<TicketAuthor>().notNull(),
+    authorId: text("author_id").references(() => users.id, { onDelete: "set null" }),
+    /** Their name as it was, kept when the account goes. */
+    authorName: text("author_name").notNull(),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("ticket_messages_ticket_idx").on(t.organisationId, t.ticketId, t.createdAt)],
+);
+
+/**
+ * A file attached to a ticket's message (#181): a screenshot or a log, its bytes an encrypted
+ * blob like any other, reached only by those who may read the ticket, each download logged.
+ */
+export const ticketAttachments = pgTable(
+  "ticket_attachments",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => ticketMessages.id, { onDelete: "cascade" }),
+    blobId: uuid("blob_id")
+      .notNull()
+      .references(() => blobs.id, { onDelete: "no action" }),
+    name: text("name").notNull(),
+    contentType: text("content_type").notNull(),
+    byteSize: bigint("byte_size", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("ticket_attachments_message_idx").on(t.organisationId, t.messageId)],
+);
+
+/**
+ * The desk's canned replies (#182): answers it gives often, to start a reply from. Global: the
+ * desk is the instance's, and a reply names no workspace.
+ */
+export const cannedReplies = pgTable("canned_replies", {
+  id: id(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  ...timestamps,
+});
 
 // Notifications (docs/domain.md)
 

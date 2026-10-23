@@ -715,7 +715,8 @@ const schema = z.object({
     .meta(
       info({
         group: "Modules",
-        description: "A status page for the help menu to link to; none when unset.",
+        description:
+          "A status page for the help menu and the Support page to link to; none when unset. The support desk can set its own, which is used instead.",
       }),
     ),
 });

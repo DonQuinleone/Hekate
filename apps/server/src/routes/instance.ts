@@ -125,6 +125,7 @@ import { pendingRewrap } from "../workspace-keys.ts";
 import { operatorMove } from "./project-transfers.ts";
 import { retryFile } from "./retry.ts";
 import { refusal, sendExport } from "./workspace-lifecycle.ts";
+import { supportDeskRoutes } from "./support-desk.ts";
 
 /**
  * The instance side (#155, decision 062). Operators manage every workspace; a workspace's
@@ -145,7 +146,7 @@ export interface InstanceOptions {
   keyring: Keyring;
   jobs: Pick<Jobs, "send">;
   backends: Backends;
-  /** Where a workspace's export is read from for its download (#186). */
+  /** Where a workspace's export (#186) and tickets' attachments (#182) are read from. */
   storage: Storage;
   audit: Audit;
   /** The instance's settings (#160), shared with the rest of the server. */
@@ -203,6 +204,7 @@ export async function instanceAccess(
     keyNeeded: !!operator && options.operatorSecurityKey && session?.factor !== "passkey",
     owned,
     billing: (options.environment.modules?.billing ?? "off") !== "off",
+    support: options.environment.modules?.support === "app",
   };
 }
 
@@ -1403,6 +1405,23 @@ export function instanceRoutes(options: InstanceOptions) {
         });
         return c.json(done);
       })
+      // The support desk (#182): every workspace's tickets, with tickets in the app.
+      .use("/support", operatorsOnly)
+      .use("/support/*", operatorsOnly)
+      .route(
+        "/support",
+        supportDeskRoutes({
+          db,
+          storage: options.storage,
+          audit: options.audit,
+          mailer: options.mailer,
+          publicUrl: options.publicUrl,
+          trustProxy: options.trustProxy,
+          modules: options.environment.modules,
+          settings: options.settings,
+          subdomains: options.environment.subdomains ?? null,
+        }),
+      )
       // Promo codes (#178): kept whether or not billing is on; used only while it is.
       .use("/promos", operatorsOnly)
       .use("/promos/*", operatorsOnly)
@@ -2111,7 +2130,9 @@ export function instanceRoutes(options: InstanceOptions) {
                       ? "New workspaces' storage quota"
                       : change.action === "defaults.member_limit"
                         ? "New workspaces' member limit"
-                        : change.action.startsWith("logs.")
+                        : change.action.startsWith("support.")
+                          ? "The support desk"
+                          : change.action.startsWith("logs.")
                           ? `The ${String(change.details.kind) === "auth" ? "authentication" : String(change.details.kind)} log`
                           : change.action.startsWith("registration.")
                             ? "Registration"

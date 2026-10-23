@@ -17,6 +17,7 @@ const {
   filePages,
   organisations,
   storageFindings,
+  ticketAttachments,
   uploads,
   workspaceExports,
 } = schema;
@@ -279,6 +280,13 @@ export async function reconcileStorage(
                 .select({ x: sql`1` })
                 .from(commentAttachments)
                 .where(inOrg(commentAttachments, owner, eq(commentAttachments.blobId, blobs.id))),
+            ),
+            // Nor a ticket's attachment (#181).
+            notExists(
+              db
+                .select({ x: sql`1` })
+                .from(ticketAttachments)
+                .where(inOrg(ticketAttachments, owner, eq(ticketAttachments.blobId, blobs.id))),
             ),
             // Nor a video's caption file (#146).
             notExists(

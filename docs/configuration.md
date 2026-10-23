@@ -96,7 +96,7 @@ A setting marked as secret may instead name a file that holds it, with `_FILE` a
 | `HEKATE_UPDATE_CHECK` | `false` | Check the project's public releases once a day, for System information and the Overview. Nothing about the instance is sent. Off by default: the instance asks nothing of anyone. |
 | `HEKATE_BUILD` | `dev` | The commit the image was built from. Set by the image; leave it alone. |
 | `HEKATE_DOCS_URL` | `https://docs.hekate.studio` | Where the help menu's documentation link goes. |
-| `HEKATE_STATUS_URL` | unset | A status page for the help menu to link to; none when unset. |
+| `HEKATE_STATUS_URL` | unset | A status page for the help menu and the Support page to link to; none when unset. The support desk can set its own, which is used instead. |
 
 ## Storage
 

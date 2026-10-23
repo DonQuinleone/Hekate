@@ -11,6 +11,7 @@ export const instanceSectionIds = [
   "workspaces",
   "operators",
   "billing",
+  "support",
   "health",
   "logs",
   "debug",
@@ -27,6 +28,7 @@ export const instanceSections: Record<InstanceSection, { label: string; hint: st
   },
   operators: { label: "Operators", hint: "The accounts that may manage the instance" },
   billing: { label: "Billing", hint: "Plans, trials, invoices and what each workspace pays" },
+  support: { label: "Support", hint: "What workspaces have asked, and the answers" },
   logs: {
     label: "Logs",
     hint: "What people and operators did, every sign-in, the mail the instance sent and every webhook",
@@ -49,13 +51,19 @@ export const instanceSections: Record<InstanceSection, { label: string; hint: st
   },
 };
 
-/** What a viewer may open on the instance side: Billing only with the billing module on (#180). */
+/**
+ * What a viewer may open on the instance side: Billing only with the billing module on (#180),
+ * Support only with tickets in the app (#182).
+ */
 export function instanceSectionsFor(access: {
   operator: boolean;
   billing: boolean;
+  support?: boolean;
 }): InstanceSection[] {
   if (!access.operator) return ["workspaces"];
-  return instanceSectionIds.filter((id) => id !== "billing" || access.billing);
+  return instanceSectionIds.filter(
+    (id) => (id !== "billing" || access.billing) && (id !== "support" || access.support === true),
+  );
 }
 
 /** Who someone is on the instance side, and whether their sign-in lets them act as an operator. */
@@ -67,6 +75,8 @@ export interface InstanceAccess {
   owned: { id: string; name: string }[];
   /** Whether the instance charges (HEKATE_BILLING is not off), for its Billing section. */
   billing: boolean;
+  /** Whether tickets are answered here (HEKATE_SUPPORT is app), for its Support section. */
+  support: boolean;
 }
 
 /** May they open the instance side at all? */

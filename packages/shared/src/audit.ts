@@ -147,6 +147,8 @@ export const auditActions = [
   "project.transfer_refuse",
   "project.transfer_cancel",
   "project.transfer",
+  /** Someone in the workspace, or an operator, downloaded a file attached to a ticket (#181). */
+  "support.attachment_download",
 ] as const;
 export const auditAction = z.enum(auditActions);
 export type AuditAction = z.infer<typeof auditAction>;

@@ -7,6 +7,7 @@ import {
   type InstanceModules,
   type InstanceNotice,
   type MailStepInput,
+  TICKET_ATTACHMENT_MAX_BYTES,
 } from "@hekate/shared";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -89,6 +90,7 @@ import { signUpRoutes } from "./routes/sign-up.ts";
 import { ssoRoutes } from "./routes/sso.ts";
 import { projectStagePlanRoutes, stagePlanRoutes } from "./routes/stage-plans.ts";
 import { storageSettingsRoutes } from "./routes/storage-settings.ts";
+import { supportRoutes } from "./routes/support.ts";
 import { fileTagRoutes, tagRoutes } from "./routes/tags.ts";
 import { sharedTakeRoutes, takeRoutes, trackTakeRoutes } from "./routes/takes.ts";
 import { projectTaskRoutes, taskRoutes } from "./routes/tasks.ts";
@@ -114,6 +116,7 @@ import { workspaceMailRoutes } from "./routes/workspace-mail.ts";
 import { securityHeaders } from "./security-headers.ts";
 import type { SetupGate } from "./setup-code.ts";
 import type { Storage } from "./storage.ts";
+import { supportModuleOf } from "./support.ts";
 import { traced } from "./telemetry.ts";
 import { requireOrganisation, requireSession } from "./tenancy.ts";
 import { type RunnerDeps, reviewSettled } from "./workflow-runner.ts";
@@ -192,6 +195,23 @@ export function createApi(deps: AppDeps) {
   const settings = deps.settings ?? createInstanceSettings(deps.db);
   // What links sent out are made from: each workspace's own address with subdomains on (#437).
   const links = { publicUrl: deps.publicUrl, subdomains: deps.subdomains ?? null };
+  const modules: InstanceModules = deps.modules ?? {
+    billing: "off",
+    support: "off",
+    docsUrl: "https://docs.hekate.studio",
+    statusUrl: null,
+  };
+  // Tickets (#181): the workspace's routes and the instance's desk share these.
+  const support = {
+    db: deps.db,
+    storage: deps.storage,
+    audit: deps.audit,
+    mailer: deps.mailer,
+    publicUrl: deps.publicUrl,
+    trustProxy: deps.trustProxy ?? false,
+    modules,
+    settings,
+  };
   const billing = {
     db: deps.db,
     gateway: deps.gateway ?? null,
@@ -341,12 +361,7 @@ export function createApi(deps: AppDeps) {
               : null,
             passwordLeakCheck: deps.passwordLeakCheck ?? false,
             sessionDays: SESSION_DAYS,
-            modules: deps.modules ?? {
-              billing: "off",
-              support: "off",
-              docsUrl: "https://docs.hekate.studio",
-              statusUrl: null,
-            },
+            modules,
           },
         }),
       )
@@ -390,6 +405,7 @@ export function createApi(deps: AppDeps) {
           maxPasskeys: deps.maxPasskeys ?? 5,
           subdomains: deps.subdomains ?? null,
           billing: (deps.modules?.billing ?? "off") !== "off",
+          support: () => supportModuleOf(modules, settings),
         }),
       )
       // A member's own API tokens (#198), in this workspace.
@@ -434,6 +450,7 @@ export function createApi(deps: AppDeps) {
       // The workspace's service tokens (#198), and the calls its tokens made.
       .route("/organisation/tokens", serviceTokenRoutes(tokenDeps))
       .route("/organisation/billing", billingRoutes(billing))
+      .route("/organisation/support", supportRoutes(support))
       .route(
         "/organisation/channels",
         channelRoutes({
@@ -698,6 +715,10 @@ export type Api = ReturnType<typeof createApi>;
 /** Where a comment's attachment is sent, which takes up to its own limit. */
 const ATTACHMENT_PATH = /^\/api\/files\/[^/]+\/comments\/[^/]+\/attachments$/;
 
+/** Where a ticket's attachment is sent, from the workspace or the desk (#181, #182). */
+const TICKET_ATTACHMENT_PATH =
+  /^\/api\/(organisation|instance)\/support\/tickets\/[^/]+\/messages\/[^/]+\/attachments$/;
+
 /** The largest request body outside the upload chunks, which carry their own limit. */
 export const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
@@ -738,11 +759,23 @@ export function createApp(given: AppDeps) {
                 413,
               ),
           })(c, next)
-        : bodyLimit({
-            maxSize: MAX_BODY_BYTES,
-            onError: (c) =>
-              c.json({ error: { code: "too_large", message: "That request is too large." } }, 413),
-          })(c, next),
+        : TICKET_ATTACHMENT_PATH.test(c.req.path)
+          ? bodyLimit({
+              maxSize: TICKET_ATTACHMENT_MAX_BYTES,
+              onError: (c) =>
+                c.json(
+                  { error: { code: "too_large", message: "An attachment can be at most 10 MB" } },
+                  413,
+                ),
+            })(c, next)
+          : bodyLimit({
+              maxSize: MAX_BODY_BYTES,
+              onError: (c) =>
+                c.json(
+                  { error: { code: "too_large", message: "That request is too large." } },
+                  413,
+                ),
+            })(c, next),
   );
   // Maintenance mode (#154): uploads wait until it is over, the files they would send kept.
   app.use("/api/*", async (c, next) => {
