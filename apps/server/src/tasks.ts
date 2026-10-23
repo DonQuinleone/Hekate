@@ -13,6 +13,7 @@ import {
 } from "@hekate/shared";
 import { and, asc, eq, isNotNull, lte, ne, type SQL, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
+import type { LinkRoots } from "./hosts.ts";
 import type { Mailer } from "./mail.ts";
 import { notifyNow, recordNotification } from "./notifications.ts";
 
@@ -205,10 +206,9 @@ export async function taskOfComment(tx: Tx, organisationId: string, commentId: s
   return row ?? null;
 }
 
-export interface TaskMail {
+export interface TaskMail extends LinkRoots {
   db: Database;
   mailer: Mailer;
-  publicUrl: string;
 }
 
 /** Tell someone a task is theirs now. Run after the change commits; a failure is logged. */

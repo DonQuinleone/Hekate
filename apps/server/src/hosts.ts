@@ -37,6 +37,39 @@ export function workspaceAddress(subdomains: Subdomains, slug: string): string {
 export const rootAddress = (subdomains: Subdomains) => subdomains.url.origin;
 
 /**
+ * What links sent out (in mail above all) are made from (#437): PUBLIC_URL, and the
+ * subdomains where they are on. Most dependencies that send mail carry both.
+ */
+export interface LinkRoots {
+  publicUrl: string;
+  subdomains?: Subdomains | null;
+}
+
+/**
+ * The address a workspace's links start from, without a trailing slash: its own host with
+ * subdomains on, so a link opens in the workspace it names whatever the person's active one
+ * is; PUBLIC_URL otherwise.
+ */
+export function linkBase(roots: LinkRoots, slug: string | null | undefined): string {
+  if (roots.subdomains && slug) return workspaceAddress(roots.subdomains, slug);
+  return roots.publicUrl.replace(/\/$/, "");
+}
+
+/** The address a workspace's links start from, by its id: read only with subdomains on. */
+export async function workspaceLinkBase(
+  db: Pick<Database, "select">,
+  roots: LinkRoots,
+  organisationId: string,
+): Promise<string> {
+  if (!roots.subdomains) return linkBase(roots, null);
+  const [row] = await db
+    .select({ slug: schema.organisations.slug })
+    .from(schema.organisations)
+    .where(eq(schema.organisations.id, organisationId));
+  return linkBase(roots, row?.slug);
+}
+
+/**
  * Which host a request names: the root, a workspace's (by its name), or neither (an address
  * that is not this instance's, as a health check by IP sends). Ports are ignored.
  */

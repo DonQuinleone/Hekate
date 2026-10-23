@@ -183,11 +183,13 @@ export interface AppDeps {
 
 export function createApi(deps: AppDeps) {
   const settings = deps.settings ?? createInstanceSettings(deps.db);
+  // What links sent out are made from: each workspace's own address with subdomains on (#437).
+  const links = { publicUrl: deps.publicUrl, subdomains: deps.subdomains ?? null };
   const billing = {
     db: deps.db,
     gateway: deps.gateway ?? null,
     mailer: deps.mailer,
-    publicUrl: deps.publicUrl,
+    ...links,
     // The rules as an operator last set them (#180).
     rules: async () => (await settings.get()).billing,
   };
@@ -231,14 +233,14 @@ export function createApi(deps: AppDeps) {
     trustProxy: deps.trustProxy ?? false,
     workDir: deps.workDir,
   };
-  const taskMail = { db: deps.db, mailer: deps.mailer, publicUrl: deps.publicUrl };
+  const taskMail = { db: deps.db, mailer: deps.mailer, ...links };
   const uploadRequestDeps = {
     db: deps.db,
     storage: deps.storage,
     jobs: deps.jobs,
     audit: deps.audit,
     mailer: deps.mailer,
-    publicUrl: deps.publicUrl,
+    ...links,
     trustProxy: deps.trustProxy ?? false,
   };
   const uploadLinkLimit = rateLimit(
@@ -251,7 +253,7 @@ export function createApi(deps: AppDeps) {
     db: deps.db,
     audit: deps.audit,
     mailer: deps.mailer,
-    publicUrl: deps.publicUrl,
+    ...links,
     trustProxy: deps.trustProxy ?? false,
   };
   // Workflows ask for reviews, and a review's outcome moves its workflow on (#25).
@@ -285,7 +287,7 @@ export function createApi(deps: AppDeps) {
           operatorSecurityKey: deps.operatorSecurityKey ?? true,
           trustProxy: deps.trustProxy ?? false,
           mailer: deps.mailer,
-          publicUrl: deps.publicUrl,
+          ...links,
           keyring: deps.keyring,
           jobs: deps.jobs,
           backends: deps.storage.backends,
@@ -412,7 +414,7 @@ export function createApi(deps: AppDeps) {
           audit: deps.audit,
           jobs: deps.jobs,
           send: deps.sendToChannel ?? createSend(deps.webhookTrustedOrigins ?? []),
-          publicUrl: deps.publicUrl,
+          ...links,
           trusted: deps.webhookTrustedOrigins ?? [],
           trustProxy: deps.trustProxy ?? false,
         }),
@@ -454,7 +456,7 @@ export function createApi(deps: AppDeps) {
         organisationRoutes(
           deps.db,
           deps.mailer,
-          deps.publicUrl,
+          links,
           deps.storage,
           deps.audit,
           deps.trustProxy ?? false,
@@ -505,7 +507,7 @@ export function createApi(deps: AppDeps) {
         trackRoutes(
           deps.db,
           deps.jobs,
-          { mailer: deps.mailer, publicUrl: deps.publicUrl },
+          { mailer: deps.mailer, ...links },
           deps.audit,
           deps.trustProxy ?? false,
           deps.storage,
@@ -556,7 +558,7 @@ export function createApi(deps: AppDeps) {
           jobs: deps.jobs,
           audit: deps.audit,
           mailer: deps.mailer,
-          publicUrl: deps.publicUrl,
+          ...links,
           trustProxy: deps.trustProxy ?? false,
         }),
       )
@@ -605,7 +607,7 @@ export function createApi(deps: AppDeps) {
         "/files",
         fileCommentRoutes(deps.db, deps.audit, deps.trustProxy ?? false, {
           mailer: deps.mailer,
-          publicUrl: deps.publicUrl,
+          ...links,
         }),
       )
       .route("/files", fileManageRoutes(deps.db, deps.audit, deps.trustProxy ?? false))
@@ -646,10 +648,7 @@ export function createApi(deps: AppDeps) {
       )
       .route("/guest", guestRoutes(reviewDeps))
       .use("/comments/*", ...member)
-      .route(
-        "/comments",
-        commentRoutes(deps.db, { mailer: deps.mailer, publicUrl: deps.publicUrl }),
-      )
+      .route("/comments", commentRoutes(deps.db, { mailer: deps.mailer, ...links }))
       .route("/comments", sharedTakeRoutes(downloads))
       .use("/templates", ...member)
       .use("/templates/*", ...member)

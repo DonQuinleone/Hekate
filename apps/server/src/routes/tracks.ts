@@ -31,6 +31,7 @@ import { assertProfileRef, customProfilesOf } from "../delivery-profiles.ts";
 import { readEdlFile } from "../edl-file.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import { emitEvent } from "../events.ts";
+import type { LinkRoots } from "../hosts.ts";
 import type { Jobs } from "../jobs.ts";
 import type { Mailer } from "../mail.ts";
 import { metrics } from "../metrics/index.ts";
@@ -260,7 +261,7 @@ export const projectTrackRoutes = (db: Database) =>
 export const trackRoutes = (
   db: Database,
   jobs: Pick<Jobs, "send">,
-  mail: { mailer: Mailer; publicUrl: string },
+  mail: { mailer: Mailer } & LinkRoots,
   audit: Audit,
   trustProxy: boolean,
   storage: Storage,

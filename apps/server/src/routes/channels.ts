@@ -17,6 +17,7 @@ import { z } from "zod";
 import { type Audit, requestInfo } from "../audit.ts";
 import { type ChannelConfig, newSigningSecret, outgoing, type Send } from "../channels.ts";
 import { openConfig, resumeChannel, sealConfig, sealContext } from "../events.ts";
+import { linkBase, type Subdomains } from "../hosts.ts";
 import type { Jobs } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
 import { mayFetch } from "../sso.ts";
@@ -33,6 +34,8 @@ export interface ChannelDeps {
   jobs: Pick<Jobs, "send">;
   send: Send;
   publicUrl: string;
+  /** Each workspace's own address for the links it sends, with subdomains on (#437). */
+  subdomains?: Subdomains | null;
   /** Origins on a private network a channel may reach (WEBHOOK_TRUSTED_ORIGINS). */
   trusted: string[];
   trustProxy: boolean;
@@ -218,7 +221,7 @@ export const channelRoutes = (deps: ChannelDeps) => {
             result: "Not sent: the channel's address could not be opened. Give it again in Edit.",
           });
         const [workspace] = await db
-          .select({ id: organisations.id, name: organisations.name })
+          .select({ id: organisations.id, name: organisations.name, slug: organisations.slug })
           .from(organisations)
           .where(eq(organisations.id, organisationId));
         const name = workspace?.name ?? "";
@@ -228,7 +231,7 @@ export const channelRoutes = (deps: ChannelDeps) => {
           createdAt: new Date().toISOString(),
           workspace: { id: organisationId, name },
           summary: `Hekate is connected: ${name}'s events will arrive here, through ${channelKindLabels[row.kind]}.`,
-          url: new URL("/settings/notifications", deps.publicUrl).toString(),
+          url: `${linkBase(deps, workspace?.slug)}/settings/notifications`,
         };
         const out = outgoing(row.kind, ping, {
           deliveryId: ping.id,

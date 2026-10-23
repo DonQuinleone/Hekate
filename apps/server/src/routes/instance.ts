@@ -93,6 +93,7 @@ import { workspaceEmail } from "../email/templates.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import { replayDelivery } from "../events.ts";
 import { createFlags } from "../flags.ts";
+import { linkBase, type Subdomains } from "../hosts.ts";
 import { inspectFile, inspectReview, inspectSession } from "../inspect.ts";
 import { recordInstanceEvent } from "../instance-events.ts";
 import type { InstanceSettingsStore } from "../instance-settings.ts";
@@ -127,6 +128,8 @@ export interface InstanceOptions {
   trustProxy: boolean;
   mailer: Mailer;
   publicUrl: string;
+  /** Each workspace's own address for the links it sends, with subdomains on (#437). */
+  subdomains?: Subdomains | null;
   keyring: Keyring;
   jobs: Pick<Jobs, "send">;
   backends: Backends;
@@ -506,7 +509,8 @@ export function instanceRoutes(options: InstanceOptions) {
           .select({ name: schema.users.name })
           .from(schema.users)
           .where(eq(schema.users.id, c.var.userId));
-        const link = `${options.publicUrl.replace(/\/$/, "")}/invite/${token}`;
+        // At the new workspace's own address with subdomains on (#437).
+        const link = `${linkBase(options, slug)}/invite/${token}`;
         // The workspace stands whether or not the mail goes: when it does not, the operator is
         // told, and passes on the link by hand.
         let mailed = true;

@@ -194,6 +194,7 @@ import {
 } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { notMemberAddress } from "./hosts";
 import { outboxStore } from "./outbox-store";
 import { baseOf, outcomeOf, type PendingWrite, rolledAt } from "./take-outbox";
 import { uuidv7 } from "./uuidv7";
@@ -315,7 +316,8 @@ export const meQuery = queryOptions({
       // to their own.
       if (body?.error?.code === "not_member_here") {
         const { root } = await json<SignInMethods>(await api["sign-in-methods"].$get());
-        if (root) return leaveFor(`${root}/`);
+        if (root)
+          return leaveFor(notMemberAddress(root, window.location.pathname, window.location.search));
       }
     }
     return json<Me>(res);

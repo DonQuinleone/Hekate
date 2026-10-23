@@ -25,6 +25,7 @@ import { confirmIdentity } from "../account-deletion.ts";
 import { type Audit, type RequestInfo, requestInfo } from "../audit.ts";
 import type { Auth } from "../auth.ts";
 import { CodedException, NotFound } from "../errors.ts";
+import type { Subdomains } from "../hosts.ts";
 import type { Jobs } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
 import type { Mailer } from "../mail.ts";
@@ -55,6 +56,8 @@ export interface TransferDeps {
   audit: Audit;
   mailer: Mailer;
   publicUrl: string;
+  /** Each workspace's own address for the links it sends, with subdomains on (#437). */
+  subdomains?: Subdomains | null;
   trustProxy: boolean;
 }
 

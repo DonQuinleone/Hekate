@@ -18,6 +18,7 @@ import {
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { longDate } from "../email/templates.ts";
 import { CodedException, NotFound } from "../errors.ts";
+import { type LinkRoots, workspaceLinkBase } from "../hosts.ts";
 import { recordInstanceEvent } from "../instance-events.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { assignPlan, workspacePlanOf } from "../plans.ts";
@@ -45,11 +46,10 @@ type Reader = Pick<Database, "select">;
  * limits (#177), its invoices, and, a payment missed, its warnings and its suspension.
  */
 
-export interface BillingDeps {
+export interface BillingDeps extends LinkRoots {
   db: Database;
   gateway: Gateway | null;
   mailer: Mailer;
-  publicUrl: string;
   /** The instance's billing rules (#180), as its settings hold them now; the defaults if unset. */
   rules?: () => Promise<BillingRules>;
 }
@@ -60,7 +60,12 @@ export const rulesOf = (deps: Pick<BillingDeps, "rules">) =>
 
 export { DUNNING_REASON };
 
-const billingUrl = (publicUrl: string) => new URL("/settings/billing", publicUrl).toString();
+/** The workspace's Billing settings: at its own address with subdomains on (#437). */
+const billingUrl = async (
+  db: Pick<Database, "select">,
+  deps: BillingDeps,
+  organisationId: string,
+) => `${await workspaceLinkBase(db, deps, organisationId)}/settings/billing`;
 
 const invoiceOf = (row: typeof invoices.$inferSelect): Invoice => ({
   id: row.id,
@@ -251,7 +256,7 @@ export async function changePlan(
     const code = promo && input.promoCode ? await findPromo(tx, input.promoCode) : null;
     if (code) assertApplies(code, plan.id, price.currency);
     const current = await workspacePlanOf(tx, input.organisationId, true);
-    const url = billingUrl(deps.publicUrl);
+    const url = await billingUrl(tx, deps, input.organisationId);
     const session = await gateway.checkout({
       organisationId: input.organisationId,
       customerId: account.customerId,
@@ -324,7 +329,7 @@ export async function portalFor(deps: BillingDeps, organisationId: string): Prom
     throw new CodedException(409, "not_a_customer", "Choose a plan first: nothing is paid yet.");
   return deps.gateway.portal({
     customerId: account.customerId,
-    returnUrl: billingUrl(deps.publicUrl),
+    returnUrl: await billingUrl(deps.db, deps, organisationId),
   });
 }
 
@@ -790,6 +795,7 @@ async function tellOwners(
   const suspendAt = new Date(since.getTime() + rule.suspend * 86_400_000);
   const owed = open ? ` of ${formatMoney(open.amountDue - open.amountPaid, open.currency)}` : "";
   const suspended = dunningStepsOf(rule)[step - 1]?.action === "suspend";
+  const pay = open?.url ?? (await billingUrl(db, deps, organisationId));
   for (const owner of owners) {
     const subject = suspended
       ? `${owner.workspace} is suspended until its payment is made`
@@ -812,7 +818,7 @@ async function tellOwners(
               `Pay it, or change the card it is taken from, before ${longDate(suspendAt)}. If it is still owed then, the workspace is suspended until it is paid.`,
               "Nothing in the workspace is deleted.",
             ],
-        action: { label: "Pay the invoice", url: open?.url ?? billingUrl(deps.publicUrl) },
+        action: { label: "Pay the invoice", url: pay },
         foot: "You get this because you own this workspace.",
       },
       organisationId,

@@ -1272,6 +1272,94 @@ describe.runIf(url)("api", () => {
           expect(context.isTrustedOrigin("http://review.test.evil.example")).toBe(false);
         });
 
+        it("puts links in mail at the workspace's own host, and at the root with subdomains off (#437)", async () => {
+          const signedIn = cookieOf(await setup());
+          // From the root, as a link opened there would: the links name Studio's own host.
+          const post = (path: string, body: unknown) =>
+            at.request(path, {
+              method: "POST",
+              headers: {
+                host: "review.test:3000",
+                origin: "http://review.test:3000",
+                "content-type": "application/json",
+                cookie: signedIn,
+              },
+              body: JSON.stringify(body),
+            });
+          mailer.sent.length = 0;
+          const invited = await post("/api/organisation/invitations", {
+            email: "tomas@example.test",
+            role: "member",
+          });
+          expect(invited.status).toBe(201);
+          const { link } = (await invited.json()) as { link: string };
+          expect(link).toMatch(/^http:\/\/studio\.review\.test:3000\/invite\//);
+          expect(mailer.sent.find((m) => m.to === "tomas@example.test")?.text).toContain(link);
+
+          const project = (
+            (await (
+              await post("/api/projects", { name: "Joplin Rags", profile: "music" })
+            ).json()) as {
+              project: { id: string };
+            }
+          ).project;
+          const asked = await post(`/api/projects/${project.id}/upload-requests`, {
+            name: "Piano stems",
+            folderId: null,
+            fileLimit: 1,
+            expiresOn: new Date(Date.now() + 5 * 86_400_000).toISOString().slice(0, 10),
+            email: "ines@example.test",
+          });
+          expect(asked.status).toBe(201);
+          const uploadLink = ((await asked.json()) as { link: string }).link;
+          expect(uploadLink).toMatch(/^http:\/\/studio\.review\.test:3000\/u\//);
+          expect(mailer.sent.find((m) => m.to === "ines@example.test")?.text).toContain(uploadLink);
+
+          // A notification's mail, at once or gathered, opens in the workspace it is about.
+          const [studio] = await db
+            .select({ id: schema.organisations.id })
+            .from(schema.organisations)
+            .where(eq(schema.organisations.slug, "studio"));
+          const [user] = await db
+            .select({ id: schema.users.id })
+            .from(schema.users)
+            .where(eq(schema.users.email, owner.email));
+          const notice = (mailMode: "instant" | "digest") => ({
+            organisationId: studio?.id ?? "",
+            userId: user?.id ?? "",
+            kind: "decision" as const,
+            actorName: "Mira Solberg",
+            text: "approved something",
+            link: "/reviews/x",
+            mailMode,
+          });
+          const roots = {
+            publicUrl: "http://review.test:3000",
+            subdomains: subdomainsOf("http://review.test:3000", true),
+          };
+          const later = new Date(Date.now() + 60_000);
+          await db.insert(schema.notifications).values(notice("instant"));
+          mailer.sent.length = 0;
+          expect(await deliverInstant(db, mailer, roots, later)).toBe(1);
+          expect(mailer.sent[0]?.text).toContain("http://studio.review.test:3000/reviews/x");
+          await db.insert(schema.notificationPreferences).values({
+            organisationId: studio?.id ?? "",
+            userId: user?.id ?? "",
+            digest: "hourly",
+          });
+          await db.insert(schema.notifications).values(notice("digest"));
+          mailer.sent.length = 0;
+          expect(await deliverDigests(db, mailer, roots, later)).toBe(1);
+          expect(mailer.sent[0]?.text).toContain("http://studio.review.test:3000/inbox");
+          // Off, PUBLIC_URL as before.
+          await db.insert(schema.notifications).values(notice("instant"));
+          mailer.sent.length = 0;
+          expect(
+            await deliverInstant(db, mailer, { publicUrl: "http://review.test:3000/" }, later),
+          ).toBe(1);
+          expect(mailer.sent[0]?.text).toContain("http://review.test:3000/reviews/x");
+        });
+
         it("tells the sign-in page which workspace its host is, and Caddy which names to certify", async () => {
           cookieOf(await setup());
           const methods = async (host: string) =>
@@ -15576,7 +15664,9 @@ describe.runIf(url)("api", () => {
           }
           expect(mailer.sent).toEqual([]);
           const later = new Date(Date.now() + 60_000);
-          expect(await deliverDigests(db, mailer, "http://localhost:3000", later)).toBe(1);
+          expect(
+            await deliverDigests(db, mailer, { publicUrl: "http://localhost:3000" }, later),
+          ).toBe(1);
           expect(mailer.sent).toHaveLength(1);
           expect(mailer.sent[0]).toMatchObject({
             to: "composer@example.test",
@@ -15585,7 +15675,9 @@ describe.runIf(url)("api", () => {
           expect(mailer.sent[0]?.text).toContain(
             'Producer asks you to give feedback on "Digest two"',
           );
-          expect(await deliverDigests(db, mailer, "http://localhost:3000", later)).toBe(0);
+          expect(
+            await deliverDigests(db, mailer, { publicUrl: "http://localhost:3000" }, later),
+          ).toBe(0);
 
           // An instant mail that could not go at once goes on the next run, and only once.
           await db.insert(schema.notifications).values({
@@ -15600,11 +15692,13 @@ describe.runIf(url)("api", () => {
           mailer.sent.length = 0;
           // Two runs at once send it once between them.
           const [a, b] = await Promise.all([
-            deliverInstant(db, mailer, "http://localhost:3000", later),
-            deliverInstant(db, mailer, "http://localhost:3000", later),
+            deliverInstant(db, mailer, { publicUrl: "http://localhost:3000" }, later),
+            deliverInstant(db, mailer, { publicUrl: "http://localhost:3000" }, later),
           ]);
           expect(a + b).toBe(1);
-          expect(await deliverInstant(db, mailer, "http://localhost:3000", later)).toBe(0);
+          expect(
+            await deliverInstant(db, mailer, { publicUrl: "http://localhost:3000" }, later),
+          ).toBe(0);
           expect(mailer.sent.map((m) => m.to)).toEqual(["accompanist@example.test"]);
         });
       });

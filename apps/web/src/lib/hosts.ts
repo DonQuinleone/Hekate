@@ -13,3 +13,12 @@ export function addressFor(me: Me, path: string, host: string): string | null {
   if (!active || new URL(active).host === host) return null;
   return active;
 }
+
+/**
+ * Where someone signed in goes from a workspace's host that is not theirs: the root, which sends
+ * them on to their own. An invitation to it, mailed at its host (#437), is for someone not yet
+ * a member, so they are taken to the same invitation at the root, to accept it there.
+ */
+export function notMemberAddress(root: string, path: string, search: string): string {
+  return path.startsWith("/invite/") ? `${root}${path}${search}` : `${root}/`;
+}

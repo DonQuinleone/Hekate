@@ -12,6 +12,7 @@ import {
 } from "@hekate/shared";
 import { and, asc, eq, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { type ChannelConfig, outgoing, type Send } from "./channels.ts";
+import { type LinkRoots, linkBase } from "./hosts.ts";
 import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
 import { metrics } from "./metrics/index.ts";
@@ -251,12 +252,11 @@ export async function dispatchEvents(db: Database, jobs: DeliveryJobs, now = new
   return queued.length + stale.length;
 }
 
-export interface DeliveryDeps {
+export interface DeliveryDeps extends LinkRoots {
   db: Database;
   keyring: Keyring;
   jobs: DeliveryJobs;
   send: Send;
-  publicUrl: string;
 }
 
 /** The body an event is sent with, from the outbox row. */
@@ -337,7 +337,7 @@ export async function deliver(
     return "paused";
   }
   const [workspace] = await db
-    .select({ id: organisations.id, name: organisations.name })
+    .select({ id: organisations.id, name: organisations.name, slug: organisations.slug })
     .from(organisations)
     .where(eq(organisations.id, organisationId));
   let config: ChannelConfig;
@@ -352,7 +352,12 @@ export async function deliver(
     await settle({ status: "failed", lastResult: "The channel's address could not be opened" });
     return "failed";
   }
-  const body = webhookBody(event, workspace ?? { id: organisationId, name: "" }, deps.publicUrl);
+  // Its link at the workspace's own address with subdomains on (#437), as mail's are.
+  const body = webhookBody(
+    event,
+    { id: organisationId, name: workspace?.name ?? "" },
+    linkBase(deps, workspace?.slug),
+  );
   const out = outgoing(channel.kind, body, {
     deliveryId: claimed.id,
     ...(config.secret ? { secret: config.secret } : {}),

@@ -17,6 +17,7 @@ import { type Audit, requestInfo } from "../audit.ts";
 import { workspaceEmail } from "../email/templates.ts";
 import { NotFound } from "../errors.ts";
 import { hashToken } from "../guests.ts";
+import { type LinkRoots, workspaceLinkBase } from "../hosts.ts";
 import type { Jobs } from "../jobs.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { notifyNow } from "../notifications.ts";
@@ -40,13 +41,12 @@ const {
 type RequestRow = typeof uploadRequests.$inferSelect;
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
-export interface UploadRequestDeps {
+export interface UploadRequestDeps extends LinkRoots {
   db: Database;
   storage: Storage;
   jobs: Pick<Jobs, "send">;
   audit: Audit;
   mailer: Mailer;
-  publicUrl: string;
   trustProxy: boolean;
 }
 
@@ -105,7 +105,9 @@ const gone = () =>
  */
 export const uploadRequestRoutes = (deps: UploadRequestDeps) => {
   const { db, audit } = deps;
-  const link = (token: string) => `${deps.publicUrl.replace(/\/$/, "")}/u/${token}`;
+  /** A request's link: at its workspace's own address with subdomains on (#437). */
+  const link = async (organisationId: string, token: string) =>
+    `${await workspaceLinkBase(db, deps, organisationId)}/u/${token}`;
 
   /** A request of the caller's workspace that they may organise, or 404. */
   const organisable = async (c: { var: TenantVariables }, id: string) => {
@@ -215,7 +217,7 @@ export const uploadRequestRoutes = (deps: UploadRequestDeps) => {
                   workspace: organisation?.name ?? "Hekate",
                   requester: requester?.name ?? "Someone",
                   file: row.wanted || row.name,
-                  url: link(token),
+                  url: await link(organisationId, token),
                   days,
                 },
                 workspaceSettingsOf(organisation?.settings).emailSubjects,
@@ -224,7 +226,10 @@ export const uploadRequestRoutes = (deps: UploadRequestDeps) => {
             );
           }
           // The link is shown this once: only its hash is kept.
-          return c.json({ request: memberView(row, 0), link: link(token) }, 201);
+          return c.json(
+            { request: memberView(row, 0), link: await link(organisationId, token) },
+            201,
+          );
         },
       )
 
@@ -291,7 +296,7 @@ export const uploadRequestRoutes = (deps: UploadRequestDeps) => {
           .update(uploadRequests)
           .set({ tokenHash: hashToken(token) })
           .where(inOrg(uploadRequests, row.organisationId, eq(uploadRequests.id, row.id)));
-        return c.json({ link: link(token) });
+        return c.json({ link: await link(row.organisationId, token) });
       })
   );
 };

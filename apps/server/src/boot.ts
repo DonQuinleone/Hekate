@@ -119,16 +119,18 @@ export async function boot(
           tax: config.STRIPE_TAX,
         })
       : null;
+  // Workspace subdomains (#176), where they are on.
+  const subdomains = subdomainsOf(config.PUBLIC_URL, config.WORKSPACE_SUBDOMAINS);
+  // What links in mail are made from: each workspace's own address with subdomains on (#437).
+  const links = { publicUrl: config.PUBLIC_URL, subdomains };
   const billing = {
     db,
     gateway,
     mailer,
-    publicUrl: config.PUBLIC_URL,
+    ...links,
     // The rules as an operator last set them (#180), read when the job runs.
     rules: async () => (await settings.get()).billing,
   };
-  // Workspace subdomains (#176), where they are on.
-  const subdomains = subdomainsOf(config.PUBLIC_URL, config.WORKSPACE_SUBDOMAINS);
   const auth = createAuth({
     db,
     subdomains,
@@ -245,15 +247,15 @@ export async function boot(
       if (config.HEKATE_UPDATE_CHECK) await checkReleases(db);
     });
     await taking.work("notifications-mail", async () => {
-      await deliverInstant(db, mailer, config.PUBLIC_URL);
+      await deliverInstant(db, mailer, links);
     });
     await taking.work("notifications-digest", async () => {
-      await deliverDigests(db, mailer, config.PUBLIC_URL);
+      await deliverDigests(db, mailer, links);
     });
     await taking.work("events-dispatch", async () => {
       await dispatchEvents(db, jobs);
     });
-    const delivering = { db, keyring, jobs, send: sendToChannel, publicUrl: config.PUBLIC_URL };
+    const delivering = { db, keyring, jobs, send: sendToChannel, ...links };
     await taking.work(
       "event-delivery",
       async ({ organisationId, deliveryId }) => {
@@ -296,7 +298,7 @@ export async function boot(
       if (rewrapped > 0) console.log(`Rewrapped ${rewrapped} key(s) a rotation left behind`);
     });
     await taking.work("reviews-remind", async () => {
-      await remindDue({ db, mailer, audit, publicUrl: config.PUBLIC_URL });
+      await remindDue({ db, mailer, audit, ...links });
       // Tasks due today or late (#140), on the same hour.
       await remindTasksDue(db);
     });
@@ -304,7 +306,7 @@ export async function boot(
     const runner = {
       db,
       jobs,
-      reviews: { db, audit, mailer, publicUrl: config.PUBLIC_URL, trustProxy: false },
+      reviews: { db, audit, mailer, ...links, trustProxy: false },
     };
     await taking.work("workflow-wait", async (data) => {
       await clockElapsed(runner, data);

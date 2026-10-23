@@ -26,6 +26,6 @@ The session's cookie is the root's, so the browser sends it to every name under 
 | Single sign-on and directories | At a workspace's host, the sign-in page knows the workspace and goes straight to its identity provider or asks only for the directory's username and password. |
 | Passkeys | Bound to the root's name, so a key made at any of the addresses works at all of them. |
 | Switching workspace | Goes to the other workspace's host. |
-| Links in mail | Still the root's address; they open in the workspace the person is in. |
+| Links sent out | At the host of the workspace they are about, whichever workspace the person is in: notifications and digests, invitations, review requests and shares (guests' links too), reminders, upload requests, billing mail, and channels' and webhooks' links. Someone signed in who opens an invitation to a workspace they are not yet in is taken to the same invitation at the root, to accept it there. Mail about an account rather than a workspace (a new password, a changed address) keeps the root's address. |
 
 Names that would stand for the instance itself (`www`, `api`, `mail`, `instance` and a few more) cannot be a workspace's.

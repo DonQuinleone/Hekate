@@ -50,6 +50,7 @@ import { decisionWords, longDate, subjectValues, workspaceEmail } from "../email
 import { NotFound } from "../errors.ts";
 import { emitEvent } from "../events.ts";
 import { issueGuestLink, revokeGuest, type ViewerVariables } from "../guests.ts";
+import { type LinkRoots, linkBase } from "../hosts.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { followersOf, notifyNow } from "../notifications.ts";
 import { admit, tooMany } from "../rate-limit.ts";
@@ -159,11 +160,10 @@ async function projectGuest(
   if (!known) throw new NotFound("Guest");
 }
 
-export interface ReviewDeps {
+export interface ReviewDeps extends LinkRoots {
   db: Database;
   audit: Audit;
   mailer: Mailer;
-  publicUrl: string;
   trustProxy: boolean;
   /** Told when a review completes, so a workflow stage that asked for it moves on (#25). */
   onSettled?: (
@@ -775,8 +775,9 @@ async function notify(
   reminder = false,
 ) {
   if (review.kind === "share") return notifyShare(deps, people, review, asking);
-  const base = deps.publicUrl.replace(/\/$/, "");
   const context = await mailContext(deps.db, review);
+  // A guest's link opens at the workspace's own address with subdomains on (#437).
+  const base = linkBase(deps, context?.slug);
   const requester =
     asking?.name ?? (review.createdBy ? await nameOf(deps.db, review.createdBy) : "A colleague");
   const from = asking ? asking.userId : review.createdBy;
@@ -871,6 +872,7 @@ async function mailContext(db: Database, review: ReviewForMail) {
   const [context] = await db
     .select({
       workspace: schema.organisations.name,
+      slug: schema.organisations.slug,
       settings: schema.organisations.settings,
       project: schema.projects.name,
     })
@@ -891,8 +893,8 @@ async function notifyShare(
   review: ReviewForMail,
   asking?: { userId: string | null; name: string },
 ) {
-  const base = deps.publicUrl.replace(/\/$/, "");
   const context = await mailContext(deps.db, review);
+  const base = linkBase(deps, context?.slug);
   const requester =
     asking?.name ?? (review.createdBy ? await nameOf(deps.db, review.createdBy) : "A colleague");
   const from = asking ? asking.userId : review.createdBy;

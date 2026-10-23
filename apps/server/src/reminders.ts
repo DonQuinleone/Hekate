@@ -4,6 +4,7 @@ import { and, eq, gt, inArray, isNull, lte } from "drizzle-orm";
 import type { Audit } from "./audit.ts";
 import { workspaceEmail } from "./email/templates.ts";
 import { issueGuestLink } from "./guests.ts";
+import { type LinkRoots, linkBase } from "./hosts.ts";
 import { type Mailer, sendEmail } from "./mail.ts";
 import { recordNotification } from "./notifications.ts";
 import { reviewersOf } from "./routes/reviews.ts";
@@ -38,15 +39,21 @@ async function claim(db: Database | Tx, organisationId: string, ids: string[], n
  * fails releases the claim for the next run.
  */
 export async function remindDue(
-  deps: { db: Database; mailer: Mailer; audit: Audit; publicUrl: string },
+  deps: { db: Database; mailer: Mailer; audit: Audit } & LinkRoots,
   now = new Date(),
 ) {
   const { db } = deps;
-  const base = deps.publicUrl.replace(/\/$/, "");
   let reminded = 0;
   for (const workspace of await db
-    .select({ id: organisations.id, name: organisations.name, settings: organisations.settings })
+    .select({
+      id: organisations.id,
+      name: organisations.name,
+      slug: organisations.slug,
+      settings: organisations.settings,
+    })
     .from(organisations)) {
+    // A guest's link opens at the workspace's own address with subdomains on (#437).
+    const base = linkBase(deps, workspace.slug);
     type Due = { reviewerId: string; review: (typeof due)[number] & { dueAt: Date } };
     const guests = new Map<string, { email: string; due: Due[] }>();
     const due = await db

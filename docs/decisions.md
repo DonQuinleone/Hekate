@@ -1395,7 +1395,7 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Origins.** Every workspace's host is a trusted origin for Better Auth; passkeys stay bound to the root's name, and their origin list answers yes for any workspace host under it.
 - **Certificates.** Caddy's on-demand TLS gets one per name as it is first opened, asking the app first (`/api/tls/ask`), so the stock image serves it without a DNS provider module; Kubernetes uses a wildcard certificate from a DNS-01 solver.
 - **Names kept.** `www`, `api`, `mail`, `instance` and a few more can be no workspace's.
-- **Links in mail stay at the root,** opening in the person's active workspace; links naming their workspace's host can follow.
+- **Links in mail stay at the root,** opening in the person's active workspace; links naming their workspace's host can follow (they did: decision 222).
 
 ## 209. Plans and entitlements: limits copied to the workspace, features asked of one function
 
@@ -1465,6 +1465,7 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **An operator's plan change reaches the gateway.** Putting a workspace that pays through Stripe on another plan moves its subscription too, so Stripe bills what the workspace is on and the next webhook does not move it back. It cannot be put on a plan by agreement, or none, while that subscription runs.
 - **No new tables.** The plans and codes keep their routes from #177 and #178; the overview and waiving are reads and writes of what is there.
 
+<<<<<<< HEAD
 ## 215. Billing's rules are settings; the Gateways tab
 
 #180, the second part.
@@ -1498,3 +1499,14 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **The trial.** With billing on, a workspace that signs up starts a trial of the length billing's rules set (decision 215), on the first plan the operators offer (priced, not hidden, not retired, in their order); choosing a plan through Checkout carries it over (decision 210). Without such a plan it is on the internal plan. What happens when a trial ends unconverted is billing's to decide, not registration's.
 - **Abuse limits** are counted in PostgreSQL, like the other limits (#172): links asked for by address and by email, workspaces made by address and by email. No CAPTCHA: the email link already costs a script a mailbox per workspace.
 
+=======
+## 222. Links sent out at the workspace's own host
+
+#437. With workspace subdomains on (decision 208), a link sent out about a workspace opens at that workspace's address (`https://<slug>.<root>`), so a notification about another workspace someone belongs to opens there, not in whichever one they were last in.
+
+- **One rule, `linkBase`.** The workspace's address with subdomains on, `PUBLIC_URL` otherwise; the senders carry `PUBLIC_URL` and the subdomains together (`LinkRoots`) in place of the bare address, and read the workspace's slug as they send, so a renamed subdomain is followed at once.
+- **What it covers:** notifications at once and in digests, invitations (a workspace's and the instance's to a new workspace's owner), review requests and shares, guests' links and reminders, upload requests (the link shown once as well as the one mailed), billing's mail and the gateway's return addresses, the email templates' samples, and channels' and webhooks' links.
+- **Guests and visitors too.** A guest's cookie is per host (decision 208) and each guest link is a fresh one, so a guest at the workspace's host simply has their session there; a guest of two workspaces keeps both. Upload links need no cookie. Links already sent at the root keep working there.
+- **An invitation is for someone not yet a member,** whom a workspace's host would refuse. Someone signed in who opens one there is taken to the same invitation at the root, which works as before; someone signed out stays, and signs in or makes their account on a page that names the workspace.
+- **The account's own mail stays at the root:** a new password and a changed address belong to no workspace.
+>>>>>>> 3d71cf3 (feat(server): links sent out at each workspace's own host (#437))
