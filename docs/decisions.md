@@ -1294,7 +1294,7 @@ CI runs the API suite through PgBouncer in transaction mode at its defaults (the
 - **The limit holds.** A file takes a place under a lock on the request as it starts; one still being sent counts, and one abandoned frees its place when its upload lapses. A closed or lapsed request refuses new files and the finishing of ones under way.
 - **Told and logged.** The requester is told as each file arrives (`upload_arrived`, in the app and by mail by default). The access log records the request made and closed, wrong passwords, and each upload under a `visitor` actor named as the sender gave.
 - **Not moved with a project.** Moving a project to another workspace (decision 135) drops its upload requests, like calendar links, as each was given out under the losing workspace; the files sent through them move with the project, and the access log keeps who sent them.
-- **Left out for now:** "as the next version of" a track, which the issue lists but the prototype does not show; a version is made only from a measured file, so it would follow the upload rather than be part of it.
+- **Left out for now:** "as the next version of" a track, which the issue lists but the prototype does not show; a version is made only from a measured file, so it would follow the upload rather than be part of it (it followed: decision 223).
 - **Expanding only:** the request, its uploads and its files are new tables (`upload_requests`, `upload_request_uploads`, `upload_request_files`), so the release before runs against the database (decision 198).
 
 ## 200. General projects: simple version chains on loose files
@@ -1395,7 +1395,7 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Origins.** Every workspace's host is a trusted origin for Better Auth; passkeys stay bound to the root's name, and their origin list answers yes for any workspace host under it.
 - **Certificates.** Caddy's on-demand TLS gets one per name as it is first opened, asking the app first (`/api/tls/ask`), so the stock image serves it without a DNS provider module; Kubernetes uses a wildcard certificate from a DNS-01 solver.
 - **Names kept.** `www`, `api`, `mail`, `instance` and a few more can be no workspace's.
-- **Links in mail stay at the root,** opening in the person's active workspace; links naming their workspace's host can follow.
+- **Links in mail stay at the root,** opening in the person's active workspace; links naming their workspace's host can follow (they did: decision 222).
 
 ## 209. Plans and entitlements: limits copied to the workspace, features asked of one function
 
