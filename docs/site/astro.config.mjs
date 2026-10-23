@@ -63,6 +63,7 @@ export default defineConfig({
             "use/workflow-files",
             "use/integrations",
             "use/api-tokens",
+            "use/oauth",
             "use/export-and-delete",
             "use/support",
             "use/api",

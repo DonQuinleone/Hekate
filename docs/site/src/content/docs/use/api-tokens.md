@@ -6,7 +6,9 @@ description: Tokens for your own scripts and tools, service tokens that act for 
 Scripts and tools reach Hekate's API with a token instead of signing in. There are two kinds:
 
 - **Your own tokens**, in *Account*, *API tokens*. A token acts as you: it can do no more than you can, and only what its scopes allow. It reaches the workspace you made it in, and nothing else; switch workspace to make one for another.
-- **Service tokens**, in *Workspace settings*, *API*, for owners and admins. They act as the workspace rather than a person: a release pipeline, an archive that syncs every night. What one makes is shown as the token's, and it keeps working whoever leaves.
+- **Service tokens**, in *Workspace settings*, *API and OAuth clients*, for owners and admins. They act as the workspace rather than a person: a release pipeline, an archive that syncs every night. What one makes is shown as the token's, and it keeps working whoever leaves.
+
+An application that works for many people asks each of them for access instead, with OAuth: see [OAuth clients and connected apps](../oauth/). Its tokens hold the same scopes and are limited and logged the same way.
 
 ## Making a token
 
@@ -48,4 +50,4 @@ A download works as it does in the app: ask for one (`POST /api/v1/files/{id}/do
 
 Each token may make 600 calls a minute; past that it gets `429` with `Retry-After`, the seconds to wait.
 
-Every call a token makes, refused or not, is written to the API log: when, which token, the method and path (never the query or the body), the answer and how long it took. A workspace's owners and admins see its latest calls in *Workspace settings*, *API*; operators see every workspace's in the instance's *Logs*, under *API*, kept for 30 days unless they choose otherwise. Making, changing and revoking a token are in the workspace's access log.
+Every call a token makes, refused or not, is written to the API log: when, which token, the method and path (never the query or the body), the answer and how long it took. A workspace's owners and admins see its latest calls in *Workspace settings*, *API and OAuth clients*; operators see every workspace's in the instance's *Logs*, under *API*, kept for 30 days unless they choose otherwise. Making, changing and revoking a token are in the workspace's access log.
