@@ -1794,7 +1794,7 @@ describe.runIf(url)("api", () => {
           security: { requireSecondFactor: false },
           updates: { channel: "stable" },
           maintenance: { on: false, message: "" },
-          defaults: { guestLinkDays: 3 },
+          defaults: { guestLinkDays: 3, storageQuota: null, memberLimit: null },
           logs: { audit: null, auth: 365, mail: 90, webhooks: 30 },
         });
         expect(first.environment.sessionDays).toBe(14);
