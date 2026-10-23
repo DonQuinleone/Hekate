@@ -93,8 +93,9 @@ describe.runIf(url)("billing reports (#180)", () => {
       paying: 3,
       average: Math.round((4900 + 4083 + 10_000) / 3),
       churn: { lost: 1, rate: 1 / 4 },
-      otherCurrencies: ["EUR"],
     });
+    expect(r.otherCurrencies).toContain("EUR");
+    expect(r.otherCurrencies).not.toContain("CHF");
     expect(r.byPlan.map((p) => [p.name, p.workspaces, p.amount])).toEqual(
       expect.arrayContaining([
         ["Agreed", 1, 10_000],

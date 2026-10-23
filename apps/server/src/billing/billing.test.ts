@@ -418,7 +418,7 @@ describe.runIf(url)("billing (#178)", () => {
     ).toBe(new Date(failed.getTime() + 30 * day).toISOString());
   });
 
-  it("reopens a workspace suspended under dunning's old words once it is paid (#180)", async () => {
+  it("reopens a workspace suspended under the next release's words once it is paid (#180)", async () => {
     const w = await workspace();
     await checkedOut(w);
     await send("invoice.payment_failed", invoice(w, "open"));
@@ -430,8 +430,7 @@ describe.runIf(url)("billing (#178)", () => {
       .update(schema.organisations)
       .set({
         suspendedAt: new Date(),
-        suspendedReason:
-          "A payment is 21 days overdue. The workspace opens again as soon as it is paid.",
+        suspendedReason: "A payment is overdue. The workspace opens again as soon as it is paid.",
       })
       .where(eq(schema.organisations.id, w.id));
     await send("invoice.paid", invoice(w, "paid"));

@@ -46,12 +46,11 @@ describe("dunning (#178)", () => {
     expect(dunningRule.safeParse({ warn: 7, warnAgain: 14, suspend: 10 }).success).toBe(false);
   });
 
-  it("knows a workspace it suspended, under its old words too (#180)", () => {
+  it("knows a workspace it suspended, under the next release's words too (#180)", () => {
     expect(isDunningReason(DUNNING_REASON)).toBe(true);
+    // The words the next release writes, known already for a rolling upgrade.
     expect(
-      isDunningReason(
-        "A payment is 21 days overdue. The workspace opens again as soon as it is paid.",
-      ),
+      isDunningReason("A payment is overdue. The workspace opens again as soon as it is paid."),
     ).toBe(true);
     expect(isDunningReason("The invoice for October is unpaid.")).toBe(false);
     expect(isDunningReason(null)).toBe(false);

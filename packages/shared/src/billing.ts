@@ -99,15 +99,17 @@ export const checkoutInput = z.object({
 
 /** Why a workspace dunning suspended is suspended, and how it is told apart from an operator's. */
 export const DUNNING_REASON =
-  "A payment is overdue. The workspace opens again as soon as it is paid.";
+  "A payment is 21 days overdue. The workspace opens again as soon as it is paid.";
 
 /**
- * Every reason dunning has suspended a workspace with: its own now, and the one it gave while
- * its days were fixed (#180), so a workspace suspended then is still known for what it is.
+ * Every reason dunning suspends a workspace with. With dunning's days an operator's to set
+ * (#180), the reason will stop naming a day; this release recognises the new words and still
+ * writes the old, so a replica a release behind, during a rolling upgrade, still knows a
+ * workspace it finds suspended for what it is (decision 198). The next release writes the new.
  */
 export const dunningReasons = [
   DUNNING_REASON,
-  "A payment is 21 days overdue. The workspace opens again as soon as it is paid.",
+  "A payment is overdue. The workspace opens again as soon as it is paid.",
 ] as const;
 
 export const isDunningReason = (reason: string | null | undefined) =>

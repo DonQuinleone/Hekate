@@ -88,6 +88,8 @@ export async function billingReports(
       otherCurrencies.add(price.currency);
       continue;
     }
+    // By agreement, it counts in the currency it paid in by hand, if any.
+    if (!price && !byHandOf.has(organisationId)) continue;
     const line = byPlan.get(plan.id) ?? { name: plan.name, workspaces: 0, amount: 0 };
     line.workspaces += 1;
     line.amount += price
