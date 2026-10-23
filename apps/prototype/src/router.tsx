@@ -13,6 +13,7 @@ import { GuestShell, Shell } from "~/components/shell";
 import { appRoot } from "~/lib/dom";
 import { AccountPage } from "~/routes/account";
 import {
+  ConsentPage,
   DeletingPage,
   GuestLinkPage,
   GuestSignedOutPage,
@@ -188,6 +189,12 @@ const deleting = createRoute({
   getParentRoute: () => root,
   path: "/deleting",
   component: DeletingPage,
+});
+/** The OAuth consent screen (#447): an application asks for access. */
+const consent = createRoute({
+  getParentRoute: () => root,
+  path: "/oauth/authorize",
+  component: ConsentPage,
 });
 const uploadRequest = createRoute({
   getParentRoute: () => root,
@@ -448,6 +455,7 @@ export const router = createRouter({
     invite,
     suspended,
     deleting,
+    consent,
     uploadRequest,
     status,
     app.addChildren([

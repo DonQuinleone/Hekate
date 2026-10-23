@@ -181,6 +181,12 @@ export function SettingsPage({
   const [channelKind, setChannelKind] = useState("Resend");
   const [leak, setLeak] = useState<"idle" | "scanning" | "match" | "none">("idle");
   const [logFilter, setLogFilter] = useState("");
+  // An OAuth client's menu (#447): who has connected it, or its secret rotated (shown once).
+  const [clientDialog, setClientDialog] = useState<{
+    name: string;
+    view: "connections" | "rotate" | "secret";
+  } | null>(null);
+  const [clientScopes, setClientScopes] = useState<string[]>(["files:read"]);
   usePageHeader({ title: "Workspace settings" });
   if (!elevated)
     return (
@@ -565,16 +571,95 @@ export function SettingsPage({
                   always
                   label={c.name}
                   actions={[
-                    { label: "Edit", onSelect: () => {} },
-                    { label: "Rotate the secret", onSelect: () => {} },
-                    { label: "Who has connected", onSelect: () => {} },
+                    { label: "Edit…", onSelect: () => setAdding(true) },
+                    // A public client has no secret to rotate: it proves each exchange with PKCE.
+                    ...(c.kind === "Confidential"
+                      ? [
+                          {
+                            label: "Rotate the secret…",
+                            onSelect: () => setClientDialog({ name: c.name, view: "rotate" }),
+                          },
+                        ]
+                      : []),
+                    {
+                      label: "Who has connected",
+                      onSelect: () => setClientDialog({ name: c.name, view: "connections" }),
+                    },
                     "divider",
-                    { label: "Delete", danger: true, onSelect: () => {} },
+                    { label: "Delete…", danger: true, onSelect: () => {} },
                   ]}
                 />
               </Row>
             ))}
           </Section>
+          {clientDialog?.view === "connections" && (
+            <Dialog
+              title={`Who has connected ${clientDialog.name}`}
+              description="Each acts as the person who connected it, within what they granted. They disconnect it in Account, Connected apps."
+              onClose={() => setClientDialog(null)}
+            >
+              <div className="flex flex-col divide-y divide-line rounded-panel border border-line">
+                {[
+                  ["Mira Solberg", "Read reviews, read and write comments", "19 Aug", "2 h ago"],
+                  ["Tomas Varga", "Read reviews", "2 Sep", "yesterday"],
+                  ["Ines Arlow", "Read reviews, read and write comments", "11 Sep", "3 d ago"],
+                  ["Alex Rivera", "Read reviews", "4 Oct", "not used yet"],
+                ].map(([who, may, since, last]) => (
+                  <Row
+                    key={who}
+                    name={who}
+                    hint={`${may} · connected ${since} · ${last === "not used yet" ? last : `last used ${last}`}`}
+                  />
+                ))}
+              </div>
+            </Dialog>
+          )}
+          {clientDialog?.view === "rotate" && (
+            <Dialog
+              title={`Rotate the secret of ${clientDialog.name}?`}
+              description="The old secret stops working at once. Tokens already issued keep working; the application needs the new secret to refresh them."
+              onClose={() => setClientDialog(null)}
+              footer={
+                <>
+                  <Button variant="ghost" onClick={() => setClientDialog(null)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={() => setClientDialog({ name: clientDialog.name, view: "secret" })}
+                  >
+                    Rotate secret
+                  </Button>
+                </>
+              }
+            >
+              <p className="text-[13px] text-ink-3">
+                Now <span className="tabular text-ink-2">hk_cls_9b21…</span>, since 19 Aug
+              </p>
+            </Dialog>
+          )}
+          {clientDialog?.view === "secret" && (
+            <Dialog
+              title={`New secret for ${clientDialog.name}`}
+              description="The secret is shown once. Copy it now: Hekate keeps only a hash of it."
+              onClose={() => setClientDialog(null)}
+              footer={
+                <Button variant="primary" onClick={() => setClientDialog(null)}>
+                  Done
+                </Button>
+              }
+            >
+              <div className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Client secret
+                <div className="flex items-center gap-2 rounded-control border border-line bg-ground/60 p-2 pl-3">
+                  <span className="tabular min-w-0 flex-1 truncate text-[12px] text-ink-2">
+                    hk_cls_4QnT0x2c9LrVb8mWk1yZpHs6dJfA3uEoNiGtR7aKqCw
+                  </span>
+                  <Button size="sm">Copy</Button>
+                </div>
+              </div>
+            </Dialog>
+          )}
           <Section
             title="Service tokens"
             intro="Tokens that act as the workspace rather than a person, for the release pipeline and the like. Scoped and logged like any other."
@@ -1652,11 +1737,41 @@ export function SettingsPage({
               <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
                 Redirect addresses
                 <Textarea placeholder="https://app.example/oauth/callback" className="h-20" />
+                <span className="text-[12px] text-ink-3">
+                  One per line, matched exactly: https, http on this computer only, or the
+                  application's own scheme.
+                </span>
               </label>
-              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-                Scopes it may ask for
-                <Input placeholder="files:read reviews:read comments" />
-              </label>
+              {/* Chosen as a token's scopes are (#447), rather than typed: no scope misspelt. */}
+              <fieldset className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                <legend className="mb-1.5">Scopes it may ask for</legend>
+                {[
+                  ["files:read", "List and read files and versions"],
+                  ["files:write", "Upload versions and variations"],
+                  ["reviews:read", "Read reviews and their decisions"],
+                  ["reviews:write", "Request reviews and record decisions"],
+                  ["comments", "Read and write comments"],
+                  ["downloads", "Download originals (watermarked, logged)"],
+                  ["workflows", "Read and change workflows"],
+                  ["org:read", "Members, roles and settings, read-only"],
+                ].map(([k, v]) => (
+                  <label key={k} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={clientScopes.includes(k ?? "")}
+                      onChange={(e) =>
+                        setClientScopes(
+                          e.target.checked
+                            ? [...clientScopes, k ?? ""]
+                            : clientScopes.filter((x) => x !== k),
+                        )
+                      }
+                    />
+                    <span className="tabular w-28 text-ink">{k}</span>
+                    <span className="text-ink-3">{v}</span>
+                  </label>
+                ))}
+              </fieldset>
             </div>
           ) : sec === "notifications" ? (
             <div className="flex flex-col gap-4">
