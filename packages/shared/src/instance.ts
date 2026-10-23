@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { WorkspaceUsage } from "./usage.ts";
 
 /**
  * The instance side (#155, decision 062): who may open it and what they see. Operators see
@@ -96,6 +97,7 @@ export interface InstanceOverview {
       | "missing_objects"
       | "key_missing"
       | "queue_unreadable"
+      | "quota_near"
       | "release_available";
     title: string;
     detail: string;
@@ -185,6 +187,8 @@ export interface InstanceWorkspaceStorage {
   backends: { name: string; objects: number; bytes: number }[];
   /** What the last reconciliations found and have not yet resolved. */
   findings: { missing: number; orphans: number };
+  /** What it uses against its limits (#175). */
+  usage: WorkspaceUsage;
 }
 
 /** What the workspace's owner sees in its settings, for an operator to read. */
@@ -257,6 +261,9 @@ export const instanceActions: Record<string, string> = {
   "maintenance.message": "given a new notice",
   "storage.reconcile": "checked against the database by an operator",
   "defaults.guest_link_days": "given a new lifetime",
+  "defaults.storage_quota": "changed",
+  "defaults.member_limit": "changed",
+  "workspace.limits": "given new limits",
   "logs.export": "exported",
   "logs.retention": "given a new retention",
   "logs.purged": "trimmed to what the settings keep",

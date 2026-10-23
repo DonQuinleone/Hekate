@@ -39,6 +39,7 @@ export default defineConfig({
             "operate/upgrades",
             "operate/upgrade-notes",
             "operate/keys",
+            "operate/quotas",
             "operate/monitoring",
             "operate/load-testing",
           ],

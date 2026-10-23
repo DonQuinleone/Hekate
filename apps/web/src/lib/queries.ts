@@ -165,12 +165,14 @@ import {
   type WorkflowStatus,
   type WorkflowSummary,
   type WorkInput,
+  type WorkspaceLimits,
   type WorkspaceMail,
   type WorkspaceMailInput,
   type WorkspaceOperations,
   type WorkspaceSettings,
   type WorkspaceSettingsInput,
   type WorkspaceState,
+  type WorkspaceUsage,
 } from "@hekate/shared";
 import {
   infiniteQueryOptions,
@@ -1092,6 +1094,8 @@ export interface StorageUsage {
     missing: number;
     removed: number;
   };
+  /** What it uses against its limits, and in the month so far (#175). */
+  usage: WorkspaceUsage;
 }
 
 export const storageUsageQuery = queryOptions({
@@ -4267,6 +4271,18 @@ export const instanceStorageQuery = (id: string) =>
         await api.instance.workspaces[":id"].storage.$get({ param: { id } }),
       ),
   });
+
+/** An operator sets a workspace's limits (#175); its Storage tab reads them again. */
+export function useWorkspaceLimits(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (limits: WorkspaceLimits) =>
+      json<WorkspaceUsage>(
+        await api.instance.workspaces[":id"].limits.$put({ param: { id }, json: limits }),
+      ),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["instance"] }),
+  });
+}
 
 export const instanceSettingsQuery = (id: string) =>
   queryOptions({

@@ -18,6 +18,7 @@ import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
 import { admit, tooMany } from "../rate-limit.ts";
 import type { Storage } from "../storage.ts";
+import { assertStorageRoom } from "../usage.ts";
 import { attachment, threadsOn, wroteIt } from "./comments.ts";
 
 const { comments, commentAttachments, downloadTickets } = schema;
@@ -123,6 +124,9 @@ export const attachmentRoutes = (deps: AttachmentDeps) =>
         if (bytes.length === 0) throw new HTTPException(400, { message: "The file is empty" });
         if (bytes.length > COMMENT_ATTACHMENT_MAX_BYTES)
           throw new HTTPException(413, { message: "An attachment can be at most 25 MB" });
+        // The workspace's quota (#175): an attachment is at most 25 MB, so checked before it is
+        // stored rather than under the lock its blob is written outside of.
+        await db.transaction((tx) => assertStorageRoom(tx, organisationId, bytes.length));
         const contentType = contentTypeOf(c.req.header("content-type"));
         const blob = await storage.put(organisationId, bytes, {
           contentType,

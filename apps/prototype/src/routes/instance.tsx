@@ -1019,7 +1019,7 @@ export function InstancePage({ section }: { section: string }) {
               <>
                 <Section
                   title="Quota"
-                  intro="Uploads refuse at the quota; the workspace is warned at 90%."
+                  intro="Uploads are refused at the storage quota and invitations at the member limit; the workspace is warned from 90%. Lowering one removes nothing."
                 >
                   <Row
                     name="Used"
@@ -1037,13 +1037,25 @@ export function InstancePage({ section }: { section: string }) {
                       </span>
                     </span>
                   </Row>
-                  <Row name="Quota">
+                  <Row name="Members" hint={`${org.members} of 25`} />
+                  <Row name="This month" hint="184 plays · 12 downloads" />
+                  <Row name="Storage quota">
                     <Select defaultValue={String(org.quota)} className="w-36">
                       <option value="250">250 GB</option>
                       <option value="1000">1 TB</option>
                       <option value="2000">2 TB</option>
                       <option value="5000">5 TB</option>
-                      <option value="0">No limit</option>
+                      <option value="0">No quota</option>
+                    </Select>
+                  </Row>
+                  <Row name="Member limit">
+                    <Select defaultValue="25" className="w-36">
+                      <option value="5">5</option>
+                      <option value="10">10</option>
+                      <option value="25">25</option>
+                      <option value="50">50</option>
+                      <option value="100">100</option>
+                      <option value="none">No limit</option>
                     </Select>
                   </Row>
                   <Row name="Backends" hint="Where this workspace's objects go.">
@@ -2394,7 +2406,7 @@ export function InstancePage({ section }: { section: string }) {
               <Select defaultValue="1000" className="w-40">
                 <option value="250">250 GB</option>
                 <option value="1000">1 TB</option>
-                <option value="0">None</option>
+                <option value="0">No quota</option>
               </Select>
             </Row>
             <Row name="Members">

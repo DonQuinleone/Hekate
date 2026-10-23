@@ -198,6 +198,13 @@ export const jobDefinitions = {
     options: { retryLimit: 1, expireInSeconds: 2 * 60 * 60 },
     schedule: "37 * * * *",
   },
+  /** Count each workspace's month so far (#175): storage and its peak, people, plays. Hourly. */
+  "usage-refresh": {
+    lane: "system",
+    data: z.object({}),
+    options: { retryLimit: 1, expireInSeconds: 30 * 60 },
+    schedule: "47 * * * *",
+  },
   /** Compare storage with the database: remove what nothing uses, report what is missing. Daily. */
   "storage-reconcile": {
     lane: "system",

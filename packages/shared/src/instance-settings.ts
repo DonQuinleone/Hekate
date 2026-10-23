@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { BounceProvider } from "./mail-bounces.ts";
 import { defaultWorkspaceSettings, guestLinkDays } from "./organisation.ts";
 import { updateChannels } from "./releases.ts";
+import { workspaceLimits } from "./usage.ts";
 
 /** How long a log may keep its rows, in days (#157). */
 export const logKeepDays = [30, 90, 365, 730] as const;
@@ -26,8 +27,15 @@ const instanceSettingsSchema = z.object({
     /** What the notice says beyond that it is on: "Back by 18:00". */
     message: z.string().trim().max(280),
   }),
-  /** What a new workspace starts with; its owner may change it after. */
-  defaults: z.object({ guestLinkDays: z.literal(guestLinkDays) }),
+  /**
+   * What a new workspace starts with: how long its guest links last, which its owner may change,
+   * and its limits (#175), which only an operator may.
+   */
+  defaults: z.object({
+    guestLinkDays: z.literal(guestLinkDays),
+    storageQuota: workspaceLimits.shape.storageQuota,
+    memberLimit: workspaceLimits.shape.memberLimit,
+  }),
   /** How long each log keeps its rows (#157), in days; null keeps them for good. */
   logs: z.object({
     audit: z.literal(logKeepDays).nullable(),
@@ -44,7 +52,12 @@ export type InstanceSettings = z.infer<typeof instanceSettingsSchema>;
  * stays as stored (`withStored`), never back to its default.
  */
 export const instanceSettingsInput = instanceSettingsSchema.extend({
-  defaults: instanceSettingsSchema.shape.defaults.optional(),
+  defaults: instanceSettingsSchema.shape.defaults
+    .extend({
+      storageQuota: workspaceLimits.shape.storageQuota.optional(),
+      memberLimit: workspaceLimits.shape.memberLimit.optional(),
+    })
+    .optional(),
   logs: instanceSettingsSchema.shape.logs
     .extend({ webhooks: instanceSettingsSchema.shape.logs.shape.webhooks.optional() })
     .optional(),
@@ -57,7 +70,19 @@ export const withStored = (
   stored: InstanceSettings,
 ): InstanceSettings => ({
   ...input,
-  defaults: input.defaults ?? stored.defaults,
+  defaults: input.defaults
+    ? {
+        guestLinkDays: input.defaults.guestLinkDays,
+        storageQuota:
+          input.defaults.storageQuota === undefined
+            ? stored.defaults.storageQuota
+            : input.defaults.storageQuota,
+        memberLimit:
+          input.defaults.memberLimit === undefined
+            ? stored.defaults.memberLimit
+            : input.defaults.memberLimit,
+      }
+    : stored.defaults,
   logs: input.logs
     ? {
         ...input.logs,
@@ -70,7 +95,12 @@ export const defaultInstanceSettings: InstanceSettings = {
   security: { requireSecondFactor: false },
   updates: { channel: "stable" },
   maintenance: { on: false, message: "" },
-  defaults: { guestLinkDays: defaultWorkspaceSettings.guestLinkDays },
+  // No limits unless an operator sets them: a self-hosted instance is not held back.
+  defaults: {
+    guestLinkDays: defaultWorkspaceSettings.guestLinkDays,
+    storageQuota: null,
+    memberLimit: null,
+  },
   // The audit log is kept for good unless an operator says otherwise: nothing already logged
   // goes because the instance was upgraded.
   logs: { audit: null, auth: 365, mail: 90, webhooks: 30 },
@@ -119,6 +149,16 @@ export function settingsChanges(
     changes.push({
       action: "defaults.guest_link_days",
       details: { days: after.defaults.guestLinkDays },
+    });
+  if (before.defaults.storageQuota !== after.defaults.storageQuota)
+    changes.push({
+      action: "defaults.storage_quota",
+      details: { bytes: after.defaults.storageQuota },
+    });
+  if (before.defaults.memberLimit !== after.defaults.memberLimit)
+    changes.push({
+      action: "defaults.member_limit",
+      details: { members: after.defaults.memberLimit },
     });
   for (const kind of ["audit", "auth", "mail", "webhooks"] as const)
     if (before.logs[kind] !== after.logs[kind])

@@ -855,6 +855,13 @@
       "when": 1792739338920,
       "tag": "0121_error_trace_ids",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1792744811666,
+      "tag": "0122_workspace_usage",
+      "breakpoints": true
     }
   ]
 }

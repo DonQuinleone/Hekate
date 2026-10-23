@@ -72,6 +72,7 @@ import { ActionMenu } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
 import { type ReviewState, StatusDot } from "~/components/ui/status";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
+import { MemberLimitSelect, QuotaSelect, UsageRows } from "~/components/usage";
 import { actionCopy } from "~/lib/access-log";
 import { shortAgent } from "~/lib/agent";
 import { api } from "~/lib/api";
@@ -102,6 +103,7 @@ import {
   logQueryString,
   noticeQuery,
   useOperatorMove,
+  useWorkspaceLimits,
 } from "~/lib/queries";
 
 const since = formatDates({ day: "numeric", month: "short", year: "numeric" });
@@ -248,6 +250,13 @@ function Overview() {
                 <Button variant="secondary" size="md" asChild>
                   <Link to="/instance/$section" params={{ section: "system" }}>
                     System information
+                  </Link>
+                </Button>
+              )}
+              {n.kind === "quota_near" && (
+                <Button variant="secondary" size="md" asChild>
+                  <Link to="/instance/$section" params={{ section: "workspaces" }}>
+                    Workspaces
                   </Link>
                 </Button>
               )}
@@ -745,7 +754,7 @@ function Settings() {
       </Section>
       <Section
         title="Defaults for new workspaces"
-        intro="What a workspace starts with when an operator makes it; its owner may change it after."
+        intro="What a workspace starts with when an operator makes it. Its owner may change how long guest links last; only an operator changes its limits."
       >
         <Row
           name="Guest links last"
@@ -759,6 +768,7 @@ function Settings() {
               save.mutate({
                 ...settings,
                 defaults: {
+                  ...settings.defaults,
                   guestLinkDays: Number(
                     e.target.value,
                   ) as InstanceSettings["defaults"]["guestLinkDays"],
@@ -773,6 +783,27 @@ function Settings() {
               </option>
             ))}
           </Select>
+        </Row>
+        <Row
+          name="Storage quota"
+          hint="Uploads are refused at it; the workspace is warned from 90%."
+        >
+          <QuotaSelect
+            value={settings.defaults.storageQuota}
+            disabled={save.isPending}
+            onChange={(storageQuota) =>
+              save.mutate({ ...settings, defaults: { ...settings.defaults, storageQuota } })
+            }
+          />
+        </Row>
+        <Row name="Member limit" hint="Invitations waiting take a place too.">
+          <MemberLimitSelect
+            value={settings.defaults.memberLimit}
+            disabled={save.isPending}
+            onChange={(memberLimit) =>
+              save.mutate({ ...settings, defaults: { ...settings.defaults, memberLimit } })
+            }
+          />
         </Row>
       </Section>
       <Section
@@ -1897,7 +1928,7 @@ function WorkspaceDetail({ id, operator }: { id: string; operator: boolean }) {
           <WorkspaceProjects id={id} operator={operator} />
         </TabsContent>
         <TabsContent value="storage" className="flex flex-col gap-6 pt-6">
-          <WorkspaceStorage id={id} />
+          <WorkspaceStorage id={id} operator={operator} />
         </TabsContent>
         <TabsContent value="billing" className="flex flex-col gap-6 pt-6">
           <WorkspaceBilling />
@@ -2166,11 +2197,42 @@ function WorkspaceProjects({ id, operator }: { id: string; operator: boolean }) 
   );
 }
 
-function WorkspaceStorage({ id }: { id: string }) {
+function WorkspaceStorage({ id, operator }: { id: string; operator: boolean }) {
   const { data: s } = useQuery(instanceStorageQuery(id));
+  const setLimits = useWorkspaceLimits(id);
   if (!s) return null;
+  const { limits } = s.usage;
   return (
     <>
+      <Section
+        title="Quota"
+        intro="Uploads are refused at the storage quota and invitations at the member limit; the workspace is warned from 90%. Lowering one removes nothing."
+      >
+        <UsageRows usage={s.usage} />
+        {operator && (
+          <>
+            <Row name="Storage quota" inline>
+              <QuotaSelect
+                value={limits.storageQuota}
+                disabled={setLimits.isPending}
+                onChange={(storageQuota) => setLimits.mutate({ ...limits, storageQuota })}
+              />
+            </Row>
+            <Row name="Member limit" inline>
+              <MemberLimitSelect
+                value={limits.memberLimit}
+                disabled={setLimits.isPending}
+                onChange={(memberLimit) => setLimits.mutate({ ...limits, memberLimit })}
+              />
+            </Row>
+          </>
+        )}
+        {setLimits.error && (
+          <p role="alert" className="m-0 px-4 py-2 text-[13px] text-signal">
+            {setLimits.error.message}
+          </p>
+        )}
+      </Section>
       <Section title="Storage" intro="Sizes before encryption.">
         <Row
           name="Used"

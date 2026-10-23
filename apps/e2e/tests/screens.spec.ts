@@ -1145,6 +1145,22 @@ for (const [name, role, open, ready] of [
   });
 }
 
+// A workspace near its storage quota (#175), as its Storage tab shows it to an operator.
+test("instance-workspace-quota", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto("/instance/workspaces");
+  await settle(page, "main >> text=Recently in this workspace");
+  await page
+    .getByRole("button", { name: /^Saltmarsh Films/ })
+    .first()
+    .click();
+  await settle(page, "main h2:has-text('Saltmarsh Films')");
+  await page.getByRole("tab", { name: /^Storage/ }).click();
+  await settle(page, "main >> text=Nearly at the limit");
+  await saveScreen(page, "instance-workspace-quota");
+  await checkScreen(page);
+});
+
 // Logs (#157): every sign-in, the seed's own among them.
 test("instance-logs-auth", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);

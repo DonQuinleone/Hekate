@@ -162,6 +162,12 @@ export const organisations = pgTable("organisations", {
    * a grace period ahead, and cleared if it is reinstated first.
    */
   deleteAfter: timestamp("delete_after", { withTimezone: true }),
+  /**
+   * Limits an operator sets (#175), seeded from the instance's defaults: bytes stored, and
+   * members. Null is no limit. Uploads and new members are refused at the limit.
+   */
+  storageQuota: bigint("storage_quota", { mode: "number" }),
+  memberLimit: integer("member_limit"),
   ...timestamps,
 });
 
@@ -2453,6 +2459,32 @@ export const storageReconciliations = pgTable(
     removing: boolean("removing").notNull(),
   },
   (t) => [index("storage_reconciliations_started_idx").on(t.startedAt)],
+);
+
+/**
+ * What a workspace used in a month (#175), refreshed hourly: the bytes it stores (now, and the
+ * month's peak), its members, guests and projects, and the plays and downloads its access log
+ * holds for the month. Plays and downloads are counted on from `countedThrough`, the last
+ * access event already counted, so each refresh reads only what is new.
+ */
+export const workspaceUsage = pgTable(
+  "workspace_usage",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    /** The month's first day. */
+    month: date("month").notNull(),
+    storageBytes: bigint("storage_bytes", { mode: "number" }).notNull().default(0),
+    storagePeak: bigint("storage_peak", { mode: "number" }).notNull().default(0),
+    members: integer("members").notNull().default(0),
+    guests: integer("guests").notNull().default(0),
+    projects: integer("projects").notNull().default(0),
+    plays: integer("plays").notNull().default(0),
+    downloads: integer("downloads").notNull().default(0),
+    countedThrough: uuid("counted_through"),
+    measuredAt: timestamp("measured_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("workspace_usage_month_idx").on(t.organisationId, t.month)],
 );
 
 // Notifications (docs/domain.md)

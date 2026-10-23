@@ -7,6 +7,7 @@ import {
   errorReportsQuery,
   flagInput,
   flagParam,
+  formatBytes,
   healthQuery,
   type InspectKind,
   type InstanceAccess,
@@ -40,6 +41,7 @@ import {
   settingsChanges,
   suspendWorkspaceInput,
   WORKSPACE_DELETE_GRACE_DAYS,
+  workspaceLimits,
   workspaceSettingsOf,
   workspaceStateOf,
 } from "@hekate/shared";
@@ -85,6 +87,7 @@ import { signal } from "../signals.ts";
 import { type SystemHealthDeps, systemHealth } from "../system-health.ts";
 import { HEKATE_VERSION, systemInformation } from "../system-info.ts";
 import { factorStanding, type SecondFactorRule } from "../tenancy.ts";
+import { nearQuota, workspaceUsageOf } from "../usage.ts";
 import { pendingRewrap } from "../workspace-keys.ts";
 import { operatorMove } from "./project-transfers.ts";
 import { retryFile } from "./retry.ts";
@@ -457,7 +460,13 @@ export function instanceRoutes(options: InstanceOptions) {
         const made = await db.transaction(async (tx) => {
           const [organisation] = await tx
             .insert(schema.organisations)
-            .values({ name, slug, settings: { guestLinkDays: defaults.guestLinkDays } })
+            .values({
+              name,
+              slug,
+              settings: { guestLinkDays: defaults.guestLinkDays },
+              storageQuota: defaults.storageQuota,
+              memberLimit: defaults.memberLimit,
+            })
             .onConflictDoNothing({ target: schema.organisations.slug })
             .returning({ id: schema.organisations.id });
           if (!organisation)
@@ -687,7 +696,7 @@ export function instanceRoutes(options: InstanceOptions) {
       .get("/workspaces/:id/storage", idParam, async (c) => {
         const id = await reachable(c.var.access, c.req.valid("param").id);
         const b = schema.blobs;
-        const [[org], byBackend, [originals], findings] = await Promise.all([
+        const [[org], byBackend, [originals], findings, usage] = await Promise.all([
           db
             .select({ backend: schema.organisations.storageBackend })
             .from(schema.organisations)
@@ -718,6 +727,7 @@ export function instanceRoutes(options: InstanceOptions) {
               ),
             )
             .groupBy(schema.storageFindings.kind),
+          workspaceUsageOf(db, id),
         ]);
         if (!org) throw new NotFound("Workspace");
         const total = byBackend.reduce((t, r) => t + Number(r.bytes ?? 0), 0);
@@ -734,6 +744,7 @@ export function instanceRoutes(options: InstanceOptions) {
             bytes: Number(r.bytes ?? 0),
           })),
           findings: { missing: of("missing_object"), orphans: of("orphan_object") },
+          usage,
         };
         return c.json(storage);
       })
@@ -924,6 +935,28 @@ export function instanceRoutes(options: InstanceOptions) {
         });
         return c.body(null, 204);
       })
+      // Its limits (#175): what it may store, and how many may be members. Lowering one below
+      // what it uses refuses only what would add to it; nothing it holds is touched.
+      .put("/workspaces/:id/limits", idParam, zValidator("json", workspaceLimits), async (c) => {
+        const { id } = c.req.valid("param");
+        const limits = c.req.valid("json");
+        await db.transaction(async (tx) => {
+          const [row] = await tx
+            .update(schema.organisations)
+            .set({ ...limits, updatedAt: new Date() })
+            .where(eq(schema.organisations.id, id))
+            .returning({ name: schema.organisations.name });
+          if (!row) throw new NotFound("Workspace");
+          await recordInstanceEvent(tx, {
+            actorId: c.var.userId,
+            action: "workspace.limits",
+            target: row.name,
+            details: { organisationId: id, ...limits },
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+        });
+        return c.json(await workspaceUsageOf(db, id));
+      })
       // Suspending keeps everything and lets nobody in: members are told why, guests' links stop.
       .post(
         "/workspaces/:id/suspend",
@@ -1037,42 +1070,52 @@ export function instanceRoutes(options: InstanceOptions) {
       .use("/operators", operatorsOnly)
       .use("/operators/*", operatorsOnly)
       .get("/overview", async (c) => {
-        const [[workspaces], [people], [storage], [missing], queue, failed, recent, unkeyed] =
-          await Promise.all([
-            db.select({ n: count() }).from(schema.organisations),
-            db.select({ n: count() }).from(schema.users).where(isNull(schema.users.deletedAt)),
-            db.select({ n: sum(schema.blobs.byteSize) }).from(schema.blobs),
-            db
-              .select({ n: count() })
-              .from(schema.storageFindings)
-              .where(
-                and(
-                  eq(schema.storageFindings.kind, "missing_object"),
-                  isNull(schema.storageFindings.resolvedAt),
-                ),
+        const [
+          [workspaces],
+          [people],
+          [storage],
+          [missing],
+          queue,
+          failed,
+          recent,
+          unkeyed,
+          crowded,
+        ] = await Promise.all([
+          db.select({ n: count() }).from(schema.organisations),
+          db.select({ n: count() }).from(schema.users).where(isNull(schema.users.deletedAt)),
+          db.select({ n: sum(schema.blobs.byteSize) }).from(schema.blobs),
+          db
+            .select({ n: count() })
+            .from(schema.storageFindings)
+            .where(
+              and(
+                eq(schema.storageFindings.kind, "missing_object"),
+                isNull(schema.storageFindings.resolvedAt),
               ),
-            queueCounts(db),
-            failedToday(db),
-            db
-              .select({
-                at: schema.instanceEvents.createdAt,
-                actor: schema.users.name,
-                action: schema.instanceEvents.action,
-                target: schema.instanceEvents.target,
-              })
-              .from(schema.instanceEvents)
-              .leftJoin(schema.users, eq(schema.users.id, schema.instanceEvents.actorId))
-              .orderBy(desc(schema.instanceEvents.createdAt))
-              .limit(8),
-            // Operators without a single hardware key: one lost phone from being locked out.
-            db
-              .select({ name: schema.users.name })
-              .from(schema.instanceOperators)
-              .innerJoin(schema.users, eq(schema.users.id, schema.instanceOperators.userId))
-              .where(
-                sql`not exists (select 1 from ${schema.passkeys} where ${schema.passkeys.userId} = ${schema.instanceOperators.userId})`,
-              ),
-          ]);
+            ),
+          queueCounts(db),
+          failedToday(db),
+          db
+            .select({
+              at: schema.instanceEvents.createdAt,
+              actor: schema.users.name,
+              action: schema.instanceEvents.action,
+              target: schema.instanceEvents.target,
+            })
+            .from(schema.instanceEvents)
+            .leftJoin(schema.users, eq(schema.users.id, schema.instanceEvents.actorId))
+            .orderBy(desc(schema.instanceEvents.createdAt))
+            .limit(8),
+          // Operators without a single hardware key: one lost phone from being locked out.
+          db
+            .select({ name: schema.users.name })
+            .from(schema.instanceOperators)
+            .innerJoin(schema.users, eq(schema.users.id, schema.instanceOperators.userId))
+            .where(
+              sql`not exists (select 1 from ${schema.passkeys} where ${schema.passkeys.userId} = ${schema.instanceOperators.userId})`,
+            ),
+          nearQuota(db),
+        ]);
         const needs: InstanceOverview["needs"] = [];
         if (!queue)
           needs.push({
@@ -1092,6 +1135,13 @@ export function instanceRoutes(options: InstanceOptions) {
             title: `${missing?.n} stored file${missing?.n === 1 ? " is" : "s are"} missing from storage`,
             detail:
               "The reconciliation found records whose bytes are gone. Restore them from a backup.",
+          });
+        // A workspace near its storage quota (#175): its uploads are refused at it.
+        for (const w of crowded)
+          needs.push({
+            kind: "quota_near",
+            title: `${w.name} is at ${Math.floor((w.used / w.quota) * 100)}% of its storage quota`,
+            detail: `${formatBytes(w.used)} of ${formatBytes(w.quota)}. Uploads are refused at the quota; its Storage tab can raise it.`,
           });
         for (const o of unkeyed)
           needs.push({
@@ -1625,11 +1675,15 @@ export function instanceRoutes(options: InstanceOptions) {
                 ? "Maintenance mode"
                 : change.action.startsWith("updates.")
                   ? "The update channel"
-                  : change.action.startsWith("defaults.")
+                  : change.action === "defaults.guest_link_days"
                     ? "New workspaces' guest links"
-                    : change.action.startsWith("logs.")
-                      ? `The ${String(change.details.kind) === "auth" ? "authentication" : String(change.details.kind)} log`
-                      : "A second factor",
+                    : change.action === "defaults.storage_quota"
+                      ? "New workspaces' storage quota"
+                      : change.action === "defaults.member_limit"
+                        ? "New workspaces' member limit"
+                        : change.action.startsWith("logs.")
+                          ? `The ${String(change.details.kind) === "auth" ? "authentication" : String(change.details.kind)} log`
+                          : "A second factor",
               details: change.details,
               ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
             });

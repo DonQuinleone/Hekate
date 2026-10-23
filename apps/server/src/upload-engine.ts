@@ -10,6 +10,7 @@ import { pageSourceOf } from "./media/pages.ts";
 import { metrics } from "./metrics/index.ts";
 import type { Storage } from "./storage.ts";
 import { sessionOf, staleClaim, UPLOAD_LIFETIME_MS, type UploadRow } from "./uploads.ts";
+import { assertStorageRoom } from "./usage.ts";
 
 const { uploads, uploadParts, files, accessEvents } = schema;
 export type FileRow = typeof files.$inferSelect;
@@ -96,6 +97,8 @@ export function uploadEngine(deps: {
       );
       try {
         const row = await db.transaction(async (tx) => {
+          // Its room in the workspace's quota (#175) is taken as it begins.
+          await assertStorageRoom(tx, input.organisationId, input.size);
           const [inserted] = await tx
             .insert(uploads)
             .values({

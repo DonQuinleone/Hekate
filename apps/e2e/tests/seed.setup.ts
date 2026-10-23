@@ -1280,6 +1280,27 @@ setup("seed", async ({ page, browser }) => {
       await sql`insert into error_reports (id, reference, source, location, message, stack, status, request_id, job_id, trace_id, context, organisation_id, user_id)
         values (gen_random_uuid(), ${r.reference}, ${r.source}, ${r.location}, ${r.message}, ${r.stack}, ${r.status}, ${r.request_id}, ${r.job_id}, ${r.trace_id}, ${r.context ? sql.json(r.context) : null}, ${r.organisation_id}, ${r.user_id})`;
 
+    // Usage and quotas (#175): Endless Hall Records within its limits, with the month counted
+    // so far; Saltmarsh Films near a quota an operator set by hand, which the overview warns
+    // of. Its stored bytes are a record alone: nothing reads them.
+    await api(page, "PUT", `/api/instance/workspaces/${label?.id}/limits`, {
+      storageQuota: 1e12,
+      memberLimit: 25,
+    });
+    await sql`insert into workspace_usage (id, organisation_id, month, storage_bytes, storage_peak, members, guests, projects, plays, downloads, measured_at)
+      select gen_random_uuid(), ${label?.id ?? null}, date_trunc('month', ${FIXED_TIME}::timestamptz)::date,
+        coalesce(sum(byte_size), 0), coalesce(sum(byte_size), 0), 0, 0, 0, 184, 12, ${FIXED_TIME}::timestamptz
+      from blobs where organisation_id = ${label?.id ?? null}`;
+    const [saltmarsh] = await sql<
+      { id: string }[]
+    >`select id from organisations where name = 'Saltmarsh Films'`;
+    await sql`insert into blobs (id, organisation_id, backend, key, byte_size, wrapped_key, key_version)
+      values (gen_random_uuid(), ${saltmarsh?.id ?? null}, 'local', ${`${saltmarsh?.id}/archive`}, ${92e6}, 'sealed', 1)`;
+    await api(page, "PUT", `/api/instance/workspaces/${saltmarsh?.id}/limits`, {
+      storageQuota: 100e6,
+      memberLimit: 10,
+    });
+
     // Where the workspace's events go (#161): a Slack channel, a Teams one and a webhook that
     // kept failing and paused, with a few deliveries for the webhook log. Their addresses are
     // never opened here: the events are dispatched already, and the webhook stays paused.
