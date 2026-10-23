@@ -1263,6 +1263,38 @@ setup("seed", async ({ page, browser }) => {
     },
   });
 
+  // API tokens (#198): two of the owner's own (one since run out) and a service token for the
+  // release pipeline, whose calls, one of them refused for want of a scope, fill the API log.
+  const { secret: pipeline } = await api<{ secret: string }>(
+    page,
+    "POST",
+    "/api/organisation/tokens",
+    { name: "Release pipeline", scopes: ["files:read", "reviews:read"], expiresInDays: 365 },
+  );
+  await api(page, "POST", "/api/me/tokens", {
+    name: "Logic Pro export",
+    scopes: ["files:write"],
+    expiresInDays: null,
+  });
+  await api(page, "POST", "/api/me/tokens", {
+    name: "Old laptop",
+    scopes: ["files:read", "files:write", "comments", "downloads"],
+    expiresInDays: 30,
+  });
+  for (const [method, path] of [
+    ["GET", "/api/projects"],
+    ["GET", `/api/projects/${music.id}/files`],
+    ["GET", `/api/projects/${music.id}/reviews`],
+    ["POST", `/api/projects/${music.id}/folders`],
+  ] as const) {
+    const call = await page.request.fetch(path, {
+      method,
+      headers: { authorization: `Bearer ${pipeline}` },
+      ...(method === "POST" ? { data: { name: "Refused" } } : {}),
+    });
+    expect(call.status(), `${method} ${path}`).toBe(method === "POST" ? 403 : 200);
+  }
+
   // The same moment for every run, so dates and "ago" read the same in every capture.
   const sql = postgres(process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL ?? "", {
     onnotice: () => undefined,
@@ -1552,6 +1584,15 @@ setup("seed", async ({ page, browser }) => {
         greatest(0, least(4, round(2 + 1.5 * sin(n / 75.0))))::int,
         (18000000 + 15000000 * sin(n / 100.0))::bigint, 0.38, 8, 10500000000, 17179869184
       from generate_series(1, 1440) as n`;
+
+    // The tokens' uses and ends, against the fixed clock: one used two hours ago, one
+    // yesterday, and the old laptop's six weeks ago and run out since.
+    const at = (hours: number) => new Date(Date.parse(FIXED_TIME) + hours * 60 * 60_000);
+    await sql`update api_tokens set last_used_at = ${at(-2)}, expires_at = ${at(80 * 24)}
+      where name = 'Release pipeline'`;
+    await sql`update api_tokens set last_used_at = ${at(-26)} where name = 'Logic Pro export'`;
+    await sql`update api_tokens set last_used_at = ${at(-41 * 24)}, expires_at = ${at(-13 * 24)}
+      where name = 'Old laptop'`;
 
     const columns = await sql<{ table_name: string; column_name: string }[]>`
       select table_name, column_name from information_schema.columns

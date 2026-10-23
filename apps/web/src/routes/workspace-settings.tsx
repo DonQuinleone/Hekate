@@ -22,6 +22,7 @@ import {
 } from "@hekate/shared";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
+import { ScopesSection, TokensSection, WorkspaceApiLogSection } from "~/components/api-tokens";
 import { Avatar } from "~/components/avatar";
 import { BillingSection } from "~/components/billing";
 import { deliveryHint, ProfileEditor, ProfileOptions } from "~/components/delivery-profiles";
@@ -146,6 +147,14 @@ const allSections: SectionSpec[] = [
     from: "admin",
     intro: "Where the workspace's events go: Slack, Discord, Microsoft Teams and webhooks.",
     docs: "/use/integrations/",
+  },
+  {
+    id: "api",
+    label: "API",
+    group: "Access",
+    from: "admin",
+    intro: "Tokens that act for the workspace, what a token may be given, and every call one made.",
+    docs: "/use/api-tokens/",
   },
   {
     id: "billing",
@@ -1277,6 +1286,13 @@ export function WorkspaceSettingsPage({ section }: { section: string }) {
           </>
         )}
         {current.id === "notifications" && <ChannelsSection />}
+        {current.id === "api" && (
+          <>
+            <TokensSection kind="service" />
+            <ScopesSection />
+            <WorkspaceApiLogSection />
+          </>
+        )}
         {current.id === "storage" && <Storage role={role} />}
         {current.id === "transfers" && <TransfersSection />}
         {current.id === "billing" && <BillingSection owner={role === "owner"} />}

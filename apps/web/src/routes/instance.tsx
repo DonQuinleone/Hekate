@@ -1,4 +1,5 @@
 import {
+  type ApiLogRow,
   type AuditLogRow,
   type AuthLogRow,
   type CheckState,
@@ -61,6 +62,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { ApiLogEntry } from "~/components/api-tokens";
 import { Gauge, Spark } from "~/components/charts";
 import { Stat } from "~/components/dashboard";
 import { Empty } from "~/components/empty";
@@ -1144,6 +1146,7 @@ function Settings() {
             ],
             ["auth", "Authentication", "Every sign-in, refusal and lockout."],
             ["mail", "Email", "Every message handed to instance mail."],
+            ["api", "API", "Every call made with an API token."],
             [
               "webhooks",
               "Webhooks",
@@ -1456,6 +1459,7 @@ const logTime = formatDates({
 const logLabels: Record<LogKind, string> = {
   audit: "Audit",
   auth: "Authentication",
+  api: "API",
   mail: "Email",
   webhooks: "Webhooks",
   gateway: "Gateway",
@@ -1470,6 +1474,7 @@ const logNotes: Record<LogKind, string> = {
   audit:
     "Every action an operator took on the instance, and every change in a workspace with the files people downloaded. Streams and page renders stay in each workspace's access log.",
   auth: "Every sign-in, refusal and lockout, with the address and the browser. After four wrong passwords each try waits longer, and ten in fifteen minutes lock the account for fifteen.",
+  api: "Every call made with an API token, with its answer and how long it took. Each workspace's admins see their own in its settings, under API.",
   mail: "Every message handed to instance mail, and what came back. Without SMTP, messages are written to the server's log.",
   webhooks:
     "Every delivery to a workspace's channels and its attempts. A channel that keeps failing pauses itself for five minutes; Debug tools send a delivery again.",
@@ -1548,10 +1553,8 @@ function Logs() {
   useEffect(() => {
     if (workspaces.hasNextPage && !workspaces.isFetchingNextPage) void workspaces.fetchNextPage();
   }, [workspaces.hasNextPage, workspaces.isFetchingNextPage, workspaces.fetchNextPage]);
-  const rows: (AuditLogRow | AuthLogRow | MailLogRow | WebhookLogRow | GatewayLogRow)[] =
-    log.data?.pages.flatMap(
-      (p): (AuditLogRow | AuthLogRow | MailLogRow | WebhookLogRow | GatewayLogRow)[] => p.rows,
-    ) ?? [];
+  type AnyRow = AuditLogRow | AuthLogRow | ApiLogRow | MailLogRow | WebhookLogRow | GatewayLogRow;
+  const rows: AnyRow[] = log.data?.pages.flatMap((p): AnyRow[] => p.rows) ?? [];
   const exportUrl = `/api/instance/logs/${kind}/export?${new URLSearchParams(logQueryString(filters))}`;
   const body = (
     <>
@@ -1680,6 +1683,8 @@ function Logs() {
               </span>
             </div>
           ))
+        ) : kind === "api" ? (
+          (rows as ApiLogRow[]).map((r) => <ApiLogEntry key={r.id} row={r} workspace />)
         ) : kind === "webhooks" ? (
           (rows as WebhookLogRow[]).map((r) => <WebhookEntry key={r.id} row={r} />)
         ) : kind === "gateway" ? (

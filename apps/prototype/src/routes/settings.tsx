@@ -600,9 +600,10 @@ export function SettingsPage({
                   always
                   label={t.name}
                   actions={[
+                    { label: "Rename…", onSelect: () => {} },
                     { label: "Change scopes…", onSelect: () => {} },
                     "divider",
-                    { label: "Revoke", danger: true, onSelect: () => {} },
+                    { label: "Revoke…", danger: true, onSelect: () => {} },
                   ]}
                 />
               </Row>
@@ -628,6 +629,54 @@ export function SettingsPage({
               ["org:read", "Members, roles and settings, read-only"],
             ].map(([k, v]) => (
               <Row key={k} name={<span className="tabular">{k}</span>} hint={v} />
+            ))}
+          </Section>
+          {/* The workspace's own API log (#198): what the instance's Logs show operators, for
+              this workspace alone. */}
+          <Section
+            title="API log"
+            intro="The latest calls made with this workspace's tokens, members' own among them, over the last week."
+          >
+            {[
+              [
+                "14 Oct, 09:58:12",
+                "Release pipeline (service)",
+                "GET /api/projects",
+                "200",
+                "38 ms",
+              ],
+              [
+                "14 Oct, 09:58:13",
+                "Release pipeline (service)",
+                "POST /api/projects/…/folders",
+                "403",
+                "4 ms",
+              ],
+              ["14 Oct, 08:41:02", "Logic Pro export", "POST /api/uploads", "201", "112 ms"],
+            ].map(([when, token, call, status, time]) => (
+              <div
+                key={when}
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-2 text-[13px] @3xl/app:grid-cols-[150px_minmax(0,1fr)_minmax(0,1.4fr)_60px_70px]"
+              >
+                <span className="tabular text-ink-3">{when}</span>
+                <span
+                  className={cn(
+                    "tabular justify-self-end @3xl/app:order-4 @3xl/app:justify-self-start",
+                    status === "403" ? "text-signal" : "text-ink-3",
+                  )}
+                >
+                  {status}
+                </span>
+                <span className="col-span-2 truncate text-ink-2 @3xl/app:order-2 @3xl/app:col-span-1">
+                  {token}
+                </span>
+                <span className="tabular col-span-2 truncate text-ink @3xl/app:order-3 @3xl/app:col-span-1">
+                  {call}
+                </span>
+                <span className="tabular hidden text-right text-ink-3 @3xl/app:order-5 @3xl/app:block">
+                  {time}
+                </span>
+              </div>
             ))}
           </Section>
         </>

@@ -188,6 +188,11 @@ const screens: Screen[] = [
     ready: "main >> text=Maple Leaf Rag",
   },
   {
+    name: "account-tokens",
+    path: () => "/account/tokens",
+    ready: "main >> text=Logic Pro export",
+  },
+  {
     name: "project-overview",
     path: (s) => `/projects/${s.musicProjectId}`,
     ready: "main section[aria-label='Needs attention'] li",
@@ -481,6 +486,11 @@ const screens: Screen[] = [
     name: "settings-notifications",
     path: () => "/settings/notifications",
     ready: "main >> text=Release desk >> nth=0",
+  },
+  {
+    name: "settings-api",
+    path: () => "/settings/api",
+    ready: "main [data-log-entry] >> nth=0",
   },
   { name: "settings-log", path: () => "/settings/log", ready: "main [data-log-entry]" },
   { name: "settings-billing", path: () => "/settings/billing", ready: "main >> text=HK-0002" },
@@ -1253,6 +1263,29 @@ test("instance-logs-webhooks", async ({ page }) => {
   await page.getByRole("tab", { name: "Webhooks" }).click();
   await settle(page, "main >> text=Release desk >> nth=0");
   await saveScreen(page, "instance-logs-webhooks");
+  await checkScreen(page);
+});
+
+// Logs (#198): every call made with an API token, the release pipeline's among them.
+test("instance-logs-api", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto("/instance/logs");
+  await settle(page, "main [data-log-entry] >> nth=0");
+  await page.getByRole("tab", { name: "API" }).click();
+  await settle(page, "main >> text=Release pipeline (service) >> nth=0");
+  await saveScreen(page, "instance-logs-api");
+  await checkScreen(page);
+});
+
+// A new API token (#198): its name, the least scopes it needs, and when it runs out. Opened,
+// not made, so the account keeps what the seed gave it.
+test("account-token-new", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto("/account/tokens");
+  await settle(page, "main >> text=Logic Pro export");
+  await page.getByRole("button", { name: "Token", exact: true }).click();
+  await settle(page, "[role=dialog] >> text=Pick the least it needs.");
+  await saveScreen(page, "account-token-new");
   await checkScreen(page);
 });
 
