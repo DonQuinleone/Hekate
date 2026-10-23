@@ -57,6 +57,7 @@ export default defineConfig({
             "use/upload-requests",
             "use/workflow-files",
             "use/integrations",
+            "use/api-tokens",
           ],
         },
       ],

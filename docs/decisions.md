@@ -1294,7 +1294,7 @@ CI runs the API suite through PgBouncer in transaction mode at its defaults (the
 - **The limit holds.** A file takes a place under a lock on the request as it starts; one still being sent counts, and one abandoned frees its place when its upload lapses. A closed or lapsed request refuses new files and the finishing of ones under way.
 - **Told and logged.** The requester is told as each file arrives (`upload_arrived`, in the app and by mail by default). The access log records the request made and closed, wrong passwords, and each upload under a `visitor` actor named as the sender gave.
 - **Not moved with a project.** Moving a project to another workspace (decision 135) drops its upload requests, like calendar links, as each was given out under the losing workspace; the files sent through them move with the project, and the access log keeps who sent them.
-- **Left out for now:** "as the next version of" a track, which the issue lists but the prototype does not show; a version is made only from a measured file, so it would follow the upload rather than be part of it (it followed: decision 223).
+- **Left out for now:** "as the next version of" a track, which the issue lists but the prototype does not show; a version is made only from a measured file, so it would follow the upload rather than be part of it.
 - **Expanding only:** the request, its uploads and its files are new tables (`upload_requests`, `upload_request_uploads`, `upload_request_files`), so the release before runs against the database (decision 198).
 
 ## 200. General projects: simple version chains on loose files
@@ -1395,7 +1395,7 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Origins.** Every workspace's host is a trusted origin for Better Auth; passkeys stay bound to the root's name, and their origin list answers yes for any workspace host under it.
 - **Certificates.** Caddy's on-demand TLS gets one per name as it is first opened, asking the app first (`/api/tls/ask`), so the stock image serves it without a DNS provider module; Kubernetes uses a wildcard certificate from a DNS-01 solver.
 - **Names kept.** `www`, `api`, `mail`, `instance` and a few more can be no workspace's.
-- **Links in mail stay at the root,** opening in the person's active workspace; links naming their workspace's host can follow (they did: decision 222).
+- **Links in mail stay at the root,** opening in the person's active workspace; links naming their workspace's host can follow.
 
 ## 209. Plans and entitlements: limits copied to the workspace, features asked of one function
 
@@ -1497,6 +1497,20 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Closed means closed.** The mode is checked when the link is used, not only when it was sent: turning registration to operators only stops every link still waiting, and an open link asked for before it became invite-only no longer works.
 - **The trial.** With billing on, a workspace that signs up starts a trial of the length billing's rules set (decision 215), on the first plan the operators offer (priced, not hidden, not retired, in their order); choosing a plan through Checkout carries it over (decision 210). Without such a plan it is on the internal plan. What happens when a trial ends unconverted is billing's to decide, not registration's.
 - **Abuse limits** are counted in PostgreSQL, like the other limits (#172): links asked for by address and by email, workspaces made by address and by email. No CAPTCHA: the email link already costs a script a mailbox per workspace.
+
+## 221. API tokens: one workspace each, scopes asked of one function, service tokens with an account of their own
+
+#198, the first part. Members and workspaces reach the API with tokens; OAuth clients and connected apps follow in their own issue.
+
+- **Per workspace.** A token belongs to the workspace it was made in, and reaches nothing else; a member makes one for another workspace from there. Account settings already keep notifications per workspace, and a token that spanned workspaces would need a second way to choose one per call.
+- **Scopes from the prototype**, eight of them. Which a call needs is `scopeFor(method, path)` in `packages/shared`, a pure function the public API (#197) and the MCP endpoint (#199) will ask too. It names what may be reached and refuses everything else, so a route added later is closed to tokens until someone gives it a scope. Writing a kind includes reading it.
+- **Checked before any route.** One middleware takes `Authorization: Bearer hk_…`, finds the token by its hash, holds it to its workspace (and to the host's workspace, #176), checks the scope and the token's own rate limit, and only then lets the request on, where the session middlewares take who it is from the token. A token is judged on itself alone: a session cookie in the same request is ignored, so a script cannot borrow a browser's reach.
+- **A member's token is the member.** It acts with their role and project roles as they are at each call, so it can do no more than they can. The second factor and single sign-on a workspace asks for are asked of the session that makes the token; leaving the workspace, or deleting the account, revokes the member's tokens.
+- **A service token has an account of its own.** Acting as the workspace means what it makes needs an author that is no person. Each service token gets a user row (`svc_<token id>`, at an address under `service-token.invalid`) that belongs to no workspace, has no way to sign in and is named after the token; it acts with an admin's reach, within its scopes. Owners and admins alone make one.
+- **Hashed, shown once, kept when revoked.** Only a SHA-256 hash is stored, as for invitations. A revoked token's row stays, so the API log and the access log can still name it.
+- **The API log** is a new log kind (`api_requests`): each call with its path but never its query or body, its answer and its time, written after the answer, refusals included, and trimmed as the instance's settings say (30 days by default). Operators read every workspace's; admins read their own in the workspace's API settings.
+- **Not yet:** OAuth clients (confidential, or public with PKCE), the authorisation screen, connected apps and the OAuth conformance check, all in the prototype, follow in a separate issue.
+- **Expanding only:** two new tables and three audit actions (decision 198).
 
 ## 222. Links sent out at the workspace's own host
 
