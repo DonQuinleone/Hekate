@@ -13,7 +13,11 @@ export interface Message {
 }
 
 export interface Mailer {
-  send(message: Message): Promise<void>;
+  /**
+   * Hand a message on. "sent" says a provider took it whatever the instance's own mail is (a
+   * workspace's mail did, #161); otherwise the mail log goes by the instance's way of sending.
+   */
+  send(message: Message): Promise<void | "sent">;
   /** Whether the mail server answers (#156); none when mail goes to the log. */
   verify?(): Promise<unknown>;
 }
@@ -261,13 +265,15 @@ export function loggedMailer<M extends Mailer>(db: Database, mailer: M, sends: b
     ...mailer,
     async send(message: Message) {
       // Written beside the message, never awaited: a slow log holds nothing up.
+      let went: void | "sent";
       try {
-        await mailer.send(message);
+        went = await mailer.send(message);
       } catch (error) {
         void record(message, "failed", error);
         throw error;
       }
-      void record(message, sends ? "sent" : "logged");
+      void record(message, sends || went === "sent" ? "sent" : "logged");
+      return went;
     },
   };
 }

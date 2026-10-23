@@ -1,12 +1,15 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { createDb, runMigrations, schema, uuidv7 } from "@hekate/db";
 import type { MailStepInput } from "@hekate/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createKeyring } from "./keyring.ts";
-import { type Mailer, type Message, memoryMailer } from "./mail.ts";
+import { createMailer, loggedMailer, type Mailer, type Message, memoryMailer } from "./mail.ts";
 import {
   MailRefused,
   mergedMail,
+  pinnedFetch,
   routedMailer,
   saveWorkspaceMail,
   workspaceMailer,
@@ -35,6 +38,33 @@ describe("a workspace's own mail (#161), without a database", () => {
     await expect(
       workspaceMailer(mail, ["smtp://127.0.0.1:2525"]).send(message()),
     ).rejects.not.toThrow(/private network/);
+  });
+});
+
+describe("reaching a workspace's Mailcoach (#161)", () => {
+  it("refuses private addresses, and follows no redirect even where trusted", async () => {
+    await expect(pinnedFetch([])("https://127.0.0.1/api/user")).rejects.toThrow(/private network/);
+    await expect(pinnedFetch([])("https://localhost:9/api/user")).rejects.toThrow(
+      /private network/,
+    );
+    await expect(pinnedFetch([])("http://mail.example/api/user")).rejects.toThrow(/https/);
+    // A server that sends every request somewhere else.
+    let asked = 0;
+    const redirecting = createServer((_req, res) => {
+      asked += 1;
+      res.writeHead(302, { location: "http://169.254.169.254/latest/meta-data/" }).end();
+    });
+    await new Promise<void>((resolve) => redirecting.listen(0, "127.0.0.1", resolve));
+    const origin = `http://127.0.0.1:${(redirecting.address() as AddressInfo).port}`;
+    try {
+      const res = await pinnedFetch([origin])(`${origin}/api/user`, {
+        headers: { authorization: "Bearer mc" },
+      });
+      expect(res.status).toBe(302);
+      expect(asked).toBe(1);
+    } finally {
+      redirecting.close();
+    }
   });
 });
 
@@ -147,6 +177,38 @@ describe.runIf(url)("a workspace's own mail (#161)", () => {
       pausedUntil: null,
       lastError: null,
     });
+  });
+
+  it("logs a message the workspace's mail sent as sent, where the instance's only logs", async () => {
+    const organisationId = await workspace();
+    await saveWorkspaceMail(db, keyring, organisationId, resend);
+    const mailer = loggedMailer(
+      db,
+      routedMailer({
+        db,
+        keyring,
+        instance: createMailer({ transport: { kind: "log" }, from: "hekate@localhost" }),
+        trusted: [],
+        build: () => memoryMailer(),
+      }),
+      false,
+    );
+    const subject = `Logged ${uuidv7()}`;
+    await mailer.send({ ...message(organisationId), subject: `${subject} own` });
+    await mailer.send({ ...message(), subject: `${subject} instance` });
+    // The log is written beside the message, not awaited.
+    await new Promise((r) => setTimeout(r, 100));
+    const logged = await db
+      .select({ subject: schema.mailEvents.subject, result: schema.mailEvents.result })
+      .from(schema.mailEvents);
+    expect(
+      logged
+        .filter((l) => l.subject.startsWith(subject))
+        .sort((a, b) => a.subject.localeCompare(b.subject)),
+    ).toEqual([
+      { subject: `${subject} instance`, result: "logged" },
+      { subject: `${subject} own`, result: "sent" },
+    ]);
   });
 
   it("keeps the stored secret on a save that leaves it out, only for the same provider", async () => {

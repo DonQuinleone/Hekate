@@ -1,4 +1,6 @@
 import { lookup } from "node:dns/promises";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
@@ -17,7 +19,7 @@ import { createTransport } from "nodemailer";
 import type { Keyring } from "./keyring.ts";
 import { createMailer, type Mailer, type Message, mailTransportOf } from "./mail.ts";
 import { openSecret, sealSecret } from "./secrets.ts";
-import { mayFetch, privateAddress } from "./sso.ts";
+import { privateAddress, publicLookup } from "./sso.ts";
 
 const { workspaceMail } = schema;
 
@@ -140,6 +142,64 @@ async function publicAddressOf(host: string, trusted: boolean): Promise<string> 
 }
 
 /**
+ * A `fetch` for an address a workspace gave (Mailcoach's): connected only to a public address
+ * (checked at the connection itself, so a name that turns private after a check is refused),
+ * an address given as a number checked too, no redirect followed, a megabyte of answer at most.
+ * Origins the operator trusts may be private.
+ */
+export function pinnedFetch(trusted: string[]): typeof fetch {
+  return (async (input: string | URL | Request, init: RequestInit = {}) => {
+    const target = new URL(input instanceof Request ? input.url : String(input));
+    const allowed = trusted.includes(target.origin);
+    if (target.protocol !== "https:" && !(allowed && target.protocol === "http:"))
+      throw new Error("Only https:// addresses are reached");
+    const host = target.hostname.replace(/^\[|\]$/g, "");
+    if (!allowed && isIP(host) && privateAddress(host))
+      throw new Error(`${host} is on a private network`);
+    const request = target.protocol === "https:" ? httpsRequest : httpRequest;
+    const body = typeof init.body === "string" ? init.body : undefined;
+    return new Promise<Response>((resolve, reject) => {
+      const req = request(
+        target,
+        {
+          method: init.method ?? "GET",
+          headers: {
+            ...(init.headers as Record<string, string> | undefined),
+            ...(body !== undefined ? { "content-length": String(Buffer.byteLength(body)) } : {}),
+          },
+          timeout: 20_000,
+          ...(init.signal ? { signal: init.signal } : {}),
+          ...(allowed ? {} : { lookup: publicLookup }),
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          let size = 0;
+          res.on("data", (chunk: Buffer) => {
+            size += chunk.length;
+            if (size > 1_000_000) req.destroy(new Error("The answer is too large"));
+            else chunks.push(chunk);
+          });
+          res.on("end", () => {
+            const status = res.statusCode ?? 0;
+            // A redirect is an answer like any other, never followed: Response cannot carry
+            // every status, so those outside its range read as 502.
+            resolve(
+              new Response(status === 204 || status === 304 ? null : Buffer.concat(chunks), {
+                status: status >= 200 && status <= 599 ? status : 502,
+              }),
+            );
+          });
+          res.on("error", reject);
+        },
+      );
+      req.on("timeout", () => req.destroy(new Error("Timed out")));
+      req.on("error", reject);
+      req.end(body);
+    });
+  }) as typeof fetch;
+}
+
+/**
  * The mailer a workspace's details come to. SMTP connects to the address it checked, never a
  * second lookup's, so a name that turns private between the two is refused; Mailcoach's
  * address must be public each time it is reached. Origins the operator trusts
@@ -181,18 +241,15 @@ export function workspaceMailer(
       verify: async () => (await transport()).verify(),
     };
   }
-  const guarded: typeof fetch = async (input, init) => {
-    const url = input instanceof Request ? input.url : String(input);
-    if (!(await mayFetch(url, trusted)))
-      throw new Error(`${new URL(url).host} is on a private network`);
-    return fetcher(input, init);
-  };
+  // Mailcoach is reached only through `pinnedFetch`: the address checked is the one connected
+  // to, and no redirect is followed. A test may give its own.
+  const reach = fetcher === fetch ? pinnedFetch(trusted) : fetcher;
   return createMailer({
     transport: mailTransportOf(
       Object.fromEntries(Object.entries(mailSettingsOf(mail)).map(([k, v]) => [k, v ?? undefined])),
     ),
     from: mail.from,
-    fetch: preset.transport === "mailcoach" ? guarded : fetcher,
+    fetch: preset.transport === "mailcoach" ? reach : fetcher,
   });
 }
 
@@ -233,28 +290,42 @@ export function routedMailer(deps: RoutedMailDeps): Mailer {
       const at = now();
       if (!organisationId || !row || (row.pausedUntil && row.pausedUntil > at))
         return deps.instance.send(message);
+      // Only the provider's answer decides: what the books say afterwards is written apart, so
+      // a failed write neither sends a message twice nor stops the instance standing in.
+      let refusal: unknown = null;
       try {
         await (await mailerOf(row)).send(message);
+      } catch (error) {
+        refusal = error;
+      }
+      const where = inOrg(workspaceMail, organisationId, eq(workspaceMail.id, row.id));
+      if (refusal === null) {
         await deps.db
           .update(workspaceMail)
           .set({ failures: 0, pausedUntil: null, lastSentAt: at })
-          .where(inOrg(workspaceMail, organisationId, eq(workspaceMail.id, row.id)));
-      } catch (error) {
-        const said = (error instanceof Error ? error.message : String(error)).slice(0, 500);
-        // Counted in one statement, so two failing at once both count.
-        await deps.db
-          .update(workspaceMail)
-          .set({
-            failures: sql`${workspaceMail.failures} + 1`,
-            lastError: said,
-            pausedUntil: sql`case when ${workspaceMail.failures} + 1 >= ${MAIL_PAUSE_AFTER}
-              then ${new Date(at.getTime() + MAIL_PAUSE_MINUTES * 60_000).toISOString()}::timestamptz
-              else ${workspaceMail.pausedUntil} end`,
-          })
-          .where(inOrg(workspaceMail, organisationId, eq(workspaceMail.id, row.id)));
-        console.warn(`Workspace mail refused a message; the instance's mail sends it: ${said}`);
-        await deps.instance.send(message);
+          .where(where)
+          .catch((error: unknown) =>
+            console.error("Could not note the workspace's mail as working:", error),
+          );
+        return "sent";
       }
+      const said = (refusal instanceof Error ? refusal.message : String(refusal)).slice(0, 500);
+      // Counted in one statement, so two failing at once both count.
+      await deps.db
+        .update(workspaceMail)
+        .set({
+          failures: sql`${workspaceMail.failures} + 1`,
+          lastError: said,
+          pausedUntil: sql`case when ${workspaceMail.failures} + 1 >= ${MAIL_PAUSE_AFTER}
+            then ${new Date(at.getTime() + MAIL_PAUSE_MINUTES * 60_000).toISOString()}::timestamptz
+            else ${workspaceMail.pausedUntil} end`,
+        })
+        .where(where)
+        .catch((error: unknown) =>
+          console.error("Could not count the workspace's mail failing:", error),
+        );
+      console.warn(`Workspace mail refused a message; the instance's mail sends it: ${said}`);
+      return deps.instance.send(message);
     },
     ...(deps.instance.verify ? { verify: deps.instance.verify } : {}),
   };
