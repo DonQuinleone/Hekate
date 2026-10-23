@@ -4,6 +4,7 @@ import {
   type Anchor,
   type ApprovalRule,
   analysisKey,
+  type BillingOverview,
   type Board,
   type CalendarEvent,
   type CaptionTrack,
@@ -53,6 +54,7 @@ import {
   type InstanceMemberRow,
   type InstanceNotice,
   type InstanceOverview,
+  type Plan as InstancePlan,
   type InstanceProjectRow,
   type InstanceSettings,
   type InstanceWorkspaceDetail,
@@ -83,6 +85,7 @@ import {
   type PatchRowInput,
   type Personnel,
   type PersonnelInput,
+  type PlanInput,
   type PlayerTool,
   type Preferences,
   type PrintedBar,
@@ -95,6 +98,8 @@ import {
   type ProjectStatus,
   type ProjectTemplate,
   type ProjectTransfer,
+  type PromoCode,
+  type PromoCodeInput,
   permissionsOfLevels,
   type QaFinding,
   type QaSettings,
@@ -170,6 +175,7 @@ import {
   type WorkspaceMail,
   type WorkspaceMailInput,
   type WorkspaceOperations,
+  type WorkspacePlan,
   type WorkspaceSettings,
   type WorkspaceSettingsInput,
   type WorkspaceState,
@@ -4373,6 +4379,109 @@ export function useWorkspaceLimits(id: string) {
     mutationFn: async (limits: WorkspaceLimits) =>
       json<WorkspaceUsage>(
         await api.instance.workspaces[":id"].limits.$put({ param: { id }, json: limits }),
+      ),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["instance"] }),
+  });
+}
+
+/** The instance's Billing overview (#180): what workspaces pay and owe. */
+export const instanceBillingQuery = queryOptions({
+  queryKey: ["instance", "billing", "overview"],
+  queryFn: async () => json<BillingOverview>(await api.instance.billing.overview.$get()),
+});
+
+/** The instance's plans (#177), for its operators. */
+export const instancePlansQuery = queryOptions({
+  queryKey: ["instance", "billing", "plans"],
+  queryFn: async () =>
+    json<{ plans: InstancePlan[]; billing: boolean }>(await api.instance.plans.$get()),
+});
+
+export function useSavePlan() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, input }: { id?: string; input: PlanInput }) =>
+      json<{ plans: InstancePlan[] }>(
+        id
+          ? await api.instance.plans[":id"].$put({ param: { id }, json: input })
+          : await api.instance.plans.$post({ json: input }),
+      ),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["instance"] }),
+  });
+}
+
+export function useRetirePlan() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await api.instance.plans[":id"].retire.$post({ param: { id } });
+      if (!res.ok) await json(res);
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: ["instance"] }),
+  });
+}
+
+/** The instance's promo codes (#178). */
+export const instancePromosQuery = queryOptions({
+  queryKey: ["instance", "billing", "promos"],
+  queryFn: async () => json<{ promos: PromoCode[] }>(await api.instance.promos.$get()),
+});
+
+export const promoUsesQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["instance", "billing", "promos", id, "uses"],
+    queryFn: async () =>
+      json<{
+        uses: {
+          workspace: { id: string; name: string };
+          plan: string | null;
+          status: "held" | "taken" | "released";
+          at: string;
+        }[];
+      }>(await api.instance.promos[":id"].uses.$get({ param: { id } })),
+  });
+
+export function useSavePromo() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, input }: { id?: string; input: PromoCodeInput }) =>
+      json<{ promo: PromoCode }>(
+        id
+          ? await api.instance.promos[":id"].$put({ param: { id }, json: input })
+          : await api.instance.promos.$post({ json: input }),
+      ),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["instance", "billing"] }),
+  });
+}
+
+export function useEndPromo() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) =>
+      json<{ promo: PromoCode }>(await api.instance.promos[":id"].end.$post({ param: { id } })),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["instance", "billing"] }),
+  });
+}
+
+/** An operator puts a workspace on a plan (#177, #180). */
+export function usePutWorkspacePlan(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { planId: string | null }) =>
+      json<WorkspacePlan>(
+        await api.instance.workspaces[":id"].plan.$put({ param: { id }, json: input }),
+      ),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["instance"] }),
+  });
+}
+
+/** Waive what a workspace owes (#180). */
+export function useWaive(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (reason: string) =>
+      json<{ voided: number; reinstated: boolean }>(
+        await api.instance.workspaces[":id"].waive.$post({ param: { id }, json: { reason } }),
       ),
     onSuccess: () => client.invalidateQueries({ queryKey: ["instance"] }),
   });

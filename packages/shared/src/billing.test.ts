@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { dunningDue, formatMoney, promoCodeInput, promoRefusal, promoSummary } from "./billing.ts";
+import {
+  dunningDue,
+  formatMoney,
+  minorUnits,
+  monthlyAmount,
+  promoCodeInput,
+  promoRefusal,
+  promoSummary,
+} from "./billing.ts";
 
 describe("dunning (#178)", () => {
   const since = new Date("2026-10-01T09:00:00Z");
@@ -28,6 +36,21 @@ describe("money", () => {
     expect(formatMoney(-2450, "GBP")).toBe("-£24.50");
     expect(formatMoney(4900, "JPY")).toBe("JP¥4,900");
     expect(formatMoney(19_000, "KWD")).toBe("KWD\u00a019.000");
+  });
+
+  it("reads an amount as typed in the currency's minor unit (#180)", () => {
+    expect(minorUnits("49", "GBP")).toBe(4900);
+    expect(minorUnits(" 1,180.5 ", "gbp")).toBe(118_050);
+    expect(minorUnits("4900", "JPY")).toBe(4900);
+    expect(minorUnits("19.000", "KWD")).toBe(19_000);
+    for (const bad of ["", "4.999", "-5", "£49", "49.5.0"])
+      expect(minorUnits(bad, "GBP")).toBeNull();
+    expect(minorUnits("49.5", "JPY")).toBeNull();
+  });
+
+  it("counts a yearly price as a month's share of it (#180)", () => {
+    expect(monthlyAmount({ amount: 4900, interval: "month" })).toBe(4900);
+    expect(monthlyAmount({ amount: 49_000, interval: "year" })).toBe(4083);
   });
 });
 

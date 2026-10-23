@@ -427,6 +427,11 @@ const screens: Screen[] = [
     path: () => "/instance/debug",
     ready: "main >> text=HK-7F3A-2C",
   },
+  {
+    name: "instance-billing",
+    path: () => "/instance/billing",
+    ready: "main >> text=HK-0003 overdue",
+  },
   { name: "members", path: () => "/settings/members", ready: "main >> text=Alex Rivera" },
   {
     name: "settings-general",
@@ -1140,6 +1145,41 @@ for (const [name, role, open, ready] of [
       .getByRole(role, { name: new RegExp(`^${open}`) })
       .first()
       .click();
+    await settle(page, ready);
+    await saveScreen(page, name);
+    await checkScreen(page);
+  });
+}
+
+// The instance's Billing (#180): its plans and promo codes, a plan open to edit, and a
+// workspace's plan being changed.
+for (const [name, steps, ready] of [
+  ["instance-billing-plans", ["tab:Plans"], "main >> text=support up to Emergency >> nth=0"],
+  ["instance-billing-promos", ["tab:Promo codes"], "main >> text=LAUNCH50"],
+  [
+    "instance-billing-plan-editor",
+    ["tab:Plans", "button:Actions for Studio", "menuitem:Edit limits and price…"],
+    "[role=dialog] >> text=Support requests marked",
+  ],
+  [
+    "instance-billing-change-plan",
+    ["button:Actions for Saltmarsh Films", "menuitem:Change plan…"],
+    "[role=dialog] >> text=Saltmarsh Films takes the plan's limits at once.",
+  ],
+  [
+    "instance-billing-waive",
+    ["button:Actions for Saltmarsh Films", "menuitem:Waive and reinstate…"],
+    "[role=dialog] >> text=Kept with the instance's events.",
+  ],
+] as const) {
+  test(name, async ({ page }) => {
+    await page.clock.setFixedTime(FIXED_TIME);
+    await page.goto("/instance/billing");
+    await settle(page, "main >> text=Monthly revenue");
+    for (const step of steps) {
+      const [role, label] = step.split(":") as ["tab" | "button" | "menuitem", string];
+      await page.getByRole(role, { name: label, exact: true }).first().click();
+    }
     await settle(page, ready);
     await saveScreen(page, name);
     await checkScreen(page);

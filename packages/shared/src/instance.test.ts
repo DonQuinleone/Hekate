@@ -17,7 +17,7 @@ describe("the instance side", () => {
   });
 
   it("shows owners their workspaces alone", () => {
-    expect(instanceSectionsFor({ operator: true })).toEqual([
+    expect(instanceSectionsFor({ operator: true, billing: false })).toEqual([
       "overview",
       "workspaces",
       "operators",
@@ -27,7 +27,9 @@ describe("the instance side", () => {
       "system",
       "settings",
     ]);
-    expect(instanceSectionsFor({ operator: false })).toEqual(["workspaces"]);
+    expect(instanceSectionsFor({ operator: false, billing: true })).toEqual(["workspaces"]);
+    // Billing, for operators, only where the instance charges (#180).
+    expect(instanceSectionsFor({ operator: true, billing: true })).toContain("billing");
   });
 
   it("makes an operator of an address", () => {

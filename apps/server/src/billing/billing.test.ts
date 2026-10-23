@@ -14,6 +14,7 @@ import {
   settleByHand,
   takeGatewayEvent,
 } from "./billing.ts";
+import { billingOverview, planByOperator, totals, waive } from "./overview.ts";
 import { endPromo, savePromo, usesOf } from "./promos.ts";
 import { type Stripe, StripeError, signStripeEvent } from "./stripe.ts";
 import { stripeGateway } from "./stripe-gateway.ts";
@@ -32,6 +33,7 @@ describe.runIf(url)("billing (#178)", () => {
   const invoices = new Map<string, Obj>();
   const customers = new Map<string, Obj>();
   const sessions = new Map<string, { status: string }>();
+  const payouts: Obj[] = [];
   const missing = () => {
     throw new StripeError(404, "No such object", "resource_missing");
   };
@@ -53,6 +55,13 @@ describe.runIf(url)("billing (#178)", () => {
       }
       const customer = /^\/v1\/customers\/(\w+)$/.exec(path)?.[1];
       if (customer && method === "GET") return (customers.get(customer) ?? missing()) as never;
+      const voiding = /^\/v1\/invoices\/(\w+)\/void$/.exec(path)?.[1];
+      if (voiding) {
+        const held = invoices.get(voiding) ?? missing();
+        held.status = "void";
+        return held as never;
+      }
+      if (path === "/v1/payouts") return { data: payouts } as never;
       const held = /^\/v1\/invoices\/(\w+)$/.exec(path)?.[1];
       if (held && method === "GET") return (invoices.get(held) ?? missing()) as never;
       const subscription = /^\/v1\/subscriptions\/(\w+)$/.exec(path)?.[1];
@@ -708,5 +717,209 @@ describe.runIf(url)("billing (#178)", () => {
       status: 409,
       code: "billing_unavailable",
     });
+  });
+
+  it("waives what a workspace owes: its invoices voided, dunning over, the workspace open (#180)", async () => {
+    const w = await workspace();
+    await checkedOut(w);
+    const failed = new Date("2026-09-01T09:00:00Z");
+    await send("invoice.payment_failed", invoice(w, "open", { due_date: 1_790_000_000 }), failed);
+    await send("customer.subscription.updated", subscribe(w, "past_due"), failed);
+    await runDunning(deps, new Date(failed.getTime() + 21 * day));
+    expect(await organisation(w.id)).toMatchObject({ suspendedReason: DUNNING_REASON });
+    const byHand = await invoiceByHand(db, w.id, {
+      amount: 12_000,
+      currency: "GBP",
+      description: "Mastering suite, October",
+      periodStart: null,
+      periodEnd: null,
+      dueAt: null,
+    });
+
+    const seen = await billingOverview(db, gateway, new Date(failed.getTime() + 22 * day));
+    expect(seen.workspaces.find((r) => r.id === w.id)).toMatchObject({
+      status: "past_due",
+      subscribed: true,
+      pastDueSince: failed.toISOString(),
+      overdue: { number: "INV-0412" },
+      dunningSuspended: true,
+    });
+
+    calls.length = 0;
+    expect(await waive(deps, w.id)).toEqual({ voided: 2, reinstated: true });
+    expect(calls.map(([m, p]) => `${m} ${p}`)).toContain(
+      `POST /v1/invoices/in_${w.customerId}/void`,
+    );
+    expect(await organisation(w.id)).toMatchObject({ suspendedAt: null, suspendedReason: null });
+    expect(await account(w.id)).toMatchObject({ pastDueSince: null, dunningStage: 0 });
+    expect(await planState(w.id)).toBe("active");
+    const statuses = await db
+      .select({ id: schema.invoices.id, status: schema.invoices.status })
+      .from(schema.invoices)
+      .where(inOrg(schema.invoices, w.id));
+    expect(statuses.map((i) => i.status)).toEqual(["void", "void"]);
+    expect(statuses.map((i) => i.id)).toContain(byHand.id);
+    // Nothing left to waive.
+    expect(await waive(deps, w.id).catch((e: unknown) => e)).toMatchObject({
+      status: 409,
+      code: "nothing_owed",
+    });
+  });
+
+  it("waives without reopening a workspace an operator suspended (#180)", async () => {
+    const w = await workspace();
+    await checkedOut(w);
+    await send("invoice.payment_failed", invoice(w, "open"));
+    await db
+      .update(schema.organisations)
+      .set({ suspendedAt: new Date(), suspendedReason: "Asked to pause" })
+      .where(eq(schema.organisations.id, w.id));
+    expect(await waive(deps, w.id)).toEqual({ voided: 1, reinstated: false });
+    expect(await organisation(w.id)).toMatchObject({ suspendedReason: "Asked to pause" });
+    expect(await account(w.id)).toMatchObject({ pastDueSince: null });
+  });
+
+  it("adds up what workspaces pay in a month, who is on trial and who owes (#180)", async () => {
+    const row = {
+      plan: { id: "p", name: "Studio" },
+      trialEndsAt: null,
+      renewsAt: null,
+      cancelsAt: null,
+      subscribed: true,
+      pastDueSince: null,
+      overdue: null,
+      dunningSuspended: false,
+    };
+    const month = { amount: 4900, currency: "GBP", interval: "month" as const };
+    expect(
+      totals([
+        { ...row, id: "a", name: "Endless Hall Records", status: "active", price: month },
+        {
+          ...row,
+          id: "b",
+          name: "Opening titles",
+          status: "active",
+          price: { amount: 49_000, currency: "GBP", interval: "year" },
+        },
+        {
+          ...row,
+          id: "c",
+          name: "Mill Lane",
+          status: "past_due",
+          price: month,
+          pastDueSince: "2026-10-01T00:00:00.000Z",
+        },
+        { ...row, id: "d", name: "Bristol Choir", status: "active", price: null },
+        {
+          ...row,
+          id: "e",
+          name: "Lantern Pictures",
+          status: "trial",
+          price: month,
+          trialEndsAt: "2026-11-04T00:00:00.000Z",
+        },
+        {
+          ...row,
+          id: "f",
+          name: "North Studio",
+          status: "active",
+          price: { amount: 5000, currency: "EUR", interval: "month" },
+          overdue: { number: "HK-0003", dueAt: "2026-09-20T00:00:00.000Z" },
+        },
+        { ...row, id: "g", name: "Unplanned", status: null, price: null, plan: null },
+      ]),
+    ).toEqual({
+      revenue: [
+        { currency: "GBP", amount: 4900 + 4083 + 4900, workspaces: 3 },
+        { currency: "EUR", amount: 5000, workspaces: 1 },
+      ],
+      paying: 5,
+      custom: 1,
+      trials: { count: 1, soonestEnd: "2026-11-04T00:00:00.000Z" },
+      overdue: { count: 2, longest: { name: "North Studio", since: "2026-09-20T00:00:00.000Z" } },
+    });
+  });
+
+  it("reads the next payout and this month's failed payments for the overview (#180)", async () => {
+    const at = new Date();
+    payouts.length = 0;
+    payouts.push(
+      {
+        amount: 22_000,
+        currency: "gbp",
+        arrival_date: Math.floor(at.getTime() / 1000) + 9 * 86_400,
+      },
+      {
+        amount: 118_000,
+        currency: "gbp",
+        arrival_date: Math.floor(at.getTime() / 1000) + 2 * 86_400,
+      },
+    );
+    const before = (await billingOverview(db, gateway, at)).failedPayments;
+    const w = await workspace();
+    await checkedOut(w);
+    await send("invoice.payment_failed", invoice(w, "open"), at);
+    const seen = await billingOverview(db, gateway, at);
+    expect(seen.failedPayments).toBe(before + 1);
+    expect(seen.nextPayout).toMatchObject({ amount: 118_000, currency: "GBP" });
+    // Those owing come first.
+    expect(seen.workspaces.findIndex((r) => r.id === w.id)).toBeLessThan(
+      seen.workspaces.findIndex((r) => !r.pastDueSince && !r.overdue && !r.dunningSuspended),
+    );
+    expect((await billingOverview(db, null, at)).nextPayout).toBeNull();
+  });
+
+  it("moves a workspace paying through the gateway on its subscription, never to a plan by agreement (#180)", async () => {
+    const w = await workspace();
+    await checkedOut(w);
+    const [label] = await db
+      .insert(schema.plans)
+      .values({
+        key: `label-${uuidv7().slice(-8)}`,
+        name: "Label",
+        priceAmount: 19_000,
+        interval: "month",
+        hidden: true,
+        features: [],
+        severities: [],
+      })
+      .returning();
+    const [agreed] = await db
+      .insert(schema.plans)
+      .values({ key: `house-${uuidv7().slice(-8)}`, name: "House", features: [], severities: [] })
+      .returning();
+    const put = (planId: string | null) =>
+      db.transaction((tx) =>
+        planByOperator(deps, tx, w.id, {
+          planId,
+          status: "active",
+          trialEndsAt: null,
+          renewsAt: null,
+        }),
+      );
+    calls.length = 0;
+    // A hidden plan is the operators' to give.
+    expect(await put(label?.id ?? "")).toEqual({ name: "Label" });
+    expect(calls.at(-1)?.[1]).toBe(`/v1/subscriptions/${w.subscriptionId}`);
+    expect(calls.at(-1)?.[2]).toMatchObject({ metadata: { planId: label?.id } });
+    for (const planId of [agreed?.id ?? "", null])
+      expect(await put(planId).catch((e: unknown) => e)).toMatchObject({
+        status: 409,
+        code: "subscribed",
+      });
+    // Without a subscription, only here.
+    const other = await workspace();
+    calls.length = 0;
+    expect(
+      await db.transaction((tx) =>
+        planByOperator(deps, tx, other.id, {
+          planId: agreed?.id ?? "",
+          status: "active",
+          trialEndsAt: null,
+          renewsAt: null,
+        }),
+      ),
+    ).toEqual({ name: "House" });
+    expect(calls).toHaveLength(0);
   });
 });

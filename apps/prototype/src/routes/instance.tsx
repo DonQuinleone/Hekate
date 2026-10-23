@@ -1383,7 +1383,7 @@ export function InstancePage({ section }: { section: string }) {
                         { label: "Issue a credit…", onSelect: () => {} },
                         { label: "Send the latest invoice", onSelect: () => {} },
                         "divider",
-                        { label: "Waive and reinstate", onSelect: () => {} },
+                        { label: "Waive and reinstate…", onSelect: () => {} },
                       ]}
                     />
                   </Row>
@@ -1448,7 +1448,7 @@ export function InstancePage({ section }: { section: string }) {
                       { label: "Duplicate", onSelect: () => {} },
                       { label: "Hide from new sign-ups", onSelect: () => {} },
                       "divider",
-                      { label: "Retire", danger: true, onSelect: () => {} },
+                      { label: "Retire…", danger: true, onSelect: () => {} },
                     ]}
                   />
                 </Row>
@@ -1501,7 +1501,7 @@ export function InstancePage({ section }: { section: string }) {
                       { label: "Edit…", onSelect: () => {} },
                       { label: "Who used it", onSelect: () => {} },
                       "divider",
-                      { label: "End now", danger: true, onSelect: () => {} },
+                      { label: "End now…", danger: true, onSelect: () => {} },
                     ]}
                   />
                 </Row>

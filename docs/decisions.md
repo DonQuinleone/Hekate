@@ -1455,3 +1455,12 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Paying while suspended.** A workspace dunning suspended (and only one dunning suspended) still lets its owners read what is owed and open the portal: two paths, still behind the session, second-factor and single sign-on checks. The suspended page tells them it was a payment, not the operators, and offers to pay. A workspace an operator suspended stays shut, billing included.
 - **Tabs scroll** sideways where they are wider than the page, which the Logs page's sixth tab made true on a phone.
 - **Expanding only:** two nullable columns (decision 198).
+
+## 214. The instance's Billing section: overview, plans and promo codes
+
+#180, the first part. With billing on, the instance side gains a Billing section, as the prototype has it; its Gateways and Reports tabs follow.
+
+- **One overview read.** The tiles and the workspaces are one read across workspaces, for operators only: each workspace's plan, its subscription, when it first owed and its oldest invoice past due. Revenue is the list price of the plans workspaces pay for, a yearly price as a twelfth, by currency; it is what the plans are worth, not what was collected, which the Reports tab will show. The next payout is asked of Stripe as the page opens, and the page shows without it.
+- **Waiving voids.** Waiving what a workspace owes voids its open invoices: at Stripe first, so nothing can collect them, then those by hand. Voiding (rather than marking uncollectible) settles them under either of Stripe's ways of deciding a subscription's status, so the subscription returns to active and its webhook agrees with what Hekate did. Dunning ends and a workspace it suspended opens again; one an operator suspended does not.
+- **An operator's plan change reaches the gateway.** Putting a workspace that pays through Stripe on another plan moves its subscription too, so Stripe bills what the workspace is on and the next webhook does not move it back. It cannot be put on a plan by agreement, or none, while that subscription runs.
+- **No new tables.** The plans and codes keep their routes from #177 and #178; the overview and waiving are reads and writes of what is there.

@@ -64,6 +64,15 @@ export function stripeGateway(options: {
     }
     return id;
   };
+  const invoiceAt = async (invoiceId: string) => {
+    const invoice = await gone(
+      stripe.request<Record<string, unknown>>("GET", `/v1/invoices/${invoiceId}`),
+    );
+    if (!invoice) return null;
+    const facts = invoiceFacts(invoice);
+    if (!facts) throw new Error(`Stripe's invoice ${invoiceId} cannot be read`);
+    return facts.invoice;
+  };
   const priceData = async (plan: PricedPlan) => ({
     currency: plan.price.currency.toLowerCase(),
     unit_amount: plan.price.amount,
@@ -155,14 +164,37 @@ export function stripeGateway(options: {
         proration_behavior: "create_prorations",
       });
     },
-    async invoice(invoiceId) {
-      const invoice = await gone(
-        stripe.request<Record<string, unknown>>("GET", `/v1/invoices/${invoiceId}`),
+    invoice: invoiceAt,
+    async voidInvoice(invoiceId) {
+      const now = await invoiceAt(invoiceId);
+      if (now?.status !== "open") return now;
+      const voided = await stripe.request<Record<string, unknown>>(
+        "POST",
+        `/v1/invoices/${invoiceId}/void`,
       );
-      if (!invoice) return null;
-      const facts = invoiceFacts(invoice);
-      if (!facts) throw new Error(`Stripe's invoice ${invoiceId} cannot be read`);
-      return facts.invoice;
+      return invoiceFacts(voided)?.invoice ?? null;
+    },
+    async nextPayout() {
+      const { data } = await stripe.request<{ data: Record<string, unknown>[] }>(
+        "GET",
+        "/v1/payouts",
+        { status: "pending", limit: 20 },
+      );
+      const [soonest] = data
+        .map((p) => ({
+          amount: num(p.amount),
+          currency: str(p.currency),
+          at: time(p.arrival_date),
+        }))
+        .filter((p) => p.amount !== null && p.currency && p.at)
+        .sort((a, b) => (a.at?.getTime() ?? 0) - (b.at?.getTime() ?? 0));
+      return soonest?.at
+        ? {
+            amount: soonest.amount ?? 0,
+            currency: (soonest.currency ?? "").toUpperCase(),
+            arrivesAt: soonest.at,
+          }
+        : null;
     },
     factOf: (payload) => stripeFact(payload as StripeEvent),
     async cancelAtPeriodEnd(subscriptionId, cancel) {
