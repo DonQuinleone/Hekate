@@ -130,6 +130,15 @@ function graphMailer(
   };
 }
 
+/** Plain text as HTML that reads the same: escaped, its line breaks kept. */
+export const htmlOfText = (text: string) =>
+  `<p>${text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/\n/g, "<br>")}</p>`;
+
 /** Mailcoach (#71): its transactional API, which keeps no copy of what Hekate sends. */
 function mailcoachMailer(
   transport: Extract<MailTransport, { kind: "mailcoach" }>,
@@ -160,7 +169,8 @@ function mailcoachMailer(
           to: message.to,
           subject: message.subject,
           text: message.text,
-          ...(message.html ? { html: message.html } : {}),
+          // Mailcoach takes a body only as HTML: a message with none is sent as its text.
+          html: message.html ?? htmlOfText(message.text),
           store: false,
         }),
         signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),

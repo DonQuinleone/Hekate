@@ -105,6 +105,16 @@ describe("mail providers (#71)", () => {
       "Bearer mc",
     );
     expect(JSON.parse(String(asked[0]?.init.body))).toEqual({ from, ...message, store: false });
+    // A message with no HTML, as the installer's test is, still has the body Mailcoach needs.
+    const { asked: plain, fetcher: plainFetch } = provider(new Response(null, { status: 204 }));
+    await createMailer({
+      transport: { kind: "mailcoach", url: "https://endlesshall.mailcoach.app", token: "mc" },
+      from,
+      fetch: plainFetch,
+    }).send({ to: message.to, subject: "Test", text: "Line one & <two>\nLine three" });
+    expect(JSON.parse(String(plain[0]?.init.body)).html).toBe(
+      "<p>Line one &amp; &lt;two&gt;<br>Line three</p>",
+    );
     const refusal = () =>
       new Response('{"message":"The from address is not verified"}', { status: 422 });
     const { fetcher: refusing } = provider(refusal(), refusal());
