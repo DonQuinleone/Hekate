@@ -38,10 +38,12 @@ import {
   operatorInput,
   operatorMoveInput,
   operatorParam as operatorParamSchema,
+  planInput,
   settingsChanges,
   suspendWorkspaceInput,
   WORKSPACE_DELETE_GRACE_DAYS,
   workspaceLimits,
+  workspacePlanInput,
   workspaceSettingsOf,
   workspaceStateOf,
 } from "@hekate/shared";
@@ -82,6 +84,7 @@ import { type JobName, type Jobs, jobDefinitions } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
 import { escapeLike, logCsv, readLog } from "../logs.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
+import { assignPlan, listPlans, savePlan, workspacePlanOf } from "../plans.ts";
 import { admit } from "../rate-limit.ts";
 import { signal } from "../signals.ts";
 import { type SystemHealthDeps, systemHealth } from "../system-health.ts";
@@ -692,6 +695,13 @@ export function instanceRoutes(options: InstanceOptions) {
           }),
         });
       })
+      // Its plan (#177): the internal plan without the billing module.
+      .get("/workspaces/:id/plan", idParam, async (c) => {
+        const id = await reachable(c.var.access, c.req.valid("param").id);
+        return c.json(
+          await workspacePlanOf(db, id, (options.environment.modules?.billing ?? "off") !== "off"),
+        );
+      })
       // Where its bytes are: originals and what was made from them, by backend.
       .get("/workspaces/:id/storage", idParam, async (c) => {
         const id = await reachable(c.var.access, c.req.valid("param").id);
@@ -957,6 +967,29 @@ export function instanceRoutes(options: InstanceOptions) {
         });
         return c.json(await workspaceUsageOf(db, id));
       })
+      // Its plan (#177), which sets its limits: only with the billing module on.
+      .put("/workspaces/:id/plan", idParam, zValidator("json", workspacePlanInput), async (c) => {
+        const { id } = c.req.valid("param");
+        if (!((options.environment.modules?.billing ?? "off") !== "off"))
+          throw new CodedException(
+            409,
+            "billing_off",
+            "Plans apply once the billing module is on (HEKATE_BILLING).",
+          );
+        const input = c.req.valid("json");
+        await db.transaction(async (tx) => {
+          const name = await workspaceName(tx, id);
+          const { name: plan } = await assignPlan(tx, id, input);
+          await recordInstanceEvent(tx, {
+            actorId: c.var.userId,
+            action: "workspace.plan",
+            target: name,
+            details: { organisationId: id, plan, status: input.status },
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+        });
+        return c.json(await workspacePlanOf(db, id, true));
+      })
       // Suspending keeps everything and lets nobody in: members are told why, guests' links stop.
       .post(
         "/workspaces/:id/suspend",
@@ -1065,6 +1098,66 @@ export function instanceRoutes(options: InstanceOptions) {
           });
         }
         return c.body(null, 204);
+      })
+      // Plans (#177): what workspaces can be on. Kept whether or not billing is on; they apply
+      // only while it is.
+      .use("/plans", operatorsOnly)
+      .use("/plans/*", operatorsOnly)
+      .get("/plans", async (c) =>
+        c.json({
+          plans: await listPlans(db),
+          billing: (options.environment.modules?.billing ?? "off") !== "off",
+        }),
+      )
+      .post("/plans", zValidator("json", planInput), async (c) => {
+        const input = c.req.valid("json");
+        await db.transaction(async (tx) => {
+          const made = await savePlan(tx, input);
+          await recordInstanceEvent(tx, {
+            actorId: c.var.userId,
+            action: "plan.created",
+            target: made?.name ?? input.name,
+            details: { planId: made?.id, key: input.key },
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+        });
+        return c.json({ plans: await listPlans(db) }, 201);
+      })
+      .put("/plans/:id", idParam, zValidator("json", planInput), async (c) => {
+        const { id } = c.req.valid("param");
+        const input = c.req.valid("json");
+        await db.transaction(async (tx) => {
+          const saved = await savePlan(tx, input, id);
+          if (!saved) throw new NotFound("Plan");
+          await recordInstanceEvent(tx, {
+            actorId: c.var.userId,
+            action: "plan.changed",
+            target: saved.name,
+            details: { planId: id },
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+        });
+        return c.json({ plans: await listPlans(db) });
+      })
+      // Retired: no workspace is put on it again; those on it stay until moved.
+      .post("/plans/:id/retire", idParam, async (c) => {
+        const { id } = c.req.valid("param");
+        await db.transaction(async (tx) => {
+          const [row] = await tx
+            .update(schema.plans)
+            .set({ retiredAt: new Date(), hidden: true, updatedAt: new Date() })
+            .where(and(eq(schema.plans.id, id), isNull(schema.plans.retiredAt)))
+            .returning({ name: schema.plans.name });
+          if (!row) throw new NotFound("Plan");
+          await recordInstanceEvent(tx, {
+            actorId: c.var.userId,
+            action: "plan.retired",
+            target: row.name,
+            details: { planId: id },
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+        });
+        return c.json({ plans: await listPlans(db) });
       })
       .use("/overview", operatorsOnly)
       .use("/operators", operatorsOnly)

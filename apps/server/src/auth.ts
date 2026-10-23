@@ -1,7 +1,7 @@
 import { passkey } from "@better-auth/passkey";
 import { sso } from "@better-auth/sso";
 import { type Database, schema } from "@hekate/db";
-import type { SessionFactor } from "@hekate/shared";
+import { entitled, notEntitledMessage, type SessionFactor } from "@hekate/shared";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware, getSessionFromCtx, isAPIError } from "better-auth/api";
@@ -15,6 +15,7 @@ import type { Keyring } from "./keyring.ts";
 import { waitMessage } from "./lockout.ts";
 import { type Mailer, sendEmail } from "./mail.ts";
 import { metrics } from "./metrics/index.ts";
+import { workspacePlanOf } from "./plans.ts";
 import {
   factorFor,
   hashedRecoveryCodes,
@@ -37,6 +38,8 @@ export interface AuthOptions {
   trustedOrigins?: string[];
   /** Workspace subdomains (#176): one session for the root and every workspace's host. */
   subdomains?: Subdomains | null;
+  /** The billing module is on: a workspace's plan decides what it may sign in with (#177). */
+  billing?: boolean;
   /** Relaxed limits for tests. */
   testing?: boolean;
   /** Sends the link that confirms a new email address; without it, addresses cannot change. */
@@ -155,7 +158,12 @@ export function createAuth(options: AuthOptions) {
           }),
       }),
       // A workspace's directory (LDAP): its username and password sign in.
-      directorySignIn({ db: options.db, keyring: options.keyring, audit: options.audit }),
+      directorySignIn({
+        db: options.db,
+        keyring: options.keyring,
+        audit: options.audit,
+        billing: options.billing ?? false,
+      }),
       // Passkeys and hardware security keys (WebAuthn): sign in on their own, or confirm a
       // password sign-in, for this instance's address only. The root's host is the relying
       // party, so a key made on any workspace's host works on the others too (#176).
@@ -223,6 +231,14 @@ export function createAuth(options: AuthOptions) {
             throw new APIError("BAD_REQUEST", {
               message: "That workspace does not sign in with single sign-on.",
             });
+          // On a plan without it (#177), it does not start.
+          const { entitlements } = await workspacePlanOf(
+            options.db,
+            provider.organisationId,
+            options.billing ?? false,
+          );
+          if (!entitled(entitlements, "sso"))
+            throw new APIError("FORBIDDEN", { message: notEntitledMessage("sso") });
           return {
             context: {
               body: {

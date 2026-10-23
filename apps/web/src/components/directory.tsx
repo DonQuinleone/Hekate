@@ -1,4 +1,4 @@
-import type { DirectorySettings } from "@hekate/shared";
+import { type DirectorySettings, notEntitledMessage } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { directoryQuery, useSaveDirectory, useTestDirectory } from "~/lib/queries";
@@ -19,6 +19,7 @@ export function DirectorySection() {
       key={JSON.stringify(data.directory)}
       saved={data.directory}
       workspace={data.workspace}
+      entitled={data.entitled}
     />
   );
 }
@@ -30,7 +31,16 @@ const groupsOf = (text: string) =>
     .map((g) => g.trim())
     .filter(Boolean);
 
-function DirectoryForm({ saved, workspace }: { saved: DirectorySettings; workspace: string }) {
+function DirectoryForm({
+  saved,
+  workspace,
+  entitled,
+}: {
+  saved: DirectorySettings;
+  workspace: string;
+  /** Whether the workspace's plan includes it (#177); one already on can still be turned off. */
+  entitled: boolean;
+}) {
   const save = useSaveDirectory();
   const test = useTestDirectory();
   const { hasBindPassword, ...initial } = saved;
@@ -78,8 +88,13 @@ function DirectoryForm({ saved, workspace }: { saved: DirectorySettings; workspa
       >
         <SwitchRow
           name="Sign in with the directory"
-          hint="Turned off, nobody new can join through it, and its members sign in with a password or passkey."
+          hint={
+            entitled
+              ? "Turned off, nobody new can join through it, and its members sign in with a password or passkey."
+              : notEntitledMessage("directory")
+          }
           checked={form.enabled}
+          disabled={!entitled && !form.enabled}
           onChange={(enabled) => set("enabled", enabled)}
         />
         <Row name="Server" hint="ldaps:// with its port; ldap:// only on a network you trust.">

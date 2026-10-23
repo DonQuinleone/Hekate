@@ -118,6 +118,7 @@ describe("tenancy", () => {
       "works",
       "workspace_mail",
       "workspace_mail_suppressions",
+      "workspace_plans",
       "workspace_usage",
     ]);
     for (const table of tenantTables) {

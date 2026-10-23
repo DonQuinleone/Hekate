@@ -33,6 +33,7 @@ import {
   type NotificationMail,
   notificationKinds,
   type OverviewSection,
+  type PlanFeature,
   type PlayerTool,
   type PrintedBar,
   type ProfileRef,
@@ -53,6 +54,7 @@ import {
   type SessionFactor,
   type SsoProtocol,
   type StandingGrant,
+  type SupportSeverity,
   scheduleRowKinds,
   type TaskEventDetail,
   type TaskEventKind,
@@ -65,6 +67,7 @@ import {
   type WorkflowEffect,
   type WorkflowRun,
   type WorkflowStatus,
+  type WorkspacePlanStatus,
 } from "@hekate/shared";
 import { type SQL, sql } from "drizzle-orm";
 import {
@@ -168,6 +171,8 @@ export const organisations = pgTable("organisations", {
    */
   storageQuota: bigint("storage_quota", { mode: "number" }),
   memberLimit: integer("member_limit"),
+  /** Projects (#177), the same way: from its plan, or an operator. */
+  projectLimit: integer("project_limit"),
   ...timestamps,
 });
 
@@ -2459,6 +2464,50 @@ export const storageReconciliations = pgTable(
     removing: boolean("removing").notNull(),
   },
   (t) => [index("storage_reconciliations_started_idx").on(t.startedAt)],
+);
+
+/**
+ * What a workspace may be on (#177): its price, its limits, the features it includes and the
+ * support severities it unlocks. The instance's, not any workspace's.
+ */
+export const plans = pgTable("plans", {
+  id: id(),
+  key: text("key").notNull().unique(),
+  name: text("name").notNull(),
+  /** In the currency's minor unit; null for a plan by agreement. */
+  priceAmount: integer("price_amount"),
+  currency: text("currency").notNull().default("GBP"),
+  interval: text("interval").$type<"month" | "year">(),
+  storageQuota: bigint("storage_quota", { mode: "number" }),
+  memberLimit: integer("member_limit"),
+  projectLimit: integer("project_limit"),
+  features: jsonb("features").$type<PlanFeature[]>().notNull().default([]),
+  severities: jsonb("severities").$type<SupportSeverity[]>().notNull().default([]),
+  /** Kept from new workspaces' choices; those already on it stay. */
+  hidden: boolean("hidden").notNull().default(false),
+  retiredAt: timestamp("retired_at", { withTimezone: true }),
+  position: integer("position").notNull().default(0),
+  ...timestamps,
+});
+
+/**
+ * The plan a workspace is on (#177), and where it stands. None is the internal plan, which
+ * limits nothing and includes everything; without the billing module every workspace is on it.
+ */
+export const workspacePlans = pgTable(
+  "workspace_plans",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => plans.id, { onDelete: "restrict" }),
+    status: text("status").$type<WorkspacePlanStatus>().notNull().default("active"),
+    trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+    renewsAt: timestamp("renews_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("workspace_plans_organisation_idx").on(t.organisationId)],
 );
 
 /**

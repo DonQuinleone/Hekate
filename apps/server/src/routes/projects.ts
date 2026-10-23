@@ -25,6 +25,7 @@ import { assertProfileRef } from "../delivery-profiles.ts";
 import { NotFound } from "../errors.ts";
 import { projectFigures } from "../project-figures.ts";
 import type { TenantVariables } from "../tenancy.ts";
+import { assertProjectRoom } from "../usage.ts";
 import { categoriesOf, seedCategories } from "./categories.ts";
 import { deletionView } from "./project-deletion.ts";
 import { copyCategories, templateFor } from "./templates.ts";
@@ -183,6 +184,8 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
             ],
           }));
       const project = await db.transaction(async (tx) => {
+        // Room under the workspace's project limit (#177), as it is made.
+        await assertProjectRoom(tx, organisationId);
         const [created] = await tx
           .insert(projects)
           .values({

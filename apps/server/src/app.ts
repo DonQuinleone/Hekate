@@ -58,6 +58,7 @@ import { organisationRoutes } from "./routes/organisation.ts";
 import { projectOverviewRoutes } from "./routes/overview.ts";
 import { patchRowRoutes, projectPatchRoutes, stageBoxRoutes } from "./routes/patch.ts";
 import { personnelRoutes, projectPersonnelRoutes } from "./routes/personnel.ts";
+import { planRoutes } from "./routes/plan.ts";
 import { fileRoutes, playRoutes } from "./routes/playback.ts";
 import { projectAccessRoutes } from "./routes/project-access.ts";
 import { projectDeletionRoutes } from "./routes/project-deletion.ts";
@@ -338,7 +339,13 @@ export function createApi(deps: AppDeps) {
       .use("/organisation/*", ...member)
       .route(
         "/organisation/directory",
-        directoryRoutes(deps.db, deps.keyring, deps.audit, deps.trustProxy ?? false),
+        directoryRoutes(
+          deps.db,
+          deps.keyring,
+          deps.audit,
+          deps.trustProxy ?? false,
+          (deps.modules?.billing ?? "off") !== "off",
+        ),
       )
       .route(
         "/organisation/sso",
@@ -346,8 +353,10 @@ export function createApi(deps: AppDeps) {
           baseURL: deps.publicUrl,
           trusted: deps.ssoTrustedOrigins ?? [],
           trustProxy: deps.trustProxy ?? false,
+          billing: (deps.modules?.billing ?? "off") !== "off",
         }),
       )
+      .route("/organisation/plan", planRoutes(deps.db, (deps.modules?.billing ?? "off") !== "off"))
       .route(
         "/organisation/channels",
         channelRoutes({

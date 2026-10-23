@@ -1416,6 +1416,196 @@ describe.runIf(url)("api", () => {
         });
       });
 
+      describe("plans and entitlements (#177)", () => {
+        const billed = createApp({
+          db,
+          auth,
+          mailer,
+          storage,
+          audit,
+          jobs,
+          keyring,
+          playbackSecret: playbackSecret("test-secret-test-secret-test-secret-0"),
+          publicUrl: "http://localhost:3000",
+          log: false,
+          operatorSecurityKey: false,
+          modules: {
+            billing: "manual",
+            support: "off",
+            docsUrl: "https://docs.hekate.studio",
+            statusUrl: null,
+          },
+        });
+        const call = (method: string, path: string, body: unknown, cookie: string) =>
+          billed.request(path, { ...json(body, cookie), method });
+        const studio = async () =>
+          (
+            await db
+              .select({ id: schema.organisations.id })
+              .from(schema.organisations)
+              .where(eq(schema.organisations.name, "Studio"))
+          )[0]?.id ?? "";
+        const plan = {
+          key: "Studio",
+          name: "Studio",
+          price: { amount: 4900, currency: "gbp", interval: "month" },
+          storageQuota: 1e12,
+          memberLimit: 25,
+          projectLimit: 1,
+          features: ["directory"],
+          severities: ["low", "normal"],
+        };
+        type Plans = { plans: { id: string; key: string; workspaces: number }[]; billing: boolean };
+        const project = (name: string, cookie: string) =>
+          billed.request("/api/projects", json({ name, profile: "music" }, cookie));
+        // Plans belong to the instance, not a workspace: each test starts with none.
+        beforeEach(async () => {
+          await db.delete(schema.plans);
+        });
+
+        it("are kept by operators, and apply only with the billing module on", async () => {
+          const operator = cookieOf(await setup());
+          const id = await studio();
+          const admin = await join(operator, "admin@example.test", "admin");
+          expect((await call("POST", "/api/instance/plans", plan, admin)).status).toBe(403);
+          const made = await call("POST", "/api/instance/plans", plan, operator);
+          expect(made.status).toBe(201);
+          const { plans } = (await made.json()) as Plans;
+          expect(plans).toEqual([
+            expect.objectContaining({
+              key: "studio",
+              price: { amount: 4900, currency: "GBP", interval: "month" },
+              workspaces: 0,
+            }),
+          ]);
+          const planId = plans[0]?.id ?? "";
+          const taken = await call("POST", "/api/instance/plans", plan, operator);
+          expect(taken.status).toBe(409);
+          expect(await taken.json()).toMatchObject({ error: { code: "plan_key_taken" } });
+
+          // Without billing, a workspace cannot be put on one, and is on the internal plan.
+          const off = await send(
+            "PUT",
+            `/api/instance/workspaces/${id}/plan`,
+            { planId },
+            operator,
+          );
+          expect(off.status).toBe(409);
+          expect(await off.json()).toMatchObject({ error: { code: "billing_off" } });
+          const internal = await get("/api/organisation/plan", operator, app);
+          expect(await internal.json()).toMatchObject({
+            plan: null,
+            entitlements: { features: ["sso", "directory", "forensicMarking", "namedOperator"] },
+          });
+
+          // With it, only an operator puts it on one.
+          const assign = (body: unknown, cookie = operator) =>
+            call("PUT", `/api/instance/workspaces/${id}/plan`, body, cookie);
+          expect((await assign({ planId }, admin)).status).toBe(403);
+          const on = await assign({ planId, status: "trial", trialEndsAt: "2026-11-23T00:00:00Z" });
+          expect(on.status).toBe(200);
+          expect(await on.json()).toMatchObject({
+            plan: { key: "studio", name: "Studio" },
+            status: "trial",
+            trialEndsAt: "2026-11-23T00:00:00.000Z",
+          });
+          const [event] = await db
+            .select()
+            .from(schema.instanceEvents)
+            .where(eq(schema.instanceEvents.action, "workspace.plan"));
+          expect(event).toMatchObject({ target: "Studio", details: { plan: "Studio" } });
+          // Its members read what it is on, from the workspace's side.
+          const theirs = await get("/api/organisation/plan", admin, billed);
+          expect(await theirs.json()).toMatchObject({
+            plan: { key: "studio" },
+            entitlements: { projectLimit: 1, features: ["directory"] },
+          });
+        });
+
+        it("copy their limits to the workspaces on them, and leave out what they do not include", async () => {
+          const operator = cookieOf(await setup());
+          const id = await studio();
+          const { plans } = (await (
+            await call("POST", "/api/instance/plans", plan, operator)
+          ).json()) as Plans;
+          const planId = plans[0]?.id ?? "";
+          const assign = (body: unknown) =>
+            call("PUT", `/api/instance/workspaces/${id}/plan`, body, operator);
+          expect((await assign({ planId })).status).toBe(200);
+          const [limits] = await db
+            .select({
+              storageQuota: schema.organisations.storageQuota,
+              memberLimit: schema.organisations.memberLimit,
+              projectLimit: schema.organisations.projectLimit,
+            })
+            .from(schema.organisations)
+            .where(eq(schema.organisations.id, id));
+          expect(limits).toEqual({ storageQuota: 1e12, memberLimit: 25, projectLimit: 1 });
+
+          // One project fills a plan of one.
+          expect((await project("Joplin Rags", operator)).status).toBe(201);
+          const full = await project("Opening titles", operator);
+          expect(full.status).toBe(409);
+          expect(await full.json()).toMatchObject({
+            error: {
+              code: "project_limit",
+              message: expect.stringMatching(/^Project limit reached: 1 of 1\./),
+            },
+          });
+          // Changing the plan changes every workspace on it.
+          const changed = await call(
+            "PUT",
+            `/api/instance/plans/${planId}`,
+            { ...plan, projectLimit: 2 },
+            operator,
+          );
+          expect(changed.status).toBe(200);
+          expect((await project("Opening titles", operator)).status).toBe(201);
+
+          // Single sign-on is not on it: shown as such, and refused when turned on.
+          const sso = await get("/api/organisation/sso", operator, billed);
+          expect(await sso.json()).toMatchObject({ entitled: false });
+          const refused = await call(
+            "PUT",
+            "/api/organisation/sso",
+            {
+              enabled: true,
+              protocol: "saml",
+              issuer: "",
+              clientId: "",
+              entryPoint: "https://idp.example.com/saml/sso",
+              idpEntityId: "https://idp.example.com/one",
+              certificate: "MIIBexample",
+              groupsClaim: "groups",
+              roles: [],
+              enforce: false,
+            },
+            operator,
+          );
+          expect(refused.status).toBe(403);
+          expect(await refused.json()).toMatchObject({
+            error: {
+              code: "not_entitled",
+              message: "Single sign-on is not on this workspace's plan.",
+            },
+          });
+          expect(
+            await (await get("/api/organisation/directory", operator, billed)).json(),
+          ).toMatchObject({ entitled: true });
+
+          // Retired, nobody is put on it again; back on the internal plan, nothing is limited.
+          expect(
+            (await call("POST", `/api/instance/plans/${planId}/retire`, {}, operator)).status,
+          ).toBe(200);
+          const retired = await assign({ planId });
+          expect(retired.status).toBe(409);
+          expect(await retired.json()).toMatchObject({ error: { code: "plan_retired" } });
+          const back = await assign({ planId: null });
+          expect(await back.json()).toMatchObject({ plan: null });
+          expect((await project("Bristol sessions", operator)).status).toBe(201);
+        });
+      });
+
       it("adds and removes operators, but never the last", async () => {
         const first = cookieOf(await setup());
         await join(first, "ops@example.test");

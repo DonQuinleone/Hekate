@@ -1,4 +1,9 @@
-import type { SsoProtocol, SsoServiceProvider, SsoSettings } from "@hekate/shared";
+import {
+  notEntitledMessage,
+  type SsoProtocol,
+  type SsoServiceProvider,
+  type SsoSettings,
+} from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { ssoQuery, useSaveSso } from "~/lib/queries";
@@ -20,6 +25,7 @@ export function SsoSection() {
       key={JSON.stringify(data.sso)}
       saved={data.sso}
       serviceProvider={data.serviceProvider}
+      entitled={data.entitled}
     />
   );
 }
@@ -49,9 +55,12 @@ function Given({ name, value }: { name: string; value: string }) {
 function SsoForm({
   saved,
   serviceProvider,
+  entitled,
 }: {
   saved: SsoSettings;
   serviceProvider: SsoServiceProvider;
+  /** Whether the workspace's plan includes it (#177); one already on can still be turned off. */
+  entitled: boolean;
 }) {
   const save = useSaveSso();
   const { hasClientSecret, ...initial } = saved;
@@ -82,8 +91,13 @@ function SsoForm({
       >
         <SwitchRow
           name="Sign in with single sign-on"
-          hint="Turned off, nobody new can join through it, and its members sign in with a password or passkey."
+          hint={
+            entitled
+              ? "Turned off, nobody new can join through it, and its members sign in with a password or passkey."
+              : notEntitledMessage("sso")
+          }
           checked={form.enabled}
+          disabled={!entitled && !form.enabled}
           onChange={(enabled) => set("enabled", enabled)}
         />
         <Row name="Provider">

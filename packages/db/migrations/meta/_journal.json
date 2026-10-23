@@ -862,6 +862,13 @@
       "when": 1792744811666,
       "tag": "0122_workspace_usage",
       "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1792759539057,
+      "tag": "0123_plans",
+      "breakpoints": true
     }
   ]
 }
