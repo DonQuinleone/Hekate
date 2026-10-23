@@ -156,17 +156,19 @@ export function TokensSection({ kind }: { kind: ApiTokenKind }) {
   );
 }
 
-/** The scopes to choose from, each with what it allows. */
-function ScopeChoices({
+/** The scopes to choose from, each with what it allows: a token's, or an OAuth client's (#447). */
+export function ScopeChoices({
   value,
   onChange,
+  legend = "Scopes",
 }: {
   value: ApiScope[];
   onChange: (scopes: ApiScope[]) => void;
+  legend?: string;
 }) {
   return (
     <fieldset className="flex min-w-0 flex-col gap-2 text-[13px] text-ink-2">
-      <legend className="mb-1.5">Scopes</legend>
+      <legend className="mb-1.5">{legend}</legend>
       {apiScopes.map((s) => (
         <label key={s} className="flex cursor-pointer items-start gap-2.5">
           <Checkbox

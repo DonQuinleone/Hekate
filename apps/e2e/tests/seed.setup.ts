@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, type Page, test as setup } from "@playwright/test";
@@ -1328,6 +1329,68 @@ setup("seed", async ({ page, browser }) => {
     expect(call.status(), `${method} ${path}`).toBe(method === "POST" ? 403 : 200);
   }
 
+  // OAuth (#447): a chat integration the owner connected, a desktop tool nobody has yet, and a
+  // delivery service whose consent screen waits for the owner's answer.
+  type MadeClient = { client: { clientId: string }; secret: string | null };
+  const slackCallback = "https://slack.endlesshall.example/oauth/callback";
+  const slack = await api<MadeClient>(page, "POST", "/api/organisation/oauth-clients", {
+    name: "Hekate for Slack",
+    kind: "confidential",
+    redirectUris: [slackCallback],
+    scopes: ["reviews:read", "comments"],
+  });
+  await api(page, "POST", "/api/organisation/oauth-clients", {
+    name: "Hekate for Logic Pro",
+    kind: "public",
+    redirectUris: ["hekate-logic://callback", "http://127.0.0.1/callback"],
+    scopes: ["files:write", "comments"],
+  });
+  const deliveries = await api<MadeClient>(page, "POST", "/api/organisation/oauth-clients", {
+    name: "Lantern Deliveries",
+    kind: "confidential",
+    redirectUris: ["https://deliveries.lantern.example/hekate/callback"],
+    scopes: ["files:read", "downloads"],
+  });
+  const verifier = "endless-hall-seed-verifier-".padEnd(64, "0");
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  const asked = {
+    response_type: "code",
+    client_id: slack.client.clientId,
+    redirect_uri: slackCallback,
+    scope: "reviews:read comments",
+    state: "seed",
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+  };
+  const { redirect: back } = await api<{ redirect: string }>(page, "POST", "/api/oauth/authorize", {
+    ...asked,
+    approve: true,
+  });
+  const exchanged = await page.request.fetch("/api/oauth/token", {
+    method: "POST",
+    form: {
+      grant_type: "authorization_code",
+      code: new URL(back).searchParams.get("code") ?? "",
+      redirect_uri: slackCallback,
+      code_verifier: verifier,
+      client_id: slack.client.clientId,
+      client_secret: slack.secret ?? "",
+    },
+  });
+  expect(exchanged.status(), await exchanged.text()).toBe(200);
+  const { access_token: slackToken } = (await exchanged.json()) as { access_token: string };
+  const slackCall = await page.request.fetch(`/api/projects/${music.id}/reviews`, {
+    headers: { authorization: `Bearer ${slackToken}` },
+  });
+  expect(slackCall.status()).toBe(200);
+  const consentPath = `/oauth/authorize?${new URLSearchParams({
+    ...asked,
+    client_id: deliveries.client.clientId,
+    redirect_uri: "https://deliveries.lantern.example/hekate/callback",
+    scope: "files:read downloads",
+    state: "lantern",
+  }).toString()}`;
+
   // The same moment for every run, so dates and "ago" read the same in every capture.
   const sql = postgres(process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL ?? "", {
     onnotice: () => undefined,
@@ -1703,6 +1766,8 @@ setup("seed", async ({ page, browser }) => {
     await sql`update api_tokens set last_used_at = ${at(-26)} where name = 'Logic Pro export'`;
     await sql`update api_tokens set last_used_at = ${at(-41 * 24)}, expires_at = ${at(-13 * 24)}
       where name = 'Old laptop'`;
+    // Slack's last call for the owner (#447), three hours ago.
+    await sql`update api_tokens set last_used_at = ${at(-3)} where kind = 'oauth'`;
 
     const columns = await sql<{ table_name: string; column_name: string }[]>`
       select table_name, column_name from information_schema.columns
@@ -1769,6 +1834,7 @@ setup("seed", async ({ page, browser }) => {
     printFileId: booklet("Print files"),
     signOffId: signOff.id,
     brandLogo,
+    consentPath,
   };
   writeFileSync(join(state, "seeded.json"), JSON.stringify(seeded, null, 2));
   await page.context().storageState({ path: join(state, "owner.json") });

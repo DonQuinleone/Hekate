@@ -199,6 +199,25 @@ const screens: Screen[] = [
     path: () => "/account/tokens",
     ready: "main >> text=Logic Pro export",
   },
+  // Connected apps (#447): Slack, connected by the owner, with what it may do.
+  {
+    name: "account-apps",
+    path: () => "/account/apps",
+    ready: "main >> text=Hekate for Slack",
+  },
+  // The consent screen (#447): a delivery service asks the owner for access.
+  {
+    name: "oauth-consent",
+    path: (s) => s.consentPath,
+    ready: "text=Connect Lantern Deliveries",
+  },
+  // A request the consent screen refuses: an application that is not registered here.
+  {
+    name: "oauth-consent-refused",
+    path: () =>
+      "/oauth/authorize?response_type=code&client_id=hk_cli_AAAAAAAAAAAAAAAAAAAAAA&redirect_uri=https%3A%2F%2Fapp.example%2Fcb",
+    ready: "text=This application cannot connect",
+  },
   {
     name: "project-overview",
     path: (s) => `/projects/${s.musicProjectId}`,
@@ -1461,6 +1480,36 @@ test("account-token-new", async ({ page }) => {
   await page.getByRole("button", { name: "Token", exact: true }).click();
   await settle(page, "[role=dialog] >> text=Pick the least it needs.");
   await saveScreen(page, "account-token-new");
+  await checkScreen(page);
+});
+
+// OAuth clients (#447): a new client's editor, opened, not saved; then who has connected the
+// Slack integration.
+test("settings-oauth-clients", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto("/settings/api");
+  await settle(page, "main >> text=Hekate for Slack");
+  await page.getByRole("button", { name: "Client", exact: true }).click();
+  await settle(page, "[role=dialog] >> text=Scopes it may ask for");
+  await saveScreen(page, "settings-oauth-client-new");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Actions for Hekate for Slack" }).click();
+  await page.getByRole("menuitem", { name: "Who has connected" }).click();
+  await settle(page, "[role=dialog] [data-connections] >> text=Mira Solberg");
+  await saveScreen(page, "settings-oauth-connections");
+  await checkScreen(page);
+});
+
+// What a connected app may do (#447), from its menu in Account.
+test("account-app-scopes", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto("/account/apps");
+  await settle(page, "main >> text=Hekate for Slack");
+  await page.getByRole("button", { name: "Actions for Hekate for Slack" }).click();
+  await page.getByRole("menuitem", { name: "What it may do…" }).click();
+  await settle(page, "[role=dialog] >> text=reviews:read");
+  await saveScreen(page, "account-app-scopes");
   await checkScreen(page);
 });
 

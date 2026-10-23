@@ -17,6 +17,24 @@ export const oauthClientKindLabels: Record<OAuthClientKind, string> = {
   public: "Public (PKCE)",
 };
 
+/** What each scope lets an application do, in a few words, as a connected app's row says it. */
+export const apiScopeShortLabels: Record<ApiScope, string> = {
+  "files:read": "read files",
+  "files:write": "upload and change files",
+  "reviews:read": "read reviews",
+  "reviews:write": "request reviews and decide",
+  comments: "read and write comments",
+  downloads: "download originals",
+  workflows: "run workflows",
+  "org:read": "read the workspace's settings",
+};
+
+/** What an application may do, as one phrase: "Read reviews, read and write comments". */
+export function scopePhrase(scopes: readonly ApiScope[]): string {
+  const words = scopes.map((s) => apiScopeShortLabels[s]).join(", ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 /** How many clients one workspace may register. */
 export const OAUTH_CLIENT_LIMIT = 50;
 /** Redirect addresses one client may have. */
