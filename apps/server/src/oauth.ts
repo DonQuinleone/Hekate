@@ -27,13 +27,14 @@ import { hashApiToken, newApiToken } from "./api-tokens.ts";
  * OAuth 2.1 (#447, decision 225): the authorisation code flow with PKCE for confidential and
  * public clients, refresh tokens used once, and revocation. An application's access token is an
  * API token of the `oauth` kind, so the middleware that takes members' tokens takes it too:
- * the same scopes, limits and API log. Every credential is stored as a SHA-256 hash.
+ * the same scopes, limits and API log. Every credential is stored only as a hash.
  */
 
 const { apiTokens, oauthClients, oauthCodes, oauthGrants, oauthRefreshTokens, organisations } =
   schema;
 
-export const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
+/** A credential's hash, as API tokens are hashed: each is 32 random bytes, found by its hash. */
+const credentialHash = hashApiToken;
 
 /** Two hashes compared in constant time. */
 export function sameHash(a: string, b: string): boolean {
@@ -52,7 +53,7 @@ export function newClientCredentials(kind: OAuthClientKind) {
 
 export function newClientSecret() {
   const secret = secretOf(oauthPrefixes.clientSecret);
-  return { secret, secretHash: sha256(secret), secretHint: oauthHint(secret) };
+  return { secret, secretHash: credentialHash(secret), secretHint: oauthHint(secret) };
 }
 
 /** The PKCE challenge of a verifier (S256): its SHA-256 in base64url. */
@@ -235,7 +236,8 @@ export async function authenticateClient(
   const client = await clientByClientId(db, clientId);
   if (!client) return refused;
   if (client.kind === "public") return secret === undefined ? { client } : refused;
-  if (!secret || !client.secretHash || !sameHash(sha256(secret), client.secretHash)) return refused;
+  if (!secret || !client.secretHash || !sameHash(credentialHash(secret), client.secretHash))
+    return refused;
   return { client };
 }
 
@@ -323,7 +325,7 @@ async function issueTokens(
     await tx.insert(oauthRefreshTokens).values({
       organisationId: grant.organisationId,
       grantId: grant.id,
-      tokenHash: sha256(refresh),
+      tokenHash: credentialHash(refresh),
       scopes: refreshScopes,
       expiresAt: new Date(now.getTime() + OAUTH_REFRESH_SECONDS * 1000),
     });
@@ -363,7 +365,7 @@ export async function exchangeCode(
       inOrg(
         oauthCodes,
         org,
-        eq(oauthCodes.codeHash, sha256(input.code)),
+        eq(oauthCodes.codeHash, credentialHash(input.code)),
         eq(oauthGrants.clientId, client.id),
       ),
     );
@@ -411,7 +413,7 @@ export async function refreshTokens(
       inOrg(
         oauthRefreshTokens,
         org,
-        eq(oauthRefreshTokens.tokenHash, sha256(input.refresh_token)),
+        eq(oauthRefreshTokens.tokenHash, credentialHash(input.refresh_token)),
         eq(oauthGrants.clientId, client.id),
       ),
     );
@@ -498,7 +500,7 @@ export async function revokeToken(
         inOrg(
           oauthRefreshTokens,
           org,
-          eq(oauthRefreshTokens.tokenHash, sha256(token)),
+          eq(oauthRefreshTokens.tokenHash, credentialHash(token)),
           eq(oauthGrants.clientId, client.id),
         ),
       );
@@ -517,7 +519,7 @@ export async function issueCode(
   await db.insert(oauthCodes).values({
     organisationId: grant.organisationId,
     grantId: grant.id,
-    codeHash: sha256(code),
+    codeHash: credentialHash(code),
     redirectUri: checked.redirectUri,
     scopes: checked.scopes,
     codeChallenge: checked.challenge,
