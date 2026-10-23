@@ -4,7 +4,9 @@ import {
   type Anchor,
   type ApprovalRule,
   analysisKey,
+  type BillingGatewayStatus,
   type BillingOverview,
+  type BillingReports,
   type Board,
   type CalendarEvent,
   type CaptionTrack,
@@ -4389,6 +4391,30 @@ export const instanceBillingQuery = queryOptions({
   queryKey: ["instance", "billing", "overview"],
   queryFn: async () => json<BillingOverview>(await api.instance.billing.overview.$get()),
 });
+
+/** How the instance takes payment (#180): the gateway's account, its webhook's health. */
+export const instanceGatewayQuery = queryOptions({
+  queryKey: ["instance", "billing", "gateway"],
+  queryFn: async () => json<BillingGatewayStatus>(await api.instance.billing.gateway.$get()),
+});
+
+/** The instance's Billing reports (#180), in its currency. */
+export const instanceReportsQuery = queryOptions({
+  queryKey: ["instance", "billing", "reports"],
+  queryFn: async () => json<BillingReports>(await api.instance.billing.reports.$get()),
+});
+
+/** Save the instance's settings whole, as the Settings page and billing's rules do. */
+export function useSaveInstanceSettings() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (next: InstanceSettings) =>
+      json<{ settings: InstanceSettings; environment: InstanceEnvironment }>(
+        await api.instance.settings.$put({ json: next }),
+      ),
+    onSuccess: (next) => client.setQueryData(instanceOwnSettingsQuery.queryKey, next),
+  });
+}
 
 /** The instance's plans (#177), for its operators. */
 export const instancePlansQuery = queryOptions({

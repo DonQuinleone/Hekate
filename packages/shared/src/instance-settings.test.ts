@@ -40,6 +40,11 @@ describe("instance settings", () => {
         maintenance: { on: false, message: "" },
         defaults: { guestLinkDays: 14, storageQuota: 1e12, memberLimit: 25 },
         logs: { audit: 730, auth: 365, mail: 90, webhooks: 90 },
+        billing: {
+          currency: "EUR",
+          dunning: { warn: 5, warnAgain: 14, suspend: 30 },
+          trialDays: 30,
+        },
       }),
     ).toEqual([
       { action: "settings.second_factor_on", details: {} },
@@ -48,6 +53,9 @@ describe("instance settings", () => {
       { action: "defaults.guest_link_days", details: { days: 14 } },
       { action: "defaults.storage_quota", details: { bytes: 1e12 } },
       { action: "defaults.member_limit", details: { members: 25 } },
+      { action: "billing.currency", details: { currency: "EUR" } },
+      { action: "billing.dunning", details: { warn: 5, warnAgain: 14, suspend: 30 } },
+      { action: "billing.trial_days", details: { days: 30 } },
       { action: "logs.retention", details: { kind: "audit", days: 730 } },
       { action: "logs.retention", details: { kind: "webhooks", days: 90 } },
     ]);
@@ -90,5 +98,28 @@ describe("instance settings", () => {
     expect(
       withStored({ ...olderStill, logs: { audit: 730, auth: null, mail: 30 } }, forever).logs,
     ).toEqual({ audit: 730, auth: null, mail: 30, webhooks: null });
+  });
+
+  it("reads billing's rules over the defaults, and keeps them through an older client's save (#180)", () => {
+    expect(instanceSettingsOf({}).billing).toEqual({
+      currency: "GBP",
+      dunning: { warn: 7, warnAgain: 14, suspend: 21 },
+      trialDays: 14,
+    });
+    expect(instanceSettingsOf({ billing: { dunning: { suspend: 30 } } }).billing.dunning).toEqual({
+      warn: 7,
+      warnAgain: 14,
+      suspend: 30,
+    });
+    // Out of order: the whole is read as the defaults, never half-applied.
+    expect(
+      instanceSettingsOf({ billing: { dunning: { warn: 20, warnAgain: 14, suspend: 21 } } }),
+    ).toEqual(defaultInstanceSettings);
+    const stored = {
+      ...defaultInstanceSettings,
+      billing: { currency: "EUR", dunning: { warn: 5, warnAgain: 10, suspend: 15 }, trialDays: 0 },
+    };
+    const { billing: _, ...older } = stored;
+    expect(withStored(older, stored).billing).toEqual(stored.billing);
   });
 });

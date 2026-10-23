@@ -1,15 +1,21 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  type BillingRules,
   DUNNING_REASON,
+  DUNNING_STEPS,
+  type DunningRule,
+  defaultBillingRules,
   dunningDue,
-  dunningSteps,
+  dunningReasons,
+  dunningStepsOf,
   formatMoney,
   type Invoice,
   type InvoiceStatus,
   type PlanChoice,
+  suspendsAt,
   type WorkspaceBilling,
 } from "@hekate/shared";
-import { and, asc, count, desc, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { longDate } from "../email/templates.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import { recordInstanceEvent } from "../instance-events.ts";
@@ -44,7 +50,13 @@ export interface BillingDeps {
   gateway: Gateway | null;
   mailer: Mailer;
   publicUrl: string;
+  /** The instance's billing rules (#180), as its settings hold them now; the defaults if unset. */
+  rules?: () => Promise<BillingRules>;
 }
+
+/** The rules billing runs by now. */
+export const rulesOf = (deps: Pick<BillingDeps, "rules">) =>
+  deps.rules ? deps.rules() : Promise.resolve(defaultBillingRules);
 
 export { DUNNING_REASON };
 
@@ -84,6 +96,7 @@ export async function billingOf(
   db: Reader,
   organisationId: string,
   gateway: Gateway | null,
+  rule: DunningRule = defaultBillingRules.dunning,
 ): Promise<WorkspaceBilling> {
   const [plan, offered, [account], list, usage] = await Promise.all([
     workspacePlanOf(db, organisationId, true),
@@ -116,6 +129,7 @@ export async function billingOf(
     }),
     subscribed: Boolean(account?.subscriptionId),
     pastDueSince: account?.pastDueSince?.toISOString() ?? null,
+    suspendsAt: account?.pastDueSince ? suspendsAt(account.pastDueSince, rule).toISOString() : null,
     invoices: list,
     usage,
     customer,
@@ -634,14 +648,14 @@ export async function settle(tx: Tx, organisationId: string) {
     .update(workspacePlans)
     .set({ status: "active", updatedAt: new Date() })
     .where(inOrg(workspacePlans, organisationId, eq(workspacePlans.status, "past_due")));
-  if ((before?.stage ?? 0) < dunningSteps.length) return;
+  if ((before?.stage ?? 0) < DUNNING_STEPS) return;
   const [reopened] = await tx
     .update(organisations)
     .set({ suspendedAt: null, suspendedReason: null, updatedAt: new Date() })
     .where(
       and(
         eq(organisations.id, organisationId),
-        eq(organisations.suspendedReason, DUNNING_REASON),
+        inArray(organisations.suspendedReason, [...dunningReasons]),
         isNull(organisations.deleteAfter),
       ),
     )
@@ -656,8 +670,8 @@ export async function settle(tx: Tx, organisationId: string) {
 }
 
 /**
- * Dunning, hourly: each workspace whose payment failed is warned at 7 and 14 days and
- * suspended at 21, until a payment goes through. A step is claimed in the database before it is
+ * Dunning, hourly: each workspace whose payment failed is warned twice and then suspended, on
+ * the days the instance's rules set (7, 14 and 21 unless changed), until a payment goes through. A step is claimed in the database before it is
  * taken, so it is taken once; its owners are told after, and told again each hour until the
  * mail goes. Only while the gateway that would settle it is on: with billing off, or another
  * gateway, nothing advances. Returns the steps taken.
@@ -665,6 +679,7 @@ export async function settle(tx: Tx, organisationId: string) {
 export async function runDunning(deps: BillingDeps, now = new Date()): Promise<number> {
   const { db, gateway } = deps;
   if (!gateway) return 0;
+  const { dunning } = await rulesOf(deps);
   const due = await db
     .select({
       organisationId: billingAccounts.organisationId,
@@ -679,7 +694,7 @@ export async function runDunning(deps: BillingDeps, now = new Date()): Promise<n
         eq(billingAccounts.gateway, gateway.kind),
         isNotNull(billingAccounts.pastDueSince),
         or(
-          lt(billingAccounts.dunningStage, dunningSteps.length),
+          lt(billingAccounts.dunningStage, DUNNING_STEPS),
           lt(billingAccounts.noticedStage, billingAccounts.dunningStage),
         ),
       ),
@@ -689,14 +704,14 @@ export async function runDunning(deps: BillingDeps, now = new Date()): Promise<n
     if (!account.pastDueSince) continue;
     const since = account.pastDueSince;
     let stage = account.stage;
-    const step = dunningDue(since, now, stage);
+    const step = dunningDue(since, now, stage, dunning);
     if (step !== null && (await takeStep(db, account.organisationId, step, now))) {
       stage = step;
       taken += 1;
     }
     if (account.noticed >= stage) continue;
     try {
-      await tellOwners(deps, account.organisationId, since, stage);
+      await tellOwners(deps, account.organisationId, since, stage, dunning);
       await db
         .update(billingAccounts)
         .set({ noticedStage: stage, updatedAt: new Date() })
@@ -734,7 +749,7 @@ async function takeStep(db: Database, organisationId: string, step: number, now:
       )
       .returning({ id: billingAccounts.id });
     if (!claim) return false;
-    if (dunningSteps[step - 1]?.action !== "suspend") return true;
+    if (step < DUNNING_STEPS) return true;
     const [suspended] = await tx
       .update(organisations)
       .set({ suspendedAt: now, suspendedReason: DUNNING_REASON, updatedAt: new Date() })
@@ -752,7 +767,13 @@ async function takeStep(db: Database, organisationId: string, step: number, now:
 }
 
 /** The owners are told each step: what is owed, by when, and that nothing is deleted. */
-async function tellOwners(deps: BillingDeps, organisationId: string, since: Date, step: number) {
+async function tellOwners(
+  deps: BillingDeps,
+  organisationId: string,
+  since: Date,
+  step: number,
+  rule: DunningRule,
+) {
   const { db } = deps;
   const owners = await db
     .select({ email: schema.users.email, workspace: organisations.name })
@@ -766,9 +787,9 @@ async function tellOwners(deps: BillingDeps, organisationId: string, since: Date
     .where(inOrg(invoices, organisationId, eq(invoices.status, "open")))
     .orderBy(desc(invoices.issuedAt))
     .limit(1);
-  const suspendAt = new Date(since.getTime() + 21 * 86_400_000);
+  const suspendAt = new Date(since.getTime() + rule.suspend * 86_400_000);
   const owed = open ? ` of ${formatMoney(open.amountDue - open.amountPaid, open.currency)}` : "";
-  const suspended = dunningSteps[step - 1]?.action === "suspend";
+  const suspended = dunningStepsOf(rule)[step - 1]?.action === "suspend";
   for (const owner of owners) {
     const subject = suspended
       ? `${owner.workspace} is suspended until its payment is made`
@@ -780,7 +801,7 @@ async function tellOwners(deps: BillingDeps, organisationId: string, since: Date
         workspace: owner.workspace,
         subject,
         heading: suspended
-          ? `${owner.workspace} is suspended: a payment${owed} is 21 days overdue`
+          ? `${owner.workspace} is suspended: a payment${owed} is ${rule.suspend} days overdue`
           : `A payment${owed} for ${owner.workspace} failed on ${longDate(since)}`,
         body: suspended
           ? [

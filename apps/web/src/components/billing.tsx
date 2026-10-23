@@ -144,7 +144,8 @@ export function TileGrid({
 /** A payment failed: what is owed, by when, and the way to pay it. */
 function Overdue({ billing, owner }: { billing: WorkspaceBilling; owner: boolean }) {
   const since = new Date(billing.pastDueSince ?? "");
-  const suspends = new Date(since.getTime() + 21 * 86_400_000);
+  // On the day the instance's rules set (#180).
+  const suspends = new Date(billing.suspendsAt ?? since.getTime() + 21 * 86_400_000);
   const open = billing.invoices.find((i) => i.status === "open" && i.url);
   return (
     <div

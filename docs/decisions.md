@@ -1464,3 +1464,25 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Waiving voids.** Waiving what a workspace owes voids its open invoices: at Stripe first, so nothing can collect them, then those by hand. Voiding (rather than marking uncollectible) settles them under either of Stripe's ways of deciding a subscription's status, so the subscription returns to active and its webhook agrees with what Hekate did. Dunning ends and a workspace it suspended opens again; one an operator suspended does not.
 - **An operator's plan change reaches the gateway.** Putting a workspace that pays through Stripe on another plan moves its subscription too, so Stripe bills what the workspace is on and the next webhook does not move it back. It cannot be put on a plan by agreement, or none, while that subscription runs.
 - **No new tables.** The plans and codes keep their routes from #177 and #178; the overview and waiving are reads and writes of what is there.
+
+## 215. Billing's rules are settings; the Gateways tab
+
+#180, the second part.
+
+- **Rules in the instance's settings.** The currency, dunning's three days and a trial's length are kept with the instance's other settings (#160), read as the server runs, so a change needs no restart and is an instance event. A save from a client that leaves them out keeps them as stored. Dunning's days must each come after the one before; stored ones that do not are read as the defaults, never half-applied.
+- **Dunning reads its days each run.** A workspace already owing moves to new days at the next run. A step already taken is never taken again, so shortening the days cannot warn an owner twice, and lengthening them cannot reopen a workspace already suspended (paying, or an operator's waiver, does that).
+- **The reason will stop naming a day, in two releases.** A workspace dunning suspended is told "21 days overdue"; with the days an operator's to set, the reason should say only that a payment is overdue. The reason is also how a workspace dunning suspended is told apart, so changing the words it is written with is a contracting change (decision 198): this release recognises both and still writes the old, and the next writes the new. The suspended page and the mail already say only that a payment is overdue.
+- **The currency is a default, not a conversion.** It is what new plans and amounts off start in. Each plan keeps its own currency, and Stripe charges in it.
+- **Trials have a length before they have a sign-up.** Open sign-up with a trial is #184's; the length is set here so the rule lives with the others.
+- **The Gateways tab reads, it does not connect.** Stripe's account, its webhook's last event and failures, and Stripe Tax are shown; the keys stay in the environment. Paddle is not built yet, and invoices by hand cannot be turned off (a plan by agreement would have no way to be billed), so the prototype's Connect button and switch became plain rows.
+
+## 216. Billing reports: list price, collected, and recognised by days
+
+#180, the last part.
+
+- **Two kinds of figure, said apart.** MRR, ARR, the average and the by-plan split are what the plans paying workspaces are on are worth, at list price: they move the moment a plan changes, with no history to keep. "Collected" is what invoices actually paid, month by month. Discounts, credits and failed payments show in the second, not the first. A plan by agreement has no list price, so it counts at a twelfth of what its workspaces paid by hand in the last year.
+- **One currency.** The figures are in the instance's currency (decision 215). Plans priced in another are left out and named, rather than converted at a rate Hekate would have to choose.
+- **Churn without history.** Churn is the plans that ended in the last 90 days against those plus the ones paying now. A workspace's plan records when it was cancelled; nothing else is kept for it.
+- **Recognition by days.** The recognition export spreads each paid invoice over its period by days, shares rounded down and the remainder given to the last month, so a month's shares add up to what was paid. Invoices do not record their plan, so the export names the plan the workspace is on now.
+- **Exports are recorded first**, as the logs' exports are (#157), and streamed.
+

@@ -1,8 +1,8 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
   atLeast,
-  DUNNING_REASON,
   factorDemand,
+  isDunningReason,
   sessionMeets,
   workspaceSettingsOf,
 } from "@hekate/shared";
@@ -175,7 +175,7 @@ export async function assertOpen(
     })
     .from(schema.organisations)
     .where(eq(schema.organisations.id, organisationId));
-  if (row?.suspendedAt && !(paying && row.reason === DUNNING_REASON))
+  if (row?.suspendedAt && !(paying && isDunningReason(row.reason)))
     throw new CodedException(
       403,
       "workspace_suspended",

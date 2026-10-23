@@ -5,6 +5,7 @@ import {
   type ErrorSource,
   errorReferenceParam,
   errorReportsQuery,
+  exportPeriod,
   flagInput,
   flagParam,
   formatBytes,
@@ -84,8 +85,9 @@ import {
   retakeGatewayEvent,
   settleByHand,
 } from "../billing/billing.ts";
-import { billingOverview, planByOperator, waive } from "../billing/overview.ts";
+import { billingOverview, gatewayStatus, planByOperator, waive } from "../billing/overview.ts";
 import { endPromo, listPromos, savePromo, usesOf } from "../billing/promos.ts";
+import { billingReports, invoicesCsv, recognitionCsv } from "../billing/reports.ts";
 import { workspaceEmail } from "../email/templates.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import { replayDelivery } from "../events.ts";
@@ -1207,6 +1209,57 @@ export function instanceRoutes(options: InstanceOptions) {
         if (billingOff()) throw billingOffRefusal();
         return c.json(await billingOverview(db, options.billing?.gateway ?? null));
       })
+      // How the instance takes payment (#180): the gateway's account and its webhook's health.
+      .get("/billing/gateway", async (c) => {
+        if (billingOff()) throw billingOffRefusal();
+        return c.json(
+          await gatewayStatus(db, options.billing?.gateway ?? null, options.environment.publicUrl),
+        );
+      })
+      // The reports (#180), in the instance's currency.
+      .get("/billing/reports", async (c) => {
+        if (billingOff()) throw billingOffRefusal();
+        const { currency } = (await options.settings.get()).billing;
+        return c.json(await billingReports(db, currency));
+      })
+      // The books as CSV (#180): every invoice in the months asked, or what each month earned.
+      .get(
+        "/billing/exports/:kind",
+        zValidator("param", z.object({ kind: z.enum(["invoices", "recognition"]) })),
+        zValidator("query", exportPeriod),
+        async (c) => {
+          if (billingOff()) throw billingOffRefusal();
+          const { kind } = c.req.valid("param");
+          const period = c.req.valid("query");
+          if (period.from > period.to)
+            throw new CodedException(400, "period_reversed", "The period ends before it starts.");
+          // Exporting the books is itself recorded, before any of it leaves.
+          await recordInstanceEvent(db, {
+            actorId: c.var.userId,
+            action: "billing.export",
+            target: kind === "invoices" ? "The invoices" : "Revenue recognition",
+            details: { kind, ...period },
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+          const lines = kind === "invoices" ? invoicesCsv(db, period) : recognitionCsv(db, period);
+          const encoder = new TextEncoder();
+          const body = new ReadableStream<Uint8Array>({
+            async pull(controller) {
+              const next = await lines.next();
+              if (next.done) controller.close();
+              else controller.enqueue(encoder.encode(next.value));
+            },
+            async cancel() {
+              await lines.return(undefined);
+            },
+          });
+          return c.body(body, 200, {
+            "content-type": "text/csv; charset=utf-8",
+            "content-disposition": `attachment; filename="hekate-${kind}-${period.from}-to-${period.to}.csv"`,
+            "cache-control": "no-store",
+          });
+        },
+      )
       // Waive what a workspace owes (#180): its open invoices voided, dunning over, reopened.
       .post("/workspaces/:id/waive", idParam, zValidator("json", waiveInput), async (c) => {
         const { id } = c.req.valid("param");

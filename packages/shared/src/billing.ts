@@ -82,6 +82,8 @@ export interface WorkspaceBilling {
   plans: PlanChoice[];
   subscribed: boolean;
   pastDueSince: string | null;
+  /** When it is suspended if the payment is still owed, by the instance's rules (#180). */
+  suspendsAt: string | null;
   invoices: Invoice[];
   usage: WorkspaceUsage;
   /** The card and billing details at the gateway; null before the first checkout. */
@@ -99,6 +101,20 @@ export const checkoutInput = z.object({
 export const DUNNING_REASON =
   "A payment is 21 days overdue. The workspace opens again as soon as it is paid.";
 
+/**
+ * Every reason dunning suspends a workspace with. With dunning's days an operator's to set
+ * (#180), the reason will stop naming a day; this release recognises the new words and still
+ * writes the old, so a replica a release behind, during a rolling upgrade, still knows a
+ * workspace it finds suspended for what it is (decision 198). The next release writes the new.
+ */
+export const dunningReasons = [
+  DUNNING_REASON,
+  "A payment is overdue. The workspace opens again as soon as it is paid.",
+] as const;
+
+export const isDunningReason = (reason: string | null | undefined) =>
+  (dunningReasons as readonly (string | null | undefined)[]).includes(reason);
+
 /** What the gateway holds for a workspace's billing (#179): the card and the details it bills. */
 export interface BillingCustomer {
   name: string | null;
@@ -110,24 +126,75 @@ export interface BillingCustomer {
   card: { brand: string; last4: string; expMonth: number; expYear: number } | null;
 }
 
-/** The days after a missed payment at which dunning acts, and what it does then. */
-export const dunningSteps = [
-  { days: 7, action: "warn" },
-  { days: 14, action: "warn" },
-  { days: 21, action: "suspend" },
-] as const;
+/**
+ * The days after a missed payment at which dunning acts (#180): its owners warned, warned
+ * again, and the workspace suspended. The instance's operators set them.
+ */
+export const dunningRule = z
+  .object({
+    warn: z.number().int().min(1).max(60),
+    warnAgain: z.number().int().min(1).max(90),
+    suspend: z.number().int().min(1).max(120),
+  })
+  .refine((r) => r.warn < r.warnAgain && r.warnAgain < r.suspend, {
+    error: "Each step comes after the one before it",
+    path: ["warnAgain"],
+  });
+export type DunningRule = z.infer<typeof dunningRule>;
+
+export const defaultDunning: DunningRule = { warn: 7, warnAgain: 14, suspend: 21 };
+
+/** How many steps dunning takes: the last suspends. */
+export const DUNNING_STEPS = 3;
+
+/** The steps of a rule, in order, with what each does. */
+export function dunningStepsOf(rule: DunningRule) {
+  return [
+    { days: rule.warn, action: "warn" },
+    { days: rule.warnAgain, action: "warn" },
+    { days: rule.suspend, action: "suspend" },
+  ] as const;
+}
 
 /**
  * The step dunning is due to take, counted from 1, or null when nothing is due: the furthest
  * step its days have reached that it has not taken. A step missed (the job not running for a
  * week) is skipped for the later one, so an owner is never warned twice in one day.
  */
-export function dunningDue(pastDueSince: Date, now: Date, taken: number): number | null {
+export function dunningDue(
+  pastDueSince: Date,
+  now: Date,
+  taken: number,
+  rule: DunningRule = defaultDunning,
+): number | null {
   const days = Math.floor((now.getTime() - pastDueSince.getTime()) / 86_400_000);
   let reached = 0;
-  for (const [i, step] of dunningSteps.entries()) if (days >= step.days) reached = i + 1;
+  for (const [i, step] of dunningStepsOf(rule).entries()) if (days >= step.days) reached = i + 1;
   return reached > taken ? reached : null;
 }
+
+/** When a workspace that first failed to pay then is suspended, under a rule. */
+export const suspendsAt = (pastDueSince: Date, rule: DunningRule) =>
+  new Date(pastDueSince.getTime() + rule.suspend * 86_400_000);
+
+/** The instance's billing rules (#180): its currency, dunning's days, and how long a trial is. */
+export const billingRules = z.object({
+  currency: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{3}$/, { error: "A three-letter currency code, such as GBP" }),
+  dunning: dunningRule,
+  /** How long a trial lasts, for workspaces that sign up for one (#184); 0 for none. */
+  trialDays: z.number().int().min(0).max(90),
+});
+export type BillingRules = z.infer<typeof billingRules>;
+
+export const defaultBillingRules: BillingRules = {
+  currency: "GBP",
+  dunning: defaultDunning,
+  trialDays: 14,
+};
 
 /**
  * A price in words, from its amount in the currency's minor unit: `£49.00`, `JP¥4,900`. The
@@ -310,3 +377,101 @@ export interface BillingOverview {
  * workspace dunning suspended opens again. Said why, for the instance's events.
  */
 export const waiveInput = z.object({ reason: z.string().trim().min(1, "Say why").max(200) });
+
+/** How the instance takes payment (#180), for its Billing section's Gateways tab. */
+export interface BillingGatewayStatus {
+  /** HEKATE_BILLING: through Stripe, or invoices by hand alone. */
+  mode: "stripe" | "manual";
+  /** Stripe's side, with billing through it: null otherwise. */
+  stripe: {
+    /** The account payments go to; null when Stripe could not say (a key without the right). */
+    account: { id: string; name: string | null } | null;
+    /** Test-mode keys alone, for now (decision 210). */
+    test: boolean;
+    tax: boolean;
+    /** The last event its webhook delivered, and how many failed in the last week. */
+    lastEventAt: string | null;
+    failedEvents: number;
+    /** Where Stripe sends its events. */
+    webhookUrl: string;
+  } | null;
+  /** Invoices made by hand still open, across workspaces. */
+  openByHand: number;
+}
+
+/** A month as reports name it: `2026-10`. */
+export type MonthKey = `${number}-${string}`;
+
+/** The month a moment falls in, in UTC. */
+export const monthKeyOf = (at: Date): MonthKey =>
+  `${at.getUTCFullYear()}-${String(at.getUTCMonth() + 1).padStart(2, "0")}` as MonthKey;
+
+/** The last so many months, oldest first, ending with the one `now` is in. */
+export function monthsBack(now: Date, count: number): MonthKey[] {
+  return Array.from({ length: count }, (_, i) =>
+    monthKeyOf(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (count - 1 - i), 1))),
+  );
+}
+
+/**
+ * An invoice's payment spread over the months it pays for, by days (#180's revenue
+ * recognition): a year paid in March is a twelfth a month. One with no period is the month it
+ * was paid. Each share is whole minor units, and the shares add up to what was paid.
+ */
+export function recognise(invoice: {
+  amountPaid: number;
+  paidAt: Date;
+  periodStart: Date | null;
+  periodEnd: Date | null;
+}): { month: MonthKey; amount: number }[] {
+  const { periodStart: start, periodEnd: end, amountPaid } = invoice;
+  if (!start || !end || end <= start)
+    return [{ month: monthKeyOf(invoice.paidAt), amount: amountPaid }];
+  const total = end.getTime() - start.getTime();
+  const parts: { month: MonthKey; ms: number }[] = [];
+  let cursor = start;
+  while (cursor < end) {
+    const next = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
+    const until = next < end ? next : end;
+    parts.push({ month: monthKeyOf(cursor), ms: until.getTime() - cursor.getTime() });
+    cursor = until;
+  }
+  // Each share rounded down, and what rounding left given to the last.
+  const shares = parts.map((p) => ({
+    month: p.month,
+    amount: Math.floor((amountPaid * p.ms) / total),
+  }));
+  const given = shares.reduce((sum, s) => sum + s.amount, 0);
+  const last = shares.at(-1);
+  if (last) last.amount += amountPaid - given;
+  return shares;
+}
+
+/** Share of the paying base lost in a period, or null with nobody to lose. */
+export const churnRate = (lost: number, payingNow: number) =>
+  lost + payingNow === 0 ? null : lost / (lost + payingNow);
+
+/** The instance's Billing reports (#180), in one currency: the instance's. */
+export interface BillingReports {
+  currency: string;
+  /** What paying workspaces' plans are worth a month at list price, and a year. */
+  mrr: number;
+  arr: number;
+  /** Paying workspaces on a priced plan in this currency, and what each pays on average. */
+  paying: number;
+  average: number | null;
+  /** Workspaces whose plan ended in the last 90 days, against those paying now. */
+  churn: { lost: number; rate: number | null };
+  /** What was collected, and from how many workspaces, each of the last twelve months. */
+  months: { month: MonthKey; collected: number; workspaces: number }[];
+  /** Where the monthly revenue comes from: each plan, its workspaces and its share. */
+  byPlan: { planId: string; name: string; workspaces: number; amount: number; share: number }[];
+  /** Other currencies some plans are priced in, left out of these figures. */
+  otherCurrencies: string[];
+}
+
+/** The period an export covers: these months, oldest first, both included. */
+export const exportPeriod = z.object({
+  from: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+  to: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+});

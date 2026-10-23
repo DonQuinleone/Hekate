@@ -9,7 +9,7 @@ With `HEKATE_BILLING=stripe`, each workspace pays for its [plan](../quotas/#plan
 
 ## Set it up
 
-1. In Stripe (test mode), make a secret key, or a restricted key allowed to write customers, products, coupons, Checkout sessions, customer portal sessions, subscriptions and invoices (to void one an operator waives), and to read payouts (for the next one, on the instance's Billing overview). Set it as `STRIPE_SECRET_KEY`.
+1. In Stripe (test mode), make a secret key, or a restricted key allowed to write customers, products, coupons, Checkout sessions, customer portal sessions, subscriptions and invoices (to void one an operator waives), and to read payouts and the account (for the instance's Billing section). Set it as `STRIPE_SECRET_KEY`.
 2. Add a webhook endpoint for `https://<your instance>/api/hooks/billing/stripe`, sending at least `checkout.session.completed`, `checkout.session.expired`, `customer.subscription.*`, `invoice.*` and `payout.*`. Set its signing secret as `STRIPE_WEBHOOK_SECRET`.
 3. Turn on the customer portal in Stripe's settings, so owners can change their card.
 4. For tax, set up Stripe Tax and set `STRIPE_TAX=true`: Checkout then asks for the address and tax id it needs.
@@ -53,6 +53,30 @@ Below, every workspace, those owing first, with its plan and what comes next: it
 
 **Plans** lists the plans, cheapest first, each with its limits, what it includes, the highest support severity it allows and how many workspaces are on it. Operators add a plan, edit its limits and price (its workspaces take new limits at once; a new price applies from their next invoice), duplicate one, hide one from workspaces' own choices, or retire one (nobody is put on it again; those on it stay until moved).
 
+**Gateways** shows how the instance takes payment:
+- **Stripe:** the account payments go to, test mode, when its webhook last delivered an event and how many failed in the last week, and whether Stripe Tax is on, with the webhook's address to give Stripe;
+- **Paddle:** not connected yet; it follows with the hosted offering;
+- **manual invoicing:** always on, for plans by agreement, with how many invoices by hand are open.
+
+Below, billing's **rules**, which operators set:
+- **dunning:** the days at which owners are warned, warned again and the workspace suspended (7, 14 and 21 unless changed), each after the one before;
+- **currency:** what new plans and amounts off start in;
+- **trials:** how long a trial lasts for a workspace that signs up for one, or none.
+
+Each change of a rule is an instance event.
+
+**Reports** shows the instance's figures in its currency (plans priced in another are left out, and named):
+- **MRR**, what paying workspaces' plans are worth a month at list price (a yearly price as a twelfth; a plan by agreement at a twelfth of what its workspaces paid by hand in the last year), and **ARR**, twelve times that;
+- **churn**, plans that ended in the last 90 days against those and the ones paying now, and the **average** a paying workspace pays a month;
+- what was **collected** each of the last twelve months, and from how many workspaces;
+- **by plan**, where the monthly revenue comes from.
+
+Its **exports** are CSV for an accountant, for the last twelve months, this year so far or last year:
+- **invoices:** every invoice issued in the period, by hand and through Stripe, with its amounts, dates and status;
+- **revenue recognition:** what each month earned, by workspace and plan, each payment spread over the months it pays for by days (one without a period counts in the month it was paid). The plan is the one the workspace is on now.
+
+Each export is an instance event, recorded before any of it leaves.
+
 **Promo codes** lists the codes, newest first, with what each gives, how many have used it, until when, and for which plans. Operators add and edit codes, copy one, see who used it, and end one.
 
 ## Promo codes
@@ -78,13 +102,15 @@ With billing on, **Logs** has a **Gateway** tab: every event Stripe sent, when i
 
 ## When a payment fails
 
-Dunning counts from the first failed payment of the workspace's subscription (an invoice made by hand in Stripe does not count):
+Dunning counts from the first failed payment of the workspace's subscription (an invoice made by hand in Stripe does not count). Its days are the instance's rules (Billing, Gateways); unless changed:
 
 | After | What happens |
 | --- | --- |
 | 7 days | The workspace's owners are told what is owed and when the workspace will be suspended. |
 | 14 days | They are told again. |
 | 21 days | The workspace is suspended (an instance event, by billing), and its owners are told. |
+
+A change of days applies to workspaces already owing from the next hourly run; a step already taken is not taken again.
 
 Nothing is ever deleted for want of payment. Once a payment goes through, or an operator waives what is owed, dunning ends, and a workspace it suspended opens again. A workspace an operator suspended, or set to be deleted, stays as the operator left it. The `billing-dunning` job runs hourly, and only with billing on; mail that fails is sent again the next hour.
 

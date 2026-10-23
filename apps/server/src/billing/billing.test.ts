@@ -14,7 +14,7 @@ import {
   settleByHand,
   takeGatewayEvent,
 } from "./billing.ts";
-import { billingOverview, planByOperator, totals, waive } from "./overview.ts";
+import { billingOverview, gatewayStatus, planByOperator, totals, waive } from "./overview.ts";
 import { endPromo, savePromo, usesOf } from "./promos.ts";
 import { type Stripe, StripeError, signStripeEvent } from "./stripe.ts";
 import { stripeGateway } from "./stripe-gateway.ts";
@@ -62,6 +62,8 @@ describe.runIf(url)("billing (#178)", () => {
         return held as never;
       }
       if (path === "/v1/payouts") return { data: payouts } as never;
+      if (path === "/v1/account")
+        return { id: "acct_1Q8f", business_profile: { name: "Endless Hall Records" } } as never;
       const held = /^\/v1\/invoices\/(\w+)$/.exec(path)?.[1];
       if (held && method === "GET") return (invoices.get(held) ?? missing()) as never;
       const subscription = /^\/v1\/subscriptions\/(\w+)$/.exec(path)?.[1];
@@ -386,6 +388,53 @@ describe.runIf(url)("billing (#178)", () => {
       dunningStage: 0,
       noticedStage: 0,
     });
+  });
+
+  it("takes dunning's days from the instance's rules (#180)", async () => {
+    const w = await workspace();
+    await checkedOut(w);
+    const failed = new Date("2026-10-01T09:00:00Z");
+    await send("invoice.payment_failed", invoice(w, "open"), failed);
+    const ruled: BillingDeps = {
+      ...deps,
+      rules: async () => ({
+        currency: "GBP",
+        dunning: { warn: 3, warnAgain: 10, suspend: 30 },
+        trialDays: 14,
+      }),
+    };
+    const mine = () => mailer.sent.filter((m) => m.to === w.email);
+    await runDunning(ruled, new Date(failed.getTime() + 3 * day));
+    expect(mine()).toHaveLength(1);
+    expect(mine()[0]?.text).toContain("before 31 October 2026");
+    await runDunning(ruled, new Date(failed.getTime() + 21 * day));
+    expect(mine()).toHaveLength(2);
+    expect((await organisation(w.id))?.suspendedAt).toBeNull();
+    await runDunning(ruled, new Date(failed.getTime() + 30 * day));
+    expect(mine().at(-1)?.html).toContain("30 days overdue");
+    expect(await organisation(w.id)).toMatchObject({ suspendedReason: DUNNING_REASON });
+    expect(
+      (await billingOf(db, w.id, gateway, { warn: 3, warnAgain: 10, suspend: 30 })).suspendsAt,
+    ).toBe(new Date(failed.getTime() + 30 * day).toISOString());
+  });
+
+  it("reopens a workspace suspended under the next release's words once it is paid (#180)", async () => {
+    const w = await workspace();
+    await checkedOut(w);
+    await send("invoice.payment_failed", invoice(w, "open"));
+    await db
+      .update(schema.billingAccounts)
+      .set({ dunningStage: 3 })
+      .where(inOrg(schema.billingAccounts, w.id));
+    await db
+      .update(schema.organisations)
+      .set({
+        suspendedAt: new Date(),
+        suspendedReason: "A payment is overdue. The workspace opens again as soon as it is paid.",
+      })
+      .where(eq(schema.organisations.id, w.id));
+    await send("invoice.paid", invoice(w, "paid"));
+    expect(await organisation(w.id)).toMatchObject({ suspendedAt: null });
   });
 
   it("tells the owners again each hour until the mail goes", async () => {
@@ -867,6 +916,34 @@ describe.runIf(url)("billing (#178)", () => {
       seen.workspaces.findIndex((r) => !r.pastDueSince && !r.overdue && !r.dunningSuspended),
     );
     expect((await billingOverview(db, null, at)).nextPayout).toBeNull();
+  });
+
+  it("says which account takes payment, whether its webhook arrives, and what is open by hand (#180)", async () => {
+    const w = await workspace();
+    await checkedOut(w);
+    const at = new Date(Date.now() + 1000);
+    const status = await gatewayStatus(db, gateway, "https://review.example", at);
+    expect(status).toMatchObject({
+      mode: "stripe",
+      stripe: {
+        account: { id: "acct_1Q8f", name: "Endless Hall Records" },
+        test: true,
+        tax: false,
+        webhookUrl: "https://review.example/api/hooks/billing/stripe",
+      },
+    });
+    expect(Date.parse(status.stripe?.lastEventAt ?? "")).toBeGreaterThan(at.getTime() - 60_000);
+    const before = status.openByHand;
+    await invoiceByHand(db, w.id, {
+      amount: 12_000,
+      currency: "GBP",
+      description: "Mastering suite, October",
+      periodStart: null,
+      periodEnd: null,
+      dueAt: null,
+    });
+    expect((await gatewayStatus(db, null, "https://review.example")).openByHand).toBe(before + 1);
+    expect((await gatewayStatus(db, null, "https://review.example")).stripe).toBeNull();
   });
 
   it("moves a workspace paying through the gateway on its subscription, never to a plan by agreement (#180)", async () => {

@@ -914,8 +914,8 @@ export function SuspendedPage() {
       intro={
         payable
           ? workspace?.role === "owner"
-            ? "A payment for it is 21 days overdue. It opens again as soon as it is paid; nothing in it is lost."
-            : "A payment for it is 21 days overdue. It opens again as soon as its owners pay; nothing in it is lost."
+            ? "A payment for it is overdue. It opens again as soon as it is paid; nothing in it is lost."
+            : "A payment for it is overdue. It opens again as soon as its owners pay; nothing in it is lost."
           : reason
             ? `The instance’s operators suspended it: ${reason} Nothing in it is lost; it opens again once they reinstate it.`
             : "The instance’s operators suspended it. Nothing in it is lost; it opens again once they reinstate it."

@@ -187,6 +187,8 @@ export function createApi(deps: AppDeps) {
     gateway: deps.gateway ?? null,
     mailer: deps.mailer,
     publicUrl: deps.publicUrl,
+    // The rules as an operator last set them (#180).
+    rules: async () => (await settings.get()).billing,
   };
   // The environment asks it, or an operator does in Settings (#160), read as the server runs.
   const rule = {

@@ -374,7 +374,7 @@ const csvColumns: Record<LogKind, string[]> = {
   ],
 };
 
-const csvLine = (cells: unknown[]) => `${cells.map(csvCell).join(",")}\r\n`;
+export const csvLine = (cells: unknown[]) => `${cells.map(csvCell).join(",")}\r\n`;
 
 /** A row as the export writes it, each cell neutralised as the access log's are. */
 function csvOf(kind: LogKind, row: AnyLogRow): string {

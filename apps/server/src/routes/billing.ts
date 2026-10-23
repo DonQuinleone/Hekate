@@ -7,6 +7,7 @@ import {
   cancelAtPeriodEnd,
   changePlan,
   portalFor,
+  rulesOf,
 } from "../billing/billing.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";
 
@@ -18,7 +19,9 @@ import { requireRole, type TenantVariables } from "../tenancy.ts";
 export const billingRoutes = (deps: BillingDeps) =>
   new Hono<{ Variables: TenantVariables }>()
     .get("/", requireRole("admin"), async (c) =>
-      c.json(await billingOf(deps.db, c.var.organisationId, deps.gateway)),
+      c.json(
+        await billingOf(deps.db, c.var.organisationId, deps.gateway, (await rulesOf(deps)).dunning),
+      ),
     )
     .post("/checkout", requireRole("owner"), zValidator("json", checkoutInput), async (c) =>
       c.json(

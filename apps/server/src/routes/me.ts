@@ -1,8 +1,8 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
-  DUNNING_REASON,
   deleteAccountInput,
   fileColumnsInput,
+  isDunningReason,
   preferencesInput,
   preferencesOf,
   profileInput,
@@ -115,7 +115,7 @@ export const meRoutes = (
           locale: workspaceSettingsOf(settings).locale,
           // Suspended for a payment overdue (#178), its owners can pay to open it again.
           suspended: suspendedAt
-            ? { reason: suspendedReason, payable: suspendedReason === DUNNING_REASON }
+            ? { reason: suspendedReason, payable: isDunningReason(suspendedReason) }
             : null,
           // Where it answers, with subdomains on (#176): switching to it is going there.
           url: deps.subdomains ? workspaceAddress(deps.subdomains, o.address) : null,
