@@ -3,7 +3,7 @@ import { type Job, PgBoss, type QueueOptions } from "pg-boss";
 import { z } from "zod";
 import { concurrencyIn, type Lane, type LanePlan } from "./lanes.ts";
 import { metrics } from "./metrics/index.ts";
-import { inSpan } from "./telemetry.ts";
+import { inSpan } from "./tracing.ts";
 
 /**
  * Background work, queued in PostgreSQL with pg-boss. Every job has a name, a

@@ -3,7 +3,7 @@ import { type Database, schema } from "@hekate/db";
 import { ERROR_REPORT_DAYS, type ErrorSource, formatErrorReference } from "@hekate/shared";
 import { lt } from "drizzle-orm";
 import type { JobFailure } from "./jobs.ts";
-import { currentTraceId } from "./telemetry.ts";
+import { currentTraceId } from "./tracing.ts";
 
 /** What is known about a failure when it happens. */
 export interface Failure {

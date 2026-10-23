@@ -62,7 +62,7 @@ export async function boot(
 }> {
   const { config, storageConfig } = settingsOrExit(env);
   // Before anything else runs, so its spans and log lines reach the collector (#162).
-  const telemetry = startTelemetry(config);
+  const telemetry = await startTelemetry(config);
   await migrateOrExit(config);
 
   // Refuse to start with storage that is unreachable or read-only.

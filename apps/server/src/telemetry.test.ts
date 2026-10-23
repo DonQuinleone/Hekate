@@ -9,14 +9,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { errorHandler, requestId } from "./errors.ts";
 import { runJob } from "./jobs.ts";
 import { run } from "./media/ffmpeg.ts";
-import {
-  currentTraceId,
-  headersOf,
-  inSpan,
-  startTelemetry,
-  type Telemetry,
-  traced,
-} from "./telemetry.ts";
+import { headersOf, startTelemetry, type Telemetry, traced } from "./telemetry.ts";
+import { currentTraceId, inSpan } from "./tracing.ts";
 
 const job = { id: "j-1", data: {}, signal: new AbortController().signal, retryCount: 0 };
 
@@ -30,7 +24,7 @@ describe("telemetry without a collector (#162)", () => {
   });
 
   it("records nothing and costs nothing while no collector is named", async () => {
-    const telemetry = startTelemetry({});
+    const telemetry = await startTelemetry({});
     const seen = await inSpan("work", {}, async () => currentTraceId());
     expect(seen).toBeUndefined();
     await telemetry.shutdown();
@@ -42,8 +36,8 @@ describe("telemetry to a collector (#162)", () => {
   const records = new InMemoryLogRecordExporter();
   let telemetry: Telemetry;
 
-  beforeAll(() => {
-    telemetry = startTelemetry(
+  beforeAll(async () => {
+    telemetry = await startTelemetry(
       { OTEL_SERVICE_NAME: "hekate-test" },
       {
         spans: new SimpleSpanProcessor(spans),

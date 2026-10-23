@@ -1,27 +1,11 @@
-import {
-  type Attributes,
-  context,
-  isSpanContextValid,
-  propagation,
-  type Span,
-  SpanKind,
-  SpanStatusCode,
-  trace,
-} from "@opentelemetry/api";
+import { context, propagation, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 import { type Logger, logs, SeverityNumber } from "@opentelemetry/api-logs";
-import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
-import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { resourceFromAttributes } from "@opentelemetry/resources";
-import {
-  BatchLogRecordProcessor,
-  LoggerProvider,
-  type LogRecordProcessor,
-} from "@opentelemetry/sdk-logs";
+import type { LogRecordProcessor } from "@opentelemetry/sdk-logs";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
-import { BatchSpanProcessor, NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import { routeOf } from "./metrics/index.ts";
+import { tracer } from "./tracing.ts";
 import { version } from "./version.ts";
 
 /**
@@ -31,8 +15,6 @@ import { version } from "./version.ts";
  * span costs nothing and nothing leaves the server. A failure's trace id joins its error
  * reference (#159), so an operator can go from either to the other.
  */
-
-const tracer = () => trace.getTracer("hekate", version);
 
 export interface TelemetrySettings {
   OTEL_EXPORTER_OTLP_ENDPOINT?: string | undefined;
@@ -60,14 +42,28 @@ export interface Telemetry {
 
 /**
  * Start sending traces and logs to the operator's collector, if one is named. The processors
- * may be given instead, for tests.
+ * may be given instead, for tests. The SDK is loaded only then: without a collector, only the
+ * API's no-op is in the process.
  */
-export function startTelemetry(
+export async function startTelemetry(
   settings: TelemetrySettings,
   given?: { spans: SpanProcessor; logs?: LogRecordProcessor },
-): Telemetry {
+): Promise<Telemetry> {
   const endpoint = settings.OTEL_EXPORTER_OTLP_ENDPOINT?.replace(/\/+$/, "");
   if (!endpoint && !given) return { shutdown: async () => {} };
+  const [
+    { OTLPLogExporter },
+    { OTLPTraceExporter },
+    { resourceFromAttributes },
+    { BatchLogRecordProcessor, LoggerProvider },
+    { BatchSpanProcessor, NodeTracerProvider },
+  ] = await Promise.all([
+    import("@opentelemetry/exporter-logs-otlp-http"),
+    import("@opentelemetry/exporter-trace-otlp-http"),
+    import("@opentelemetry/resources"),
+    import("@opentelemetry/sdk-logs"),
+    import("@opentelemetry/sdk-trace-node"),
+  ]);
   const headers = headersOf(settings.OTEL_EXPORTER_OTLP_HEADERS);
   const resource = resourceFromAttributes({
     "service.name": settings.OTEL_SERVICE_NAME || "hekate",
@@ -144,34 +140,6 @@ function mirrorConsole(logger: Logger): () => void {
     };
   }
   return () => Object.assign(console, original);
-}
-
-/** The trace the current work belongs to, where one is being recorded; for error reports. */
-export function currentTraceId(): string | undefined {
-  const span = trace.getActiveSpan();
-  if (!span?.isRecording()) return undefined;
-  const ids = span.spanContext();
-  return isSpanContextValid(ids) ? ids.traceId : undefined;
-}
-
-/** Run `work` inside a span of its own, ended however it ends; an error marks the span. */
-export async function inSpan<T>(
-  name: string,
-  attributes: Attributes,
-  work: (span: Span) => Promise<T>,
-  kind: SpanKind = SpanKind.INTERNAL,
-): Promise<T> {
-  return tracer().startActiveSpan(name, { kind, attributes }, async (span) => {
-    try {
-      return await work(span);
-    } catch (error) {
-      span.recordException(error instanceof Error ? error : new Error(String(error)));
-      span.setStatus({ code: SpanStatusCode.ERROR });
-      throw error;
-    } finally {
-      span.end();
-    }
-  });
 }
 
 /**

@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { basename } from "node:path";
 import { type EmbeddedMetadata, type MediaInfo, mediaInfo, timecodePattern } from "@hekate/shared";
-import { inSpan } from "../telemetry.ts";
+import { inSpan } from "../tracing.ts";
 import { readWaveChunks, tagsOf } from "./metadata.ts";
 
 /**
