@@ -48,6 +48,13 @@ export interface Gateway {
   cancelAtPeriodEnd(subscriptionId: string, cancel: boolean): Promise<void>;
   /** The card and the details it bills, as the gateway holds them; null once it has none. */
   customer(customerId: string): Promise<BillingCustomer | null>;
+  /**
+   * Void an open invoice, so nothing more is owed on it (#180's waiving). Returns the invoice as
+   * it then stands: one paid or voided meanwhile is left as it is.
+   */
+  voidInvoice(invoiceId: string): Promise<InvoiceFacts | null>;
+  /** The soonest payout to the instance not yet arrived; null with none due. */
+  nextPayout(): Promise<{ amount: number; currency: string; arrivesAt: Date } | null>;
   /** Where an owner changes the card and billing details, and reads past invoices. */
   portal(input: { customerId: string; returnUrl: string }): Promise<string>;
   /** A webhook, verified; throws when its signature does not hold. */

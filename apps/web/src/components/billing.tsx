@@ -9,6 +9,7 @@ import {
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
+import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
 import { billingQuery, useBillingPortal, useCancelPlan, useChangePlan } from "~/lib/queries";
 import { Danger, Row, Section } from "./settings";
@@ -97,12 +98,40 @@ function Tiles({ billing }: { billing: WorkspaceBilling }) {
     ["Members", String(usage.members), people === null ? "no limit" : `of ${people}`],
     [next[0] ?? "", next[1] ?? "", next[2] ?? ""],
   ];
+  return <TileGrid tiles={tiles.map(([label, value, hint]) => ({ label, value, hint }))} />;
+}
+
+/**
+ * Figures at a glance, in one panel divided by hairlines: four or five across, two on a phone,
+ * where an odd last one takes the row. A flagged one is in signal.
+ */
+export function TileGrid({
+  tiles,
+}: {
+  tiles: { label: string; value: string; hint: string; flag?: boolean }[];
+}) {
   return (
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-4">
-      {tiles.map(([label, value, hint]) => (
-        <div key={label} className="bg-raised/25 px-4 py-3">
-          <div className="text-[12px] text-ink-3">{label}</div>
-          <div className="tabular mt-1 truncate text-[24px] leading-none font-medium text-ink">
+    <div
+      className={cn(
+        "grid grid-cols-2 gap-px overflow-hidden rounded-panel-lg border border-line bg-line",
+        tiles.length === 5 ? "@3xl/app:grid-cols-5" : "@3xl/app:grid-cols-4",
+      )}
+    >
+      {tiles.map(({ label, value, hint, flag }, i) => (
+        <div
+          key={label}
+          className={cn(
+            "min-w-0 bg-raised/25 px-4 py-3",
+            tiles.length % 2 === 1 && i === tiles.length - 1 && "col-span-2 @3xl/app:col-span-1",
+          )}
+        >
+          <div className="truncate text-[12px] text-ink-3">{label}</div>
+          <div
+            className={cn(
+              "tabular mt-1 truncate text-[24px] leading-none font-medium",
+              flag ? "text-signal" : "text-ink",
+            )}
+          >
             {value}
           </div>
           <div className="mt-1.5 truncate text-[12px] text-ink-3">{hint}</div>

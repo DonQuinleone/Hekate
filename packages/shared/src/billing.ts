@@ -138,8 +138,30 @@ export function formatMoney(amount: number, currency: string): string {
     style: "currency",
     currency: currency.toUpperCase(),
   });
-  const places = format.resolvedOptions().maximumFractionDigits ?? 2;
-  return format.format(amount / 10 ** places);
+  return format.format(amount / 10 ** currencyPlaces(currency));
+}
+
+/** How many places a currency's minor unit has: 2 for pounds, none for yen, 3 for dinars. */
+export function currencyPlaces(currency: string): number {
+  const format = new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: currency.toUpperCase(),
+  });
+  return format.resolvedOptions().maximumFractionDigits ?? 2;
+}
+
+/**
+ * An amount as typed (`49`, `49.50`, `1,180`) in the currency's minor unit, or null when it is
+ * not one, or has more places than the currency.
+ */
+export function minorUnits(typed: string, currency: string): number | null {
+  const places = currencyPlaces(currency);
+  const clean = typed.trim().replaceAll(",", "");
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(clean);
+  if (!match) return null;
+  const fraction = match[2] ?? "";
+  if (fraction.length > places) return null;
+  return Number(match[1]) * 10 ** places + Number(fraction.padEnd(places, "0") || "0");
 }
 
 /**
@@ -239,3 +261,52 @@ export function promoSummary(
   const ends = promo.endedAt ? "ended" : promo.until ? `until ${date(promo.until)}` : null;
   return [`${off} ${lasts}`, used, ends].filter(Boolean).join(" · ");
 }
+
+/** A price as a month's share of it: a year's is a twelfth, rounded to the minor unit. */
+export function monthlyAmount(price: { amount: number; interval: "month" | "year" }): number {
+  return price.interval === "year" ? Math.round(price.amount / 12) : price.amount;
+}
+
+/** One workspace on the instance's Billing overview (#180): its plan and what it owes. */
+export interface BillingWorkspaceRow {
+  id: string;
+  name: string;
+  /** Null on no plan (the internal plan). */
+  plan: { id: string; name: string } | null;
+  status: WorkspacePlan["status"];
+  /** Null for a plan by agreement. */
+  price: PlanChoice["price"] | null;
+  trialEndsAt: string | null;
+  renewsAt: string | null;
+  cancelsAt: string | null;
+  subscribed: boolean;
+  /** When a payment first failed, while it is owed. */
+  pastDueSince: string | null;
+  /** The oldest open invoice past its due date, by hand or the gateway's. */
+  overdue: { number: string | null; dueAt: string } | null;
+  /** Suspended by dunning (not by an operator): waiving reopens it. */
+  dunningSuspended: boolean;
+}
+
+/** The instance's Billing overview (#180). Amounts in each currency's minor unit. */
+export interface BillingOverview {
+  gateway: "stripe" | null;
+  /** What the workspaces on a priced plan pay in a month, by currency, most workspaces first. */
+  revenue: { amount: number; currency: string; workspaces: number }[];
+  /** Workspaces paying (active or owing), and of them how many are on a plan by agreement. */
+  paying: number;
+  custom: number;
+  trials: { count: number; soonestEnd: string | null };
+  overdue: { count: number; longest: { name: string; since: string } | null };
+  /** Payments the gateway said failed this calendar month. */
+  failedPayments: number;
+  /** The gateway's next payout to the instance; null with none due or none known. */
+  nextPayout: { amount: number; currency: string; arrivesAt: string } | null;
+  workspaces: BillingWorkspaceRow[];
+}
+
+/**
+ * Waiving what a workspace owes (#180): its open invoices are voided, dunning ends, and a
+ * workspace dunning suspended opens again. Said why, for the instance's events.
+ */
+export const waiveInput = z.object({ reason: z.string().trim().min(1, "Say why").max(200) });

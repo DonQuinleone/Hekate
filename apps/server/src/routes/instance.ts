@@ -45,6 +45,7 @@ import {
   settingsChanges,
   suspendWorkspaceInput,
   WORKSPACE_DELETE_GRACE_DAYS,
+  waiveInput,
   workspaceLimits,
   workspacePlanInput,
   workspaceSettingsOf,
@@ -83,6 +84,7 @@ import {
   retakeGatewayEvent,
   settleByHand,
 } from "../billing/billing.ts";
+import { billingOverview, planByOperator, waive } from "../billing/overview.ts";
 import { endPromo, listPromos, savePromo, usesOf } from "../billing/promos.ts";
 import { workspaceEmail } from "../email/templates.ts";
 import { CodedException, NotFound } from "../errors.ts";
@@ -96,7 +98,7 @@ import { type JobName, type Jobs, jobDefinitions } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
 import { escapeLike, logCsv, readLog } from "../logs.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
-import { assignPlan, listPlans, savePlan, workspacePlanOf } from "../plans.ts";
+import { listPlans, savePlan, workspacePlanOf } from "../plans.ts";
 import { admit } from "../rate-limit.ts";
 import { signal } from "../signals.ts";
 import { type SystemHealthDeps, systemHealth } from "../system-health.ts";
@@ -148,7 +150,7 @@ export async function instanceAccess(
   db: Database,
   userId: string,
   sessionId: string,
-  options: Pick<InstanceOptions, "rule" | "operatorSecurityKey">,
+  options: Pick<InstanceOptions, "rule" | "operatorSecurityKey" | "environment">,
 ): Promise<InstanceAccess> {
   const [operator] = await db
     .select({ userId: schema.instanceOperators.userId })
@@ -179,6 +181,7 @@ export async function instanceAccess(
     operator: !!operator,
     keyNeeded: !!operator && options.operatorSecurityKey && session?.factor !== "passkey",
     owned,
+    billing: (options.environment.modules?.billing ?? "off") !== "off",
   };
 }
 
@@ -978,7 +981,13 @@ export function instanceRoutes(options: InstanceOptions) {
         const input = c.req.valid("json");
         await db.transaction(async (tx) => {
           const name = await workspaceName(tx, id);
-          const { name: plan } = await assignPlan(tx, id, input);
+          // On its subscription too, where it pays through the gateway (#180).
+          const { name: plan } = await planByOperator(
+            { gateway: options.billing?.gateway ?? null },
+            tx,
+            id,
+            input,
+          );
           await recordInstanceEvent(tx, {
             actorId: c.var.userId,
             action: "workspace.plan",
@@ -1191,6 +1200,27 @@ export function instanceRoutes(options: InstanceOptions) {
           });
         });
         return c.json({ plans: await listPlans(db) });
+      })
+      // The Billing overview (#180): what workspaces pay and owe; with billing on.
+      .use("/billing/*", operatorsOnly)
+      .get("/billing/overview", async (c) => {
+        if (billingOff()) throw billingOffRefusal();
+        return c.json(await billingOverview(db, options.billing?.gateway ?? null));
+      })
+      // Waive what a workspace owes (#180): its open invoices voided, dunning over, reopened.
+      .post("/workspaces/:id/waive", idParam, zValidator("json", waiveInput), async (c) => {
+        const { id } = c.req.valid("param");
+        if (billingOff() || !options.billing) throw billingOffRefusal();
+        const name = await workspaceName(db, id);
+        const done = await waive(options.billing, id);
+        await recordInstanceEvent(db, {
+          actorId: c.var.userId,
+          action: "billing.waived",
+          target: name,
+          details: { organisationId: id, reason: c.req.valid("json").reason, ...done },
+          ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+        });
+        return c.json(done);
       })
       // Promo codes (#178): kept whether or not billing is on; used only while it is.
       .use("/promos", operatorsOnly)

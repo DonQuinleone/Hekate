@@ -1809,6 +1809,67 @@ describe.runIf(url)("api", () => {
           expect(actions).toEqual(expect.arrayContaining(["promo.created", "promo.ended"]));
         });
 
+        it("shows operators the Billing overview, and lets them waive what a workspace owes (#180)", async () => {
+          const operator = cookieOf(await setup());
+          const admin = await join(operator, "admin@example.test", "admin");
+          const [studio] = await db
+            .select({ id: schema.organisations.id })
+            .from(schema.organisations)
+            .where(eq(schema.organisations.name, "Studio"));
+          const id = studio?.id ?? "";
+          const overview = (cookie: string, via = paying) =>
+            via.request("/api/instance/billing/overview", { headers: { cookie } });
+          expect((await overview(admin)).status).toBe(403);
+          expect(await (await overview(operator, asOperator)).json()).toMatchObject({
+            error: { code: "billing_off" },
+          });
+          expect(await (await overview(operator)).json()).toMatchObject({
+            gateway: "stripe",
+            workspaces: [{ name: "Studio", plan: null, overdue: null }],
+          });
+          const access = await paying.request("/api/instance/me", {
+            headers: { cookie: operator },
+          });
+          expect(await access.json()).toMatchObject({ billing: true });
+          const waive = (cookie: string) =>
+            paying.request(
+              `/api/instance/workspaces/${id}/waive`,
+              json({ reason: "A goodwill gesture" }, cookie),
+            );
+          expect((await waive(admin)).status).toBe(403);
+          expect(await (await waive(operator)).json()).toMatchObject({
+            error: { code: "nothing_owed" },
+          });
+          await paying.request(
+            `/api/instance/workspaces/${id}/invoices`,
+            json(
+              {
+                amount: 120_000,
+                currency: "GBP",
+                description: "Joplin Rags mastering",
+                dueAt: "2026-01-01T00:00:00.000Z",
+              },
+              operator,
+            ),
+          );
+          expect(await (await overview(operator)).json()).toMatchObject({
+            overdue: { count: 1, longest: { name: "Studio" } },
+            workspaces: [{ name: "Studio", overdue: { dueAt: "2026-01-01T00:00:00.000Z" } }],
+          });
+          expect(await (await waive(operator)).json()).toEqual({
+            voided: 1,
+            reinstated: false,
+          });
+          const [waived] = await db
+            .select()
+            .from(schema.instanceEvents)
+            .where(eq(schema.instanceEvents.action, "billing.waived"));
+          expect(waived).toMatchObject({
+            target: "Studio",
+            details: { reason: "A goodwill gesture", voided: 1 },
+          });
+        });
+
         it("lets the owners of a workspace suspended for a payment overdue pay, and nothing else", async () => {
           const owner = cookieOf(await setup());
           const member = await join(owner, "member@example.test");

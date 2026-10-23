@@ -10,6 +10,7 @@ export const instanceSectionIds = [
   "overview",
   "workspaces",
   "operators",
+  "billing",
   "health",
   "logs",
   "debug",
@@ -25,6 +26,7 @@ export const instanceSections: Record<InstanceSection, { label: string; hint: st
     hint: "Every tenant, with its people, projects and storage",
   },
   operators: { label: "Operators", hint: "The accounts that may manage the instance" },
+  billing: { label: "Billing", hint: "Plans, trials, invoices and what each workspace pays" },
   logs: {
     label: "Logs",
     hint: "What people and operators did, every sign-in, the mail the instance sent and every webhook",
@@ -47,9 +49,13 @@ export const instanceSections: Record<InstanceSection, { label: string; hint: st
   },
 };
 
-/** What a viewer may open on the instance side. */
-export function instanceSectionsFor(access: { operator: boolean }): InstanceSection[] {
-  return access.operator ? [...instanceSectionIds] : ["workspaces"];
+/** What a viewer may open on the instance side: Billing only with the billing module on (#180). */
+export function instanceSectionsFor(access: {
+  operator: boolean;
+  billing: boolean;
+}): InstanceSection[] {
+  if (!access.operator) return ["workspaces"];
+  return instanceSectionIds.filter((id) => id !== "billing" || access.billing);
 }
 
 /** Who someone is on the instance side, and whether their sign-in lets them act as an operator. */
@@ -59,6 +65,8 @@ export interface InstanceAccess {
   keyNeeded: boolean;
   /** Workspaces they own, which they reach here whether or not they operate the instance. */
   owned: { id: string; name: string }[];
+  /** Whether the instance charges (HEKATE_BILLING is not off), for its Billing section. */
+  billing: boolean;
 }
 
 /** May they open the instance side at all? */
@@ -306,6 +314,7 @@ export const instanceActions: Record<string, string> = {
   "invoice.created": "sent an invoice made by hand",
   "invoice.paid": "marked as having paid an invoice by hand",
   "invoice.voided": "had an invoice made by hand voided",
+  "billing.waived": "let off what it owed",
   "promo.created": "added as a promo code",
   "promo.changed": "changed, for its uses from now",
   "promo.ended": "ended",

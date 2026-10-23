@@ -62,6 +62,7 @@ import { Empty } from "~/components/empty";
 import { SuppressionsDialog } from "~/components/event-channels";
 import { Icon } from "~/components/icons";
 import { Code, Fact, Inspect } from "~/components/inspect";
+import { InstanceBilling } from "~/components/instance-billing";
 import { Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
 import { ConfirmStep } from "~/components/project-transfer";
@@ -150,6 +151,7 @@ export function InstancePage({ section }: { section: InstanceSection }) {
         <>
           {current === "overview" && operatorView && <Overview />}
           {current === "operators" && operatorView && <Operators />}
+          {current === "billing" && operatorView && <InstanceBilling />}
           {current === "settings" && operatorView && <Settings />}
           {current === "health" && operatorView && <SystemHealthPage />}
           {current === "logs" && operatorView && <Logs />}

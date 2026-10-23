@@ -1363,6 +1363,78 @@ setup("seed", async ({ page, browser }) => {
         );
     }
 
+    // The instance's Billing (#180): more plans, one by agreement; Saltmarsh Films on Label
+    // with an invoice by hand overdue (put on it beneath the API, so it keeps the quota set by
+    // hand above), Lantern Pictures on a Studio trial, and three promo codes, one ended.
+    const priced = (key: string, name: string, amount: number, extra: object = {}) =>
+      api<{ plans: { id: string; key: string }[] }>(page, "POST", "/api/instance/plans", {
+        key,
+        name,
+        price: amount < 0 ? null : { amount, currency: "GBP", interval: "month" },
+        storageQuota: null,
+        memberLimit: null,
+        projectLimit: null,
+        features: [],
+        severities: ["low", "normal"],
+        ...extra,
+      });
+    await priced("solo", "Solo", 0, { storageQuota: 1e11, memberLimit: 3, projectLimit: 1 });
+    await priced("label", "Label", 19_000, {
+      storageQuota: 5e12,
+      features: ["sso", "directory", "forensicMarking", "namedOperator"],
+      severities: ["low", "normal", "high", "urgent", "emergency"],
+    });
+    const all = await priced("custom", "Custom", -1, {
+      features: ["sso", "directory", "forensicMarking", "namedOperator"],
+      severities: ["low", "normal", "high", "urgent", "emergency"],
+      hidden: true,
+    });
+    const labelPlan = all.plans.find((p) => p.key === "label");
+    await sql`insert into workspace_plans (id, organisation_id, plan_id, status, renews_at)
+      values (gen_random_uuid(), ${saltmarsh?.id ?? null}, ${labelPlan?.id ?? null}, 'active', '2026-11-01T00:00:00Z')`;
+    await api(page, "POST", `/api/instance/workspaces/${saltmarsh?.id}/invoices`, {
+      amount: 19_000,
+      currency: "GBP",
+      description: "Label, September 2026",
+      dueAt: "2026-09-20T00:00:00Z",
+    });
+    const [lanternRow] = await sql<
+      { id: string }[]
+    >`select id from organisations where name = 'Lantern Pictures'`;
+    await api(page, "PUT", `/api/instance/workspaces/${lanternRow?.id}/plan`, {
+      planId: studio?.id,
+      status: "trial",
+      trialEndsAt: "2026-10-26T00:00:00Z",
+    });
+    // Newest first, as the list shows them: LAUNCH50 at the top.
+    for (const code of [
+      { code: "BETA", percentOff: 100, months: 6, maxUses: 3, planIds: [studio?.id] },
+      {
+        code: "CHOIR2026",
+        amountOff: 2000,
+        currency: "GBP",
+        months: 1,
+        maxUses: 20,
+        until: "2026-11-30T23:59:59Z",
+      },
+      {
+        code: "LAUNCH50",
+        percentOff: 50,
+        months: 3,
+        maxUses: 50,
+        until: "2026-12-31T23:59:59Z",
+        planIds: [studio?.id, labelPlan?.id],
+      },
+    ]) {
+      const { promo } = await api<{ promo: { id: string } }>(
+        page,
+        "POST",
+        "/api/instance/promos",
+        code,
+      );
+      if (code.code === "BETA") await api(page, "POST", `/api/instance/promos/${promo.id}/end`);
+    }
+
     // Where the workspace's events go (#161): a Slack channel, a Teams one and a webhook that
     // kept failing and paused, with a few deliveries for the webhook log. Their addresses are
     // never opened here: the events are dispatched already, and the webhook stays paused.

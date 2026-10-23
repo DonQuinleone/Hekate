@@ -153,7 +153,7 @@ export async function cancelAtPeriodEnd(
 }
 
 type PlanPrice = { amount: number; currency: string; interval: "month" | "year" };
-const priceOf = (p: typeof plans.$inferSelect): PlanPrice | null =>
+export const priceOf = (p: typeof plans.$inferSelect): PlanPrice | null =>
   p.priceAmount === null || !p.interval
     ? null
     : { amount: p.priceAmount, currency: p.currency, interval: p.interval };
@@ -579,7 +579,7 @@ const rank: Record<InvoiceStatus, number> = {
   void: 3,
 };
 
-async function keepInvoice(tx: Tx, organisationId: string, facts: InvoiceFacts) {
+export async function keepInvoice(tx: Tx, organisationId: string, facts: InvoiceFacts) {
   const [held] = await tx
     .select()
     .from(invoices)
@@ -621,7 +621,7 @@ async function markPastDue(tx: Tx, organisationId: string, at: Date) {
  * A payment went through: dunning is over, and a workspace it suspended opens again. One an
  * operator suspended, or set to be deleted, stays as the operator left it.
  */
-async function settle(tx: Tx, organisationId: string) {
+export async function settle(tx: Tx, organisationId: string) {
   const [before] = await tx
     .select({ stage: billingAccounts.dunningStage })
     .from(billingAccounts)

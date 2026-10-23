@@ -9,7 +9,7 @@ With `HEKATE_BILLING=stripe`, each workspace pays for its [plan](../quotas/#plan
 
 ## Set it up
 
-1. In Stripe (test mode), make a secret key, or a restricted key allowed to write customers, products, coupons, Checkout sessions, customer portal sessions and subscriptions, and to read invoices. Set it as `STRIPE_SECRET_KEY`.
+1. In Stripe (test mode), make a secret key, or a restricted key allowed to write customers, products, coupons, Checkout sessions, customer portal sessions, subscriptions and invoices (to void one an operator waives), and to read payouts (for the next one, on the instance's Billing overview). Set it as `STRIPE_SECRET_KEY`.
 2. Add a webhook endpoint for `https://<your instance>/api/hooks/billing/stripe`, sending at least `checkout.session.completed`, `checkout.session.expired`, `customer.subscription.*`, `invoice.*` and `payout.*`. Set its signing secret as `STRIPE_WEBHOOK_SECRET`.
 3. Turn on the customer portal in Stripe's settings, so owners can change their card.
 4. For tax, set up Stripe Tax and set `STRIPE_TAX=true`: Checkout then asks for the address and tax id it needs.
@@ -37,9 +37,27 @@ If a payment is overdue, the section says so, with the date the workspace would 
 
 With `HEKATE_BILLING=manual` the section shows the plan, the usage and the invoices made by hand; plans are arranged with the operators.
 
+## The instance's Billing section
+
+With billing on, the instance side has a **Billing** section, for its operators.
+
+**Overview** shows, at a glance:
+- **monthly revenue:** what the workspaces on a priced plan pay in a month at its list price (a yearly price counts as a twelfth), with how many pay and how many are on a plan by agreement;
+- **on trial:** how many, and when the soonest converts;
+- **overdue:** how many owe, from a failed payment or an invoice past its due date, and the one that has owed longest;
+- **failed payments** this month, and **the next payout** Stripe has on its way.
+
+Below, every workspace, those owing first, with its plan and what comes next: its next invoice, the day its trial converts or its plan ends, or what is overdue and since when. From each one's menu:
+- **Change plan** puts it on any plan that is not retired, hidden ones included. One paying through Stripe moves on its subscription too, the difference pro-rated; it cannot be put on a plan by agreement, or none, until its subscription is cancelled.
+- **Waive and reinstate**, for one that owes, voids its open invoices (at Stripe too), ends dunning, and opens it again if dunning suspended it. A workspace an operator suspended stays suspended. The reason given is kept with the instance event.
+
+**Plans** lists the plans, cheapest first, each with its limits, what it includes, the highest support severity it allows and how many workspaces are on it. Operators add a plan, edit its limits and price (its workspaces take new limits at once; a new price applies from their next invoice), duplicate one, hide one from workspaces' own choices, or retire one (nobody is put on it again; those on it stay until moved).
+
+**Promo codes** lists the codes, newest first, with what each gives, how many have used it, until when, and for which plans. Operators add and edit codes, copy one, see who used it, and end one.
+
 ## Promo codes
 
-Operators keep promo codes on the instance side (`/api/instance/promos`). Each code gives:
+Operators keep promo codes in the instance's Billing section (or at `/api/instance/promos`). Each code gives:
 - a percentage or an amount off (an amount in a currency, and only for plans in it);
 - for some months (one month is the first invoice alone), or for as long as the subscription lasts;
 - to the first so many who use it, until a date, and on some plans or any.
@@ -68,7 +86,7 @@ Dunning counts from the first failed payment of the workspace's subscription (an
 | 14 days | They are told again. |
 | 21 days | The workspace is suspended (an instance event, by billing), and its owners are told. |
 
-Nothing is ever deleted for want of payment. Once a payment goes through, dunning ends, and a workspace it suspended opens again. A workspace an operator suspended, or set to be deleted, stays as the operator left it. The `billing-dunning` job runs hourly, and only with billing on; mail that fails is sent again the next hour.
+Nothing is ever deleted for want of payment. Once a payment goes through, or an operator waives what is owed, dunning ends, and a workspace it suspended opens again. A workspace an operator suspended, or set to be deleted, stays as the operator left it. The `billing-dunning` job runs hourly, and only with billing on; mail that fails is sent again the next hour.
 
 ## Testing it against Stripe
 
