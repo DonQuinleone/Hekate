@@ -165,7 +165,7 @@ const schema = z.object({
     info({
       group: "Server",
       description:
-        "Each workspace also answers at its own name under PUBLIC_URL's host, such as `endless-hall.review.example` (#176). Needs a wildcard DNS record, and a certificate for every name: the subdomains Caddyfile asks the server which names to get one for. One sign-in reaches every workspace someone belongs to.",
+        "Each workspace also answers at its own name under PUBLIC_URL's host, such as `endless-hall.review.example` (#176). Needs a wildcard DNS record, and a certificate for every name: the subdomains Caddyfile asks the server which names to get one for. One sign-in reaches every workspace someone belongs to: the session cookie is sent to every name under that host, so give Hekate a host of its own (`review.example`, not `example.com`), with no other service beneath it.",
     }),
   ),
   TRUSTED_ORIGINS: list.meta(

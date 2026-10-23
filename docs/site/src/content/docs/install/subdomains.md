@@ -7,6 +7,8 @@ An instance can give each workspace its own address under the instance's: `endle
 
 ## Turn it on
 
+The session's cookie is the root's, so the browser sends it to every name under the root's host. Give Hekate a host of its own, such as `review.example`, with no other service beneath it: with `PUBLIC_URL=https://example.com`, a `shop.example.com` run by anyone else would be sent members' sessions.
+
 1. Point a wildcard DNS record, `*.review.example`, at the instance, as well as `review.example` itself.
 2. Set `WORKSPACE_SUBDOMAINS=true`, keeping `PUBLIC_URL` at the root's address (`https://review.example`).
 3. Give every name a certificate:
