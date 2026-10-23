@@ -134,6 +134,23 @@ export interface Answer {
 /** POSTs to a channel's address and says what it answered; rejects when nothing answered. */
 export type Send = (url: string, out: Outgoing) => Promise<Answer>;
 
+/**
+ * The seconds a receiver's `Retry-After` asks for: a number of seconds, or an HTTP date from
+ * now. Null where it says nothing usable, or a moment already past.
+ */
+export function retryAfterSeconds(value: string | undefined, now = new Date()): number | null {
+  if (!value) return null;
+  const text = value.trim();
+  if (/^\d+$/.test(text)) {
+    const seconds = Number(text);
+    return seconds > 0 ? seconds : null;
+  }
+  const at = Date.parse(text);
+  if (Number.isNaN(at)) return null;
+  const seconds = Math.ceil((at - now.getTime()) / 1000);
+  return seconds > 0 ? seconds : null;
+}
+
 export function createSend(trusted: string[], timeoutMs = 10_000): Send {
   return (url, out) => {
     const target = new URL(url);
@@ -152,20 +169,24 @@ export function createSend(trusted: string[], timeoutMs = 10_000): Send {
           ...(trusted.includes(target.origin) ? {} : { lookup: publicLookup }),
         },
         (res) => {
-          // The body says nothing Hekate keeps; it is read only to free the connection.
-          res.resume();
-          res.on("end", () => {
-            const after = Number(res.headers["retry-after"]);
-            resolve({
-              status: res.statusCode ?? 0,
-              retryAfter: Number.isFinite(after) && after > 0 ? after : null,
-            });
+          clearTimeout(deadline);
+          // The status and headers are the answer. The body says nothing Hekate keeps, so it is
+          // not read: a receiver cannot hold a worker by trickling one that never ends.
+          resolve({
+            status: res.statusCode ?? 0,
+            retryAfter: retryAfterSeconds(res.headers["retry-after"]),
           });
-          res.on("error", reject);
+          res.destroy();
         },
       );
+      // However the bytes come, the whole request has this long: the idle timeout alone would
+      // let a receiver that keeps the line busy hold it for good.
+      const deadline = setTimeout(() => req.destroy(new Error("Timed out")), timeoutMs);
       req.on("timeout", () => req.destroy(new Error("Timed out")));
-      req.on("error", reject);
+      req.on("error", (error) => {
+        clearTimeout(deadline);
+        reject(error);
+      });
       req.end(out.body);
     });
   };

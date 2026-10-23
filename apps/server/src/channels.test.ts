@@ -1,6 +1,14 @@
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import type { WebhookBody } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
-import { outgoing, signatureHeader, verifySignature } from "./channels.ts";
+import {
+  createSend,
+  outgoing,
+  retryAfterSeconds,
+  signatureHeader,
+  verifySignature,
+} from "./channels.ts";
 
 const event: WebhookBody = {
   id: "0190a6f0-0000-7000-8000-000000000001",
@@ -61,5 +69,58 @@ describe("channels (#161)", () => {
     expect(card.type).toBe("AdaptiveCard");
     expect(card.body[0].text).toBe(event.summary);
     expect(card.actions[0].url).toBe(event.url);
+  });
+
+  it("reads a receiver's Retry-After as seconds or as a date", () => {
+    const now = new Date("2026-10-23T10:00:00Z");
+    expect(retryAfterSeconds("120", now)).toBe(120);
+    expect(retryAfterSeconds("Fri, 23 Oct 2026 10:05:00 GMT", now)).toBe(300);
+    expect(retryAfterSeconds("Fri, 23 Oct 2026 09:00:00 GMT", now)).toBeNull();
+    expect(retryAfterSeconds("soon", now)).toBeNull();
+    expect(retryAfterSeconds(undefined, now)).toBeNull();
+  });
+
+  it("answers with the status as soon as it comes, however long the body goes on", async () => {
+    // A receiver that answers, then trickles a body that never ends.
+    const trickling: Server = createServer((_req, res) => {
+      res.writeHead(429, { "retry-after": "60" });
+      const drip = setInterval(() => res.write("."), 20);
+      res.on("close", () => clearInterval(drip));
+    });
+    await new Promise<void>((resolve) => trickling.listen(0, "127.0.0.1", resolve));
+    const origin = `http://127.0.0.1:${(trickling.address() as AddressInfo).port}`;
+    try {
+      const started = Date.now();
+      const answer = await createSend([origin], 2_000)(`${origin}/hook`, {
+        body: "{}",
+        headers: { "content-type": "application/json" },
+      });
+      expect(answer).toEqual({ status: 429, retryAfter: 60 });
+      expect(Date.now() - started).toBeLessThan(1_000);
+    } finally {
+      trickling.closeAllConnections();
+      trickling.close();
+    }
+  });
+
+  it("gives up on a receiver that never answers, whatever it trickles", async () => {
+    // Bytes keep arriving, so no idle timeout fires; only the deadline ends it.
+    const silent: Server = createServer(() => {});
+    silent.on("connection", (socket) => {
+      const drip = setInterval(() => socket.write(""), 20);
+      socket.on("close", () => clearInterval(drip));
+    });
+    await new Promise<void>((resolve) => silent.listen(0, "127.0.0.1", resolve));
+    const origin = `http://127.0.0.1:${(silent.address() as AddressInfo).port}`;
+    try {
+      const started = Date.now();
+      await expect(
+        createSend([origin], 300)(`${origin}/hook`, { body: "{}", headers: {} }),
+      ).rejects.toThrow(/Timed out/);
+      expect(Date.now() - started).toBeLessThan(1_500);
+    } finally {
+      silent.closeAllConnections();
+      silent.close();
+    }
   });
 });
