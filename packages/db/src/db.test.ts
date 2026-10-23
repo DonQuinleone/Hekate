@@ -31,6 +31,7 @@ describe("tenancy", () => {
     expect(names).toEqual([
       "access_events",
       "alignments",
+      "billing_accounts",
       "blobs",
       "calendar_feeds",
       "caption_tracks",
@@ -56,6 +57,7 @@ describe("tenancy", () => {
       "guest_sessions",
       "guests",
       "invitations",
+      "invoices",
       "loudness",
       "marks",
       "members",

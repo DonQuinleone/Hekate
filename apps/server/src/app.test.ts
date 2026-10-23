@@ -33,6 +33,8 @@ import { createApp, MAX_BODY_BYTES } from "./app.ts";
 import { createAudit, csvCell, systemActor } from "./audit.ts";
 import { createAuth } from "./auth.ts";
 import { describeReport, verifyBackup } from "./backup-verify.ts";
+import { signStripeEvent } from "./billing/stripe.ts";
+import { stripeGateway } from "./billing/stripe-gateway.ts";
 import { createClient } from "./client.ts";
 import { loadConfig } from "./config.ts";
 import { failureOfJob, purgeErrorReports, recordFailure } from "./error-reports.ts";
@@ -1624,6 +1626,121 @@ describe.runIf(url)("api", () => {
           const back = await assign({ planId: null });
           expect(await back.json()).toMatchObject({ plan: null });
           expect((await project("Bristol sessions", operator)).status).toBe(201);
+        });
+      });
+
+      describe("billing (#178)", () => {
+        const webhookSecret = "whsec_routes";
+        const stripeCalls: string[] = [];
+        const paying = createApp({
+          db,
+          auth,
+          mailer,
+          storage,
+          audit,
+          jobs,
+          keyring,
+          playbackSecret: playbackSecret("test-secret-test-secret-test-secret-0"),
+          publicUrl: "http://localhost:3000",
+          log: false,
+          operatorSecurityKey: false,
+          modules: {
+            billing: "stripe",
+            support: "off",
+            docsUrl: "https://docs.hekate.studio",
+            statusUrl: null,
+          },
+          gateway: stripeGateway({
+            stripe: {
+              async request(method, path) {
+                stripeCalls.push(`${method} ${path}`);
+                if (path === "/v1/customers") return { id: "cus_routes" } as never;
+                return {
+                  id: "cs_routes",
+                  url: "https://checkout.stripe.com/c/routes",
+                  expires_at: Math.floor(Date.now() / 1000) + 86_400,
+                } as never;
+              },
+            },
+            webhookSecret,
+            tax: false,
+          }),
+        });
+        beforeEach(async () => {
+          await db.delete(schema.gatewayEvents);
+          await db.delete(schema.plans);
+        });
+
+        it("checks out for owners alone, and shows admins the plans and invoices", async () => {
+          const owner = cookieOf(await setup());
+          const admin = await join(owner, "admin@example.test", "admin");
+          const [plan] = await db
+            .insert(schema.plans)
+            .values({
+              key: "studio",
+              name: "Studio",
+              priceAmount: 4900,
+              interval: "month",
+              features: [],
+              severities: [],
+            })
+            .returning();
+          const checkout = (cookie: string, via = paying) =>
+            via.request("/api/organisation/billing/checkout", json({ planId: plan?.id }, cookie));
+          expect((await checkout(admin)).status).toBe(403);
+          const done = await checkout(owner);
+          expect(done.status).toBe(200);
+          expect(await done.json()).toEqual({ url: "https://checkout.stripe.com/c/routes" });
+          const shown = await paying.request("/api/organisation/billing", {
+            headers: { cookie: admin },
+          });
+          expect(await shown.json()).toMatchObject({
+            gateway: "stripe",
+            subscribed: false,
+            plans: [{ key: "studio", price: { amount: 4900, currency: "GBP" } }],
+            invoices: [],
+          });
+          // Without a gateway, nothing is paid for.
+          const none = await checkout(owner, app);
+          expect(none.status).toBe(409);
+          expect(await none.json()).toMatchObject({ error: { code: "billing_unavailable" } });
+        });
+
+        it("takes the gateway's events only signed, and each once", async () => {
+          const body = JSON.stringify({
+            id: "evt_routes",
+            type: "payout.paid",
+            created: Math.floor(Date.now() / 1000),
+            livemode: false,
+            data: { object: { amount: 118_000, currency: "gbp" } },
+          });
+          const hook = (signature: string | null, via = paying) =>
+            via.request("/api/hooks/billing/stripe", {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                ...(signature ? { "stripe-signature": signature } : {}),
+              },
+              body,
+            });
+          expect((await hook(null)).status).toBe(401);
+          expect((await hook(signStripeEvent(body, "whsec_other"))).status).toBe(401);
+          expect((await hook(signStripeEvent(body, webhookSecret), app)).status).toBe(404);
+          const signed = signStripeEvent(body, webhookSecret);
+          const first = await hook(signed);
+          expect(first.status).toBe(200);
+          expect(await first.json()).toEqual({ received: true, result: "taken" });
+          expect((await hook(signed)).status).toBe(200);
+          const kept = await db.select().from(schema.gatewayEvents);
+          expect(kept).toEqual([
+            expect.objectContaining({
+              type: "payout.paid",
+              amount: 118_000,
+              currency: "GBP",
+              organisationId: null,
+              result: "taken",
+            }),
+          ]);
         });
       });
 

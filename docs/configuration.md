@@ -88,6 +88,9 @@ A setting marked as secret may instead name a file that holds it, with `_FILE` a
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `HEKATE_BILLING` | `off` | Billing for a hosted offering (decision 041). Off for a self-hosted install, which shows none. |
+| `STRIPE_SECRET_KEY` | unset | With HEKATE_BILLING=stripe (#178): the Stripe account's secret key, or a restricted key allowed customers, products, Checkout, the customer portal and subscriptions. Test mode only for now. Example: `sk_test_…`. Or `STRIPE_SECRET_KEY_FILE`, naming a file that holds it. |
+| `STRIPE_WEBHOOK_SECRET` | unset | With HEKATE_BILLING=stripe: the signing secret of the webhook endpoint added in Stripe for /api/hooks/billing/stripe, which proves each event came from Stripe. Example: `whsec_…`. Or `STRIPE_WEBHOOK_SECRET_FILE`, naming a file that holds it. |
+| `STRIPE_TAX` | `false` | With HEKATE_BILLING=stripe: work out tax with Stripe Tax, from the address and tax id collected at checkout. Stripe Tax must be set up in the account first. |
 | `HEKATE_SUPPORT` | `off` | Support: off; app, tickets in the application; link, an external help desk; or mail, tickets sent to an address (decision 041). |
 | `HEKATE_SUPPORT_ADDRESS` | unset | Where support goes: the help desk's address when HEKATE_SUPPORT is link, or the mailbox when it is mail. Example: `support@example.com`. |
 | `HEKATE_UPDATE_CHECK` | `false` | Check the project's public releases once a day, for System information and the Overview. Nothing about the instance is sent. Off by default: the instance asks nothing of anyone. |

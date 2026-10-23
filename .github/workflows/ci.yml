@@ -38,6 +38,9 @@ jobs:
       S3_TEST_BUCKET: hekate-test
       S3_TEST_ACCESS_KEY_ID: hekate-ci
       S3_TEST_SECRET_ACCESS_KEY: hekate-ci-secret
+      # The billing gateway's test against Stripe's test mode (#178): a test-mode key in the
+      # repository's secrets; without one, that test is skipped.
+      STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0

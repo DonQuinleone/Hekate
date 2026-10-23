@@ -28,6 +28,8 @@ export const fileSettings = [
   "MASTER_KEYS_PREVIOUS",
   "METRICS_TOKEN",
   "OTEL_EXPORTER_OTLP_HEADERS",
+  "STRIPE_SECRET_KEY",
+  "STRIPE_WEBHOOK_SECRET",
 ];
 
 export function withFileSettings(env: Record<string, string | undefined>) {
@@ -624,6 +626,44 @@ const schema = z.object({
           "Billing for a hosted offering (decision 041). Off for a self-hosted install, which shows none.",
       }),
     ),
+  STRIPE_SECRET_KEY: z
+    .string()
+    .trim()
+    .regex(/^(sk|rk)_test_\w+$/, {
+      error:
+        "a test-mode secret or restricted key (sk_test_… or rk_test_…): live keys come with the hosted offering",
+    })
+    .optional()
+    .meta(
+      info({
+        group: "Modules",
+        description:
+          "With HEKATE_BILLING=stripe (#178): the Stripe account's secret key, or a restricted key allowed customers, products, Checkout, the customer portal and subscriptions. Test mode only for now.",
+        example: "sk_test_…",
+        secret: true,
+      }),
+    ),
+  STRIPE_WEBHOOK_SECRET: z
+    .string()
+    .trim()
+    .regex(/^whsec_\w+$/, { error: "the endpoint's signing secret, whsec_…" })
+    .optional()
+    .meta(
+      info({
+        group: "Modules",
+        description:
+          "With HEKATE_BILLING=stripe: the signing secret of the webhook endpoint added in Stripe for /api/hooks/billing/stripe, which proves each event came from Stripe.",
+        example: "whsec_…",
+        secret: true,
+      }),
+    ),
+  STRIPE_TAX: flag("false").meta(
+    info({
+      group: "Modules",
+      description:
+        "With HEKATE_BILLING=stripe: work out tax with Stripe Tax, from the address and tax id collected at checkout. Stripe Tax must be set up in the account first.",
+    }),
+  ),
   HEKATE_SUPPORT: z
     .enum(["off", "app", "link", "mail"], { error: "use off, app, link or mail" })
     .default("off")
@@ -743,6 +783,9 @@ function together(env: Record<string, string | undefined>): ConfigProblem[] {
       name: "HEKATE_SUPPORT_ADDRESS",
       message: `required when HEKATE_SUPPORT is ${support}`,
     });
+  if (env.HEKATE_BILLING === "stripe")
+    for (const name of ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"])
+      if (!env[name]) problems.push({ name, message: "required when HEKATE_BILLING is stripe" });
   // Mail leaves one way (#71): each provider's settings whole, and no more than one of them.
   const sets = {
     smtp: ["SMTP_URL"],
