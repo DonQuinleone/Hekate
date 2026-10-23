@@ -20,8 +20,11 @@ export interface SupportModule {
   address: string | null;
   /** HEKATE_DOCS_URL. */
   docsUrl: string;
-  /** The status page: the desk's own setting, else HEKATE_STATUS_URL; none when neither. */
-  statusUrl: string | null;
+  /**
+   * The status page: the desk's own address, else HEKATE_STATUS_URL, else the instance's own
+   * page at `/status` (#183), which always shows the incidents posted here.
+   */
+  statusUrl: string;
 }
 
 export const ticketKinds = ["problem", "question", "billing", "idea"] as const;
@@ -303,6 +306,8 @@ export interface SupportDesk {
   statusUrl: string | null;
   /** HEKATE_STATUS_URL, the address used when the desk sets none. */
   environmentStatusUrl: string | null;
+  /** The instance's own page (#183), linked when neither sets one. */
+  ownStatusUrl: string;
   onCall: string | null;
   operators: { id: string; name: string }[];
   /** Which severities each plan allows; empty with billing off, when every one is allowed. */

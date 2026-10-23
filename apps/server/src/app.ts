@@ -89,6 +89,7 @@ import { signInMethodRoutes } from "./routes/sign-in-methods.ts";
 import { signUpRoutes } from "./routes/sign-up.ts";
 import { ssoRoutes } from "./routes/sso.ts";
 import { projectStagePlanRoutes, stagePlanRoutes } from "./routes/stage-plans.ts";
+import { statusRoutes } from "./routes/status.ts";
 import { storageSettingsRoutes } from "./routes/storage-settings.ts";
 import { supportRoutes } from "./routes/support.ts";
 import { fileTagRoutes, tagRoutes } from "./routes/tags.ts";
@@ -115,6 +116,7 @@ import { workspaceDeletionRoutes, workspaceExportRoutes } from "./routes/workspa
 import { workspaceMailRoutes } from "./routes/workspace-mail.ts";
 import { securityHeaders } from "./security-headers.ts";
 import type { SetupGate } from "./setup-code.ts";
+import { createStatus } from "./status.ts";
 import type { Storage } from "./storage.ts";
 import { supportModuleOf } from "./support.ts";
 import { traced } from "./telemetry.ts";
@@ -239,6 +241,9 @@ export function createApi(deps: AppDeps) {
     backends: deps.storage.backends,
     mailer: deps.mailer,
   });
+  // The status page (#183): its services as checked here, each minute counted for its uptime.
+  const status = createStatus(deps.db, checks);
+  deps.sampler?.also(() => status.record());
   // Someone who still owes a second factor may read who they are, to be sent to add one, and
   // switch to a workspace that does not ask for it; nothing else.
   const owingAllowed = new Set(["/api/me", "/api/me/organisation"]);
@@ -315,6 +320,8 @@ export function createApi(deps: AppDeps) {
       .get("/notice", async (c) =>
         c.json({ maintenance: (await settings.get()).maintenance } satisfies InstanceNotice),
       )
+      // The status page (#183), for anyone, signed in or not.
+      .route("/status", statusRoutes(status))
       .route(
         "/setup",
         setupRoutes(deps.db, deps.auth, deps.passwordLeakCheck ?? false, deps.setupGate),
@@ -337,6 +344,7 @@ export function createApi(deps: AppDeps) {
           storage: deps.storage,
           audit: deps.audit,
           settings,
+          status,
           system: { build: deps.build ?? "dev", checkOn: deps.updateCheck ?? false },
           health: {
             checks,
@@ -405,7 +413,7 @@ export function createApi(deps: AppDeps) {
           maxPasskeys: deps.maxPasskeys ?? 5,
           subdomains: deps.subdomains ?? null,
           billing: (deps.modules?.billing ?? "off") !== "off",
-          support: () => supportModuleOf(modules, settings),
+          support: () => supportModuleOf(modules, settings, deps.publicUrl),
         }),
       )
       // A member's own API tokens (#198), in this workspace.

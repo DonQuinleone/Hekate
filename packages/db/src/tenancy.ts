@@ -26,6 +26,11 @@ export const globalTables = new Set<PgTable>([
   // A code is the instance's, and who used it is read across workspaces by the operators who
   // made it; each use still names its workspace (#178).
   schema.promoRedemptions,
+  // The status page's incidents and measured days are the instance's, about services every
+  // workspace shares, and read by anyone who opens the page; they name no workspace (#183).
+  schema.incidents,
+  schema.incidentUpdates,
+  schema.serviceDays,
 ]);
 
 export const tenantTables: TenantTable[] = (Object.values(schema) as unknown[]).filter(

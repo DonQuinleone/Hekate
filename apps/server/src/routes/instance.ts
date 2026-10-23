@@ -119,12 +119,14 @@ import { listPlans, savePlan, workspacePlanOf } from "../plans.ts";
 import { admit } from "../rate-limit.ts";
 import { listSignUpInvitations, newSignUpLink, revokeSignUpInvitation } from "../sign-up.ts";
 import { signal } from "../signals.ts";
+import { createStatus, type Status } from "../status.ts";
 import type { Storage } from "../storage.ts";
 import { type SystemHealthDeps, systemHealth } from "../system-health.ts";
 import { HEKATE_VERSION, systemInformation } from "../system-info.ts";
 import { factorStanding, type SecondFactorRule } from "../tenancy.ts";
 import { nearQuota, workspaceUsageOf } from "../usage.ts";
 import { pendingRewrap } from "../workspace-keys.ts";
+import { incidentRoutes } from "./incidents.ts";
 import { operatorMove } from "./project-transfers.ts";
 import { retryFile } from "./retry.ts";
 import { supportDeskRoutes } from "./support-desk.ts";
@@ -154,6 +156,8 @@ export interface InstanceOptions {
   audit: Audit;
   /** The instance's settings (#160), shared with the rest of the server. */
   settings: InstanceSettingsStore;
+  /** The status page (#183), read afresh after an incident changes; none in some tests. */
+  status?: Status;
   /** The build running and whether releases are checked (#158). */
   system: { build: string; checkOn: boolean };
   /** What System health reads (#156). */
@@ -1408,6 +1412,17 @@ export function instanceRoutes(options: InstanceOptions) {
         });
         return c.json(done);
       })
+      // Incidents for the status page (#183), posted from the support desk whatever the module.
+      .use("/incidents", operatorsOnly)
+      .use("/incidents/*", operatorsOnly)
+      .route(
+        "/incidents",
+        incidentRoutes({
+          db,
+          status: options.status ?? createStatus(db, options.health.checks),
+          trustProxy: options.trustProxy,
+        }),
+      )
       // The support desk (#182): every workspace's tickets, with tickets in the app.
       .use("/support", operatorsOnly)
       .use("/support/*", operatorsOnly)

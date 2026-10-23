@@ -23,6 +23,8 @@ import {
   defaultReviewerPermissions,
   type EventKind,
   type FileColumnLayout,
+  type IncidentImpact,
+  type IncidentState,
   type InstanceSettings,
   type InvoiceSource,
   type InvoiceStatus,
@@ -58,6 +60,7 @@ import {
   type SessionFactor,
   type SsoProtocol,
   type StandingGrant,
+  type StatusService,
   type SupportSeverity,
   scheduleRowKinds,
   type TaskEventDetail,
@@ -2897,6 +2900,65 @@ export const cannedReplies = pgTable("canned_replies", {
   createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
   ...timestamps,
 });
+
+// The status page (#183)
+
+/**
+ * Something down for everyone, posted by an operator from the support desk (#183): what it
+ * touches, how badly, and where it stands. Instance-wide, as the services are: it names no
+ * workspace, and its readers are anyone who opens the status page.
+ */
+export const incidents = pgTable(
+  "incidents",
+  {
+    id: id(),
+    title: text("title").notNull(),
+    impact: text("impact").$type<IncidentImpact>().notNull(),
+    services: text("services").array().$type<StatusService[]>().notNull(),
+    state: text("state").$type<IncidentState>().notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [index("incidents_started").on(t.startedAt)],
+);
+
+/** An incident's updates, from the first through to its resolution. */
+export const incidentUpdates = pgTable(
+  "incident_updates",
+  {
+    id: id(),
+    incidentId: uuid("incident_id")
+      .notNull()
+      .references(() => incidents.id, { onDelete: "cascade" }),
+    state: text("state").$type<IncidentState>().notNull(),
+    body: text("body").notNull(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("incident_updates_incident").on(t.incidentId, t.createdAt)],
+);
+
+/**
+ * Each service's day as the instance measured it (#183), for the status page's 90 days: the
+ * minutes checked and those it was not answering. Every replica checks each minute; the first
+ * to record a minute counts it, so a minute counts once however many replicas run.
+ */
+export const serviceDays = pgTable(
+  "service_days",
+  {
+    id: id(),
+    /** In UTC. */
+    day: date("day", { mode: "string" }).notNull(),
+    service: text("service").$type<StatusService>().notNull(),
+    minutes: integer("minutes").notNull().default(0),
+    down: integer("down").notNull().default(0),
+    /** The last minute counted, so another replica's check of it is not counted again. */
+    lastMinute: timestamp("last_minute", { withTimezone: true }).notNull(),
+  },
+  (t) => [uniqueIndex("service_days_day_service").on(t.day, t.service)],
+);
 
 // Notifications (docs/domain.md)
 

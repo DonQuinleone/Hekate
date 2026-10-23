@@ -21,6 +21,7 @@ describe("the instance side", () => {
       "overview",
       "workspaces",
       "operators",
+      "support",
       "health",
       "logs",
       "debug",
@@ -30,8 +31,10 @@ describe("the instance side", () => {
     expect(instanceSectionsFor({ operator: false, billing: true })).toEqual(["workspaces"]);
     // Billing, for operators, only where the instance charges (#180).
     expect(instanceSectionsFor({ operator: true, billing: true })).toContain("billing");
-    // Support, for operators, only where tickets are answered in the app (#182).
-    expect(instanceSectionsFor({ operator: true, billing: false })).not.toContain("support");
+    // Support, for every operator: its incidents (#183) whether or not tickets are on (#182).
+    expect(instanceSectionsFor({ operator: true, billing: false, support: false })).toContain(
+      "support",
+    );
     expect(instanceSectionsFor({ operator: true, billing: true, support: true })).toEqual([
       "overview",
       "workspaces",

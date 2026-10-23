@@ -52,8 +52,9 @@ export const instanceSections: Record<InstanceSection, { label: string; hint: st
 };
 
 /**
- * What a viewer may open on the instance side: Billing only with the billing module on (#180),
- * Support only with tickets in the app (#182).
+ * What a viewer may open on the instance side: Billing only with the billing module on (#180).
+ * Support is every operator's: its incidents and status page (#183) whatever the module says,
+ * its tickets only with tickets in the app (#182).
  */
 export function instanceSectionsFor(access: {
   operator: boolean;
@@ -61,9 +62,7 @@ export function instanceSectionsFor(access: {
   support?: boolean;
 }): InstanceSection[] {
   if (!access.operator) return ["workspaces"];
-  return instanceSectionIds.filter(
-    (id) => (id !== "billing" || access.billing) && (id !== "support" || access.support === true),
-  );
+  return instanceSectionIds.filter((id) => id !== "billing" || access.billing);
 }
 
 /** Who someone is on the instance side, and whether their sign-in lets them act as an operator. */
@@ -342,6 +341,10 @@ export const instanceActions: Record<string, string> = {
   "registration.invited": "invited to make a workspace",
   "registration.invitation_revoked": "no longer invited to make a workspace",
   "workspace.signed_up": "made by sign-up",
+  "incident.posted": "posted on the status page",
+  "incident.updated": "given an update on the status page",
+  "incident.resolved": "resolved on the status page",
+  "incident.removed": "taken off the status page",
 };
 
 /** Where a workspace stands, from its record. */

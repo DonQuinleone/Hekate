@@ -145,7 +145,7 @@ export const meRoutes = (
               mode: "off",
               address: null,
               docsUrl: "https://docs.hekate.studio",
-              statusUrl: null,
+              statusUrl: "/status",
             } satisfies SupportModule),
       });
     })

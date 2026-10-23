@@ -64,6 +64,7 @@ export * from "./search.ts";
 export * from "./spectrogram.ts";
 export * from "./sso.ts";
 export * from "./stage-plan.ts";
+export * from "./status.ts";
 export * from "./stream-parts.ts";
 export * from "./support.ts";
 export * from "./tags.ts";
