@@ -494,6 +494,23 @@ const screens: Screen[] = [
   },
   { name: "settings-log", path: () => "/settings/log", ready: "main [data-log-entry]" },
   { name: "settings-billing", path: () => "/settings/billing", ready: "main >> text=HK-0002" },
+  // Support (#181): the workspace's tickets, and a new one with the deflection first.
+  {
+    name: "settings-support",
+    path: () => "/settings/support",
+    ready: "main >> text=Score page 7 will not render",
+  },
+  {
+    name: "settings-support-new",
+    path: () => "/settings/support?new=1",
+    ready: "main >> text=Before you ask",
+  },
+  // The desk (#182): every workspace's tickets, its figures and its settings.
+  {
+    name: "instance-support",
+    path: () => "/instance/support",
+    ready: "main >> text=Raise our quota before Friday",
+  },
   {
     name: "settings-operations",
     path: () => "/settings/operations",
@@ -1211,6 +1228,43 @@ for (const [name, steps, ready] of [
       const [role, label] = step.split(":") as ["tab" | "button" | "menuitem", string];
       await page.getByRole(role, { name: label, exact: true }).first().click();
     }
+    await settle(page, ready);
+    await saveScreen(page, name);
+    await checkScreen(page);
+  });
+}
+
+// Support (#181, #182): a ticket as the workspace sees it, as the desk does, the desk's canned
+// replies, and the help menu that leads to them.
+for (const [name, path, open, ready] of [
+  [
+    "settings-support-ticket",
+    "/settings/support",
+    "button:Score page 7 will not render",
+    "[role=dialog] >> text=Mark resolved",
+  ],
+  [
+    "instance-support-ticket",
+    "/instance/support",
+    "button:Raise our quota before Friday",
+    "[role=dialog] >> text=Open the account",
+  ],
+  [
+    "instance-support-replies",
+    "/instance/support",
+    "button:Manage",
+    "[role=dialog] >> text=Quota raised",
+  ],
+  ["help-menu", "/", "button:Help", "[role=menu] >> text=Contact support"],
+] as const) {
+  test(name, async ({ page }) => {
+    await page.clock.setFixedTime(FIXED_TIME);
+    await page.goto(path);
+    const [role, label] = open.split(":") as ["button", string];
+    await page
+      .getByRole(role, { name: new RegExp(label) })
+      .first()
+      .click();
     await settle(page, ready);
     await saveScreen(page, name);
     await checkScreen(page);

@@ -1650,7 +1650,11 @@ export function InstancePage({ section }: { section: string }) {
             />
             <Tile label="First reply" value="1.8 h" hint="median this month · target 4 h" />
             <Tile label="Resolved" value="14" hint="this month" />
-            <Tile label="Status page" value="Up" hint="no incidents in 41 days" />
+            <Tile
+              label="Status page"
+              value="Linked"
+              hint={env.statusUrl.replace(/^https?:\/\//, "")}
+            />
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Input
@@ -1715,10 +1719,29 @@ export function InstancePage({ section }: { section: string }) {
             </Row>
             <Row
               name="Status page"
-              hint="status.review.endlesshall.example · incidents posted from here"
+              hint={`${env.statusUrl.replace(/^https?:\/\//, "")} · linked from the help menu and the Support page`}
             >
               <Button variant="ghost" size="md">
-                Post an incident
+                Edit
+              </Button>
+            </Row>
+            <Row
+              name="On call"
+              hint="Hears of each new ticket first, and is told at once of an Emergency."
+            >
+              <Select defaultValue="Alex Rivera" aria-label="On call" className="w-52">
+                <option value="">Nobody</option>
+                {operators.map((o) => (
+                  <option key={o.email}>{o.name}</option>
+                ))}
+              </Select>
+            </Row>
+            <Row
+              name="Canned replies"
+              hint="Rate-limited channel · Quota raised · Fixed in the next patch"
+            >
+              <Button variant="ghost" size="md">
+                Manage
               </Button>
             </Row>
           </Section>

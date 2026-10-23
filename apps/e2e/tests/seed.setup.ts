@@ -1505,6 +1505,44 @@ setup("seed", async ({ page, browser }) => {
       if (code.code === "BETA") await api(page, "POST", `/api/instance/promos/${promo.id}/end`);
     }
 
+    // Support (#181, #182): Endless Hall Records asks about a score that will not render, with
+    // the error it saw, and the desk has answered; an idea of theirs is resolved; Saltmarsh
+    // Films waits on the desk at High. The desk keeps two canned replies.
+    type Sent = { ticket: { id: string } };
+    const score7 = await api<Sent>(page, "POST", "/api/organisation/support/tickets", {
+      subject: "Score page 7 will not render",
+      kind: "problem",
+      severity: "normal",
+      message:
+        "Maple Leaf Rag - Score.pdf shows pages 1 to 6 and then a blank. The file opens fine elsewhere.",
+      errorReference: "HK-7F3A-2C",
+    });
+    await api(page, "POST", `/api/instance/support/tickets/${score7.ticket.id}/messages`, {
+      body: "The PDF has a damaged cross-reference table at page 7, which the viewer refuses where other readers repair it. Re-exporting it from the engraver fixes it now; the next release repairs it too.",
+    });
+    const idea = await api<Sent>(page, "POST", "/api/organisation/support/tickets", {
+      subject: "Can we have a second delivery profile?",
+      kind: "idea",
+      severity: "low",
+      message: "Streaming and vinyl need different loudness targets; one profile is not enough.",
+    });
+    await api(page, "POST", `/api/organisation/support/tickets/${idea.ticket.id}/resolve`);
+    const [tomas] = await sql<{ id: string }[]>`select id from users where name = 'Tomas Varga'`;
+    const quota = uuidv7();
+    await sql`insert into tickets (id, organisation_id, reference, subject, kind, severity, state,
+        requester_id, requester_name)
+      values (${quota}, ${saltmarsh?.id ?? null}, 'T-62B3-41', 'Raise our quota before Friday''s delivery',
+        'billing', 'high', 'waiting', ${tomas?.id ?? null}, 'Tomas Varga')`;
+    await sql`insert into ticket_messages (id, organisation_id, ticket_id, author, author_id,
+        author_name, body)
+      values (${uuidv7()}, ${saltmarsh?.id ?? null}, ${quota}, 'member', ${tomas?.id ?? null},
+        'Tomas Varga', 'We are at 92% of our storage with the delivery due Friday. Can the quota go up this week? Happy to move to the next plan.')`;
+    for (const reply of [
+      { title: "Fixed in the next patch", body: "This is fixed in the next release." },
+      { title: "Quota raised", body: "Your storage quota is raised; it applies at once." },
+    ])
+      await api(page, "POST", "/api/instance/support/replies", reply);
+
     // Where the workspace's events go (#161): a Slack channel, a Teams one and a webhook that
     // kept failing and paused, with a few deliveries for the webhook log. Their addresses are
     // never opened here: the events are dispatched already, and the webhook stays paused.
@@ -1615,6 +1653,9 @@ setup("seed", async ({ page, browser }) => {
       );
       if (appendOnly) await sql.unsafe(`alter table "${table}" enable trigger user`);
     }
+    // The desk's first reply, as long after its ticket as on a good day (#182).
+    await sql`update tickets set first_reply_at = created_at + interval '108 minutes'
+      where first_reply_at is not null`;
   } finally {
     await sql.end();
   }

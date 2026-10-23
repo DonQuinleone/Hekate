@@ -1486,6 +1486,32 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Recognition by days.** The recognition export spreads each paid invoice over its period by days, shares rounded down and the remainder given to the last month, so a month's shares add up to what was paid. Invoices do not record their plan, so the export names the plan the workspace is on now.
 - **Exports are recorded first**, as the logs' exports are (#157), and streamed.
 
+## 217. The support module: tickets in the app, deflection first, the plan's severities
+
+#181. With `HEKATE_SUPPORT=app`, a workspace asks the people who run the instance in tickets; with `link` or `mail` the help menu opens their own desk or mailbox (`HEKATE_SUPPORT_ADDRESS`); with `off`, only the documentation. The help menu and the workspace's Support settings learn which from `/api/me`.
+
+- **Three tenant tables.** `tickets` (a reference, subject, type, severity, state, who asked and their name as it was, the error reference, the file or review asked from and whether the operators may open it, when it was first answered and resolved), `ticket_messages` (the thread: the workspace, an operator, or Hekate's own notes) and `ticket_attachments`. A ticket stays with its workspace when a project moves (decision 135): it is the workspace's whatever it was about.
+- **A reference made on sending**, `T-7F3A-2C`: three random bytes, unique across the instance so an operator can find it, and unlike an error's `HK-`.
+- **Who reads what.** Any member may ask. Each reads their own tickets; owners and admins read every one the workspace sent, and answer for it. Another workspace's ticket, and another member's to a member, is not found, never refused, so its existence is not confirmed.
+- **Severity held to the plan.** Low and Normal on every plan; High, Urgent and Emergency as the plan allows (`severityAllowed`, decision 209), refused with 403 `severity_not_entitled`. The page says which plan unlocks the rest, from the plans on offer. Without billing, the internal plan allows every severity.
+- **States.** Waiting (on support: a new ticket, or the workspace replied), answered (waiting on the workspace), open (being looked into) and resolved. One pure function moves a ticket on a reply; the workspace marks it resolved, and a reply to a resolved ticket opens it again.
+- **Deflection first.** New ticket shows a search of the written answers, three common ones and the status page before the form. The answers are pages of the documentation site; the search runs over their titles and words in the browser, since the site's own search cannot be linked to.
+- **Error references attached automatically**, but only the workspace's own: the last failure the person saw there in the past day is offered, ticked, and every reference quoted in the subject or message is attached where it happened in the workspace (or to them, outside any). Another workspace's is never attached, nor its existence confirmed. Hekate's note in the thread names the reference, the route and the time, never the failure's message.
+- **Attachments**: up to five a message, 10 MB each, encrypted like any blob. They come down as the answer to a request in the session, never as an address, each in the access log first (`support.attachment_download`). They count towards the workspace's storage but are not refused for its quota, so a workspace at its limit can still ask for more.
+- **Mail on each reply** (#120): the desk hears of each ticket and each reply from the workspace; whoever asked hears of each answer. Sent after the change commits, and never in its way.
+- **Expanding only:** three tenant tables, one global table (decision 218) and an access log action (decision 198).
+
+## 218. The support desk: every workspace's tickets, read by the operators alone
+
+#182. The instance's Support section, shown to operators with tickets in the app.
+
+- **Across workspaces, for operators only.** The list, its figures and a ticket are read across workspaces behind `operatorsOnly`, the reads marked as such; a workspace's owner who does not operate the instance never sees it. Filters by state (open, waiting on you, all), workspace and severity, and a search over subject, reference, workspace and who asked.
+- **Beside the thread**: who asked (their role in the workspace and when they were last seen, from their sessions) and the workspace (its address, plan and open reviews), each opening its page on the instance side; the error reference, looked up in place; the item in question; the severity.
+- **A state select and canned replies.** The state is set at once, or goes with the reply being written. Canned replies are the instance's (`canned_replies`, global: the desk is the instance's and a reply names no workspace); choosing one puts its words in the reply box, to change before sending.
+- **The desk's own settings** live in the instance settings (decision 178) as their own part, saved from the desk alone so the Settings page never overwrites them: a status page over `HEKATE_STATUS_URL`, and the operator on call, who hears of each new ticket and reply first (with nobody on call, every operator does), an Emergency marked as one in the subject. Severities by plan stay with the plans, under Billing.
+- **Recorded.** Each reply, change of state and change to the desk is an instance event; an operator's download of an attachment is in the workspace's access log under their name.
+- **No incidents yet.** The prototype's "Post an incident" and "no incidents in 41 days" need an incident log Hekate does not keep; the desk links the status page instead, and the tile says whether one is linked.
+
 ## 219. Registration: operators only, anyone invited, or anyone
 
 #184. Who may make a workspace is an instance setting: operators only (the default, and how every instance worked before), anyone an operator invites, or anyone who confirms their email. Joining a workspace is unchanged: its own invitations work whatever registration says.

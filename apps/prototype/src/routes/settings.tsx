@@ -69,7 +69,8 @@ const sections = [
   { id: "notifications", label: "Notifications and integrations", group: "Access" },
   { id: "api", label: "API and OAuth clients", group: "Access" },
   { id: "billing", label: "Billing", group: "Plan and help" },
-  { id: "support", label: "Support", group: "Plan and help" },
+  // Shown only with the support module on (#181).
+  ...(env.support === "off" ? [] : [{ id: "support", label: "Support", group: "Plan and help" }]),
   { id: "transfers", label: "Transfers", group: "Operations" },
   { id: "storage", label: "Storage", group: "Operations" },
   { id: "leaks", label: "Leak tracing", group: "Operations" },
@@ -349,8 +350,7 @@ export function SettingsPage({
                 Open
               </Button>
             </Row>
-            <Row name="Status" hint="No incidents in 41 days">
-              <Dot state="approved" />
+            <Row name="Status" hint={env.statusUrl.replace(/^https?:\/\//, "")}>
               <Button
                 variant="ghost"
                 size="md"
@@ -418,11 +418,7 @@ export function SettingsPage({
                   ))}
                 </div>
               </div>
-              <Row
-                name="Status"
-                hint="No incidents in 41 days. Something down for everyone is posted here first."
-              >
-                <Dot state="approved" />
+              <Row name="Status" hint="Something down for everyone is posted here first.">
                 <Button
                   variant="ghost"
                   size="md"
@@ -487,9 +483,21 @@ export function SettingsPage({
                     </Button>
                   </div>
                 </div>
+                {/* The last failure this person saw here, offered to attach (#159, #181). */}
+                <label className="flex items-start gap-2 text-[13px] text-ink-2">
+                  <input type="checkbox" defaultChecked className="mt-1" />
+                  <span>
+                    Attach error <span className="tabular">HK-7F3A-2C</span>
+                    <span className="block text-[12px] text-ink-3">
+                      The last error you saw here, 12 minutes ago. The operators see its whole
+                      story.
+                    </span>
+                  </span>
+                </label>
+                {/* Only when Contact support was opened on a file or a review. */}
                 <label className="flex items-center gap-2 text-[13px] text-ink-2">
-                  <input type="checkbox" defaultChecked /> Let the operators open the file or review
-                  in question
+                  <input type="checkbox" defaultChecked /> Let the operators open the file in
+                  question
                 </label>
                 <div className="flex items-center gap-2">
                   <Button
