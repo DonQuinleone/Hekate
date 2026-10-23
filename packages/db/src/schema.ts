@@ -166,6 +166,12 @@ export const organisations = pgTable("organisations", {
   /** Workspace settings, read through workspaceSettingsOf (packages/shared). */
   settings: jsonb("settings").notNull().default({}),
   /**
+   * Its logo and accent (#185), read through storedBrandingOf (packages/shared); null is none.
+   * A column of its own rather than a setting, so a release that rewrites the settings whole,
+   * as the one before this does, cannot drop it.
+   */
+  branding: jsonb("branding"),
+  /**
    * Suspended by an operator (#174): everything is kept and nobody gets in, members and guests
    * alike, until it is reinstated. The reason is shown to its members.
    */

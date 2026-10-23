@@ -102,6 +102,8 @@ export const auditActions = [
   "organisation.rename",
   /** An admin changed the workspace's settings. */
   "organisation.settings",
+  /** An admin changed the workspace's logo or accent (#185). */
+  "organisation.branding",
   /** An admin changed the workspace's directory (LDAP) settings. */
   "organisation.directory",
   /** An admin changed the workspace's single sign-on settings. */
