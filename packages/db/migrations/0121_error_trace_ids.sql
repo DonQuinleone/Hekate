@@ -1,0 +1,1 @@
+ALTER TABLE "error_reports" ADD COLUMN "trace_id" text;

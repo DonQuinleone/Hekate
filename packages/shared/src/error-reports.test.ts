@@ -41,6 +41,7 @@ describe("error references", () => {
       stack: "PdfError: xref entry 41 points outside the file",
       requestId: null,
       jobId: "j-8f1c",
+      traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
       context: { fileId: "f-1" },
       who: null,
     };
@@ -49,6 +50,7 @@ describe("error references", () => {
       "xref entry 41 points outside the file",
       "Workspace: Endless Hall Records (0199)",
       "Job: j-8f1c",
+      "Trace: 4bf92f3577b34da6a3ce929d0e0e4736",
       'Data: {"fileId":"f-1"}',
       "PdfError: xref entry 41 points outside the file",
     ]);

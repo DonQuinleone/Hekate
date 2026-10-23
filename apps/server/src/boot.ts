@@ -34,6 +34,7 @@ import { createStorage } from "./storage.ts";
 import { recordedReconciliation } from "./storage-usage.ts";
 import { checkReleases, recordVersionRun } from "./system-info.ts";
 import { remindTasksDue } from "./tasks.ts";
+import { startTelemetry } from "./telemetry.ts";
 import { clockElapsed, fileMeasured, sweepRuns } from "./workflow-runner.ts";
 import { rewrapBehind, rewrapOrganisation } from "./workspace-keys.ts";
 import { routedMailer } from "./workspace-mail.ts";
@@ -60,6 +61,8 @@ export async function boot(
   stop: (timeoutMs?: number) => Promise<void>;
 }> {
   const { config, storageConfig } = settingsOrExit(env);
+  // Before anything else runs, so its spans and log lines reach the collector (#162).
+  const telemetry = await startTelemetry(config);
   await migrateOrExit(config);
 
   // Refuse to start with storage that is unreachable or read-only.
@@ -360,6 +363,7 @@ export async function boot(
         .then(stopSampling)
         .then(() => jobs.stop(timeoutMs))
         .catch((error: unknown) => console.error("Stopping the job queue failed:", error))
-        .then(() => close()),
+        .then(() => close())
+        .then(() => telemetry.shutdown()),
   };
 }

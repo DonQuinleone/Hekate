@@ -2704,6 +2704,8 @@ export const errorReports = pgTable(
     status: integer("status"),
     requestId: text("request_id"),
     jobId: text("job_id"),
+    /** The OpenTelemetry trace it happened in (#162), where traces are sent. */
+    traceId: text("trace_id"),
     /** The job's data: identifiers only. */
     context: jsonb("context"),
     organisationId: uuid("organisation_id").references(() => organisations.id, {

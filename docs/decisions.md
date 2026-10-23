@@ -1361,3 +1361,14 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Hard bounces and complaints only.** A transient bounce is the provider's to retry; acting on it would stop mail to a full mailbox for good.
 - **Held back, not failed.** A message to a reported address is not sent, and the mail log says so; nothing retries it. *Send again* takes an address off the list, in the workspace's access log or as an instance event.
 - **Expanding only:** new tables and new mail log results (decision 198).
+
+## 206. OpenTelemetry: traces and logs to the operator's collector, and nowhere else
+
+#162. Hekate sends a span for each request, each job and each media tool run, and every log line, to the OpenTelemetry collector the operator names (`OTEL_EXPORTER_OTLP_ENDPOINT`), over OTLP/HTTP.
+
+- **Off until named.** Without an address the API's no-op stands in: a span costs nothing and nothing leaves the server. There is no default collector and no telemetry to the project.
+- **The SDK, not auto-instrumentation.** Hekate makes its own spans in three places (the request middleware, the job runner and the media tool runner) rather than loading the auto-instrumentation packages, which patch modules as they load and would put query text, URLs and arguments into spans. The packages are pinned to one consistent release set, as the SDK's parts must match.
+- **Nothing personal, nothing about the media.** Requests are named by their route pattern, jobs by their queue, media tools by their name with only a count of arguments. A failure's message and stack go with its span, as they already go to the log.
+- **Logs as they are.** Each console line is also sent as a log record in its span's trace; stdout is unchanged, for log shippers that read it.
+- **Joined to error references.** An error report keeps the trace id it happened in (decision 159's references), shown in Debug tools and in the copied report.
+- **Expanding only:** a nullable column on error reports (decision 198).

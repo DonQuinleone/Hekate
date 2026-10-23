@@ -1309,6 +1309,7 @@ export function instanceRoutes(options: InstanceOptions) {
             stack: schema.errorReports.stack,
             requestId: schema.errorReports.requestId,
             jobId: schema.errorReports.jobId,
+            traceId: schema.errorReports.traceId,
             context: schema.errorReports.context,
             workspaceId: schema.errorReports.organisationId,
             workspace: schema.organisations.name,

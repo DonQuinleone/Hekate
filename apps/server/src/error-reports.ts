@@ -3,6 +3,7 @@ import { type Database, schema } from "@hekate/db";
 import { ERROR_REPORT_DAYS, type ErrorSource, formatErrorReference } from "@hekate/shared";
 import { lt } from "drizzle-orm";
 import type { JobFailure } from "./jobs.ts";
+import { currentTraceId } from "./tracing.ts";
 
 /** What is known about a failure when it happens. */
 export interface Failure {
@@ -38,6 +39,7 @@ export async function recordFailure(db: Database, failure: Failure): Promise<str
     status: failure.status ?? null,
     requestId: failure.requestId ?? null,
     jobId: failure.jobId ?? null,
+    traceId: currentTraceId() ?? null,
     context: failure.context ?? null,
     organisationId: failure.organisationId ?? null,
     userId: failure.userId ?? null,
