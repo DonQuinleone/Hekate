@@ -4,6 +4,7 @@ import { Avatar } from "~/components/avatar";
 import { Lockup, Mark } from "~/components/brand";
 import { CommandPalette, paletteKey } from "~/components/command-palette";
 import { Icon, type IconName } from "~/components/icons";
+import { StateDot } from "~/components/incidents";
 import { NotificationsMenu } from "~/components/notifications";
 import { Trail, useCurrentHeader } from "~/components/page-header";
 import { ProjectCover } from "~/components/project-card";
@@ -13,6 +14,8 @@ import {
   env,
   fileById,
   guests,
+  impactNames,
+  openIncident,
   organisation,
   type Project,
   personById,
@@ -25,6 +28,7 @@ import { projectNav, useCurrentProject } from "~/lib/project-nav";
 import { needsYou, reviewOutcome } from "~/lib/reviews";
 import { instanceSectionsFor } from "~/routes/instance";
 import { useViewer } from "~/viewer/context";
+import { useScreenState } from "~/viewer/state-gate";
 
 function NavItem({
   to,
@@ -269,25 +273,35 @@ function ProjectSwitcher({ project, collapsed }: { project: Project; collapsed: 
   );
 }
 
-/** Help, beside the bell: the documentation, your tickets, and a new ticket. */
+/**
+ * Help, beside the bell: the documentation, the status page (#183), your tickets, and a new
+ * ticket. An open incident marks the button; the switcher's failed state opens one.
+ */
 function HelpMenu() {
   const [open, setOpen, box] = usePopover();
   const navigate = useNavigate();
+  const incident = useScreenState() === "failed";
   return (
     <div ref={box} className="relative">
       <button
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Help"
+        aria-label={incident ? "Help: an incident is open" : "Help"}
         title="Help"
         onClick={() => setOpen(!open)}
         className={cn(
-          "flex size-8 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink",
+          "relative flex size-8 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink",
           open && "bg-raised/60 text-ink",
         )}
       >
         <Icon name="help" size={18} />
+        {incident && (
+          <span
+            aria-hidden="true"
+            className="absolute top-1 right-1 size-2 rounded-full bg-signal ring-2 ring-pane"
+          />
+        )}
       </button>
       {open && (
         <MenuList
@@ -297,6 +311,13 @@ function HelpMenu() {
               label: "View documentation",
               hint: env.docsUrl.replace(/^https?:\/\//, ""),
               onSelect: () => window.open(env.docsUrl, "_blank", "noopener"),
+            },
+            // The status page (#183), whatever the support module says; an open incident says so.
+            {
+              label: "Status",
+              icon: <StateDot state={incident ? openIncident.impact : "operational"} />,
+              hint: incident ? impactNames[openIncident.impact] : "Every service running",
+              onSelect: () => navigate({ to: "/status" }),
             },
             ...(env.support === "off"
               ? []

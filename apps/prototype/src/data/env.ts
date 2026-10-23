@@ -10,5 +10,6 @@ export const env = {
   /** HEKATE_SUPPORT: off, app (tickets in the application), link (a desk of yours) or mail. Off by default. */
   support: "app" as "off" | "app" | "link" | "mail",
   supportUrl: "",
-  statusUrl: "https://status.review.endlesshall.example",
+  /** HEKATE_STATUS_URL: another status page to link; unset, the instance's own at /status (#183). */
+  statusUrl: "https://review.endlesshall.example/status",
 };

@@ -6,6 +6,7 @@ import { Label } from "~/components/label";
 import { usePageHeader } from "~/components/page-header";
 import { Danger, Matrix, Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
 import { Dot } from "~/components/status";
+import { StatusRows } from "~/components/status-desk";
 import { TicketDialog, TicketRow } from "~/components/tickets";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
@@ -350,15 +351,7 @@ export function SettingsPage({
                 Open
               </Button>
             </Row>
-            <Row name="Status" hint={env.statusUrl.replace(/^https?:\/\//, "")}>
-              <Button
-                variant="ghost"
-                size="md"
-                onClick={() => window.open(env.statusUrl, "_blank", "noopener")}
-              >
-                Open
-              </Button>
-            </Row>
+            <StatusRows />
           </Section>
         </>
       )}
@@ -418,15 +411,7 @@ export function SettingsPage({
                   ))}
                 </div>
               </div>
-              <Row name="Status" hint="Something down for everyone is posted here first.">
-                <Button
-                  variant="ghost"
-                  size="md"
-                  onClick={() => window.open(env.statusUrl, "_blank", "noopener")}
-                >
-                  Open
-                </Button>
-              </Row>
+              <StatusRows hint="Something down for everyone is posted here first." />
             </Section>
             <Section
               title="New ticket"

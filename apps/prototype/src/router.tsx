@@ -35,6 +35,7 @@ import { ProjectsPage } from "~/routes/projects";
 import { RequestReviewPage } from "~/routes/request-review";
 import { ReviewPage } from "~/routes/review";
 import { SettingsPage } from "~/routes/settings";
+import { StatusPage } from "~/routes/status";
 import { SessionPage, TakePage } from "~/routes/takes";
 import { TrackPage } from "~/routes/track";
 import { useViewer, ViewerProvider } from "~/viewer/context";
@@ -195,6 +196,12 @@ const uploadRequest = createRoute({
     const { code } = uploadRequest.useParams();
     return <UploadRequestPage code={code} />;
   },
+});
+/** The status page (#183): for anyone, signed in or not. */
+const status = createRoute({
+  getParentRoute: () => root,
+  path: "/status",
+  component: StatusPage,
 });
 const app = createRoute({ getParentRoute: () => root, id: "app", component: App });
 const home = createRoute({ getParentRoute: () => app, path: "/", component: DashboardPage });
@@ -442,6 +449,7 @@ export const router = createRouter({
     suspended,
     deleting,
     uploadRequest,
+    status,
     app.addChildren([
       home,
       inbox,
