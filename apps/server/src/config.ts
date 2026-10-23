@@ -727,7 +727,7 @@ const schema = z.object({
       info({
         group: "Modules",
         description:
-          "A status page for the help menu and the Support page to link to; none when unset. The support desk can set its own, which is used instead.",
+          "Another status page for the help menu and the Support page to link to, kept somewhere that stays up when the instance does not. Unset, they link the instance's own page at /status, which always shows the incidents posted from the support desk. The desk can set its own address, which is used instead.",
       }),
     ),
 });

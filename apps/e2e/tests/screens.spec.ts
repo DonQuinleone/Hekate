@@ -127,6 +127,13 @@ const screens: Screen[] = [
     ready: "text=This link does not lead anywhere",
     as: "signed-out",
   },
+  // The status page (#183): readable signed out, an incident open, past ones beneath.
+  {
+    name: "status",
+    path: () => "/status",
+    ready: "main >> text=Playback is slow to start",
+    as: "signed-out",
+  },
   { name: "guest-signed-out", path: () => "/guest", ready: "h1", as: "signed-out" },
   {
     name: "guest-link-used",
@@ -504,6 +511,12 @@ const screens: Screen[] = [
     name: "settings-support-new",
     path: () => "/settings/support?new=1",
     ready: "main >> text=Before you ask",
+  },
+  // Where people look for help (#183): the open incident before a ticket is written.
+  {
+    name: "settings-support-incident",
+    path: () => "/settings/support?new=1",
+    ready: "main >> text=Playback is slow to start",
   },
   // The desk (#182): every workspace's tickets, its figures and its settings.
   {
@@ -1291,6 +1304,19 @@ for (const [name, path, open, ready] of [
     "[role=dialog] >> text=Quota raised",
   ],
   ["help-menu", "/", "button:Help", "[role=menu] >> text=Contact support"],
+  // The status page on the desk (#183): posting an incident, and one open with its updates.
+  [
+    "instance-incident-post",
+    "/instance/support",
+    "button:Post an incident",
+    "[role=dialog] >> text=What it touches",
+  ],
+  [
+    "instance-incident",
+    "/instance/support",
+    "button:Playback is slow to start",
+    "[role=dialog] >> text=Post update",
+  ],
 ] as const) {
   test(name, async ({ page }) => {
     await page.clock.setFixedTime(FIXED_TIME);

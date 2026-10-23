@@ -1062,7 +1062,10 @@ function Settings() {
         <Row name="Documentation" hint="HEKATE_DOCS_URL · where Help goes">
           <span className="truncate text-[13px] text-ink-2">{modules.docsUrl}</span>
         </Row>
-        <Row name="Status page" hint="HEKATE_STATUS_URL · linked from Help when set">
+        <Row
+          name="Status page"
+          hint="HEKATE_STATUS_URL · another page to link; unset, the instance’s own at /status"
+        >
           <span className="truncate text-[13px] text-ink-2">{modules.statusUrl ?? "None"}</span>
         </Row>
       </Section>

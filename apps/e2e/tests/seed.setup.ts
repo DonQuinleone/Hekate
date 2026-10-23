@@ -1549,6 +1549,39 @@ setup("seed", async ({ page, browser }) => {
     ])
       await api(page, "POST", "/api/instance/support/replies", reply);
 
+    // The status page (#183): playback slow to start, identified and being worked on, and an
+    // outage of uploads in September, posted and resolved. Their times are set against the
+    // fixed clock below.
+    type Posted = { id: string };
+    const slow = await api<Posted>(page, "POST", "/api/instance/incidents", {
+      title: "Playback is slow to start",
+      impact: "degraded",
+      services: ["storage"],
+      body: "Some files take up to half a minute to start playing. Uploads and comments are not affected.",
+    });
+    await api(page, "POST", `/api/instance/incidents/${slow.id}/updates`, {
+      state: "identified",
+      body: "The storage provider is answering slowly in one region. Files play once started; we are moving reads to the other region.",
+    });
+    await api(page, "POST", "/api/instance/incidents", {
+      title: "Uploads stop at 99%",
+      impact: "partial",
+      services: ["storage", "worker"],
+      state: "resolved",
+      body: "Every upload since 14:02 is in and measured. A full disk on the worker held them back; it has more room now.",
+      startedAt: new Date(Date.now() - 41 * 86_400_000).toISOString(),
+      resolvedAt: new Date(Date.now() - 41 * 86_400_000 + 30 * 60_000).toISOString(),
+    });
+    // 90 days measured, to the database's today: the September outage, and a slow day in July.
+    await sql`insert into service_days (id, day, service, minutes, down, last_minute)
+      select gen_random_uuid(), d::date, s, 1440,
+        case when s in ('storage', 'worker') and d::date = current_date - 41 then 30
+             when s = 'api' and d::date = current_date - 58 then 18 else 0 end,
+        d + interval '1439 minutes'
+      from generate_series(current_date - 89, current_date - 1, interval '1 day') as d,
+        unnest(array['api', 'database', 'storage', 'worker']) as s
+      on conflict (day, service) do nothing`;
+
     // Where the workspace's events go (#161): a Slack channel, a Teams one and a webhook that
     // kept failing and paused, with a few deliveries for the webhook log. Their addresses are
     // never opened here: the events are dispatched already, and the webhook stays paused.
@@ -1662,6 +1695,20 @@ setup("seed", async ({ page, browser }) => {
     // The desk's first reply, as long after its ticket as on a good day (#182).
     await sql`update tickets set first_reply_at = created_at + interval '108 minutes'
       where first_reply_at is not null`;
+    // The incidents against the fixed clock (#183): the open one began 50 minutes before it and
+    // was last updated 19 minutes before; the September one lasted half an hour, 41 days before.
+    const clock = Date.parse(FIXED_TIME);
+    const before = (minutes: number) => new Date(clock - minutes * 60_000);
+    await sql`update incidents set started_at = ${before(50)}, updated_at = ${before(19)}
+      where title = 'Playback is slow to start'`;
+    await sql`update incident_updates set created_at = case when state = 'investigating'
+        then ${before(50)}::timestamptz else ${before(19)}::timestamptz end
+      where incident_id = (select id from incidents where title = 'Playback is slow to start')`;
+    await sql`update incidents set started_at = ${before(41 * 1440)},
+        resolved_at = ${before(41 * 1440 - 30)}, updated_at = ${before(41 * 1440 - 30)}
+      where title = 'Uploads stop at 99%'`;
+    await sql`update incident_updates set created_at = ${before(41 * 1440 - 30)}
+      where incident_id = (select id from incidents where title = 'Uploads stop at 99%')`;
   } finally {
     await sql.end();
   }
