@@ -75,6 +75,7 @@ import { SearchPage } from "~/routes/search";
 import { SessionPage, SessionsPage } from "~/routes/sessions";
 import { SignUpLinkPage, SignUpPage } from "~/routes/sign-up";
 import { StagePlanPage } from "~/routes/stage-plan";
+import { StatusPage } from "~/routes/status";
 import { TakeLogPage } from "~/routes/take-log";
 import { TasksPage } from "~/routes/tasks";
 import { TrackPage } from "~/routes/track";
@@ -257,6 +258,13 @@ const uploadLink = createRoute({
     const { token } = uploadLink.useParams();
     return <UploadLinkPage token={token} />;
   },
+});
+
+/** The status page (#183): for anyone, signed in or not (decision 227). */
+const status = createRoute({
+  getParentRoute: () => root,
+  path: "/status",
+  component: StatusPage,
 });
 
 /** Guest reviewers: a magic link, and the pages of their reviews (docs/security.md). */
@@ -913,6 +921,7 @@ export const router = createRouter({
     signUpLink,
     invite,
     uploadLink,
+    status,
     guestLink,
     guestSignedOut,
     guestApp.addChildren([guestHome, guestReview, guestFile]),

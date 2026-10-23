@@ -68,6 +68,7 @@ import { Stat } from "~/components/dashboard";
 import { Empty } from "~/components/empty";
 import { SuppressionsDialog } from "~/components/event-channels";
 import { Icon } from "~/components/icons";
+import { StatusSection } from "~/components/incidents";
 import { Code, Fact, Inspect } from "~/components/inspect";
 import { InstanceBilling } from "~/components/instance-billing";
 import { Page } from "~/components/page";
@@ -171,7 +172,12 @@ export function InstancePage({
         ]}
         title={meta.label}
       />
-      <p className="m-0 max-w-[620px] text-[14px] text-ink-2">{meta.hint}.</p>
+      <p className="m-0 max-w-[620px] text-[14px] text-ink-2">
+        {current === "support" && !access.support
+          ? "The status page and the incidents posted on it; tickets are answered elsewhere"
+          : meta.hint}
+        .
+      </p>
       {access.keyNeeded ? (
         <KeyNeeded />
       ) : (
@@ -179,7 +185,8 @@ export function InstancePage({
           {current === "overview" && operatorView && <Overview />}
           {current === "operators" && operatorView && <Operators />}
           {current === "billing" && operatorView && <InstanceBilling />}
-          {current === "support" && operatorView && (
+          {current === "support" && operatorView && !access.support && <StatusSection />}
+          {current === "support" && operatorView && access.support && (
             <InstanceSupport
               ticketId={search.ticket}
               onTicket={(ticket) =>

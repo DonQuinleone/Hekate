@@ -3,6 +3,7 @@ import {
   type OperatorTicketDetail,
   pressing,
   type SupportSeverity,
+  serviceStateNames,
   severityHints,
   severityNames,
   supportSeverities,
@@ -17,7 +18,9 @@ import { Avatar } from "~/components/avatar";
 import { TileGrid } from "~/components/billing";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
+import { StatusSection } from "~/components/incidents";
 import { Row, Section } from "~/components/settings";
+import { calmLine } from "~/components/status";
 import { AttachPicker, Thread, TicketListRow, ticketLine } from "~/components/support";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
@@ -27,6 +30,7 @@ import { ActionMenu } from "~/components/ui/menu";
 import { StatusDot } from "~/components/ui/status";
 import { ago } from "~/lib/comments";
 import { instanceErrorQuery } from "~/lib/queries";
+import { statusNowQuery } from "~/lib/status";
 import {
   cannedRepliesQuery,
   type DeskFilters,
@@ -66,8 +70,7 @@ export function InstanceSupport({
       ...(search ? { q: search } : {}),
     }),
   );
-  const { data: desk } = useQuery(supportDeskQuery);
-  const statusUrl = desk?.statusUrl ?? desk?.environmentStatusUrl ?? null;
+  const { data: status } = useQuery(statusNowQuery);
   const figures = data?.figures;
   return (
     <>
@@ -91,8 +94,21 @@ export function InstanceSupport({
           { label: "Resolved", value: String(figures?.resolved ?? 0), hint: "this month" },
           {
             label: "Status page",
-            value: statusUrl ? "Linked" : "None",
-            hint: statusUrl ? hostOf(statusUrl) : "set one under Desk",
+            value: !status
+              ? "…"
+              : status.open.length > 0
+                ? status.open.length === 1
+                  ? "1 incident"
+                  : `${status.open.length} incidents`
+                : status.state === "operational"
+                  ? "Up"
+                  : serviceStateNames[status.state],
+            hint: !status
+              ? "reading"
+              : status.open.length > 0
+                ? (status.open[0]?.title ?? "")
+                : calmLine(status).toLowerCase(),
+            flag: (status?.open.length ?? 0) > 0,
           },
         ]}
       />
@@ -161,12 +177,11 @@ export function InstanceSupport({
           ))}
         </div>
       )}
+      <StatusSection />
       <Desk />
     </>
   );
 }
-
-const hostOf = (url: string) => url.replace(/^https?:\/\//, "").replace(/\/$/, "");
 
 /** The desk's own settings: severities by plan, the status page, who is on call, canned replies. */
 function Desk() {
@@ -174,7 +189,6 @@ function Desk() {
   const { data: desk } = useQuery(supportDeskQuery);
   const { data: canned } = useQuery(cannedRepliesQuery);
   const save = useSaveDesk();
-  const [editingStatus, setEditingStatus] = useState(false);
   const [managing, setManaging] = useState(false);
   if (!desk) return null;
   const severityLine = desk.billing
@@ -206,20 +220,6 @@ function Desk() {
             Edit
           </Button>
         )}
-      </Row>
-      <Row
-        name="Status page"
-        hint={
-          desk.statusUrl
-            ? `${hostOf(desk.statusUrl)} · linked from the help menu and the Support page`
-            : desk.environmentStatusUrl
-              ? `${hostOf(desk.environmentStatusUrl)} · from HEKATE_STATUS_URL`
-              : "None: the help menu and the Support page link to no status page."
-        }
-      >
-        <Button variant="ghost" size="md" onClick={() => setEditingStatus(true)}>
-          Edit
-        </Button>
       </Row>
       <Row
         name="On call"
@@ -259,82 +259,8 @@ function Desk() {
         </Button>
       </Row>
       {save.error && <p className="m-0 px-4 py-2 text-[13px] text-signal">{save.error.message}</p>}
-      {editingStatus && (
-        <StatusPageDialog
-          current={desk.statusUrl}
-          fallback={desk.environmentStatusUrl}
-          onSave={(statusUrl) =>
-            save.mutate(
-              { statusUrl, onCall: desk.onCall },
-              { onSuccess: () => setEditingStatus(false) },
-            )
-          }
-          error={save.error?.message}
-          pending={save.isPending}
-          onClose={() => setEditingStatus(false)}
-        />
-      )}
       {managing && <CannedRepliesDialog onClose={() => setManaging(false)} />}
     </Section>
-  );
-}
-
-function StatusPageDialog({
-  current,
-  fallback,
-  onSave,
-  onClose,
-  error,
-  pending,
-}: {
-  current: string | null;
-  fallback: string | null;
-  onSave: (url: string | null) => void;
-  onClose: () => void;
-  error?: string;
-  pending: boolean;
-}) {
-  const [url, setUrl] = useState(current ?? "");
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    onSave(url.trim() || null);
-  };
-  return (
-    <Dialog
-      title="Status page"
-      description="Where something down for everyone is posted. The help menu and the Support page link to it."
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" type="submit" form="status-page" disabled={pending}>
-            Save
-          </Button>
-        </>
-      }
-    >
-      <form id="status-page" onSubmit={submit}>
-        <Field
-          label="Address"
-          hint={
-            fallback
-              ? `Left empty, HEKATE_STATUS_URL is used: ${hostOf(fallback)}.`
-              : "Left empty, there is none."
-          }
-          error={error}
-        >
-          <Input
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://status.example.com"
-            type="url"
-            autoFocus
-          />
-        </Field>
-      </form>
-    </Dialog>
   );
 }
 

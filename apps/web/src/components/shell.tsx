@@ -1,5 +1,6 @@
 import {
   type InstanceSection,
+  incidentImpactNames,
   instanceSections,
   instanceSectionsFor,
   reachesInstance,
@@ -15,6 +16,7 @@ import { paletteKey } from "~/components/kbd";
 import { NotificationsMenu } from "~/components/notifications";
 import { HeaderSlotsProvider, useHeaderSlots } from "~/components/page-header";
 import { ProjectCover } from "~/components/project-cover";
+import { StateDot } from "~/components/status";
 import { MenuList, usePopover } from "~/components/ui/menu";
 import { type ReviewState, StatusDot } from "~/components/ui/status";
 import { authClient } from "~/lib/auth";
@@ -37,6 +39,7 @@ import {
   useSwitchOrganisation,
 } from "~/lib/queries";
 import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
+import { statusNowQuery } from "~/lib/status";
 import { useThemeSync } from "~/lib/theme";
 import { mayOpenSettings } from "~/routes/project-settings";
 import { openShortcutMap } from "./shortcut-map";
@@ -429,16 +432,20 @@ function WorkspaceMenu({ collapsed, tab = false }: { collapsed: boolean; tab?: b
 }
 
 /**
- * Help, beside the bell: the documentation, and with the support module (#181) the workspace's
- * tickets and a new one, which knows the file or review it was asked from; or the operators'
- * own desk or mailbox where the instance answers elsewhere.
+ * Help, beside the bell: the documentation, the status page with what is open on it (#183),
+ * and with the support module (#181) the workspace's tickets and a new one, which knows the
+ * file or review it was asked from; or the operators' own desk or mailbox where the instance
+ * answers elsewhere. An open incident marks the button.
  */
 function HelpMenu() {
   const [open, setOpen, box] = usePopover();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { data: me } = useQuery(meQuery);
+  const { data: status } = useQuery(statusNowQuery);
+  const incidents = status?.open ?? [];
   const support = me?.support;
+  const statusUrl = support?.statusUrl ?? "/status";
   const docs = support?.docsUrl ?? docsUrl;
   const on = /^\/(files|reviews)\/([0-9a-f-]{36})/.exec(pathname);
   const from = on ? `${on[1] === "files" ? "file" : "review"}:${on[2]}` : undefined;
@@ -454,15 +461,21 @@ function HelpMenu() {
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Help"
+        aria-label={incidents.length > 0 ? "Help: an incident is open" : "Help"}
         title="Help"
         onClick={() => setOpen(!open)}
         className={cn(
-          "flex size-8 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink",
+          "relative flex size-8 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink",
           open && "bg-raised/60 text-ink",
         )}
       >
         <Icon name="help" size={18} />
+        {incidents.length > 0 && (
+          <span
+            aria-hidden="true"
+            className="absolute top-1 right-1 size-2 rounded-full bg-signal ring-2 ring-pane"
+          />
+        )}
       </button>
       {open && (
         <MenuList
@@ -473,6 +486,17 @@ function HelpMenu() {
               label: "View documentation",
               hint: docs.replace(/^https?:\/\//, "").replace(/\/$/, ""),
               onSelect: () => window.open(docs, "_blank", "noopener"),
+            },
+            {
+              label: "Status",
+              icon: <StateDot state={status?.state ?? "operational"} />,
+              hint:
+                incidents.length === 0
+                  ? "Every service running"
+                  : incidents.length === 1
+                    ? incidentImpactNames[incidents[0]?.impact ?? "degraded"]
+                    : `${incidents.length} incidents`,
+              onSelect: () => window.open(statusUrl, "_blank", "noopener"),
             },
             ...(support?.mode === "app"
               ? [
