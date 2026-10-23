@@ -46,10 +46,20 @@ export function ConsentPage({ params }: { params: AuthorizeParams }) {
 
   const view = data && "request" in data ? data.request : null;
   const refusal = data && "refusal" in data ? data.refusal : null;
-  // Already granted, or refused with somewhere to say so: back to the application at once.
+  // Why the answer did not go through: refused as it was sent, or failed.
+  const failed = decide.error?.message ?? decide.data?.refusal?.description ?? null;
+  // Already granted, or refused with somewhere to say so: back to the application at once,
+  // tried once; a failure is shown rather than tried again.
+  const went = useRef(false);
   useEffect(() => {
-    if (view?.granted) answer(true);
-    else if (refusal?.redirect) leave(refusal.redirect);
+    if (went.current) return;
+    if (view?.granted) {
+      went.current = true;
+      answer(true);
+    } else if (refusal?.redirect) {
+      went.current = true;
+      leave(refusal.redirect);
+    }
   });
 
   const signOut = async () => {
@@ -61,7 +71,7 @@ export function ConsentPage({ params }: { params: AuthorizeParams }) {
     });
   };
 
-  if (isPending || view?.granted || refusal?.redirect)
+  if (isPending || ((view?.granted || refusal?.redirect) && !failed))
     return (
       <Frame title="Connecting" intro="One moment: checking the application.">
         {null}
@@ -106,7 +116,7 @@ export function ConsentPage({ params }: { params: AuthorizeParams }) {
         </p>
       </div>
       <div className="flex flex-col gap-2">
-        <ErrorLine message={decide.error?.message ?? null} />
+        <ErrorLine message={failed} />
         <Button
           variant="primary"
           size="lg"
