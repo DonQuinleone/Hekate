@@ -90,8 +90,12 @@ test("a clean server installs through the browser alone", async ({ page }) => {
   await page.getByLabel("I have stored the master key").check();
   await proceed(page);
 
-  // Mail: written to the log here, with a test message first.
+  // Mail: Microsoft 365 asks for an app registration, as Graph sends for it (#71).
   await heading(page, "Mail");
+  await page.getByLabel("Provider").selectOption("microsoft");
+  await page.getByLabel("Directory (tenant) ID").fill("endlesshall.onmicrosoft.com");
+  await capture(page, "install-mail-microsoft");
+  // Written to the log here, with a test message first.
   await page.getByLabel("Provider").selectOption("log");
   await page.getByLabel("From").fill("Hekate <hekate@endlesshall.example>");
   await page.getByLabel("Send a test to").fill("mira@endlesshall.example");

@@ -128,6 +128,10 @@ export interface InstanceNotice {
   maintenance: { on: boolean; message: string };
 }
 
+/** The ways instance mail can go out (#71), as the environment sets them. */
+export const instanceMails = ["smtp", "microsoft", "mailcoach", "log"] as const;
+export type InstanceMail = (typeof instanceMails)[number];
+
 /** What the environment sets, shown on the Settings page beside what the operator does. */
 export interface InstanceEnvironment {
   publicUrl: string;
@@ -135,8 +139,8 @@ export interface InstanceEnvironment {
   requireSecondFactor: boolean;
   /** OPERATOR_SECURITY_KEY. */
   operatorSecurityKey: boolean;
-  /** Whether instance mail goes out over SMTP, or is only logged. */
-  mail: "smtp" | "log";
+  /** How instance mail goes out (#71): SMTP, Microsoft 365, Mailcoach, or only to the log. */
+  mail: InstanceMail;
   passwordLeakCheck: boolean;
   /** How long a session lasts, in days. */
   sessionDays: number;

@@ -1317,3 +1317,13 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Failed is a state.** Settings that cannot be drawn for a file after every retry are recorded (`spectrogram_variant_failures`); asked for again they answer failed, and the spectrogram says so with Try again, which alone queues them once more. A failure is forgotten after 30 days.
 - **Kept while used.** Each ask marks the set as used; a set unused for 30 days goes (`spectrogram-variants-expire`, daily), and the next ask draws it again. They are the file's like its own spectrograms: removed with it, counted in its project's storage, moved with its project, and kept from reconciliation.
 - **Expanding only:** a new table, so the release before runs against the database (decision 198).
+
+## 202. Mail providers: SMTP where they offer it, Microsoft Graph and Mailcoach where they must
+
+#71. Instance mail leaves one way, chosen in the installer's Mail step or set in the environment (docs/configuration.md); the settings refuse two at once, or one given in part.
+
+- **SMTP first.** Every provider that offers SMTP is sent to by SMTP, with its host, port and fixed user filled in: Resend, SparkPost, Mailgun, SendGrid, Amazon SES (the region's endpoint, as it differs), Postal, Plunk and Google Workspace (an app password), and any other server. One protocol, one library, and no client to keep up with each provider's API.
+- **Microsoft 365 through Microsoft Graph.** Exchange Online turns basic sign-in for SMTP off by default at the end of December 2026, so Microsoft 365 is reached with an app registration granted Mail.Send (`MAIL_GRAPH_TENANT`, `MAIL_GRAPH_CLIENT_ID`, `MAIL_GRAPH_CLIENT_SECRET`), sending as the `MAIL_FROM` mailbox. The message goes as MIME, so its plain-text and HTML parts arrive as SMTP sends them; the token is kept until a minute before it lapses.
+- **Mailcoach through its API.** Mailcoach offers no SMTP of its own, so its transactional API is used (`MAIL_MAILCOACH_URL`, `MAIL_MAILCOACH_TOKEN`), keeping no copy of the message there. The health check asks who the token belongs to.
+- **The same everywhere else.** Each way sends through one mailer, so the mail log (decision 157), the metrics, the health check and the instance's Test treat them alike; a refusal is shown in the provider's own words, never with a secret. The secrets may come from files (`_FILE`), and the Helm chart keeps them in its Secret.
+- **Bounces follow** with the event system's inbound webhooks (#161), which every provider's bounce reports arrive by.

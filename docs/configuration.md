@@ -55,6 +55,11 @@ A setting marked as secret may instead name a file that holds it, with `_FILE` a
 | --- | --- | --- |
 | `SMTP_URL` | unset | The SMTP server to send mail through. Without it, mail is written to the log instead. Example: `smtp://user:pass@mail.example.com:587`. Or `SMTP_URL_FILE`, naming a file that holds it. |
 | `MAIL_FROM` | `Hekate <hekate@localhost>` | The sender of every message. |
+| `MAIL_GRAPH_TENANT` | unset | Microsoft 365, instead of SMTP: the directory (tenant) ID of an app registration granted Mail.Send, which sends as the MAIL_FROM mailbox through Microsoft Graph. With MAIL_GRAPH_CLIENT_ID and MAIL_GRAPH_CLIENT_SECRET. Example: `contoso.onmicrosoft.com`. |
+| `MAIL_GRAPH_CLIENT_ID` | unset | Microsoft 365: the app registration's application (client) ID. Example: `00000000-0000-0000-0000-000000000000`. |
+| `MAIL_GRAPH_CLIENT_SECRET` | unset | Microsoft 365: a client secret of the app registration. Or `MAIL_GRAPH_CLIENT_SECRET_FILE`, naming a file that holds it. |
+| `MAIL_MAILCOACH_URL` | unset | Mailcoach, instead of SMTP: the address of the Mailcoach account whose transactional API sends mail. With MAIL_MAILCOACH_TOKEN. Example: `https://endlesshall.mailcoach.app`. |
+| `MAIL_MAILCOACH_TOKEN` | unset | Mailcoach: an API token allowed to send transactional mail. Or `MAIL_MAILCOACH_TOKEN_FILE`, naming a file that holds it. |
 
 ## Media
 

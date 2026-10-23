@@ -10,12 +10,14 @@ import {
   type InstallStep,
   installSteps,
   type MailStepInput,
+  mailProviders,
+  mailSettingNames,
+  mailSettingsOf,
   mailStepInput,
   mailTestInput,
   masterKeyStepInput,
   redactUrl,
   setupCodeInput,
-  smtpUrlOf,
   storageStepInput,
 } from "@hekate/shared";
 import { createBackends, StorageConfigError, storageConfigFromEnv } from "@hekate/storage";
@@ -26,7 +28,7 @@ import type { z } from "zod";
 import { withFileSettings } from "../config.ts";
 import { CodedException } from "../errors.ts";
 import { blocking, checkRequirements } from "../install/requirements.ts";
-import { createMailer } from "../mail.ts";
+import { createMailer, mailTransportOf } from "../mail.ts";
 import {
   given,
   INSTALLED,
@@ -57,7 +59,7 @@ const fixedBy: Record<InstallStep, (env: Record<string, string | undefined>) => 
   database: (env) => given(env, "DATABASE_URL"),
   storage: (env) => given(env, "STORAGE_BACKENDS"),
   masterKey: (env) => given(env, "MASTER_KEY"),
-  mail: (env) => given(env, "SMTP_URL") || given(env, "MAIL_FROM"),
+  mail: (env) => mailSettingNames.some((name) => given(env, name)),
   address: (env) => given(env, "PUBLIC_URL"),
 };
 
@@ -73,10 +75,16 @@ const valid = <T extends z.ZodType>(schema: T) =>
         result.error.issues[0]?.message ?? "Check the details and try again",
       );
   });
+/** Settings with the cleared ones left out, as the environment would hold them. */
+const nonNull = (values: Record<string, string | null>) =>
+  Object.fromEntries(Object.entries(values).filter(([, v]) => v !== null)) as Record<
+    string,
+    string
+  >;
 const elapsed = (from: number) => `${Math.max(1, Math.round(performance.now() - from))} ms`;
 
-/** One mail configuration, as a key: its SMTP URL and its sender. Held in memory only. */
-const mailKey = (mail: MailStepInput) => JSON.stringify([smtpUrlOf(mail) ?? "log", mail.from]);
+/** One mail configuration, as a key: the settings it comes to. Held in memory only. */
+const mailKey = (mail: MailStepInput) => JSON.stringify(mailSettingsOf(mail));
 
 /** A check that takes too long fails rather than leaving the page waiting. */
 const within = <T>(ms: number, work: Promise<T>, what: string) =>
@@ -156,10 +164,17 @@ export function installRoutes(installer: InstallerOptions | null) {
             pathFixed: given(env, "STORAGE_LOCAL_PATH"),
           },
       mail: {
-        provider: smtp?.provider ?? (settings.MAIL_FROM ? "log" : "smtp"),
+        provider: settings.MAIL_GRAPH_TENANT
+          ? "microsoft"
+          : settings.MAIL_MAILCOACH_URL
+            ? "mailcoach"
+            : (smtp?.provider ?? (settings.MAIL_FROM ? "log" : "smtp")),
         host: smtp?.host ?? null,
         port: smtp?.port ?? null,
         from: settings.MAIL_FROM || null,
+        tenant: settings.MAIL_GRAPH_TENANT || null,
+        clientId: settings.MAIL_GRAPH_CLIENT_ID || null,
+        url: settings.MAIL_MAILCOACH_URL || null,
       },
       address: { publicUrl: settings.PUBLIC_URL || null },
     };
@@ -366,7 +381,10 @@ export function installRoutes(installer: InstallerOptions | null) {
       })
       .post("/checks/mail", valid(mailTestInput), async (c) => {
         const { mail, to } = c.req.valid("json");
-        const mailer = createMailer({ smtpUrl: smtpUrlOf(mail), from: mail.from });
+        const mailer = createMailer({
+          transport: mailTransportOf(nonNull(mailSettingsOf(mail))),
+          from: mail.from,
+        });
         try {
           await within(
             20000,
@@ -386,7 +404,10 @@ export function installRoutes(installer: InstallerOptions | null) {
             {
               name: "Test message",
               state: "ok",
-              detail: mail.provider === "log" ? "written to the log" : `sent to ${to}`,
+              detail:
+                mailProviders[mail.provider].transport === "log"
+                  ? "written to the log"
+                  : `sent to ${to}`,
             },
           ] satisfies InstallCheck[],
         });
@@ -398,7 +419,7 @@ export function installRoutes(installer: InstallerOptions | null) {
           // Saved only as a test message went out: settings that cannot send never finish.
           if (!tested.has(mailKey(mail)))
             throw problem("Send a test message with these settings first");
-          save("mail", { SMTP_URL: smtpUrlOf(mail) ?? null, MAIL_FROM: mail.from });
+          save("mail", mailSettingsOf(mail));
         }
         return c.json({ checks: [], state: state() });
       })

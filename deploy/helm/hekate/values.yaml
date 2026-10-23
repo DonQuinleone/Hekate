@@ -59,8 +59,19 @@ storage:
 
 mail:
   from: "Hekate <hekate@localhost>"
-  # smtp://user:pass@mail.example.com:587. Without it, mail is written to the log.
+  # smtp://user:pass@mail.example.com:587. Without it, or one of the providers below, mail is
+  # written to the log. Set one way of sending only.
   smtpUrl: ""
+  # Microsoft 365 through Microsoft Graph: an app registration granted Mail.Send, sending as
+  # the from mailbox.
+  microsoft:
+    tenant: ""
+    clientId: ""
+    clientSecret: ""
+  # Mailcoach's transactional API: the account's address and an API token.
+  mailcoach:
+    url: ""
+    token: ""
 
 # Turns on /metrics for Prometheus, scraped with this bearer token.
 metricsToken: ""

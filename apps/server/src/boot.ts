@@ -12,7 +12,7 @@ import { createJobs, inLanes, jobDefinitions } from "./jobs.ts";
 import { createKeyring, UnknownMasterKeyError } from "./keyring.ts";
 import { type Role, roleOf } from "./lanes.ts";
 import { purgeLogs } from "./log-retention.ts";
-import { createMailer, loggedMailer } from "./mail.ts";
+import { createMailer, loggedMailer, mailTransportOf } from "./mail.ts";
 import { startWorkers } from "./media/workers.ts";
 import { collectFromDatabase, collectQueues, countedMailer } from "./metrics/index.ts";
 import { createSampler } from "./metrics/sampler.ts";
@@ -73,11 +73,12 @@ export async function boot(
 
   const { db, sql: client, close } = createDb(config.DATABASE_URL);
   // Counted for Prometheus (#70) and written to the mail log (#157).
+  const mailTransport = mailTransportOf(config);
   const mailer = countedMailer(
     loggedMailer(
       db,
-      createMailer({ smtpUrl: config.SMTP_URL, from: config.MAIL_FROM }),
-      Boolean(config.SMTP_URL),
+      createMailer({ transport: mailTransport, from: config.MAIL_FROM }),
+      mailTransport.kind !== "log",
     ),
   );
   // Read at each scrape of /metrics (#70).
@@ -282,7 +283,7 @@ export async function boot(
     settings,
     build: config.HEKATE_BUILD,
     updateCheck: config.HEKATE_UPDATE_CHECK,
-    smtp: Boolean(config.SMTP_URL),
+    mail: mailTransport.kind,
     auth,
     mailer,
     storage,

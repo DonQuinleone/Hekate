@@ -4,6 +4,7 @@ import {
   describeSmtp,
   fromAddress,
   isMasterKey,
+  mailSettingsOf,
   mailStepInput,
   masterKeyStepInput,
   normaliseSetupCode,
@@ -102,6 +103,72 @@ describe("mail", () => {
     expect(fromAddress("Hekate <hekate@example.com>")).toBe("hekate@example.com");
     expect(fromAddress("hekate@example.com")).toBe("hekate@example.com");
     expect(fromAddress("Hekate")).toBeNull();
+  });
+
+  it("comes to each provider's own settings, clearing the other ways (#71)", () => {
+    const from = "Hekate <hekate@endlesshall.example>";
+    const cleared = {
+      SMTP_URL: null,
+      MAIL_GRAPH_TENANT: null,
+      MAIL_GRAPH_CLIENT_ID: null,
+      MAIL_GRAPH_CLIENT_SECRET: null,
+      MAIL_MAILCOACH_URL: null,
+      MAIL_MAILCOACH_TOKEN: null,
+      MAIL_FROM: from,
+    };
+    expect(
+      mailSettingsOf({
+        provider: "microsoft",
+        tenant: "endlesshall.onmicrosoft.com",
+        clientId: "app",
+        password: "secret",
+        from,
+      }),
+    ).toEqual({
+      ...cleared,
+      MAIL_GRAPH_TENANT: "endlesshall.onmicrosoft.com",
+      MAIL_GRAPH_CLIENT_ID: "app",
+      MAIL_GRAPH_CLIENT_SECRET: "secret",
+    });
+    expect(
+      mailSettingsOf({
+        provider: "mailcoach",
+        url: "https://endlesshall.mailcoach.app",
+        password: "token",
+        from,
+      }),
+    ).toEqual({
+      ...cleared,
+      MAIL_MAILCOACH_URL: "https://endlesshall.mailcoach.app",
+      MAIL_MAILCOACH_TOKEN: "token",
+    });
+    expect(mailSettingsOf({ provider: "plunk", password: "sk_1", from }).SMTP_URL).toBe(
+      "smtp://plunk:sk_1@smtp.useplunk.com:587",
+    );
+    expect(
+      mailSettingsOf({
+        provider: "ses",
+        host: "email-smtp.eu-west-1.amazonaws.com",
+        username: "AKIA",
+        password: "pw",
+        from,
+      }).SMTP_URL,
+    ).toBe("smtp://AKIA:pw@email-smtp.eu-west-1.amazonaws.com:587");
+    expect(mailSettingsOf({ provider: "log", from })).toEqual(cleared);
+  });
+
+  it("asks each provider for what it needs", () => {
+    const from = "hekate@endlesshall.example";
+    const issues = (input: Record<string, unknown>) => {
+      const result = mailStepInput.safeParse({ from, ...input });
+      return result.success ? [] : result.error.issues.map((i) => i.path.join("."));
+    };
+    expect(issues({ provider: "microsoft" })).toEqual(["tenant", "clientId", "password"]);
+    expect(issues({ provider: "mailcoach", url: "http://x.example", password: "t" })).toEqual([
+      "url",
+    ]);
+    expect(issues({ provider: "ses", password: "pw" })).toEqual(["host"]);
+    expect(issues({ provider: "plunk", password: "sk" })).toEqual([]);
   });
 });
 

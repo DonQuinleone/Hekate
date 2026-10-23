@@ -2,6 +2,7 @@ import { tmpdir } from "node:os";
 import type { Database } from "@hekate/db";
 import {
   COMMENT_ATTACHMENT_MAX_BYTES,
+  type InstanceMail,
   type InstanceModules,
   type InstanceNotice,
 } from "@hekate/shared";
@@ -134,8 +135,8 @@ export interface AppDeps {
   metricsToken?: string;
   /** The instance's settings (#160), shared with the workers; read from the database if unset. */
   settings?: InstanceSettingsStore;
-  /** Instance mail goes out over SMTP (SMTP_URL), rather than to the log. */
-  smtp?: boolean;
+  /** How instance mail goes out (#71): SMTP, Microsoft 365, Mailcoach, or to the log. */
+  mail?: InstanceMail;
   /** The commit the image was built from (HEKATE_BUILD). */
   build?: string;
   /** The daily release check is on (HEKATE_UPDATE_CHECK). */
@@ -260,7 +261,7 @@ export function createApi(deps: AppDeps) {
             publicUrl: deps.publicUrl,
             requireSecondFactor: deps.requireSecondFactor ?? false,
             operatorSecurityKey: deps.operatorSecurityKey ?? true,
-            mail: deps.smtp ? "smtp" : "log",
+            mail: deps.mail ?? "log",
             passwordLeakCheck: deps.passwordLeakCheck ?? false,
             sessionDays: SESSION_DAYS,
             modules: deps.modules ?? {

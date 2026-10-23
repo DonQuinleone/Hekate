@@ -15,7 +15,7 @@ Three endpoints answer without signing in, for Compose, Kubernetes, a load balan
 | `/api/health/ready` | 200 when the database and every storage backend can be used; 503 when either cannot, or while the installer runs. | A readiness probe: send no requests to a replica until it is ready. |
 | `/api/health` | 200 with the release when the database answers; 503 when it does not. | The image's `HEALTHCHECK`. |
 
-`/api/health/ready` also says how the job worker and mail are (`ok`, `stale`, `failed` or `off`), in `checks`. Neither makes a replica unready: a load balancer taking every replica out for want of mail would only make things worse. A worker is `stale` when none has finished a job in ten minutes, which usually means none is running. Mail is `off` when it goes to the log rather than SMTP. The answer is kept for ten seconds, so probes every few seconds do not each write to storage.
+`/api/health/ready` also says how the job worker and mail are (`ok`, `stale`, `failed` or `off`), in `checks`. Neither makes a replica unready: a load balancer taking every replica out for want of mail would only make things worse. A worker is `stale` when none has finished a job in ten minutes, which usually means none is running. Mail is `off` when it goes to the log rather than to SMTP or a provider. The answer is kept for ten seconds, so probes every few seconds do not each write to storage.
 
 ```yaml
 # Kubernetes
