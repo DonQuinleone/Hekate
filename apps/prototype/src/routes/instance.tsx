@@ -2385,15 +2385,35 @@ export function InstancePage({ section }: { section: string }) {
               <span className="tabular text-[13px] text-ink-2">None</span>
             </Row>
           </Section>
-          <Section title="Registration">
-            <Row name="New workspaces" hint="Who may create one.">
-              <Select defaultValue="admin" className="w-56">
-                <option value="admin">Operators only</option>
+          {/* #184: one choice, not a choice and a switch that said the same thing twice. */}
+          <Section
+            title="Registration"
+            action={
+              <Button variant="secondary" size="md">
+                Invite…
+              </Button>
+            }
+          >
+            <Row
+              name="New workspaces"
+              hint="Someone an operator invites makes their own, at the link in the invitation. Each starts a 14-day trial."
+            >
+              <Select defaultValue="invite" aria-label="Who may make a workspace" className="w-48">
+                <option value="closed">Operators only</option>
                 <option value="invite">Anyone invited</option>
                 <option value="open">Anyone</option>
               </Select>
             </Row>
-            <SwitchRow name="Allow sign-up without an invitation" checked={false} />
+            <Row
+              name="tomas@example.test"
+              hint="Invited by Ines Arlow · the link works until 30 Oct"
+            >
+              <ActionMenu
+                always
+                label="tomas@example.test"
+                actions={[{ label: "Withdraw", danger: true, onSelect: () => {} }]}
+              />
+            </Row>
           </Section>
           <Section
             title="Security"

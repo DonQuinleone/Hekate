@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { Mark, Wordmark } from "~/components/brand";
 import { Icon } from "~/components/icons";
@@ -69,6 +69,25 @@ export function ErrorLine({ message }: { message: string | null }) {
       <span aria-hidden="true" className="size-[7px] rounded-full bg-signal" />
       {message}
     </p>
+  );
+}
+
+/** How strong a new password reads, under its field. */
+export function PasswordMeter({ password }: { password: string }) {
+  const strength = passwordStrength(password);
+  return (
+    <div className="-mt-2 flex items-center gap-1" aria-live="polite">
+      {[1, 2, 3, 4].map((n) => (
+        <span
+          key={n}
+          aria-hidden="true"
+          className={cn("h-1 flex-1 rounded-full", n <= strength.score ? "bg-ink-2" : "bg-raised")}
+        />
+      ))}
+      <span className="ml-2 w-16 text-right text-[12px] text-ink-2">
+        {password ? strength.label : ""}
+      </span>
+    </div>
   );
 }
 
@@ -287,7 +306,20 @@ function SignIn({ search, forgot }: { search: SignInSearch; forgot: (email: stri
         )}
       </form>
       <p className="m-0 border-t border-hairline pt-4 text-xs leading-normal text-ink-3">
-        Accounts are by invitation. Guests reviewing a file open the link in their email instead.
+        {methods?.signUp ? (
+          <>
+            New here?{" "}
+            <Link
+              to="/sign-up"
+              className="text-ink-2 underline-offset-2 hover:text-ink hover:underline"
+            >
+              Make a workspace
+            </Link>
+            . Guests reviewing a file open the link in their email instead.
+          </>
+        ) : (
+          "Accounts are by invitation. Guests reviewing a file open the link in their email instead."
+        )}
       </p>
     </Frame>
   );
@@ -741,21 +773,7 @@ function Reset({
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
-        <div className="-mt-2 flex items-center gap-1" aria-live="polite">
-          {[1, 2, 3, 4].map((n) => (
-            <span
-              key={n}
-              aria-hidden="true"
-              className={cn(
-                "h-1 flex-1 rounded-full",
-                n <= strength.score ? "bg-ink-2" : "bg-raised",
-              )}
-            />
-          ))}
-          <span className="ml-2 w-16 text-right text-[12px] text-ink-2">
-            {password ? strength.label : ""}
-          </span>
-        </div>
+        <PasswordMeter password={password} />
         <Field
           id="again"
           label="Again"

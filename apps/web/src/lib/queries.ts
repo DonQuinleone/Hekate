@@ -127,6 +127,8 @@ import {
   type SessionSummary,
   type SessionTodoChange,
   type SharedTake,
+  type SignUpInfo,
+  type SignUpInvitation,
   type SpectrogramAnalysis,
   type SsoServiceProvider,
   type SsoSettings,
@@ -342,12 +344,32 @@ export interface SignInMethods {
   workspace: { name: string; slug: string; providerId: string | null } | null;
   /** The root's address, with workspace subdomains on. */
   root: string | null;
+  /** Open sign-up (#184): anyone may make a workspace, from the root's sign-in. */
+  signUp?: boolean;
 }
 
 export const signInMethodsQuery = queryOptions({
   queryKey: ["sign-in-methods"],
   queryFn: async () => json<SignInMethods>(await api["sign-in-methods"].$get()),
   staleTime: 5 * 60_000,
+});
+
+/** What the sign-up page offers (#184): the instance's registration, and the trial. */
+export const signUpInfoQuery = queryOptions({
+  queryKey: ["sign-up"],
+  queryFn: async () => json<SignUpInfo>(await api["sign-up"].$get()),
+  staleTime: 60_000,
+});
+
+/** Operators' invitations to make a workspace, still waiting (#184). */
+export const signUpInvitationsQuery = queryOptions({
+  queryKey: ["instance", "sign-up-invitations"],
+  queryFn: async () =>
+    (
+      await json<{ invitations: SignUpInvitation[] }>(
+        await api.instance["sign-up-invitations"].$get(),
+      )
+    ).invitations,
 });
 
 /** Go to another of the instance's addresses: nothing here settles meanwhile. */

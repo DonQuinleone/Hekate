@@ -939,6 +939,139 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
   );
 }
 
+/**
+ * Sign-up (#184), as the instance's registration allows: open sign-up asks for the email, which
+ * a link confirms; at the link, the workspace's name and subdomain, and the owner's account.
+ * Invite-only or closed, it says the way in instead.
+ */
+type SignUpView = "start" | "sent" | "make" | "invite" | "closed";
+
+export function SignUpPage({ view: initial }: { view?: string }) {
+  const navigate = useNavigate();
+  const { setPersona } = useViewer();
+  const [view, setView] = useState<SignUpView>((initial as SignUpView) || "start");
+  const [name, setName] = useState("");
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  if (view === "invite" || view === "closed")
+    return (
+      <Frame
+        title={view === "invite" ? "Workspaces are by invitation" : "Sign-up is closed"}
+        intro={
+          view === "invite"
+            ? "Someone the instance's operators invite makes a workspace at the link in their invitation. Ask them for one."
+            : "The instance's operators make its workspaces. To join one, ask its owner for an invitation."
+        }
+      >
+        <Button variant="secondary" size="lg" asChild>
+          <Link to="/sign-in">Sign in</Link>
+        </Button>
+      </Frame>
+    );
+  if (view === "sent")
+    return (
+      <Frame
+        title="Check your email"
+        intro="A link to make your workspace is on its way to mira@endlesshall.example. It lasts a day and works once."
+      >
+        <p className="text-[13px] text-ink-3">
+          Nothing after a minute? Look in spam, then{" "}
+          <button
+            type="button"
+            className="text-ink-2 hover:text-ink"
+            onClick={() => setView("start")}
+          >
+            ask again
+          </button>
+          .
+        </p>
+        <button
+          type="button"
+          className="self-start text-[13px] text-ink-3 transition-colors hover:text-ink"
+          onClick={() => setView("make")}
+        >
+          Open the link
+        </button>
+      </Frame>
+    );
+  if (view === "make")
+    return (
+      <Frame
+        title="Make your workspace"
+        intro="Your email is confirmed, as mira@endlesshall.example. It starts with a 14-day trial."
+      >
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setPersona("owner");
+            navigate({ to: "/" });
+          }}
+        >
+          <label
+            htmlFor="sign-up-workspace"
+            className="flex flex-col gap-1.5 text-[14px] text-ink-2"
+          >
+            Workspace name
+            <Input
+              id="sign-up-workspace"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Endless Hall Records"
+              autoComplete="organization"
+              className="h-10"
+            />
+          </label>
+          <div className="flex flex-col gap-1.5">
+            <Field label="Subdomain" placeholder={slug || "endless-hall-records"} />
+            <p className="text-[12px] text-ink-3">
+              {slug || "endless-hall-records"}.review.example
+            </p>
+          </div>
+          <Field label="Your name" autoComplete="name" placeholder="Mira Solberg" />
+          <Field
+            label="Password"
+            type="password"
+            autoComplete="new-password"
+            placeholder="12 characters or more"
+          />
+          <Field label="Again" type="password" autoComplete="new-password" />
+          <Button type="submit" variant="primary" size="lg">
+            Make the workspace
+          </Button>
+        </form>
+      </Frame>
+    );
+  return (
+    <Frame
+      title="Make a workspace"
+      intro="Start with your email: a link confirms it, then you name the workspace and choose its address. It starts with a 14-day trial."
+    >
+      <form
+        className="flex flex-col gap-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setView("sent");
+        }}
+      >
+        <Field label="Email" type="email" autoComplete="email" placeholder="you@example.com" />
+        <Button type="submit" variant="primary" size="lg">
+          Send me a link
+        </Button>
+      </form>
+      <p className="border-t border-line pt-4 text-[13px] text-ink-3">
+        Already have an account?{" "}
+        <Link to="/sign-in" className="text-ink-2 hover:text-ink">
+          Sign in
+        </Link>
+        .
+      </p>
+    </Frame>
+  );
+}
+
 export function InvitationPage() {
   const navigate = useNavigate();
   const { settings, setPersona } = useViewer();

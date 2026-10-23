@@ -73,6 +73,7 @@ import { SchedulePage } from "~/routes/schedule";
 import { ScoreMarkingPage } from "~/routes/score-marking";
 import { SearchPage } from "~/routes/search";
 import { SessionPage, SessionsPage } from "~/routes/sessions";
+import { SignUpLinkPage, SignUpPage } from "~/routes/sign-up";
 import { StagePlanPage } from "~/routes/stage-plan";
 import { TakeLogPage } from "~/routes/take-log";
 import { TasksPage } from "~/routes/tasks";
@@ -82,7 +83,7 @@ import { WorkflowsPage } from "~/routes/workflows";
 import { WorkspaceSettingsPage } from "~/routes/workspace-settings";
 
 /** Pages that are not a member's, where a session ending means nothing to undo. */
-const outside = /^\/(sign-in|setup|invite|guest|second-factor|suspended|u\/|g(\/|$))/;
+const outside = /^\/(sign-in|sign-up|setup|invite|guest|second-factor|suspended|u\/|g(\/|$))/;
 
 /**
  * A member whose session ends mid-visit (it ran out, or was ended from another device) is
@@ -231,6 +232,20 @@ const invite = createRoute({
   component: function InviteRoute() {
     const { token } = invite.useParams();
     return <InvitePage token={token} />;
+  },
+});
+/** Making a workspace without an operator (#184), as the instance's registration allows. */
+const signUp = createRoute({
+  getParentRoute: () => root,
+  path: "/sign-up",
+  component: SignUpPage,
+});
+const signUpLink = createRoute({
+  getParentRoute: () => root,
+  path: "/sign-up/$token",
+  component: function SignUpLinkRoute() {
+    const { token } = signUpLink.useParams();
+    return <SignUpLinkPage token={token} />;
   },
 });
 
@@ -866,6 +881,8 @@ export const router = createRouter({
     suspended,
     setup,
     signIn,
+    signUp,
+    signUpLink,
     invite,
     uploadLink,
     guestLink,

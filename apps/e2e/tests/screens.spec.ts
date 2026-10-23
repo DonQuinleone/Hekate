@@ -101,6 +101,20 @@ const screens: Screen[] = [
     ready: "text=Join Endless Hall Records",
     as: "signed-out",
   },
+  // Registration (#184), invite-only in the seed: the sign-up page says so, and an operator's
+  // invitation opens the form.
+  {
+    name: "sign-up-invite-only",
+    path: () => "/sign-up",
+    ready: "text=Workspaces are by invitation",
+    as: "signed-out",
+  },
+  {
+    name: "sign-up-link",
+    path: (s) => s.signUpPath,
+    ready: "text=Make your workspace",
+    as: "signed-out",
+  },
   {
     name: "upload-link",
     path: (s) => s.uploadLinkPath,

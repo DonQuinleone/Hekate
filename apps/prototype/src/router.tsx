@@ -18,6 +18,7 @@ import {
   InstallerPage,
   InvitationPage,
   SignInPage,
+  SignUpPage,
   SuspendedPage,
   UploadRequestPage,
 } from "~/routes/arrive";
@@ -140,6 +141,15 @@ const signIn = createRoute({
   component: function SignInRoute() {
     const search = signIn.useSearch();
     return <SignInPage view={search.view} />;
+  },
+});
+const signUp = createRoute({
+  getParentRoute: () => root,
+  path: "/sign-up",
+  validateSearch: (s: Record<string, unknown>) => pick(s, ["view"]),
+  component: function SignUpRoute() {
+    const search = signUp.useSearch();
+    return <SignUpPage view={search.view} />;
   },
 });
 const guestLink = createRoute({
@@ -421,6 +431,7 @@ export const router = createRouter({
     guestLink,
     guestOut,
     install,
+    signUp,
     invite,
     suspended,
     uploadRequest,

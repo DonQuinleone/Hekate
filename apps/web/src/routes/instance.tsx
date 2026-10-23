@@ -34,6 +34,11 @@ import {
   type MailLogRow,
   mailProviders,
   parseErrorReference,
+  type RegistrationMode,
+  registrationModes,
+  registrationNames,
+  type SignUpInvitation,
+  slugFrom,
   type UpdateChannel,
   updateChannels,
   type WebhookLogRow,
@@ -105,6 +110,8 @@ import {
   json,
   logQueryString,
   noticeQuery,
+  signUpInfoQuery,
+  signUpInvitationsQuery,
   useOperatorMove,
   useWorkspaceLimits,
 } from "~/lib/queries";
@@ -774,6 +781,202 @@ function Flags() {
 }
 
 /**
+ * Registration (#184): who may make a workspace, and, unless only operators may, the invitations
+ * to make one still waiting.
+ */
+function Registration({
+  mode,
+  publicUrl,
+  disabled,
+  onChange,
+}: {
+  mode: RegistrationMode;
+  publicUrl: string;
+  disabled: boolean;
+  onChange: (mode: RegistrationMode) => void;
+}) {
+  const [inviting, setInviting] = useState(false);
+  // The trial as the sign-up page offers it: billing on, a length, and a plan to try.
+  const { data: info } = useQuery(signUpInfoQuery);
+  const trial =
+    mode !== "closed" && info?.trialDays ? ` Each starts a ${info.trialDays}-day trial.` : "";
+  const hint =
+    mode === "closed"
+      ? "Operators make them, on the Workspaces page."
+      : mode === "invite"
+        ? `Someone an operator invites makes their own, at the link in the invitation.${trial}`
+        : `Anyone who confirms their email, at ${publicUrl.replace(/\/$/, "")}/sign-up.${trial}`;
+  return (
+    <>
+      <Section
+        title="Registration"
+        action={
+          mode === "closed" ? undefined : (
+            <Button variant="secondary" size="md" onClick={() => setInviting(true)}>
+              Invite…
+            </Button>
+          )
+        }
+      >
+        <Row name="New workspaces" hint={hint}>
+          <Select
+            aria-label="Who may make a workspace"
+            value={mode}
+            disabled={disabled}
+            onChange={(e) => onChange(e.target.value as RegistrationMode)}
+            className="w-48"
+          >
+            {registrationModes.map((m) => (
+              <option key={m} value={m}>
+                {registrationNames[m]}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        {mode !== "closed" && <SignUpInvitations />}
+      </Section>
+      {inviting && <InviteToSignUp onClose={() => setInviting(false)} />}
+    </>
+  );
+}
+
+const until = formatDates({ day: "numeric", month: "short" });
+
+/** Operators' invitations to make a workspace, each withdrawn from its menu. */
+function SignUpInvitations() {
+  const client = useQueryClient();
+  const { data: invitations, error } = useQuery(signUpInvitationsQuery);
+  const withdraw = useMutation({
+    mutationFn: async (id: string) =>
+      (
+        await json<{ invitations: SignUpInvitation[] }>(
+          await api.instance["sign-up-invitations"][":id"].$delete({ param: { id } }),
+        )
+      ).invitations,
+    onSuccess: (next) => client.setQueryData(signUpInvitationsQuery.queryKey, next),
+  });
+  if (error) return <Row name="Invitations" hint={error.message} />;
+  if (!invitations) return null;
+  if (invitations.length === 0)
+    return (
+      <Row
+        name="Invitations"
+        hint="None waiting. Invite someone to make a workspace of their own: the link works once, for a week."
+      />
+    );
+  return (
+    <>
+      {invitations.map((i) => (
+        <Row
+          key={i.id}
+          name={<span className="block truncate">{i.email}</span>}
+          hint={`Invited by ${i.invitedBy ?? "an operator"} · the link works until ${until.format(new Date(i.expiresAt))}`}
+          inline
+        >
+          <ActionMenu
+            always
+            label={i.email}
+            actions={[{ label: "Withdraw", danger: true, onSelect: () => withdraw.mutate(i.id) }]}
+          />
+        </Row>
+      ))}
+      {withdraw.isError && <Row name="Not withdrawn" hint={withdraw.error.message} />}
+    </>
+  );
+}
+
+/** Invites someone to make a workspace of their own, by email (#184). */
+function InviteToSignUp({ onClose }: { onClose: () => void }) {
+  const client = useQueryClient();
+  const [email, setEmail] = useState("");
+  /** The invitation's link, when its mail could not be sent, to pass on by hand. */
+  const [unsent, setUnsent] = useState<string | null>(null);
+  const invite = useMutation({
+    mutationFn: async () =>
+      json<{ link: string; mailed: boolean }>(
+        await api.instance["sign-up-invitations"].$post({ json: { email } }),
+      ),
+    onSuccess: async ({ link, mailed }) => {
+      await client.invalidateQueries({ queryKey: signUpInvitationsQuery.queryKey });
+      if (mailed) onClose();
+      else setUnsent(link);
+    },
+  });
+  if (unsent)
+    return (
+      <Dialog
+        title="Invitation made"
+        description="It could not be mailed. Pass this link on yourself: it works once, for a week."
+        onClose={onClose}
+        width="sm"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={() => void navigator.clipboard?.writeText(unsent)}
+            >
+              <Icon name="copy" size={13} />
+              Copy the link
+            </Button>
+            <Button variant="primary" size="md" onClick={onClose}>
+              Done
+            </Button>
+          </>
+        }
+      >
+        <Field label="Invitation link">
+          <Input value={unsent} readOnly onFocus={(e) => e.currentTarget.select()} />
+        </Field>
+      </Dialog>
+    );
+  return (
+    <Dialog
+      title="Invite someone to make a workspace"
+      description="They name it and choose its address at the link, and become its owner. The link works once, for a week."
+      onClose={onClose}
+      width="sm"
+      footer={
+        <>
+          <Button variant="ghost" size="md" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="md"
+            type="submit"
+            form="invite-to-sign-up"
+            disabled={invite.isPending}
+          >
+            Send invitation
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="invite-to-sign-up"
+        onSubmit={(e) => {
+          e.preventDefault();
+          invite.mutate();
+        }}
+      >
+        <Field label="Email" error={invite.error?.message ?? null}>
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="owner@lantern.example"
+            autoComplete="off"
+            required
+            autoFocus
+          />
+        </Field>
+      </form>
+    </Dialog>
+  );
+}
+
+/**
  * The instance's settings (#160), as the prototype has them: what an operator decides for every
  * workspace, each change recorded, beside what the environment sets, read-only.
  */
@@ -790,6 +993,7 @@ function Settings() {
     onSuccess: (next) => {
       client.setQueryData(instanceOwnSettingsQuery.queryKey, next);
       void client.invalidateQueries({ queryKey: noticeQuery.queryKey });
+      void client.invalidateQueries({ queryKey: signUpInfoQuery.queryKey });
     },
   });
   const mailTest = useMutation({
@@ -823,6 +1027,12 @@ function Settings() {
           <span className="truncate text-[13px] text-ink-2">{modules.statusUrl ?? "None"}</span>
         </Row>
       </Section>
+      <Registration
+        mode={settings.registration.mode}
+        publicUrl={env.publicUrl}
+        disabled={save.isPending}
+        onChange={(mode) => save.mutate({ ...settings, registration: { mode } })}
+      />
       <Section
         title="Security"
         intro="What every workspace must do, whatever its own settings say."
@@ -2799,15 +3009,6 @@ function NewWorkspace({ onClose, onMade }: { onClose: () => void; onMade: (id: s
     </Dialog>
   );
 }
-
-const slugFrom = (name: string) =>
-  name
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 40)
-    .replace(/-$/, "");
 
 function SuspendWorkspace({
   workspace,

@@ -1159,6 +1159,23 @@ setup("seed", async ({ page, browser }) => {
   }
   await lanternOwner.close();
 
+  // Registration (#184): invite-only, with one invitation to make a workspace waiting.
+  const { settings: instanceSettings } = await api<{ settings: Record<string, unknown> }>(
+    page,
+    "GET",
+    "/api/instance/settings",
+  );
+  await api(page, "PUT", "/api/instance/settings", {
+    ...instanceSettings,
+    registration: { mode: "invite" },
+  });
+  const { link: signUpLink } = await api<{ link: string }>(
+    page,
+    "POST",
+    "/api/instance/sign-up-invitations",
+    { email: "owner@hollow-reed.example" },
+  );
+
   // The project's workflows (#25, #26), made last so no version arrives to start them: the
   // album's review, switched on, and a delivery still a draft, with something to look at.
   const step = (
@@ -1567,6 +1584,7 @@ setup("seed", async ({ page, browser }) => {
     shareId: shared,
     taskId: lateTask,
     invitationPath: new URL(invitation).pathname,
+    signUpPath: new URL(signUpLink).pathname,
     uploadLinkPath: new URL(uploadLink).pathname,
     usedGuestPath: guestLink,
     generalProjectId: general.id,
