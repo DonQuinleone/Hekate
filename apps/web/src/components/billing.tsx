@@ -68,7 +68,8 @@ export function BillingSection({ owner }: { owner: boolean }) {
 /** Where the workspace stands, at a glance: its plan, storage, members, and what comes next. */
 function Tiles({ billing }: { billing: WorkspaceBilling }) {
   const { plan, usage } = billing;
-  const choice = billing.plans.find((p) => p.id === plan.plan?.id);
+  // Its own plan's price, offered still or not.
+  const price = billing.current?.price ?? null;
   const quota = usage.limits.storageQuota;
   const people = usage.limits.memberLimit;
   const next = plan.cancelsAt
@@ -79,14 +80,14 @@ function Tiles({ billing }: { billing: WorkspaceBilling }) {
         ? [
             "Next invoice",
             shortDate.format(new Date(plan.renewsAt)),
-            choice ? formatMoney(choice.price.amount, choice.price.currency) : "",
+            price ? formatMoney(price.amount, price.currency) : "",
           ]
         : ["Next invoice", "None", "nothing is due"];
   const tiles: [string, string, string][] = [
     [
       "Plan",
       plan.plan?.name ?? "Included",
-      choice ? priceWords(choice.price) : plan.plan ? "by agreement" : "everything included",
+      price ? priceWords(price) : plan.plan ? "by agreement" : "everything included",
     ],
     [
       "Storage",
@@ -159,6 +160,7 @@ function PlanSection({
   const details = customer
     ? [
         customer.name,
+        customer.address,
         ...customer.taxIds.map((t) => `VAT ${t}`),
         customer.email && `invoices to ${customer.email}`,
       ]
@@ -166,7 +168,11 @@ function PlanSection({
         .join(" · ")
     : null;
   const limits = [
-    standing(usage.storageBytes, usage.limits.storageQuota),
+    // Storage as it is counted: at the month's peak.
+    standing(
+      Math.max(usage.storageBytes, usage.month?.storagePeak ?? 0),
+      usage.limits.storageQuota,
+    ),
     standing(usage.members + usage.invited, usage.limits.memberLimit),
     standing(usage.projects, usage.limits.projectLimit ?? null),
   ];

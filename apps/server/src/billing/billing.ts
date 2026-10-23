@@ -96,6 +96,8 @@ export async function billingOf(
     invoicesOf(db, organisationId),
     workspaceUsageOf(db, organisationId),
   ]);
+  // The plan it is on, priced, whether or not it is still offered.
+  const [held] = plan.plan ? await db.select().from(plans).where(eq(plans.id, plan.plan.id)) : [];
   // The gateway's copy, read as the page opens; the page still shows without it.
   const customer =
     gateway && account
@@ -107,6 +109,7 @@ export async function billingOf(
   return {
     gateway: gateway?.kind ?? null,
     plan,
+    current: held ? { ...lineOf(held), price: priceOf(held) } : null,
     plans: offered.flatMap((p) => {
       const price = priceOf(p);
       return price ? [{ ...lineOf(p), price }] : [];

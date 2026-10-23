@@ -635,6 +635,15 @@ describe.runIf(url)("billing (#178)", () => {
     });
     expect(billing.usage).toMatchObject({ limits: { memberLimit: 25 }, members: 1 });
     expect(billing.invoices[0]?.pdfUrl).toBe("https://pay.stripe.com/invoice/abc/pdf");
+    // Its own plan, priced, even once hidden from new choices.
+    await db.update(schema.plans).set({ hidden: true }).where(eq(schema.plans.id, w.planId));
+    const hidden = await billingOf(db, w.id, gateway);
+    expect(hidden.current).toMatchObject({
+      id: w.planId,
+      price: { amount: 4900, currency: "GBP", interval: "month" },
+    });
+    expect(hidden.plans.map((p) => p.id)).not.toContain(w.planId);
+    await db.update(schema.plans).set({ hidden: false }).where(eq(schema.plans.id, w.planId));
     expect(billing.plans.find((p) => p.id === w.planId)).toMatchObject({
       storageQuota: 1e12,
       memberLimit: 25,

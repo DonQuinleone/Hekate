@@ -76,6 +76,9 @@ export interface WorkspaceBilling {
   /** Null where payments are arranged with the operators (HEKATE_BILLING=manual). */
   gateway: "stripe" | null;
   plan: WorkspacePlan;
+  /** The plan the workspace is on, with its price, even once hidden or retired; null on none. */
+  current: (Omit<PlanChoice, "price"> & { price: PlanChoice["price"] | null }) | null;
+  /** The plans it may choose. */
   plans: PlanChoice[];
   subscribed: boolean;
   pastDueSince: string | null;
