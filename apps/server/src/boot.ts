@@ -390,7 +390,7 @@ export async function boot(
     ssoTrustedOrigins: config.SSO_TRUSTED_ORIGINS,
     webhookTrustedOrigins: config.WEBHOOK_TRUSTED_ORIGINS,
     instanceBounces: instanceBouncesOf(config),
-    bounceProvider: bounceProviderOf(config.SMTP_URL),
+    bounceProvider: bounceProviderOf(config),
     storageReconcile: config.STORAGE_RECONCILE,
     setupGate: options.gate,
     operatorSecurityKey: config.OPERATOR_SECURITY_KEY,

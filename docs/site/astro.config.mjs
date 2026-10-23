@@ -45,6 +45,7 @@ export default defineConfig({
             "operate/billing",
             "operate/workspace-data",
             "operate/support",
+            "operate/bounces",
             "operate/monitoring",
             "operate/load-testing",
           ],

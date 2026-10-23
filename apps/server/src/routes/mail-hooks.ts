@@ -5,7 +5,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import type { Keyring } from "../keyring.ts";
-import { readBounces, recordBounces, Unverified } from "../mail-bounces.ts";
+import { type Fetcher, readBounces, recordBounces, Unverified } from "../mail-bounces.ts";
 import { bounceConfigOf } from "../workspace-mail.ts";
 
 export interface MailHookDeps {
@@ -13,6 +13,8 @@ export interface MailHookDeps {
   keyring: Keyring;
   /** The instance's provider, where it reports bounces, and the secret it signs them with. */
   instance: { provider: BounceProvider; secret: string } | null;
+  /** For tests: how Amazon SNS's certificates and subscription addresses are reached. */
+  fetch?: Fetcher;
 }
 
 /**
@@ -30,7 +32,9 @@ export const mailHookRoutes = (deps: MailHookDeps) => {
     header: (name: string) => string | undefined,
   ) => {
     try {
-      const reports = readBounces(provider, secret, body, header);
+      const reports = await readBounces(provider, secret, body, header, {
+        ...(deps.fetch ? { fetch: deps.fetch } : {}),
+      });
       await recordBounces(deps.db, scope, provider, reports);
     } catch (error) {
       if (error instanceof Unverified) throw new HTTPException(401, { message: error.message });
