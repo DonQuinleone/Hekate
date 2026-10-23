@@ -150,6 +150,7 @@ export async function remindDue(
             },
             workspaceSettingsOf(workspace.settings).emailSubjects,
           ),
+          workspace.id,
         );
         reminded += mine.length;
       } catch (error) {

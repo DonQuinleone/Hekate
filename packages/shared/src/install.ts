@@ -225,50 +225,54 @@ const hostName = z
   .max(253)
   .regex(/^[a-zA-Z0-9.-]+$/, "A host name, such as smtp.example.com");
 
-export const mailStepInput = z
-  .object({
-    provider: z.enum(mailProviderIds as [MailProvider, ...MailProvider[]]),
-    host: hostName.optional(),
-    port: z.number().int().min(1).max(65535).optional(),
-    username: z.string().trim().max(256).optional(),
-    /** The password, API key, token or client secret, as the provider calls it. */
-    password: z.string().max(512).optional(),
-    /** Microsoft 365: the directory (tenant) ID and the app registration's client ID. */
-    tenant: z.string().trim().max(128).optional(),
-    clientId: z.string().trim().max(128).optional(),
-    /** Mailcoach: the account's address. */
-    url: z.string().trim().max(512).optional(),
-    from: z.string().trim().min(3, "Say who mail comes from").max(320),
-  })
-  .superRefine((mail, ctx) => {
-    const preset = mailProviders[mail.provider];
-    if (preset.transport === "log") return;
-    const need = (path: keyof typeof mail, message: string) => {
-      if (!mail[path]) ctx.addIssue({ code: "custom", path: [path], message });
-    };
-    if (preset.transport === "smtp" && !(preset.host ?? mail.host))
-      ctx.addIssue({ code: "custom", path: ["host"], message: "Give the SMTP host" });
-    if (preset.transport === "microsoft") {
-      need("tenant", "Give the directory (tenant) ID");
-      need("clientId", "Give the application (client) ID");
-      need("password", "Give a client secret");
-    }
-    if (preset.transport === "mailcoach") {
-      if (!/^https:\/\/[^\s/]+/i.test(mail.url ?? ""))
-        ctx.addIssue({
-          code: "custom",
-          path: ["url"],
-          message: "The account's address, such as https://endlesshall.mailcoach.app",
-        });
-      need("password", "Give an API token");
-    }
-    if (!fromAddress(mail.from))
+/** The mail step's fields, before their checks: shared with a workspace's own mail (#161). */
+export const mailStepFields = z.object({
+  provider: z.enum(mailProviderIds as [MailProvider, ...MailProvider[]]),
+  host: hostName.optional(),
+  port: z.number().int().min(1).max(65535).optional(),
+  username: z.string().trim().max(256).optional(),
+  /** The password, API key, token or client secret, as the provider calls it. */
+  password: z.string().max(512).optional(),
+  /** Microsoft 365: the directory (tenant) ID and the app registration's client ID. */
+  tenant: z.string().trim().max(128).optional(),
+  clientId: z.string().trim().max(128).optional(),
+  /** Mailcoach: the account's address. */
+  url: z.string().trim().max(512).optional(),
+  from: z.string().trim().min(3, "Say who mail comes from").max(320),
+});
+
+/** What a provider's details lack, or have wrong, said where they are. */
+export function mailProblems(mail: z.infer<typeof mailStepFields>, ctx: z.RefinementCtx) {
+  const preset = mailProviders[mail.provider];
+  if (preset.transport === "log") return;
+  const need = (path: keyof typeof mail, message: string) => {
+    if (!mail[path]) ctx.addIssue({ code: "custom", path: [path], message });
+  };
+  if (preset.transport === "smtp" && !(preset.host ?? mail.host))
+    ctx.addIssue({ code: "custom", path: ["host"], message: "Give the SMTP host" });
+  if (preset.transport === "microsoft") {
+    need("tenant", "Give the directory (tenant) ID");
+    need("clientId", "Give the application (client) ID");
+    need("password", "Give a client secret");
+  }
+  if (preset.transport === "mailcoach") {
+    if (!/^https:\/\/[^\s/]+/i.test(mail.url ?? ""))
       ctx.addIssue({
         code: "custom",
-        path: ["from"],
-        message: "An address, or a name and an address: Hekate <hekate@example.com>",
+        path: ["url"],
+        message: "The account's address, such as https://endlesshall.mailcoach.app",
       });
-  });
+    need("password", "Give an API token");
+  }
+  if (!fromAddress(mail.from))
+    ctx.addIssue({
+      code: "custom",
+      path: ["from"],
+      message: "An address, or a name and an address: Hekate <hekate@example.com>",
+    });
+}
+
+export const mailStepInput = mailStepFields.superRefine(mailProblems);
 export type MailStepInput = z.infer<typeof mailStepInput>;
 export const mailTestInput = z.object({
   mail: mailStepInput,

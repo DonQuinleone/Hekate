@@ -8,10 +8,16 @@ export interface Message {
   subject: string;
   text: string;
   html?: string;
+  /** The workspace it is sent for, whose own mail sends it if it has one (#161). */
+  organisationId?: string;
 }
 
 export interface Mailer {
-  send(message: Message): Promise<void>;
+  /**
+   * Hand a message on. "sent" says a provider took it whatever the instance's own mail is (a
+   * workspace's mail did, #161); otherwise the mail log goes by the instance's way of sending.
+   */
+  send(message: Message): Promise<void | "sent">;
   /** Whether the mail server answers (#156); none when mail goes to the log. */
   verify?(): Promise<unknown>;
 }
@@ -67,9 +73,10 @@ async function refused(provider: string, res: Response): Promise<Error> {
 
 /** The whole message as MIME (plain text and HTML together), as Graph takes it. */
 async function mimeOf(from: string, message: Message): Promise<Buffer> {
+  const { organisationId: _, ...mail } = message;
   const built = await createTransport({ streamTransport: true, buffer: true }).sendMail({
     from,
-    ...message,
+    ...mail,
   });
   return built.message as Buffer;
 }
@@ -201,16 +208,20 @@ export function createMailer(options: {
   const smtp = createTransport(transport.url);
   return {
     async send(message) {
-      await smtp.sendMail({ from, ...message });
+      const { organisationId: _, ...mail } = message;
+      await smtp.sendMail({ from, ...mail });
     },
     verify: () => smtp.verify(),
   };
 }
 
-/** Send a message in Hekate's shape, as plain text and HTML together. */
-export function sendEmail(mailer: Mailer, to: string, email: Email) {
+/**
+ * Send a message in Hekate's shape, as plain text and HTML together; for a workspace, through
+ * its own mail where it has one (#161).
+ */
+export function sendEmail(mailer: Mailer, to: string, email: Email, organisationId?: string) {
   const { subject, text, html } = render(email);
-  return mailer.send({ to, subject, text, html });
+  return mailer.send({ to, subject, text, html, ...(organisationId ? { organisationId } : {}) });
 }
 
 /** Collects messages for tests. */
@@ -254,13 +265,15 @@ export function loggedMailer<M extends Mailer>(db: Database, mailer: M, sends: b
     ...mailer,
     async send(message: Message) {
       // Written beside the message, never awaited: a slow log holds nothing up.
+      let went: void | "sent";
       try {
-        await mailer.send(message);
+        went = await mailer.send(message);
       } catch (error) {
         void record(message, "failed", error);
         throw error;
       }
-      void record(message, sends ? "sent" : "logged");
+      void record(message, sends || went === "sent" ? "sent" : "logged");
+      return went;
     },
   };
 }

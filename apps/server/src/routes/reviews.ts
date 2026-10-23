@@ -851,8 +851,9 @@ async function notify(
       },
       workspaceSettingsOf(context?.settings).emailSubjects,
     );
-    await sendEmail(deps.mailer, person.email, email).catch((error: unknown) =>
-      console.warn(`Could not send the review request to a reviewer: ${String(error)}`),
+    await sendEmail(deps.mailer, person.email, email, review.organisationId).catch(
+      (error: unknown) =>
+        console.warn(`Could not send the review request to a reviewer: ${String(error)}`),
     );
   }
 }
@@ -938,8 +939,8 @@ async function notifyShare(
       { ...dataFor(person), url: `${base}/guest/${issued.token}`, guestLinkDays: issued.days },
       subjects,
     );
-    await sendEmail(deps.mailer, person.email, email).catch((error: unknown) =>
-      console.warn(`Could not send a share to someone: ${String(error)}`),
+    await sendEmail(deps.mailer, person.email, email, review.organisationId).catch(
+      (error: unknown) => console.warn(`Could not send a share to someone: ${String(error)}`),
     );
   }
 }

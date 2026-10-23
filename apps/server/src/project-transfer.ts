@@ -132,6 +132,7 @@ export const transferTables = {
     "channels",
     "events",
     "event_deliveries",
+    "workspace_mail",
   ],
 } as const;
 

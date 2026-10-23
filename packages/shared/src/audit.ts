@@ -103,6 +103,8 @@ export const auditActions = [
   "organisation.channel_add",
   "organisation.channel_change",
   "organisation.channel_remove",
+  /** An admin set, changed or removed the workspace's own mail (#161). */
+  "organisation.mail",
   /** A project was archived (its open reviews closing), or brought back. */
   "project.archive",
   "project.unarchive",

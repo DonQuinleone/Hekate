@@ -272,7 +272,12 @@ export const organisationRoutes = (
         workspaceSettingsOf(workspace.settings).emailSubjects,
       );
       try {
-        await sendEmail(mailer, me.email, { ...email, subject: `Test: ${email.subject}` });
+        await sendEmail(
+          mailer,
+          me.email,
+          { ...email, subject: `Test: ${email.subject}` },
+          c.var.organisationId,
+        );
       } catch {
         throw new HTTPException(502, { message: "The mail server did not take the message" });
       }
@@ -454,6 +459,7 @@ export const organisationRoutes = (
           },
           workspaceSettingsOf(organisation?.settings).emailSubjects,
         ),
+        c.var.organisationId,
       );
       return c.json({ invitation, link }, 201);
     })

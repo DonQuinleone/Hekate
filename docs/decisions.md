@@ -1339,3 +1339,15 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Kept as a log.** Deliveries are the instance's webhook log (decision 157's fourth kind), trimmed with their events after 30 days unless an operator chooses otherwise; Debug tools send one again as a new delivery of the same event.
 - **Expanding only:** new tables, and new values for the access log's actions (decision 198).
 - **Mail follows.** Per-workspace mail and the providers' bounce reports are the second half of #161.
+
+## 204. A workspace's own mail: the installer's providers, standing in for nothing lost
+
+#161, second part. A workspace can send its mail through a provider of its own (Settings, Notifications and integrations) rather than the instance's.
+
+- **The installer's choices.** The same providers and checks as the installer's mail step (decision 202), so a workspace and an instance are set up alike; only "log only" is the instance's alone.
+- **What it carries.** Every message that names a workspace: notifications and digests, review requests and shares, guest links and codes, reminders, upload requests and invitations. Account mail (password resets, members' codes) stays with the instance: an account is not any one workspace's.
+- **One mailer, routed.** Every part of Hekate sends through one mailer, which sends a message that names a workspace through that workspace's mail while it works, and everything else through the instance's. The mail log (decision 157) and the metrics see both.
+- **Nothing lost.** A message the workspace's mail refuses is sent by the instance's; five refusals in a row pause the workspace's mail for fifteen minutes, so a broken password does not slow every message. Resume and a new save start afresh. The test sends through the workspace's mail alone, so its failure is the answer.
+- **Public only.** An SMTP host is resolved, checked and connected to at that address; Mailcoach is checked before each request. `WEBHOOK_TRUSTED_ORIGINS` allows private ones (`smtp://host:port`).
+- **Expanding only:** a new table and a new access-log action (decision 198).
+- **Bounces follow:** the providers' bounce reports, and what they stop sending to, are the third part of #161.

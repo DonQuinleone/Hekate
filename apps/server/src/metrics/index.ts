@@ -225,13 +225,14 @@ export function collectQueues(db: Database, laneOfQueue: Record<string, string>)
 }
 
 /** A mailer that counts what it sends, and what the mail server would not take. */
-export function countedMailer<M extends { send(message: never): Promise<void> }>(mailer: M): M {
+export function countedMailer<M extends { send(message: never): Promise<unknown> }>(mailer: M): M {
   return {
     ...mailer,
     async send(message: never) {
       try {
-        await mailer.send(message);
+        const went = await mailer.send(message);
         metrics.mailSent.inc();
+        return went;
       } catch (error) {
         metrics.mailFailed.inc();
         throw error;

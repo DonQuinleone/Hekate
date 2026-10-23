@@ -834,6 +834,13 @@
       "when": 1792724572950,
       "tag": "0118_events_and_channels",
       "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1792728692331,
+      "tag": "0119_workspace_mail",
+      "breakpoints": true
     }
   ]
 }

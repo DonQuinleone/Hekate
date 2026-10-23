@@ -45,7 +45,7 @@ import { type JobFailure, runJob } from "./jobs.ts";
 import { createKeyring } from "./keyring.ts";
 import { purgeLogs } from "./log-retention.ts";
 import { idAt } from "./logs.ts";
-import { loggedMailer, memoryMailer } from "./mail.ts";
+import { loggedMailer, type Message, memoryMailer } from "./mail.ts";
 import { probe, run } from "./media/ffmpeg.ts";
 import { webpComplete, webpSize } from "./media/pages.ts";
 import { jpegSize } from "./media/pdf.ts";
@@ -909,6 +909,108 @@ describe.runIf(url)("api", () => {
             "organisation.channel_remove",
           ]),
         );
+      });
+    });
+
+    describe("workspace mail (#161)", () => {
+      const tested: Message[] = [];
+      let refuse = false;
+      const withMail = createApp({
+        db,
+        auth,
+        mailer,
+        storage,
+        audit,
+        jobs,
+        keyring,
+        playbackSecret: playbackSecret("test-secret-test-secret-test-secret-0"),
+        publicUrl: "http://localhost:3000",
+        log: false,
+        buildWorkspaceMailer: () => ({
+          async send(message) {
+            if (refuse) throw new Error("535 Authentication failed");
+            tested.push(message);
+          },
+        }),
+      });
+      const call = (path: string, cookie: string, method = "GET", body?: unknown) =>
+        withMail.request(`/api/organisation/mail${path}`, {
+          ...(body === undefined ? { headers: { cookie } } : json(body, cookie)),
+          method,
+        });
+      const joinAs = async (cookie: string, email: string, role: string) => {
+        const { body } = await invite(cookie, email, role);
+        const res = await app.request(
+          `/api/invitations/${tokenFrom(body.link)}/accept`,
+          json({ name: email.split("@")[0], password: "correct horse battery" }),
+        );
+        expect(res.status).toBe(201);
+        return cookieOf(res);
+      };
+
+      it("keeps a workspace's own mail for its admins, its secret sealed and never sent back", async () => {
+        const owner = cookieOf(await setup());
+        const member = await joinAs(owner, "tomas-mail@example.test", "member");
+        const sendgrid = {
+          provider: "sendgrid",
+          password: "SG.very-secret",
+          from: "Endless Hall Records <mail@endlesshall.example>",
+        };
+        expect((await call("", member)).status).toBe(403);
+        expect((await call("", member, "PUT", sendgrid)).status).toBe(403);
+        // Until set, the instance's mail sends.
+        expect(await (await call("", owner)).json()).toEqual({ mail: null });
+        // Checked as the installer checks it, and the log is no workspace's mail.
+        expect((await call("", owner, "PUT", { ...sendgrid, provider: "microsoft" })).status).toBe(
+          422,
+        );
+        expect((await call("", owner, "PUT", { ...sendgrid, provider: "log" })).status).toBe(400);
+
+        const saved = await call("", owner, "PUT", sendgrid);
+        expect(saved.status).toBe(200);
+        const text = await saved.text();
+        expect(text).not.toContain("very-secret");
+        expect(JSON.parse(text).mail).toMatchObject({
+          provider: "sendgrid",
+          target: "smtp.sendgrid.net:587",
+          hasSecret: true,
+        });
+        // A save without the secret keeps it.
+        expect(
+          (
+            await call("", owner, "PUT", {
+              ...sendgrid,
+              password: undefined,
+              from: "mail@endlesshall.example",
+            })
+          ).status,
+        ).toBe(200);
+        tested.length = 0;
+        expect(await (await call("/test", owner, "POST", {})).json()).toEqual({
+          ok: true,
+          result: "Sent to producer@example.test",
+        });
+        expect(tested[0]).toMatchObject({
+          to: "producer@example.test",
+          subject: "A test from Studio",
+        });
+        refuse = true;
+        expect(await (await call("/test", owner, "POST", {})).json()).toEqual({
+          ok: false,
+          result: "Not sent: 535 Authentication failed",
+        });
+        refuse = false;
+
+        // Removed, the instance's mail sends again; each change is in the access log.
+        expect((await call("", owner, "DELETE")).status).toBe(204);
+        expect(await (await call("", owner)).json()).toEqual({ mail: null });
+        expect((await call("/test", owner, "POST", {})).status).toBe(422);
+        const changes = await db
+          .select({ details: schema.accessEvents.details })
+          .from(schema.accessEvents)
+          .where(eq(schema.accessEvents.action, "organisation.mail"));
+        expect(changes).toHaveLength(3);
+        expect(JSON.stringify(changes)).not.toContain("very-secret");
       });
     });
 

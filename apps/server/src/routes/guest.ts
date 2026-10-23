@@ -83,16 +83,21 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
         info,
         tx,
       );
-      await sendEmail(deps.mailer, issued.email, {
-        workspace: workspace?.name,
-        subject: `${issued.code} is your code to open your review`,
-        heading: "Your code to open the review",
-        body: [
-          `Type ${issued.code} where you opened your link. It lasts ten minutes and works once.`,
-          "The link was opened in a browser. If that was not you, ignore this: without the code, the link opens nothing.",
-        ],
-        foot: "You get this because a review was sent to this address.",
-      });
+      await sendEmail(
+        deps.mailer,
+        issued.email,
+        {
+          workspace: workspace?.name,
+          subject: `${issued.code} is your code to open your review`,
+          heading: "Your code to open the review",
+          body: [
+            `Type ${issued.code} where you opened your link. It lasts ten minutes and works once.`,
+            "The link was opened in a browser. If that was not you, ignore this: without the code, the link opens nothing.",
+          ],
+          foot: "You get this because a review was sent to this address.",
+        },
+        issued.organisationId,
+      );
     });
     if (!sent) throw gone();
     if (sent.status !== "sent" && asked)

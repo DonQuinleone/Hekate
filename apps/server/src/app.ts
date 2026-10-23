@@ -5,6 +5,7 @@ import {
   type InstanceMail,
   type InstanceModules,
   type InstanceNotice,
+  type MailStepInput,
 } from "@hekate/shared";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -93,6 +94,7 @@ import { uploadLinkRoutes, uploadRequestRoutes } from "./routes/upload-requests.
 import { uploadRoutes } from "./routes/uploads.ts";
 import { trackWorkflowRunRoutes, workflowRunRoutes } from "./routes/workflow-runs.ts";
 import { projectWorkflowRoutes, workflowRoutes } from "./routes/workflows.ts";
+import { workspaceMailRoutes } from "./routes/workspace-mail.ts";
 import { securityHeaders } from "./security-headers.ts";
 import type { SetupGate } from "./setup-code.ts";
 import type { Storage } from "./storage.ts";
@@ -124,6 +126,8 @@ export interface AppDeps {
   webhookTrustedOrigins?: string[];
   /** How a channel is sent to (#161); a guarded HTTP request unless a test gives its own. */
   sendToChannel?: Send;
+  /** For tests: the mailer a workspace's own mail details come to (#161). */
+  buildWorkspaceMailer?: (mail: MailStepInput) => Mailer;
   /** Check the first owner's password against known breaches (PASSWORD_LEAK_CHECK). */
   passwordLeakCheck?: boolean;
   /** The instance asks every account for a second factor (REQUIRE_SECOND_FACTOR). */
@@ -319,6 +323,17 @@ export function createApi(deps: AppDeps) {
           publicUrl: deps.publicUrl,
           trusted: deps.webhookTrustedOrigins ?? [],
           trustProxy: deps.trustProxy ?? false,
+        }),
+      )
+      .route(
+        "/organisation/mail",
+        workspaceMailRoutes({
+          db: deps.db,
+          keyring: deps.keyring,
+          audit: deps.audit,
+          trusted: deps.webhookTrustedOrigins ?? [],
+          trustProxy: deps.trustProxy ?? false,
+          ...(deps.buildWorkspaceMailer ? { build: deps.buildWorkspaceMailer } : {}),
         }),
       )
       .route(
