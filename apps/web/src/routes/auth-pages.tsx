@@ -194,7 +194,10 @@ function SignIn({ search, forgot }: { search: SignInSearch; forgot: (email: stri
     await arrive(search.redirect, navigate);
   };
   return (
-    <Frame title="Sign in" intro="Review for sound and picture.">
+    <Frame
+      title={methods?.workspace ? `Sign in to ${methods.workspace.name}` : "Sign in"}
+      intro="Review for sound and picture."
+    >
       {search.reason === "expired" && (
         <p
           role="status"
@@ -297,20 +300,31 @@ const ssoProblem = (code: string | undefined) =>
  * sends the person back signed in. The first sign-in makes the account.
  */
 function SsoSignIn({ search, back }: { search: SignInSearch; back: () => void }) {
+  // On a workspace's own host (#176), its provider: nobody need say which workspace.
+  const { data: methods } = useQuery(signInMethodsQuery);
+  const here = methods?.workspace ?? null;
   const [error, setError] = useState<string | null>(ssoProblem(search.error));
   const [pending, setPending] = useState(false);
+  const providerFor = async (form: HTMLFormElement): Promise<string | null> => {
+    if (here) return here.providerId;
+    const workspace = String(new FormData(form).get("workspace")).trim();
+    const found = await api["sign-in-methods"].sso.$get({ query: { workspace } });
+    return found.ok ? ((await found.json()) as { providerId: string }).providerId : null;
+  };
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const workspace = String(new FormData(e.currentTarget).get("workspace")).trim();
     setPending(true);
     setError(null);
-    const found = await api["sign-in-methods"].sso.$get({ query: { workspace } });
-    if (!found.ok) {
+    const providerId = await providerFor(e.currentTarget);
+    if (!providerId) {
       setPending(false);
-      setError("That workspace does not sign in with single sign-on.");
+      setError(
+        here
+          ? `${here.name} does not sign in with single sign-on.`
+          : "That workspace does not sign in with single sign-on.",
+      );
       return;
     }
-    const { providerId } = (await found.json()) as { providerId: string };
     const back = search.redirect?.startsWith("/") && !search.redirect.startsWith("//");
     const { data, error } = await authClient.$fetch<{ url: string }>("/sign-in/sso", {
       method: "POST",
@@ -328,7 +342,14 @@ function SsoSignIn({ search, back }: { search: SignInSearch; back: () => void })
     window.location.assign(data.url);
   };
   return (
-    <Frame title="Single sign-on" intro="Which workspace are you signing in to?">
+    <Frame
+      title="Single sign-on"
+      intro={
+        here
+          ? `${here.name} signs you in through its identity provider.`
+          : "Which workspace are you signing in to?"
+      }
+    >
       {search.reason === "sso" && (
         <p
           role="status"
@@ -339,13 +360,15 @@ function SsoSignIn({ search, back }: { search: SignInSearch; back: () => void })
         </p>
       )}
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <Field
-          id="workspace"
-          label="Workspace"
-          autoComplete="organization"
-          autoFocus
-          placeholder="endless-hall-records"
-        />
+        {!here && (
+          <Field
+            id="workspace"
+            label="Workspace"
+            autoComplete="organization"
+            autoFocus
+            placeholder="endless-hall-records"
+          />
+        )}
         <ErrorLine message={error} />
         <Button variant="primary" size="lg" type="submit" disabled={pending}>
           {pending ? "Opening the identity provider" : "Continue to the identity provider"}
@@ -363,6 +386,9 @@ function SsoSignIn({ search, back }: { search: SignInSearch; back: () => void })
 function DirectorySignIn({ redirect, back }: { redirect?: string; back: () => void }) {
   const navigate = useNavigate();
   const client = useQueryClient();
+  // On a workspace's own host (#176), its directory: nobody need say which workspace.
+  const { data: methods } = useQuery(signInMethodsQuery);
+  const here = methods?.workspace ?? null;
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const submit = async (e: FormEvent<HTMLFormElement>) => {
@@ -373,7 +399,7 @@ function DirectorySignIn({ redirect, back }: { redirect?: string; back: () => vo
     const { error } = await authClient.$fetch("/sign-in/directory", {
       method: "POST",
       body: {
-        workspace: String(form.get("workspace")),
+        workspace: here?.slug ?? String(form.get("workspace")),
         username: String(form.get("username")),
         password: String(form.get("password")),
       },
@@ -392,14 +418,16 @@ function DirectorySignIn({ redirect, back }: { redirect?: string; back: () => vo
       intro="Your workspace signs you in with the username and password you use at work."
     >
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <Field
-          id="workspace"
-          label="Workspace"
-          autoComplete="organization"
-          autoFocus
-          placeholder="endless-hall-records"
-        />
-        <Field id="username" label="Username" autoComplete="username" />
+        {!here && (
+          <Field
+            id="workspace"
+            label="Workspace"
+            autoComplete="organization"
+            autoFocus
+            placeholder="endless-hall-records"
+          />
+        )}
+        <Field id="username" label="Username" autoComplete="username" autoFocus={!!here} />
         <Field id="password" label="Password" type="password" autoComplete="current-password" />
         <ErrorLine message={error} />
         <Button variant="primary" size="lg" type="submit" disabled={pending}>

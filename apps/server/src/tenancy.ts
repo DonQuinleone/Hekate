@@ -5,6 +5,7 @@ import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import type { Auth } from "./auth.ts";
 import { CodedException } from "./errors.ts";
+import { pinnedWorkspace } from "./hosts.ts";
 
 export type { OrganisationRole } from "@hekate/shared";
 
@@ -31,10 +32,16 @@ export const requireSession = (auth: Auth) =>
   });
 
 /**
- * The organisation a signed-in user acts in: their session's active organisation, falling
- * back to their first. Responds 403 when they belong to none.
+ * The organisation a signed-in user acts in: the one the request's host names (#176), which
+ * they must belong to; otherwise their session's active organisation, falling back to their
+ * first. Responds 403 when they belong to none, or not to the one the host names.
  */
-export async function organisationFor(db: Database, userId: string, sessionId: string) {
+export async function organisationFor(
+  db: Database,
+  userId: string,
+  sessionId: string,
+  pinned?: { id: string; name: string },
+) {
   const [session] = await db
     .select({ active: schema.authSessions.activeOrganisationId })
     .from(schema.authSessions)
@@ -44,8 +51,10 @@ export async function organisationFor(db: Database, userId: string, sessionId: s
     .from(schema.members)
     .where(eq(schema.members.userId, userId))
     .orderBy(asc(schema.members.createdAt));
+  if (pinned && !memberships.some((m) => m.organisationId === pinned.id))
+    throw new CodedException(403, "not_member_here", `You are not a member of ${pinned.name}`);
   const membership =
-    memberships.find((m) => m.organisationId === session?.active) ?? memberships[0];
+    memberships.find((m) => m.organisationId === (pinned?.id ?? session?.active)) ?? memberships[0];
   if (!membership) {
     throw new HTTPException(403, { message: "You are not a member of any workspace" });
   }
@@ -177,7 +186,7 @@ export const requireOrganisation = (
   owing: ReadonlySet<string> = new Set(),
 ) =>
   createMiddleware<{ Variables: TenantVariables }>(async (c, next) => {
-    const membership = await organisationFor(db, c.var.userId, c.var.sessionId);
+    const membership = await organisationFor(db, c.var.userId, c.var.sessionId, pinnedWorkspace(c));
     if (!owing.has(c.req.path)) {
       await assertOpen(db, membership.organisationId);
       await assertSignedInThrough(db, c.var.sessionId, membership);

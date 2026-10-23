@@ -10,6 +10,7 @@ import { eq } from "drizzle-orm";
 import type { Audit } from "./audit.ts";
 import { lockedAttempts, recordAuth, requestOf, signInMethodOf } from "./auth-log.ts";
 import { directorySignIn } from "./directory-sign-in.ts";
+import { passkeyOrigins, type Subdomains } from "./hosts.ts";
 import type { Keyring } from "./keyring.ts";
 import { waitMessage } from "./lockout.ts";
 import { type Mailer, sendEmail } from "./mail.ts";
@@ -34,6 +35,8 @@ export interface AuthOptions {
   secret: string;
   baseURL: string;
   trustedOrigins?: string[];
+  /** Workspace subdomains (#176): one session for the root and every workspace's host. */
+  subdomains?: Subdomains | null;
   /** Relaxed limits for tests. */
   testing?: boolean;
   /** Sends the link that confirms a new email address; without it, addresses cannot change. */
@@ -104,7 +107,14 @@ export function createAuth(options: AuthOptions) {
     secret: options.secret,
     baseURL: options.baseURL,
     basePath: "/api/auth",
-    trustedOrigins: [...(options.trustedOrigins ?? []), ...(options.ssoTrustedOrigins ?? [])],
+    trustedOrigins: [
+      ...(options.trustedOrigins ?? []),
+      ...(options.ssoTrustedOrigins ?? []),
+      // Every workspace's host, with subdomains on (#176).
+      ...(options.subdomains
+        ? [`${options.subdomains.url.protocol}//*.${options.subdomains.url.host}`]
+        : []),
+    ],
     disabledPaths: ssoDisabledPaths,
     telemetry: { enabled: false },
     database: drizzleAdapter(options.db, {
@@ -147,11 +157,15 @@ export function createAuth(options: AuthOptions) {
       // A workspace's directory (LDAP): its username and password sign in.
       directorySignIn({ db: options.db, keyring: options.keyring, audit: options.audit }),
       // Passkeys and hardware security keys (WebAuthn): sign in on their own, or confirm a
-      // password sign-in, for this instance's address only.
+      // password sign-in, for this instance's address only. The root's host is the relying
+      // party, so a key made on any workspace's host works on the others too (#176).
       passkey({
         rpID: new URL(options.baseURL).hostname,
         rpName: "Hekate",
-        origin: [appBase(options.baseURL), ...(options.trustedOrigins ?? [])],
+        origin: passkeyOrigins(
+          [appBase(options.baseURL), ...(options.trustedOrigins ?? [])],
+          options.subdomains ?? null,
+        ),
       }),
       // A forgotten password: a six-digit code by email, with a link that carries it, both
       // lasting ten minutes and working once. Never a sign-in by email for members
@@ -420,6 +434,10 @@ export function createAuth(options: AuthOptions) {
             const current = ctx?.context.session?.session as
               | { factor?: SessionFactor; ssoProviderId?: string | null }
               | undefined;
+            const via = ctx ? ssoProviderIn(ctx) : undefined;
+            const signedInTo = via
+              ? (await providerState(options.db, via))?.organisationId
+              : undefined;
             return {
               data: {
                 ...session,
@@ -429,7 +447,9 @@ export function createAuth(options: AuthOptions) {
                   current?.factor,
                 ),
                 // Which single sign-on made it, for a workspace that takes members only so.
-                ssoProviderId: (ctx && ssoProviderIn(ctx)) ?? current?.ssoProviderId ?? null,
+                ssoProviderId: via ?? current?.ssoProviderId ?? null,
+                // Signed in through a workspace's provider: in that workspace (#176).
+                ...(signedInTo ? { activeOrganisationId: signedInTo } : {}),
               },
             };
           },
@@ -469,6 +489,11 @@ export function createAuth(options: AuthOptions) {
     },
     advanced: {
       cookiePrefix: "hekate",
+      // With subdomains (#176), the session's cookie is the root's, sent to every workspace's
+      // host; each host still admits only that workspace's members.
+      ...(options.subdomains
+        ? { crossSubDomainCookies: { enabled: true, domain: options.subdomains.root } }
+        : {}),
       useSecureCookies: options.baseURL.startsWith("https://"),
       database: { generateId: () => crypto.randomUUID() },
     },

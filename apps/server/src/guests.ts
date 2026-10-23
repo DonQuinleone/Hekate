@@ -16,6 +16,7 @@ import {
   mayResend,
   newGuestCode,
 } from "./guest-code.ts";
+import { pinnedWorkspace } from "./hosts.ts";
 import {
   assertOpen,
   assertSecondFactor,
@@ -364,7 +365,12 @@ export const requireViewer = (auth: Auth, db: Database, rule: SecondFactorRule) 
   createMiddleware<{ Variables: ViewerVariables }>(async (c, next) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (session) {
-      const membership = await organisationFor(db, session.user.id, session.session.id);
+      const membership = await organisationFor(
+        db,
+        session.user.id,
+        session.session.id,
+        pinnedWorkspace(c),
+      );
       await assertOpen(db, membership.organisationId);
       await assertSecondFactor(db, session.session.id, membership, rule);
       c.set("actor", {
@@ -380,6 +386,10 @@ export const requireViewer = (auth: Auth, db: Database, rule: SecondFactorRule) 
     }
     const guest = await guestSessionOf(db, c);
     if (!guest) throw new HTTPException(401, { message: "Sign in to continue" });
+    // A guest's session is one workspace's; another's host does not take it (#176).
+    const pinned = pinnedWorkspace(c);
+    if (pinned && pinned.id !== guest.organisationId)
+      throw new HTTPException(401, { message: "Sign in to continue" });
     const actor: GuestActor = {
       kind: "guest",
       guestId: guest.guestId,

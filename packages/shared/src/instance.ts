@@ -140,6 +140,37 @@ export interface InstanceWorkspacePage {
   next: string | null;
 }
 
+/**
+ * Names no workspace may take, as its subdomain would stand for something else (#176): the
+ * addresses people expect of a service, and the ones mail and certificates are checked at.
+ */
+export const reservedSlugs = [
+  "www",
+  "api",
+  "app",
+  "admin",
+  "instance",
+  "auth",
+  "login",
+  "sign-in",
+  "mail",
+  "smtp",
+  "status",
+  "docs",
+  "help",
+  "support",
+  "billing",
+  "static",
+  "assets",
+  "cdn",
+  "autodiscover",
+  "autoconfig",
+  "_acme-challenge",
+] as const;
+
+export const isReservedSlug = (slug: string) =>
+  (reservedSlugs as readonly string[]).includes(slug.toLowerCase());
+
 /** A subdomain: lower-case letters, digits and single hyphens, as in an address. */
 export const workspaceSlug = z
   .string()
@@ -147,6 +178,9 @@ export const workspaceSlug = z
   .toLowerCase()
   .regex(/^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/, {
     error: "Letters, digits and hyphens, up to 40, not starting or ending with a hyphen",
+  })
+  .refine((slug) => !isReservedSlug(slug), {
+    error: "That name is kept for the instance; choose another",
   });
 
 /** A new workspace, made by an operator: its first owner is invited by address. */

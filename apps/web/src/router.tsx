@@ -19,10 +19,12 @@ import { z } from "zod";
 import { MaintenanceNotice } from "~/components/maintenance-notice";
 import { Shell } from "~/components/shell";
 import { type BrowserFilters, filtersFrom, filtersTo } from "~/lib/browser";
+import { addressFor } from "~/lib/hosts";
 import { formatLoop, parseLoop } from "~/lib/loop";
 import { projectShows, projectSorts, projectViews } from "~/lib/projects";
 import {
   guestMeQuery,
+  leaveFor,
   type Me,
   meQuery,
   SecondFactorDueError,
@@ -355,6 +357,10 @@ const app = createRoute({
     // The instance side stays open: an operator reinstates from there.
     if (activeSuspended(me) && !location.pathname.startsWith("/instance"))
       throw redirect({ to: "/suspended" });
+    // With workspace subdomains (#176): a workspace's pages at its own host, the instance's at
+    // the root's.
+    const away = addressFor(me, location.pathname, window.location.host);
+    if (away) await leaveFor(`${away}${location.href}`);
     return { me };
   },
   component: () => (

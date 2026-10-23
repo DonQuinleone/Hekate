@@ -1383,3 +1383,16 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Warned from 90%.** On the workspace's Storage settings, its Storage tab on the instance side, and the instance's Overview.
 - **The month, counted hourly.** One row per workspace and month: storage now and at its peak, people and projects, and the plays and downloads the access log holds, counted on from where the last count stopped, so each hour reads only what is new. Each count stops fifteen minutes short of now: an access event's id is made before its transaction commits, and an event that lands late must not fall behind a count that has passed it. A month just ended is counted to its end first. For billing (#177, #179) to read.
 - **Expanding only:** new nullable columns and a new table (decision 198).
+
+## 208. Workspace subdomains: one session for every host, each host held to its workspace
+
+#176. With `WORKSPACE_SUBDOMAINS` on, each workspace also answers at its own name under `PUBLIC_URL`'s host.
+
+- **The host picks the workspace.** A request to `endless-hall.review.example` is held to Endless Hall: a member of it acts there whatever their session's active workspace was, and anyone else is refused (403, `not_member_here`), which the web app follows to the root. A guest's session is likewise its own workspace's only. A name under the root that is no workspace's answers 404.
+- **One session, the root's cookie.** The session cookie is set for the root's domain, so one sign-in reaches every workspace someone belongs to, as Slack does with its workspace subdomains. A cookie per host would mean signing in at each, or handing sessions between hosts; the host check above keeps each workspace to its own members either way. The guest cookie stays per host. The browser sends the root's cookie to every name under the root, so the instance needs a host of its own with no other service beneath it; the setting and the install page say so.
+- **The root keeps the instance.** The instance's pages and the sign-in are at the root; a signed-in member opening the root is sent to their active workspace's host, and an instance page opened at a workspace's host goes back to the root.
+- **Sign-in from the host.** At a workspace's host the sign-in page names the workspace, and single sign-on and the directory need no workspace typed. Single sign-on's callbacks stay at the root, so a provider's settings do not change; a session made through a workspace's provider starts in that workspace.
+- **Origins.** Every workspace's host is a trusted origin for Better Auth; passkeys stay bound to the root's name, and their origin list answers yes for any workspace host under it.
+- **Certificates.** Caddy's on-demand TLS gets one per name as it is first opened, asking the app first (`/api/tls/ask`), so the stock image serves it without a DNS provider module; Kubernetes uses a wildcard certificate from a DNS-01 solver.
+- **Names kept.** `www`, `api`, `mail`, `instance` and a few more can be no workspace's.
+- **Links in mail stay at the root,** opening in the person's active workspace; links naming their workspace's host can follow.

@@ -27,6 +27,7 @@ export default defineConfig({
             "install/configuration",
             "install/storage",
             "install/proxies",
+            "install/subdomains",
           ],
         },
         {

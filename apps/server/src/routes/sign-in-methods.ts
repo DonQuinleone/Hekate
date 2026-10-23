@@ -1,9 +1,10 @@
-import { type Database, schema } from "@hekate/db";
+import { type Database, inOrg, schema } from "@hekate/db";
 import { ssoStartInput } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
+import { type HostVariables, rootAddress, type Subdomains } from "../hosts.ts";
 
 const { directories, organisations, ssoProviders } = schema;
 
@@ -12,20 +13,38 @@ const { directories, organisations, ssoProviders } = schema;
  * before anyone is signed in. Deliberately across workspaces: an instance-wide yes or no for
  * each, never a workspace's data; which workspace is asked on the page.
  */
-export const signInMethodRoutes = (db: Database) =>
-  new Hono()
+export const signInMethodRoutes = (db: Database, subdomains: Subdomains | null = null) =>
+  new Hono<{ Variables: HostVariables }>()
     .get("/", async (c) => {
+      // On a workspace's host (#176), what that workspace offers, and which it is: the page
+      // need not ask. Elsewhere, an instance-wide yes or no.
+      const host = c.var.hostWorkspace;
       const [directory] = await db
         .select({ id: directories.id })
         .from(directories)
-        .where(eq(directories.enabled, true))
+        .where(
+          host
+            ? inOrg(directories, host.id, eq(directories.enabled, true))
+            : eq(directories.enabled, true),
+        )
         .limit(1);
       const [sso] = await db
-        .select({ id: ssoProviders.id })
+        .select({ providerId: ssoProviders.providerId })
         .from(ssoProviders)
-        .where(eq(ssoProviders.enabled, true))
+        .where(
+          host
+            ? inOrg(ssoProviders, host.id, eq(ssoProviders.enabled, true))
+            : eq(ssoProviders.enabled, true),
+        )
         .limit(1);
-      return c.json({ directory: Boolean(directory), sso: Boolean(sso) });
+      return c.json({
+        directory: Boolean(directory),
+        sso: Boolean(sso),
+        workspace: host
+          ? { name: host.name, slug: host.slug, providerId: sso?.providerId ?? null }
+          : null,
+        root: subdomains ? rootAddress(subdomains) : null,
+      });
     })
     // The provider to start single sign-on with, for a workspace's short name.
     .get("/sso", zValidator("query", ssoStartInput), async (c) => {

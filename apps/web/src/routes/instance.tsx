@@ -856,6 +856,17 @@ function Settings() {
         <Row name="Address" hint="PUBLIC_URL" inline>
           <span className="truncate text-[13px] text-ink-2">{env.publicUrl}</span>
         </Row>
+        <Row
+          name="Workspace subdomains"
+          hint={
+            env.subdomains
+              ? "WORKSPACE_SUBDOMAINS · each workspace answers at its own name; single sign-on reads the workspace from it."
+              : "WORKSPACE_SUBDOMAINS · every workspace is at the address above."
+          }
+          inline
+        >
+          <span className="truncate text-[13px] text-ink-2">{env.subdomains ?? "Off"}</span>
+        </Row>
         <Row name="Instance mail" hint={mailHints[env.mail]} inline>
           <span className="text-[13px] text-ink-2">{mailNames[env.mail]}</span>
           <Button

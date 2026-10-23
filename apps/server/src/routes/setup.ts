@@ -1,4 +1,5 @@
 import { type Database, schema } from "@hekate/db";
+import { isReservedSlug } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { isAPIError } from "better-auth/api";
 import { isPasswordCompromised } from "better-auth/plugins";
@@ -17,12 +18,16 @@ export const setupInput = z.object({
   organisation: z.string().trim().min(1).max(120),
 });
 
-const slugify = (name: string) =>
-  name
+/** The first workspace's subdomain (#176), from its name: an address's rules, never a kept name. */
+const slugify = (name: string) => {
+  const slug = name
     .toLowerCase()
     .normalize("NFKD")
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "") || "studio";
+    .slice(0, 40)
+    .replace(/^-+|-+$/g, "");
+  return slug && !isReservedSlug(slug) ? slug : "studio";
+};
 
 async function hasUsers(db: Database) {
   const [row] = await db.select({ n: count() }).from(schema.users);

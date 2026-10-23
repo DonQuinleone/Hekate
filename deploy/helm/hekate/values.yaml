@@ -155,7 +155,9 @@ ingress:
     nginx.ingress.kubernetes.io/proxy-body-size: 16m
   # The host, as in publicUrl.
   host: ""
-  # Also *.host, for workspace subdomains once they come (#176).
+  # Also *.host, for workspace subdomains (#176): turns WORKSPACE_SUBDOMAINS on. The TLS
+  # Secret must then cover *.host too: a wildcard certificate, which cert-manager issues only
+  # through a DNS-01 solver.
   wildcard: false
   tls:
     enabled: true

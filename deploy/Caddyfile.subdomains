@@ -1,0 +1,29 @@
+# Workspace subdomains (#176): the root and every workspace's own name under it, each with its
+# own certificate. Set HEKATE_CADDYFILE=Caddyfile.subdomains and WORKSPACE_SUBDOMAINS=true in
+# .env, and point a wildcard DNS record (*.HEKATE_DOMAIN) at this host as well as the root.
+{
+	# A certificate for a name on its first visit, once the app says it is the root's or a
+	# workspace's: nobody can make this server ask for certificates for names it does not serve.
+	on_demand_tls {
+		ask http://app:3000/api/tls/ask
+	}
+}
+
+{$HEKATE_DOMAIN}, *.{$HEKATE_DOMAIN} {
+	tls {
+		on_demand
+	}
+	encode zstd gzip
+	# Large media uploads stream straight through to the app.
+	request_body {
+		max_size 20GB
+	}
+	# The Host header goes through as it came: the app reads the workspace from it.
+	reverse_proxy app:3000
+	# The app sets the Content Security Policy and the other security headers itself, so
+	# they hold behind any proxy; Caddy, which terminates TLS, adds HSTS.
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+}
