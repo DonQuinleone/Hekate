@@ -1219,6 +1219,13 @@ for (const [name, steps, ready] of [
     ["button:Actions for Saltmarsh Films", "menuitem:Waive and reinstate…"],
     "[role=dialog] >> text=Kept with the instance's events.",
   ],
+  // A credit for a workspace invoiced by hand (#445). Applying a code and sending an invoice
+  // need Stripe, which the suite runs without.
+  [
+    "instance-billing-credit",
+    ["button:Actions for Saltmarsh Films", "menuitem:Issue a credit…"],
+    "[role=dialog] >> text=as a line of its own",
+  ],
 ] as const) {
   test(name, async ({ page }) => {
     await page.clock.setFixedTime(FIXED_TIME);

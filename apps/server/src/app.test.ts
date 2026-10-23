@@ -1987,6 +1987,56 @@ describe.runIf(url)("api", () => {
           });
         });
 
+        it("lets operators give a credit, apply a code and send an invoice, and nobody else (#445)", async () => {
+          const operator = cookieOf(await setup());
+          const admin = await join(operator, "admin@example.test", "admin");
+          const [studio] = await db
+            .select({ id: schema.organisations.id })
+            .from(schema.organisations)
+            .where(eq(schema.organisations.name, "Studio"));
+          const id = studio?.id ?? "";
+          const post = (path: string, body: unknown, cookie: string, via = paying) =>
+            via.request(`/api/instance/workspaces/${id}/${path}`, json(body, cookie));
+          const credit = { amount: 2500, currency: "gbp", reason: "Stems delivered late" };
+          for (const [path, body] of [
+            ["credits", credit],
+            ["promo", { code: "LAUNCH50" }],
+            ["invoices/latest/send", {}],
+          ] as const) {
+            expect((await post(path, body, admin)).status).toBe(403);
+            expect(await (await post(path, body, operator, asOperator)).json()).toMatchObject({
+              error: { code: "billing_off" },
+            });
+          }
+          expect((await post("credits", { ...credit, amount: -5 }, operator)).status).toBe(400);
+          // Invoiced by hand: the credit is held for its next invoice.
+          const given = await post("credits", credit, operator);
+          expect(given.status).toBe(201);
+          expect(await given.json()).toMatchObject({
+            credit: { source: "manual", amount: 2500, currency: "GBP" },
+          });
+          const overview = await paying.request("/api/instance/billing/overview", {
+            headers: { cookie: operator },
+          });
+          expect(await overview.json()).toMatchObject({
+            workspaces: [{ name: "Studio", credits: [{ amount: 2500, currency: "GBP" }] }],
+          });
+          expect(await (await post("promo", { code: "LAUNCH50" }, operator)).json()).toMatchObject({
+            error: { code: "not_subscribed" },
+          });
+          expect(await (await post("invoices/latest/send", {}, operator)).json()).toMatchObject({
+            error: { code: "no_invoice" },
+          });
+          const [event] = await db
+            .select()
+            .from(schema.instanceEvents)
+            .where(eq(schema.instanceEvents.action, "billing.credited"));
+          expect(event).toMatchObject({
+            target: "Studio",
+            details: { amount: 2500, currency: "GBP", reason: "Stems delivered late" },
+          });
+        });
+
         it("lets the owners of a workspace suspended for a payment overdue pay, and nothing else", async () => {
           const owner = cookieOf(await setup());
           const member = await join(owner, "member@example.test");

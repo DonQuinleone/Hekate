@@ -302,7 +302,14 @@ function Invoices({ invoices }: { invoices: Invoice[] }) {
                 </span>
               </span>
             }
-            hint={[invoiceStatus(i), i.description].filter(Boolean).join(" · ")}
+            hint={[
+              invoiceStatus(i),
+              i.description,
+              // Credits it took off (#445), as a line of their own.
+              i.credit ? `${formatMoney(i.credit, i.currency)} credit taken off` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           >
             <span className="tabular text-[13px] text-ink-2">
               {formatMoney(i.amountDue, i.currency)}

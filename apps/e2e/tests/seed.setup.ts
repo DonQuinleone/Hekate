@@ -1456,6 +1456,12 @@ setup("seed", async ({ page, browser }) => {
       description: "Label, September 2026",
       dueAt: "2026-09-20T00:00:00Z",
     });
+    // A credit held for the next invoice by hand to Endless Hall Records (#445).
+    await api(page, "POST", `/api/instance/workspaces/${label?.id}/credits`, {
+      amount: 2500,
+      currency: "GBP",
+      reason: "Stems for Joplin Rags delivered late",
+    });
     const [lanternRow] = await sql<
       { id: string }[]
     >`select id from organisations where name = 'Lantern Pictures'`;

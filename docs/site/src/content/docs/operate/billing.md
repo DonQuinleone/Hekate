@@ -9,7 +9,7 @@ With `HEKATE_BILLING=stripe`, each workspace pays for its [plan](../quotas/#plan
 
 ## Set it up
 
-1. In Stripe (test mode), make a secret key, or a restricted key allowed to write customers, products, coupons, Checkout sessions, customer portal sessions, subscriptions and invoices (to void one an operator waives), and to read payouts and the account (for the instance's Billing section). Set it as `STRIPE_SECRET_KEY`.
+1. In Stripe (test mode), make a secret key, or a restricted key allowed to write customers, products, coupons, Checkout sessions, customer portal sessions, subscriptions, invoices (to void one an operator waives) and customer balance transactions (for an operator's credit), and to read payouts and the account (for the instance's Billing section). Set it as `STRIPE_SECRET_KEY`.
 2. Add a webhook endpoint for `https://<your instance>/api/hooks/billing/stripe`, sending at least `checkout.session.completed`, `checkout.session.expired`, `customer.subscription.*`, `invoice.*` and `payout.*`. Set its signing secret as `STRIPE_WEBHOOK_SECRET`.
 3. Turn on the customer portal in Stripe's settings, so owners can change their card.
 4. For tax, set up Stripe Tax and set `STRIPE_TAX=true`: Checkout then asks for the address and tax id it needs.
@@ -47,8 +47,11 @@ With billing on, the instance side has a **Billing** section, for its operators.
 - **overdue:** how many owe, from a failed payment or an invoice past its due date, and the one that has owed longest;
 - **failed payments** this month, and **the next payout** Stripe has on its way.
 
-Below, every workspace, those owing first, with its plan and what comes next: its next invoice, the day its trial converts or its plan ends, or what is overdue and since when. From each one's menu:
+Below, every workspace, those owing first, with its plan and what comes next: its next invoice, the day its trial converts or its plan ends, or what is overdue and since when. From each one's menu, which offers only what applies to it (a workspace on a plan by agreement has no code to apply and no invoice from Stripe to send), each action an instance event:
 - **Change plan** puts it on any plan that is not retired, hidden ones included. One paying through Stripe moves on its subscription too, the difference pro-rated; it cannot be put on a plan by agreement, or none, until its subscription is cancelled.
+- **Apply a promo code**, for one paying through Stripe, gives its subscription one of the instance's codes that applies to its plan now, as its owners could when changing plan: the code counts a use at once, and the discount starts with the next invoice.
+- **Issue a credit** gives it an amount toward what it next owes. One paying through Stripe gets it as its customer balance, in the currency its subscription is billed in, and Stripe takes it off the next invoice. For one invoiced by hand, the credit is held, shown on its row ("£25.00 credit held"), and taken off its next invoice by hand in that currency as a line of its own; a credit larger than that invoice leaves the rest for the one after, and an invoice covered in full is marked paid. The reason is kept with the instance event, and given to Stripe as the credit's description.
+- **Send the latest invoice**, for one with an invoice from Stripe, mails its owners that invoice's page and PDF again, read afresh from Stripe. Invoices by hand are sent outside Hekate, so they are not sent from here.
 - **Waive and reinstate**, for one that owes, voids its open invoices (at Stripe too), ends dunning, and opens it again if dunning suspended it. A workspace an operator suspended stays suspended. The reason given is kept with the instance event.
 
 **Plans** lists the plans, cheapest first, each with its limits, what it includes, the highest support severity it allows and how many workspaces are on it. Operators add a plan, edit its limits and price (its workspaces take new limits at once; a new price applies from their next invoice), duplicate one, hide one from workspaces' own choices, or retire one (nobody is put on it again; those on it stay until moved).
@@ -92,7 +95,7 @@ A use is held while its checkout is open, so a code with one use left cannot be 
 
 ## Invoices by hand
 
-A plan by agreement (one without a price) is not sold through Stripe. Operators invoice for it by hand, with billing on (`stripe` or `manual`): `POST /api/instance/workspaces/:id/invoices` with the amount in the currency's minor unit, the currency and what it is for, and optionally its period and due date. Invoices by hand are numbered in the instance's own series (`HK-0001`), sent outside Hekate, and marked paid or void by hand (`POST …/invoices/:invoiceId/settle`). Each is an instance event, and each shows in the workspace's billing settings with the rest. Dunning leaves invoices by hand to the operators.
+A plan by agreement (one without a price) is not sold through Stripe. Operators invoice for it by hand, with billing on (`stripe` or `manual`): `POST /api/instance/workspaces/:id/invoices` with the amount in the currency's minor unit, the currency and what it is for, and optionally its period and due date. Invoices by hand are numbered in the instance's own series (`HK-0001`), sent outside Hekate, and marked paid or void by hand (`POST …/invoices/:invoiceId/settle`). Credits an operator issued to the workspace in the invoice's currency come off it, oldest first, and show beside it. Each is an instance event, and each shows in the workspace's billing settings with the rest. Dunning leaves invoices by hand to the operators.
 
 ## The Gateway log
 

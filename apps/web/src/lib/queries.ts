@@ -4,6 +4,7 @@ import {
   type Anchor,
   type ApprovalRule,
   analysisKey,
+  type BillingCredit,
   type BillingGatewayStatus,
   type BillingOverview,
   type BillingReports,
@@ -23,6 +24,7 @@ import {
   type CreateReviewInput,
   type CreateUploadRequestInput,
   type CreateVersionInput,
+  type CreditInput,
   type CustomProfile,
   type CustomProfileInput,
   type DeletionConfirmation,
@@ -4540,6 +4542,40 @@ export function useWaive(id: string) {
         await api.instance.workspaces[":id"].waive.$post({ param: { id }, json: { reason } }),
       ),
     onSuccess: () => client.invalidateQueries({ queryKey: ["instance"] }),
+  });
+}
+
+/** Apply one of the instance's codes to a workspace's subscription (#445). */
+export function useApplyPromo(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (code: string) =>
+      json<{ code: string; plan: string }>(
+        await api.instance.workspaces[":id"].promo.$post({ param: { id }, json: { code } }),
+      ),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["instance", "billing"] }),
+  });
+}
+
+/** A credit toward what a workspace next owes (#445). */
+export function useIssueCredit(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CreditInput) =>
+      json<{ credit: BillingCredit }>(
+        await api.instance.workspaces[":id"].credits.$post({ param: { id }, json: input }),
+      ),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["instance", "billing"] }),
+  });
+}
+
+/** Send a workspace's owners its latest invoice again (#445). */
+export function useSendLatestInvoice(id: string) {
+  return useMutation({
+    mutationFn: async () =>
+      json<{ number: string | null; sent: number }>(
+        await api.instance.workspaces[":id"].invoices.latest.send.$post({ param: { id } }),
+      ),
   });
 }
 

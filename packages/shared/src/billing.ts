@@ -36,6 +36,8 @@ export interface Invoice {
   url: string | null;
   /** The gateway's PDF of it; null for one by hand. */
   pdfUrl: string | null;
+  /** What credits took off one by hand (#445), before `amountDue`; null when none did. */
+  credit: number | null;
 }
 
 /**
@@ -353,6 +355,10 @@ export interface BillingWorkspaceRow {
   overdue: { number: string | null; dueAt: string } | null;
   /** Suspended by dunning (not by an operator): waiving reopens it. */
   dunningSuspended: boolean;
+  /** Credits held for its next invoice by hand (#445), by currency; none for the gateway's. */
+  credits: { amount: number; currency: string }[];
+  /** Its latest invoice from the gateway with a page, which can be sent again (#445). */
+  latestInvoice: { number: string | null; issuedAt: string } | null;
 }
 
 /** The instance's Billing overview (#180). Amounts in each currency's minor unit. */
@@ -377,6 +383,63 @@ export interface BillingOverview {
  * workspace dunning suspended opens again. Said why, for the instance's events.
  */
 export const waiveInput = z.object({ reason: z.string().trim().min(1, "Say why").max(200) });
+
+/** An operator applies one of the instance's promo codes to a workspace's subscription (#445). */
+export const workspacePromoInput = z.object({
+  code: z.string().trim().min(1, "Type a code").max(40),
+});
+
+/**
+ * A credit toward what a workspace next owes (#445): its customer's balance at the gateway, or,
+ * invoiced by hand, held for its next invoice. Said why, for the instance's events.
+ */
+export const creditInput = z.object({
+  amount: z.number().int().positive().max(100_000_000),
+  currency: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{3}$/, { error: "A three-letter currency code, such as GBP" }),
+  reason: z.string().trim().min(1, "Say why").max(200),
+});
+export type CreditInput = z.input<typeof creditInput>;
+
+/** A credit given (#445). */
+export interface BillingCredit {
+  id: string;
+  /** Through the gateway (its customer's balance), or held for the next invoice by hand. */
+  source: InvoiceSource;
+  amount: number;
+  currency: string;
+  reason: string;
+  /** The invoice by hand it was taken off; null while held, and always for the gateway's. */
+  invoiceId: string | null;
+  createdAt: string;
+}
+
+/**
+ * Credits held for a workspace invoiced by hand (#445), taken off an invoice of `amount`: the
+ * oldest first, each whole while it fits; the first that does not fit is split, and what is left
+ * of it held for the next invoice. Credits after it wait. Pure, so the arithmetic is tested.
+ */
+export function creditsAgainst<T extends { amount: number }>(
+  held: T[],
+  amount: number,
+): { taken: { credit: T; amount: number }[]; remainder: { credit: T; amount: number } | null } {
+  const taken: { credit: T; amount: number }[] = [];
+  let left = amount;
+  for (const credit of held) {
+    if (left <= 0) break;
+    if (credit.amount <= left) {
+      taken.push({ credit, amount: credit.amount });
+      left -= credit.amount;
+      continue;
+    }
+    taken.push({ credit, amount: left });
+    return { taken, remainder: { credit, amount: credit.amount - left } };
+  }
+  return { taken, remainder: null };
+}
 
 /** How the instance takes payment (#180), for its Billing section's Gateways tab. */
 export interface BillingGatewayStatus {

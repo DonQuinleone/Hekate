@@ -2708,12 +2708,43 @@ export const invoices = pgTable(
     url: text("url"),
     /** The gateway's PDF of it. */
     pdfUrl: text("pdf_url"),
+    /**
+     * What credits took off one made by hand (#445), shown as a line of its own; `amountDue` is
+     * what is left. Null when none did.
+     */
+    credit: integer("credit"),
     ...timestamps,
   },
   (t) => [
     uniqueIndex("invoices_gateway_idx").on(t.source, t.gatewayId),
     index("invoices_organisation_idx").on(t.organisationId, t.issuedAt),
   ],
+);
+
+/**
+ * Credits an operator gave a workspace toward what it next owes (#445). Through the gateway, a
+ * credit is its customer's balance, which the gateway takes off the next invoice itself; for a
+ * workspace invoiced by hand, it is held here until the next invoice made by hand, which takes
+ * it off as a line of its own. Amounts in the minor unit.
+ */
+export const billingCredits = pgTable(
+  "billing_credits",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    source: text("source").$type<InvoiceSource>().notNull(),
+    /** The gateway's id for it (Stripe's customer balance transaction); null for one by hand. */
+    gatewayId: text("gateway_id"),
+    amount: integer("amount").notNull(),
+    currency: text("currency").notNull(),
+    /** Why, in the operator's words. */
+    reason: text("reason").notNull(),
+    /** The invoice by hand it was taken off; null while it is held (and always, the gateway's). */
+    invoiceId: uuid("invoice_id").references(() => invoices.id, { onDelete: "set null" }),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [index("billing_credits_organisation_idx").on(t.organisationId, t.invoiceId)],
 );
 
 /**

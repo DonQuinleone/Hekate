@@ -1,5 +1,6 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  creditInput,
   type ErrorReport,
   type ErrorReportRow,
   type ErrorSource,
@@ -53,6 +54,7 @@ import {
   workspaceExportInput,
   workspaceLimits,
   workspacePlanInput,
+  workspacePromoInput,
   workspaceSettingsOf,
   workspaceStateOf,
 } from "@hekate/shared";
@@ -89,6 +91,7 @@ import {
   retakeGatewayEvent,
   settleByHand,
 } from "../billing/billing.ts";
+import { applyPromo, issueCredit, sendLatestInvoice } from "../billing/operator.ts";
 import { billingOverview, gatewayStatus, planByOperator, waive } from "../billing/overview.ts";
 import { endPromo, listPromos, savePromo, usesOf } from "../billing/promos.ts";
 import { billingReports, invoicesCsv, recognitionCsv } from "../billing/reports.ts";
@@ -1422,6 +1425,64 @@ export function instanceRoutes(options: InstanceOptions) {
           subdomains: options.environment.subdomains ?? null,
         }),
       )
+      // Apply a promo code to a workspace's subscription (#445), as its owners could.
+      .post(
+        "/workspaces/:id/promo",
+        idParam,
+        zValidator("json", workspacePromoInput),
+        async (c) => {
+          const { id } = c.req.valid("param");
+          if (billingOff() || !options.billing) throw billingOffRefusal();
+          const name = await workspaceName(db, id);
+          const applied = await applyPromo(options.billing, id, c.req.valid("json").code);
+          await recordInstanceEvent(db, {
+            actorId: c.var.userId,
+            action: "billing.promo_applied",
+            target: name,
+            details: { organisationId: id, ...applied },
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+          return c.json(applied);
+        },
+      )
+      // A credit toward what a workspace next owes (#445): at the gateway, or on its next
+      // invoice by hand.
+      .post("/workspaces/:id/credits", idParam, zValidator("json", creditInput), async (c) => {
+        const { id } = c.req.valid("param");
+        if (billingOff() || !options.billing) throw billingOffRefusal();
+        const name = await workspaceName(db, id);
+        const credit = await issueCredit(options.billing, id, c.req.valid("json"), c.var.userId);
+        await recordInstanceEvent(db, {
+          actorId: c.var.userId,
+          action: "billing.credited",
+          target: name,
+          details: {
+            organisationId: id,
+            creditId: credit.id,
+            source: credit.source,
+            amount: credit.amount,
+            currency: credit.currency,
+            reason: credit.reason,
+          },
+          ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+        });
+        return c.json({ credit }, 201);
+      })
+      // Send a workspace's owners its latest invoice from the gateway again (#445).
+      .post("/workspaces/:id/invoices/latest/send", idParam, async (c) => {
+        const { id } = c.req.valid("param");
+        if (billingOff() || !options.billing) throw billingOffRefusal();
+        const name = await workspaceName(db, id);
+        const sent = await sendLatestInvoice(options.billing, id);
+        await recordInstanceEvent(db, {
+          actorId: c.var.userId,
+          action: "invoice.sent",
+          target: name,
+          details: { organisationId: id, ...sent },
+          ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+        });
+        return c.json(sent);
+      })
       // Promo codes (#178): kept whether or not billing is on; used only while it is.
       .use("/promos", operatorsOnly)
       .use("/promos/*", operatorsOnly)

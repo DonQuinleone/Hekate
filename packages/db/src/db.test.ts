@@ -34,6 +34,7 @@ describe("tenancy", () => {
       "api_requests",
       "api_tokens",
       "billing_accounts",
+      "billing_credits",
       "blobs",
       "calendar_feeds",
       "caption_tracks",
