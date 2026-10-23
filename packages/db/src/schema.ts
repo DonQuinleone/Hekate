@@ -2042,6 +2042,27 @@ export const spectrogramVariants = pgTable(
   ],
 );
 
+/**
+ * A set of a viewer's own analysis settings that could not be drawn for a file (#34), after
+ * every retry: asked for again, it answers failed rather than drawing again, until someone
+ * asks for it to be tried again.
+ */
+export const spectrogramVariantFailures = pgTable(
+  "spectrogram_variant_failures",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => files.id, { onDelete: "cascade" }),
+    analysis: text("analysis").notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("spectrogram_variant_failures_file_idx").on(t.organisationId, t.fileId, t.analysis),
+  ],
+);
+
 // Guests (docs/security.md, Authentication)
 
 /**

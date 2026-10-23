@@ -1308,6 +1308,22 @@ export const spectrogramsQuery = (
     refetchInterval: (query) => (query.state.data?.status === "pending" ? 3000 : false),
   });
 
+/** Try again to draw spectrograms with settings that failed (#34). */
+export function useRetrySpectrogram(fileId: string, analysis: SpectrogramAnalysis) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await api.files[":id"].spectrograms.retry.$post({
+        param: { id: fileId },
+        json: analysis,
+      });
+      if (!res.ok) await json(res);
+    },
+    onSuccess: () =>
+      client.invalidateQueries({ queryKey: spectrogramsQuery(fileId, analysis).queryKey }),
+  });
+}
+
 /** One spectrogram, decoded. They never change, so they are kept for the visit. */
 export const spectrogramQuery = (fileId: string, spectrogramId: string) =>
   queryOptions({

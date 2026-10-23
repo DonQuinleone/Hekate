@@ -19267,6 +19267,50 @@ describe.runIf(url)("api", () => {
               )
             ).status,
           ).toBe(404);
+          // Settings that cannot be drawn (#34): after the last try they answer failed, and
+          // are not queued again until someone asks for them to be tried again.
+          const [mine] = await db.select().from(schema.files).where(eq(schema.files.id, fileId));
+          const garbage = await storage.put(organisationId, Buffer.from("not audio at all"));
+          const [broken] = await db
+            .insert(schema.files)
+            .values({
+              organisationId,
+              projectId: mine?.projectId ?? "",
+              name: "Broken.wav",
+              kind: "audio",
+              blobId: garbage.id,
+              contentType: "audio/wav",
+              byteSize: garbage.byteSize,
+              mediaInfo: mine?.mediaInfo ?? null,
+              analysisStatus: "ready",
+            })
+            .returning();
+          const brokenId = broken?.id ?? "";
+          const kaiser = `/api/files/${brokenId}/spectrograms?window=kaiser`;
+          const failing = { organisationId, fileId: brokenId, analysis: "kaiser/auto/75" };
+          for (const retryCount of [0, 2]) {
+            await expect(
+              spectrogramVariantHandler(worker)(failing, { ...job, retryCount }),
+            ).rejects.toThrow();
+          }
+          sent.length = 0;
+          expect(await (await get(kaiser, owner)).json()).toEqual({
+            status: "failed",
+            spectrograms: [],
+          });
+          expect(sent).toEqual([]);
+          const tryAgain = (analysis: unknown, id = brokenId) =>
+            app.request(`/api/files/${id}/spectrograms/retry`, json(analysis, owner));
+          const retried = await tryAgain({ window: "kaiser", fftSize: "auto", overlap: "75" });
+          expect(retried.status).toBe(202);
+          expect(sent).toEqual([{ name: "spectrogram-variant", data: failing }]);
+          expect(((await (await get(kaiser, owner)).json()) as Listed).status).toBe("pending");
+          // Nothing failed there to try again.
+          expect(
+            (await tryAgain({ window: "kaiser", fftSize: "auto", overlap: "75" })).status,
+          ).toBe(404);
+          expect((await tryAgain({ window: "kaiser" })).status).toBe(400);
+
           // A month unused, and they go; the next ask queues them again.
           const later = new Date(Date.now() + 31 * 24 * 60 * 60_000);
           expect(await expireSpectrogramVariants(db, storage, later)).toBe(4);

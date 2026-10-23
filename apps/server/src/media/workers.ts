@@ -58,6 +58,7 @@ const {
   loudness,
   qaFindings,
   spectrograms,
+  spectrogramVariantFailures,
   spectrogramVariants,
   tracks,
 } = schema;
@@ -773,6 +774,13 @@ export function spectrogramVariantHandler(
       await discard(deps.storage, organisationId, unused, `spectrograms of file ${fileId}`);
     } catch (error) {
       await discard(deps.storage, organisationId, stored, `spectrograms of file ${fileId}`);
+      // The last try: asked for again, these settings answer failed rather than draw again.
+      if (job.retryCount >= jobDefinitions["spectrogram-variant"].options.retryLimit) {
+        await deps.db
+          .insert(spectrogramVariantFailures)
+          .values({ organisationId, fileId, analysis: key })
+          .onConflictDoNothing();
+      }
       throw error;
     }
   };
@@ -801,6 +809,10 @@ export async function expireSpectrogramVariants(
   for (const row of gone) {
     await discard(storage, row.organisationId, [row.blobId], "an unused spectrogram");
   }
+  // Failures as old are forgotten too, so the next ask tries again.
+  await db
+    .delete(spectrogramVariantFailures)
+    .where(lt(spectrogramVariantFailures.updatedAt, before));
   return gone.length;
 }
 

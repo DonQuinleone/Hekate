@@ -64,6 +64,7 @@ const {
   peakLevels,
   loudness,
   spectrograms,
+  spectrogramVariantFailures,
   spectrogramVariants,
   variations,
   versions,
@@ -493,6 +494,19 @@ export const fileRoutes = (deps: PlaybackDeps) =>
           bands: spectrogramVariants.bandCount,
         });
       if (rows.length > 0) return c.json({ status: "ready", spectrograms: rows }, 200, noStore);
+      // Tried to the last and failed: said so, and drawn again only when asked (below).
+      const [failed] = await deps.db
+        .select({ id: spectrogramVariantFailures.id })
+        .from(spectrogramVariantFailures)
+        .where(
+          inOrg(
+            spectrogramVariantFailures,
+            organisationId,
+            eq(spectrogramVariantFailures.fileId, file.id),
+            eq(spectrogramVariantFailures.analysis, key),
+          ),
+        );
+      if (failed) return c.json({ status: "failed", spectrograms: [] }, 200, noStore);
       await deps.jobs.send(
         "spectrogram-variant",
         { organisationId, fileId: file.id, analysis: key },
@@ -500,6 +514,35 @@ export const fileRoutes = (deps: PlaybackDeps) =>
       );
       return c.json({ status: "pending", spectrograms: [] }, 200, noStore);
     })
+    // Settings that could not be drawn, tried again on request (#34).
+    .post(
+      "/:id/spectrograms/retry",
+      fileParam,
+      zValidator("json", spectrumAnalysisSchema),
+      async (c) => {
+        const organisationId = c.var.organisationId;
+        const fileId = c.req.valid("param").id;
+        const key = analysisKey(c.req.valid("json"));
+        const gone = await deps.db
+          .delete(spectrogramVariantFailures)
+          .where(
+            inOrg(
+              spectrogramVariantFailures,
+              organisationId,
+              eq(spectrogramVariantFailures.fileId, fileId),
+              eq(spectrogramVariantFailures.analysis, key),
+            ),
+          )
+          .returning({ id: spectrogramVariantFailures.id });
+        if (gone.length === 0) throw new NotFound("Failed spectrogram");
+        await deps.jobs.send(
+          "spectrogram-variant",
+          { organisationId, fileId, analysis: key },
+          { singletonKey: `${fileId}:${key}` },
+        );
+        return c.body(null, 202);
+      },
+    )
     .get(
       "/:id/spectrograms/:spectrogramId",
       zValidator("param", z.object({ id: z.uuid(), spectrogramId: z.uuid() })),
