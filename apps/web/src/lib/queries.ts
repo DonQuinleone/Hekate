@@ -841,7 +841,7 @@ export const workspaceSettingsQuery = queryOptions({
 export const directoryQuery = queryOptions({
   queryKey: ["organisation", "directory"],
   queryFn: async () =>
-    json<{ directory: DirectorySettings; workspace: string }>(
+    json<{ directory: DirectorySettings; workspace: string; entitled: boolean }>(
       await api.organisation.directory.$get(),
     ),
 });
@@ -993,7 +993,7 @@ export function useSendAgain(scope: "workspace" | "instance") {
 export const ssoQuery = queryOptions({
   queryKey: ["organisation", "sso"],
   queryFn: async () =>
-    json<{ sso: SsoSettings; serviceProvider: SsoServiceProvider }>(
+    json<{ sso: SsoSettings; serviceProvider: SsoServiceProvider; entitled: boolean }>(
       await api.organisation.sso.$get(),
     ),
 });

@@ -22,10 +22,16 @@ export const workspaceLimits = z.object({
   /** Up to a petabyte. */
   storageQuota: z.number().int().positive().max(1e15).nullable(),
   memberLimit: z.number().int().positive().max(100_000).nullable(),
+  /** Projects (#177); a client that leaves it out keeps what is set. */
+  projectLimit: z.number().int().positive().max(100_000).nullable().optional(),
 });
 export type WorkspaceLimits = z.infer<typeof workspaceLimits>;
 
-export const noLimits: WorkspaceLimits = { storageQuota: null, memberLimit: null };
+export const noLimits: WorkspaceLimits = {
+  storageQuota: null,
+  memberLimit: null,
+  projectLimit: null,
+};
 
 /** How near a limit a count is: under, near (from 90%) or reached. Under, with no limit. */
 export function standing(used: number, limit: number | null): "under" | "near" | "reached" {
@@ -35,10 +41,16 @@ export function standing(used: number, limit: number | null): "under" | "near" |
 }
 
 /** The refusal at a limit, with where it stands: "Storage quota reached: 1.0 TB of 1.0 TB". */
-export function limitRefusal(kind: "storage" | "members", used: number, limit: number): string {
-  return kind === "storage"
-    ? `Storage quota reached: ${formatBytes(used)} of ${formatBytes(limit)}. Remove files, or ask the instance's operators for more.`
-    : `Member limit reached: ${used} of ${limit}. Remove someone, or ask the instance's operators for more.`;
+export function limitRefusal(
+  kind: "storage" | "members" | "projects",
+  used: number,
+  limit: number,
+): string {
+  if (kind === "storage")
+    return `Storage quota reached: ${formatBytes(used)} of ${formatBytes(limit)}. Remove files, or ask the instance's operators for more.`;
+  if (kind === "members")
+    return `Member limit reached: ${used} of ${limit}. Remove someone, or ask the instance's operators for more.`;
+  return `Project limit reached: ${used} of ${limit}. Delete a project, or ask the instance's operators for more.`;
 }
 
 /** What a workspace uses now, against its limits, and in the month so far. */

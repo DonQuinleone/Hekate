@@ -40,6 +40,7 @@ export * from "./overview.ts";
 export * from "./patch.ts";
 export * from "./peaks.ts";
 export * from "./personnel.ts";
+export * from "./plans.ts";
 export * from "./player-view.ts";
 export * from "./profile.ts";
 export * from "./project-deletion.ts";

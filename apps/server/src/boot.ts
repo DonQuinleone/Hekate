@@ -111,6 +111,7 @@ export async function boot(
   const auth = createAuth({
     db,
     subdomains,
+    billing: config.HEKATE_BILLING !== "off",
     trustProxy: config.TRUST_PROXY,
     secret: config.AUTH_SECRET,
     baseURL: config.PUBLIC_URL,

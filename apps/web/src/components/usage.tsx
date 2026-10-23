@@ -55,6 +55,9 @@ export function UsageRows({ usage }: { usage: WorkspaceUsage }) {
   const { storageQuota, memberLimit } = usage.limits;
   const storage = standing(usage.storageBytes, storageQuota);
   const people = standing(usage.members + usage.invited, memberLimit);
+  // Set by a plan (#177); an older server sends none.
+  const projectLimit = usage.limits.projectLimit ?? null;
+  const projects = standing(usage.projects, projectLimit);
   return (
     <>
       <Row
@@ -93,7 +96,15 @@ export function UsageRows({ usage }: { usage: WorkspaceUsage }) {
       </Row>
       <Row
         name="Guests and projects"
-        hint={`${usage.guests} ${usage.guests === 1 ? "guest" : "guests"} · ${usage.projects} ${usage.projects === 1 ? "project" : "projects"}`}
+        hint={
+          <Standing where={projects}>
+            {`${usage.guests} ${usage.guests === 1 ? "guest" : "guests"} · ${
+              projectLimit
+                ? `${usage.projects} of ${projectLimit} projects${projects === "reached" ? ": new projects are refused" : ""}`
+                : `${usage.projects} ${usage.projects === 1 ? "project" : "projects"}`
+            }`}
+          </Standing>
+        }
       />
       <Row
         name="This month"

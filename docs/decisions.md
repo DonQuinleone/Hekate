@@ -1396,3 +1396,15 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Certificates.** Caddy's on-demand TLS gets one per name as it is first opened, asking the app first (`/api/tls/ask`), so the stock image serves it without a DNS provider module; Kubernetes uses a wildcard certificate from a DNS-01 solver.
 - **Names kept.** `www`, `api`, `mail`, `instance` and a few more can be no workspace's.
 - **Links in mail stay at the root,** opening in the person's active workspace; links naming their workspace's host can follow.
+
+## 209. Plans and entitlements: limits copied to the workspace, features asked of one function
+
+#177. A plan is what a workspace may be on: a price, limits on storage, members and projects, the features it includes (single sign-on, the directory, forensic marking, a named operator) and the support severities it unlocks.
+
+- **Global plans, one row per workspace.** `plans` belongs to the instance; `workspace_plans` holds the workspace's plan, its status (trial, active, past due, cancelled) and its trial and renewal dates.
+- **Limits are copied, not looked up.** Putting a workspace on a plan, or changing the plan, writes its limits to the workspace's own columns, where the checks of decision 207 already read them under their lock. Nothing in the hot path learns about plans, and an operator can still give one workspace its own limits afterwards. Back on the internal plan, its limits are cleared. The project limit is a third such column, checked under the same lock when a project is made or moved in.
+- **Features through `entitled`.** One pure function in `packages/shared` answers whether a plan includes a feature; every gated route asks it (through `assertEntitled`, 403 `not_entitled`) and every gated screen reads the answer the route gives. Turning single sign-on or the directory on is refused without it, and so is signing in through them, so a plan that drops one stops it at once; turning one off is always allowed.
+- **Without billing, the internal plan.** With `HEKATE_BILLING` off, every workspace is on a plan that includes everything, whatever was assigned while billing was on, and no workspace can be put on a plan. The limits it holds are its own, as decision 207 has them: none unless an operator set some, or a plan copied them before billing was turned off, which an operator then changes per workspace. Plans can still be kept, ready for when it is turned on.
+- **Retired, not deleted.** A retired plan is hidden and no workspace is put on it again; those already on it stay until moved, so their price and limits never change under them.
+- **Operators only.** Plans and a workspace's plan are changed on the instance side, each as an instance event; a workspace's members read their own plan at `/api/organisation/plan`.
+- **Expanding only:** two new tables and a nullable column (decision 198).

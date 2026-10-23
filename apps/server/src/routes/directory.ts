@@ -1,11 +1,12 @@
 import { type Database, schema } from "@hekate/db";
-import { directorySettingsInput } from "@hekate/shared";
+import { directorySettingsInput, entitled } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Audit, requestInfo } from "../audit.ts";
 import { directoryConfig, directoryOf, saveDirectory, testDirectory } from "../directory.ts";
 import type { Keyring } from "../keyring.ts";
+import { assertEntitled, workspacePlanOf } from "../plans.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";
 
 /**
@@ -17,6 +18,8 @@ export const directoryRoutes = (
   keyring: Keyring,
   audit: Audit,
   trustProxy: boolean,
+  /** The billing module is on: the workspace's plan decides (#177). */
+  billing = false,
 ) =>
   new Hono<{ Variables: TenantVariables }>()
     .use("*", requireRole("admin"))
@@ -29,10 +32,16 @@ export const directoryRoutes = (
       return c.json({
         directory: await directoryOf(db, c.var.organisationId),
         workspace: organisation?.slug ?? "",
+        entitled: entitled(
+          (await workspacePlanOf(db, c.var.organisationId, billing)).entitlements,
+          "directory",
+        ),
       });
     })
     .put("/", zValidator("json", directorySettingsInput), async (c) => {
       const input = c.req.valid("json");
+      // Turning it on is the plan's to allow (#177); turning it off never is.
+      if (input.enabled) await assertEntitled(db, c.var.organisationId, billing, "directory");
       await saveDirectory(db, keyring, c.var.organisationId, input);
       const { bindPassword, ...change } = input;
       await audit.record(

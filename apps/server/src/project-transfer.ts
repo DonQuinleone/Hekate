@@ -6,6 +6,7 @@ import { NotFound } from "./errors.ts";
 import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
 import { dataKeyContext } from "./storage.ts";
+import { assertProjectRoom } from "./usage.ts";
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
@@ -134,6 +135,7 @@ export const transferTables = {
     "event_deliveries",
     "workspace_mail",
     "workspace_mail_suppressions",
+    "workspace_plans",
     "workspace_usage",
   ],
 } as const;
@@ -309,6 +311,8 @@ export async function moveProject(
       await tx.execute(sql`set local hekate.project_transfer = 'on'`);
       await assertEligible(tx, input, true);
       await assertMovable(tx, projectId, from);
+      // Room under the receiving workspace's project limit (#177).
+      await assertProjectRoom(tx, to);
       const uploads = await dropUploads(tx, projectId, from);
       const objects = await rows<StoredObject>(tx, objectsOf(projectId, from));
       await copyAll(objects);

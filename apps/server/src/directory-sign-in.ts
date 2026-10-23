@@ -1,5 +1,5 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { directorySignInInput, roleForGroups } from "@hekate/shared";
+import { directorySignInInput, entitled, notEntitledMessage, roleForGroups } from "@hekate/shared";
 import type { BetterAuthPlugin } from "better-auth";
 import { APIError, createAuthEndpoint } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
@@ -9,6 +9,7 @@ import { lockedAttempts } from "./auth-log.ts";
 import { authenticate, directoryConfig } from "./directory.ts";
 import type { Keyring } from "./keyring.ts";
 import { waitMessage } from "./lockout.ts";
+import { workspacePlanOf } from "./plans.ts";
 import { admitAttempt, clearAttempts } from "./sign-in.ts";
 import { memberRoom } from "./usage.ts";
 
@@ -25,7 +26,13 @@ const providerFor = (organisationId: string) => `directory:${organisationId}`;
  * through this directory, is refused rather than taken over. Wrong passwords are slowed and
  * locked as passwords are (lockout.ts).
  */
-export const directorySignIn = (deps: { db: Database; keyring?: Keyring; audit?: Audit }) =>
+export const directorySignIn = (deps: {
+  db: Database;
+  keyring?: Keyring;
+  audit?: Audit;
+  /** The billing module is on: the workspace's plan must include a directory (#177). */
+  billing?: boolean;
+}) =>
   ({
     id: "directory",
     endpoints: {
@@ -45,6 +52,13 @@ export const directorySignIn = (deps: { db: Database; keyring?: Keyring; audit?:
             throw new APIError("BAD_REQUEST", {
               message: "That workspace does not sign in with a directory.",
             });
+          const { entitlements } = await workspacePlanOf(
+            db,
+            organisation.id,
+            deps.billing ?? false,
+          );
+          if (!entitled(entitlements, "directory"))
+            throw new APIError("FORBIDDEN", { message: notEntitledMessage("directory") });
 
           const attempts = `directory:${organisation.id}:${username.toLowerCase()}`;
           const admitted = await admitAttempt(db, attempts);

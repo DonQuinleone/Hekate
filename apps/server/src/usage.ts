@@ -28,10 +28,11 @@ export async function limitsOf(db: Reader, organisationId: string): Promise<Work
     .select({
       storageQuota: organisations.storageQuota,
       memberLimit: organisations.memberLimit,
+      projectLimit: organisations.projectLimit,
     })
     .from(organisations)
     .where(eq(organisations.id, organisationId));
-  return row ?? { storageQuota: null, memberLimit: null };
+  return row ?? { storageQuota: null, memberLimit: null, projectLimit: null };
 }
 
 /**
@@ -85,11 +86,12 @@ async function locked(tx: Tx, organisationId: string): Promise<WorkspaceLimits> 
     .select({
       storageQuota: organisations.storageQuota,
       memberLimit: organisations.memberLimit,
+      projectLimit: organisations.projectLimit,
     })
     .from(organisations)
     .where(eq(organisations.id, organisationId))
     .for("update");
-  return row ?? { storageQuota: null, memberLimit: null };
+  return row ?? { storageQuota: null, memberLimit: null, projectLimit: null };
 }
 
 /**
@@ -134,6 +136,19 @@ export async function memberRoom(
 export async function assertMemberRoom(tx: Tx, organisationId: string, by: Joining) {
   const refusal = await memberRoom(tx, organisationId, by);
   if (refusal) throw new CodedException(409, "member_limit", refusal);
+}
+
+/** Refuse a new project the workspace's project limit (#177) has no room for, as it is made. */
+export async function assertProjectRoom(tx: Tx, organisationId: string) {
+  const { projectLimit } = await locked(tx, organisationId);
+  if (projectLimit === null || projectLimit === undefined) return;
+  const [held] = await tx
+    .select({ n: count() })
+    .from(projects)
+    .where(inOrg(projects, organisationId));
+  const n = held?.n ?? 0;
+  if (n >= projectLimit)
+    throw new CodedException(409, "project_limit", limitRefusal("projects", n, projectLimit));
 }
 
 /** What a workspace uses now, against its limits, with the month so far as last counted. */
