@@ -22,6 +22,8 @@ Every comment belongs to a file, and most point at a place in it:
 - a **region** of a page or a frame: drag a box over the bar, the shot or the line;
 - a **bar** in a score: a bar and beat, or a range of bars.
 
+On a tablet or a phone, a finger scrolls and zooms a document's page. To mark part of it, turn on **Draw** in the page's toolbar: a finger then draws the box instead, and scrolling returns when Draw is turned off. With Draw on, two taps on opposite corners make a box too, with a mouse, a pen or a finger, for anyone who would rather not drag.
+
 Clicking a comment takes the player or the page to its place. Replies keep a conversation together, and a comment can be resolved when it is dealt with. When a new version arrives, open comments can be carried across to it.
 
 ## Exporting comments to an editing system

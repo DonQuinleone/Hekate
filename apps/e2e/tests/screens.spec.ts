@@ -614,6 +614,34 @@ test("file-decision", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Drawing a region by touch (#150): with Draw on, a finger drags a rectangle on the proof's
+// page instead of scrolling it. The touches are the browser's own (Chromium's DevTools
+// protocol), so the page sees touch pointers as a tablet would send them.
+test("file-document-draw-touch", async ({ page }, info) => {
+  test.skip(info.project.name !== "phone", "Drawn by a finger: the desktop draws with a mouse");
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().bookletFileId}`);
+  const sheet = page.getByRole("img", { name: /^Page 1 of / });
+  await settle(page, "role=img[name=/^Page 1 of /]");
+  await page.getByRole("button", { name: "Draw", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Draw", pressed: true })).toBeVisible();
+  await sheet.scrollIntoViewIfNeeded();
+  const box = await sheet.boundingBox();
+  if (!box) throw new Error("The page is not on the screen");
+  const at = (x: number, y: number) => ({ x: box.x + box.width * x, y: box.y + box.height * y });
+  const touch = await page.context().newCDPSession(page);
+  await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [at(0.2, 0.3)] });
+  for (const step of [0.3, 0.4, 0.5, 0.6])
+    await touch.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [at(step + 0.1, step * 0.8)],
+    });
+  await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await settle(page, "[data-draft]");
+  await saveScreen(page, "file-document-draw-touch");
+  await checkScreen(page);
+});
+
 // Where the comments sit (#15), a wide screen's choice kept by the browser: below the player
 // and the score, or put away with a button in the header to bring them back. A phone keeps
 // them after the player whatever was chosen, so comments put away are still there on a
