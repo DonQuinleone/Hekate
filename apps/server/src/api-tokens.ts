@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes, scryptSync } from "node:crypto";
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
   API_TOKEN_PATTERN,
@@ -31,10 +31,12 @@ export function newApiToken(kind: ApiTokenKind) {
 }
 
 /**
- * A token's hash, all the database keeps. SHA-256 is enough: a token is 256 random bits, not a
- * password a person chose, so there is nothing for a slow hash to protect (as guest links).
+ * A token's hash, all the database keeps: scrypt at a low cost, with one salt for every token so
+ * a token can be found by its hash. A token is 256 random bits, not a password a person chose,
+ * so a high cost would protect nothing and slow every call; this one takes about a millisecond.
  */
-export const hashApiToken = (token: string) => createHash("sha256").update(token).digest("hex");
+export const hashApiToken = (token: string) =>
+  scryptSync(token, "hekate-api-token", 32, { N: 1024, r: 8, p: 1 }).toString("hex");
 
 /** A token as settings show it, with whoever made it named. */
 export const apiTokenRowOf = (

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +6,7 @@ import type { ApiLogRow, ApiTokenRow } from "@hekate/shared";
 import { createBackends, storageConfigFromEnv } from "@hekate/storage";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { hashApiToken } from "./api-tokens.ts";
 import { createApp } from "./app.ts";
 import { createAudit } from "./audit.ts";
 import { createAuth } from "./auth.ts";
@@ -158,7 +158,8 @@ describe.runIf(url)("API tokens (#198)", () => {
     });
     expect(new Date(token.expiresAt ?? 0).getTime()).toBeGreaterThan(Date.now() + 89 * 86_400_000);
     const [stored] = await db.select().from(schema.apiTokens);
-    expect(stored?.tokenHash).toBe(createHash("sha256").update(secret).digest("hex"));
+    expect(stored?.tokenHash).toBe(hashApiToken(secret));
+    expect(stored?.tokenHash).not.toContain(secret);
     expect(JSON.stringify(stored)).not.toContain(secret);
     const listed = await app.request("/api/me/tokens", { headers: { cookie: owner } });
     const body = await listed.text();
