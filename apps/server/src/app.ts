@@ -178,6 +178,7 @@ export function createApi(deps: AppDeps) {
     trustProxy: deps.trustProxy ?? false,
     secondFactor: rule,
     workDir: deps.workDir,
+    jobs: deps.jobs,
   };
   const downloads = {
     db: deps.db,

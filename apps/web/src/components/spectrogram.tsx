@@ -1,4 +1,9 @@
-import { channelNames, type Spectrogram as SpectrogramData, scalePosition } from "@hekate/shared";
+import {
+  channelNames,
+  isDefaultAnalysis,
+  type Spectrogram as SpectrogramData,
+  scalePosition,
+} from "@hekate/shared";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
@@ -143,7 +148,7 @@ export function Spectrogram({
   /** Off when a waveform drawn on top already names the channels. */
   labels?: boolean;
 }) {
-  const { data: index } = useQuery(spectrogramsQuery(fileId));
+  const { data: index } = useQuery(spectrogramsQuery(fileId, view.analysis));
   const available = index?.status === "ready" ? index.spectrograms : [];
   const own = available
     .filter((s) => /^\d+$/.test(s.channel))
@@ -228,6 +233,11 @@ export function Spectrogram({
           />
         </div>
       ))}
+      {index?.status === "pending" && !isDefaultAnalysis(view.analysis) && (
+        <span role="status" className="m-auto px-3 text-center text-[12px] text-ink-3">
+          Drawing the spectrogram with these settings
+        </span>
+      )}
       {playhead && loaded && (
         <span
           ref={marker}

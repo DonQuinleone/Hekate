@@ -111,6 +111,50 @@ export function bandFrequency(layout: BandLayout, band: number) {
   return bin * binHz;
 }
 
+// Analysis (#34): how a spectrogram is computed. Every file is analysed once with the
+// default; anything else is drawn on the server the first time someone asks for it.
+
+export const spectrogramWindows = ["hann", "hamming", "blackman-harris", "kaiser"] as const;
+export type SpectrogramWindow = (typeof spectrogramWindows)[number];
+/** "auto" makes bands about 23 Hz wide at any rate (2048 points at 48 kHz). */
+export const spectrogramFftSizes = ["auto", "1024", "4096", "16384"] as const;
+export type SpectrogramFftSize = (typeof spectrogramFftSizes)[number];
+/** How much each window overlaps the one before, in per cent. */
+export const spectrogramOverlaps = ["50", "75", "87.5"] as const;
+export type SpectrogramOverlap = (typeof spectrogramOverlaps)[number];
+
+export interface SpectrogramAnalysis {
+  window: SpectrogramWindow;
+  fftSize: SpectrogramFftSize;
+  overlap: SpectrogramOverlap;
+}
+
+export const defaultAnalysis: SpectrogramAnalysis = {
+  window: "hann",
+  fftSize: "auto",
+  overlap: "75",
+};
+
+/** One name for a set of analysis settings, as variants are kept and asked for. */
+export const analysisKey = (a: SpectrogramAnalysis) => `${a.window}/${a.fftSize}/${a.overlap}`;
+export const isDefaultAnalysis = (a: SpectrogramAnalysis) =>
+  analysisKey(a) === analysisKey(defaultAnalysis);
+
+/** The settings a key names, or null for anything that is not one. */
+export function analysisOfKey(key: string): SpectrogramAnalysis | null {
+  const [window, fftSize, overlap, ...rest] = key.split("/");
+  if (rest.length > 0) return null;
+  return spectrogramWindows.includes(window as SpectrogramWindow) &&
+    spectrogramFftSizes.includes(fftSize as SpectrogramFftSize) &&
+    spectrogramOverlaps.includes(overlap as SpectrogramOverlap)
+    ? {
+        window: window as SpectrogramWindow,
+        fftSize: fftSize as SpectrogramFftSize,
+        overlap: overlap as SpectrogramOverlap,
+      }
+    : null;
+}
+
 // Frequency scales: where a frequency sits, from 0 (bottom) to 1 (top) of a range.
 
 export const frequencyScales = ["linear", "log", "mel", "bark"] as const;

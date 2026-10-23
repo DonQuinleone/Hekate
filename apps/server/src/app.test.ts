@@ -52,10 +52,12 @@ import { samplePdf } from "./media/sample-pdf.ts";
 import {
   analysisHandler,
   checksumHandler,
+  expireSpectrogramVariants,
   probeHandler,
   proxyHandler,
   requeueAlignments,
   requeueMissingFindings,
+  spectrogramVariantHandler,
 } from "./media/workers.ts";
 import { collectFromDatabase, collectQueues, metrics } from "./metrics/index.ts";
 import { createSampler } from "./metrics/sampler.ts";
@@ -19212,6 +19214,63 @@ describe.runIf(url)("api", () => {
             (await get(`/api/files/${foreign?.id}/spectrograms/${foreignSpectrum?.id}`, owner))
               .status,
           ).toBe(404);
+
+          // With a viewer's own analysis settings (#34): queued when first asked for, then drawn.
+          type Listed = { status: string; spectrograms: { id: string; fftSize: number }[] };
+          const own = `/api/files/${fileId}/spectrograms?window=blackman-harris&fftSize=4096&overlap=87.5`;
+          sent.length = 0;
+          const asked = (await (await get(own, owner)).json()) as Listed;
+          expect(asked).toEqual({ status: "pending", spectrograms: [] });
+          expect(sent).toEqual([
+            {
+              name: "spectrogram-variant",
+              data: { organisationId, fileId, analysis: "blackman-harris/4096/87.5" },
+            },
+          ]);
+          expect((await get(`/api/files/${fileId}/spectrograms?window=box`, owner)).status).toBe(
+            400,
+          );
+          // The default, named or not, is what the analysis stored.
+          const named = (await (
+            await get(
+              `/api/files/${fileId}/spectrograms?window=hann&fftSize=auto&overlap=75`,
+              owner,
+            )
+          ).json()) as Listed;
+          expect(named.spectrograms.map((x) => x.id).sort()).toEqual(
+            spectrograms.map((x) => x.id).sort(),
+          );
+          const variant = {
+            organisationId,
+            fileId,
+            analysis: "blackman-harris/4096/87.5",
+          };
+          const worker = { db, storage, keyring, jobs, workDir: join(storageRoot, "work") };
+          const job = { id: "job", signal: new AbortController().signal, retryCount: 0 };
+          await spectrogramVariantHandler(worker)(variant, job);
+          // Drawn once: asking again draws nothing more.
+          await spectrogramVariantHandler(worker)(variant, job);
+          const drawn = (await (await get(own, owner)).json()) as Listed;
+          expect(drawn.status).toBe("ready");
+          expect(drawn.spectrograms).toHaveLength(4);
+          expect(new Set(drawn.spectrograms.map((x) => x.fftSize))).toEqual(new Set([4096]));
+          const fetched = await get(
+            `/api/files/${fileId}/spectrograms/${drawn.spectrograms[0]?.id}`,
+            owner,
+          );
+          expect(decodeSpectrogram(new Uint8Array(await fetched.arrayBuffer())).fftSize).toBe(4096);
+          expect(
+            (
+              await get(
+                `/api/files/${other.fileId}/spectrograms/${drawn.spectrograms[0]?.id}`,
+                owner,
+              )
+            ).status,
+          ).toBe(404);
+          // A month unused, and they go; the next ask queues them again.
+          const later = new Date(Date.now() + 31 * 24 * 60 * 60_000);
+          expect(await expireSpectrogramVariants(db, storage, later)).toBe(4);
+          expect(((await (await get(own, owner)).json()) as Listed).status).toBe("pending");
         }, 120_000);
 
         it("describes a file and what it can play, to its own organisation only", async () => {

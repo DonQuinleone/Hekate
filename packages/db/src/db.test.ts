@@ -87,6 +87,7 @@ describe("tenancy", () => {
       "session_todos",
       "session_tracks",
       "sessions",
+      "spectrogram_variants",
       "spectrograms",
       "sso_providers",
       "stage_boxes",

@@ -13,6 +13,7 @@ const {
   peakLevels,
   loudness,
   spectrograms,
+  spectrogramVariants,
   filePages,
   organisations,
   storageFindings,
@@ -252,6 +253,12 @@ export async function reconcileStorage(
                 .select({ x: sql`1` })
                 .from(spectrograms)
                 .where(inOrg(spectrograms, owner, eq(spectrograms.blobId, blobs.id))),
+            ),
+            notExists(
+              db
+                .select({ x: sql`1` })
+                .from(spectrogramVariants)
+                .where(inOrg(spectrogramVariants, owner, eq(spectrogramVariants.blobId, blobs.id))),
             ),
             notExists(
               db

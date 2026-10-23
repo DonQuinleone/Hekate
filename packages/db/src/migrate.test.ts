@@ -98,9 +98,11 @@ describe("contracting statements (#421)", () => {
     ).toEqual([]);
   });
 
-  it("leaves the release before able to run against a file's version chain (#149)", () => {
-    const text = readFileSync(join(migrationsFolder, "0116_file_chains.sql"), "utf8");
-    expect(contractingStatements(text)).toEqual([]);
+  it("leaves the release before able to run against file chains and spectrogram variants", () => {
+    for (const name of ["0116_file_chains", "0117_spectrogram_variants"]) {
+      const text = readFileSync(join(migrationsFolder, `${name}.sql`), "utf8");
+      expect(contractingStatements(text)).toEqual([]);
+    }
   });
 
   it("takes a migration's own word that it contracts", () => {

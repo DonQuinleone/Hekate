@@ -1,10 +1,11 @@
-import { levelToByte, type Spectrogram } from "@hekate/shared";
+import { defaultAnalysis, levelToByte, type Spectrogram } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
 import {
   colourTable,
   combineSpectrograms,
   defaultView,
   lookupTable,
+  readAnalysis,
   readView,
   renderSpectrogram,
 } from "./spectrogram";
@@ -103,5 +104,23 @@ describe("combining channels", () => {
     ]);
     expect(Array.from(combined?.data ?? [])).toEqual([90, 200, 0]);
     expect(combineSpectrograms([])).toBeUndefined();
+  });
+});
+
+describe("analysis settings from storage (#34)", () => {
+  it("keeps each setting it knows and puts the default in place of the rest", () => {
+    expect(readAnalysis({ window: "kaiser", fftSize: "16384", overlap: "87.5" })).toEqual({
+      window: "kaiser",
+      fftSize: "16384",
+      overlap: "87.5",
+    });
+    expect(readAnalysis({ window: "box", fftSize: 4096, overlap: "87.5" })).toEqual({
+      window: "hann",
+      fftSize: "auto",
+      overlap: "87.5",
+    });
+    expect(readAnalysis(undefined)).toEqual(defaultAnalysis);
+    // A view kept before the choice existed reads as analysed by default.
+    expect(readView({ colourMap: "inferno" }).analysis).toEqual(defaultAnalysis);
   });
 });

@@ -1,5 +1,12 @@
 import { Worker } from "node:worker_threads";
-import { levelToByte, type Spectrogram, type SpectrogramChannel } from "@hekate/shared";
+import {
+  defaultAnalysis,
+  levelToByte,
+  type Spectrogram,
+  type SpectrogramAnalysis,
+  type SpectrogramChannel,
+  type SpectrogramWindow,
+} from "@hekate/shared";
 import { MediaToolError, run, safeInputArgs } from "./ffmpeg.ts";
 
 /** About this many columns across a long file: enough for a sharp overview on any screen. */
@@ -9,6 +16,8 @@ export const MAX_COLUMNS = 4096;
  * stored is not a short-time Fourier transform that could be turned back into audio.
  */
 export const MIN_COLUMN_SECONDS = 0.1;
+/** Nor fewer windows a column than this, whatever its FFT size and overlap (#34). */
+export const MIN_WINDOWS_PER_COLUMN = 4;
 /** Bands kept at the FFT's own resolution: 1024 bins of about 23 Hz reach 24 kHz. */
 export const LOW_BANDS = 1024;
 /** At most this many pooled bands above them, at high sample rates. */
@@ -19,6 +28,51 @@ export function fftSizeFor(sampleRate: number): number {
   let size = 2048;
   while (size < 16_384 && sampleRate / size > 24) size *= 2;
   return size;
+}
+
+/** The FFT size an analysis asks for at a sample rate: its own, or one about 23 Hz a bin. */
+export const analysisFftSize = (analysis: SpectrogramAnalysis, sampleRate: number) =>
+  analysis.fftSize === "auto" ? fftSizeFor(sampleRate) : Number(analysis.fftSize);
+
+/** How far each window moves on: a half, a quarter or an eighth of its length. */
+export const analysisHop = (analysis: SpectrogramAnalysis, fftSize: number) =>
+  Math.max(1, Math.round(fftSize * (1 - Number(analysis.overlap) / 100)));
+
+/** The zeroth modified Bessel function of the first kind, by its series. */
+function besselI0(x: number): number {
+  let sum = 1;
+  let term = 1;
+  for (let k = 1; k < 50; k++) {
+    term *= (x / (2 * k)) ** 2;
+    sum += term;
+    if (term < sum * 1e-16) break;
+  }
+  return sum;
+}
+
+/** Kaiser's β for side lobes about 90 dB down, near the four-term Blackman–Harris. */
+const KAISER_BETA = 9;
+
+/** A window of `size` points, of one of the kinds an analysis may choose. */
+export function windowOf(kind: SpectrogramWindow, size: number): Float64Array {
+  const out = new Float64Array(size);
+  const phase = (i: number) => (2 * Math.PI * i) / size;
+  for (let i = 0; i < size; i++) {
+    const x = phase(i);
+    out[i] =
+      kind === "hann"
+        ? 0.5 - 0.5 * Math.cos(x)
+        : kind === "hamming"
+          ? 0.54 - 0.46 * Math.cos(x)
+          : kind === "blackman-harris"
+            ? 0.35875 -
+              0.48829 * Math.cos(x) +
+              0.14128 * Math.cos(2 * x) -
+              0.01168 * Math.cos(3 * x)
+            : besselI0(KAISER_BETA * Math.sqrt(1 - ((2 * i) / size - 1) ** 2)) /
+              besselI0(KAISER_BETA);
+  }
+  return out;
 }
 
 /** A radix-2 FFT of one size, with its tables computed once. */
@@ -85,9 +139,10 @@ export class Fft {
 
 /**
  * Builds spectrograms from interleaved 32-bit float PCM arriving in chunks of any size:
- * one per channel, plus the mid and side of the front pair when there is one. A Hann
- * window moves on by a quarter of its length; each column keeps the loudest level every
- * band reached during its span, so a click is never averaged away.
+ * one per channel, plus the mid and side of the front pair when there is one. A window
+ * (Hann by default) moves on by part of its length (a quarter by default); each column
+ * keeps the loudest level every band reached during its span, so a click is never averaged
+ * away. Whatever the analysis, a column spans at least `MIN_COLUMN_SECONDS`.
  */
 export class SpectrogramBuilder {
   readonly channels: number;
@@ -124,14 +179,18 @@ export class SpectrogramBuilder {
     channels: number,
     sampleRate: number,
     expectedSamples: number,
-    options: { maxColumns?: number } = {},
+    options: { maxColumns?: number; analysis?: SpectrogramAnalysis } = {},
   ) {
+    const analysis = options.analysis ?? defaultAnalysis;
     this.channels = channels;
     this.sampleRate = sampleRate;
-    this.fftSize = fftSizeFor(sampleRate);
-    this.hop = this.fftSize / 4;
+    this.fftSize = analysisFftSize(analysis, sampleRate);
+    this.hop = analysisHop(analysis, this.fftSize);
     this.maxColumns = options.maxColumns ?? MAX_COLUMNS;
-    const minimum = Math.ceil((MIN_COLUMN_SECONDS * sampleRate) / this.hop);
+    const minimum = Math.max(
+      MIN_WINDOWS_PER_COLUMN,
+      Math.ceil((MIN_COLUMN_SECONDS * sampleRate) / this.hop),
+    );
     const fit = Math.ceil(expectedSamples / this.hop / this.maxColumns);
     this.samplesPerColumn = Math.max(1, minimum, fit) * this.hop;
     const half = this.fftSize / 2;
@@ -143,12 +202,9 @@ export class SpectrogramBuilder {
       ...(channels >= 2 ? (["mid", "side"] as const) : []),
     ];
     this.fft = new Fft(this.fftSize);
-    this.window = new Float64Array(this.fftSize);
+    this.window = windowOf(analysis.window, this.fftSize);
     let sum = 0;
-    for (let i = 0; i < this.fftSize; i++) {
-      this.window[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / this.fftSize);
-      sum += this.window[i] as number;
-    }
+    for (const w of this.window) sum += w;
     this.reference = (sum / 2) ** 2;
     this.history = this.outputs.map(() => new Float64Array(this.fftSize));
     this.re = new Float64Array(this.fftSize);
@@ -318,11 +374,13 @@ export async function computeSpectrograms(
   audio: { channels: number; sampleRate: number },
   duration: number | undefined,
   signal: AbortSignal,
+  analysis: SpectrogramAnalysis = defaultAnalysis,
 ) {
   const builder = new SpectrogramBuilder(
     audio.channels,
     audio.sampleRate,
     Math.ceil((duration ?? 0) * audio.sampleRate),
+    { analysis },
   );
   await run(
     "ffmpeg",
@@ -366,10 +424,11 @@ export function spectrogramsInThread(
   audio: { channels: number; sampleRate: number },
   duration: number | undefined,
   signal: AbortSignal,
+  analysis: SpectrogramAnalysis = defaultAnalysis,
 ): Promise<EncodedSpectrogram[]> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL("./spectrogram-thread.ts", import.meta.url), {
-      workerData: { path, audio, duration },
+      workerData: { path, audio, duration, analysis },
     });
     let settled = false;
     const finish = (outcome: () => void) => {

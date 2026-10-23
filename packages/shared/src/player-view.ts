@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { frequencyScales } from "./spectrogram.ts";
+import {
+  defaultAnalysis,
+  frequencyScales,
+  spectrogramFftSizes,
+  spectrogramOverlaps,
+  spectrogramWindows,
+} from "./spectrogram.ts";
 
 /**
  * How someone likes the player drawn (#135), kept with their account so it follows them from
@@ -31,10 +37,19 @@ export const waveLookSchema = z.object({
 });
 export type WaveLook = z.infer<typeof waveLookSchema>;
 
+/** How the spectrogram is analysed (#34): its window, FFT size and overlap. */
+export const spectrumAnalysisSchema = z.object({
+  window: z.enum(spectrogramWindows),
+  fftSize: z.enum(spectrogramFftSizes),
+  overlap: z.enum(spectrogramOverlaps),
+});
+
 export const spectrumViewSchema = z
   .object({
     colourMap: z.enum(spectrogramColourMaps),
     scale: z.enum(frequencyScales),
+    /** A view kept before there was a choice is analysed as every file is. */
+    analysis: spectrumAnalysisSchema.default(defaultAnalysis),
     /** Levels at or below the floor are the darkest colour; at or above the ceiling, the brightest. */
     floor: z.number().min(-200).max(20),
     ceiling: z.number().min(-200).max(20),
@@ -58,6 +73,7 @@ export const defaultWaveLook: WaveLook = { colour: "ink", opacity: 0.5, height: 
 export const defaultSpectrumView: SpectrumView = {
   colourMap: "cyan-orange",
   scale: "log",
+  analysis: defaultAnalysis,
   floor: -120,
   ceiling: 0,
   low: 20,
